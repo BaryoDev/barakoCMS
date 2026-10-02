@@ -25,9 +25,9 @@ internal class WorkflowEngine(
         IReadOnlyList<WorkflowDefinition> workflows;
         try
         {
-            workflows = await session.Query<WorkflowDefinition>()
+            workflows = WorkflowTriggers.SwitchedOn(await session.Query<WorkflowDefinition>()
                 .Where(WorkflowTriggers.FiredBy(contentType, eventType))
-                .ToListAsync(ct);
+                .ToListAsync(ct));
         }
         catch (Exception ex)
         {

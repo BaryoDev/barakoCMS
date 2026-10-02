@@ -58,6 +58,15 @@ public class WorkflowRun
     /// </remarks>
     public DateTimeOffset? NextDueAt { get; set; }
 
+    /// <summary>When this run was told to stop. Null for a run nobody stopped.</summary>
+    /// <remarks>
+    /// Kept apart from the status because a cancel leaves an attempt that is running under a live
+    /// lease alone: the request is already with the third party. The run stays Running until that
+    /// attempt records its outcome, and this is what tells the runner to start nothing after it and
+    /// not to queue it again if it failed.
+    /// </remarks>
+    public DateTimeOffset? CancelledAt { get; set; }
+
     /// <summary>What <see cref="NextDueAt"/> holds for a run with an attempt that has no wait.</summary>
     /// <remarks>
     /// A fixed moment in the past, not the writing node's clock. The reader compares with its own
@@ -74,6 +83,9 @@ public class WorkflowRun
     /// email, then tweet" is three independent things, and reporting the whole run as failed because
     /// the mail server was down hides that two of them went out, which is exactly what an operator
     /// deciding whether to retry needs to know.
+    ///
+    /// A stopped run reads Cancelled once nothing of it is waiting or in flight, whatever its other
+    /// actions did. The attempts say which of them went out.
     /// </remarks>
     public void Recompute()
     {
@@ -92,6 +104,13 @@ public class WorkflowRun
             return;
         }
 
+        if (CancelledAt is not null || Actions.Any(a => a.Status == AttemptStatus.Cancelled))
+        {
+            Status = RunStatus.Cancelled;
+            CompletedAt ??= DateTimeOffset.UtcNow;
+            return;
+        }
+
         var succeeded = Actions.Count(a => a.Status is AttemptStatus.Succeeded or AttemptStatus.Skipped);
 
         Status = succeeded == Actions.Count
@@ -99,6 +118,39 @@ public class WorkflowRun
             : succeeded == 0 ? RunStatus.Failed : RunStatus.PartiallyFailed;
 
         CompletedAt ??= DateTimeOffset.UtcNow;
+    }
+
+    /// <summary>
+    /// Stops the run: every attempt that has not started becomes Cancelled, and the run is marked so
+    /// nothing more is started.
+    /// </summary>
+    /// <remarks>
+    /// An attempt running under a live lease is left. Its request is already with the third party
+    /// and changing the record would not recall it. An attempt still marked Running after its lease
+    /// ran out is one the runner would start again, so it is stopped with the waiting ones.
+    /// </remarks>
+    /// <returns>How many attempts were moved to Cancelled.</returns>
+    public int Cancel(DateTimeOffset now)
+    {
+        CancelledAt ??= now;
+
+        var moved = 0;
+
+        foreach (var attempt in Actions)
+        {
+            var abandoned = attempt.Status == AttemptStatus.Running && !(attempt.LeaseExpiresAt > now);
+            if (attempt.Status != AttemptStatus.Pending && !abandoned) continue;
+
+            attempt.Status = AttemptStatus.Cancelled;
+            attempt.NextAttemptAt = null;
+            attempt.LeasedBy = null;
+            attempt.LeaseExpiresAt = null;
+            attempt.CompletedAt = now;
+            moved++;
+        }
+
+        Recompute();
+        return moved;
     }
 
     /// <summary>
@@ -128,7 +180,11 @@ public class WorkflowRun
         current is { } value && value < candidate ? value : candidate;
 }
 
-public enum RunStatus { Pending, Running, Succeeded, Failed, PartiallyFailed }
+/// <remarks>
+/// Stored as a number, so a new value goes on the end. Cancelled is a run somebody stopped, or one
+/// whose workflow was switched off or deleted while it waited.
+/// </remarks>
+public enum RunStatus { Pending, Running, Succeeded, Failed, PartiallyFailed, Cancelled }
 
 /// <summary>One action of a run, and every attempt at it collapsed into its current state.</summary>
 public class WorkflowActionAttempt
@@ -201,5 +257,8 @@ public class WorkflowActionAttempt
 /// have arrived and the response may have been lost. Retrying it automatically is how a customer
 /// gets two invoices. It is a distinct state, it is never retried on its own, and an operator can
 /// retry it by hand having decided that duplicate delivery is the lesser risk.
+///
+/// <see cref="Cancelled"/> is kept apart from <see cref="Skipped"/> for the same kind of reason.
+/// Skipped is the content having gone, which nobody decided. Cancelled is somebody stopping the run.
 /// </remarks>
-public enum AttemptStatus { Pending, Running, Succeeded, Failed, Unknown, Skipped }
+public enum AttemptStatus { Pending, Running, Succeeded, Failed, Unknown, Skipped, Cancelled }

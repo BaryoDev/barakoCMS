@@ -108,6 +108,21 @@ public class WorkflowRunRetentionTests
     }
 
     [Fact]
+    public async Task A_cancelled_run_is_kept_as_long_as_a_failure_and_then_goes()
+    {
+        // Thirty days is past the success window, so the first shows which window it is on. Ninety
+        // one is past the failure window: a status the sweep does not know would stay for good.
+        var survivors = await SweepAndListAsync(
+        [
+            Run(RunStatus.Cancelled, Now.AddDays(-30), "recent-cancel"),
+            Run(RunStatus.Cancelled, Now.AddDays(-91), "ancient-cancel"),
+            Run(RunStatus.Succeeded, Now.AddDays(-30), "success"),
+        ], Default);
+
+        survivors.Should().Equal(["recent-cancel"]);
+    }
+
+    [Fact]
     public async Task Nothing_unfinished_is_ever_removed_however_old_it_is()
     {
         // The hard rule. These are aged past both windows by years, because a run whose provider has

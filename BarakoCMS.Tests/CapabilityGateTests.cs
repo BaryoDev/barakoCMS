@@ -791,11 +791,21 @@ public class CapabilityGateTests
         var runs = await client.GetAsync("/api/workflow-runs", TestContext.Current.CancellationToken);
         var retry = await client.SendAsync(
             Probe("POST", $"/api/workflow-runs/{NotAGuid}/actions/0/retry"), TestContext.Current.CancellationToken);
+        var enabled = await client.SendAsync(
+            Probe("PUT", $"/api/workflows/{NotAGuid}/enabled"), TestContext.Current.CancellationToken);
+        var delete = await client.SendAsync(
+            Probe("DELETE", $"/api/workflows/{NotAGuid}"), TestContext.Current.CancellationToken);
+        var cancel = await client.SendAsync(
+            Probe("POST", $"/api/workflow-runs/{NotAGuid}/cancel"), TestContext.Current.CancellationToken);
 
         list.StatusCode.Should().Be(HttpStatusCode.OK);
         actions.StatusCode.Should().Be(HttpStatusCode.OK);
         validate.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         dryRun.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        enabled.StatusCode.Should().Be(HttpStatusCode.BadRequest, "switching a workflow off is part of managing it");
+        delete.StatusCode.Should().Be(HttpStatusCode.BadRequest, "and so is deleting it");
+        cancel.StatusCode.Should().Be(HttpStatusCode.BadRequest,
+            "stopping a run is the same power as stopping its workflow, so it needs no grant of its own");
         runs.StatusCode.Should().Be(HttpStatusCode.Forbidden,
             "what a workflow did when it ran is view_workflow_runs");
         retry.StatusCode.Should().Be(HttpStatusCode.Forbidden,
@@ -846,7 +856,11 @@ public class CapabilityGateTests
         var runs = await client.GetAsync("/api/workflow-runs", TestContext.Current.CancellationToken);
         var debug = await client.GetAsync(
             $"/api/workflows/{Guid.NewGuid()}/debug", TestContext.Current.CancellationToken);
+        var cancel = await client.SendAsync(
+            Probe("POST", $"/api/workflow-runs/{NotAGuid}/cancel"), TestContext.Current.CancellationToken);
 
+        cancel.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "making an action happen again and stopping a run are different grants");
         retry.StatusCode.Should().Be(HttpStatusCode.BadRequest,
             "the capability is what this route asks for, so the unparseable run id is what refuses it");
         runs.StatusCode.Should().Be(HttpStatusCode.Forbidden,
@@ -944,10 +958,13 @@ public class CapabilityGateTests
         ("POST", "/api/workflows/dry-run", HttpStatusCode.BadRequest),
         ("GET", "/api/workflows/variables", HttpStatusCode.OK),
         ("GET", $"/api/workflows/{NotAGuid}/debug", HttpStatusCode.BadRequest),
+        ("PUT", $"/api/workflows/{NotAGuid}/enabled", HttpStatusCode.BadRequest),
+        ("DELETE", $"/api/workflows/{NotAGuid}", HttpStatusCode.BadRequest),
         ("GET", "/api/workflow-runs", HttpStatusCode.OK),
         ("GET", "/api/webhook-deliveries", HttpStatusCode.OK),
         ("GET", $"/api/workflow-runs/{NotAGuid}", HttpStatusCode.BadRequest),
         ("POST", $"/api/workflow-runs/{NotAGuid}/actions/0/retry", HttpStatusCode.BadRequest),
+        ("POST", $"/api/workflow-runs/{NotAGuid}/cancel", HttpStatusCode.BadRequest),
         ("POST", $"/api/contents/{NotAGuid}/rollback/{NotAGuid}", HttpStatusCode.BadRequest),
     ];
 

@@ -71,9 +71,9 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
 {
     public async Task<int> EnqueueAsync(barakoCMS.Models.Content content, string eventType, long eventSequence, CancellationToken ct)
     {
-        var workflows = await session.Query<WorkflowDefinition>()
+        var workflows = WorkflowTriggers.SwitchedOn(await session.Query<WorkflowDefinition>()
             .Where(WorkflowTriggers.FiredBy(content.ContentType, eventType))
-            .ToListAsync(ct);
+            .ToListAsync(ct));
 
         if (workflows.Count == 0) return 0;
 
@@ -112,9 +112,9 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
 
     public async Task<int> QueueDeletedAsync(Guid contentId, string contentType, CancellationToken ct)
     {
-        var workflows = await session.Query<WorkflowDefinition>()
+        var workflows = WorkflowTriggers.SwitchedOn(await session.Query<WorkflowDefinition>()
             .Where(WorkflowTriggers.FiredBy(contentType, WorkflowEvents.Deleted))
-            .ToListAsync(ct);
+            .ToListAsync(ct));
 
         var queued = 0;
 
@@ -141,10 +141,10 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
         return queued;
     }
 
-    public Task<bool> ListensAsync(string contentType, string eventType, CancellationToken ct) =>
-        session.Query<WorkflowDefinition>()
+    public async Task<bool> ListensAsync(string contentType, string eventType, CancellationToken ct) =>
+        WorkflowTriggers.SwitchedOn(await session.Query<WorkflowDefinition>()
             .Where(WorkflowTriggers.FiredBy(contentType, eventType))
-            .AnyAsync(ct);
+            .ToListAsync(ct)).Count > 0;
 
     private static WorkflowRun NewRun(
         WorkflowDefinition workflow, Guid contentId, string contentType, string eventType, long eventSequence)

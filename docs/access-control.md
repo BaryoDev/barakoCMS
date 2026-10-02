@@ -462,7 +462,7 @@ says.
 | `Features/Requests/*` | `manage_requests` | `/api/requests`, `/api/requests/{slug}`, `POST /api/requests/{slug}/dry-run/{contentId}` | SuperAdmin, Admin |
 | `Features/Connectors/*` | `view_connectors` | `GET /api/connectors`, `GET /api/connectors/{slug}` | SuperAdmin, Admin |
 | `Features/Connectors/*` | `manage_connectors` | `POST /api/connectors`, `PUT` and `DELETE /api/connectors/{slug}`, `POST /api/connectors/{slug}/test` | SuperAdmin, Admin |
-| `Features/Workflows/*` | `manage_workflows` | `/api/workflows`, `/api/workflows/actions`, `/variables`, `/validate`, `/dry-run` | SuperAdmin, Admin |
+| `Features/Workflows/*` | `manage_workflows` | `/api/workflows`, `/api/workflows/actions`, `/variables`, `/validate`, `/dry-run`, `PUT /api/workflows/{id}/enabled`, `DELETE /api/workflows/{id}`, `POST /api/workflow-runs/{id}/cancel` | SuperAdmin, Admin |
 | `Features/WorkflowRuns/*` | `view_workflow_runs` | `GET /api/workflow-runs`, `GET /api/workflow-runs/{id}`, `GET /api/workflows/{id}/debug`, `GET /api/webhook-deliveries` | SuperAdmin, Admin |
 | `Features/WorkflowRuns/*` | `retry_workflow_actions` | `POST /api/workflow-runs/{id}/actions/{ordinal}/retry` | SuperAdmin, Admin |
 | `Features/WebhookDeliveries/*` | `view_webhook_response_bodies` | The `responseBody` field on `GET /api/webhook-deliveries`, nothing else on the row | SuperAdmin |
@@ -518,7 +518,10 @@ production as the only way to see what it does. Reading runs is a second job, an
 `GET /api/workflows/{id}/debug` is in that half rather than with authoring, because what it returns
 is the execution log of what already ran. Retrying is the third: the runner picks the attempt up and
 the action happens for real, so "did the notification go out" needs the run list and must not carry
-the ability to send it again.
+the ability to send it again. Stopping is not a fourth. Switching a workflow off, deleting it and
+cancelling one of its runs all sit with authoring: whoever can switch a workflow off already stops
+its runs that way, and none of the three makes an action happen, which is what the retry grant is
+for.
 
 Queries and requests are one capability each, including the preview and the dry run. The query
 preview is the closer call, since it reads content rows and does not consult the per-role content
