@@ -13,7 +13,8 @@ namespace BarakoCMS.Tests;
 /// </summary>
 public class FieldPresentationDefinitionTests
 {
-    private readonly ContentTypeValidatorService _validator = new();
+    // Typed as the interface: ValidateRouteTemplate is the interface's own default body.
+    private readonly IContentTypeValidatorService _validator = new ContentTypeValidatorService();
 
     private static FieldDefinition Field(
         string name, string type, string? editor = null, string? section = null, string? role = null) => new()
@@ -198,6 +199,8 @@ public class FieldPresentationDefinitionTests
     [InlineData("/{slug}")]
     [InlineData("/events/2026/{slug}/details")]
     [InlineData("/news_items/{slug}.html")]
+    [InlineData("/.well-known/{slug}")]
+    [InlineData("/blog/{slug}/")]
     public void A_route_template_that_is_a_path_holding_the_slug_once_is_accepted(string template)
     {
         var (valid, errors) = _validator.ValidateRouteTemplate(template);
@@ -225,12 +228,48 @@ public class FieldPresentationDefinitionTests
     [InlineData("/blog/<b>/{slug}")]
     [InlineData("/blog posts/{slug}")]
     [InlineData("/blog\\{slug}")]
+    [InlineData("//other.example/{slug}")]
+    [InlineData("/blog//{slug}")]
+    [InlineData("/../{slug}")]
+    [InlineData("/blog/../{slug}")]
+    [InlineData("/./blog/{slug}")]
+    [InlineData("/blog/{slug}/..")]
     public void A_route_template_that_is_not_such_a_path_is_refused(string template)
     {
         var (valid, errors) = _validator.ValidateRouteTemplate(template);
 
         valid.Should().BeFalse();
         errors.Should().ContainSingle().Which.Should().Contain("routeTemplate").And.Contain("/blog/{slug}");
+    }
+
+    /// <summary>
+    /// A host may register its own validator. One written before the member existed gets the
+    /// rule from the interface, so it refuses what the built-in one refuses.
+    /// </summary>
+    [Fact]
+    public void A_validator_that_does_not_write_the_route_template_check_still_refuses_a_bad_template()
+    {
+        IContentTypeValidatorService older = new ValidatorWrittenBefore();
+
+        older.ValidateRouteTemplate("/blog/{slug}").IsValid.Should().BeTrue();
+        older.ValidateRouteTemplate(null).IsValid.Should().BeTrue();
+
+        foreach (var template in new[] { "@other.example/{slug}", "//other.example/{slug}", "/no-slug" })
+        {
+            var (valid, errors) = older.ValidateRouteTemplate(template);
+
+            valid.Should().BeFalse("'{0}' is not a path on the site", template);
+            errors.Should().ContainSingle().Which.Should().Contain("routeTemplate");
+        }
+    }
+
+    private sealed class ValidatorWrittenBefore : IContentTypeValidatorService
+    {
+        public (bool IsValid, List<string> Errors) Validate(string name, string displayName, List<FieldDefinition> fields) =>
+            (true, new List<string>());
+
+        public (bool IsValid, List<string> Errors) ValidateLifecycle(LifecycleDefinition? lifecycle) =>
+            (true, new List<string>());
     }
 
     [Fact]

@@ -65,9 +65,12 @@ a title chosen from its content.
 The field the type gives the `title` role is read first, when it has one and the entry holds a
 value in it (see [field-hints-and-roles.md](field-hints-and-roles.md)). Failing that, the entry
 title is found under `Title`, `Name`, `DisplayName`, `Label`, `Subject` or `Heading`, in
-that order, which is exactly the list the admin uses to label an entry. Two lists would answer
-differently the first time one of them gained a name, and the symptom is a page whose tab and whose
-search result disagree.
+that order, which is the list the admin uses to label an entry.
+
+The role is read here and by the feed only. The file usage list (`BarakoCMS.Files`) and the AI
+module still find a title by name, each with its own list. So on a type whose title role sits on a
+field outside those lists, the SEO title and those labels can differ: the first is the field the
+type names, the others are whatever their name list finds, or nothing.
 
 Only a genuinely titleless entry resolves to `null`, and a `null` is absent from the JSON, so a
 frontend renders no tag at all.

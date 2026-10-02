@@ -60,8 +60,9 @@ public class ContentTypeDefinition
     /// Null, the default, is every type stored before this existed: the feed and the sitemap then
     /// read <c>Feeds:Paths:{type}</c> from configuration and fall back to <c>/{type}/{slug}</c>, as
     /// they always did. Set, it is read ahead of both, so the path is the editor's to change and
-    /// not the operator's. A path only: it starts with <c>/</c> and is joined to the site URL the
-    /// deployment configures, so it cannot name another host.
+    /// not the operator's. A path only: it starts with <c>/</c>, has no empty segment and no
+    /// <c>.</c> or <c>..</c> segment, and is joined to the site URL the deployment configures, so
+    /// it cannot name another host.
     /// </remarks>
     public string? RouteTemplate { get; set; }
 

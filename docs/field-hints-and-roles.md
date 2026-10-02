@@ -82,9 +82,12 @@ So a type with no template links exactly as it did, and the path of a new type n
 change to server configuration.
 
 A template starts with `/`, holds `{slug}` exactly once, is at most 200 characters, and is otherwise
-ASCII letters, digits, `-`, `_`, `.`, `~` and `/`. Anything else is a 400. The leading slash is the
-point of the rule: the template is joined to the site URL, and a value that could name another host
-is refused. A stored value that fails the rule is ignored by the feed and the sitemap.
+ASCII letters, digits, `-`, `_`, `.`, `~` and `/`, with no empty segment (`//`) and no `.` or `..`
+segment. Anything else is a 400. The point of the rule is that the value names a path on the site
+and nothing else: joined to the site URL, or resolved against it as a URL reference by a console or
+a renderer, it stays on that host. So `@other.example/{slug}`, `//other.example/{slug}` and
+`/../{slug}` are all refused. A stored value that fails the rule is ignored by the feed and the
+sitemap.
 
 Both answer with a one minute cache lifetime, so a changed template shows after that.
 
@@ -135,8 +138,14 @@ one it would refuse.
 
 ## Blueprints and bundles
 
-A blueprint file and a Portability bundle carry all four, and both are held to the rules above. A
-bundle import replaces a stored type's fields and its `routeTemplate` with what the bundle declares,
-so a bundle exported before a hint was set clears it when imported over the same type.
+A blueprint file and a Portability bundle carry all four, and both are held to the rules above.
+
+A bundle imported over a stored type sets what it carries and keeps what it does not. A bundle
+exported before these members existed carries none, so importing it leaves every hint, section,
+role and route template as stored. A value in the bundle replaces the stored one. A bundle cannot
+clear one, because a member left out and a member set to `null` read the same: clear it with the
+two endpoints above. Two details: a stored hint is kept only on a field whose type the bundle
+leaves as it is, and a stored role is not kept on a field when the bundle gives that role to
+another one, so a bundle can move a role.
 
 The built-in blueprints declare none of them.

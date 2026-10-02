@@ -146,9 +146,11 @@ internal static class SeoFields
     /// The entry's own title, from the first of the names the admin looks for.
     /// </summary>
     /// <remarks>
-    /// The same list and the same order the admin's own title resolution uses, deliberately. Two
-    /// lists would answer differently the first time one of them gained a name, and the symptom
-    /// would be a page whose tab and whose search result disagree.
+    /// The same list and the same order the admin's own title resolution uses, deliberately, so
+    /// that for a type with no title role a page's tab and its search result agree. A title role
+    /// is read ahead of this list here and in the feed, and nowhere else: the Files usage list and
+    /// the AI module still go by name, so with a role on a field outside their lists they can show
+    /// a different title, or none.
     /// </remarks>
     private static string? EntryTitle(IReadOnlyDictionary<string, object> data)
     {

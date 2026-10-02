@@ -52,11 +52,15 @@ public interface IContentTypeValidatorService
     /// Checks the route template a type declares. Null is valid and means the type has none.
     /// </summary>
     /// <remarks>
-    /// The default accepts anything, which is what an implementor written before this member does.
-    /// The feed and the sitemap check a stored template again before they use it.
+    /// The default is the rule itself, so an implementor written before this member refuses what
+    /// the built-in validator refuses. The feed and the sitemap check a stored template again
+    /// before they use it.
     /// </remarks>
     (bool IsValid, List<string> Errors) ValidateRouteTemplate(string? routeTemplate)
-        => (true, new List<string>());
+    {
+        var errors = FieldPresentation.RouteTemplateErrors(routeTemplate);
+        return (errors.Count == 0, errors);
+    }
 }
 
 public class ContentTypeValidatorService : IContentTypeValidatorService
@@ -254,13 +258,6 @@ public class ContentTypeValidatorService : IContentTypeValidatorService
         foreach (var transition in lifecycle.Transitions)
             errors.AddRange(TransitionFields.DefinitionErrors(transition, declared));
 
-        return (errors.Count == 0, errors);
-    }
-
-    /// <inheritdoc />
-    public (bool IsValid, List<string> Errors) ValidateRouteTemplate(string? routeTemplate)
-    {
-        var errors = FieldPresentation.RouteTemplateErrors(routeTemplate);
         return (errors.Count == 0, errors);
     }
 

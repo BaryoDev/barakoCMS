@@ -194,6 +194,8 @@ public class FieldPresentationTests : IAsyncLifetime
     [InlineData("@other.example/{slug}")]
     [InlineData("https://other.example/{slug}")]
     [InlineData("/no-slug")]
+    [InlineData("//other.example/{slug}")]
+    [InlineData("/../{slug}")]
     public async Task Creating_a_type_with_a_route_template_that_is_not_a_path_holding_the_slug_is_a_400(string template)
     {
         var name = NewName();
@@ -344,10 +346,18 @@ public class FieldPresentationTests : IAsyncLifetime
         taken.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await taken.Content.ReadAsStringAsync(Ct)).Should().Contain("title").And.Contain("EventName");
 
+        foreach (var section in new[] { "", " Details", new string('a', 61), "Two\nlines" })
+        {
+            var badSection = await PutPresentationAsync(type, "Headline", new { section });
+            badSection.StatusCode.Should().Be(HttpStatusCode.BadRequest, "a section of '{0}' is refused", section);
+            (await badSection.Content.ReadAsStringAsync(Ct)).Should().Contain("Headline").And.Contain("section");
+        }
+
         (await ReadFieldAsync(type, "Sections")).Editor.Should().Be("blocks");
         var headline = await ReadFieldAsync(type, "Headline");
         headline.Editor.Should().BeNull();
         headline.Role.Should().BeNull();
+        headline.Section.Should().BeNull();
         (await ReadFieldAsync(type, "EventName")).Role.Should().Be("title");
     }
 
@@ -373,6 +383,46 @@ public class FieldPresentationTests : IAsyncLifetime
             .StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await PutPresentationAsync(NewName(), "Title", new { editor = "image" }))
             .StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    /// <summary>
+    /// Both endpoints read through the caller's tenant, so a type of the same name in another
+    /// tenant is not found and is not written.
+    /// </summary>
+    [Fact]
+    public async Task Neither_endpoint_finds_or_changes_a_type_that_lives_in_another_tenant()
+    {
+        var other = $"hnt-{Guid.NewGuid():N}"[..14].ToLowerInvariant();
+        var type = NewName();
+
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = other, Name = other, IsActive = true });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        await using (var session = store.LightweightSession(other))
+        {
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(), Name = type, DisplayName = type,
+                Fields = [Field("Title"), Field("Slug", "slug")],
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        (await PutPresentationAsync(type, "Title", new { section = "Details" }))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await PutRouteTemplateAsync(type, new { routeTemplate = "/news/{slug}" }))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        await using var query = store.QuerySession(other);
+        var stored = await query.Query<ContentTypeDefinition>().SingleAsync(d => d.Name == type, Ct);
+        stored.RouteTemplate.Should().BeNull();
+        stored.Fields.Should().HaveCount(2);
+        stored.Fields.Should().OnlyContain(f => f.Section == null);
     }
 
     // ---- a stored type gets its route template afterwards ----------------------------------
@@ -410,9 +460,13 @@ public class FieldPresentationTests : IAsyncLifetime
     {
         var type = await StoreTypeAsync(Field("Title"), Field("Slug", "slug"));
 
-        var refused = await PutRouteTemplateAsync(type, new { routeTemplate = "@other.example/{slug}" });
-        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain("routeTemplate");
+        foreach (var template in new[] { "@other.example/{slug}", "//other.example/{slug}", "/../{slug}" })
+        {
+            var refused = await PutRouteTemplateAsync(type, new { routeTemplate = template });
+            refused.StatusCode.Should().Be(HttpStatusCode.BadRequest, "'{0}' is not a path on the site", template);
+            (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain("routeTemplate");
+        }
+
         (await ReadAsync(type))!.RouteTemplate.Should().BeNull();
 
         (await PutRouteTemplateAsync(NewName(), new { routeTemplate = "/news/{slug}" }))

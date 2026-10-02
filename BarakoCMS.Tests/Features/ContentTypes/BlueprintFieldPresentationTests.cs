@@ -18,21 +18,39 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// </summary>
 /// <remarks>
 /// One directory and one derived host for the class, and a tenant per test, so an apply here
-/// cannot meet a type another class created.
+/// cannot meet a type another class created. The directory is written before each test and
+/// removed after it.
 /// </remarks>
 [Collection("Sequential")]
-public class BlueprintFieldPresentationTests
+public class BlueprintFieldPresentationTests : IDisposable
 {
     private const string Blueprints = "/api/content-types/blueprints";
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+
+    private static readonly string BlueprintDirectory =
+        Path.Combine(Path.GetTempPath(), $"barako-blueprints-{Guid.NewGuid():N}");
 
     private static readonly Lock Gate = new();
     private static WebApplicationFactory<Program>? _host;
 
     private readonly IntegrationTestFixture _factory;
 
-    public BlueprintFieldPresentationTests(IntegrationTestFixture factory) => _factory = factory;
+    public BlueprintFieldPresentationTests(IntegrationTestFixture factory)
+    {
+        _factory = factory;
+
+        Directory.CreateDirectory(BlueprintDirectory);
+        File.WriteAllText(Path.Combine(BlueprintDirectory, "hinted.json"), Hinted);
+        File.WriteAllText(Path.Combine(BlueprintDirectory, "badhint.json"), BadHint);
+        File.WriteAllText(Path.Combine(BlueprintDirectory, "badroute.json"), BadRoute);
+    }
+
+    public void Dispose()
+    {
+        if (Directory.Exists(BlueprintDirectory))
+            Directory.Delete(BlueprintDirectory, recursive: true);
+    }
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -88,15 +106,7 @@ public class BlueprintFieldPresentationTests
     {
         lock (Gate)
         {
-            if (_host is not null) return _host;
-
-            var dir = Path.Combine(Path.GetTempPath(), $"barako-blueprints-{Guid.NewGuid():N}");
-            Directory.CreateDirectory(dir);
-            File.WriteAllText(Path.Combine(dir, "hinted.json"), Hinted);
-            File.WriteAllText(Path.Combine(dir, "badhint.json"), BadHint);
-            File.WriteAllText(Path.Combine(dir, "badroute.json"), BadRoute);
-
-            return _host = _factory.WithSetting("Blueprints:Path", dir);
+            return _host ??= _factory.WithSetting("Blueprints:Path", BlueprintDirectory);
         }
     }
 

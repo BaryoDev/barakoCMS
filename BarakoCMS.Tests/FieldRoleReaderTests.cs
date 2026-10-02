@@ -86,6 +86,9 @@ public class FieldRoleReaderTests
     [InlineData("https://other.example/{slug}")]
     [InlineData("/no-slug-here")]
     [InlineData("")]
+    [InlineData("//other.example/{slug}")]
+    [InlineData("/../{slug}")]
+    [InlineData("/blog/./{slug}")]
     public void A_stored_route_template_no_save_would_accept_is_passed_over(string stored)
     {
         PublicDelivery.PathTemplate(TypeWith(stored), Config(("Feeds:Paths:event", "/configured/{slug}")))

@@ -152,13 +152,17 @@ internal static class FieldPresentation
 
     /// <summary>
     /// Is this a path the feed and the sitemap may join to the site URL: it starts with <c>/</c>,
-    /// holds <c>{slug}</c> exactly once and is otherwise ASCII letters, digits and <c>- _ . ~ /</c>.
+    /// holds <c>{slug}</c> exactly once, is otherwise ASCII letters, digits and <c>- _ . ~ /</c>,
+    /// and has no empty segment and no <c>.</c> or <c>..</c> segment.
     /// </summary>
     /// <remarks>
     /// The leading slash is what keeps the link on the configured host. Joined to
     /// <c>https://example.com</c>, a template of <c>@other.example/{slug}</c> would name another
-    /// one. Readers ask this of a stored template too and ignore one that fails, so a value put in
-    /// the database some other way is not served.
+    /// one. The stored value is also returned as it is, for a console or a renderer to use, and
+    /// one that resolves it as a URL reference reads <c>//other.example/{slug}</c> as another host
+    /// and <c>/../{slug}</c> as a path above the one written. So neither is a template. Readers
+    /// ask this of a stored template too and ignore one that fails, so a value put in the database
+    /// some other way is not served.
     /// </remarks>
     public static bool IsRouteTemplate(string? template)
     {
@@ -168,6 +172,12 @@ internal static class FieldPresentation
         var at = template.IndexOf(SlugToken, StringComparison.Ordinal);
         if (at < 0 || template.IndexOf(SlugToken, at + SlugToken.Length, StringComparison.Ordinal) >= 0)
             return false;
+
+        if (template.Contains("//", StringComparison.Ordinal)
+            || template.Split('/').Any(segment => segment is "." or ".."))
+        {
+            return false;
+        }
 
         return template
             .Remove(at, SlugToken.Length)
@@ -183,7 +193,8 @@ internal static class FieldPresentation
         {
             errors.Add($"routeTemplate must be a path that starts with / and holds {SlugToken} once, such as "
                 + $"/blog/{SlugToken}, of at most {MaxRouteTemplateLength} characters: letters, digits, "
-                + "'-', '_', '.', '~' and '/'. Leave it out to use the configured path or the default.");
+                + "'-', '_', '.', '~' and '/', with no empty segment and no '.' or '..' segment. Leave it "
+                + "out to use the configured path or the default.");
         }
 
         return errors;

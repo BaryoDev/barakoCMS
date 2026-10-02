@@ -116,6 +116,9 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
 
             var match = StoredMatch(existing, type.Name);
 
+            if (match is not null)
+                KeepStoredPresentation(type, match);
+
             foreach (var error in await TypeErrorsAsync(type, match, maxFields, ct))
                 AddError(new ValidationFailure($"contentTypes[{i}]", $"Content type '{Shorten(type.Name)}': {error}"));
         }
@@ -148,7 +151,8 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
                 // content off the public API with the import still reporting success.
                 match.IsPubliclyDeliverable = type.IsPubliclyDeliverable;
                 match.IsSingleton = type.IsSingleton;
-                match.RouteTemplate = type.RouteTemplate;
+                // Kept when the bundle carries none, for the reason KeepStoredPresentation gives.
+                match.RouteTemplate = type.RouteTemplate ?? match.RouteTemplate;
                 match.UpdatedAt = DateTimeOffset.UtcNow;
                 toStore.Add(match);
             }
@@ -306,6 +310,42 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
         ThrowIfAnyErrors();
 
         await Send.ResponseAsync(report, cancellation: ct);
+    }
+
+    /// <summary>
+    /// Gives each bundle field the editor, section and role its stored counterpart holds, where
+    /// the bundle carries none.
+    /// </summary>
+    /// <remarks>
+    /// A bundle exported before these members existed cannot carry them, and once read a member
+    /// left out and a member set to null are the same. Replacing would clear every hint on the
+    /// stored type with the import still reporting success. So null keeps and a value replaces,
+    /// which means a bundle cannot clear one: the presentation endpoint does that.
+    ///
+    /// Only on a field whose type the bundle leaves as it is, since each value is tied to field
+    /// types. A stored role is not kept when the bundle gives that role to another field, so a
+    /// bundle can move one. Run before the type is checked, so what is checked is what is stored.
+    /// </remarks>
+    private static void KeepStoredPresentation(ContentTypeDefinition type, ContentTypeDefinition stored)
+    {
+        foreach (var field in type.Fields)
+        {
+            var current = (stored.Fields ?? []).FirstOrDefault(
+                f => f is not null && string.Equals(f.Name, field.Name, StringComparison.OrdinalIgnoreCase));
+
+            if (current is null || !string.Equals(current.Type, field.Type, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            field.Editor ??= current.Editor;
+            field.Section ??= current.Section;
+
+            if (field.Role is null
+                && current.Role is not null
+                && !type.Fields.Any(f => string.Equals(f.Role, current.Role, StringComparison.Ordinal)))
+            {
+                field.Role = current.Role;
+            }
+        }
     }
 
     /// <summary>

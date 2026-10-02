@@ -179,6 +179,84 @@ public class ImportFieldPresentationTests
         stored.Fields.Single(f => f.Name == "EventName").Role.Should().Be("title");
     }
 
+    /// <summary>
+    /// A bundle exported before these members existed carries none of them. Imported over a type
+    /// that has since been given hints and a route template, it must leave them as stored.
+    /// </summary>
+    [Fact]
+    public async Task A_bundle_that_carries_none_of_the_members_keeps_what_the_stored_type_holds()
+    {
+        var tenant = await TenantAsync();
+        var type = NewType();
+        await StoreTypeAsync(tenant, type, "/whats-on/{slug}", HintedFields());
+        var admin = await AdminOfAsync(tenant);
+
+        var bundle = await ExportAsync(admin, type);
+        bundle.ContentTypes[0].RouteTemplate = null;
+        bundle.ContentTypes[0].Fields.Should().HaveCount(3);
+        foreach (var field in bundle.ContentTypes[0].Fields)
+        {
+            field.Editor = null;
+            field.Section = null;
+            field.Role = null;
+        }
+
+        // Something the bundle does change, so a 200 that applied nothing cannot pass.
+        bundle.ContentTypes[0].Fields.Single(f => f.Name == "EventName").DisplayName = "Name of the event";
+
+        var imported = await ImportAsync(admin, bundle);
+
+        imported.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", imported.StatusCode,
+            await imported.Content.ReadAsStringAsync(Ct));
+
+        var stored = await StoredAsync(tenant, type);
+        stored!.RouteTemplate.Should().Be("/whats-on/{slug}");
+        stored.Fields.Should().HaveCount(3);
+
+        var name = stored.Fields.Single(f => f.Name == "EventName");
+        name.DisplayName.Should().Be("Name of the event");
+        name.Role.Should().Be("title");
+        name.Section.Should().Be("Details");
+
+        var sections = stored.Fields.Single(f => f.Name == "Sections");
+        sections.Editor.Should().Be("blocks");
+        sections.Section.Should().Be("Page");
+    }
+
+    [Fact]
+    public async Task A_bundle_can_move_a_role_to_another_field_and_a_changed_field_type_drops_the_stored_hint()
+    {
+        var tenant = await TenantAsync();
+        var type = NewType();
+        var fields = HintedFields();
+        fields.Add(new FieldDefinition { Name = "Headline", DisplayName = "Headline", Type = "string" });
+        await StoreTypeAsync(tenant, type, null, fields);
+        var admin = await AdminOfAsync(tenant);
+
+        var bundle = await ExportAsync(admin, type);
+        bundle.ContentTypes[0].Fields.Should().HaveCount(4);
+        bundle.ContentTypes[0].Fields.Single(f => f.Name == "EventName").Role = null;
+        bundle.ContentTypes[0].Fields.Single(f => f.Name == "Headline").Role = "title";
+
+        var blocks = bundle.ContentTypes[0].Fields.Single(f => f.Name == "Sections");
+        blocks.Type = "text";
+        blocks.Editor = null;
+
+        var imported = await ImportAsync(admin, bundle);
+
+        imported.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", imported.StatusCode,
+            await imported.Content.ReadAsStringAsync(Ct));
+
+        var stored = await StoredAsync(tenant, type);
+        stored!.Fields.Should().HaveCount(4);
+        stored.Fields.Single(f => f.Name == "Headline").Role.Should().Be("title");
+        stored.Fields.Single(f => f.Name == "EventName").Role.Should().BeNull();
+
+        var sections = stored.Fields.Single(f => f.Name == "Sections");
+        sections.Type.Should().Be("text");
+        sections.Editor.Should().BeNull("the blocks editor is not for a text field, so it is not carried over");
+    }
+
     [Fact]
     public async Task A_bundle_with_an_unknown_editor_a_repeated_role_or_a_bad_route_template_is_refused_and_stores_nothing()
     {
