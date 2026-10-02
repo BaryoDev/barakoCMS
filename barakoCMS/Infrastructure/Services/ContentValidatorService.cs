@@ -183,6 +183,10 @@ public class ContentValidatorService(IQuerySession session) : IContentValidatorS
                     if (error is not null)
                         errors.Add(error);
                 }
+                else if (MoneyFields.ValueError(field, value) is { } moneyError)
+                {
+                    errors.Add(moneyError);
+                }
                 else
                 {
                     errors.AddRange(FieldRules.ValueErrors(field, value));

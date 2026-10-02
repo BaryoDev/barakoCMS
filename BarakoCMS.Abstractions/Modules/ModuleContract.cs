@@ -16,9 +16,10 @@ namespace barakoCMS.Modules;
 /// nothing about it.
 /// </para>
 /// <para>
-/// <b>What moves it.</b> Removing a member, changing a signature, or changing when core calls a hook
-/// relative to the others. Adding a member with a default implementation does not, because a module
-/// compiled against the previous version keeps working.
+/// <b>What moves it.</b> Removing a member, changing a signature, changing when core calls a hook
+/// relative to the others, or moving the place in the request pipeline where
+/// <see cref="IBarakoModule.ConfigureApp"/> middleware runs. Adding a member with a default
+/// implementation does not, because a module compiled against the previous version keeps working.
 /// </para>
 /// <para>
 /// <b>What it is not.</b> Not the CMS version, and deliberately not tied to it. Core can go from

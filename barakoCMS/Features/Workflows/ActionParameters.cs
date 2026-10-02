@@ -28,11 +28,18 @@ internal static class ActionParameters
     /// Its condition is left as written too: the conditional reads the token's value from the entry
     /// itself, and a value substituted first would be parsed as part of the comparison.
     /// </summary>
+    /// <remarks>
+    /// An email's attachments are left as written as well. The action reads the field its
+    /// placeholder names from the entry itself, so a field holding a list of files is read as a
+    /// list and not as the text a list renders to.
+    /// </remarks>
     public static bool IsResolvedByTheAction(string actionType, string parameter) =>
-        actionType == "Conditional"
-        && (parameter.Equals("Condition", StringComparison.OrdinalIgnoreCase)
-            || parameter.Equals("ThenActions", StringComparison.OrdinalIgnoreCase)
-            || parameter.Equals("ElseActions", StringComparison.OrdinalIgnoreCase));
+        (actionType == "Conditional"
+         && (parameter.Equals("Condition", StringComparison.OrdinalIgnoreCase)
+             || parameter.Equals("ThenActions", StringComparison.OrdinalIgnoreCase)
+             || parameter.Equals("ElseActions", StringComparison.OrdinalIgnoreCase)))
+        || (actionType == "Email"
+            && parameter.Equals(Actions.EmailAction.AttachmentsParameter, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>The parameter the runner and the engine use to tell an action which trigger fired.</summary>
     public const string TriggerEventParameter = "TriggerEvent";
@@ -59,6 +66,22 @@ internal static class ActionParameters
     public static Dictionary<string, string> Resolve(
         ITemplateVariableExtractor extractor, string actionType, IReadOnlyDictionary<string, string> parameters, Models.Content content) =>
         Resolve(actionType, parameters, (template, encoding) => extractor.ResolveVariables(template, content, encoding));
+
+    /// <summary>
+    /// The same, after reading what the parameters name beyond the entry: the site's time zone, the
+    /// author and the transition that fired. What a run goes through, since only a run knows its trigger.
+    /// </summary>
+    /// <remarks>
+    /// The read is kept by the extractor for this entry, so a Conditional among the actions resolves
+    /// its children against it without being handed anything more.
+    /// </remarks>
+    public static async Task<Dictionary<string, string>> ResolveAsync(
+        ITemplateVariableExtractor extractor, string actionType, IReadOnlyDictionary<string, string> parameters,
+        Models.Content content, string? triggerEvent, long eventSequence, CancellationToken ct)
+    {
+        await extractor.PrepareAsync(content, triggerEvent, eventSequence, parameters.Values, ct);
+        return Resolve(extractor, actionType, parameters, content);
+    }
 
     /// <summary>The same, without an extractor, for a caller that is not handed one.</summary>
     public static Dictionary<string, string> Resolve(

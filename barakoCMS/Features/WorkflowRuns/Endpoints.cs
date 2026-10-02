@@ -68,6 +68,15 @@ internal sealed class AttemptResponse
     public DateTimeOffset? CompletedAt { get; init; }
     public long? DurationMs { get; init; }
 
+    /// <summary>Continue or Halt, as copied from the workflow when the run was queued.</summary>
+    public string OnFailure { get; init; } = nameof(WorkflowFailurePolicy.Continue);
+
+    /// <summary>
+    /// On a Skipped action, the ordinal of the action whose failure skipped it. Null otherwise, and
+    /// for an action skipped because the content no longer exists.
+    /// </summary>
+    public int? HaltedBy { get; init; }
+
     public static AttemptResponse From(WorkflowActionAttempt a) => new()
     {
         Ordinal = a.Ordinal,
@@ -80,6 +89,8 @@ internal sealed class AttemptResponse
         Retryable = a.Retryable,
         CompletedAt = a.CompletedAt,
         DurationMs = a.DurationMs,
+        OnFailure = a.OnFailure.ToString(),
+        HaltedBy = a.HaltedBy,
     };
 }
 
@@ -186,6 +197,10 @@ internal sealed class GetRunEndpoint(IQuerySession session) : EndpointWithoutReq
 ///
 /// An action that already succeeded is refused: the whole reason a run records each action
 /// separately is so that retrying a failed third one does not re-send the first two.
+///
+/// Retrying an action that halted its run is the resume: the actions its failure skipped are queued
+/// again behind it, and run once it succeeds. One of those skipped actions is refused on its own,
+/// since running it is running past the failure.
 /// </remarks>
 internal sealed class RetryAttemptEndpoint(
     IDocumentSession session,
@@ -249,6 +264,15 @@ internal sealed class RetryAttemptEndpoint(
             return;
         }
 
+        if (attempt.Status == AttemptStatus.Skipped && attempt.HaltedBy is { } haltedBy)
+        {
+            ThrowError(
+                $"That action was skipped because action {haltedBy} failed and is set to halt the run. "
+              + "Retry that action, and this one runs after it.",
+                409);
+            return;
+        }
+
         // The runner cancels a run whose workflow is switched off, so a retry accepted here would
         // send nothing and leave the run Cancelled, which can never be retried again. Refused
         // before anything is written, so the run keeps its status and can be retried once the
@@ -289,6 +313,10 @@ internal sealed class RetryAttemptEndpoint(
             ? false
             : attempt.Retryable is { } retryable ? !retryable : null;
 
+        // Counted before the reset too. Retrying an action that halted its run queues the actions
+        // its failure skipped, and the audit entry says how many more this retry set going.
+        var skippedBehind = run.Actions.Count(a => a.Status == AttemptStatus.Skipped && a.HaltedBy == ordinal);
+
         attempt.Status = AttemptStatus.Pending;
         attempt.Retryable = null;
         attempt.NextAttemptAt = null;
@@ -298,6 +326,7 @@ internal sealed class RetryAttemptEndpoint(
         // operator who wants more than the cap allows is asking for a different decision from the
         // one this button makes.
         run.CompletedAt = null;
+        run.ResumeAfter(ordinal);
         run.Recompute();
         session.Update(run);
 
@@ -308,6 +337,7 @@ internal sealed class RetryAttemptEndpoint(
             ["actionType"] = attempt.ActionType,
             ["wasUnknown"] = wasUnknown,
         };
+        if (skippedBehind > 0) metadata["resumedActions"] = skippedBehind;
         if (wasPermanent is { } permanent) metadata["wasPermanent"] = permanent;
 
         var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;

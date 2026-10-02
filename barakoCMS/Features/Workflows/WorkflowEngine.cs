@@ -89,14 +89,38 @@ internal class WorkflowEngine(
         var run = debugger.StartExecution(workflow.Id, content.Id);
         var overallTimer = Stopwatch.StartNew();
 
+        // Nothing is retried on this path, so any failure of an action set to halt is final and
+        // the actions after it are recorded as not run.
+        var halted = false;
+
         foreach (var action in workflow.Actions)
         {
+            if (halted)
+            {
+                // Written to the record directly. The debugger's failure call logs an error saying
+                // the action failed, and this one did not run.
+                run.Actions.Add(new ActionExecutionLog
+                {
+                    ActionType = action.Type,
+                    Success = false,
+                    ErrorMessage = WorkflowRun.SkippedAfterHalt,
+                    ResolvedParameters = WorkflowDebugger.RecordableParameters(action.Parameters),
+                });
+                logger.LogInformation(
+                    "Workflow action '{ActionType}' in workflow '{WorkflowName}' was not run: an earlier action set to halt failed",
+                    action.Type, workflow.Name);
+                continue;
+            }
+
+            var halts = action.OnFailure == WorkflowFailurePolicy.Halt;
+
             var handler = actions.FirstOrDefault(a => a.Type == action.Type);
             if (handler == null)
             {
                 logger.LogWarning("Unknown workflow action type '{ActionType}' in workflow '{WorkflowName}'. Skipping.", action.Type, workflow.Name);
                 debugger.LogActionFailure(run, action.Type, Stopwatch.StartNew(),
                     $"No handler is registered for action type '{action.Type}'.", action.Parameters);
+                halted = halts;
                 continue;
             }
 
@@ -111,12 +135,14 @@ internal class WorkflowEngine(
                 if (credentialError is not null)
                 {
                     debugger.LogActionFailure(run, action.Type, timer, credentialError, action.Parameters);
+                    halted = halts;
                     continue;
                 }
 
                 // Resolve {{...}} template variables against the content BEFORE executing, so live
                 // runs behave like the dry-run preview.
-                resolvedParams = ActionParameters.Resolve(variableExtractor, action.Type, parameters, content);
+                resolvedParams = await ActionParameters.ResolveAsync(
+                    variableExtractor, action.Type, parameters, content, eventType, eventSequence: 0, ct);
 
                 // The same channel the runner uses, so an action reads the trigger the same way on
                 // either path.
@@ -132,15 +158,17 @@ internal class WorkflowEngine(
                 else
                 {
                     debugger.LogActionFailure(run, action.Type, timer, result.Error ?? "The action reported failure without a reason.", resolvedParams);
+                    halted = halts;
                 }
             }
             catch (Exception ex)
             {
                 // Isolate per-action failures: a bad webhook/email must not prevent the remaining
-                // actions in this workflow from running. An action that throws is a failed action,
-                // which is what the run record has to say.
+                // actions in this workflow from running, unless the action is set to halt. An action
+                // that throws is a failed action, which is what the run record has to say.
                 debugger.LogActionFailure(run, action.Type, timer, ex, resolvedParams);
                 logger.LogError(ex, "Workflow action '{ActionType}' in workflow '{WorkflowName}' failed", action.Type, workflow.Name);
+                halted = halts;
             }
         }
 

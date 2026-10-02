@@ -184,24 +184,33 @@ internal sealed class ContentChangeListener(
             UpdatedAt = def.UpdatedAt,
             Lifecycle = def.Lifecycle,
             Fields = def.Fields.Select(f => declared.TryGetValue(f.Name, out var to)
-                ? new FieldDefinition
-                {
-                    Name = f.Name,
-                    DisplayName = f.DisplayName,
-                    Type = f.Type,
-                    ReferenceType = f.ReferenceType,
-                    Options = f.Options,
-                    Multiple = f.Multiple,
-                    IsRequired = f.IsRequired,
-                    DefaultValue = f.DefaultValue,
-                    ValidationRules = f.ValidationRules,
-                    Sensitivity = to,
-                    VisibleToRoles = f.VisibleToRoles,
-                    Mask = f.Mask,
-                }
+                ? WithSensitivity(f, to)
                 : f).ToList(),
         };
     }
+
+    /// <summary>A copy of the field with another sensitivity and every other member as it was.</summary>
+    /// <remarks>
+    /// Member by member, so a property added to <see cref="FieldDefinition"/> has to be added here.
+    /// <c>FieldDefinitionCopyTests</c> fails when one is not.
+    /// </remarks>
+    internal static FieldDefinition WithSensitivity(FieldDefinition f, SensitivityLevel to) => new()
+    {
+        Name = f.Name,
+        DisplayName = f.DisplayName,
+        Type = f.Type,
+        ReferenceType = f.ReferenceType,
+        Options = f.Options,
+        Multiple = f.Multiple,
+        Currency = f.Currency,
+        Scale = f.Scale,
+        IsRequired = f.IsRequired,
+        DefaultValue = f.DefaultValue,
+        ValidationRules = f.ValidationRules,
+        Sensitivity = to,
+        VisibleToRoles = f.VisibleToRoles,
+        Mask = f.Mask,
+    };
 
     private static bool IsContentEvent(object data) => data is
         ContentCreated or ContentUpdated or ContentStatusChanged or ContentTransitioned

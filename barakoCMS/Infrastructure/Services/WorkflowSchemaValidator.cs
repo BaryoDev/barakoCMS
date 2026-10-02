@@ -159,9 +159,121 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
             {
                 ValidateAction(workflow.Actions[i], i, result);
             }
+
+            var onTransition = WorkflowTriggers.Events(workflow).Any(WorkflowEvents.IsTransition);
+            for (int i = 0; i < workflow.Actions.Count; i++)
+            {
+                AddPlaceholderWarnings(workflow.Actions[i], $"actions[{i}]", onTransition, result, depth: 0);
+            }
         }
 
         return result;
+    }
+
+    /// <summary>How many placeholder warnings one validation lists. The last entry says when there are more.</summary>
+    internal const int MaxPlaceholderWarnings = 50;
+
+    /// <summary>How far into nested Conditional branches the placeholders are read.</summary>
+    internal const int MaxWarningDepth = 5;
+
+    /// <summary>
+    /// Lists every placeholder of an action that the engine will send as written. Never an error:
+    /// a template has always been allowed to hold text the engine does not know.
+    /// </summary>
+    /// <remarks>
+    /// A Conditional's condition is skipped, since the action reads it itself, and its branches are
+    /// read as the child actions they hold. A branch that is not such a list is passed over here;
+    /// the response already names it as unreadable.
+    /// </remarks>
+    private static void AddPlaceholderWarnings(
+        WorkflowAction action, string field, bool onTransition, WorkflowValidationResult result, int depth)
+    {
+        if (action.Parameters is null) return;
+
+        foreach (var (name, template) in action.Parameters)
+        {
+            if (result.Warnings.Count > MaxPlaceholderWarnings) return;
+
+            if (ActionParameters.IsResolvedByTheAction(action.Type ?? string.Empty, name))
+            {
+                if (depth < MaxWarningDepth && !name.Equals("Condition", StringComparison.OrdinalIgnoreCase))
+                {
+                    var children = ChildActions(template);
+                    for (var i = 0; i < children.Count; i++)
+                    {
+                        AddPlaceholderWarnings(children[i], $"{field}.parameters.{name}[{i}]", onTransition, result, depth + 1);
+                    }
+                }
+
+                continue;
+            }
+
+            foreach (var message in PlaceholderWarnings(action.Type, name, template, onTransition))
+            {
+                if (result.Warnings.Count == MaxPlaceholderWarnings)
+                {
+                    result.Warnings.Add(new ValidationError
+                    {
+                        Field = "actions",
+                        Message = $"More than {MaxPlaceholderWarnings} placeholder warnings. Only the first {MaxPlaceholderWarnings} are listed"
+                    });
+                    return;
+                }
+
+                result.Warnings.Add(new ValidationError { Field = $"{field}.parameters.{name}", Message = message });
+            }
+        }
+    }
+
+    /// <summary>The warnings for one parameter of one action.</summary>
+    /// <remarks>
+    /// A warning quotes the placeholder it is about, so a parameter the responses leave out as a
+    /// credential (<see cref="WebhookSigning.IsSensitiveParameterName"/>) is counted and not quoted.
+    ///
+    /// UpdateField and CreateTask write their parameters into an entry. A user's address written
+    /// there is served by delivery when the field is public on a deliverable type, so it is said at
+    /// save. Said and not refused: which entry and field the action writes can itself be a
+    /// placeholder, so the save cannot tell a public field from a private one.
+    /// </remarks>
+    private static IEnumerable<string> PlaceholderWarnings(string? actionType, string name, string? template, bool onTransition)
+    {
+        if (WebhookSigning.IsSensitiveParameterName(name))
+        {
+            var count = TemplateExpression.Problems(template, onTransition).Count();
+            if (count > 0)
+            {
+                yield return $"This parameter holds {count} placeholder(s) that will be sent as written. "
+                           + "It is a credential, so its text is not shown here.";
+            }
+
+            yield break;
+        }
+
+        foreach (var problem in TemplateExpression.Problems(template, onTransition))
+        {
+            yield return problem;
+        }
+
+        if (actionType is "UpdateField" or "CreateTask" && TemplateExpression.NamesAddress(template))
+        {
+            yield return "This writes a user's email address into an entry. "
+                       + "If the field it lands in is public on a deliverable content type, delivery serves the address.";
+        }
+    }
+
+    private static List<WorkflowAction> ChildActions(string? branch)
+    {
+        if (string.IsNullOrWhiteSpace(branch)) return [];
+
+        try
+        {
+            var children = System.Text.Json.JsonSerializer.Deserialize<List<WorkflowAction>>(branch) ?? [];
+            return children.Where(child => child is not null).ToList();
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return [];
+        }
     }
 
     /// <summary>
@@ -306,6 +418,58 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
         return (transitionValid, spelling);
     }
 
+    private static readonly string[] ConditionalBranches = ["ThenActions", "ElseActions"];
+
+    /// <summary>
+    /// Refuses an onFailure on a child of a Conditional, in either branch.
+    /// </summary>
+    /// <remarks>
+    /// A child has no policy: the Conditional fails or succeeds as one action. Accepted and
+    /// ignored, a chain written inside a branch would look as though it stops and would not.
+    ///
+    /// Any casing of the type, the branch name and the key, the way the branches are matched where
+    /// their credentials are handled. A branch that is not a JSON list is left to the checks that
+    /// read branches, and never runs.
+    /// </remarks>
+    private static void RefuseChildPolicies(WorkflowAction action, string fieldPrefix, WorkflowValidationResult result)
+    {
+        if (action.Parameters is null) return;
+        if (!string.Equals(action.Type, "Conditional", StringComparison.OrdinalIgnoreCase)) return;
+
+        foreach (var (name, json) in action.Parameters)
+        {
+            if (string.IsNullOrWhiteSpace(json)) continue;
+            if (!ConditionalBranches.Contains(name, StringComparer.OrdinalIgnoreCase)) continue;
+
+            try
+            {
+                using var branch = System.Text.Json.JsonDocument.Parse(json);
+                if (branch.RootElement.ValueKind != System.Text.Json.JsonValueKind.Array) continue;
+
+                var child = 0;
+                foreach (var element in branch.RootElement.EnumerateArray())
+                {
+                    if (element.ValueKind == System.Text.Json.JsonValueKind.Object
+                        && element.EnumerateObject().Any(p => string.Equals(p.Name, "onFailure", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        result.Errors.Add(new ValidationError
+                        {
+                            Field = $"{fieldPrefix}.parameters.{name}[{child}].onFailure",
+                            Message = "An action inside a Conditional has no onFailure. Set it on the Conditional, which fails or succeeds as one action"
+                        });
+                        result.IsValid = false;
+                    }
+
+                    child++;
+                }
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                // Not JSON, so there is no child to look at. The action refuses the branch when it runs.
+            }
+        }
+    }
+
     private void ValidateAction(WorkflowAction action, int index, WorkflowValidationResult result)
     {
         var fieldPrefix = $"actions[{index}]";
@@ -332,6 +496,20 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
             result.IsValid = false;
             return;
         }
+
+        // A number is accepted wherever a name is, so a value that names no policy can arrive. It
+        // would be stored and then read as neither, which here means the chain is not stopped.
+        if (action.OnFailure is { } policy && !Enum.IsDefined(policy))
+        {
+            result.Errors.Add(new ValidationError
+            {
+                Field = $"{fieldPrefix}.onFailure",
+                Message = $"onFailure must be one of: {string.Join(", ", Enum.GetNames<WorkflowFailurePolicy>())}"
+            });
+            result.IsValid = false;
+        }
+
+        RefuseChildPolicies(action, fieldPrefix, result);
 
         // Validate required parameters
         var metadata = _pluginRegistry.GetActionMetadata(action.Type);

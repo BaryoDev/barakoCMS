@@ -143,6 +143,9 @@ public class CorsTests
         exposed.Should().Contain(
             "X-Api-Contract-Version",
             "ApiContract documents this as what a caller reads to decide whether it can drive this API");
+        exposed.Should().Contain(
+            "X-Delivery-Contract-Version",
+            "a site calling delivery from a browser reads its own surface's number the same way");
     }
 
     /// <summary>
@@ -171,6 +174,7 @@ public class CorsTests
 
         exposed.Should().Contain("ETag");
         exposed.Should().Contain("X-Api-Contract-Version");
+        exposed.Should().Contain("X-Delivery-Contract-Version");
     }
 }
 

@@ -21,6 +21,10 @@ internal sealed class FieldResponse
     public List<OptionResponse> Options { get; set; } = new();
     /// <summary>For a choice field, whether it takes a list of options rather than one.</summary>
     public bool Multiple { get; set; }
+    /// <summary>For a money field that declares one, the ISO 4217 code its amounts are in. Null otherwise.</summary>
+    public string? Currency { get; set; }
+    /// <summary>For a money field with a currency, the most decimal places an amount may carry. Null otherwise.</summary>
+    public int? Scale { get; set; }
 }
 
 internal sealed class Response
@@ -82,6 +86,8 @@ internal sealed class Endpoint(IQuerySession session) : EndpointWithoutRequest<R
                     .Select(o => new OptionResponse { Value = o.Value, Label = o.Label })
                     .ToList(),
                 Multiple = f.Multiple,
+                Currency = barakoCMS.Core.Validation.FieldTypeRegistry.TryGetCurrency(f, out var code, out _) ? code : null,
+                Scale = barakoCMS.Core.Validation.FieldTypeRegistry.TryGetCurrency(f, out _, out var places) ? places : null,
             }).ToList(),
             VerifyEmailField = verified?.Name,
         }, ct);

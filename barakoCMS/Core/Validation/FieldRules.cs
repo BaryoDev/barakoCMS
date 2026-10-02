@@ -37,6 +37,25 @@ internal static class FieldRules
     public static readonly IReadOnlyList<string> Names =
         [Min, Max, MinLength, MaxLength, Pattern, RequiredWhen];
 
+    private static readonly IReadOnlyList<string> PatternAliases = [PatternAlias];
+
+    private static readonly IReadOnlyList<string> NoAliases = [];
+
+    /// <summary>The other names a rule is read under.</summary>
+    public static IReadOnlyList<string> AliasesOf(string rule) => rule == Pattern ? PatternAliases : NoAliases;
+
+    /// <summary>
+    /// Whether a field of this type may declare the rule, by the same type checks
+    /// <see cref="DefinitionErrors"/> refuses a misplaced rule with.
+    /// </summary>
+    public static bool AppliesTo(string rule, string? type) => rule switch
+    {
+        Min or Max => FieldTypeRegistry.IsNumericType(type) || IsDateType(type),
+        MinLength or MaxLength or Pattern => IsTextType(type),
+        RequiredWhen => true,
+        _ => false,
+    };
+
     public const int MaxPatternLength = 500;
 
     public const int MaxConditions = 20;

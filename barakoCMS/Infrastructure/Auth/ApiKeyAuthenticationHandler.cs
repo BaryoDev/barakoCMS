@@ -69,6 +69,12 @@ public sealed class ApiKeyAuthenticationHandler : AuthenticationHandler<ApiKeyAu
 
         var slug = (key.TenantSlug ?? Tenant.DefaultSlug).Trim().ToLowerInvariant();
 
+        // The slug below replaces the one resolution checked, so the mode is checked again here: in
+        // Multi a key scoped to the default partition or to a slug with no active tenant is refused,
+        // as the issuer refuses a token for one.
+        if (await Context.RequestServices.GetRequiredService<TenancyOptions>().RefusesAsync(lookup, slug, ct))
+            return Fail();
+
         // A key must not outlive its owner's access to the tenant — mirror the token-issuer membership
         // check, so revoking a membership disables the key on its next request, not at expiry.
         if (await IsDeniedForTenant(lookup, user, slug, ct))

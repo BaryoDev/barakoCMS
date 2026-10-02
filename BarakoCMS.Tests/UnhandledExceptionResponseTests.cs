@@ -61,6 +61,8 @@ public class UnhandledExceptionResponseTests
 
         response.Headers.TryGetValues(ApiContract.HeaderName, out var contract).Should().BeTrue();
         contract!.Should().ContainSingle().Which.Should().Be(ApiContract.Version.ToString());
+        response.Headers.TryGetValues(ApiContract.DeliveryHeaderName, out var delivery).Should().BeTrue();
+        delivery!.Should().ContainSingle().Which.Should().Be(ApiContract.DeliveryVersion.ToString());
         response.Headers.TryGetValues("X-Content-Type-Options", out var nosniff).Should().BeTrue();
         nosniff!.Should().ContainSingle().Which.Should().Be("nosniff");
     }

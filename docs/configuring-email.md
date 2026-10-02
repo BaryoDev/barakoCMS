@@ -84,9 +84,18 @@ is the signal that it needs entering again.
 
 ## Credentials do not go in the general settings store
 
-`POST /api/settings` refuses a key that looks like a credential (`apikey`, `password`, `secret`,
-`token`, `credential`, `privatekey`). Everything in that store is held in plaintext and returned in
-full by `GET /api/settings`, which is right for a feature flag and wrong for a sending credential.
+`POST /api/settings` refuses a key that looks like a credential: one that contains `secret`,
+`password`, `passwd`, `pwd`, `token`, `apikey`, `api_key`, `credential`, `privatekey`,
+`private_key`, `accesskey` or `access_key`, in any casing. It is the same rule that decides which
+workflow action parameters are encrypted and left out of responses. Everything in that store is held
+in plaintext and returned in full by `GET /api/settings`, which is right for a feature flag and
+wrong for a sending credential.
+
+A setting stored under such a key before the key was refused is still returned by
+`GET /api/settings` and still read by the API. Its value can no longer be changed through
+`POST /api/settings`, and it can be cleared there: save the key with an empty value (`"value": ""`)
+and the stored value is emptied. The row stays, since no route deletes a setting. An empty value for
+a key that has no row is refused like any other.
 
 ## The test send
 
@@ -121,6 +130,93 @@ exactly one email address." and nothing is sent, whichever provider is configure
 
 The same applies to an `Email` inside a `Conditional`: its parameters are resolved when the child
 runs, not as part of the branch's JSON.
+
+## Attachments in a workflow email
+
+An `Email` action takes an optional `Attachments` parameter naming files stored by the
+BarakoCMS.Files module:
+
+```json
+{
+  "Type": "Email",
+  "Parameters": {
+    "To": "registrar@example.com",
+    "Subject": "Programme for {{data.Name}}",
+    "Body": "<p>The programme {{data.Name}} chose is attached.</p>",
+    "Attachments": "{{data.Programme}}"
+  }
+}
+```
+
+`Attachments` is a placeholder for a field of the entry, or a list of ids and placeholders separated
+by commas, semicolons or line breaks. A file is named by its id, or by a link to `/api/files/{id}`
+or `/api/public/files/{id}`. A link with `?w=` attaches the original file, not the resize. When the
+whole parameter is one placeholder and the field holds a list, every item of the list is attached.
+
+**Which files.** Public files only. A file is attached when all of these hold:
+
+- the entry the workflow is running for names the file in one of its fields, by id or by link;
+- the file is stored in that entry's tenant;
+- the file is public, which means anyone holding its URL can already download it from
+  `/api/public/files/{id}`.
+
+Nobody's rights are consulted. A workflow runs with no signed-in caller, and nothing on an entry
+records who chose the files its fields name: the last person to save it, approve it, restore it or
+import it need not be the person who put the file id there. So the action sends only what is
+already public, and it does not matter who can write the field or who `To` resolves to: the
+recipient receives nothing the file's URL would not give them.
+
+The cost is that a private file cannot be emailed by a workflow yet. A receipt, a contract or
+anything else uploaded without the public flag is refused, whoever uploaded it and whoever saved
+the entry. That waits for a file field that ties a file to its entry when it is uploaded (#668).
+Until then, mark the file public at upload if it may go out by email, or send a link the recipient
+signs in to open.
+
+A deleted entry has no fields left and attaches nothing.
+
+**Limits.** From configuration:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `Workflows:Email:Attachments:MaxCount` | 5 | Files on one email |
+| `Workflows:Email:Attachments:MaxFileBytes` | 10485760 (10 MB) | Size of one file |
+| `Workflows:Email:Attachments:MaxTotalBytes` | 15728640 (15 MB) | Size of all files on one email |
+
+Zero in any of them turns attachments off. A value that is not a whole number of zero or more fails
+every email that names an attachment, with the key in the reason, and leaves other emails alone.
+
+A file whose record is over the per-file limit is refused before its bytes are read. Past that
+check the Files module reads a whole file into memory, so the limits bound what is sent and what
+the action keeps, not what one read can load for a record whose size is wrong. The files of one
+email stay in memory while it is sent. At the default limits that is about 15 MB of files, and the
+provider adds its own copies: SMTP encodes while it writes to the relay, so about 20 MB an email;
+Resend takes the files as base64 text inside one JSON request, which comes to roughly 100 MB an
+email at peak. These are estimates from the copies each path makes, not measurements. A node can be
+sending as many emails at once as `Workflows:RunnerConcurrency` allows, so multiply by that.
+
+Your provider has its own ceiling on message size, and encoding adds about a third. Neither
+provider module reports a size refusal differently from any other failure, so an email the provider
+refuses for its size is retried like one: five attempts in all, each reading and uploading the
+files again, before the action is left failed. Keep `MaxTotalBytes` under what your provider takes.
+
+**When it cannot attach.** The action fails, the reason is on the run, and nothing is sent. An email
+never goes out with a file missing. A file that is not named by the entry, is not in the tenant, is
+not public or does not exist gives one reason, "Attachment N cannot be attached", that does not say
+which of those it was. The others say what was wrong: an empty field or list, a value that is not a file id
+or link, a limit passed, no BarakoCMS.Files module, and an email provider that does not send
+attachments. None of these is retried, because a retry would get the same answer. A file store that
+fails while it is read is retried.
+
+The attachment carries the name the file was uploaded with, without any path, control characters
+or text direction marks, and the type the upload was checked against (`application/octet-stream`
+for a file stored before uploads were checked).
+
+Both shipped providers send attachments. A provider of your own implements the two `IEmailService`
+members that take attachments; until it does, an email that names one fails and says so.
+
+A workflow stored before this release that already had an `Attachments` parameter on an Email
+action was sending without it. After the upgrade that action attaches the files or fails with a
+reason on the run.
 
 ## Auditing
 

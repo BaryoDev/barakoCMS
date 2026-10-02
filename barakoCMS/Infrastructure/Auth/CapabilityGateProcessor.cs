@@ -66,18 +66,25 @@ public sealed class CapabilityGateProcessor : IGlobalPreProcessor
         // pre-processor inventing a gate the endpoint did not declare.
         if (principal.Identity?.IsAuthenticated != true) return;
 
-        if (required.LegacyRoles.Any(principal.IsInRole) && LegacyRoleFallback(http)) return;
-
-        if (!Guid.TryParse(principal.FindFirst("UserId")?.Value, out var userId))
-        {
-            await Deny(http, required.Capability, ct);
-            return;
-        }
-
-        var resolver = http.RequestServices.GetRequiredService<IPermissionResolver>();
-        if (await resolver.HasCapabilityAsync(userId, required.Capability, ct)) return;
+        if (await HoldsAsync(http, required, ct)) return;
 
         await Deny(http, required.Capability, ct);
+    }
+
+    /// <summary>
+    /// Whether the signed-in caller passes <paramref name="required"/>. One rule for the gate above
+    /// and for an endpoint that leaves part of its response out for a caller who would not pass it.
+    /// </summary>
+    internal static async Task<bool> HoldsAsync(HttpContext http, RequiredCapability required, CancellationToken ct)
+    {
+        var principal = http.User;
+
+        if (required.LegacyRoles.Any(principal.IsInRole) && LegacyRoleFallback(http)) return true;
+
+        if (!Guid.TryParse(principal.FindFirst("UserId")?.Value, out var userId)) return false;
+
+        var resolver = http.RequestServices.GetRequiredService<IPermissionResolver>();
+        return await resolver.HasCapabilityAsync(userId, required.Capability, ct);
     }
 
     private static async Task Deny(HttpContext http, string capability, CancellationToken ct)

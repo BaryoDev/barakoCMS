@@ -38,7 +38,7 @@ for p in /.env /appsettings.json /appsettings.Production.json /.git/config /web.
 done
 
 # --- anonymous callers get 401 on protected endpoints -----------------------
-for p in /api/users /api/audit /api/roles /api/capabilities /api/api-keys /api/content-types; do
+for p in /api/users /api/audit /api/roles /api/capabilities /api/api-keys /api/content-types /api/meta/describe; do
   check "protected requires auth $p" 401 "$(code "$BASE$p")"
 done
 

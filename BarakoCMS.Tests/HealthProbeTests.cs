@@ -1,7 +1,10 @@
+// Aliased: Microsoft.Extensions.DependencyInjection also ships a ServiceCollectionExtensions.
+using Host = barakoCMS.Extensions.ServiceCollectionExtensions;
 using System.Net;
 using FluentAssertions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
@@ -155,6 +158,36 @@ public class HealthProbeTests
 
         registrations.Should().Contain(r => r.Tags.Contains("live"),
             "a liveness endpoint that runs no checks cannot report a wedged process");
+    }
+
+    [Theory]
+    [InlineData("1", HealthStatus.Unhealthy)]
+    [InlineData("1048576", HealthStatus.Healthy)]
+    public async Task The_memory_check_fails_a_process_over_its_ceiling_and_is_on_both_probes(
+        string ceilingMegabytes, HealthStatus expected)
+    {
+        // The ceiling is read while AddBarakoCMS registers the check, so it is given here the way a
+        // deployment gives it, and the registered check is run on its own.
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:DefaultConnection"] = "Host=localhost;Database=none",
+            ["JWT:Key"] = "test-super-secret-key-that-is-at-least-32-chars-long",
+            ["HealthChecks:MaxPrivateMemoryMegabytes"] = ceilingMegabytes,
+        }).Build();
+        var services = new ServiceCollection();
+        Host.AddBarakoCMS(services, config, m => m.Discover = false);
+        await using var provider = services.BuildServiceProvider();
+
+        var memory = provider.GetRequiredService<IOptions<HealthCheckServiceOptions>>()
+            .Value.Registrations.Single(r => r.Name == "Memory");
+
+        memory.Tags.Should().Contain("live", "a process past its private memory ceiling is what a restart clears");
+        memory.Tags.Should().Contain("ready", "and it should take no traffic meanwhile");
+
+        var result = await memory.Factory(provider).CheckHealthAsync(
+            new HealthCheckContext { Registration = memory }, TestContext.Current.CancellationToken);
+
+        result.Status.Should().Be(expected);
     }
 
     private static HttpStatusCode Expect(bool healthy) =>

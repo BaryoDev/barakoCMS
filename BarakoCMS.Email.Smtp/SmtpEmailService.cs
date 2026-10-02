@@ -29,7 +29,10 @@ public sealed class SmtpEmailService : IEmailService
         _settings = settings;
     }
 
-    public async Task SendEmailAsync(string to, string subject, string body, CancellationToken cancellationToken = default)
+    public Task SendEmailAsync(string to, string subject, string body, CancellationToken cancellationToken = default) =>
+        SendEmailAsync(to, subject, body, Array.Empty<EmailAttachment>(), cancellationToken);
+
+    public async Task SendEmailAsync(string to, string subject, string body, IReadOnlyList<EmailAttachment> attachments, CancellationToken cancellationToken = default)
     {
         var options = _options.Value;
 
@@ -43,7 +46,15 @@ public sealed class SmtpEmailService : IEmailService
         message.From.Add(MailboxAddress.Parse(from));
         message.To.Add(MailboxAddress.Parse(to));
         message.Subject = subject;
-        message.Body = new BodyBuilder { HtmlBody = body }.ToMessageBody();
+
+        var builder = new BodyBuilder { HtmlBody = body };
+        foreach (var attachment in attachments)
+        {
+            // MimeKit writes the name as an encoded parameter, so it cannot break out of its header.
+            builder.Attachments.Add(attachment.FileName, attachment.Content, MimeTypeOf(attachment));
+        }
+
+        message.Body = builder.ToMessageBody();
 
         using var client = new SmtpClient();
 
@@ -76,6 +87,11 @@ public sealed class SmtpEmailService : IEmailService
                     options.Password));
         }
     }
+
+    private static ContentType MimeTypeOf(EmailAttachment attachment) =>
+        ContentType.TryParse(attachment.ContentType, out var parsed)
+            ? parsed
+            : new ContentType("application", "octet-stream");
 
     /// <summary>
     /// The admin's from address if somebody set one, else the module's own.
