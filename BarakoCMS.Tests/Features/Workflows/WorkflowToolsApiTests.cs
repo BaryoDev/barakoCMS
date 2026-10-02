@@ -59,7 +59,7 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         // fixture it genuinely is registered, and naming it keeps the assertion exact: removing a
         // real action still fails this test.
         actions!.Select(a => a.Type).Should().BeEquivalentTo(
-            ["Email", "SMS", "Webhook", "CreateTask", "UpdateField", "Conditional", "Request", "ThrowingRunner", "CredentialEcho", "DeletedEcho"],
+            ["Email", "SMS", "Webhook", "CreateTask", "UpdateField", "Conditional", "Request", "ThrowingRunner", "CredentialEcho", "DeletedEcho", "CountingRunner"],
             "every registered action is offered to the workflow builder, and adding one is a line here");
     }
 

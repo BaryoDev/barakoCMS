@@ -57,10 +57,19 @@ internal sealed class WorkflowRunner(
     ILogger<WorkflowRunner> logger,
     IConfiguration config) : BackgroundService
 {
-    private static readonly TimeSpan Idle = TimeSpan.FromSeconds(5);
+    internal static readonly TimeSpan Idle = TimeSpan.FromSeconds(5);
+
+    internal const int CandidatesPerPass = 20;
 
     private readonly string _node = $"{Environment.MachineName}-{Guid.NewGuid():N}"[..40];
     private readonly Random _random = new();
+
+    private string[]? _partitions;
+    private long _scannedAt;
+    private string? _lastServed;
+
+    /// <summary>How many times this runner has listed the partitions.</summary>
+    internal int PartitionScans { get; private set; }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -102,25 +111,111 @@ internal sealed class WorkflowRunner(
     }
 
     /// <summary>Claims one attempt and runs it. Returns whether there was anything to do.</summary>
+    /// <remarks>
+    /// The partition list is kept between passes for up to <see cref="Idle"/>, so draining a backlog
+    /// does not scan for partitions once per action. A pass that finds nothing in a kept list scans
+    /// again before it reports idle, so false always means a fresh scan found nothing due.
+    /// </remarks>
     internal async Task<bool> RunOnceAsync(CancellationToken ct)
     {
         using var scope = services.CreateScope();
         var store = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
 
-        foreach (var tenantId in await TenantPartitions.ListAsync(store, config, PartitionsWithWorkSql, ct))
+        var fresh = _partitions is null || Stopwatch.GetElapsedTime(_scannedAt) >= Idle;
+        if (fresh) await ScanPartitionsAsync(store, ct);
+
+        if (await RunDueAsync(store, ct)) return true;
+        if (fresh) return false;
+
+        await ScanPartitionsAsync(store, ct);
+        return await RunDueAsync(store, ct);
+    }
+
+    private async Task ScanPartitionsAsync(IDocumentStore store, CancellationToken ct)
+    {
+        var listed = await TenantPartitions.ListAsync(store, config, PartitionsWithWorkSql, ct);
+
+        // Sorted, because Postgres promises no order and the rotation below needs a stable one.
+        _partitions = listed.OrderBy(slug => slug, StringComparer.Ordinal).ToArray();
+        _scannedAt = Stopwatch.GetTimestamp();
+        PartitionScans++;
+    }
+
+    /// <summary>
+    /// One pass over the kept partitions, starting after the one served last.
+    /// </summary>
+    /// <remarks>
+    /// A pass ends at the first claim. Always starting from the top let a tenant that sorts early
+    /// and always has work keep every tenant after it waiting.
+    ///
+    /// A tenant that throws is logged and passed over. The next pass starts after it, the same as
+    /// after a tenant that was served, or one run that cannot be read would be where every pass
+    /// starts and ends.
+    /// </remarks>
+    private async Task<bool> RunDueAsync(IDocumentStore store, CancellationToken ct)
+    {
+        var partitions = _partitions!;
+        var start = 0;
+
+        if (_lastServed is not null)
         {
-            await using var query = store.QuerySession(tenantId);
+            start = Array.FindIndex(partitions, slug => string.CompareOrdinal(slug, _lastServed) > 0);
+            if (start < 0) start = 0;
+        }
 
-            var due = await query.Query<WorkflowRun>()
-                .Where(r => r.Status == RunStatus.Pending || r.Status == RunStatus.Running)
-                .OrderBy(r => r.CreatedAt)
-                .Take(20)
-                .ToListAsync(ct);
+        for (var i = 0; i < partitions.Length; i++)
+        {
+            var tenantId = partitions[(start + i) % partitions.Length];
 
-            foreach (var candidate in due)
+            try
             {
-                if (await TryRunAsync(store, candidate.Id, tenantId, ct)) return true;
+                if (await RunDueInAsync(store, tenantId, ct))
+                {
+                    _lastServed = tenantId;
+                    return true;
+                }
             }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _lastServed = tenantId;
+                logger.LogError(ex,
+                    "The workflow runner failed in tenant {Tenant} and went on to the next",
+                    barakoCMS.Infrastructure.Logging.LogSafe.Value(tenantId));
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Claims and runs the first due attempt one tenant has, if it has one.</summary>
+    private async Task<bool> RunDueInAsync(IDocumentStore store, string tenantId, CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        await using var query = store.QuerySession(tenantId);
+
+        // Due-ness is in the query so the twenty are twenty runs that can be claimed. A run stored
+        // before NextDueAt was kept has none and is read as due; TryRunAsync decides.
+        //
+        // Not indexed. Marten writes the null test on the raw JSON value and the comparison on
+        // mt_immutable_timestamptz of it, and Postgres uses an index for an OR only when every arm
+        // matches one. The null arm has to stay while an older node can still write a run without
+        // the value, so an index on the comparison alone would be maintained and never read.
+        var due = await query.Query<WorkflowRun>()
+            .Where(r => (r.Status == RunStatus.Pending || r.Status == RunStatus.Running)
+                && (r.NextDueAt == null || r.NextDueAt <= now))
+            .OrderBy(r => r.CreatedAt)
+            .Take(CandidatesPerPass)
+            .Select(r => r.Id)
+            .ToListAsync(ct);
+
+        foreach (var runId in due)
+        {
+            if (await TryRunAsync(store, runId, tenantId, ct)) return true;
         }
 
         return false;
@@ -137,12 +232,15 @@ internal sealed class WorkflowRunner(
     ///
     /// Only with database tenancy off. With it on, <see cref="TenantPartitions"/> reads the registry
     /// instead, including inactive tenants, and the due query in <see cref="RunOnceAsync"/> is what
-    /// skips a partition with nothing to do. Every pass starts again from the registry, so a drain
-    /// costs one due query per registered tenant per attempt claimed.
+    /// skips a partition with nothing to do.
+    ///
+    /// The cast in the filter is the expression the Status index is declared on, so the index can
+    /// serve it.
     /// </remarks>
-    private const string PartitionsWithWorkSql =
-        "select distinct tenant_id from public.mt_doc_workflow_runs "
-      + "where (data ->> 'Status')::integer in (0, 1)";
+    internal const string PartitionsWithWorkSql =
+        "select distinct tenant_id from public.mt_doc_workflow_runs where " + UnfinishedFilter;
+
+    internal const string UnfinishedFilter = "(data ->> 'Status')::integer in (0, 1)";
 
     /// <summary>Claims the next due attempt of one run and executes it.</summary>
     private async Task<bool> TryRunAsync(IDocumentStore store, Guid runId, string tenantId, CancellationToken ct)
@@ -160,7 +258,11 @@ internal sealed class WorkflowRunner(
             if (run is null) return false;
 
             claimed = NextDue(run);
-            if (claimed is null) return false;
+            if (claimed is null)
+            {
+                await RecordNextDueAsync(session, run, ct);
+                return false;
+            }
 
             claimed.Status = AttemptStatus.Running;
             claimed.LeasedBy = _node;
@@ -228,6 +330,32 @@ internal sealed class WorkflowRunner(
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Writes NextDueAt on a run the query offered that turned out not to be due.
+    /// </summary>
+    /// <remarks>
+    /// Only a run stored without the value gets here in practice. Left alone it would be offered on
+    /// every pass until its wait ran out, taking one of the slots a due run needs.
+    /// </remarks>
+    private static async Task RecordNextDueAsync(IDocumentSession session, WorkflowRun run, CancellationToken ct)
+    {
+        var stored = run.NextDueAt;
+        run.Recompute();
+        if (run.NextDueAt == stored) return;
+
+        session.Update(run);
+
+        try
+        {
+            await session.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (ex is JasperFx.ConcurrencyException
+            || ex.GetType().Name.Contains("Concurrency"))
+        {
+            // Another node wrote the run first, and its write carries the value.
+        }
     }
 
     /// <summary>

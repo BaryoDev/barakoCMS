@@ -269,7 +269,8 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
         }
         else
         {
-            var next = now + JobBackoff.DelayFor(fresh.AttemptCount, _options.BackoffBaseSeconds, _options.BackoffMaxSeconds);
+            var next = now + JobBackoff.DelayFor(
+                fresh.AttemptCount, _options.BackoffBaseSeconds, _options.BackoffMaxSeconds, Random.Shared);
             fresh.State = JobState.Pending;
             fresh.NextAttemptAt = next;
             fresh.ExecuteAfter = next;
