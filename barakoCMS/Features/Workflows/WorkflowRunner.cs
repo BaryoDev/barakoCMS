@@ -679,7 +679,8 @@ internal sealed class WorkflowRunner(
                 return new Outcome(AttemptStatus.Failed, credentialError, timer.ElapsedMilliseconds, Retryable: false);
             }
 
-            var resolved = ActionParameters.Resolve(variables, attempt.ActionType, parameters, content);
+            var resolved = await ActionParameters.ResolveAsync(
+                variables, attempt.ActionType, parameters, content, run.TriggerEvent, run.TriggeringEventSequence, ct);
 
             resolved["IdempotencyKey"] = attempt.IdempotencyKey;
 

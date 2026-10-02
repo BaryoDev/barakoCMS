@@ -60,6 +60,22 @@ internal static class ActionParameters
         ITemplateVariableExtractor extractor, string actionType, IReadOnlyDictionary<string, string> parameters, Models.Content content) =>
         Resolve(actionType, parameters, (template, encoding) => extractor.ResolveVariables(template, content, encoding));
 
+    /// <summary>
+    /// The same, after reading what the parameters name beyond the entry: the site's time zone, the
+    /// author and the transition that fired. What a run goes through, since only a run knows its trigger.
+    /// </summary>
+    /// <remarks>
+    /// The read is kept by the extractor for this entry, so a Conditional among the actions resolves
+    /// its children against it without being handed anything more.
+    /// </remarks>
+    public static async Task<Dictionary<string, string>> ResolveAsync(
+        ITemplateVariableExtractor extractor, string actionType, IReadOnlyDictionary<string, string> parameters,
+        Models.Content content, string? triggerEvent, long eventSequence, CancellationToken ct)
+    {
+        await extractor.PrepareAsync(content, triggerEvent, eventSequence, parameters.Values, ct);
+        return Resolve(extractor, actionType, parameters, content);
+    }
+
     /// <summary>The same, without an extractor, for a caller that is not handed one.</summary>
     public static Dictionary<string, string> Resolve(
         string actionType, IReadOnlyDictionary<string, string> parameters, Models.Content content) =>

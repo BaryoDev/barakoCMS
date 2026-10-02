@@ -270,7 +270,8 @@ mistake, and a supplier notification is the thing that most needs not to fire on
 `{{createdAt}}` are also available (`GET /api/workflows/variables` lists them). The
 `Email` action needs `To`, `Subject` and `Body`. Values in `Body` are HTML-encoded, and values in
 `Subject` and `To` lose their line breaks: see "Values in a workflow email" in
-[configuring-email.md](configuring-email.md).
+[configuring-email.md](configuring-email.md). Dates, amounts, the author and the transition are
+under [Placeholders](#placeholders) below.
 
 A workflow on a transition the type does not declare is refused:
 
@@ -463,6 +464,56 @@ a field a stored transition names, one that changes what a stored transition req
 whose new lifecycle names a field the bundle's type does not declare. A stored transition that
 names a field the type does not have anyway is skipped for that name and logged at warning level,
 and the rest of what it requires still applies.
+
+## Placeholders
+
+A `{{...}}` in a workflow action parameter holds one of the shapes below. Anything else between
+the braces is sent as written.
+
+| Written as | Gives |
+| :--- | :--- |
+| `{{createdAt}}`, `{{data.Field}}` | The value as stored |
+| `{{createdAt \| date "MMM d, h:mm tt"}}` | A date in the site's time zone, in a .NET date format of at most 64 characters. With no format it is `yyyy-MM-dd HH:mm` |
+| `{{createdAt \| date "h:mm tt" "Asia/Manila"}}` | The same in the zone named, whatever the site says |
+| `{{data.Amount \| money}}` | Two decimals with thousands separators, after the site's currency code when it has one: `PHP 1,250.00` |
+| `{{data.Amount \| money "USD"}}` | The same after the code named |
+| `{{data.Name \| upper}}`, `{{data.Name \| lower}}` | The value in capitals or in small letters |
+| `{{duration createdAt transition.at}}` | The time between two dates: `8 hours 30 minutes`. Seconds are dropped |
+| `{{hours createdAt transition.at}}` | The same in hours to one decimal: `8.5` |
+| `{{createdBy.name}}`, `{{createdBy.email}}` | The username and address of whoever created the entry |
+| `{{transition.name}}`, `{{transition.at}}` | The transition that fired the workflow, and when |
+| `{{transition.by.name}}`, `{{transition.by.email}}` | Whoever made that transition |
+
+The time zone is the `TimeZone` field of the tenant's published `site` entry
+([site-settings.md](site-settings.md)) and the currency is its `Currency`. With no `site` entry or
+no `TimeZone`, dates are UTC. Month and day names, `AM` and `PM`, and the number separators are the
+invariant (English) ones on any server.
+
+A date is `createdAt`, `updatedAt`, `transition.at`, or a field holding an ISO 8601 date
+(`2026-09-14`, `2026-09-14T08:30Z`, `2026-09-14T08:30:00+08:00`). A time with no zone on it is read
+as UTC. An end before its start gives a duration with a minus sign in front.
+
+The `transition.` placeholders are filled only when the trigger is a transition. Where no user is
+behind a change (a scheduled publish, an import, an account since deleted), the name and the
+address are empty.
+
+What the engine cannot fill is sent as written: an unknown name or format, a `date` on a value that
+is not a date, a `money` on one that is not a number, a time zone the server does not know (the
+site's included), a format .NET refuses. Saving a workflow lists what can be told from the template
+alone in `warnings`, each with the parameter it is in, on the `POST /api/workflows` response and
+on `POST /api/workflows/validate`. A warning never refuses the save. A `data.` field is not
+checked, since whether an entry has it is only known when one arrives.
+
+A formatted value, a name and an address are encoded like any other value: HTML-encoded in an
+`Email` body, stripped of line breaks in its `Subject` and `To`.
+
+`POST /api/workflows/dry-run` does not look a user up. It fills the author and the transition with
+`sample.user` and `sample.user@example.com`, and takes the sample entry's `updatedAt` as the
+transition time.
+
+A request definition sent through a connector has its own placeholders
+([connectors.md](connectors.md)) and does not read these formats. Neither does the condition of a
+`Conditional`.
 
 ## What this page does not cover
 

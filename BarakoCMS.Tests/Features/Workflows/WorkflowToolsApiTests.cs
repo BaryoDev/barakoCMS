@@ -352,10 +352,14 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         response.IsSuccessStatusCode.Should().BeTrue();
         var result = await response.Content.ReadFromJsonAsync<TemplateVariableCollection>();
         result.Should().NotBeNull();
-        result!.SystemVariables.Should().HaveCount(5);
+        result!.SystemVariables.Should().HaveCount(11);
         result.SystemVariables.Should().Contain(v => v.Name == "{{id}}");
         result.SystemVariables.Should().Contain(v => v.Name == "{{contentType}}");
         result.SystemVariables.Should().Contain(v => v.Name == "{{status}}");
+        result.SystemVariables.Should().Contain(v => v.Name == "{{createdBy.email}}");
+        result.SystemVariables.Should().Contain(v => v.Name == "{{transition.by.name}}");
+        result.Formats.Should().HaveCount(6);
+        result.Formats.Should().Contain(v => v.Name == "{{hours createdAt updatedAt}}");
     }
 
     [Fact]

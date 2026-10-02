@@ -27,6 +27,20 @@ internal sealed class WorkflowResponse
     /// <summary>Whether the workflow fires. True for a workflow saved before it could be switched off.</summary>
     public bool Enabled { get; init; } = true;
 
+    /// <summary>
+    /// The placeholders the engine will send as written, on the response to a save. Empty on every
+    /// other response, which does not look.
+    /// </summary>
+    public List<ValidationError> Warnings { get; set; } = new();
+
+    /// <summary>The response to a save, carrying what the validation warned about.</summary>
+    public static WorkflowResponse Saved(WorkflowDefinition w, List<ValidationError> warnings)
+    {
+        var response = From(w);
+        response.Warnings = warnings;
+        return response;
+    }
+
     public static WorkflowResponse From(WorkflowDefinition w) => new()
     {
         Id = w.Id,

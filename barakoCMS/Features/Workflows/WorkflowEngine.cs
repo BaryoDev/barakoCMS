@@ -116,7 +116,8 @@ internal class WorkflowEngine(
 
                 // Resolve {{...}} template variables against the content BEFORE executing, so live
                 // runs behave like the dry-run preview.
-                resolvedParams = ActionParameters.Resolve(variableExtractor, action.Type, parameters, content);
+                resolvedParams = await ActionParameters.ResolveAsync(
+                    variableExtractor, action.Type, parameters, content, eventType, eventSequence: 0, ct);
 
                 // The same channel the runner uses, so an action reads the trigger the same way on
                 // either path.

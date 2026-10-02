@@ -37,7 +37,8 @@ half-filled theme renders rather than breaks.
 | `Tagline` | string | One line under the name |
 | `Url` | url | The site's canonical origin, from which absolute links are built |
 | `Locale` | string | For dates and `lang`, for example `en-PH` |
-| `Currency` | string | The three-letter code the `money` binding format formats against. Unset, a bound amount renders as a plain number |
+| `Currency` | string | The three-letter code the `money` binding format formats against. Unset, a bound amount renders as a plain number. A workflow's `money` format reads it too |
+| `TimeZone` | string | An IANA time zone such as `Asia/Manila`, which a workflow's `date` format shows dates in. Unset means UTC. A `site` type created from the blueprint before this field was in it does not have the field: add a string field named `TimeZone` to the type |
 | `Logo`, `FooterLogo`, `Favicon`, `ShareImage` | url | Uploaded files or any absolute URL |
 | `LogoAlt` | string | Alt text for the logo |
 | `Colors` | json | Named colours |

@@ -159,9 +159,85 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
             {
                 ValidateAction(workflow.Actions[i], i, result);
             }
+
+            var onTransition = WorkflowTriggers.Events(workflow).Any(WorkflowEvents.IsTransition);
+            for (int i = 0; i < workflow.Actions.Count; i++)
+            {
+                AddPlaceholderWarnings(workflow.Actions[i], $"actions[{i}]", onTransition, result, depth: 0);
+            }
         }
 
         return result;
+    }
+
+    /// <summary>How many placeholder warnings one validation lists. The last entry says when there are more.</summary>
+    internal const int MaxPlaceholderWarnings = 50;
+
+    /// <summary>How far into nested Conditional branches the placeholders are read.</summary>
+    internal const int MaxWarningDepth = 5;
+
+    /// <summary>
+    /// Lists every placeholder of an action that the engine will send as written. Never an error:
+    /// a template has always been allowed to hold text the engine does not know.
+    /// </summary>
+    /// <remarks>
+    /// A Conditional's condition is skipped, since the action reads it itself, and its branches are
+    /// read as the child actions they hold. A branch that is not such a list is passed over here;
+    /// the response already names it as unreadable.
+    /// </remarks>
+    private static void AddPlaceholderWarnings(
+        WorkflowAction action, string field, bool onTransition, WorkflowValidationResult result, int depth)
+    {
+        if (action.Parameters is null) return;
+
+        foreach (var (name, template) in action.Parameters)
+        {
+            if (result.Warnings.Count > MaxPlaceholderWarnings) return;
+
+            if (ActionParameters.IsResolvedByTheAction(action.Type ?? string.Empty, name))
+            {
+                if (depth < MaxWarningDepth && !name.Equals("Condition", StringComparison.OrdinalIgnoreCase))
+                {
+                    var children = ChildActions(template);
+                    for (var i = 0; i < children.Count; i++)
+                    {
+                        AddPlaceholderWarnings(children[i], $"{field}.parameters.{name}[{i}]", onTransition, result, depth + 1);
+                    }
+                }
+
+                continue;
+            }
+
+            foreach (var problem in TemplateExpression.Problems(template, onTransition))
+            {
+                if (result.Warnings.Count == MaxPlaceholderWarnings)
+                {
+                    result.Warnings.Add(new ValidationError
+                    {
+                        Field = "actions",
+                        Message = $"More than {MaxPlaceholderWarnings} placeholders will be sent as written. Only the first {MaxPlaceholderWarnings} are listed"
+                    });
+                    return;
+                }
+
+                result.Warnings.Add(new ValidationError { Field = $"{field}.parameters.{name}", Message = problem });
+            }
+        }
+    }
+
+    private static List<WorkflowAction> ChildActions(string? branch)
+    {
+        if (string.IsNullOrWhiteSpace(branch)) return [];
+
+        try
+        {
+            var children = System.Text.Json.JsonSerializer.Deserialize<List<WorkflowAction>>(branch) ?? [];
+            return children.Where(child => child is not null).ToList();
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return [];
+        }
     }
 
     /// <summary>

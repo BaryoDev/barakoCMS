@@ -16,6 +16,12 @@ public class WorkflowValidationResult
     public List<ValidationError> Errors { get; set; } = new();
 
     /// <summary>
+    /// What does not stop the workflow being saved but will not do what it reads like: a placeholder
+    /// or a format the engine does not know, which it sends as written.
+    /// </summary>
+    public List<ValidationError> Warnings { get; set; } = new();
+
+    /// <summary>
     /// The trigger spelled the way the content type declares it, when the trigger names a lifecycle
     /// transition. Null otherwise.
     /// </summary>
