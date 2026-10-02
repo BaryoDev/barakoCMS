@@ -60,6 +60,22 @@ public class MetaDescribeTests
         }
     }
 
+    private static WebApplicationFactory<Program>? _brokenRegistry;
+
+    // The registry is what throws when a registered action cannot be constructed. It is replaced,
+    // and no throwing action is registered, because a derived host runs a workflow runner against
+    // the shared database and a host that cannot build its actions would fail other classes' runs.
+    private WebApplicationFactory<Program> BrokenRegistryHost()
+    {
+        lock (Gate)
+        {
+            return _brokenRegistry ??= _factory.WithWebHostBuilder(builder =>
+                builder.ConfigureServices(services =>
+                    services.AddScoped<IWorkflowPluginRegistry>(_ =>
+                        throw new InvalidOperationException("an action could not be constructed"))));
+        }
+    }
+
     [Fact]
     public async Task An_anonymous_caller_is_refused()
     {
@@ -115,7 +131,7 @@ public class MetaDescribeTests
 
         foreach (var type in described)
         {
-            var listed = Strings(type, "rules");
+            var listed = Strings(type, "ruleNames");
             listedSomewhere.UnionWith(listed);
 
             foreach (var rule in FieldRules.Names)
@@ -291,7 +307,7 @@ public class MetaDescribeTests
         foreach (var type in fieldTypes)
         {
             type.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(
-                ["name", "aliases", "editorHint", "rules"]);
+                ["name", "aliases", "editorHint", "ruleNames"]);
         }
 
         var rules = document.GetProperty("rules").EnumerateArray().ToList();
@@ -306,17 +322,98 @@ public class MetaDescribeTests
         document.GetProperty("modules").GetArrayLength().Should().Be(2);
     }
 
+    /// <summary>
+    /// On the answer and on a refusal alike, so the header is not something only the handler sets.
+    /// </summary>
     [Fact]
-    public async Task The_document_is_not_kept_by_a_cache()
+    public async Task The_document_is_not_kept_by_a_cache_whether_it_is_served_or_refused()
     {
-        var client = await CallerHolding();
+        var served = await (await CallerHolding()).GetAsync(Route, TestContext.Current.CancellationToken);
+        var refused = await _factory.CreateClient().GetAsync(Route, TestContext.Current.CancellationToken);
 
-        var response = await client.GetAsync(Route, TestContext.Current.CancellationToken);
+        served.StatusCode.Should().Be(HttpStatusCode.OK);
+        refused.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        response.Headers.CacheControl.Should().NotBeNull();
-        response.Headers.CacheControl!.NoStore.Should().BeTrue(
-            "the body differs by what the caller holds, and a grant can be taken away");
+        foreach (var response in new[] { served, refused })
+        {
+            response.Headers.CacheControl.Should().NotBeNull("{0} must say how it may be cached", response.StatusCode);
+            response.Headers.CacheControl!.NoStore.Should().BeTrue(
+                "the body differs by what the caller holds, and a grant can be taken away");
+            response.Headers.Pragma.Select(p => p.Name).Should().Contain("no-cache",
+                "HTTP/1.0 caches read Pragma, not Cache-Control");
+        }
+    }
+
+    /// <summary>
+    /// The control. <c>/api/meta</c> is a prefix of this route and is the same for every caller, so
+    /// marking the describe document must not start marking it.
+    /// </summary>
+    [Fact]
+    public async Task The_meta_endpoint_beside_it_keeps_the_headers_it_had()
+    {
+        var refused = await _factory.CreateClient().GetAsync("/api/meta", TestContext.Current.CancellationToken);
+        var served = await (await CallerHolding()).GetAsync("/api/meta", TestContext.Current.CancellationToken);
+
+        refused.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        served.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        foreach (var response in new[] { served, refused })
+        {
+            (response.Headers.CacheControl?.NoStore ?? false).Should().BeFalse();
+            response.Headers.Pragma.Should().BeEmpty();
+        }
+    }
+
+    /// <summary>
+    /// A registry that cannot be built costs the one part that reads it, not the document.
+    /// </summary>
+    [Fact]
+    public async Task When_the_action_registry_cannot_be_read_the_part_is_null_and_the_rest_still_answers()
+    {
+        var document = await DescribeAsync(
+            await CallerHolding(SystemCapabilities.ManageWorkflows, SystemCapabilities.ViewModules), BrokenRegistryHost());
+
+        document.GetProperty("fieldTypes").GetArrayLength().Should().Be(FieldTypeRegistry.Types.Count);
+        document.GetProperty("rules").GetArrayLength().Should().Be(FieldRules.Names.Count);
+        Withheld(document, "workflowActions").Should().BeTrue("the caller may read them and the registry threw");
+        document.GetProperty("modules").ValueKind.Should().Be(JsonValueKind.Array,
+            "a part that comes after the failed one is still answered");
+
+        var onTheSharedHost = await DescribeAsync(await CallerHolding(SystemCapabilities.ManageWorkflows));
+        onTheSharedHost.GetProperty("workflowActions").GetArrayLength().Should().BeGreaterThan(0,
+            "the control: the same kind of caller is shown the actions where the registry can be read");
+    }
+
+    /// <summary>
+    /// The entries of these two parts are the response types of other endpoints, so their property
+    /// names are pinned here as well: a rename in either type is a break to this document too.
+    /// </summary>
+    [Fact]
+    public async Task The_names_inside_a_capability_and_a_workflow_action_are_pinned()
+    {
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer", await _factory.StoredUserTokenAsync("SuperAdmin"));
+
+        var document = await DescribeAsync(client);
+
+        var capabilities = document.GetProperty("capabilities").EnumerateArray().ToList();
+        capabilities.Should().NotBeEmpty();
+        foreach (var capability in capabilities)
+        {
+            capability.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(["name", "source", "note"]);
+        }
+
+        var actions = document.GetProperty("workflowActions").EnumerateArray().ToList();
+        actions.Should().NotBeEmpty();
+        foreach (var action in actions)
+        {
+            action.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(
+            [
+                "type", "description", "requiredParameters", "optionalParameters", "secretParameters",
+                "group", "exampleConfiguration",
+            ]);
+        }
     }
 
     /// <summary>

@@ -16,12 +16,18 @@ namespace barakoCMS.Features.Monitoring.Describe;
 /// <c>GET /api/capabilities</c>, <c>GET /api/workflows/actions</c> and <c>GET /api/modules</c>
 /// already return, so each is left out for a caller those endpoints would refuse.
 ///
-/// Every list is read from memory. The only database read is the capability lookup for the three
-/// gated parts, at most three per request, answered by the permission cache after the first.
+/// Every list is read from memory. The database is read only to answer the three capability
+/// checks: each is a user load, a membership lookup and a role query the first time, and is then
+/// answered by the permission cache, which keys on the capability. So a cold request is three
+/// checks of up to three queries each, and a warm one is none.
+///
+/// The response is not kept by a cache, whatever its status: the route is one of
+/// <see cref="barakoCMS.Infrastructure.Security.SecurityHeaders.IsNoStorePath"/>'s.
 /// </remarks>
 internal sealed class Endpoint(
     CapabilityVocabulary vocabulary,
-    ModuleCatalogue catalogue) : EndpointWithoutRequest<DescribeResponse>
+    ModuleCatalogue catalogue,
+    ILogger<Endpoint> logger) : EndpointWithoutRequest<DescribeResponse>
 {
     public override void Configure()
     {
@@ -34,10 +40,6 @@ internal sealed class Endpoint(
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        // The body differs by what the caller holds, and a grant can be taken away, so no cache
-        // keeps a copy to hand to the next caller or to the same one after a revocation.
-        HttpContext.Response.Headers.CacheControl = "no-store";
-
         var document = new DescribeResponse
         {
             ApiContractVersion = barakoCMS.Features.Monitoring.Meta.ApiContract.Version,
@@ -52,10 +54,7 @@ internal sealed class Endpoint(
 
         if (await CapabilityGateProcessor.HoldsAsync(HttpContext, DescribeDocument.WorkflowActionsGate, ct))
         {
-            // Resolved here and not injected: building the registry constructs every registered
-            // action, which a caller who is not shown them should not cost.
-            var registry = HttpContext.RequestServices.GetRequiredService<IWorkflowPluginRegistry>();
-            document.WorkflowActions = DescribeDocument.WorkflowActions(registry.GetAllActions());
+            document.WorkflowActions = ReadWorkflowActions();
         }
 
         if (await CapabilityGateProcessor.HoldsAsync(HttpContext, DescribeDocument.ModulesGate, ct))
@@ -64,5 +63,32 @@ internal sealed class Endpoint(
         }
 
         await Send.OkAsync(document, ct);
+    }
+
+    /// <summary>
+    /// The registered actions, or null when the registry cannot be built.
+    /// </summary>
+    /// <remarks>
+    /// Resolved here and not injected. Building the registry constructs every registered action, so
+    /// a caller who is not shown the actions does not pay for it, and one module action whose
+    /// constructor throws costs this part of the document and not the field types beside it.
+    ///
+    /// Only the exception's type is logged. Its message is whatever a module's constructor chose to
+    /// put there, which can be a setting or a connection detail.
+    /// </remarks>
+    private IReadOnlyList<barakoCMS.Models.WorkflowActionMetadata>? ReadWorkflowActions()
+    {
+        try
+        {
+            var registry = HttpContext.RequestServices.GetRequiredService<IWorkflowPluginRegistry>();
+            return DescribeDocument.WorkflowActions(registry.GetAllActions());
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(
+                "The describe document left out workflowActions because the action registry could not be read: {ExceptionType}",
+                ex.GetType().Name);
+            return null;
+        }
     }
 }

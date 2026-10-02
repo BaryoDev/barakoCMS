@@ -397,7 +397,7 @@ same registries the API checks requests against, so a client does not keep its o
 {
   "apiContractVersion": 6,
   "fieldTypes": [
-    { "name": "int", "aliases": ["integer", "number"], "editorHint": "number", "rules": ["min", "max", "requiredWhen"] }
+    { "name": "int", "aliases": ["integer", "number"], "editorHint": "number", "ruleNames": ["min", "max", "requiredWhen"] }
   ],
   "rules": [ { "name": "pattern", "aliases": ["regex"] } ],
   "capabilities": [ { "name": "manage_roles", "source": "core", "note": null } ],
@@ -408,7 +408,7 @@ same registries the API checks requests against, so a client does not keep its o
 
 `fieldTypes` and `rules` go to every signed-in caller. The other three repeat what an endpoint with
 a gate of its own already lists, so each is `null` for a caller that endpoint would refuse, and a
-list, possibly empty, for one it would serve:
+list, possibly empty, for one it would serve. So `null` means withheld, and an empty list means none:
 
 | Part | Same as | Needs |
 |---|---|---|
@@ -418,8 +418,17 @@ list, possibly empty, for one it would serve:
 
 A workflow action carries the fields `GET /api/workflows/actions` returns for it. A module the
 enabled list left off is not in `modules`, and since it serves no endpoint and registers no action
-it adds nothing to the other two either. The response is sent `Cache-Control: no-store`, because it
-differs by what the caller holds. An API key cannot read it: keys are confined to the content API.
+it adds nothing to the other two either.
+
+`workflowActions` is also `null` when the action registry cannot be read, which is what happens when
+a registered action fails to construct. The rest of the document still answers 200, and the server
+logs the type of the exception. So for that one part `null` means withheld or unavailable.
+
+Under a field type, `ruleNames` holds the `name` of entries in the top-level `rules`.
+
+Every response on this route, a refusal included, is sent `Cache-Control: no-store` and
+`Pragma: no-cache`, because the body differs by what the caller holds. An API key cannot read it:
+keys are confined to the content API and get 403.
 
 ### Unknown names on a role write
 

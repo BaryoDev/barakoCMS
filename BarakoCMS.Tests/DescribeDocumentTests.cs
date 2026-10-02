@@ -37,7 +37,7 @@ public class DescribeDocumentTests
         added.Name.Should().Be("colour");
         added.EditorHint.Should().Be("swatch");
         added.Aliases.Should().BeEmpty();
-        added.Rules.Should().Equal([FieldRules.RequiredWhen],
+        added.RuleNames.Should().Equal([FieldRules.RequiredWhen],
             "a type the number, date and text checks do not know takes only the rule every type takes");
     }
 
@@ -59,11 +59,11 @@ public class DescribeDocumentTests
 
         described.Should().HaveCount(FieldTypeRegistry.Types.Count);
         string[] bounds = [FieldRules.Min, FieldRules.Max, FieldRules.RequiredWhen];
-        described.Single(t => t.Name == "money").Rules.Should().Equal(bounds);
-        described.Single(t => t.Name == "date").Rules.Should().Equal(bounds);
-        described.Single(t => t.Name == "slug").Rules.Should().Equal(
+        described.Single(t => t.Name == "money").RuleNames.Should().Equal(bounds);
+        described.Single(t => t.Name == "date").RuleNames.Should().Equal(bounds);
+        described.Single(t => t.Name == "slug").RuleNames.Should().Equal(
             [FieldRules.MinLength, FieldRules.MaxLength, FieldRules.Pattern, FieldRules.RequiredWhen]);
-        described.Single(t => t.Name == "geopoint").Rules.Should().Equal([FieldRules.RequiredWhen]);
+        described.Single(t => t.Name == "geopoint").RuleNames.Should().Equal([FieldRules.RequiredWhen]);
     }
 
     [Fact]

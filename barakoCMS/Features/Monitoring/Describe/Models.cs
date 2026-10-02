@@ -15,7 +15,8 @@ internal sealed class DescribeResponse
 
     // Each of the three below is null for a caller who would be refused by the endpoint that
     // already lists it, and a list, possibly empty, for one who would not. Null is "not yours to
-    // see", empty is "none", and a console has to be able to tell them apart.
+    // see" (or, for workflowActions, that the registry could not be read), empty is "none", and a
+    // console has to be able to tell them apart.
 
     /// <summary>What <c>GET /api/capabilities</c> lists, to a caller who may read that.</summary>
     public IReadOnlyList<KnownCapability>? Capabilities { get; set; }
@@ -30,12 +31,15 @@ internal sealed class DescribeResponse
 /// <param name="Name">The canonical name, as a content type's field declares it.</param>
 /// <param name="Aliases">Other names accepted for the same type.</param>
 /// <param name="EditorHint">The input control a console should offer for it.</param>
-/// <param name="Rules">The validation rules a field of this type may declare, by name.</param>
+/// <param name="RuleNames">
+/// The validation rules a field of this type may declare, each the <c>name</c> of an entry in the
+/// document's <c>rules</c>.
+/// </param>
 internal sealed record DescribedFieldType(
     string Name,
     IReadOnlyList<string> Aliases,
     string EditorHint,
-    IReadOnlyList<string> Rules);
+    IReadOnlyList<string> RuleNames);
 
 /// <param name="Name">The key under a field's <c>validationRules</c>.</param>
 /// <param name="Aliases">Other keys read as the same rule.</param>
