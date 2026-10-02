@@ -189,7 +189,9 @@ internal sealed class Endpoint(
                 continue;
             }
 
-            data[field.Name] = value!;
+            // An input posts text. Where the field declares a currency, plain decimal text is stored
+            // as the number it spells; anything else stays text and the entry validator refuses it.
+            data[field.Name] = FieldTypeRegistry.TryReadAmountText(field, value, out var amount) ? amount : value!;
         }
 
         return data;

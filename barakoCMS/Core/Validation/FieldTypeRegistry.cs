@@ -75,6 +75,9 @@ public static class FieldTypeRegistry
         new("markdown", "markdown", IsString),
         new("time",     "time",     v => AsString(v) is { } s && IsTime(s)),
         new("json",     "json",     IsJson),
+        // A number, like decimal. A field that declares a currency is also held to that currency's
+        // decimal places, which needs the definition, so ContentValidatorService checks it through
+        // MoneyFields.
         new("money",    "money",    IsDecimal),
 
         // A pointer to another content item, Contentful and Sanity style rather than a real foreign
@@ -164,6 +167,27 @@ public static class FieldTypeRegistry
         type is not null
         && Lookup.TryGetValue(type, out var spec)
         && NumericCanonical.Contains(spec.Name);
+
+    /// <summary>
+    /// Reads plain decimal text as the amount of a money field that declares a currency, for a
+    /// writer that only has text, such as a spreadsheet import. False for any other field, and for
+    /// text that is not an optional sign, digits and at most one point.
+    /// </summary>
+    /// <remarks>
+    /// The entry validator refuses text in such a field, so a module whose input is text converts
+    /// with this first and stores a number. Whether the amount fits the currency's decimal places
+    /// is still the validator's to say.
+    /// </remarks>
+    public static bool TryReadAmountText(barakoCMS.Models.FieldDefinition field, object? value, out decimal amount) =>
+        MoneyFields.TryReadAmountText(field, value, out amount);
+
+    /// <summary>
+    /// The currency a money field's amounts are in and the decimal places an entry write holds them
+    /// to, or false for a field that declares none. The scale is the field's own when it declares
+    /// one and the currency's minor unit otherwise, so a caller needs no currency table.
+    /// </summary>
+    public static bool TryGetCurrency(barakoCMS.Models.FieldDefinition field, out string currency, out int scale) =>
+        MoneyFields.TryResolve(field, out currency, out scale);
 
     /// <summary>The admin editor hint for a type, or <c>text</c> if unknown.</summary>
     public static string EditorHintFor(string type) =>
