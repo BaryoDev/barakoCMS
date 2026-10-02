@@ -33,7 +33,7 @@ internal class Endpoint(
         {
             await Send.ResponseAsync(new Response
             {
-                Message = "Cannot delete system roles (SuperAdmin, Admin, HR, User)."
+                Message = "Cannot delete a system role: SuperAdmin, Admin, User, or the HR role the seeder created."
             }, 403, ct);
             return;
         }

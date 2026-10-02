@@ -610,6 +610,10 @@ above are the same, and these are added:
 - **The whole suite once**, `dotnet test BarakoCMS.Tests/BarakoCMS.Tests.csproj`, because your module
   is now discovered by every test that starts a host.
 
+Glossary adds no middleware. A module that needs some (a response header, a throttle, a cache)
+implements `ConfigureApp`, and [Middleware](../MODULES.md#middleware) says where in the request
+pipeline it runs and what it can rely on there.
+
 A module that ships from its own repository instead starts from the `dotnet new barakocms-module`
 template. See [Writing a module outside this repository](../MODULES.md#writing-a-module-outside-this-repository).
 

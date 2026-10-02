@@ -156,14 +156,46 @@ public class FieldDefinition
     /// <summary>For a <c>choice</c> field, whether an entry holds a list of options rather than one.</summary>
     public bool Multiple { get; set; }
 
+    /// <summary>
+    /// For a <c>money</c> field, the ISO 4217 code every amount in it is in, for example <c>USD</c>.
+    /// </summary>
+    /// <remarks>
+    /// Null, the default, leaves the field a plain number, which is what every money field stored
+    /// before this existed is. Set, an entry write refuses an amount with more decimal places than
+    /// <see cref="Scale"/> allows, and refuses text or a number a decimal cannot hold exactly.
+    /// Nothing is rounded. The amount is stored and returned as a plain JSON number either way, so
+    /// the currency is read from here and not from the entry. Three capital letters, and refused on
+    /// a field of any other type.
+    /// </remarks>
+    public string? Currency { get; set; }
+
+    /// <summary>
+    /// For a <c>money</c> field with a <see cref="Currency"/>, the most decimal places an amount may
+    /// carry, from 0 to 8.
+    /// </summary>
+    /// <remarks>
+    /// Null takes the currency's own minor unit: 2 for USD, 0 for JPY, 3 for KWD. Required for a
+    /// code the built-in list does not hold, and refused without a currency.
+    /// </remarks>
+    public int? Scale { get; set; }
+
     public bool IsRequired { get; set; }
     public object? DefaultValue { get; set; }
     public Dictionary<string, object> ValidationRules { get; set; } = new(); // min, max, regex, etc.
 
     // Field-level sensitivity. When not Public, the field is masked for callers who are not
-    // SuperAdmin and not in VisibleToRoles (falling back to a default role policy when that list
-    // is empty). See SensitivityService.
+    // SuperAdmin and hold none of the roles in VisibleToRoles. When that list is empty the field
+    // is open to a role holding view_sensitive or view_hidden, whichever its level asks for.
+    // See SensitivityService.
     public SensitivityLevel Sensitivity { get; set; } = SensitivityLevel.Public;
+
+    /// <summary>
+    /// The roles that may see the field while it is not Public, as role ids written as text.
+    /// </summary>
+    /// <remarks>
+    /// An entry that is not an id is a role name: what a definition stored before ids were holds,
+    /// and what a write keeps for a name no role carries. It matches a role of exactly that name.
+    /// </remarks>
     public List<string> VisibleToRoles { get; set; } = new();
     public FieldMask Mask { get; set; } = FieldMask.Default;
 }

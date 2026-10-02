@@ -27,6 +27,24 @@ internal sealed class WorkflowResponse
     /// <summary>Whether the workflow fires. True for a workflow saved before it could be switched off.</summary>
     public bool Enabled { get; init; } = true;
 
+    /// <summary>
+    /// The placeholder warnings, on the response to a save: an array, empty when there are none.
+    /// </summary>
+    /// <remarks>
+    /// Left out of every response that did not look (the list, and switching a workflow on or off),
+    /// so an empty array always means the templates were checked and are clean.
+    /// </remarks>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public List<ValidationError>? Warnings { get; set; }
+
+    /// <summary>The response to a save, carrying what the validation warned about.</summary>
+    public static WorkflowResponse Saved(WorkflowDefinition w, List<ValidationError> warnings)
+    {
+        var response = From(w);
+        response.Warnings = warnings;
+        return response;
+    }
+
     public static WorkflowResponse From(WorkflowDefinition w) => new()
     {
         Id = w.Id,
@@ -59,6 +77,9 @@ internal sealed class WorkflowActionResponse
     public Dictionary<string, string> Parameters { get; init; } = new();
     public bool SecretSet { get; init; }
 
+    /// <summary>Continue or Halt. Continue for an action saved without the setting, or with null.</summary>
+    public WorkflowFailurePolicy OnFailure { get; init; }
+
     /// <summary>
     /// The branches of a Conditional left out of <see cref="Parameters"/> because they are not a
     /// JSON array of actions the Conditional can run (see
@@ -75,6 +96,7 @@ internal sealed class WorkflowActionResponse
             Type = a.Type,
             Parameters = parameters,
             SecretSet = WebhookSigning.HasSecret(a.Parameters),
+            OnFailure = a.OnFailure ?? WorkflowFailurePolicy.Continue,
             UnreadableBranches = unreadableBranches,
         };
     }

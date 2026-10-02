@@ -116,6 +116,13 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
 
             var match = StoredMatch(existing, type.Name);
 
+            // A bundle names roles and a definition is stored with their ids. Both sides are
+            // brought to ids before they are compared, so a bundle naming the roles a stored field
+            // lists is not read as a change to who may see it.
+            await barakoCMS.Core.RoleReferences.ToIdsAsync(_session, type.Fields, ct);
+            if (match is not null)
+                await barakoCMS.Core.RoleReferences.ToIdsAsync(_session, match.Fields ?? [], ct);
+
             foreach (var error in await TypeErrorsAsync(type, match, maxFields, ct))
                 AddError(new ValidationFailure($"contentTypes[{i}]", $"Content type '{Shorten(type.Name)}': {error}"));
         }
@@ -414,6 +421,26 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
 
         errors.AddRange(SensitivityChanges(type, stored));
         errors.AddRange(DroppedTransitionFields(type, stored));
+
+        // A bundle may not change the currency or scale a stored field declares. That goes through
+        // PUT /api/content-types/{name}/fields/{field}/currency, which counts the entries holding an
+        // amount the new scale refuses, or stored under another code. A bundle exported before the
+        // field declared a currency carries none, so importing it would switch the rule off with
+        // nothing said. A field the stored type does not have is new and takes what the bundle
+        // declares.
+        foreach (var current in stored.Fields)
+        {
+            var incoming = type.Fields.FirstOrDefault(f => f.Name.Equals(current.Name, StringComparison.OrdinalIgnoreCase));
+            if (incoming is null
+                || (string.Equals(incoming.Currency, current.Currency, StringComparison.Ordinal) && incoming.Scale == current.Scale))
+            {
+                continue;
+            }
+
+            errors.Add($"field '{current.Name}' has a different currency or scale in the bundle. An import "
+                       + "does not change a stored field's currency; use "
+                       + $"PUT /api/content-types/{stored.Name}/fields/{current.Name}/currency.");
+        }
 
         var entries = await EntryCountAsync(stored, ct);
 

@@ -70,6 +70,30 @@ set `Swagger__Enabled=true` on the `app` service, or from the console. The conso
 [barakoBrew](https://github.com/BaryoDev/barakoBrew): deploy it from its own repository, point it at
 `https://$DOMAIN_API`, and put its origin in `FRONTEND_ORIGINS`.
 
+## Watching workflows
+
+Workflow actions run in the background, so a runner that has stopped changes nothing a request can
+see. The API publishes when the runner last completed a pass, how many runs are due and how old the
+oldest is, and how each action attempt ended, on `/metrics`. Set `Metrics__ScrapeKey` on the `app`
+service to switch the endpoint on, and see "Watching the runner" in `docs/workflow-runs.md` for the
+metric names, what each alert fires on, and the forms for more than one node. On a single VM, the
+four to start with:
+
+```
+time() - barakocms_workflow_runner_last_pass_timestamp_seconds > 600
+absent(barakocms_workflow_runner_last_pass_timestamp_seconds)
+barakocms_workflow_oldest_due_run_age_seconds > 900
+  and on (instance) (time() - barakocms_workflow_backlog_measured_timestamp_seconds < 120)
+absent(barakocms_workflow_backlog_measured_timestamp_seconds)
+```
+
+In order: the runner has not completed a pass in ten minutes, it has never completed one, work has
+been due for fifteen minutes on a measurement that is fresh, and the backlog has never been
+measured. The first says nothing on a runner that never completed a pass, and the third says
+nothing while the backlog was never measured, which is why each has its `absent` after it. The backlog is
+measured every 30 seconds by default (`Workflows__BacklogIntervalSeconds`, 0 switches it off, and
+the last two alerts go with it).
+
 ## Pointing a frontend at it
 
 Your own frontend calls the delivery API directly:
@@ -289,11 +313,14 @@ share one global bucket. Give it a key instead:
 
 A request with the header `X-Barako-Renderer-Key` equal to the key is counted in one renderer bucket
 instead of its IP's bucket. A missing or wrong key is an ordinary request, counted against its IP. The
-key only affects the global limit: `Auth`, `Batch` and `Registration` stay per IP with or without it.
+key moves a request to the renderer bucket of the global limit, and such a request is not counted by
+the delivery limit below when one is set. `Auth`, `Batch` and `Registration` stay per IP with or
+without it.
 The key is compared in constant time and never logged. Keep it in `.env` like the JWT key, and set the
 same value in barakoPress (`CMS_RENDERER_KEY`).
 
-Share link redemption (`POST /api/public/site/share-links/redeem`) is limited per tenant and per
+Share link redemption (`POST /api/public/site/share-links/redeem`, and `.../open` for a link to one
+entry or page, which shares the same budget) is limited per tenant and per
 visitor by `RateLimiting__SiteShare__*` (10 a minute by default). barakoPress redeems server side,
 so every visitor arrives from its IP. A redeem carrying the renderer key may also send
 `X-Barako-Visitor-IP` with the visitor's address, and that address is then the visitor. The header
@@ -307,6 +334,75 @@ proxy's forwarded header widens who can choose the client IP; the key is a secre
 holds.
 
 `RateLimitSetupTests` covers the defaults, the startup failures, the renderer bucket and a wrong key.
+
+### Limits that are off until you set them
+
+Three more limits have no default. Unset, nothing changes: the routes they cover stay on the limits
+in the table above. Each is on once its `PermitLimit` is set. `WindowSeconds` defaults to `60` and
+`QueueLimit` to `0`. Setting `WindowSeconds` or `QueueLimit` without `PermitLimit` stops the host at
+startup, since it would read as a limit that is on while it is off.
+
+| Section | Counts | Applies to |
+| --- | --- | --- |
+| `RateLimiting:Delivery` | per client IP | `GET /api/public/{type}`, its `/search`, `/{slug}` and `/feed.xml`, and `/api/public/sitemap.xml` |
+| `RateLimiting:ApiKey` | per API key | every request an API key authenticated, on any route |
+| `RateLimiting:Policies:{name}` | per client IP, user or API key | the routes that name the policy |
+
+```yaml
+- RateLimiting__Delivery__PermitLimit=300
+- RateLimiting__ApiKey__PermitLimit=1000
+- RateLimiting__ApiKey__WindowSeconds=3600
+```
+
+All of these are counted on top of the global limit, never instead of it. A delivery limit above
+the global one (100 a minute per client IP by default) therefore never refuses anything until
+`RateLimiting:Global` is raised too. A request carrying the renderer key is not counted by the
+delivery limit. It stays in the renderer bucket.
+
+The API key quota is counted against the key the API verified, not against what the request
+presents, so it follows the key across addresses and a made-up key opens no bucket: that request is
+not authenticated and is counted against its IP like any other. A signed-in session is not on the
+quota. One number applies to every key; a key cannot be given its own.
+
+#### Named policies
+
+A policy is a name, numbers and what it counts against:
+
+```yaml
+- RateLimiting__Policies__lookup__PermitLimit=20
+- RateLimiting__Policies__lookup__WindowSeconds=60
+- RateLimiting__Policies__lookup__Partition=Ip
+```
+
+A route in a module or in the host names it in code, `RequireRateLimiting("lookup")`, so
+its numbers can change without a build. `Partition` is `Ip` (the default), `User` or `ApiKey`. With
+`User` or `ApiKey` a caller who has no such id, an anonymous one for instance, is counted in one
+bucket shared by every such caller.
+
+A name is up to 64 letters, digits, dashes, underscores and dots, and must be spelled on the route
+exactly as in configuration, case included. A name with a dash or a dot cannot be exported as an
+environment variable from a POSIX shell, so keep to letters, digits and underscores if that is how
+you set it.
+
+The core's own names are reserved: `auth`, `telemetry`, `registration`, `site-share`, `logout` and,
+new in this release, `delivery`. They cannot be defined under `Policies`; the sections above set
+them. A host or a module that registers its own policy named `delivery` in code stops at startup
+with a message saying to rename it. A name under `Policies` that a module already registers in code
+(`forms`, with the Forms module on) stops the host the same way, naming the setting. Any route
+mapped by the time the API is set up that names a policy nobody defined stops the host at startup
+with the route and the policy named.
+
+#### What these counters are
+
+Every limit on this page is counted in the memory of one API process. With two instances behind a
+load balancer a client can spend each limit twice, and a restart starts every count again. A bucket
+is dropped about ten seconds after its window has passed with no request, so the number held at once
+is the number of distinct clients, users or keys seen in the last window, not all that were ever
+seen. There is no fixed cap on that number.
+
+`NamedRateLimitPolicyTests` covers the defaults, the settings that stop the host, a configured
+policy, a forged `X-Forwarded-For`, the delivery limit and the key quota. `RateLimitStartupCheckTests`
+covers a route naming a missing policy and the reserved names, on a real host.
 
 ## Content type field limit
 

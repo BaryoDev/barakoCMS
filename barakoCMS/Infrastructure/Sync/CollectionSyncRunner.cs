@@ -408,6 +408,12 @@ internal sealed class CollectionSyncRunner(
                 return null;
             }
 
+            if (barakoCMS.Core.Validation.MoneyFields.ValueError(definition, value!) is not null)
+            {
+                reason = $"'{path}' has more decimal places than the money field '{field}' takes";
+                return null;
+            }
+
             mapped[definition.Name] = value!;
 
             if (string.Equals(field, sync.KeyField, StringComparison.OrdinalIgnoreCase))
@@ -433,6 +439,12 @@ internal sealed class CollectionSyncRunner(
                     if (!TryConvert(text, definition.Type, out var value))
                     {
                         reason = $"the rule for '{field}' made a value that does not convert to the {definition.Type} field";
+                        return null;
+                    }
+
+                    if (barakoCMS.Core.Validation.MoneyFields.ValueError(definition, value!) is not null)
+                    {
+                        reason = $"the rule for '{field}' made a value with more decimal places than the money field takes";
                         return null;
                     }
 

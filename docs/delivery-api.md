@@ -23,12 +23,18 @@ key on the header, but it is not a CDN setting on its own: see the caching secti
 `docs/deploy-in-production.md` for what the CDN itself has to be configured to do.
 
 **Preview tokens are minted through the API, not the admin.** `POST /api/preview` returns a token
-bound to a tenant, a content type and a slug. It is authenticated, and the caller also needs `read`
+for one entry in the resolved tenant. It is authenticated, and the caller also needs `read`
 on the entry being previewed, so minting a token is not a way around the permissions that guard
 reading it normally. There is no button for it in barakoCMS itself, so a front end that wants preview
 links calls that endpoint from its own code with a token that satisfies both. Deferred deliberately
 rather than overlooked (#306), and recorded here so nobody goes looking for a screen that does not
 exist.
+
+The route is deprecated and its 200 says so in a `Deprecation` header. The token is the key of an
+entry share link that lasts 30 minutes: stored hashed, capped at 20 live per entry, deleted with
+its entry. A link made with `POST /api/contents/{id}/share-links` replaces it; that one is
+listed, audited and revocable, and its key is posted in a body rather than put in a URL. See
+"Links to one entry or one page" and "Preview tokens" in [site-settings.md](site-settings.md).
 
 ## Routes
 
@@ -120,10 +126,18 @@ Operators:
 At most **five filters** per request. A sixth returns 400. The cap is there because arbitrary filter
 combinations against a JSONB column on an anonymous endpoint is a denial-of-service surface.
 
+A filter value is at most **256 characters**. A longer one returns 400 instead of being trimmed,
+because a trimmed value matches entries the caller did not ask for.
+
 Only fields the type marks `Public` can be filtered. Naming any other field returns 400 rather than
 being ignored, because filtering on a field you cannot read is an oracle: the value never appears in
 a response, but which entries come back reveals it. A silently ignored filter is worse still, since
 the caller cannot tell "no filter applied" from "no matches".
+
+A field name is matched without regard to case, in the request and in the stored entry. So when a
+type declares two fields that differ only by case and one of them is not `Public`, neither name can
+be filtered or sorted on: the lookup could land on the value the caller may not read. With both
+`Public`, the first one declared is used.
 
 Comparison happens in jsonb using the field's declared type, so a numeric field compares
 numerically: `filter[price][lt]=10` puts 9 below 10 instead of after it.
@@ -137,6 +151,35 @@ Filters narrow what the published-and-public predicate already allows. No filter
 ```text
 GET /api/public/blog-post?filter[category][eq]=engineering&filter[title][contains]=marten
 ```
+
+### What a filter costs
+
+A filter finds its field by name inside the entry's data without regard to the key's casing, so no
+index serves it. The content type index narrows the scan to the entries of the type, and each of
+those is then compared. On a type with a hundred thousand entries a filtered request reads all of
+them. The five filter cap and the page size cap bound what one request asks for, not how many rows
+it reads.
+
+### The same filters on the entries list
+
+`GET /api/contents` takes the same parameters when `contentType` is set:
+
+```text
+GET /api/contents?contentType=lead&filter[Stage][eq]=won
+```
+
+The operators, the five filter cap and the 256 character cap are the same. What differs is who is
+asking:
+
+- A filter is accepted on a declared field the caller reads unmasked: a `Public` field, or a
+  `Sensitive` or `Hidden` one their stored roles may see (by `view_sensitive`, `view_hidden`, or
+  the field's own role list; see [access-control.md](access-control.md)). Any other field returns 400, in the same words as
+  a field that does not exist, and the answer does not list the type's fields.
+- A filtered list leaves out an entry whose document sensitivity withholds its data from the
+  caller. Unfiltered, that entry comes back blanked; matched by a filter, it would say what the
+  blanked value is.
+- A filter without `contentType`, or on a type with no stored definition, returns 400.
+- `sort` is not read on this route. Order is `sortOrder` over the creation time, as before.
 
 ## Sorting
 
@@ -245,11 +288,22 @@ page 3 of a relevance ranking would get something that changes underneath them. 
 of a bounded, ranked scan matched, not how many exist. Matching runs over public fields only, and a
 title or name hit outranks a body hit.
 
+Search takes the list's `filter[field][op]=value` parameters, `near` included, under the same rules
+and caps:
+
+```text
+GET /api/public/news/search?q=flood&filter[Category][eq]=advisory
+```
+
+The filter runs in the query, ahead of the scan cap and `limit`, so a search for one category
+returns that category's best matches even when better matches sit in another. A refused filter is
+400 whatever `q` holds. `sort` is not read: results are ranked.
+
 ## Errors
 
 | Status | When |
 | --- | --- |
-| 400 | unknown filter field, unknown operator, malformed `filter[...]`, more than 5 filters, unknown or non-reference `include`, more than 5 includes, unsortable field, malformed `near` centre or radius, `near` on a field that is not a `geopoint`, `sort=distance` without a `near` filter, an operator other than `eq` or `ne` on a choice that holds a list |
+| 400 | unknown filter field, unknown operator, malformed `filter[...]`, more than 5 filters, a filter value over 256 characters, unknown or non-reference `include`, more than 5 includes, unsortable field, malformed `near` centre or radius, `near` on a field that is not a `geopoint`, `sort=distance` without a `near` filter, an operator other than `eq` or `ne` on a choice that holds a list |
 | 404 | unknown type, type not marked publicly deliverable, no slug field, no published entry at that slug |
 
 A 400 carries the reason, including the fields that would have been accepted.
@@ -389,6 +443,33 @@ Nothing in the interface queries. The module loads the entry and the definition 
 which keeps tenant scoping where it already is. `SlugField` is there because a module addressing
 entries by slug has to query the field delivery reads the slug back from. All three members take a
 null definition, so the result of a `FirstOrDefaultAsync` can go straight in.
+
+### Filters on a module route
+
+A module route that lists or searches content takes the list's filters through
+`IPublicContentFilterParser`, from the same namespace. It reads the `filter[...]` keys of the query
+string, accepts only fields the type marks Public, and applies the same operators and caps.
+
+```csharp
+var filter = filters.Parse(HttpContext.Request.Query, def);
+if (filter.Error is not null)
+{
+    AddError(filter.Error);
+    await Send.ErrorsAsync(400, ct);
+    return;
+}
+
+var entries = await filter.Apply(session.Query<Content>()
+        .Where(c => c.ContentType == type
+                    && c.Status == ContentStatus.Published
+                    && c.Sensitivity == SensitivityLevel.Public))
+    .Take(50)
+    .ToListAsync(ct);
+```
+
+`Apply` adds to the query it is given. It does not select Published or document-Public entries, so
+the module's query still has to, and each entry still goes through the projector. `Apply` throws
+when `Error` is set, so a refused filter cannot run as no filter. `sort` is not read.
 
 ### The cache headers a module route owes its callers
 

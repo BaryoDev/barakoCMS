@@ -44,10 +44,20 @@ public static class SecurityHeaders
 
     /// <summary>
     /// Routes whose responses carry a token, a key or the caller's own details: sign-in, refresh,
-    /// MFA and OTP, social sign-in, <c>/api/me</c>, API key creation and preview tokens. These are
-    /// sent <c>Cache-Control: no-store</c> so neither a browser nor a proxy keeps them (#654).
+    /// MFA and OTP, social sign-in, <c>/api/me</c>, API key creation, preview tokens and the two
+    /// anonymous share link routes, whose answers depend on a key in the body and can hold an
+    /// unpublished entry. These are sent <c>Cache-Control: no-store</c> so neither a browser nor a
+    /// proxy keeps them (#654), whatever the status, a 429 from the rate limiter included.
     /// </summary>
-    private static readonly string[] NoStorePrefixes = ["/api/auth", "/api/me", "/api/api-keys", "/api/preview"];
+    /// <remarks>
+    /// <c>/api/meta/describe</c> is here for the last of those reasons: its body differs by what the
+    /// caller holds, and a grant can be taken away. <c>/api/meta</c> itself is not matched by it.
+    /// </remarks>
+    private static readonly string[] NoStorePrefixes =
+    [
+        "/api/auth", "/api/me", "/api/api-keys", "/api/preview", "/api/meta/describe",
+        "/api/public/site/share-links",
+    ];
 
     public static bool IsNoStorePath(string? path) =>
         path is not null && NoStorePrefixes.Any(prefix =>

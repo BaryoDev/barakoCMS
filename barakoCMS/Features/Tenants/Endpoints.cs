@@ -174,24 +174,12 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         // there is never a registered-but-memberless window.
         if (Guid.TryParse(User.FindFirst("UserId")?.Value, out var creatorId))
         {
-            _session.Store(new Membership
-            {
-                Id = Guid.NewGuid(),
-                UserId = creatorId,
-                TenantSlug = handle,
-                RoleIds = new List<Guid> { barakoCMS.Data.DataSeeder.AdminRoleId },
-                Status = MembershipStatus.Active,
-                JoinedAt = DateTime.UtcNow,
-            });
-
-            // Written to the new tenant's own log, which is the one its administrators read.
-            var metadata = await barakoCMS.Features.Tenants.Members.Members.AuditMetadataAsync(
-                _session, new[] { barakoCMS.Data.DataSeeder.AdminRoleId }, before: null, ct);
-            metadata["invited"] = false;
-            metadata["tenantCreated"] = true;
-            await barakoCMS.Infrastructure.Audit.AuditLog.RecordAsync(
-                _session, handle, "tenant.member.added", creatorId, User.FindFirst("Username")?.Value,
-                targetType: "User", targetId: creatorId.ToString(), metadata: metadata, ct: ct);
+            // Through the one writer of a membership, which stages the entry in the new tenant's
+            // own log, the one its administrators read.
+            await barakoCMS.Features.Tenants.Members.Members.AddAsync(
+                _session, User, creatorId, handle,
+                new List<Guid> { barakoCMS.Data.DataSeeder.AdminRoleId }, profile: null,
+                new Dictionary<string, object> { ["invited"] = false, ["tenantCreated"] = true }, ct);
         }
 
         await _session.SaveChangesAsync(ct);

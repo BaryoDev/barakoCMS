@@ -22,10 +22,16 @@ public sealed class FilesModule : IBarakoModule
 {
     public string Name => "Files";
 
+    public int HttpContractVersion => 1;
+
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
     {
         /* Default storage. The S3 module, when present, replaces this (it runs after and overrides). */
         services.TryAddScoped<IFileStorage, PostgresFileStorage>();
+
+        // Replaces the core's default, which refuses. Added rather than TryAdded so it wins whether
+        // the core registered its default before this module or after.
+        services.AddScoped<barakoCMS.Core.Interfaces.IFileStore, FileStore>();
 
         // Scanning is off unless Files:Scanner:Address names a clamd. That is the default and it is
         // what every existing deployment does, so upgrading changes nothing about what an upload

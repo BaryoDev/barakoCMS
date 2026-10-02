@@ -14,6 +14,7 @@
         { "name": "Url", "displayName": "Site address", "type": "url" },
         { "name": "Locale", "displayName": "Locale", "type": "string" },
         { "name": "Currency", "displayName": "Currency", "type": "string" },
+        { "name": "TimeZone", "displayName": "Time zone", "type": "string" },
         { "name": "Logo", "displayName": "Logo", "type": "url" },
         { "name": "LogoAlt", "displayName": "Logo alt text", "type": "string" },
         { "name": "FooterLogo", "displayName": "Footer logo", "type": "url" },

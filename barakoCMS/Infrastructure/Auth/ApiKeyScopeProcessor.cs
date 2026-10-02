@@ -52,6 +52,8 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
     {
         if (Match(path, "/api/contents"))
         {
+            if (IsShareLinks(path))
+                return null;
             if (IsDestructive(path))
                 return ApiKeyScopes.ContentDestructive;
             return isWrite ? ApiKeyScopes.ContentWrite : ApiKeyScopes.ContentRead;
@@ -78,6 +80,18 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
                  && !segments[2].Equals("by-slug", StringComparison.OrdinalIgnoreCase),
             _ => false,
         };
+    }
+
+    // /api/contents/{id}/share-links and /api/contents/{id}/share-links/{linkId}, closed to keys like
+    // the site's share link routes and the preview route. A link is a credential for someone with
+    // no account, and one a key made would outlive the key's own revocation. Matched by shape as
+    // above, and by-slug is excluded because "share-links" is a valid type name.
+    private static bool IsShareLinks(string path)
+    {
+        var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return segments.Length is 4 or 5
+               && segments[3].Equals("share-links", StringComparison.OrdinalIgnoreCase)
+               && !segments[2].Equals("by-slug", StringComparison.OrdinalIgnoreCase);
     }
 
     // POST /api/collections/{type}/push, the one route a key limited to named types reaches (#991).

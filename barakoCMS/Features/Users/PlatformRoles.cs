@@ -36,6 +36,11 @@ internal static class PlatformRoles
     /// user's global roles only by one. Admin does not hold manage_roles, so a custom role carrying
     /// it would otherwise be how an Admin, or an administrator of one tenant through a membership,
     /// reaches every role in the deployment.
+    ///
+    /// view_hidden is here for the same reason, though it reaches no further than content. Only
+    /// SuperAdmin read a Hidden value before the capability existed, and nothing an Admin could
+    /// assign opened one. Without this an Admin hands itself a role carrying it. view_sensitive is
+    /// not here: the HR role carried that access and an Admin could always assign HR.
     /// </remarks>
     public static readonly IReadOnlySet<string> PlatformCapabilities = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
@@ -44,6 +49,7 @@ internal static class PlatformRoles
         SystemCapabilities.ManageTenants,
         SystemCapabilities.ManageUsers,
         SystemCapabilities.ManageEmailSettings,
+        SystemCapabilities.ViewHidden,
     };
 
     public static bool CarriesPlatformCapability(Role role) =>

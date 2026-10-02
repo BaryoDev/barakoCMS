@@ -59,7 +59,7 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         // fixture it genuinely is registered, and naming it keeps the assertion exact: removing a
         // real action still fails this test.
         actions!.Select(a => a.Type).Should().BeEquivalentTo(
-            ["Email", "SMS", "Webhook", "CreateTask", "UpdateField", "Conditional", "Request", "ThrowingRunner", "CredentialEcho", "DeletedEcho", "CountingRunner", "HookedRunner", "SlowRunner"],
+            ["Email", "SMS", "Webhook", "CreateTask", "UpdateField", "Conditional", "Request", "ThrowingRunner", "CredentialEcho", "DeletedEcho", "CountingRunner", "HookedRunner", "SlowRunner", "MeteredRunner"],
             "every registered action is offered to the workflow builder, and adding one is a line here");
     }
 
@@ -98,7 +98,7 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         var actions = await response.Content.ReadFromJsonAsync<List<WorkflowActionMetadata>>(TestContext.Current.CancellationToken);
         actions.Should().NotBeNull();
         var byType = actions!.ToDictionary(a => a.Type);
-        byType.Should().HaveCount(13);
+        byType.Should().HaveCount(14);
 
         byType["Webhook"].RequiredParameters.Should().Equal("Url");
         byType["Webhook"].OptionalParameters.Should().Equal("Secret");
@@ -108,7 +108,9 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         byType["UpdateField"].OptionalParameters.Should().Equal("TargetId");
         byType["Conditional"].OptionalParameters.Should().Equal("ElseActions");
 
-        foreach (var type in new[] { "Email", "SMS", "Request" })
+        byType["Email"].OptionalParameters.Should().Equal("Attachments");
+
+        foreach (var type in new[] { "SMS", "Request" })
         {
             byType[type].OptionalParameters.Should().BeEmpty(type);
         }
@@ -135,7 +137,7 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         var byType = doc.RootElement.EnumerateArray().ToDictionary(
             a => a.GetProperty("type").GetString()!,
             a => a.TryGetProperty("group", out var g) ? g : default);
-        byType.Should().HaveCount(13);
+        byType.Should().HaveCount(14);
 
         var expected = new Dictionary<string, string>
         {
@@ -352,10 +354,14 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         response.IsSuccessStatusCode.Should().BeTrue();
         var result = await response.Content.ReadFromJsonAsync<TemplateVariableCollection>();
         result.Should().NotBeNull();
-        result!.SystemVariables.Should().HaveCount(5);
+        result!.SystemVariables.Should().HaveCount(11);
         result.SystemVariables.Should().Contain(v => v.Name == "{{id}}");
         result.SystemVariables.Should().Contain(v => v.Name == "{{contentType}}");
         result.SystemVariables.Should().Contain(v => v.Name == "{{status}}");
+        result.SystemVariables.Should().Contain(v => v.Name == "{{createdBy.email}}");
+        result.SystemVariables.Should().Contain(v => v.Name == "{{transition.by.name}}");
+        result.Formats.Should().HaveCount(6);
+        result.Formats.Should().Contain(v => v.Name == "{{hours createdAt updatedAt}}");
     }
 
     [Fact]

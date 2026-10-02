@@ -90,7 +90,7 @@ public sealed class ImageVariants
             return new VariantResult(original, null);
         }
 
-        var key = VariantKey(original.StorageKey, width.Value);
+        var key = FileKeys.ForVariant(original, width.Value);
         var stored = await _storage.PutAsync(
             new MemoryStream(resized), key, original.ContentType, original.IsPublic, ct);
 
