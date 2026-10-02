@@ -25,6 +25,7 @@ public sealed class FormsModule : IBarakoModule
         // `configuration` is this module's own section, Modules:Forms.
         services.Configure<FormsOptions>(configuration);
         services.AddHttpClient<ITurnstileVerifier, TurnstileVerifier>();
+        services.AddScoped<FormEmailVerifier>();
 
         services.Configure<RateLimiterOptions>(options =>
             options.AddPolicy(FormsOptions.RateLimitPolicy, context =>
@@ -39,6 +40,20 @@ public sealed class FormsModule : IBarakoModule
                         Window = TimeSpan.FromSeconds(Math.Max(1, limits.WindowSeconds)),
                     });
             }));
+
+        services.Configure<RateLimiterOptions>(options =>
+            options.AddPolicy(FormsOptions.EmailCodeRateLimitPolicy, context =>
+            {
+                var limits = context.RequestServices.GetRequiredService<IOptions<FormsOptions>>().Value.EmailVerification;
+                var ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+                return RateLimitPartition.GetFixedWindowLimiter($"forms-email-code-{ip}", _ =>
+                    new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = Math.Max(1, limits.RequestsPerClient),
+                        Window = TimeSpan.FromSeconds(Math.Max(1, limits.RequestWindowSeconds)),
+                    });
+            }));
     }
 
     public void ConfigureSchema(IModuleSchema schema)
@@ -48,6 +63,11 @@ public sealed class FormsModule : IBarakoModule
         schema.For<PublicForm>()
             .DocumentAlias("public_forms")
             .Identity(x => x.ContentType);
+
+        // Per tenant too, so a code sent in one tenant is not found from another. Both are loaded
+        // by id only, so neither has an index.
+        schema.For<FormEmailVerification>().DocumentAlias("form_email_verifications");
+        schema.For<FormEmailBudget>().DocumentAlias("form_email_budgets");
     }
 
     /// <summary>

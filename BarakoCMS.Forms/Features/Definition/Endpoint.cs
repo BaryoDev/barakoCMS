@@ -29,6 +29,12 @@ internal sealed class Response
     public string DisplayName { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public List<FieldResponse> Fields { get; set; } = new();
+
+    /// <summary>
+    /// The field whose address has to be verified with an emailed code before a submission is
+    /// accepted, or null when the form does not verify.
+    /// </summary>
+    public string? VerifyEmailField { get; set; }
 }
 
 /// <summary>
@@ -58,6 +64,8 @@ internal sealed class Endpoint(IQuerySession session) : EndpointWithoutRequest<R
             return;
         }
 
+        var verified = FormEmailVerifier.FieldToVerify(definition, form!);
+
         await Send.OkAsync(new Response
         {
             Slug = definition.Name,
@@ -68,13 +76,14 @@ internal sealed class Endpoint(IQuerySession session) : EndpointWithoutRequest<R
                 Name = f.Name,
                 DisplayName = f.DisplayName,
                 Type = f.Type,
-                Required = f.IsRequired,
+                Required = f.IsRequired || f == verified,
                 ValidationRules = f.ValidationRules,
                 Options = (f.Options ?? new List<FieldOption>())
                     .Select(o => new OptionResponse { Value = o.Value, Label = o.Label })
                     .ToList(),
                 Multiple = f.Multiple,
             }).ToList(),
+            VerifyEmailField = verified?.Name,
         }, ct);
     }
 }

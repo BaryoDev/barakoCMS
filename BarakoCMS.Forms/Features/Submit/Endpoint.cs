@@ -22,6 +22,9 @@ internal sealed class Request
 
     /// <summary>The Cloudflare Turnstile token, required only when verification is configured.</summary>
     public string? TurnstileToken { get; set; }
+
+    /// <summary>The code emailed to the verified field's address. Read only by a form that verifies one.</summary>
+    public string? EmailVerificationCode { get; set; }
 }
 
 internal sealed class Response
@@ -38,6 +41,10 @@ internal sealed class Response
 /// Draft, sensitivity always Sensitive and the owner always empty. Unknown fields are refused rather
 /// than dropped, with the same message as a field that exists but is not submittable, so the refusal
 /// does not tell a stranger which hidden fields a type has.
+///
+/// A form that verifies an email field also needs <c>emailVerificationCode</c>, the code its
+/// <c>email-code</c> route sent to the address in that field. A form that does not verify never
+/// reads it.
 /// </remarks>
 internal sealed class Endpoint(
     IDocumentSession session,
@@ -45,6 +52,7 @@ internal sealed class Endpoint(
     IContentValidatorService validator,
     IContentLifecycleRunner lifecycle,
     ITurnstileVerifier turnstile,
+    FormEmailVerifier emailVerifier,
     IOptions<FormsOptions> options) : Endpoint<Request, Response>
 {
     public override void Configure()
@@ -121,8 +129,17 @@ internal sealed class Endpoint(
             .Select(v => v is JsonElement je ? je.ToString() : v?.ToString())
             .Where(v => !string.IsNullOrWhiteSpace(v)));
 
+        // Last, so a submission that fails for any other reason does not use up one of the code's
+        // attempts. It spends the code in the transaction the save below commits.
+        var entryId = Guid.NewGuid();
+        if (!await emailVerifier.AcceptAsync(form!, definition, data, req.EmailVerificationCode, entryId, ValidationFailures, ct))
+        {
+            await Send.ErrorsAsync(400, ct);
+            return;
+        }
+
         var created = await contentWriter.CreateAsync(new barakoCMS.Events.ContentCreated(
-            Guid.NewGuid(),
+            entryId,
             definition.Name,
             data,
             ContentStatus.Draft,

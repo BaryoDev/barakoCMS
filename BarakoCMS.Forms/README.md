@@ -49,6 +49,7 @@ is not submittable, or when the type is a singleton.
 | --- | --- | --- | --- |
 | GET | `/api/public/forms/{slug}` | anyone | the fields a widget draws |
 | POST | `/api/public/forms/{slug}` | anyone, rate limited | submit |
+| POST | `/api/public/forms/{slug}/email-code` | anyone, rate limited | email a one-time code, for a form that verifies an email field |
 | PUT | `/api/forms/{contentType}` | `manage_forms` | mark a type as a form, or unmark it |
 | GET | `/api/forms` | `manage_forms` | list forms, paged |
 
@@ -74,6 +75,83 @@ routes.
 - **429** too many submissions from this client IP.
 
 A non-empty `honeypot` gets the same 202 and nothing is stored.
+
+## Verifying an email field
+
+A form can refuse a submission until the visitor has proved they read mail at the address in one of
+its email fields. It is off unless the form turns it on, and a form that has not behaves as above.
+
+```
+PUT /api/forms/race-signup
+Authorization: Bearer <token with manage_forms>
+
+{ "enabled": true, "verifyEmailField": "email" }
+```
+
+`verifyEmailField` has to name an email field a visitor can fill in, or the request is refused with
+400. Left out, the form keeps what it has; an empty string turns verification off. Turning the form
+itself off forgets the setting. `GET /api/forms` and the form definition both report
+`verifyEmailField`, and the definition marks that field `required` whatever the type says.
+
+The visitor asks for a code, then sends it with the submission:
+
+```
+POST /api/public/forms/race-signup/email-code
+{ "email": "ana@example.com", "honeypot": "", "turnstileToken": null }
+```
+
+- **202** `{ "accepted": true }`. The same answer whether the mail went out or the provider refused
+  it (that is logged), and for a filled honeypot, which sends nothing.
+- **400** the address is not one email address, or the Turnstile check failed.
+- **404** the slug is not a form, or the form does not verify an email field.
+- **429** past a limit, see below. Nothing is stored or sent.
+
+```json
+{
+  "data": { "name": "Ana", "email": "ana@example.com" },
+  "emailVerificationCode": "482913"
+}
+```
+
+The submission is accepted only with the live code for the address in the verified field. Any other
+case is a 400 named `emailVerificationCode` with one message, whether the code is wrong, expired,
+already used, guessed at too often, sent to another address, sent for another form or never sent. A
+missing address is a 400 named `data.<field>`. The code is checked last, after every other check
+has passed, so a submission that fails for another reason does not use up an attempt.
+
+What a code is:
+
+- six digits from a cryptographic random source, stored only as a BCrypt hash
+- good for 10 minutes and for one accepted submission
+- dead after 5 checks, right or wrong, counted before the comparison and under a lock per address
+- bound to the tenant, the form and the address it was sent to. The address is trimmed and
+  lowercased the same way when the code is sent and when it is checked.
+- replaced by the next code sent to the same address, on any form of the tenant
+
+An accepted submission adds an audit event, `form.email.verified`, whose target is the entry. It
+holds the form and the field name, not the address and not the code.
+
+Limits on sending, each answered with 429:
+
+| Limit | Default | Counted |
+| --- | --- | --- |
+| per client IP | 5 per 600 seconds | in memory, across every form |
+| per address | 5 per 60 minutes | stored, per tenant, across every form |
+| per form | 100 per 60 minutes | stored, per tenant, across every address |
+
+So one form sends at most 100 messages an hour whatever addresses and IPs a caller cycles through,
+and one address gets at most 5 an hour from a tenant. Past the per form limit nobody can get a code
+for that form until the window moves, real visitors included, so raise it for a busy sign-up and
+turn Turnstile on, which this route checks too when it is enabled. The per address 429 tells a
+caller that five codes were asked for at that address in the last hour. Nothing else in an answer
+depends on the address.
+
+The mail is built from the form's display name and the code. Nothing from the request goes into it.
+
+Two tables hold this: `form_email_verifications`, one row per address with the hash of the address
+as its id, and `form_email_budgets`, one row per form. Rows whose code and window have both passed
+are removed, up to 200 at a time, whenever a code is sent in the same tenant. Nothing removes them in
+a tenant where no code is asked for again.
 
 ### Definition
 
@@ -105,8 +183,16 @@ Section `Modules:Forms`:
 | `MaxFieldLength` | `10000` | the longest string a field may hold |
 | `Turnstile:Enabled` | `false` | require a Cloudflare Turnstile token |
 | `Turnstile:SecretKey` | none | the Turnstile secret; set it through the environment |
+| `EmailVerification:CodeLifetimeMinutes` | `10` | how long a code works |
+| `EmailVerification:MaxAttempts` | `5` | checks one code survives |
+| `EmailVerification:RequestsPerClient` | `5` | code requests per client IP per window, across every form |
+| `EmailVerification:RequestWindowSeconds` | `600` | that window |
+| `EmailVerification:CodesPerAddress` | `5` | codes sent to one address per window, per tenant |
+| `EmailVerification:CodesPerForm` | `100` | codes one form sends per window |
+| `EmailVerification:WindowMinutes` | `60` | the window for the two limits above |
 
-With Turnstile enabled and no secret set, every submission is refused and an error is logged.
+With Turnstile enabled and no secret set, every submission is refused and an error is logged. An
+`EmailVerification` value below 1 is read as 1.
 
 ## Notification
 
