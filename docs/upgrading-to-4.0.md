@@ -84,10 +84,14 @@ thing that gives it one: without it `db-assert` reports the table as outstanding
 4.1, leave the `4.0.0` file out and run the rest, which is the sequence CI runs from 4.1.0. It is
 safe to run twice.
 
-Its last three statements turn row level security off on the table, which is what `db-patch` emits
-with `Tenancy:DatabaseEnforcement` off. On a database that has enforcement on and has already
-started 4.2 or later, they drop the policy the app built: apply the file with the API stopped, as
-with every file here, and the next start puts the policy back.
+The file ends by turning row level security off on the table, which is the state `db-patch` emits
+with `Tenancy:DatabaseEnforcement` off, but only when the table carries no policy. With enforcement
+on and the table already there, the tenant policy and forced row level security are left alone and
+the file changes nothing. With enforcement on and the table absent, which is a 4.0 or 4.1 database,
+the file creates the table without the policy, and `db-assert` run with enforcement on then reports
+the policy as outstanding. Add it with `db-apply`, described under
+[Schema changes after 4.0](#schema-changes-after-40);
+[tenancy-at-the-database.md](tenancy-at-the-database.md) has the queries that show it is there.
 
 Run every file with the API stopped. A running API keeps a transaction open for as long as it
 runs, and an index built `CONCURRENTLY` waits for every transaction older than itself, so against

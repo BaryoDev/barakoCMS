@@ -18,7 +18,8 @@ namespace BarakoCMS.Tests;
 /// schema and compares the columns, constraints and indexes it produces with the ones Marten created
 /// in <c>public</c>, so the file cannot drift from what the core declares. The fixture runs with
 /// database enforcement off, which is the state the file's row level security lines produce, so the
-/// two flags and the policy count are part of what is compared.
+/// two flags and the policy count are part of what is compared. With enforcement on the table
+/// carries a tenant policy, and the file has to leave that alone.
 /// </remarks>
 [Collection("Sequential")]
 public class SiteShareLinksMigrationTests
@@ -60,6 +61,49 @@ public class SiteShareLinksMigrationTests
                 "the core declares a per-tenant unique index on KeyHash");
             actual.Should().Equal(expected,
                 "the migration has to produce exactly what the core declares, or db-assert reports it");
+        }
+        finally
+        {
+            await ExecuteAsync(connection, $"DROP SCHEMA IF EXISTS {scratch} CASCADE", CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task A_tenant_policy_already_on_the_table_survives_the_migration()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        // For public.mt_immutable_timestamptz, which the expiry index calls.
+        await EnsureMartenBuiltTheTableAsync(ct);
+        var (scratch, scoped) = await ScopedAsync("site-share-links.sql", ct);
+
+        await using var connection = new NpgsqlConnection(_factory.ConnectionString);
+        await connection.OpenAsync(ct);
+        try
+        {
+            await ExecuteAsync(connection, $"CREATE SCHEMA {scratch}", ct);
+            await ExecuteAsync(connection, scoped, ct);
+
+            // What a host with database enforcement on leaves on a conjoined table.
+            await ExecuteAsync(connection,
+                $"CREATE POLICY marten_tenant_isolation ON {scratch}.{Table} "
+              + "USING (tenant_id = current_setting('app.tenant_id', true)); "
+              + $"ALTER TABLE {scratch}.{Table} ENABLE ROW LEVEL SECURITY; "
+              + $"ALTER TABLE {scratch}.{Table} FORCE ROW LEVEL SECURITY;",
+                ct);
+
+            await ExecuteAsync(connection, scoped, ct);
+
+            var shape = await ShapeAsync(connection, scratch, ct);
+            shape.Should().HaveCount(ShapeLines, "the table is still there after the second run");
+            shape.Should().Contain("row security enabled=true forced=true policies=1",
+                "a migration must not take tenant isolation off a table that has it");
+
+            var policies = new List<string>();
+            await ReadAsync(connection,
+                "select policyname::text from pg_policies where schemaname = @schema and tablename = @table",
+                scratch, policies, ct);
+            policies.Should().HaveCount(1);
+            policies.Should().Equal("marten_tenant_isolation");
         }
         finally
         {
