@@ -316,7 +316,9 @@ tempting shortcut breaks it: **an endpoint may read events and must not return t
 an event record straight to the wire, or returning `IEvent` and letting the serializer decide, is
 what would freeze the shapes under CLAUDE.md section 6.
 
-**The config flag.** `History:Enabled`, defaulting to on. It does not exist to protect the event
+**The config flag.** `History:Enabled`, defaulting to on. It was decided here and has not been
+built: nothing reads that setting, and `GET /api/contents/{id}/history` answers in every
+deployment. What follows is the reasoning for it. It does not exist to protect the event
 shapes, because the mapping already does that and a flag could not: under section 6 the surface
 freezes when it ships, not when it is switched on, so any deployment that could turn it on makes the
 shape a commitment. It exists for a different and better reason. History serves prior values,

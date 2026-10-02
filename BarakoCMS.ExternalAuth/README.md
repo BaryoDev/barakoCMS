@@ -48,14 +48,16 @@ advertised or accepted.
 
 ```json
 {
-  "ExternalAuth": {
-    "Google": { "ClientId": "...", "ClientSecret": "..." },
-    "GitHub": { "ClientId": "...", "ClientSecret": "..." }
-  }
+  "Google": { "ClientId": "...", "ClientSecret": "..." },
+  "GitHub": { "ClientId": "...", "ClientSecret": "..." },
+  "LinkedIn": { "ClientId": "...", "ClientSecret": "..." },
+  "Facebook": { "AppId": "...", "AppSecret": "..." }
 }
 ```
 
-Omit a provider to leave it disabled.
+Each provider is its own section at the root of the configuration, not under `ExternalAuth`. Omit a
+provider to leave it disabled. `"Enabled": false` inside a provider's section turns that provider
+off while keeping its keys, and `ExternalAuth:Enabled` set to `false` turns every provider off.
 
 ## Security notes
 

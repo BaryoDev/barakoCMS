@@ -4,13 +4,15 @@
 #
 #   scripts/wiki-sync.sh <wiki-working-copy>
 #
-# The caller owns the wiki clone and the git history:
+# This script never commits and never pushes. It edits the working copy only, so the result can
+# be read before it goes anywhere:
 #
 #   git clone https://github.com/BaryoDev/barakoCMS.wiki.git /tmp/wiki
 #   scripts/wiki-sync.sh /tmp/wiki
-#   git -C /tmp/wiki add -A && git -C /tmp/wiki commit -m "sync docs" && git -C /tmp/wiki push
+#   git -C /tmp/wiki status --short
 #
-# This script never commits and never pushes. It edits the working copy only.
+# scripts/wiki-publish.sh runs this, then commits and pushes. .github/workflows/wiki-sync.yml runs
+# that on every push to master that touches docs/, so publishing by hand is the exception.
 #
 # Page naming rule
 #   The page name is the doc's file name, unchanged: docs/access-control.md becomes
@@ -21,6 +23,10 @@
 #
 #   Only top-level docs/*.md are pages. docs/internal/** is not: it is working material
 #   that links to prototypes and screenshots, so links into it point at the repo.
+#
+#   Only files git tracks are pages. A file in docs/ that is ignored or not yet added is
+#   named on stderr and left out, so a working note on a developer's box cannot reach a
+#   public wiki, and what is published is what a commit holds.
 #
 # Generated pages
 #   Docs.md and _Sidebar.md are generated here on every run and carry a line saying so.
@@ -35,11 +41,17 @@
 #   generated set, the script stops instead of touching it. On a first run there is no
 #   manifest, so nothing is deleted.
 #
+#   The same manifest guards writes. A page this run would write that already exists in
+#   the wiki and is not in the old manifest was written by someone else, so the script
+#   stops and names it instead of overwriting it. Rename the doc, or move the wiki page
+#   out of the way. Only the first-ever sync, with no manifest at all, skips this.
+#
 # Target check
 #   The argument must be a wiki clone, not just any git directory. The script checks
 #   that it is the top level of a git repository, that its origin remote URL ends in
-#   .wiki.git, and that Home.md is already there. A mistyped path used to populate an
-#   ordinary subdirectory and overwrite files in it.
+#   .wiki.git or .wiki (actions/checkout sets the second form), and that Home.md is
+#   already there. A mistyped path used to populate an ordinary subdirectory and
+#   overwrite files in it.
 #
 # Failure behaviour
 #   Pages are built and link checked in a staging directory. The wiki working copy is
@@ -115,7 +127,7 @@ WIKI=$(cd -- "$WIKI" && pwd -P)
 # hand-written files in it.
 wiki_not_proven() {
   die "$WIKI is not the wiki clone ($1).
-Checked: top level of a git repository, origin remote URL ending in .wiki.git, Home.md present.
+Checked: top level of a git repository, origin remote URL ending in .wiki.git or .wiki, Home.md present.
 Clone the wiki first: git clone https://github.com/BaryoDev/barakoCMS.wiki.git"
 }
 WIKI_TOP=$(git -C "$WIKI" rev-parse --show-toplevel 2>/dev/null) \
@@ -125,9 +137,12 @@ WIKI_TOP=$(cd -- "$WIKI_TOP" && pwd -P)
   || wiki_not_proven "a subdirectory of the git repository at $WIKI_TOP, not its top level"
 WIKI_ORIGIN=$(git -C "$WIKI" remote get-url origin 2>/dev/null) \
   || wiki_not_proven "git repository with no origin remote"
+# Two spellings of the same repository. A plain clone of the documented URL keeps .wiki.git;
+# actions/checkout sets the https origin without the .git. Nothing looser: the source repository
+# ends in neither, and that is the mistake this check is here for.
 case "$WIKI_ORIGIN" in
-  *.wiki.git) ;;
-  *) wiki_not_proven "origin remote is $WIKI_ORIGIN, which does not end in .wiki.git" ;;
+  *.wiki.git|*.wiki) ;;
+  *) wiki_not_proven "origin remote is $WIKI_ORIGIN, which ends in neither .wiki.git nor .wiki" ;;
 esac
 [ -f "$WIKI/Home.md" ] || wiki_not_proven "no Home.md, so this is not a populated wiki clone"
 [ -d "$DOCS_DIR" ] || die "no docs directory at $DOCS_DIR"
@@ -155,17 +170,26 @@ is_excluded() {
   return 1
 }
 
+# The page list is what git tracks, not what is on disk. .gitignore keeps working notes in docs/
+# out of the repository, and a list read from disk would publish them from a developer's box.
+TRACKED_LIST=$(git -C "$REPO_ROOT" -c core.quotepath=false ls-files -- ':(glob)docs/*.md' 2>/dev/null) \
+  || die "$REPO_ROOT is not a git checkout, so the tracked docs cannot be listed"
+
+is_tracked() { printf '%s\n' "$TRACKED_LIST" | grep -qxF -- "docs/$1"; }
+
 PAGES=()
 SKIPPED=()
 while IFS= read -r path; do
   base="$(basename -- "$path")"
-  if is_excluded "$base"; then
+  if ! is_tracked "$base"; then
+    note "wiki-sync: docs/$base is not tracked by git, so it is not published" >&2
+  elif is_excluded "$base"; then
     SKIPPED+=("$base")
   else
     PAGES+=("$base")
   fi
 done < <(find "$DOCS_DIR" -maxdepth 1 -name '*.md' -type f | sort)
-[ "${#PAGES[@]}" -gt 0 ] || die "no markdown files to publish in $DOCS_DIR"
+[ "${#PAGES[@]}" -gt 0 ] || die "no tracked markdown files to publish in $DOCS_DIR"
 
 if [ "${#SKIPPED[@]}" -gt 0 ]; then
   say "withheld by $(basename -- "$IGNORE_FILE"): ${SKIPPED[*]}"
@@ -387,6 +411,25 @@ in_pages() {
   return 1
 }
 
+in_old_manifest() {
+  local needle=$1 page
+  for page in "${OLD_MANIFEST[@]}"; do [ "$page" = "$needle" ] && return 0; done
+  return 1
+}
+
+# A page that is already in the wiki and that no earlier sync wrote belongs to whoever wrote it.
+# With no manifest at all this is the first sync, and there is nothing to compare against.
+if [ -f "$WIKI/$MANIFEST_NAME" ]; then
+  FOREIGN=()
+  for page in "${PAGES[@]}"; do
+    [ -e "$WIKI/$page" ] || continue
+    in_old_manifest "$page" || FOREIGN+=("$page")
+  done
+  [ "${#FOREIGN[@]}" -eq 0 ] \
+    || die "these pages exist in the wiki and were not written by an earlier sync, refusing to overwrite: ${FOREIGN[*]}
+Rename the doc, or rename the wiki page. The wiki was not touched."
+fi
+
 TO_DELETE=()
 for page in "${OLD_MANIFEST[@]}"; do
   is_protected "$page" && die "$MANIFEST_NAME lists the protected page $page, refusing to sync"
@@ -461,4 +504,4 @@ done
 } >"$WIKI/$MANIFEST_NAME"
 
 note "wiki-sync: synced into $WIKI"
-note "wiki-sync: review with 'git -C $WIKI status --short', then add, commit and push yourself"
+note "wiki-sync: nothing is committed or pushed here. Review with 'git -C $WIKI status --short'; scripts/wiki-publish.sh commits and pushes."

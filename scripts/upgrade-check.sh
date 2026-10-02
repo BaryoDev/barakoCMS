@@ -58,22 +58,28 @@
 
 set -euo pipefail
 
+. "$(dirname "$0")/lib-ports.sh"
+
 FROM_VERSION="${FROM_VERSION:-3.21.0}"
 IMAGE="${IMAGE:-ghcr.io/baryodev/barako-cms:${FROM_VERSION}}"
 NETWORK="${NETWORK:-barako-upgrade-check}"
 PG="${PG:-upgrade-check-pg}"
 OLD="${OLD:-upgrade-check-old}"
-PG_PORT="${PG_PORT:-55433}"
-NEW_PORT="${NEW_PORT:-58090}"
-OLD_PORT="${OLD_PORT:-58091}"
+# Empty means whoever binds the port chooses it: Docker for Postgres and the FROM_VERSION container,
+# the kernel for the new host. A value set by the caller is used as given. See lib-ports.sh for why
+# there is no default.
+PG_PORT="${PG_PORT:-}"
+NEW_PORT="${NEW_PORT:-}"
+NEW_BIND="${NEW_PORT:-0}"
+OLD_PORT="${OLD_PORT:-}"
+OLD_PUBLISH="$OLD_PORT"
 ADMIN_PASSWORD='UpgradeCheck!123'
 JWT_KEY='upgrade-check-key-that-is-at-least-32-chars-long'
 WORK="$(mktemp -d)"
-CONN="Host=127.0.0.1;Port=${PG_PORT};Database=barako_cms;Username=postgres;Password=postgres"
 
 cleanup() {
     if [ -n "${HOST_PID:-}" ]; then kill "$HOST_PID" 2>/dev/null || true; wait "$HOST_PID" 2>/dev/null || true; fi
-    docker rm -f "$PG" "$OLD" >/dev/null 2>&1 || true
+    remove_started "$WORK/pg.cid" "$WORK/old.cid"
     docker network rm "$NETWORK" >/dev/null 2>&1 || true
     rm -rf "$WORK"
 }
@@ -102,7 +108,8 @@ run_host() {
     # not dotnet, so killing $! left the new host running through the rollback and after the script.
     ${HOST_EXEC:-} env -i PATH="$PATH" HOME="$HOME" DOTNET_ROOT="${DOTNET_ROOT:-}" \
         ASPNETCORE_ENVIRONMENT=Production \
-        ASPNETCORE_URLS="http://127.0.0.1:${NEW_PORT}" \
+        ASPNETCORE_URLS="http://127.0.0.1:${NEW_BIND}" \
+        "$LISTEN_LOG_ENV" \
         ConnectionStrings__DefaultConnection="$CONN" \
         JWT__Key="$JWT_KEY" \
         SKIP_SEEDER=true \
@@ -130,11 +137,32 @@ else
     port_in_use() { return 1; }
 fi
 
-for port in "$PG_PORT" "$NEW_PORT" "$OLD_PORT"; do
+# Only a port the caller asked for can be checked ahead of time. One the system chooses does not
+# exist yet, and cannot be taken by anything else once it does.
+for port in $PG_PORT $NEW_PORT $OLD_PORT; do
     if port_in_use "$port"; then
-        fail "port $port is already in use. Something else would answer the health checks below and this run would pass without testing anything."
+        fail "port $port was asked for and is held by a listener this run did not start. Something else would answer the health checks below and this run would pass without testing anything."
     fi
 done
+
+# The FROM_VERSION container is stopped for the upgrade and started again after the rollback. Docker
+# gives a container a new host port each time it starts unless the caller fixed one, so this is read
+# after every start rather than once.
+old_url() {
+    OLD_PORT=$(published_port "$OLD_ID" 8080) || {
+        echo "--- ${FROM_VERSION} container ---" >&2
+        docker logs "$OLD_ID" 2>&1 | tail -30 >&2
+        fail "${FROM_VERSION} has no published port, so the container this run started is not running"
+    }
+    OLD_URL="http://127.0.0.1:${OLD_PORT}"
+}
+
+# The published port belongs to the container only while it runs. Without this, a container that
+# died after answering would leave the port to whatever took it next.
+old_is_running() {
+    [ "$(docker inspect --format '{{.State.Running}}' "$OLD_ID" 2>/dev/null)" = "true" ] \
+        || fail "something answered /health on port $OLD_PORT but the ${FROM_VERSION} container this run started is not running, so every check below would describe another process"
+}
 
 step "building the working tree, the Suite and the core host"
 dotnet publish BarakoCMS.Suite/BarakoCMS.Suite.csproj -c Release -o "$WORK/suite" --nologo -v q -clp:ErrorsOnly -p:RestoreLockedMode=true -nodeReuse:false
@@ -142,9 +170,12 @@ dotnet publish barakoCMS/barakoCMS.csproj -c Release -o "$WORK/core" --nologo -v
 
 step "starting postgres"
 docker network create "$NETWORK" >/dev/null 2>&1 || true
-docker run -d --name "$PG" --network "$NETWORK" \
+PG_ID=$(docker run -d --cidfile "$WORK/pg.cid" --name "$PG" --network "$NETWORK" \
     -e POSTGRES_DB=barako_cms -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
-    -p "${PG_PORT}:5432" postgres:16-alpine >/dev/null
+    -p "$(publish_spec "$PG_PORT" 5432)" postgres:16-alpine 2>"$WORK/docker-run.err") \
+    || fail "$(publish_failure "$WORK/docker-run.err" "$PG_PORT" postgres)"
+PG_PORT=$(published_port "$PG_ID" 5432) || fail "cannot tell which host port postgres was published on"
+CONN="Host=127.0.0.1;Port=${PG_PORT};Database=barako_cms;Username=postgres;Password=postgres"
 # pg_isready over the Unix socket is satisfied by the WRONG server. The postgres image boots a
 # temporary initdb instance on the socket only, creates the database, shuts it down, and then starts
 # the real one listening on TCP. So a socket check succeeds during bootstrap, the wait breaks early,
@@ -161,19 +192,21 @@ if ! docker exec "$PG" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then
 fi
 
 step "creating a ${FROM_VERSION} database with data in it"
-docker run -d --name "$OLD" --network "$NETWORK" \
+OLD_ID=$(docker run -d --cidfile "$WORK/old.cid" --name "$OLD" --network "$NETWORK" \
     -e ConnectionStrings__DefaultConnection="Host=${PG};Database=barako_cms;Username=postgres;Password=postgres" \
     -e JWT__Key="$JWT_KEY" \
     -e InitialAdmin__Username=admin -e InitialAdmin__Password="$ADMIN_PASSWORD" \
     -e Kubernetes__Enabled=false \
-    -p "${OLD_PORT}:8080" "$IMAGE" >/dev/null
+    -p "$(publish_spec "$OLD_PUBLISH" 8080)" "$IMAGE" 2>"$WORK/docker-run.err") \
+    || fail "$(publish_failure "$WORK/docker-run.err" "$OLD_PUBLISH" "$IMAGE")"
 
-OLD_URL="http://127.0.0.1:${OLD_PORT}"
+old_url
 for _ in $(seq 1 60); do
     [ "$(curl -s -o /dev/null -w '%{http_code}' "$OLD_URL/health" || true)" = "200" ] && break
     sleep 2
 done
 [ "$(curl -s -o /dev/null -w '%{http_code}' "$OLD_URL/health")" = "200" ] || fail "${FROM_VERSION} never became healthy"
+old_is_running
 
 TOKEN=$(curl -s -X POST "$OLD_URL/api/auth/login" -H 'Content-Type: application/json' \
     -d "{\"username\":\"admin\",\"password\":\"${ADMIN_PASSWORD}\"}" \
@@ -303,6 +336,7 @@ echo "Suite schema matches"
 step "booting the working tree's Suite in Production against the migrated database"
 HOST_EXEC=exec run_suite >"$WORK/boot.log" 2>&1 &
 HOST_PID=$!
+NEW_PORT=$(listen_port "$WORK/boot.log" "$HOST_PID") || { cat "$WORK/boot.log" >&2; fail "the working tree's Suite this run started is not listening"; }
 NEW_URL="http://127.0.0.1:${NEW_PORT}"
 for _ in $(seq 1 60); do
     [ "$(curl -s -o /dev/null -w '%{http_code}' "$NEW_URL/health" || true)" = "200" ] && break
@@ -399,6 +433,7 @@ fi
 
 step "booting ${FROM_VERSION} again against the rolled-back database"
 docker start "$OLD" >/dev/null
+old_url
 for _ in $(seq 1 60); do
     [ "$(curl -s -o /dev/null -w '%{http_code}' "$OLD_URL/health" || true)" = "200" ] && break
     sleep 2
@@ -408,6 +443,7 @@ done
     docker logs "$OLD" 2>&1 | tail -30 >&2
     fail "${FROM_VERSION} did not come back up against the rolled-back database. The documented rollback did not land on a schema ${FROM_VERSION} recognises."
 }
+old_is_running
 echo "${FROM_VERSION} is healthy again"
 
 step "${FROM_VERSION} still serves the record the working tree's build wrote to, after the rollback"

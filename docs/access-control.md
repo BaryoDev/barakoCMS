@@ -469,6 +469,7 @@ says.
 | `Features/Content/History/*` | `rollback_content` | `POST /api/contents/{id}/rollback/{versionId}` | SuperAdmin, Admin |
 | `Features/Content/Erase/*` | `erase_content` | `DELETE /api/contents/{id}/erase` | SuperAdmin |
 | `Features/Jobs/*` | `view_jobs` | `GET /api/jobs` | SuperAdmin, Admin |
+| `Features/Collections/Endpoints.cs` | `manage_collection_syncs` | `/api/collection-syncs`, `/api/collection-syncs/{slug}`, `POST /api/collection-syncs/{slug}/run` | SuperAdmin, Admin |
 
 Users is two capabilities because its old gates were two: listing accounts and resetting
 someone's password were `Roles("SuperAdmin")`, while changing a user's roles and groups
@@ -572,6 +573,8 @@ it on the routing table, which is where `GET /api/capabilities` and the role wri
 | Email (Resend) | `view_email_events` | `GET /api/email-events` |
 | Feature flags | `manage_feature_flags` | everything under `/api/feature-flags/admin` |
 | Files | `upload_files` | `POST /api/files`, `GET /api/files`, `GET /api/files/{id}/meta`, `PATCH /api/files/{id}`, `GET /api/files/{id}/usage`, `DELETE /api/files/{id}` |
+| Forms | `manage_forms` | `GET /api/forms`, `PUT /api/forms/{contentType}` |
+| Import | `analyze_spreadsheets` | `POST /api/import/analyze` |
 | Portability | `export_content` | `GET /api/portability/export` |
 | Portability | `import_content` | `POST /api/portability/import` |
 | PWA | `view_pwa_installs` | `GET /api/pwa/installs` |

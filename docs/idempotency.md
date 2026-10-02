@@ -46,8 +46,9 @@ body the first call returned, keep it on your side; a 409 here does not carry it
 
 ## How long a key is remembered
 
-A key that reached a successful response is kept indefinitely. There is no expiry or cleanup for a
-completed key, so reusing a key after a success is always a 409, not something that wears off.
+A key that reached a successful response is kept for 24 hours, counted from when the request claimed
+it. A cleanup pass runs every hour and deletes records older than that, so reusing a key is a 409
+until its record is deleted, and after that the same key runs as a new request.
 
 A key claimed by a request that then failed (validation error, thrown exception, or any response
 `>= 400`) is released as part of handling that failure, so the very next request with the same key

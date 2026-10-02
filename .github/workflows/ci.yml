@@ -67,6 +67,12 @@ jobs:
       - name: Prove the release notes fit in a GitHub release
         run: bash scripts/test-release-notes.sh
 
+      # The wiki workflow is green or red on this script's exit code alone, so a rejected push or a
+      # failed sync that still exited zero would leave the wiki stale under a green run. A local
+      # bare repository stands in for the wiki, so this step never touches the network.
+      - name: Prove the wiki publish fails when the wiki was not updated
+        run: bash scripts/test-wiki-publish.sh
+
       # A directory Dependabot does not watch produces no error and no pull request, which is how a
       # front-end folder drifted unwatched for months (#153). This fails the build instead of saying
       # nothing. There is no npm lockfile in this repository today, so the check passes by finding
@@ -198,6 +204,16 @@ jobs:
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
           dotnet-version: 10.0.x
+
+      # The check scripts in this job and in "Upgrade from 3.x" used to bind fixed ports inside the
+      # kernel's ephemeral range and lost them now and then to another process on the runner
+      # (#1047). This holds a listener on each old default and requires the scripts to get past
+      # their port steps anyway. It runs here because this job pulls postgres:16-alpine regardless
+      # and holds no token. Docker is required, so a runner without it fails instead of skipping.
+      - name: Prove the check scripts do not depend on a fixed port
+        env:
+          PORTS_TEST_REQUIRE_DOCKER: "1"
+        run: bash scripts/test-check-ports.sh
 
       # The deliverable is not "a backup file appears", it is "we restored one and it came back".
       # Until this job existed the only exercised backup path was the development compose stack and

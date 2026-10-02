@@ -426,10 +426,15 @@ internal sealed class DeleteCollectionSyncEndpoint(
 /// This is how a mapping is checked while the person who wrote it still has it open, and it is the
 /// same code path the sweep takes, so what it reports is what the sweep will do. It answers 200 with
 /// the outcome even when the run failed: the request succeeded, and the outcome is the answer.
+///
+/// It waits up to <see cref="CollectionSyncRunOptions.LockWait"/> for another run that is filling the
+/// same collection, the sweep's or another caller's, then answers 409 with <c>Retry-After</c>. See
+/// <see cref="CollectionSyncLock"/>.
 /// </remarks>
 internal sealed class RunCollectionSyncEndpoint(
     IDocumentSession session,
     ICollectionSyncRunner runner,
+    CollectionSyncRunOptions options,
     TenantContext tenant) : EndpointWithoutRequest<RunCollectionSyncResponse>
 {
     public override void Configure()
@@ -453,6 +458,40 @@ internal sealed class RunCollectionSyncEndpoint(
         if (sync is null)
         {
             await Send.NotFoundAsync(ct);
+            return;
+        }
+
+        // Waits a bounded time, then refuses. Two syncs filling one collection share the lock, so a
+        // caller running them one after another would otherwise be refused whenever the sweep was
+        // on the other. Past the bound the run in the way is a long one, and waiting it out would
+        // hold the request open for a whole sync.
+        var lockedType = sync.ContentType;
+        var store = session.DocumentStore;
+
+        await using var held = await CollectionSyncLock.TryAcquireAsync(
+            () => store.Storage.Database.CreateConnection(), session.TenantId, lockedType, options.LockWait, Logger, ct);
+
+        if (held is null)
+        {
+            HttpContext.Response.Headers.RetryAfter =
+                Math.Max(1, (int)Math.Ceiling(options.LockWait.TotalSeconds)).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            ThrowError($"A sync is still filling '{lockedType}'. Nothing was run; try again when it has finished.", 409);
+            return;
+        }
+
+        // Read again now that no other run can be writing it. The copy above may predate a run that
+        // finished while this one waited, and the runner saves the whole document.
+        sync = await session.LoadAsync<CollectionSync>(sync.Id, ct);
+
+        if (sync is null)
+        {
+            await Send.NotFoundAsync(ct);
+            return;
+        }
+
+        if (!string.Equals(sync.ContentType, lockedType, StringComparison.OrdinalIgnoreCase))
+        {
+            ThrowError($"This sync was pointed at '{sync.ContentType}' while the run waited. Nothing was run; try again.", 409);
             return;
         }
 
