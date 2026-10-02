@@ -579,9 +579,9 @@ public class ReferenceConditionPredicateTests
             new ContentTypePermission { ContentTypeSlug = classes, Read = new PermissionRule { Enabled = true } },
             new ContentTypePermission { ContentTypeSlug = enrollments, Read = Where(Follows, "_eq", "$CURRENT_USER") });
 
-        var taught = await StoreAsync(classes, [Class(caller.Id), Class(caller.Id)]);
-        var seeded = await StoreAsync(enrollments,
-            [Enrollment(taught[0].ToString()), Enrollment(taught[1].ToString())]);
+        var count = ReferenceConditions.RowsReadSingly + 2;
+        var taught = await StoreAsync(classes, Enumerable.Range(0, count).Select(_ => Class(caller.Id)));
+        var seeded = await StoreAsync(enrollments, taught.Select(id => Enrollment(id.ToString())));
 
         using var scope = _fixture.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
@@ -589,24 +589,31 @@ public class ReferenceConditionPredicateTests
         var user = await session.LoadAsync<User>(caller.Id);
 
         var entries = await session.Query<Content>().Where(c => c.ContentType == enrollments).ToListAsync();
-        entries.Should().HaveCount(2);
-        var first = entries.Single(e => e.Id == seeded[0]);
-        var second = entries.Single(e => e.Id == seeded[1]);
+        entries.Should().HaveCount(count);
+        var ordered = seeded.Select(id => entries.Single(e => e.Id == id)).ToList();
+        var first = ordered[0];
+        var last = ordered[^1];
 
-        // The first check loads the class. The second points elsewhere, which resolves the
-        // condition to a set, so both ways of keeping an answer are in play.
-        (await resolver.CanPerformActionAsync(user!, enrollments, "read", first)).Should().BeTrue();
-        (await resolver.CanPerformActionAsync(user!, enrollments, "read", second)).Should().BeTrue();
+        // The first rows each load their class. The rows past them resolve the condition to a
+        // set, so both ways of keeping an answer are in play before the write.
+        foreach (var entry in ordered)
+            (await resolver.CanPerformActionAsync(user!, enrollments, "read", entry)).Should().BeTrue();
 
-        // The first class changes hands, written through this scope's own session.
-        var changed = await session.LoadAsync<Content>(taught[0]);
-        changed!.Data["InstructorUser"] = Guid.NewGuid().ToString();
-        session.Store(changed);
+        // The first and the last class change hands, written through this scope's own session.
+        foreach (var id in new[] { taught[0], taught[^1] })
+        {
+            var changed = await session.LoadAsync<Content>(id);
+            changed!.Data["InstructorUser"] = Guid.NewGuid().ToString();
+            session.Store(changed);
+        }
+
         await session.SaveChangesAsync();
 
         (await resolver.CanPerformActionAsync(user!, enrollments, "read", first)).Should().BeFalse(
-            "what the scope wrote is read again, not answered from before the write");
-        (await resolver.CanPerformActionAsync(user!, enrollments, "read", second)).Should().BeTrue();
+            "the class this row loaded was written by the scope, and is read again");
+        (await resolver.CanPerformActionAsync(user!, enrollments, "read", last)).Should().BeFalse(
+            "the set this row was answered from was read before the write, and is read again");
+        (await resolver.CanPerformActionAsync(user!, enrollments, "read", ordered[1])).Should().BeTrue();
     }
 
     [Fact]

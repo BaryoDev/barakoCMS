@@ -1017,7 +1017,9 @@ public class ReferenceConditionAccessTests
 
     /// <summary>
     /// Fixed names, because the page tree's type is set when its host is built. A class, an
-    /// enrollment with a slug so it can be pushed, and a page owned by a class.
+    /// enrollment with a slug (so it can be pushed and found by slug) and a second reference into
+    /// classes, and a page owned by a class. The page also declares the class's two fields, so an
+    /// entry of it can pass for a class in everything but its type.
     /// </summary>
     private async Task EnsureBoundTypesAsync()
     {
@@ -1045,6 +1047,7 @@ public class ReferenceConditionAccessTests
                 new FieldDefinition { Name = "Student", DisplayName = "Student", Type = "string" },
                 new FieldDefinition { Name = "Slug", DisplayName = "Slug", Type = "slug" },
                 new FieldDefinition { Name = "Class", DisplayName = "Class", Type = "reference", ReferenceType = BoundClasses },
+                new FieldDefinition { Name = "Backup", DisplayName = "Backup", Type = "reference", ReferenceType = BoundClasses },
             ],
         });
 
@@ -1055,6 +1058,7 @@ public class ReferenceConditionAccessTests
             [
                 new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" },
                 new FieldDefinition { Name = "Slug", DisplayName = "Slug", Type = "slug" },
+                new FieldDefinition { Name = "InstructorUser", DisplayName = "Instructor", Type = "string" },
                 new FieldDefinition { Name = "Owner", DisplayName = "Owner", Type = "reference", ReferenceType = BoundClasses },
             ],
         });
@@ -1104,9 +1108,16 @@ public class ReferenceConditionAccessTests
         }
     }
 
+    private static Dictionary<string, object> Enrolled(string slug, object @class, object? backup = null)
+    {
+        var data = new Dictionary<string, object> { ["Student"] = "a student", ["Slug"] = slug, ["Class"] = @class };
+        if (backup is not null) data["Backup"] = backup;
+        return data;
+    }
+
     /// <summary>
-    /// One set of 1,002 classes for every pass, since storing them is most of what this costs:
-    /// 1,156 rows stored in five writes, 12 requests, one extra host for the page tree.
+    /// One set of classes for every pass, since storing them is most of what this costs: about
+    /// 1,180 rows stored in eleven writes, 15 requests, one extra host for the page tree.
     /// </summary>
     [Fact]
     public async Task A_condition_leading_to_more_entries_than_a_set_holds_pages_a_named_type_and_refuses_every_other_pass()
@@ -1114,10 +1125,12 @@ public class ReferenceConditionAccessTests
         await EnsureBoundTypesAsync();
         await PurgeAsync(BoundClasses, BoundEnrollments, BoundPages);
 
-        // Teaches more classes than a set holds. The database can answer their rules whole.
+        // Teaches more classes than a set holds, and reads every class not titled "closed". The
+        // database can answer both, and they are different questions, so a class can satisfy the
+        // comparison and still be one the caller may not read.
         var (client, userId) = await CallerHoldingAsync(
             ["export_content"],
-            Classes(BoundClasses),
+            new ContentTypePermission { ContentTypeSlug = BoundClasses, Read = Where("Title", "_ne", "closed") },
             Enrollments(BoundEnrollments),
             new ContentTypePermission { ContentTypeSlug = BoundPages, Read = Where("Owner.InstructorUser", "_eq", "$CURRENT_USER") });
 
@@ -1127,50 +1140,101 @@ public class ReferenceConditionAccessTests
             new ContentTypePermission { ContentTypeSlug = BoundClasses, Read = Where("$status", "_eq", "Published") },
             new ContentTypePermission { ContentTypeSlug = BoundEnrollments, Read = Where("Class.Title", "_ne", "no such title") });
 
+        // Two references into classes under the same comparison, on one rule.
+        var bothRule = Where("Class.Title", "_ne", "no such title");
+        bothRule.Conditions!["Backup.Title"] = new Dictionary<string, object> { ["_ne"] = "no such title" };
+        var (both, _) = await CallerAsync(
+            new ContentTypePermission { ContentTypeSlug = BoundClasses, Read = new PermissionRule { Enabled = true } },
+            new ContentTypePermission { ContentTypeSlug = BoundEnrollments, Read = bothRule });
+
+        var elsewhere = $"other-{Guid.NewGuid():n}"[..16];
+        Guid? foreign = null;
+
         try
         {
+
             var taught = await StoreAsync(BoundClasses, Enumerable.Range(0, ReferenceConditions.MaxEntriesPerCondition + 1)
                 .Select(i => new Dictionary<string, object> { ["Title"] = $"class {i}", ["InstructorUser"] = userId.ToString() }));
             taught.Should().HaveCount(ReferenceConditions.MaxEntriesPerCondition + 1);
 
+            // Four that satisfy the comparison and must not be followed: one the caller's own rule
+            // for classes leaves out, one that is Sensitive, one in another tenant, and one entry
+            // of another type holding the same field. And one class of another instructor.
+            var closed = (await StoreAsync(BoundClasses,
+                [new() { ["Title"] = "closed", ["InstructorUser"] = userId.ToString() }])).Single();
+            var guarded = (await StoreAsync(BoundClasses,
+                [new() { ["Title"] = "guarded", ["InstructorUser"] = userId.ToString() }], SensitivityLevel.Sensitive)).Single();
+            foreign = (await StoreAsync(BoundClasses,
+                [new() { ["Title"] = "elsewhere", ["InstructorUser"] = userId.ToString() }], tenant: elsewhere)).Single();
+            var lookalike = (await StoreAsync(BoundPages,
+                [new() { ["Title"] = "lookalike", ["Slug"] = "bound-lookalike", ["InstructorUser"] = userId.ToString() }])).Single();
             var notTheirs = await ClassAsync(BoundClasses, Guid.NewGuid());
+
+            // Eleven pages, one past what is read row by row, each owned by a class of its own.
+            await StoreAsync(BoundPages, taught.Take(ReferenceConditions.RowsReadSingly + 1).Select((id, i) =>
+                new Dictionary<string, object> { ["Title"] = $"page {i}", ["Slug"] = $"bound-page-{i}", ["Owner"] = id.ToString() }));
+
+            // Two entries hold one slug. The older is in another instructor's class.
+            var sharedTheirs = (await StoreAsync(BoundEnrollments, [Enrolled("bound-shared", notTheirs.ToString())])).Single();
 
             // More than a page of enrollments, each in a class of its own. The first names its
             // class in upper case, which the subquery has to read as the list of ids does.
-            var mine = await StoreAsync(BoundEnrollments, taught.Take(150).Select((id, i) => new Dictionary<string, object>
-            {
-                ["Student"] = "a student",
-                ["Slug"] = $"bound-{i}",
-                ["Class"] = i == 0 ? id.ToString().ToUpperInvariant() : id.ToString(),
-            }));
+            var mine = await StoreAsync(BoundEnrollments, taught.Take(150).Select((id, i) =>
+                Enrolled($"bound-{i}", i == 0 ? id.ToString().ToUpperInvariant() : id.ToString())));
             mine.Should().HaveCount(150);
 
-            var theirs = (await StoreAsync(BoundEnrollments,
-            [
-                new() { ["Student"] = "somebody else", ["Slug"] = "bound-other", ["Class"] = notTheirs.ToString() },
-                new() { ["Student"] = "nowhere", ["Slug"] = "bound-nowhere", ["Class"] = "not an id" },
-            ]));
+            var sharedMine = (await StoreAsync(BoundEnrollments, [Enrolled("bound-shared", taught[200].ToString())])).Single();
 
-            await StoreAsync(BoundPages, taught.Take(2).Select((id, i) => new Dictionary<string, object>
-            {
-                ["Title"] = $"page {i}",
-                ["Slug"] = $"bound-page-{i}",
-                ["Owner"] = id.ToString(),
-            }));
+            // None of these may be listed or counted for the caller. Only the total can show one
+            // that the subquery let through, since the check over the page would drop the row.
+            var unlisted = await StoreAsync(BoundEnrollments,
+            [
+                Enrolled("bound-closed", closed.ToString()),
+                Enrolled("bound-guarded", guarded.ToString()),
+                Enrolled("bound-foreign", foreign.Value.ToString()),
+                Enrolled("bound-lookalike", lookalike.ToString()),
+                Enrolled("bound-other", notTheirs.ToString()),
+                Enrolled("bound-nowhere", "not an id"),
+                // Read by the caller with two references, and not by this one.
+                Enrolled("bound-two", notTheirs.ToString(), closed.ToString()),
+            ]);
+            unlisted.Should().HaveCount(7);
+            var two = unlisted[^1];
+
+            var expected = mine.Append(sharedMine).ToList();
 
             // A named type: the database filters by subquery, and pages and counts.
             var typed = await ListedAsync(client, BoundEnrollments);
-            typed.Total.Should().Be(150);
-            typed.Ids.Should().HaveCount(150);
-            typed.Ids.Should().BeEquivalentTo(mine);
+            typed.Total.Should().Be(151, "150 in classes of their own and the one sharing a slug, and none of the seven");
+            typed.Ids.Should().HaveCount(151);
+            typed.Ids.Should().BeEquivalentTo(expected);
 
-            // One entry: one read.
+            // One entry: one read for each reference it holds.
             (await GetAsync(client, mine[7])).Should().Be(HttpStatusCode.OK);
-            (await GetAsync(client, theirs[0])).Should().Be(HttpStatusCode.Forbidden);
+            (await GetAsync(client, unlisted[0])).Should().Be(HttpStatusCode.Forbidden);
 
-            // Every pass that walks rows itself is refused, with the reason.
-            // The caller holds two conditions into classes, on enrollments and on pages, and the
-            // refusal names whichever the pass met at its second row.
+            // One row holding two references into classes is still one row, not a pass.
+            (await GetAsync(both, two)).Should().Be(HttpStatusCode.OK,
+                "a get by id never meets the bound a pass over many rows does");
+
+            // Two candidates for one slug, the first in a class the caller does not teach.
+            var bySlug = await client.GetAsync($"/api/contents/by-slug/{BoundEnrollments}/bound-shared");
+            bySlug.StatusCode.Should().Be(HttpStatusCode.OK, await bySlug.Content.ReadAsStringAsync());
+            using (var doc = JsonDocument.Parse(await bySlug.Content.ReadAsStringAsync()))
+            {
+                doc.RootElement.GetProperty("id").GetGuid().Should().Be(sharedMine);
+                doc.RootElement.GetProperty("id").GetGuid().Should().NotBe(sharedTheirs);
+            }
+
+            // A push of two entries is two rows.
+            object Pushed(int i) => Enrolled($"bound-{i}", taught[i].ToString());
+            var small = await client.PostAsJsonAsync(
+                $"/api/collections/{BoundEnrollments}/push", new { entries = new[] { Pushed(1), Pushed(2) } });
+            small.StatusCode.Should().Be(HttpStatusCode.OK, await small.Content.ReadAsStringAsync());
+
+            // Every pass that walks more rows than that is refused, with the reason. The caller
+            // holds two conditions into classes, on enrollments and on pages, and the list of every
+            // type names whichever it met first.
             await ShouldBeRefusedAsync(client.GetAsync("/api/contents?pageSize=10"), "the list of every type", ".InstructorUser");
 
             await ShouldBeRefusedAsync(
@@ -1179,13 +1243,9 @@ public class ReferenceConditionAccessTests
             await ShouldBeRefusedAsync(
                 client.PostAsJsonAsync($"/api/collections/{BoundEnrollments}/push", new
                 {
-                    entries = new[]
-                    {
-                        new Dictionary<string, object> { ["Slug"] = "bound-0", ["Student"] = "pushed", ["Class"] = taught[0].ToString() },
-                        new Dictionary<string, object> { ["Slug"] = "bound-1", ["Student"] = "pushed", ["Class"] = taught[1].ToString() },
-                    },
+                    entries = Enumerable.Range(1, ReferenceConditions.RowsReadSingly + 1).Select(Pushed).ToArray(),
                 }),
-                "the push",
+                "a push of eleven entries",
                 Follows);
 
             var tree = TreeHost().CreateClient();
@@ -1201,6 +1261,7 @@ public class ReferenceConditionAccessTests
 
             // At a thousand each condition has a set again, and every pass answers.
             await EraseAsync(taught[^1]);
+            await EraseAsync(closed);
             await EraseAsync(notTheirs);
 
             var everyType = await client.GetAsync("/api/contents?pageSize=1");
@@ -1208,18 +1269,27 @@ public class ReferenceConditionAccessTests
             using (var doc = JsonDocument.Parse(await everyType.Content.ReadAsStringAsync()))
             {
                 doc.RootElement.GetProperty("totalItems").GetInt32().Should().Be(
-                    ReferenceConditions.MaxEntriesPerCondition + 150 + 2,
-                    "a thousand classes, their 150 enrollments and the two pages they own");
+                    ReferenceConditions.MaxEntriesPerCondition + 1 + 151 + ReferenceConditions.RowsReadSingly + 1,
+                    "a thousand classes and the Sensitive one, which their rule for classes reads, "
+                  + "151 enrollments, and the eleven pages");
             }
 
             var readerTyped = await ListedAsync(reader, BoundEnrollments);
-            readerTyped.Total.Should().Be(150);
-            readerTyped.Ids.Should().HaveCount(150);
-            readerTyped.Ids.Should().BeEquivalentTo(mine);
+            readerTyped.Total.Should().Be(151);
+            readerTyped.Ids.Should().HaveCount(151);
+            readerTyped.Ids.Should().BeEquivalentTo(expected);
         }
         finally
         {
             await PurgeAsync(BoundClasses, BoundEnrollments, BoundPages);
+
+            if (foreign is { } id)
+            {
+                using var scope = _factory.Services.CreateScope();
+                await using var session = scope.ServiceProvider.GetRequiredService<IDocumentStore>().LightweightSession(elsewhere);
+                session.Delete<Content>(id);
+                await session.SaveChangesAsync();
+            }
         }
     }
 

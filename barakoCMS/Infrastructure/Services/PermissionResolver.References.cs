@@ -15,10 +15,11 @@ namespace barakoCMS.Infrastructure.Services;
 /// <remarks>
 /// A condition is answered one of three ways, and all three are the same question.
 ///
-/// The first row that asks loads the entry it points at: one read, which is all a get, an update
-/// or a transition needs. The second row that asks, pointing somewhere else, means a pass over
-/// many rows, so the condition is resolved once to the ids of the referenced entries that satisfy
-/// it and that the caller may read, and every later row is a lookup in that set. The read
+/// The first rows that ask, up to <see cref="ReferenceConditions.RowsReadSingly"/> of them, each
+/// load the entry they point at: one read for each reference, which is all a get, an update, a
+/// transition or the candidates of a slug need. A row past that means a pass over many rows, so
+/// the condition is resolved once to the ids of the referenced entries that satisfy it and that
+/// the caller may read, and every later row is a lookup in that set. The read
 /// predicate for a list is built from the same set, so the page a list takes in the database and
 /// the per-entry check over that page cannot disagree. What a pass costs does not grow with the
 /// rows of other people it walks over.
@@ -42,6 +43,9 @@ public partial class PermissionResolver
     private readonly Dictionary<Guid, Models.Content?> _referenced = new();
     private readonly Dictionary<(string Type, string Field, string Operators), Followed> _followed = new();
 
+    /// <summary>The rows this scope has asked a reference condition about.</summary>
+    private readonly HashSet<Guid> _rows = new();
+
     private bool _followingReference;
     private bool _listening;
 
@@ -57,9 +61,6 @@ public partial class PermissionResolver
     /// <summary>What one condition has read so far in this scope.</summary>
     private sealed class Followed
     {
-        /// <summary>Whether a row has already loaded the entry it points at for this condition.</summary>
-        public bool Loaded { get; set; }
-
         /// <summary>Whether the set was asked for. It is asked for once.</summary>
         public bool Resolved { get; set; }
 
@@ -79,9 +80,6 @@ public partial class PermissionResolver
         /// checked are a page the database already filtered.
         /// </summary>
         public bool Paged { get; set; }
-
-        /// <summary>How many entries this condition has loaded one by one.</summary>
-        public int Singles { get; set; }
     }
 
     private sealed class ForgetOnCommit(PermissionResolver resolver) : DocumentSessionListenerBase
@@ -98,6 +96,7 @@ public partial class PermissionResolver
         _definitions.Clear();
         _referenced.Clear();
         _followed.Clear();
+        _rows.Clear();
     }
 
     private void ListenForCommits()
@@ -178,11 +177,13 @@ public partial class PermissionResolver
         if (followed.Ids is { } known)
             return known.Contains(targetId);
 
-        var loaded = _referenced.ContainsKey(targetId);
+        // What makes a pass is the rows it asks about, not the entries they point at: one row may
+        // hold two references into the same type, and that is still one row.
+        _rows.Add(content.Id);
 
-        // A second row pointing somewhere new is a pass over many rows. Resolve the condition once
-        // and answer this row and every later one from the set.
-        if (!loaded && followed.Loaded)
+        // Past a handful of rows this is a pass over many. Resolve the condition once and answer
+        // this row and every later one from the set.
+        if (_rows.Count > ReferenceConditions.RowsReadSingly)
         {
             if (!followed.Resolved)
                 await ResolveAsync(followed, path, user, cancellationToken);
@@ -190,17 +191,12 @@ public partial class PermissionResolver
             if (followed.Ids is { } resolved)
                 return resolved.Contains(targetId);
 
-            // No set. Only a page the database filtered by subquery goes on loading, and a page
-            // is far smaller than the limit. Anything else is refused here, at the row that shows
-            // the pass for what it is, before it reads further.
-            if (!followed.Paged || followed.Singles >= ReferenceConditions.MaxEntriesPerRequest)
+            // No set. Only a page the database filtered by subquery goes on loading what its rows
+            // point at, and a page is half the limit. Anything else is refused here, at the row
+            // that shows the pass for what it is, before it reads further.
+            if (!followed.Paged || _rows.Count > ReferenceConditions.MaxEntriesPerRequest)
                 throw new ReferenceConditionBoundException(path.Key);
         }
-
-        if (!loaded)
-            followed.Singles++;
-
-        followed.Loaded = true;
 
         // Null for an entry that was erased or never existed, and for one in another tenant: the
         // session is this scope's, and it reads this tenant only.
@@ -317,20 +313,36 @@ public partial class PermissionResolver
         // The caller's Read rules for the referenced type do not compile, a rule on $status for
         // one. The comparison still narrows in the database, and each match is asked the read
         // rules in memory, a batch at a time, so the bound counts what the caller may read and
-        // not what matched.
+        // not what matched. The whole entry is read, since a read rule may name any field of it.
         var comparisonSql = path.Comparison.Sql!;
         var comparisonParameters = path.Comparison.Parameters;
         var kept = new HashSet<Guid>();
+        var compared = 0;
+        Guid? last = null;
 
-        for (var skip = 0; skip < ReferenceConditions.MaxEntriesCompared; skip += CompareBatch)
+        while (true)
         {
+            // One more than is left to compare, which tells exactly the limit from more than it.
+            var remaining = ReferenceConditions.MaxEntriesCompared - compared;
+            var take = Math.Min(CompareBatch, remaining + 1);
+
+            // Each batch starts after the last id the one before it read. An offset would rescan
+            // what was read, and an entry erased between two batches would shift the rest and
+            // leave one unread.
+            var sql = last is null ? comparisonSql : $"({comparisonSql}) AND d.id > ?";
+            var parameters = comparisonParameters;
+            if (last is { } after)
+                parameters = [.. comparisonParameters, after];
+
             var batch = await session.Query<Models.Content>()
                 .Where(c => c.ContentType == targetType && c.Sensitivity == Models.SensitivityLevel.Public)
-                .Where(c => c.MatchesSql(comparisonSql, comparisonParameters))
+                .Where(c => c.MatchesSql(sql, parameters))
                 .OrderBy(c => c.Id)
-                .Skip(skip)
-                .Take(CompareBatch)
+                .Take(take)
                 .ToListAsync(cancellationToken);
+
+            if (batch.Count > remaining)
+                return;
 
             foreach (var match in batch)
             {
@@ -338,14 +350,18 @@ public partial class PermissionResolver
                     kept.Add(match.Id);
             }
 
+            compared += batch.Count;
+
             if (kept.Count > bound)
                 return;
 
-            if (batch.Count < CompareBatch)
+            if (batch.Count < take)
             {
                 followed.Ids = kept;
                 return;
             }
+
+            last = batch[^1].Id;
         }
     }
 

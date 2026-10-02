@@ -33,15 +33,24 @@ internal static class ReferenceConditions
 
     /// <summary>
     /// The most matches read to build a set when the caller's Read rules for the referenced type
-    /// have to be asked in memory. Past it the condition has no set, however few the caller may read.
+    /// have to be asked in memory. Each is a whole entry, read 500 at a time. A condition that
+    /// matches more has no set, however few of them the caller may read.
     /// </summary>
-    public const int MaxEntriesCompared = 5000;
+    public const int MaxEntriesCompared = 2000;
 
     /// <summary>
-    /// The most referenced entries one condition loads one by one to confirm a page the database
-    /// filtered by subquery. A page holds at most half of this.
+    /// The most rows of a page the database filtered by subquery that load the entries they point
+    /// at. A page holds at most half of this.
     /// </summary>
     public const int MaxEntriesPerRequest = 200;
+
+    /// <summary>
+    /// How many rows one scope checks by loading each entry a row points at, before a condition is
+    /// resolved to a set. Ten, which is what a get by slug may have as candidates, so a get, an
+    /// update, a transition, a preview and a slug lookup never meet the bound a pass over many
+    /// rows does.
+    /// </summary>
+    public const int RowsReadSingly = 10;
 
     public const int MaxNameLength = 64;
 

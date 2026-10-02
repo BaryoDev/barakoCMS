@@ -173,13 +173,15 @@ following a reference in no tenant, so the roles an upgrade changed can be found
 
 What it costs, and where it stops:
 
-- A check on one entry (get, update, status change, transition) loads the entry it points at: one
-  read.
-- A pass over many entries resolves the condition once, to the ids of the referenced entries that
-  satisfy it and that the caller may read, and tests each row's reference against that set. That
-  is one query per condition, whoever else's rows the pass walks over. `GET /api/contents` with a
-  `contentType` builds its query from the same ids, so it filters, pages and counts in the
-  database.
+- A check on one entry (get, update, status change, transition, preview) loads the entry each of
+  its references points at: one read for each. The same holds for the first ten rows a request
+  asks about, which covers the candidates of a get by slug and a push of up to ten entries. A row
+  holding two references into one type is one row.
+- A pass over more rows than that resolves the condition once, to the ids of the referenced
+  entries that satisfy it and that the caller may read, and tests each row's reference against
+  that set. That is one query per condition, whoever else's rows the pass walks over.
+  `GET /api/contents` with a `contentType` builds its query from the same ids, so it filters,
+  pages and counts in the database.
 - The set holds at most 1,000 ids: referenced entries that satisfy the condition and that the
   caller may read. A condition keyed on the caller (`_eq $CURRENT_USER`) rarely reaches that. One
   that is not, such as `Class.Visibility _eq public` or any `_ne` or `_nin`, reaches it as the
@@ -188,18 +190,22 @@ What it costs, and where it stops:
     condition, which is when the caller's Read rules for the referenced type compile to SQL. The
     list is filtered by a subquery in place of the ids, with no bound on how many entries it
     selects, and the rows of each page load the entries they point at.
-  - A get, an update or a transition on one entry keeps working: it is one read.
+  - A check on up to ten rows keeps working, as above.
   - Every other pass over many rows is refused with a 403 whose reason names the condition and
     the bound: `GET /api/contents` with no `contentType`, the export, the page tree, a push of
-    more than one existing entry, and a list of a named type when the caller's Read rules for
-    the referenced type do not compile (a `$status` rule, for one). It is refused at the second
-    row, before the rest is read, and one warning is logged. It is not answered with the rows it
-    reached, because nothing in such a list would say it was short. The cure is on the role:
-    narrow the condition.
-- When the caller's Read rules for the referenced type do not compile, the matches are read in
-  batches of 500 and each is asked the read rules in memory, so the 1,000 counts what the caller
-  may read. At most 5,000 matches are read this way. A condition that matches more has no set,
-  however few of them the caller may read.
+    more than ten existing entries, and a list of a named type when the caller's Read rules for
+    the referenced type do not compile (a `$status` rule, for one). It is refused at the
+    eleventh row, or before the list loads anything, and one warning is logged. It is not
+    answered with the rows it reached, because nothing in such a list would say it was short.
+    The cure is on the role: narrow the condition.
+- When the caller's Read rules for the referenced type do not compile, the matches are read as
+  whole entries, 500 to a statement, each starting after the last id the one before it read, and
+  each match is asked the read rules in memory. So the 1,000 counts what the caller may read. At
+  most 2,000 matches are read this way, in four statements, and more than 2,000 matches leaves
+  the condition with no set however few of them the caller may read. Nothing is kept between
+  requests, so every page of a named list and every pass over more than ten rows pays this
+  again, and a request that is then refused has paid it first. A Read rule on the referenced
+  type that compiles costs one query for ids.
 - What a request has read this way is dropped when its session commits, so a write followed by a
   check in the same request reads again.
 - A refusal by id is still 403, as it is for every other condition.
