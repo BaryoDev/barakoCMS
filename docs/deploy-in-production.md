@@ -70,6 +70,19 @@ set `Swagger__Enabled=true` on the `app` service, or from the console. The conso
 [barakoBrew](https://github.com/BaryoDev/barakoBrew): deploy it from its own repository, point it at
 `https://$DOMAIN_API`, and put its origin in `FRONTEND_ORIGINS`.
 
+## Watching workflows
+
+Workflow actions run in the background, so a runner that has stopped changes nothing a request can
+see. The API publishes when the runner last completed a pass, how many runs are due and how old the
+oldest is, and how each action attempt ended, on `/metrics`. Set `Metrics__ScrapeKey` on the `app`
+service to switch the endpoint on, and see "Watching the runner" in `docs/workflow-runs.md` for the
+metric names and the alert expressions. The two to start with:
+
+```
+time() - max(barakocms_workflow_runner_last_pass_timestamp_seconds) > 600
+max(barakocms_workflow_oldest_due_run_age_seconds) > 900
+```
+
 ## Pointing a frontend at it
 
 Your own frontend calls the delivery API directly:

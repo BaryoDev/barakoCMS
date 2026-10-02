@@ -188,6 +188,115 @@ nothing and records nothing.
 A cancel and the runner claiming the same run cannot both be saved. If the runner got there first the
 cancel answers 409 and can be sent again for what is left.
 
+## Watching the runner
+
+The queue and the runner publish to `/metrics`, the Prometheus endpoint, which needs
+`Metrics:ScrapeKey` (see `docs/upgrading-to-4.0.md` for the scrape config). These are the numbers
+that answer "are workflows running" without a query against the database.
+
+| Metric | Type | Labels | What it counts |
+| --- | --- | --- | --- |
+| `barakocms_workflow_runs_queued_total` | counter | `trigger` | Runs queued, by the kind of event that fired them. |
+| `barakocms_workflow_attempts_claimed_total` | counter | none | Action attempts this node's runner claimed. |
+| `barakocms_workflow_attempts_total` | counter | `action`, `outcome` | Attempts whose outcome this node recorded. |
+| `barakocms_workflow_action_duration_seconds` | histogram | `action` | How long the action took, for those attempts. |
+| `barakocms_workflow_runs_finished_total` | counter | `status` | Runs this node's runner finished. |
+| `barakocms_workflow_runs_halted_total` | counter | none | Runs where a `Halt` action failed and later actions were skipped. |
+| `barakocms_workflow_runner_last_pass_timestamp_seconds` | gauge | none | Unix time this node's runner last completed a pass. |
+| `barakocms_workflow_due_runs` | gauge | none | Runs with an action that could be claimed now. |
+| `barakocms_workflow_oldest_due_run_age_seconds` | gauge | none | Seconds since the oldest due run was queued. 0 when none is due. |
+| `barakocms_workflow_backlog_measured_timestamp_seconds` | gauge | none | Unix time the two gauges above were last measured. |
+
+The label values are fixed, so the number of series is too:
+
+- `trigger` is `created`, `updated`, `deleted`, `published`, `unpublished`, `transition` or `other`.
+  Every lifecycle transition is counted as `transition`, whatever it is called. 7 series at most.
+- `outcome` is `succeeded`, `failed`, `retried`, `unknown` or `skipped`. `retried` is a failure the
+  runner queued again, and `failed` is one it did not. `skipped` is the content having been deleted
+  before the action ran. An action skipped behind a `Halt` was never attempted and is not counted
+  here.
+- `action` is the type of a registered action (`Email`, `Webhook` and so on, and any custom action
+  the host registers), or `other`. A type no handler is registered for is counted as `other`, and so
+  is every registered type past the first 50 a node sees. So `barakocms_workflow_attempts_total` is
+  at most 51 actions times 6 outcomes (the five above and a spare `other`), 306 series, and a host
+  with the seven built in actions has up to 40. The duration histogram has 15 series per action (12
+  buckets from 50 ms to 5 minutes, `+Inf`, sum and count), 765 at most.
+- `status` is `succeeded`, `failed`, `partially_failed` or `cancelled`. 4 series.
+
+No label holds a tenant, a workflow, a run, a content type or an error message, and no metric is
+kept per tenant. Whoever can read `/metrics` learns how much workflow activity the whole deployment
+has, which action types it uses, how long they take and how often they fail. That is the same kind
+of exposure as the request metrics already there, which name every route and count its traffic.
+
+What the numbers do not include:
+
+- `runs_finished_total` counts a run when the runner writes its last outcome, or cancels what is
+  left of it. A run cancelled through the API with nothing in flight is finished by the API and is
+  not counted. A run that finishes, is retried by hand and finishes again is counted twice.
+- An attempt is counted when its outcome is saved. An outcome that could not be saved (the node ran
+  past its lease, or the run was written twice in between) is claimed but not counted, so
+  `attempts_claimed_total` running ahead of `attempts_total` by more than what is in flight is a sign
+  of that.
+- The counters are per node and start at zero when the node starts. Sum them across nodes.
+
+### The backlog gauges
+
+`due_runs` and `oldest_due_run_age_seconds` are measured by the runner between passes, at most once
+every 30 seconds, and never by a scrape. A scrape reads the last numbers. Each measurement is one
+count per tenant partition, the same read a pass already makes to find what is due, and one more
+read of a single run in a partition that has something due. It stops after 10 seconds. With
+`Tenancy:DatabaseEnforcement` on, that is one count per registered tenant, as a pass is.
+
+If a measurement fails or runs out of time, nothing is published, the node logs a warning, and the
+gauges keep their last values. The runner goes on to its next pass either way. That is why the time
+of the measurement is published beside them: old numbers are told apart by their age.
+
+Every node measures the same database, so take `max` across nodes, not `sum`.
+
+A run that failed and is waiting on a retry is not due until its wait ends, and its age is counted
+from when it was first queued. So a run on its fifth attempt reads a few minutes old the moment it
+comes due. Set the age threshold above that.
+
+A node with `Workflows:RunnerEnabled` off publishes none of the four gauges.
+
+### Alerts
+
+The runner has stopped, or every pass is failing. A pass waits for its actions, so the threshold
+has to be longer than the slowest action:
+
+```
+time() - max(barakocms_workflow_runner_last_pass_timestamp_seconds) > 600
+```
+
+No node has completed a pass since it started:
+
+```
+absent(barakocms_workflow_runner_last_pass_timestamp_seconds)
+```
+
+Work is due and is not being taken. This is the one that catches a runner that is alive and not
+keeping up:
+
+```
+max(barakocms_workflow_oldest_due_run_age_seconds) > 900
+```
+
+The backlog numbers are old, so the alert above cannot be trusted:
+
+```
+time() - max(barakocms_workflow_backlog_measured_timestamp_seconds) > 300
+```
+
+More than half the attempts of one action type are failing, which is usually a provider being down:
+
+```
+sum by (action) (rate(barakocms_workflow_attempts_total{outcome=~"failed|retried|unknown"}[10m]))
+  / sum by (action) (rate(barakocms_workflow_attempts_total[10m])) > 0.5
+```
+
+Do not alert on queued against finished. A run cancelled through the API is queued and never
+counted as finished, and so is a run of a workflow with no actions.
+
 ## This is not an audit trail
 
 Say it plainly, because a retention setting is exactly the kind of thing that quietly becomes a
