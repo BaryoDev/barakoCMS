@@ -261,27 +261,38 @@ is restricted, and none for a Public entry of a type with no restricted field. A
 write always reads them.
 
 `visibleToRoles` is stored as role ids and is still names on the wire. The
-content type endpoints and the import accept names and store the id of the role
-that carries each one. `GET /api/content-types`, the sensitivity endpoint's
+content type endpoints, a blueprint and the import accept names and store the id
+of the role that carries each one. `GET /api/content-types`, the sensitivity endpoint's
 answer and an export give the names back, as the roles are called now, so a
 client reads and sends what it always did and a rename shows up without changing
 who can read the field. A name no role carries is stored as it is and matches a
 role of exactly that name on read, which is also how a definition stored before
 4.6.0 keeps working until it is migrated.
 
-**Upgrading.** `migrations/4.6.0/sensitivity-by-capability.sql` gives every role
-named exactly `HR` the `view_sensitive` capability and rewrites the names in
-every stored `visibleToRoles` to ids. The seeder also grants `view_sensitive` to
-the HR role it seeded (id `00000000-0000-0000-0000-000000000003`, while it is
-still named `HR`) on every start, so a host that runs the seeder keeps that
-role's access even where the file was skipped. Nobody else gains anything: Admin
+**Upgrading.** `migrations/4.6.0/sensitivity-by-capability.sql` gives the seeded
+HR role (id `00000000-0000-0000-0000-000000000003`, while it is still named
+`HR`) the `view_sensitive` capability and rewrites the names in every stored
+`visibleToRoles` to ids. The seeder grants the same capability to the same role
+on every start, so a host that runs the seeder keeps that role's access even
+where the file was skipped. A role named `HR` under any other id is left alone
+by both, since from 4.6.0 that can be a role an operator made, and the file
+names it in a notice. Stop the API before running the file and start 4.6.0
+after: an earlier release serving a migrated database masks every listed field
+for the roles on its list until 4.6.0 is up. Nobody else gains anything: Admin
 never read a Sensitive value and does not start to.
+
+**Who may hand the capabilities out.** A role carrying `view_hidden` is assigned
+only by a SuperAdmin, on `/api/users/{id}/roles` and on `/api/tenants/members`,
+the rule a role carrying `manage_roles` already follows. Only SuperAdmin read a
+Hidden value before, and no role an Admin could assign opened one. A role
+carrying `view_sensitive` is assigned like any other, as HR was.
 
 Only SuperAdmin, Admin and User are seeded now. HR comes with the demo content
 (`Seed:DemoContent`), and `HR` is no longer a reserved role name (#884). A
 database that already holds the HR role keeps it, and it still cannot be deleted.
 
-Proven by `SensitivityByCapabilityTests`, `SensitivityIntegrationTests`,
+Proven by `SensitivityByCapabilityTests`, `HiddenCapabilityGrantTests`,
+`BlueprintRoleReferenceTests`, `SensitivityIntegrationTests`,
 `RoleReferencePortabilityTests`, `SeededRolesTests` and
 `SensitivityByCapabilityMigrationTests`.
 

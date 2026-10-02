@@ -106,6 +106,16 @@ dropped and built again. The Forms file creates one empty table. All of them are
 The Email file creates the empty table Email.Resend uses to record which tenant sent each email,
 so a later bounce can be put back on that tenant. It is safe to run twice.
 
+The sensitivity file (4.6.0) changes data, not schema. It gives the seeded HR role the
+`view_sensitive` capability, which is what its name used to grant, and rewrites the role names in
+every field's `visibleToRoles` to role ids. Stop the API, run it, then start 4.6.0. The order
+matters here more than for an index: 4.5 and earlier match those lists against the role names in
+the token, so an earlier release serving a migrated database masks every listed field for every
+role on its list, and only SuperAdmin reads them, until 4.6.0 is running. Nothing is disclosed in
+that state and no value is changed. 4.6.0 on a database the file has not reached is safe to serve,
+since it still matches names. A role named HR under any id but the seeded one is not granted, and
+the file says so in a notice that names the id. It is safe to run twice.
+
 Then confirm the schema matches what 4.0 expects, without starting the server. The command is an
 argument to the 4.0 image, which hands it to the host instead of booting the web app. With compose,
 from the directory holding your compose file and `.env`:

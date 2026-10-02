@@ -6,6 +6,7 @@ using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 
 namespace BarakoCMS.Tests;
@@ -428,5 +429,241 @@ public class SensitivityByCapabilityTests
         var stored = await StoredFieldAsync(type, "Grades");
         stored.VisibleToRoles.Should().HaveCount(1);
         stored.VisibleToRoles.Should().Equal(role.Id.ToString());
+    }
+
+    // ---- the caller the store describes: tenant, wildcard, API key ---------------------------
+
+    private async Task<string> TenantAsync()
+    {
+        var slug = $"sbc-{Guid.NewGuid():N}"[..14];
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug, IsActive = true });
+        await session.SaveChangesAsync(Ct);
+        return slug;
+    }
+
+    /// <summary>The same type and one Public entry of it, stored in the tenant named.</summary>
+    private async Task<Guid> SeedInTenantAsync(string tenant, string type)
+    {
+        var id = Guid.NewGuid();
+        await using var session = _factory.Services.GetRequiredService<IDocumentStore>().LightweightSession(tenant);
+        session.Store(new ContentTypeDefinition
+        {
+            Id = Guid.NewGuid(),
+            Name = type,
+            DisplayName = "Patient",
+            Fields =
+            [
+                new FieldDefinition { Name = "Name", DisplayName = "Name", Type = "string" },
+                new FieldDefinition { Name = "Notes", DisplayName = "Notes", Type = "string", Sensitivity = SensitivityLevel.Sensitive },
+            ],
+        });
+        session.Store(new Content
+        {
+            Id = id,
+            ContentType = type,
+            Status = ContentStatus.Published,
+            Data = new Dictionary<string, object> { ["Name"] = "Ana", ["Notes"] = Notes },
+            CreatedAt = DateTime.UtcNow,
+        });
+        await session.SaveChangesAsync(Ct);
+        return id;
+    }
+
+    /// <summary>A stored user with no role of their own, holding one role in each tenant named.</summary>
+    private async Task<Guid> MemberAsync(params (string Tenant, Role Role)[] memberships)
+    {
+        var userId = Guid.NewGuid();
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(new User
+        {
+            Id = userId,
+            Username = $"sbc-{userId:n}",
+            Email = $"sbc-{userId:n}@example.com",
+            RoleIds = [],
+        });
+        foreach (var (tenant, role) in memberships)
+        {
+            session.Store(new Membership
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                TenantSlug = tenant,
+                Status = MembershipStatus.Active,
+                RoleIds = [role.Id],
+            });
+        }
+
+        await session.SaveChangesAsync(Ct);
+        return userId;
+    }
+
+    private HttpClient TenantClient(Guid userId, string tenant, string claimedRoleName)
+    {
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer", _factory.CreateToken(
+                roles: [claimedRoleName],
+                userId: userId.ToString(),
+                additionalClaims: new Dictionary<string, string> { ["tenant"] = tenant }));
+        client.DefaultRequestHeaders.Add("X-Tenant", tenant);
+        return client;
+    }
+
+    [Fact]
+    public async Task A_role_held_only_through_a_tenant_membership_opens_the_field_in_that_tenant_and_not_in_another()
+    {
+        var type = $"sbc{Guid.NewGuid():N}"[..16];
+        var clinic = await TenantAsync();
+        var school = await TenantAsync();
+        var inClinic = await SeedInTenantAsync(clinic, type);
+        var inSchool = await SeedInTenantAsync(school, type);
+        var nurse = await StoreRoleAsync($"Nurse {Guid.NewGuid():N}", type, SystemCapabilities.ViewSensitive);
+        var reader = await StoreRoleAsync($"Reader {Guid.NewGuid():N}", type);
+        var userId = await MemberAsync((clinic, nurse), (school, reader));
+
+        var atClinic = await ReadAsync(TenantClient(userId, clinic, nurse.Name), inClinic);
+        Field(atClinic, "Notes").Should().Be(Notes,
+            "the capability comes from the role the membership gives in this tenant");
+
+        var atSchool = await ReadAsync(TenantClient(userId, school, reader.Name), inSchool);
+        Field(atSchool, "Name").Should().Be("Ana", "the control: the same user reads the entry in the other tenant");
+        Field(atSchool, "Notes").Should().Be("***",
+            "and holds only the plain role there, so the role from the first tenant opens nothing");
+    }
+
+    [Fact]
+    public async Task A_role_holding_the_wildcard_reads_Sensitive_and_Hidden_values_but_not_a_field_with_its_own_list()
+    {
+        var listed = await StoreRoleAsync($"Payroll {Guid.NewGuid():N}", "unused");
+        var type = await SeedTypeAsync(new FieldDefinition
+        {
+            Name = "Salary",
+            DisplayName = "Salary",
+            Type = "string",
+            Sensitivity = SensitivityLevel.Sensitive,
+            VisibleToRoles = [listed.Id.ToString()],
+        });
+        var everything = await CallerAsync(
+            await StoreRoleAsync($"Operator {Guid.NewGuid():N}", type, SystemCapabilities.All));
+
+        var entry = await ReadAsync(everything, await SeedEntryAsync(type));
+
+        Field(entry, "Notes").Should().Be(Notes, "the wildcard satisfies view_sensitive");
+        Field(entry, "Pin").Should().Be(Pin, "and view_hidden");
+        Field(entry, "Salary").Should().Be("***",
+            "a field's own list is not a capability, and only the seeded SuperAdmin role passes one it is not on");
+
+        var hiddenEntry = await ReadAsync(everything, await SeedEntryAsync(type, SensitivityLevel.Hidden));
+        Prop(hiddenEntry, "contentType", "ContentType").GetString().Should().Be(type);
+    }
+
+    [Fact]
+    public async Task An_API_key_reads_as_its_owner_in_the_keys_tenant()
+    {
+        var type = $"sbc{Guid.NewGuid():N}"[..16];
+        var clinic = await TenantAsync();
+        var id = await SeedInTenantAsync(clinic, type);
+        var nurse = await StoreRoleAsync($"Nurse {Guid.NewGuid():N}", type, SystemCapabilities.ViewSensitive);
+        var reader = await StoreRoleAsync($"Reader {Guid.NewGuid():N}", type);
+
+        var nurseKey = await KeyClientAsync(await MemberAsync((clinic, nurse)), clinic);
+        var readerKey = await KeyClientAsync(await MemberAsync((clinic, reader)), clinic);
+
+        Field(await ReadAsync(nurseKey, id), "Notes").Should().Be(Notes,
+            "a key acts as its owner, and the owner's role in the key's tenant holds the capability");
+
+        var plain = await ReadAsync(readerKey, id);
+        Field(plain, "Name").Should().Be("Ana", "the control: this key reads the entry too");
+        Field(plain, "Notes").Should().Be("***");
+    }
+
+    /// <summary>A client presenting a content:read key owned by the user, for the tenant named.</summary>
+    private async Task<HttpClient> KeyClientAsync(Guid ownerId, string tenant)
+    {
+        var secret = "bcms_" + Guid.NewGuid().ToString("N");
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new ApiKey
+            {
+                Id = Guid.NewGuid(),
+                Name = "sensitivity",
+                KeyHash = ApiKeyService.Hash(secret),
+                Prefix = secret[..12],
+                UserId = ownerId,
+                TenantSlug = tenant,
+                Scopes = ["content:read"],
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", secret);
+        return client;
+    }
+
+    // ---- the write path ----------------------------------------------------------------------
+
+    [Fact]
+    public async Task A_Hidden_field_written_by_a_view_hidden_holder_is_kept_and_by_anyone_else_is_dropped()
+    {
+        var type = await SeedTypeAsync();
+        var auditor = await CallerAsync(await StoreWriterRoleAsync(type, SystemCapabilities.ViewHidden));
+        var clerk = await CallerAsync(await StoreWriterRoleAsync(type));
+
+        var kept = await CreateAsync(auditor, type);
+        kept.Should().ContainKey("Pin").WhoseValue.ToString().Should().Be(Pin,
+            "a caller who may see a Hidden field may set it");
+        kept.Keys.Should().NotContain("Notes", "view_hidden does not let a caller set a Sensitive field");
+
+        var dropped = await CreateAsync(clerk, type);
+        dropped.Should().ContainKey("Name", "the control: the entry was written");
+        dropped.Keys.Should().NotContain("Pin", "a caller who may not see the field may not set it");
+    }
+
+    private async Task<Role> StoreWriterRoleAsync(string type, params string[] capabilities)
+    {
+        var role = new Role
+        {
+            Id = Guid.NewGuid(),
+            Name = $"Writer {Guid.NewGuid():N}",
+            SystemCapabilities = capabilities.ToList(),
+            Permissions =
+            [
+                new ContentTypePermission
+                {
+                    ContentTypeSlug = type,
+                    Read = new PermissionRule { Enabled = true },
+                    Create = new PermissionRule { Enabled = true },
+                },
+            ],
+        };
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(role);
+        await session.SaveChangesAsync(Ct);
+        return role;
+    }
+
+    /// <summary>Creates an entry sending every field, and returns what was stored.</summary>
+    private async Task<Dictionary<string, object>> CreateAsync(HttpClient client, string type)
+    {
+        var created = await client.PostAsJsonAsync("/api/contents", new
+        {
+            ContentType = type,
+            Data = new Dictionary<string, object> { ["Name"] = "Ana", ["Notes"] = Notes, ["Pin"] = Pin },
+        }, Ct);
+        var body = await created.Content.ReadAsStringAsync(Ct);
+        created.StatusCode.Should().Be(HttpStatusCode.OK, body);
+        var id = JsonDocument.Parse(body).RootElement.GetProperty("id").GetGuid();
+
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        var stored = await session.LoadAsync<Content>(id, Ct);
+        stored.Should().NotBeNull("the entry {0} was created", id);
+        return stored!.Data;
     }
 }

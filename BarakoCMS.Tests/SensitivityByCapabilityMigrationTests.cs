@@ -14,8 +14,10 @@ namespace BarakoCMS.Tests;
 /// </summary>
 /// <remarks>
 /// Before 4.6.0 the role named HR read a Sensitive field by its name, and a field listed roles by
-/// name. <c>migrations/4.6.0/sensitivity-by-capability.sql</c> gives every role named HR the
-/// capability that replaced the name, and rewrites listed names to role ids.
+/// name. <c>migrations/4.6.0/sensitivity-by-capability.sql</c> gives the seeded HR role, the one
+/// under the seeded id and still named HR, the capability that replaced the name, and rewrites
+/// listed names to role ids. A role of the operator's own called HR is left alone, on a first run
+/// and on every later one, which is the same rule the seeder applies.
 ///
 /// The documents are written by Marten, so the JSON the file meets is the JSON a deployment holds.
 /// They are then copied into a scratch schema and the file is run there with its two table names
@@ -33,15 +35,25 @@ public class SensitivityByCapabilityMigrationTests
     public SensitivityByCapabilityMigrationTests(IntegrationTestFixture factory) => _factory = factory;
 
     [Fact]
-    public async Task The_migration_grants_HR_the_capability_and_lists_roles_by_id_and_the_rollback_undoes_both()
+    public async Task The_migration_grants_the_seeded_HR_role_alone_and_lists_roles_by_id_and_the_rollback_undoes_both()
     {
         var ct = TestContext.Current.CancellationToken;
         var scratch = "sensitivity_check_" + Guid.NewGuid().ToString("N")[..8];
         var up = await ScopedAsync("sensitivity-by-capability.sql", scratch, ct);
         var down = await ScopedAsync("rollback-sensitivity-by-capability.sql", scratch, ct);
+        var seededId = barakoCMS.Data.DataSeeder.DemoHrRoleId;
 
-        var hr = new Role { Id = Guid.NewGuid(), Name = $"Becomes HR {Guid.NewGuid():N}", SystemCapabilities = [SystemCapabilities.ViewAuditLog] };
-        var payroll = new Role { Id = Guid.NewGuid(), Name = $"Payroll {Guid.NewGuid():N}" };
+        // Stored under ids and names of their own, because public holds one role per name and the
+        // fixture already owns the seeded id. They take the id and the name the file keys on once
+        // they are in the scratch schema.
+        var seeded = new Role { Id = Guid.NewGuid(), Name = $"Becomes seeded HR {Guid.NewGuid():N}", SystemCapabilities = [SystemCapabilities.ViewAuditLog] };
+        var operators = new Role { Id = Guid.NewGuid(), Name = $"Becomes an operator's HR {Guid.NewGuid():N}" };
+        var payroll = new Role
+        {
+            Id = Guid.NewGuid(),
+            Name = $"Payroll {Guid.NewGuid():N}",
+            SystemCapabilities = [SystemCapabilities.ViewSensitive, SystemCapabilities.ViewHidden],
+        };
         var ghost = $"Ghost {Guid.NewGuid():N}";
         var type = new ContentTypeDefinition
         {
@@ -65,7 +77,8 @@ public class SensitivityByCapabilityMigrationTests
         using (var scope = _factory.Services.CreateScope())
         {
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            session.Store(hr);
+            session.Store(seeded);
+            session.Store(operators);
             session.Store(payroll);
             session.Store(type);
             await session.SaveChangesAsync(ct);
@@ -78,30 +91,36 @@ public class SensitivityByCapabilityMigrationTests
             await ExecuteAsync(connection, $"CREATE SCHEMA {scratch}", ct);
             await ExecuteAsync(connection,
                 $"CREATE TABLE {scratch}.{Roles} AS SELECT * FROM public.{Roles} "
-              + $"WHERE id IN ('{hr.Id}', '{payroll.Id}')", ct);
+              + $"WHERE id IN ('{seeded.Id}', '{operators.Id}', '{payroll.Id}')", ct);
             await ExecuteAsync(connection,
                 $"CREATE TABLE {scratch}.{Types} AS SELECT * FROM public.{Types} WHERE id = '{type.Id}'", ct);
 
-            // The name the migration keys on. Role names are uniquely indexed in public, and the
-            // fixture's own HR role may or may not still carry it, so it is given here.
             await ExecuteAsync(connection,
-                $"UPDATE {scratch}.{Roles} SET data = jsonb_set(data, '{{Name}}', '\"HR\"') WHERE id = '{hr.Id}'", ct);
+                $"UPDATE {scratch}.{Roles} SET id = '{seededId}', "
+              + $"data = jsonb_set(jsonb_set(data, '{{Name}}', '\"HR\"'), '{{Id}}', '\"{seededId}\"') "
+              + $"WHERE id = '{seeded.Id}'", ct);
+            await ExecuteAsync(connection,
+                $"UPDATE {scratch}.{Roles} SET data = jsonb_set(data, '{{Name}}', '\"HR\"') WHERE id = '{operators.Id}'", ct);
 
-            (await CapabilitiesAsync(connection, scratch, hr.Id, ct)).Should().Equal(
-                new[] { SystemCapabilities.ViewAuditLog }, "the control: the role starts without the capability");
+            (await CapabilitiesAsync(connection, scratch, seededId, ct)).Should().Equal(
+                new[] { SystemCapabilities.ViewAuditLog }, "the control: the seeded role starts without the capability");
             (await SalaryRolesAsync(connection, scratch, type.Id, ct)).Should().Equal(
                 new[] { payroll.Name, ghost }, "the control: the field starts out listing names");
 
             await ExecuteAsync(connection, up, ct);
+
+            (await CapabilitiesAsync(connection, scratch, operators.Id, ct)).Should().BeEmpty(
+                "a role named HR under another id is the operator's own, and a first run grants it nothing");
+
             await ExecuteAsync(connection, up, ct);
 
-            var granted = await CapabilitiesAsync(connection, scratch, hr.Id, ct);
+            var granted = await CapabilitiesAsync(connection, scratch, seededId, ct);
             granted.Should().HaveCount(2);
             granted.Should().Equal(
                 new[] { SystemCapabilities.ViewAuditLog, SystemCapabilities.ViewSensitive },
-                "the role named HR keeps what it held and gains the capability once, however often the file runs");
-            (await CapabilitiesAsync(connection, scratch, payroll.Id, ct)).Should().BeEmpty(
-                "a role under any other name is given nothing");
+                "the seeded HR role keeps what it held and gains the capability once, however often the file runs");
+            (await CapabilitiesAsync(connection, scratch, operators.Id, ct)).Should().BeEmpty(
+                "and a second run grants the operator's HR nothing either");
 
             var listed = await SalaryRolesAsync(connection, scratch, type.Id, ct);
             listed.Should().HaveCount(2);
@@ -112,10 +131,16 @@ public class SensitivityByCapabilityMigrationTests
             await ExecuteAsync(connection, down, ct);
             await ExecuteAsync(connection, down, ct);
 
-            var afterRollback = await CapabilitiesAsync(connection, scratch, hr.Id, ct);
+            var afterRollback = await CapabilitiesAsync(connection, scratch, seededId, ct);
             afterRollback.Should().HaveCount(1);
             afterRollback.Should().Equal(
-                new[] { SystemCapabilities.ViewAuditLog }, "an earlier release does not know view_sensitive");
+                new[] { SystemCapabilities.ViewAuditLog }, "the rollback takes back what the forward file gave");
+
+            var kept = await CapabilitiesAsync(connection, scratch, payroll.Id, ct);
+            kept.Should().HaveCount(2);
+            kept.Should().Equal(
+                new[] { SystemCapabilities.ViewSensitive, SystemCapabilities.ViewHidden },
+                "a grant the operator made is not the forward file's to take back");
 
             var named = await SalaryRolesAsync(connection, scratch, type.Id, ct);
             named.Should().HaveCount(2);

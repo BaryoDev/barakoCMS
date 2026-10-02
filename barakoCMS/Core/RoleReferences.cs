@@ -8,8 +8,10 @@ namespace barakoCMS.Core;
 /// </summary>
 /// <remarks>
 /// The list used to hold role names, so renaming a role changed who could read the field. Anything
-/// that stores a definition goes through <see cref="ToIdsAsync"/>, which swaps each name for the id
-/// of the role that carries it. A name no role carries is kept as it is and still matches a role of
+/// that writes a list a caller or a file supplied (create, add field, the sensitivity endpoint, a
+/// blueprint, an import) goes through <see cref="ToIdsAsync"/>, which swaps each name for the id
+/// of the role that carries it. A writer that stores a definition back with its lists as it loaded
+/// them leaves them as they are. A name no role carries is kept as it is and still matches a role of
 /// that name on read, which is how a definition stored before this, or imported from elsewhere,
 /// keeps working.
 ///

@@ -68,6 +68,17 @@ public sealed class SeededRolesTests(IntegrationTestFixture fixture)
             await using (var read = store.QuerySession())
             {
                 var users = await read.Query<User>().ToListAsync(ct);
+
+                // The seeder decides the demo accounts from this variable, not from the host's
+                // environment. The fixture sets it for the whole process. Checked here, and through
+                // the account that does not need the HR role, so the hr_manager check below cannot
+                // pass because no demo account was attempted at all.
+                Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT").Should().Be("Development");
+                users.Select(u => u.Username).Should().Contain("john_viewer",
+                    "the demo accounts are seeded in this environment");
+                users.Select(u => u.Username).Should().NotContain("hr_manager",
+                    "the HR demo account holds the HR role, which this install does not have");
+
                 var held = users.SelectMany(u => u.RoleIds).Distinct().ToList();
                 held.Should().NotBeEmpty("the initial admin is seeded and holds roles");
                 held.Should().BeSubsetOf(withoutDemo.Select(r => r.Id),
