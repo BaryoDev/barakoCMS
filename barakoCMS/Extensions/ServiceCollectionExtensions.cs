@@ -1019,6 +1019,11 @@ public static class ServiceCollectionExtensions
         // served inert, because the operator who sets it is the one who needs it.
         barakoCMS.Infrastructure.Services.SensitivityService.ValidateMode(configuration);
 
+        // Tenancy mode, validated for the same reason: an operator who set Multi and mistyped it
+        // would otherwise run a deployment that serves unregistered slugs while believing it
+        // refuses them. Read here only to refuse; the instance in use is registered further down.
+        barakoCMS.Infrastructure.Multitenancy.TenancyOptions.FromConfiguration(configuration);
+
         // Connectors hold live third-party credentials, so a key that is present and wrong is
         // refused before the host is built rather than at the first send. An absent key is not an
         // error: it means the feature is off, and the endpoints say so with the setting named.
@@ -1107,6 +1112,12 @@ public static class ServiceCollectionExtensions
                               barakoCMS.Infrastructure.Multitenancy.TenantDomainSource>();
         services.Configure<barakoCMS.Infrastructure.Multitenancy.MultitenancyOptions>(
             configuration.GetSection(barakoCMS.Infrastructure.Multitenancy.MultitenancyOptions.SectionName));
+
+        // Built once, from the host's final configuration. AddErasureAndPolicyChecks has already
+        // refused a value that is not a mode.
+        services.AddSingleton(sp => barakoCMS.Infrastructure.Multitenancy.TenancyOptions.FromConfiguration(
+            sp.GetRequiredService<IConfiguration>()));
+
         services.AddScoped<barakoCMS.Infrastructure.Services.IConfigurationService, barakoCMS.Infrastructure.Services.ConfigurationService>();
     }
 
@@ -1612,6 +1623,19 @@ public static class ServiceCollectionExtensions
 
     private static void UseTenantAndAuthentication(IApplicationBuilder app)
     {
+        // Once per start. In Multi partitions are skipped without a line per pass, so this is where
+        // an operator reads that they are.
+        if (app.ApplicationServices.GetRequiredService<barakoCMS.Infrastructure.Multitenancy.TenancyOptions>().IsMulti)
+        {
+            app.ApplicationServices.GetRequiredService<ILoggerFactory>()
+                .CreateLogger("barakoCMS.Infrastructure.Multitenancy.TenancyMode")
+                .LogInformation(
+                    "Tenancy:Mode is Multi. The default partition and any partition with no Tenant document are not served, "
+                  + "and the workflow runner, the retention sweeps, the credential encryption pass, the scheduled content sweep "
+                  + "and the collection sync sweep do not visit them. Rows already stored there are left as they are. "
+                  + "docs/multi-tenancy.md has a query that lists them.");
+        }
+
         // Resolve the tenant from the subdomain, early so downstream code can read it.
         app.UseMiddleware<barakoCMS.Infrastructure.Multitenancy.TenantResolutionMiddleware>();
 
