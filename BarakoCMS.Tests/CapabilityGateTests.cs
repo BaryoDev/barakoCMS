@@ -1353,6 +1353,75 @@ public class CapabilityGateTests
             "the caller is signed in, which is all the field types ask for");
     }
 
+    /// <summary>
+    /// The audit list returns a role entry's or a key entry's detail by the gate of the route that
+    /// owns the data, fallback included. Same kind of caller on both hosts: a token naming Admin
+    /// and a stored user holding no roles.
+    /// </summary>
+    /// <remarks>
+    /// With the fallback on, Admin opens the audit list and the key list, and not the role list,
+    /// whose gate names SuperAdmin alone. So the key entry comes back whole and the role entry
+    /// with its name only. The entries are stored under actions of their own, so the two queries
+    /// return these and nothing another test wrote.
+    ///
+    /// Red if the list asks the permission resolver directly: this caller holds no capability,
+    /// so the key entry would lose its scopes where <c>GET /api/api-keys</c> serves the same caller.
+    /// </remarks>
+    [Fact]
+    public async Task The_audit_list_shows_entry_detail_by_the_owning_routes_gate_with_the_legacy_fallback_on()
+    {
+        var keyAction = $"apikey.probe{Guid.NewGuid():N}";
+        var roleAction = $"role.probe{Guid.NewGuid():N}";
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new barakoCMS.Models.AuditEvent
+            {
+                TenantSlug = barakoCMS.Models.Tenant.DefaultSlug,
+                Action = keyAction,
+                CreatedAt = DateTime.UtcNow,
+                Metadata = new Dictionary<string, object> { ["name"] = "probe", ["scopes"] = new List<string> { "content:read" } },
+            });
+            session.Store(new barakoCMS.Models.AuditEvent
+            {
+                TenantSlug = barakoCMS.Models.Tenant.DefaultSlug,
+                Action = roleAction,
+                CreatedAt = DateTime.UtcNow,
+                Metadata = new Dictionary<string, object> { ["name"] = "probe", ["capabilities"] = new List<string> { "manage_tenants" } },
+            });
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        var client = await CallerWithNoStoredRoles("Admin");
+
+        (await client.GetAsync("/api/api-keys", TestContext.Current.CancellationToken)).StatusCode
+            .Should().Be(HttpStatusCode.OK, "the fallback is on and the key list's gate names Admin");
+        (await client.GetAsync("/api/roles", TestContext.Current.CancellationToken)).StatusCode
+            .Should().Be(HttpStatusCode.Forbidden, "the role list's gate names SuperAdmin alone");
+
+        var key = await AuditMetadataKeysAsync(client, keyAction);
+        key.Should().HaveCount(2);
+        key.Should().BeEquivalentTo(new[] { "name", "scopes" });
+
+        var role = await AuditMetadataKeysAsync(client, roleAction);
+        role.Should().HaveCount(1);
+        role.Should().BeEquivalentTo(new[] { "name" });
+    }
+
+    /// <summary>The metadata keys of the one entry stored under <paramref name="action"/>.</summary>
+    private static async Task<List<string>> AuditMetadataKeysAsync(HttpClient client, string action)
+    {
+        var response = await client.GetAsync($"/api/audit?action={action}", TestContext.Current.CancellationToken);
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        response.StatusCode.Should().Be(HttpStatusCode.OK, body);
+
+        using var parsed = System.Text.Json.JsonDocument.Parse(body);
+        var items = parsed.RootElement.GetProperty("items");
+        items.GetArrayLength().Should().Be(1, "the action is this test's own");
+        return items[0].GetProperty("metadata").EnumerateObject().Select(p => p.Name).ToList();
+    }
+
     private static async Task<System.Text.Json.JsonElement> DescribeDocumentAsync(HttpClient client)
     {
         var response = await client.GetAsync("/api/meta/describe", TestContext.Current.CancellationToken);

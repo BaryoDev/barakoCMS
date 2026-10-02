@@ -12,10 +12,16 @@ internal class Request : PaginatedRequest
 internal class Endpoint(
     IDocumentSession session) : Endpoint<Request, PaginatedResponse<barakoCMS.Features.Roles.RoleResponse>>
 {
+    /// <summary>
+    /// Who may read a role's capabilities and permissions. The audit list asks this same gate
+    /// before it returns that detail of a role entry.
+    /// </summary>
+    internal static readonly RequiredCapability Gate = new(SystemCapabilities.ManageRoles, ["SuperAdmin"]);
+
     public override void Configure()
     {
         Get("/api/roles");
-        Definition.RequireCapability(SystemCapabilities.ManageRoles, "SuperAdmin");
+        Definition.RequireCapability(Gate.Capability, [.. Gate.LegacyRoles]);
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)

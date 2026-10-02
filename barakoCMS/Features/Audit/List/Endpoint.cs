@@ -36,6 +36,39 @@ internal class AuditEventDto
     public string? IpAddress { get; set; }
     public DateTime CreatedAt { get; set; }
 
+    /// <summary>The metadata keys of a role row shown to a caller who cannot list roles.</summary>
+    private static readonly string[] RoleSummary = ["name", "nameBefore"];
+
+    /// <summary>The metadata keys of an API key row shown to a caller who cannot list keys.</summary>
+    private static readonly string[] KeySummary = ["name"];
+
+    /// <summary>
+    /// The stored row is complete. What is returned is no more than the caller could read from the
+    /// route that owns the data.
+    /// </summary>
+    /// <remarks>
+    /// <c>view_audit_log</c> is held by people who hold neither <c>manage_roles</c> nor
+    /// <c>manage_api_keys</c>, and a role is a global document. A role row written while a platform
+    /// administrator was resolved to one tenant would otherwise show that tenant's administrator
+    /// the capabilities of platform roles and the content types of other tenants named in the
+    /// role's permissions. Such a caller still sees that the change happened, who made it and the
+    /// name of what it was made to.
+    /// </remarks>
+    internal static AuditEventDto VisibleTo(AuditEvent e, bool mayListRoles, bool mayListKeys)
+    {
+        var dto = From(e);
+
+        if (!mayListRoles && e.Action.StartsWith("role.", StringComparison.Ordinal))
+            dto.Metadata = Only(e.Metadata, RoleSummary);
+        else if (!mayListKeys && e.Action.StartsWith("apikey.", StringComparison.Ordinal))
+            dto.Metadata = Only(e.Metadata, KeySummary);
+
+        return dto;
+    }
+
+    private static Dictionary<string, object>? Only(Dictionary<string, object>? metadata, string[] keys) =>
+        metadata?.Where(kv => keys.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value);
+
     internal static AuditEventDto From(AuditEvent e) => new()
     {
         Id = e.Id,
@@ -97,9 +130,16 @@ internal class Endpoint(
             .Skip(req.Skip).Take(req.Take)
             .ToListAsync(ct);
 
+        // The gates are the ones GET /api/roles and GET /api/api-keys declare, asked by the rule
+        // the gate itself uses, and only when the page holds a row the answer changes.
+        var mayListRoles = items.Any(e => e.Action.StartsWith("role.", StringComparison.Ordinal))
+            && await CapabilityGateProcessor.HoldsAsync(HttpContext, barakoCMS.Features.Roles.List.Endpoint.Gate, ct);
+        var mayListKeys = items.Any(e => e.Action.StartsWith("apikey.", StringComparison.Ordinal))
+            && await CapabilityGateProcessor.HoldsAsync(HttpContext, barakoCMS.Features.ApiKeys.ListApiKeysEndpoint.Gate, ct);
+
         await Send.ResponseAsync(new PaginatedResponse<AuditEventDto>
         {
-            Items = items.Select(AuditEventDto.From).ToList(),
+            Items = items.Select(e => AuditEventDto.VisibleTo(e, mayListRoles, mayListKeys)).ToList(),
             Page = req.Page,
             PageSize = req.PageSize,
             TotalItems = total,
