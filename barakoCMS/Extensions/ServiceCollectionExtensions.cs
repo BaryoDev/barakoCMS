@@ -986,6 +986,9 @@ public static class ServiceCollectionExtensions
         // The public projection, so a module serving its own anonymous route does not hold a second
         // copy of the published/sensitivity/opt-in/field-allowlist checks.
         services.AddScoped<barakoCMS.Core.Interfaces.IPublicContentProjector, barakoCMS.Infrastructure.Services.PublicContentProjector>();
+        // The delivery filters, so a module's anonymous route over content refuses the same fields
+        // the core list refuses and binds its values the same way.
+        services.AddScoped<barakoCMS.Core.Interfaces.IPublicContentFilterParser, barakoCMS.Infrastructure.Services.PublicContentFilterParser>();
         // Constructed by hand rather than by type, so the configuration-reading constructor is the
         // one that runs. Both constructors are satisfiable from the container and the selection would
         // otherwise be a container detail, which is how EventSourcing:DocumentTypesAppend would end
