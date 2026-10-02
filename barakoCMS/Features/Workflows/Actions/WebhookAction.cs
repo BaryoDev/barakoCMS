@@ -161,12 +161,14 @@ internal class WebhookAction : IWorkflowAction
                 ? new
                 {
                     @event = triggerEvent,
+                    tenant = TenantSlug,
                     contentId = content.Id,
                     contentType = content.ContentType
                 }
                 : new
                 {
                     @event = triggerEvent,
+                    tenant = TenantSlug,
                     contentId = content.Id,
                     contentType = content.ContentType,
                     status = content.Status.ToString(),
@@ -205,6 +207,12 @@ internal class WebhookAction : IWorkflowAction
             var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             request.Headers.TryAddWithoutValidation(WebhookSigning.DeliveryHeader, delivery.Id.ToString());
             request.Headers.TryAddWithoutValidation(WebhookSigning.TimestampHeader, timestamp.ToString(CultureInfo.InvariantCulture));
+
+            // A header the client cannot encode fails the whole send, and the body already says it.
+            if (TenantSlug.All(c => c is > ' ' and <= '~'))
+            {
+                request.Headers.TryAddWithoutValidation(WebhookSigning.TenantHeader, TenantSlug);
+            }
 
             if (secret is not null)
             {
@@ -279,6 +287,17 @@ internal class WebhookAction : IWorkflowAction
                 $"Webhook to {Redact(url)} failed unexpectedly ({ex.GetType().Name}).");
         }
     }
+
+    /// <summary>
+    /// The tenant a delivery names, as the slug the tenant resolves by.
+    /// </summary>
+    /// <remarks>
+    /// Read from the session and never from the parameters, which a workflow author writes. The
+    /// runner, the engine and a Conditional's children all build this action in a scope opened for
+    /// the run's tenant, so it is the partition the workflow fired in and the one the delivery row
+    /// is stored in. Marten's marker for the default partition is sent as <c>default</c>.
+    /// </remarks>
+    private string TenantSlug => barakoCMS.Infrastructure.Multitenancy.TenantScopes.SlugFor(_session.TenantId);
 
     /// <summary>
     /// The row this delivery will leave behind, filled from what the runner put in the parameters.

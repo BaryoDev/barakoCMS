@@ -13,6 +13,7 @@ queue in #106.
 ```json
 {
   "event": "Published",
+  "tenant": "acme",
   "contentId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
   "contentType": "post",
   "status": "Published",
@@ -28,8 +29,25 @@ inside a `Conditional` action carries the same `event` as the run it belongs to.
 holds the fields the content type marks Public, and is empty for an entry that is itself Sensitive
 or Hidden.
 
-A `Deleted` delivery is about an entry that no longer exists, so its body is `event`, `contentId`
-and `contentType` only. There is no `status`, `data`, `createdAt` or `updatedAt` to send.
+`tenant` is the tenant the workflow fired in, spelled as the handle it resolves by (the value
+`GET /api/tenants/by-host/{host}` answers with and `X-Tenant` selects). The default tenant is
+`default`. It is read from the tenant the run belongs to, not from the action's parameters, so a
+workflow cannot name another tenant, and a webhook inside a `Conditional` carries its run's tenant.
+
+A `Deleted` delivery is about an entry that no longer exists, so its body is `event`, `tenant`,
+`contentId` and `contentType` only. There is no `status`, `data`, `createdAt` or `updatedAt` to
+send.
+
+### One receiver, several tenants
+
+A receiver that serves more than one tenant behind the same secret has to check `tenant`. The
+signature proves a body came from this API, not which tenant's URL it was posted to, so without the
+check a delivery captured for one tenant verifies when replayed at another tenant's URL. After the
+signature verifies, compare the body's `tenant` with the tenant the receiver resolved for the
+request, and refuse a body that names a different one.
+
+The `X-Barako-Tenant` header carries the same value so a delivery can be routed before its body is
+read. It is not part of the signed string. Route on it, and decide on the body's `tenant`.
 
 ## The secret
 
@@ -98,11 +116,13 @@ Every delivery carries:
 | `X-Barako-Delivery` | The id of the delivery log row, so your log and ours can be joined. |
 | `X-Barako-Timestamp` | Unix seconds when the request was signed. |
 | `X-Barako-Signature` | `sha256=<hex>`, only when a secret is set. |
+| `X-Barako-Tenant` | The body's `tenant`, for routing. Not signed, and left out when the name holds a space or a character outside printable ASCII. |
 | `Idempotency-Key` | Stable across retries of the same action, so a retry can be recognised. |
 
 The signature is HMAC-SHA256, keyed with the secret, over the string `"<timestamp>.<body>"`, where
 `<body>` is the exact bytes of the request body. Including the timestamp is what lets a receiver
-refuse a captured delivery replayed later.
+refuse a captured delivery replayed later. The body holds `tenant`, so the signature covers it and
+a body edited to name another tenant does not verify.
 
 ## Verifying a delivery
 

@@ -1,11 +1,14 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
 using barakoCMS.Features.Workflows.Actions;
 using barakoCMS.Infrastructure.Http;
+using barakoCMS.Infrastructure.Security;
 using barakoCMS.Models;
 using FluentAssertions;
 using Marten;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -67,7 +70,7 @@ public class WebhookPayloadTests
     }
 
     [Fact]
-    public async Task A_Deleted_delivery_holds_the_event_the_id_and_the_type_and_nothing_invented()
+    public async Task A_Deleted_delivery_holds_the_event_the_tenant_the_id_and_the_type_and_nothing_invented()
     {
         const string tenant = "webhook-payload-deleted";
         var store = _fixture.Services.GetRequiredService<IDocumentStore>();
@@ -85,9 +88,11 @@ public class WebhookPayloadTests
         using var body = System.Text.Json.JsonDocument.Parse(listener.LastBody!);
         var names = body.RootElement.EnumerateObject().Select(p => p.Name).ToList();
 
-        names.Should().HaveCount(3, "a status of Draft and timestamps of now would describe an entry that is gone: {0}", listener.LastBody);
-        names.Should().BeEquivalentTo(new[] { "event", "contentId", "contentType" });
+        names.Should().HaveCount(4, "a status of Draft and timestamps of now would describe an entry that is gone: {0}", listener.LastBody);
+        names.Should().BeEquivalentTo(new[] { "event", "tenant", "contentId", "contentType" });
         body.RootElement.GetProperty("event").GetString().Should().Be("Deleted");
+        body.RootElement.GetProperty("tenant").GetString().Should().Be(tenant,
+            "an erasure is the delivery a renderer most needs to bind to one tenant");
         body.RootElement.GetProperty("contentId").GetGuid().Should().Be(erased.Id);
         body.RootElement.GetProperty("contentType").GetString().Should().Be(contentType);
     }
@@ -111,9 +116,10 @@ public class WebhookPayloadTests
         using var body = System.Text.Json.JsonDocument.Parse(listener.LastBody!);
         var names = body.RootElement.EnumerateObject().Select(p => p.Name).ToList();
 
-        names.Should().HaveCount(7, "{0}", listener.LastBody);
-        names.Should().BeEquivalentTo(new[] { "event", "contentId", "contentType", "status", "data", "createdAt", "updatedAt" });
+        names.Should().HaveCount(8, "{0}", listener.LastBody);
+        names.Should().BeEquivalentTo(new[] { "event", "tenant", "contentId", "contentType", "status", "data", "createdAt", "updatedAt" });
         body.RootElement.GetProperty("event").GetString().Should().Be("Published");
+        body.RootElement.GetProperty("tenant").GetString().Should().Be(tenant, "not the default tenant, and not the store's name for it");
         body.RootElement.GetProperty("contentId").GetGuid().Should().Be(content.Id);
         body.RootElement.GetProperty("status").GetString().Should().Be("Published");
         body.RootElement.GetProperty("data").GetRawText().Should().Contain("Sarah");
@@ -134,14 +140,16 @@ public class WebhookPayloadTests
         using var body = System.Text.Json.JsonDocument.Parse(listener.LastBody!);
         var names = body.RootElement.EnumerateObject().Select(p => p.Name).ToList();
 
-        names.Should().HaveCount(7, "{0}", listener.LastBody);
+        names.Should().HaveCount(8, "{0}", listener.LastBody);
         body.RootElement.GetProperty("event").GetString().Should().Be("Published",
             "the child gets the run's trigger, not none and not the one it declared for itself");
+        body.RootElement.GetProperty("tenant").GetString().Should().Be(tenant,
+            "the child names the run's tenant, not the one its own parameters or its parent's claim");
         body.RootElement.GetProperty("status").GetString().Should().Be("Published");
     }
 
     [Fact]
-    public async Task A_webhook_inside_a_conditional_on_a_Deleted_run_sends_the_event_the_id_and_the_type_only()
+    public async Task A_webhook_inside_a_conditional_on_a_Deleted_run_sends_the_event_the_tenant_the_id_and_the_type_only()
     {
         const string tenant = "webhook-nested-deleted";
         var store = _fixture.Services.GetRequiredService<IDocumentStore>();
@@ -155,15 +163,183 @@ public class WebhookPayloadTests
         using var body = System.Text.Json.JsonDocument.Parse(listener.LastBody!);
         var names = body.RootElement.EnumerateObject().Select(p => p.Name).ToList();
 
-        names.Should().HaveCount(3, "{0}", listener.LastBody);
-        names.Should().BeEquivalentTo(new[] { "event", "contentId", "contentType" });
+        names.Should().HaveCount(4, "{0}", listener.LastBody);
+        names.Should().BeEquivalentTo(new[] { "event", "tenant", "contentId", "contentType" });
         body.RootElement.GetProperty("event").GetString().Should().Be("Deleted");
+        body.RootElement.GetProperty("tenant").GetString().Should().Be(tenant);
         body.RootElement.GetProperty("contentId").GetGuid().Should().Be(erased.Id);
+    }
+
+    [Fact]
+    public async Task A_delivery_in_the_default_tenant_says_default_and_not_the_name_the_store_uses_for_it()
+    {
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var erased = new barakoCMS.Features.Workflows.ErasedContent(Guid.NewGuid(), "webhook-default-tenant-record");
+
+        using var listener = new RecordingListener();
+        await SendAsync(store, null, erased, listener.Url, PermitsLoopback, new Dictionary<string, string>
+        {
+            ["Url"] = listener.Url,
+            ["TriggerEvent"] = WorkflowEvents.Deleted,
+        });
+
+        listener.WasCalled.Should().BeTrue();
+        using var body = System.Text.Json.JsonDocument.Parse(listener.LastBody!);
+
+        body.RootElement.GetProperty("tenant").GetString().Should().Be(Tenant.DefaultSlug);
+        listener.LastBody.Should().NotContain(JasperFx.StorageConstants.DefaultTenantId);
+        listener.LastHeaders.Should().ContainKey(WebhookSigning.TenantHeader);
+        listener.LastHeaders[WebhookSigning.TenantHeader].Should().Be(Tenant.DefaultSlug);
+    }
+
+    /// <summary>
+    /// The parameters are what a workflow author writes, so nothing in them may decide which tenant
+    /// a delivery claims to be from.
+    /// </summary>
+    [Fact]
+    public async Task A_tenant_written_into_the_action_parameters_does_not_reach_the_body_or_the_header()
+    {
+        const string tenant = "webhook-tenant-parameters";
+        const string claimed = "webhook-tenant-claimed";
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var contentType = await SeedTypeAsync(store, tenant);
+        var content = Record(contentType, SensitivityLevel.Public);
+
+        using var listener = new RecordingListener();
+        await SendAsync(store, tenant, content, listener.Url, PermitsLoopback, new Dictionary<string, string>
+        {
+            ["Url"] = listener.Url,
+            ["TriggerEvent"] = WorkflowEvents.Published,
+            ["Tenant"] = claimed,
+            ["tenant"] = claimed,
+            ["TenantId"] = claimed,
+            ["TenantSlug"] = claimed,
+            [WebhookSigning.TenantHeader] = claimed,
+        });
+
+        listener.WasCalled.Should().BeTrue();
+        using var body = System.Text.Json.JsonDocument.Parse(listener.LastBody!);
+
+        body.RootElement.GetProperty("tenant").GetString().Should().Be(tenant);
+        listener.LastBody.Should().NotContain(claimed);
+        listener.LastHeaders.Should().ContainKey(WebhookSigning.TenantHeader);
+        listener.LastHeaders[WebhookSigning.TenantHeader].Should().Be(tenant);
+    }
+
+    [Fact]
+    public async Task A_tenant_name_a_header_cannot_carry_is_still_delivered_and_named_in_the_body()
+    {
+        const string tenant = "webhook-tenant-\u00f1";
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var erased = new barakoCMS.Features.Workflows.ErasedContent(Guid.NewGuid(), "webhook-tenant-header-record");
+
+        using var listener = new RecordingListener();
+        await SendAsync(store, tenant, erased, listener.Url, PermitsLoopback, new Dictionary<string, string>
+        {
+            ["Url"] = listener.Url,
+            ["TriggerEvent"] = WorkflowEvents.Deleted,
+        });
+
+        listener.WasCalled.Should().BeTrue("a header the client refuses to encode would fail the send");
+        using var body = System.Text.Json.JsonDocument.Parse(listener.LastBody!);
+
+        body.RootElement.GetProperty("tenant").GetString().Should().Be(tenant);
+        listener.LastHeaders.Should().NotContainKey(WebhookSigning.TenantHeader);
+    }
+
+    /// <summary>
+    /// The same entry sent from two tenants with one secret. The bodies differ only in the tenant,
+    /// and neither signature verifies the other body.
+    /// </summary>
+    /// <remarks>
+    /// Verified with the recipe from <c>docs/webhooks.md</c> written out, not with
+    /// <c>WebhookSigning.Sign</c>, so it is the receiver's check that is shown to notice.
+    /// </remarks>
+    [Fact]
+    public async Task The_signature_covers_the_tenant_so_a_body_renamed_to_another_tenant_does_not_verify()
+    {
+        const string secret = "whsec_tenant_binding_4c1d";
+        const string tenant = "webhook-tenant-signed-a";
+        const string other = "webhook-tenant-signed-b";
+        var content = Record("webhook-tenant-signed-record", SensitivityLevel.Public);
+
+        using var listener = new RecordingListener();
+        await SendSignedAsync(tenant, content, listener.Url, secret);
+
+        listener.WasCalled.Should().BeTrue();
+        listener.LastHeaders.Should().ContainKey(WebhookSigning.SignatureHeader);
+        listener.LastHeaders.Should().ContainKey(WebhookSigning.TimestampHeader);
+        var signature = listener.LastHeaders[WebhookSigning.SignatureHeader];
+        var timestamp = listener.LastHeaders[WebhookSigning.TimestampHeader];
+        var sent = listener.LastBody!;
+
+        using (var body = System.Text.Json.JsonDocument.Parse(sent))
+        {
+            body.RootElement.GetProperty("tenant").GetString().Should().Be(tenant);
+        }
+
+        Recipe(secret, timestamp, listener.LastBodyBytes!).Should().Be(signature,
+            "the signed bytes are the bytes that hold the tenant");
+
+        var renamed = sent.Replace($"\"tenant\":\"{tenant}\"", $"\"tenant\":\"{other}\"");
+        renamed.Should().NotBe(sent, "the tenant has to be in the body for renaming it to mean anything");
+        Recipe(secret, timestamp, Encoding.UTF8.GetBytes(renamed)).Should().NotBe(signature,
+            "a body edited to name another tenant must not verify");
+
+        using var otherListener = new RecordingListener();
+        await SendSignedAsync(other, content, otherListener.Url, secret);
+
+        otherListener.WasCalled.Should().BeTrue();
+        otherListener.LastBody.Should().Be(renamed, "the two deliveries differ in the tenant and nothing else");
+        Recipe(secret, timestamp, otherListener.LastBodyBytes!).Should().NotBe(signature,
+            "one tenant's signature does not verify the same entry's delivery from another tenant");
+    }
+
+    /// <summary>The recipe from docs/webhooks.md, as a receiver would write it.</summary>
+    private static string Recipe(string secret, string timestamp, byte[] body)
+    {
+        var material = Encoding.UTF8.GetBytes(timestamp + ".").Concat(body).ToArray();
+        return "sha256=" + Convert.ToHexStringLower(HMACSHA256.HashData(Encoding.UTF8.GetBytes(secret), material));
+    }
+
+    /// <summary>
+    /// A signed Published delivery over the loopback listener, which is http, so the lab opt-in is on.
+    /// </summary>
+    private async Task SendSignedAsync(string tenant, barakoCMS.Models.Content content, string url, string secret)
+    {
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var protector = _fixture.Services.GetRequiredService<ISecretProtector>();
+        var guard = PermitsLoopback;
+
+        await using var session = store.LightweightSession(tenant);
+        using var handler = OutboundHttpHandler.Create(guard);
+        using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
+
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            [WebhookSigning.AllowInsecureSignedUrlsKey] = "true",
+        }).Build();
+
+        var action = new WebhookAction(
+            new SingleClientFactory(client), session, protector, guard, NullLogger<WebhookAction>.Instance, configuration);
+
+        var result = await action.RunAsync(
+            new Dictionary<string, string>
+            {
+                ["Url"] = url,
+                [WebhookSigning.SecretParameter] = protector.Protect(secret),
+                ["TriggerEvent"] = WorkflowEvents.Published,
+            },
+            content,
+            CancellationToken.None);
+
+        result.Succeeded.Should().BeTrue("the signed delivery has to be sent: {0}", result.Error);
     }
 
     /// <summary>
     /// Sends through a Conditional whose then branch is one Webhook, the way the runner would call
-    /// it. The child declares a trigger of its own, which must not reach the body.
+    /// it. The child declares a trigger and a tenant of its own, and the parent a tenant too, none
+    /// of which may reach the body.
     /// </summary>
     private static async Task SendThroughConditionalAsync(
         IDocumentStore store, string tenant, barakoCMS.Models.Content content, string url, string triggerEvent)
@@ -194,10 +370,16 @@ public class WebhookPayloadTests
                     new
                     {
                         Type = "Webhook",
-                        Parameters = new Dictionary<string, string> { ["Url"] = url, ["TriggerEvent"] = "Spoofed" },
+                        Parameters = new Dictionary<string, string>
+                        {
+                            ["Url"] = url,
+                            ["TriggerEvent"] = "Spoofed",
+                            ["Tenant"] = "spoofed-by-the-child",
+                        },
                     },
                 }),
                 ["TriggerEvent"] = triggerEvent,
+                ["Tenant"] = "spoofed-by-the-parent",
             },
             content,
             CancellationToken.None);
@@ -349,13 +531,13 @@ public class WebhookPayloadTests
 
     private static async Task SendAsync(
         IDocumentStore store,
-        string tenant,
+        string? tenant,
         barakoCMS.Models.Content content,
         string url,
         OutboundAddressGuard guard,
         Dictionary<string, string>? parameters = null)
     {
-        await using var session = store.LightweightSession(tenant);
+        await using var session = tenant is null ? store.LightweightSession() : store.LightweightSession(tenant);
         using var handler = OutboundHttpHandler.Create(guard);
         using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
 
