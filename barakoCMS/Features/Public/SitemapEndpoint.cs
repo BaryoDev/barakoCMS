@@ -61,8 +61,7 @@ internal class SitemapEndpoint(IQuerySession session, IConfiguration config) : E
                 .Where(c => c.ContentType == type);
 
 
-            var pathTemplate = config[$"Feeds:Paths:{type}"]
-                            ?? $"/{type}/{{slug}}";
+            var pathTemplate = PublicDelivery.PathTemplate(def, config);
 
             foreach (var entry in typeEntries)
             {

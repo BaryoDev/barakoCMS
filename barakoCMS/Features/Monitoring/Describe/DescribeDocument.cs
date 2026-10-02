@@ -38,6 +38,9 @@ internal static class DescribeDocument
     public static IReadOnlyList<DescribedRule> Rules(IEnumerable<string> rules) =>
         rules.Select(rule => new DescribedRule(rule, FieldRules.AliasesOf(rule))).ToArray();
 
+    public static IReadOnlyList<DescribedFieldHint> FieldHints(IEnumerable<FieldPresentation.Spec> hints) =>
+        hints.Select(hint => new DescribedFieldHint(hint.Name, hint.FieldTypes)).ToArray();
+
     // Ordered by type so two calls agree. The registry holds them in the order the container
     // registered them, which is the host's order and means nothing to a reader.
     public static IReadOnlyList<WorkflowActionMetadata> WorkflowActions(IEnumerable<WorkflowActionMetadata> actions) =>

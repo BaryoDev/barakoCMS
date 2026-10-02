@@ -33,6 +33,15 @@ internal sealed class Request
     /// <summary>For a money field with a currency, the decimal places an amount may carry. Defaults to the currency's own.</summary>
     public int? Scale { get; set; }
 
+    /// <summary>The editor a console should open: one of <c>fieldEditors</c> in <c>GET /api/meta/describe</c>.</summary>
+    public string? Editor { get; set; }
+
+    /// <summary>The group the field sits in on a generated edit screen.</summary>
+    public string? Section { get; set; }
+
+    /// <summary>What the field is to the entry: one of <c>fieldRoles</c> in <c>GET /api/meta/describe</c>.</summary>
+    public string? Role { get; set; }
+
     public bool IsRequired { get; set; }
     public object? DefaultValue { get; set; }
     public Dictionary<string, object>? ValidationRules { get; set; }
@@ -154,6 +163,9 @@ internal sealed class Endpoint(
             Multiple = req.Multiple,
             Currency = req.Currency,
             Scale = req.Scale,
+            Editor = req.Editor,
+            Section = req.Section,
+            Role = req.Role,
             IsRequired = req.IsRequired,
             DefaultValue = req.DefaultValue,
             ValidationRules = req.ValidationRules ?? new Dictionary<string, object>(),

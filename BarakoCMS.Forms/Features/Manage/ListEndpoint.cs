@@ -27,6 +27,7 @@ internal sealed class ListEndpoint(IQuerySession session) : Endpoint<ListRequest
                 ContentType = f.ContentType,
                 Enabled = true,
                 EnabledAt = f.EnabledAt,
+                VerifyEmailField = f.VerifyEmailField,
             }).ToList(),
             Page = page.Page,
             PageSize = page.PageSize,

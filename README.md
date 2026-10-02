@@ -130,7 +130,7 @@ project, through the same `IBarakoModule` contract you can implement yourself.
 | **Email.Resend** | [`BarakoCMS.Email.Resend`](https://www.nuget.org/packages/BarakoCMS.Email.Resend) | An `IEmailService` over the [Resend](https://resend.com) API, plus a delivery webhook and an **email-events** feed (bounces/complaints). |
 | **Email.Smtp** | [`BarakoCMS.Email.Smtp`](https://www.nuget.org/packages/BarakoCMS.Email.Smtp) | An `IEmailService` over any **SMTP** relay (your host, Google Workspace, SES, a corporate relay) using MailKit. Registers itself only once a host is configured. |
 | **DeviceTrust** | [`BarakoCMS.DeviceTrust`](https://www.nuget.org/packages/BarakoCMS.DeviceTrust) | Remembers trusted devices; step-up OTP when a new one signs in. |
-| **ExternalAuth** | [`BarakoCMS.ExternalAuth`](https://www.nuget.org/packages/BarakoCMS.ExternalAuth) | "Continue with Google / GitHub / Facebook / LinkedIn" via OAuth, behind one master switch. |
+| **ExternalAuth** | [`BarakoCMS.ExternalAuth`](https://www.nuget.org/packages/BarakoCMS.ExternalAuth) | "Continue with Google / GitHub / Facebook / LinkedIn" via OAuth, and any OpenID Connect provider by configuration, behind one master switch. |
 | **FeatureFlags** | [`BarakoCMS.FeatureFlags`](https://www.nuget.org/packages/BarakoCMS.FeatureFlags) | Create, toggle, and target flags by tenant, user, or percentage: viewable/toggleable in the admin. |
 | **Portability** | [`BarakoCMS.Portability`](https://www.nuget.org/packages/BarakoCMS.Portability) | Export/import content-type definitions and data as a JSON bundle, for backup, migration, and seeding. |
 | **Diagnostics** | [`BarakoCMS.Diagnostics`](https://www.nuget.org/packages/BarakoCMS.Diagnostics) | Captures client-side (browser) errors and shows a deduped, resolvable **error log** in the admin. |
@@ -414,6 +414,8 @@ credentials, including OAuth 2.0 client credentials), [idempotency on the author
 site and site settings in one call), [site settings](docs/site-settings.md) (the `site` entry a
 renderer reads its identity and theme from), [choice fields](docs/choice-fields.md),
 [money fields](docs/money-fields.md) (a currency on the field, and amounts held to its decimal places),
+[field hints, sections and roles](docs/field-hints-and-roles.md) (which editor a field wants, which
+field is the title, and where a type's entries live on the site),
 [scheduling](docs/scheduling.md) (publish, unpublish and sensitivity at a set time),
 [deploying on a managed platform](docs/deploy-on-a-managed-platform.md) (App Service, Fargate,
 Cloud Run), [approval by configuration](docs/approval-by-configuration.md) (an invoice through Submit and
