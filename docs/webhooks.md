@@ -34,8 +34,9 @@ reads them as it always did. Only `Secret` reaches the action still encrypted. T
 Conditional carries in `ThenActions` and `ElseActions` are treated the same way, at any depth: their
 credentials are encrypted on save, left out of what the API returns (each child carries a
 `SecretSet` flag instead), and decrypted just before the child runs. A branch that is not a JSON
-array, or that repeats a property name in one object, is not run and not returned; the action's
-`unreadableBranches` names it. Credential
+array of actions the Conditional can run (each an object, parameter values as text, no repeated
+property name) is stored as it was sent, is not run and is not returned; the action's
+`unreadableBranches` names it, and the startup pass logs a warning naming it. Credential
 parameters on a workflow's own actions that were stored in clear before 4.2 are encrypted in place
 when the API starts. With `Tenancy:DatabaseEnforcement` on, that pass visits registered tenants and
 the default partition only (see [tenancy-at-the-database.md](tenancy-at-the-database.md)).

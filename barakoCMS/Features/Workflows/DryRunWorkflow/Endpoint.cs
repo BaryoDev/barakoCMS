@@ -77,13 +77,28 @@ internal class Endpoint : Endpoint<Request, Response>
                     // Resolve template variables in parameters
                     var resolvedParams = ActionParameters.Resolve(_variableExtractor, action.Type, action.Parameters, req.SampleContent);
 
+                    var shown = Actions.WebhookSigning.WithoutSecret(action.Type, resolvedParams, out var unreadableBranches);
+
                     // In dry-run mode, we just log what would happen without executing
                     _logger.LogInformation(
                         "DRY-RUN: Would execute {ActionType} with parameters: {Parameters}",
-                        action.Type, System.Text.Json.JsonSerializer.Serialize(Actions.WebhookSigning.WithoutSecret(action.Type, resolvedParams)));
+                        action.Type, System.Text.Json.JsonSerializer.Serialize(shown));
 
-                    _debugger.LogActionSuccess(executionLog, action.Type, actionTimer, resolvedParams);
-                    preview.Add(Actions.WebhookSigning.WithoutSecret(action.Type, resolvedParams));
+                    if (unreadableBranches.Count > 0)
+                    {
+                        // A real run refuses a branch it cannot read, so the simulation must not
+                        // report the action as fine.
+                        _debugger.LogActionFailure(
+                            executionLog, action.Type, actionTimer,
+                            string.Join(" ", unreadableBranches.Select(branch => Actions.WebhookSigning.UnreadableBranchReason(branch))),
+                            resolvedParams);
+                    }
+                    else
+                    {
+                        _debugger.LogActionSuccess(executionLog, action.Type, actionTimer, resolvedParams);
+                    }
+
+                    preview.Add(shown);
                 }
                 catch (Exception ex)
                 {

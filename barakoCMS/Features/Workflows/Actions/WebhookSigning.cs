@@ -164,9 +164,14 @@ internal static class WebhookSigning
     /// </para>
     /// </remarks>
     /// <param name="undecryptableSecret">Called with the action's index and the parameter name, never the value.</param>
+    /// <param name="unreadableBranch">
+    /// Called with the action's index and the name of a branch that was skipped because it is not
+    /// readable (see <see cref="IsReadableBranch"/>), never its value.
+    /// </param>
     /// <returns>True when any parameter was changed.</returns>
     public static bool MigrateStoredCredentials(
-        WorkflowDefinition workflow, ISecretProtector protector, Action<int, string>? undecryptableSecret = null)
+        WorkflowDefinition workflow, ISecretProtector protector, Action<int, string>? undecryptableSecret = null,
+        Action<int, string>? unreadableBranch = null)
     {
         var changed = false;
 
@@ -178,14 +183,18 @@ internal static class WebhookSigning
             // A child of a Conditional is reported against the Conditional's index, since a child
             // has no index of its own in the definition.
             changed |= MigrateParameters(
-                action.Type, action.Parameters, protector, name => undecryptableSecret?.Invoke(actionIndex, name));
+                action.Type, action.Parameters, protector,
+                name => undecryptableSecret?.Invoke(actionIndex, name),
+                branch => unreadableBranch?.Invoke(actionIndex, branch),
+                child: false);
         }
 
         return changed;
     }
 
     private static bool MigrateParameters(
-        string? type, Dictionary<string, string> parameters, ISecretProtector protector, Action<string> undecryptableSecret)
+        string? type, Dictionary<string, string> parameters, ISecretProtector protector,
+        Action<string> undecryptableSecret, Action<string> unreadableBranch, bool child)
     {
         var changed = false;
 
@@ -216,7 +225,9 @@ internal static class WebhookSigning
                 continue;
             }
 
-            if (name == SecretParameter && AesGcmEnvelope.IsWellFormed(value))
+            // Not for a child. Nothing encrypted a child's Secret before its branch was parsed, so
+            // one without the prefix that will not decrypt was stored in clear, whatever its shape.
+            if (!child && name == SecretParameter && AesGcmEnvelope.IsWellFormed(value))
             {
                 undecryptableSecret(name);
                 continue;
@@ -226,8 +237,12 @@ internal static class WebhookSigning
             changed = true;
         }
 
-        changed |= RewriteBranches(type, parameters, (childType, childParameters) =>
-            MigrateParameters(childType, childParameters, protector, undecryptableSecret));
+        changed |= RewriteBranches(
+            type,
+            parameters,
+            (childType, childParameters) =>
+                MigrateParameters(childType, childParameters, protector, undecryptableSecret, unreadableBranch, child: true),
+            unreadableBranch);
 
         return changed;
     }
@@ -246,39 +261,70 @@ internal static class WebhookSigning
     private static bool IsConditional(string? type) =>
         string.Equals(type, ConditionalType, StringComparison.OrdinalIgnoreCase);
 
+    // Any casing, the way ActionParameters.IsResolvedByTheAction matches them, although the action
+    // runs only the two exact names.
+    private static bool IsBranchParameter(string name) =>
+        BranchParameters.Any(branch => string.Equals(branch, name, StringComparison.OrdinalIgnoreCase));
+
+    // Any casing, although the action reads only "Parameters": a credential under a key the action
+    // ignores is still a credential somebody typed.
+    private static bool IsChildParametersProperty(string name) =>
+        string.Equals(name, ChildParametersProperty, StringComparison.OrdinalIgnoreCase);
+
+    // The two names the read response writes onto a child. SecretSet reads as credential-named, and
+    // a child sent back the way it was returned has to stay readable.
+    private static bool IsResponseFlag(string name) =>
+        string.Equals(name, ChildSecretSetProperty, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(name, ChildUnreadableBranchesProperty, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>What a run, and a dry run, say about a branch that is not readable. Names the parameter, never its value.</summary>
+    public static string UnreadableBranchReason(string branch) =>
+        $"The '{branch}' parameter cannot be read as a list of actions (each an object, parameter values as text, no repeated property name), so it does not run.";
+
     /// <summary>
-    /// Runs <paramref name="rewrite"/> over the parameters of every child action a Conditional
-    /// carries in its branches, and writes a branch back when a child changed.
+    /// Runs <paramref name="rewrite"/> over every child action a Conditional carries in its
+    /// branches (the child's own string properties, then its parameters), and writes a branch back
+    /// when a child changed.
     /// </summary>
     /// <remarks>
     /// A nested branch is a JSON string inside a JSON string, so each level is strictly shorter than
     /// the one holding it and the recursion is bounded by the size of the outermost value.
     /// </remarks>
+    /// <param name="unreadableBranch">Called with the name of a branch that holds something and is not readable.</param>
     private static bool RewriteBranches(
-        string? type, Dictionary<string, string> parameters, Func<string?, Dictionary<string, string>, bool> rewrite)
+        string? type, Dictionary<string, string> parameters, Func<string?, Dictionary<string, string>, bool> rewrite,
+        Action<string>? unreadableBranch = null)
     {
         if (!IsConditional(type)) return false;
 
         var changed = false;
-        foreach (var branch in BranchParameters)
+        foreach (var branch in parameters.Keys.Where(IsBranchParameter).ToList())
         {
-            if (!parameters.TryGetValue(branch, out var json)) continue;
+            var json = parameters[branch];
+            if (string.IsNullOrWhiteSpace(json)) continue;
 
             var readable = TryRewriteBranch(
                 json,
                 child =>
                 {
-                    var childType = TypeOfChild(child);
-                    var childChanged = false;
+                    var childType = NestsBranches(child) ? ConditionalType : null;
+                    var childChanged = RewriteStrings(child, strings => rewrite(null, strings), childLevel: true);
                     foreach (var childParameters in ParameterObjects(child))
                     {
-                        childChanged |= RewriteStrings(childParameters, strings => rewrite(childType, strings));
+                        childChanged |= RewriteStrings(childParameters, strings => rewrite(childType, strings), childLevel: false);
                     }
 
                     return childChanged;
                 },
                 out var rewritten);
-            if (!readable || rewritten is null) continue;
+
+            if (!readable)
+            {
+                unreadableBranch?.Invoke(branch);
+                continue;
+            }
+
+            if (rewritten is null) continue;
 
             parameters[branch] = rewritten;
             changed = true;
@@ -289,12 +335,20 @@ internal static class WebhookSigning
 
     /// <summary>
     /// Whether a branch is one that saving, reading and running all read the same way: a JSON array
-    /// in which no object repeats a property name.
+    /// of objects, each holding only what the action that runs it can take.
     /// </summary>
     /// <remarks>
-    /// A repeated name is valid JSON, and the two readers used here do not agree on which value
-    /// wins. Such a branch is not encrypted, not returned and not run, so a credential cannot sit in
-    /// the value one reader skips and another uses.
+    /// <para>
+    /// The action reads a child's <c>Type</c> and its <c>Parameters</c>, an object of text values.
+    /// So here <c>Parameters</c> (in any casing) must be an object whose values are text or null, a
+    /// credential-named property on the child itself must be text or null, and anything else on the
+    /// child must be a plain value or a list of plain values. No object repeats a property name,
+    /// since the two readers used here do not agree on which value wins.
+    /// </para>
+    /// <para>
+    /// A branch that is anything else is not encrypted, not returned and not run, so a credential
+    /// cannot sit somewhere one reader skips and another uses.
+    /// </para>
     /// </remarks>
     public static bool IsReadableBranch(string? json)
     {
@@ -303,35 +357,86 @@ internal static class WebhookSigning
         try
         {
             using var document = JsonDocument.Parse(json);
-            return document.RootElement.ValueKind == JsonValueKind.Array && !RepeatsAPropertyName(document.RootElement);
+            if (document.RootElement.ValueKind != JsonValueKind.Array) return false;
+
+            foreach (var child in document.RootElement.EnumerateArray())
+            {
+                if (!IsReadableChild(child)) return false;
+            }
+
+            return true;
         }
-        catch (JsonException)
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
         {
+            // InvalidOperationException: a name or a text value holding half of a surrogate pair
+            // parses, and throws when it is read.
             return false;
         }
     }
 
-    private static bool RepeatsAPropertyName(JsonElement element)
+    private static bool IsReadableChild(JsonElement child)
     {
-        if (element.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var item in element.EnumerateArray())
-            {
-                if (RepeatsAPropertyName(item)) return true;
-            }
+        if (child.ValueKind != JsonValueKind.Object) return false;
 
-            return false;
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var property in child.EnumerateObject())
+        {
+            var name = property.Name;
+            if (!names.Add(name)) return false;
+
+            if (IsChildParametersProperty(name))
+            {
+                if (!IsTextObject(property.Value)) return false;
+            }
+            else if (IsSensitiveParameterName(name) && !IsResponseFlag(name))
+            {
+                if (!IsTextOrNull(property.Value)) return false;
+            }
+            else if (!IsPlainOrListOfPlain(property.Value))
+            {
+                return false;
+            }
         }
 
+        return true;
+    }
+
+    private static bool IsTextObject(JsonElement element)
+    {
         if (element.ValueKind != JsonValueKind.Object) return false;
 
         var names = new HashSet<string>(StringComparer.Ordinal);
         foreach (var property in element.EnumerateObject())
         {
-            if (!names.Add(property.Name) || RepeatsAPropertyName(property.Value)) return true;
+            if (!names.Add(property.Name) || !IsTextOrNull(property.Value)) return false;
         }
 
-        return false;
+        return true;
+    }
+
+    private static bool IsTextOrNull(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.Null) return true;
+        if (element.ValueKind != JsonValueKind.String) return false;
+
+        // Read, not only inspected: text that cannot be read throws here and makes the branch unreadable.
+        _ = element.GetString();
+        return true;
+    }
+
+    private static bool IsPlain(JsonElement element) =>
+        element.ValueKind is JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False || IsTextOrNull(element);
+
+    private static bool IsPlainOrListOfPlain(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Array) return IsPlain(element);
+
+        foreach (var item in element.EnumerateArray())
+        {
+            if (!IsPlain(item)) return false;
+        }
+
+        return true;
     }
 
     /// <summary>Applies <paramref name="rewriteChild"/> to each child of a readable branch.</summary>
@@ -349,7 +454,9 @@ internal static class WebhookSigning
             var changed = false;
             foreach (var child in children)
             {
-                if (child is JsonObject childObject) changed |= rewriteChild(childObject);
+                if (child is not JsonObject childObject) return false;
+
+                changed |= rewriteChild(childObject);
             }
 
             if (changed) rewritten = children.ToJsonString(BranchJson);
@@ -362,15 +469,13 @@ internal static class WebhookSigning
         }
     }
 
-    private static string? TypeOfChild(JsonObject child) =>
-        child.Where(property => property.Key == ChildTypeProperty)
-            .Select(property => StringOf(property.Value))
-            .LastOrDefault();
+    private static bool NestsBranches(JsonObject child) =>
+        child.Any(property =>
+            string.Equals(property.Key, ChildTypeProperty, StringComparison.OrdinalIgnoreCase)
+            && IsConditional(StringOf(property.Value)));
 
-    // Any casing, although the action reads only "Parameters": a credential under a key the action
-    // ignores is still a credential somebody typed.
     private static List<JsonObject> ParameterObjects(JsonObject child) =>
-        child.Where(property => string.Equals(property.Key, ChildParametersProperty, StringComparison.OrdinalIgnoreCase))
+        child.Where(property => IsChildParametersProperty(property.Key))
             .Select(property => property.Value)
             .OfType<JsonObject>()
             .ToList();
@@ -378,11 +483,16 @@ internal static class WebhookSigning
     private static string? StringOf(JsonNode? node) =>
         node is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
 
-    private static bool RewriteStrings(JsonObject parameters, Func<Dictionary<string, string>, bool> rewrite)
+    /// <param name="childLevel">
+    /// True for the child object itself, where the response's own flags are not credentials and
+    /// are left alone.
+    /// </param>
+    private static bool RewriteStrings(JsonObject target, Func<Dictionary<string, string>, bool> rewrite, bool childLevel)
     {
         var strings = new Dictionary<string, string>();
-        foreach (var property in parameters)
+        foreach (var property in target)
         {
+            if (childLevel && IsResponseFlag(property.Key)) continue;
             if (StringOf(property.Value) is { } text) strings[property.Key] = text;
         }
 
@@ -391,12 +501,12 @@ internal static class WebhookSigning
 
         foreach (var name in before.Where(removed => !strings.ContainsKey(removed)))
         {
-            parameters.Remove(name);
+            target.Remove(name);
         }
 
         foreach (var (name, text) in strings)
         {
-            parameters[name] = JsonValue.Create(text);
+            target[name] = JsonValue.Create(text);
         }
 
         return true;
@@ -521,9 +631,10 @@ internal static class WebhookSigning
         var copy = WithoutSecret(parameters);
         if (!IsConditional(type)) return copy;
 
-        foreach (var branch in BranchParameters)
+        foreach (var branch in copy.Keys.Where(IsBranchParameter).ToList())
         {
-            if (!copy.TryGetValue(branch, out var json) || string.IsNullOrWhiteSpace(json)) continue;
+            var json = copy[branch];
+            if (string.IsNullOrWhiteSpace(json)) continue;
 
             if (!TryRewriteBranch(json, WithoutChildSecrets, out var redacted))
             {
@@ -540,9 +651,16 @@ internal static class WebhookSigning
 
     private static bool WithoutChildSecrets(JsonObject child)
     {
-        var nestsBranches = IsConditional(TypeOfChild(child));
+        var nestsBranches = NestsBranches(child);
         var secretSet = false;
         var unreadable = new JsonArray();
+
+        // On the child itself too, beside Type: the action ignores a key there, and it is still a
+        // credential somebody typed. The flags are dropped with them and written again below.
+        foreach (var name in child.Select(property => property.Key).Where(key => IsSensitiveParameterName(key) || IsResponseFlag(key)).ToList())
+        {
+            child.Remove(name);
+        }
 
         foreach (var parameters in ParameterObjects(child))
         {
@@ -556,12 +674,10 @@ internal static class WebhookSigning
 
             if (!nestsBranches) continue;
 
-            foreach (var branch in BranchParameters)
+            foreach (var branch in parameters.Select(property => property.Key).Where(IsBranchParameter).ToList())
             {
-                if (!parameters.TryGetPropertyValue(branch, out var nested)) continue;
-
-                var json = StringOf(nested);
-                if (json is not null && string.IsNullOrWhiteSpace(json)) continue;
+                var json = StringOf(parameters[branch]);
+                if (string.IsNullOrWhiteSpace(json)) continue;
 
                 if (!TryRewriteBranch(json, WithoutChildSecrets, out var redacted))
                 {

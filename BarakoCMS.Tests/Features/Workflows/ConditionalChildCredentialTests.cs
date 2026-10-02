@@ -441,6 +441,269 @@ public class ConditionalChildCredentialTests
         CredentialEchoAction.ReceivedByRun.Should().NotContainKey(runKey, "a branch whose credentials were never encrypted must not run");
     }
 
+    private static string NewBase64Secret()
+    {
+        // No '+' or '/', so the value reads the same inside JSON however it was escaped and a
+        // search of the raw stored document for it means something.
+        while (true)
+        {
+            var candidate = Convert.ToBase64String(RandomNumberGenerator.GetBytes(33));
+            if (!candidate.Contains('+') && !candidate.Contains('/')) return candidate;
+        }
+    }
+
+    [Fact]
+    public async Task The_startup_migration_encrypts_a_child_secret_that_is_base64_or_hex()
+    {
+        var base64Secret = NewBase64Secret();
+        var hexSecret = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
+
+        var workflow = Conditional(thenActions: Branch(
+            Child("Webhook", new() { ["Url"] = "https://hooks.example.com/base64", ["Secret"] = base64Secret }),
+            Child("Webhook", new() { ["Url"] = "https://hooks.example.com/hex", ["Secret"] = hexSecret })));
+
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        await using (var session = store.LightweightSession())
+        {
+            session.Store(workflow);
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        var before = await StoredJsonAsync(workflow.Id);
+        before.Should().Contain(base64Secret, "the document has to start out in clear for this to be an upgrade");
+        before.Should().Contain(hexSecret);
+
+        var migration = new WorkflowCredentialMigrationService(
+            store, Protector(), _fixture.Services.GetRequiredService<IConfiguration>(),
+            _fixture.Services.GetRequiredService<ILogger<WorkflowCredentialMigrationService>>());
+        await migration.ProtectAllTenantsAsync(TestContext.Current.CancellationToken);
+
+        var after = await StoredJsonAsync(workflow.Id);
+        after.Should().Contain("hooks.example.com/base64");
+        after.Should().NotContain(base64Secret);
+        after.Should().NotContain(hexSecret);
+
+        await using var check = store.QuerySession();
+        var stored = await check.LoadAsync<WorkflowDefinition>(workflow.Id, TestContext.Current.CancellationToken);
+        using var branch = JsonDocument.Parse(stored!.Actions.Single().Parameters["ThenActions"]);
+        branch.RootElement.GetArrayLength().Should().Be(2);
+        Protector().Unprotect(branch.RootElement[0].GetProperty("Parameters").GetProperty("Secret").GetString()!)
+            .Should().Be(base64Secret);
+        Protector().Unprotect(branch.RootElement[1].GetProperty("Parameters").GetProperty("Secret").GetString()!)
+            .Should().Be(hexSecret);
+    }
+
+    private const string ChildInsideAnInnerArray =
+        "[[{\"Type\":\"CredentialEcho\",\"Parameters\":{\"ApiKey\":\"ak_shape_marker_7f3a\",\"RunId\":\"shape-inner-array\"}}]]";
+
+    private const string ParameterValueThatIsAnObject =
+        "[{\"Type\":\"CredentialEcho\",\"Parameters\":{\"RunId\":\"shape-object-value\",\"Extra\":{\"ApiKey\":\"ak_shape_marker_7f3a\"}}}]";
+
+    private const string CredentialThatIsANumber =
+        "[{\"Type\":\"CredentialEcho\",\"Parameters\":{\"RunId\":\"shape-number\",\"ApiKey\":7300000000000001}}]";
+
+    [Theory]
+    [InlineData(ChildInsideAnInnerArray)]
+    [InlineData(ParameterValueThatIsAnObject)]
+    [InlineData(CredentialThatIsANumber)]
+    public void A_branch_in_a_shape_the_conditional_cannot_run_is_not_readable_and_is_left_as_sent_when_saved(string branch)
+    {
+        var workflow = Conditional(thenActions: branch);
+
+        WebhookSigning.IsReadableBranch(branch).Should().BeFalse();
+        WebhookSigning.ProtectSecrets(workflow, Protector()).Should().BeFalse();
+        workflow.Actions.Single().Parameters["ThenActions"].Should().Be(branch);
+    }
+
+    [Theory]
+    [InlineData(ChildInsideAnInnerArray, "ak_shape_marker_7f3a")]
+    [InlineData(ParameterValueThatIsAnObject, "ak_shape_marker_7f3a")]
+    [InlineData(CredentialThatIsANumber, "7300000000000001")]
+    public void A_branch_in_a_shape_the_conditional_cannot_run_is_named_in_the_response_and_not_returned(string branch, string marker)
+    {
+        var workflow = Conditional(thenActions: branch);
+
+        var response = WorkflowActionResponse.From(workflow.Actions.Single());
+
+        response.UnreadableBranches.Should().HaveCount(1);
+        response.UnreadableBranches.Should().Equal("ThenActions");
+        response.Parameters.Should().NotContainKey("ThenActions");
+        JsonSerializer.Serialize(response).Should().NotContain(marker);
+    }
+
+    [Theory]
+    [InlineData(ChildInsideAnInnerArray, "shape-inner-array")]
+    [InlineData(ParameterValueThatIsAnObject, "shape-object-value")]
+    [InlineData(CredentialThatIsANumber, "shape-number")]
+    public async Task A_branch_in_a_shape_the_conditional_cannot_run_is_refused_when_the_conditional_runs(string branch, string runId)
+    {
+        var runKey = runId + "-" + Guid.NewGuid().ToString("N");
+        var workflow = Conditional(thenActions: branch.Replace(runId, runKey));
+
+        var services = new ServiceCollection();
+        services.AddSingleton(Protector());
+        services.AddSingleton<IWorkflowAction>(new CredentialEchoAction());
+        var conditional = new ConditionalAction(services.BuildServiceProvider(), NullLogger<ConditionalAction>.Instance);
+
+        var result = await conditional.RunAsync(
+            workflow.Actions.Single().Parameters, PublishedContent(), TestContext.Current.CancellationToken);
+
+        result.Succeeded.Should().BeFalse();
+        result.Retryable.Should().BeFalse("the branch reads the same on the next attempt");
+        result.Error.Should().Contain("ThenActions").And.NotContain("ak_shape_marker_7f3a").And.NotContain("7300000000000001");
+        CredentialEchoAction.ReceivedByRun.Should().NotContainKey(runKey);
+    }
+
+    [Fact]
+    public void A_branch_whose_property_name_cannot_be_read_is_unreadable_and_does_not_break_saving_or_the_response()
+    {
+        // The JSON text holds the escape for half of a surrogate pair, not the character itself.
+        const string branch = "[{\"Type\":\"CredentialEcho\",\"Parameters\":{\"\\uD800\":\"x\"}}]";
+        var workflow = Conditional(thenActions: branch);
+
+        WebhookSigning.IsReadableBranch(branch).Should().BeFalse();
+
+        WebhookSigning.ProtectSecrets(workflow, Protector()).Should().BeFalse();
+
+        var response = WorkflowActionResponse.From(workflow.Actions.Single());
+        response.UnreadableBranches.Should().HaveCount(1);
+        response.UnreadableBranches.Should().Equal("ThenActions");
+        response.Parameters.Should().NotContainKey("ThenActions");
+    }
+
+    [Fact]
+    public void A_branch_named_in_another_casing_is_encrypted_when_saved_and_left_out_of_the_response()
+    {
+        var apiKey = NewApiKey();
+        WorkflowDefinition Build()
+        {
+            var workflow = Conditional(thenActions: Branch(Child("CredentialEcho", new() { ["Channel"] = "ops-channel" })));
+            workflow.Actions.Single().Parameters["elseActions"] =
+                Branch(Child("CredentialEcho", new() { ["ApiKey"] = apiKey, ["Channel"] = "else-channel" }));
+            return workflow;
+        }
+
+        var saved = Build();
+        WebhookSigning.ProtectSecrets(saved, Protector()).Should().BeTrue();
+        saved.Actions.Single().Parameters["elseActions"].Should().Contain("else-channel").And.NotContain(apiKey);
+
+        var response = WorkflowActionResponse.From(Build().Actions.Single());
+        response.Parameters.Should().ContainKey("elseActions");
+        response.Parameters["elseActions"].Should().Contain("else-channel").And.NotContain(apiKey);
+    }
+
+    [Fact]
+    public void A_credential_named_key_on_the_child_itself_is_encrypted_when_saved_and_left_out_of_the_response()
+    {
+        var apiKey = NewApiKey();
+        var branch = "[{\"Type\":\"CredentialEcho\",\"ApiKey\":\"" + apiKey + "\",\"Parameters\":{\"Channel\":\"ops-channel\"}}]";
+
+        var saved = Conditional(thenActions: branch);
+        WebhookSigning.ProtectSecrets(saved, Protector()).Should().BeTrue();
+        var stored = saved.Actions.Single().Parameters["ThenActions"];
+        stored.Should().Contain("ops-channel").And.NotContain(apiKey);
+        using (var storedBranch = JsonDocument.Parse(stored))
+        {
+            storedBranch.RootElement.GetArrayLength().Should().Be(1);
+            Protector().Unprotect(storedBranch.RootElement[0].GetProperty("ApiKey").GetString()!).Should().Be(apiKey);
+        }
+
+        var response = WorkflowActionResponse.From(Conditional(thenActions: branch).Actions.Single());
+        response.UnreadableBranches.Should().BeEmpty();
+        response.Parameters.Should().ContainKey("ThenActions");
+        response.Parameters["ThenActions"].Should().Contain("ops-channel").And.NotContain(apiKey);
+    }
+
+    [Fact]
+    public void A_branch_sent_back_the_way_the_api_returned_it_is_still_readable()
+    {
+        var workflow = Conditional(thenActions: Branch(
+            Child("Webhook", new() { ["Url"] = "https://hooks.example.com/child", ["Secret"] = NewSecret() }),
+            Child("Conditional", new() { ["Condition"] = Condition, ["ThenActions"] = "[{\"Type\":" })));
+
+        var returned = WorkflowActionResponse.From(workflow.Actions.Single()).Parameters;
+
+        returned.Should().ContainKey("ThenActions");
+        returned["ThenActions"].Should().Contain("SecretSet").And.Contain("UnreadableBranches");
+        WebhookSigning.IsReadableBranch(returned["ThenActions"]).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task The_startup_migration_logs_an_unreadable_stored_branch_by_name_and_not_by_value()
+    {
+        var secret = NewSecret();
+        var workflow = Conditional(thenActions: BranchRepeatingParameters("Webhook", "Secret", secret, Guid.NewGuid().ToString()));
+
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        await using (var session = store.LightweightSession())
+        {
+            session.Store(workflow);
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        var logger = new CapturingLogger();
+        var migration = new WorkflowCredentialMigrationService(
+            store, Protector(), _fixture.Services.GetRequiredService<IConfiguration>(), logger);
+        await migration.ProtectAllTenantsAsync(TestContext.Current.CancellationToken);
+
+        logger.Lines.Should().NotBeEmpty();
+        logger.Lines.Should().Contain(line => line.Contains(workflow.Id.ToString()) && line.Contains("ThenActions"));
+        logger.Lines.Should().NotContain(line => line.Contains(secret));
+    }
+
+    [Fact]
+    public async Task A_dry_run_reports_a_conditional_with_an_unreadable_branch_as_failed()
+    {
+        var secret = NewSecret();
+        var client = _fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", await _fixture.StoredUserTokenAsync("SuperAdmin"));
+
+        var response = await client.PostAsJsonAsync("/api/workflows/dry-run", new
+        {
+            workflow = new
+            {
+                id = Guid.NewGuid(),
+                name = "conditional-child-dry-run",
+                triggerContentType = "article",
+                triggerEvent = "Published",
+                conditions = new Dictionary<string, string>(),
+                actions = new[]
+                {
+                    new
+                    {
+                        type = "Conditional",
+                        parameters = new Dictionary<string, string>
+                        {
+                            ["Condition"] = Condition,
+                            ["ThenActions"] = BranchRepeatingParameters("Webhook", "Secret", secret, Guid.NewGuid().ToString()),
+                        },
+                    },
+                },
+            },
+            sampleContent = new
+            {
+                id = Guid.NewGuid(),
+                contentType = "article",
+                status = 0,
+                data = new Dictionary<string, object> { ["Title"] = "hello" },
+                createdAt = DateTime.UtcNow,
+                updatedAt = DateTime.UtcNow,
+            },
+        }, TestContext.Current.CancellationToken);
+
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        response.IsSuccessStatusCode.Should().BeTrue("got {0}", response.StatusCode);
+        body.Should().NotContain(secret);
+
+        using var json = JsonDocument.Parse(body);
+        json.RootElement.GetProperty("success").GetBoolean().Should().BeFalse();
+        json.RootElement.GetProperty("actions").GetArrayLength().Should().Be(1);
+        var action = json.RootElement.GetProperty("actions")[0];
+        action.GetProperty("success").GetBoolean().Should().BeFalse();
+        action.GetProperty("errorMessage").GetString().Should().Contain("ThenActions");
+    }
+
     private static async Task<string> PageHoldingAsync(HttpClient client, Guid id)
     {
         for (var page = 1; page <= 50; page++)
@@ -455,6 +718,18 @@ public class ConditionalChildCredentialTests
         }
 
         throw new Xunit.Sdk.XunitException("the created workflow was not on any page of the list");
+    }
+
+    private sealed class CapturingLogger : ILogger<WorkflowCredentialMigrationService>
+    {
+        public System.Collections.Concurrent.ConcurrentQueue<string> Lines { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            => Lines.Enqueue(formatter(state, exception) + (exception is null ? string.Empty : " " + exception));
     }
 
     private sealed class SingleClientFactory : IHttpClientFactory

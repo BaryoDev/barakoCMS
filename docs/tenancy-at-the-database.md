@@ -119,7 +119,10 @@ partition, and for nothing else:
   stay as they were stored.
 
 Credentials inside a Conditional action's `ThenActions` or `ElseActions` are encrypted along with
-the rest of the workflow. A branch that is not valid JSON is left as it was stored.
+the rest of the workflow. A branch that is not a JSON array of actions the Conditional can run
+(each an object, parameter values as text, no repeated property name) is left as it was stored,
+and the pass logs a warning naming the workflow, the action and the branch. Such a branch is not
+run and not returned by the API.
 
 The application role cannot count rows the policy hides from it, so the pass cannot warn about a
 partition it does not see. It logs one line at Information level on every start with enforcement on,

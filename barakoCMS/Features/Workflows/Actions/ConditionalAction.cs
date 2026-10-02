@@ -99,7 +99,7 @@ internal class ConditionalAction : IWorkflowAction
         if (!WebhookSigning.IsReadableBranch(actionsToExecute))
         {
             return WorkflowActionResult.PermanentFailure(
-                $"The '{(conditionResult ? "Then" : "Else")}Actions' parameter repeats a property name in one object, so it was not run.");
+                WebhookSigning.UnreadableBranchReason(conditionResult ? "ThenActions" : "ElseActions"));
         }
 
         var availableActions = _serviceProvider.GetService<IEnumerable<IWorkflowAction>>();
