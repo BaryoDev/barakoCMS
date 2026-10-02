@@ -14,6 +14,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace BarakoCMS.Tests.Features.Forms;
@@ -487,20 +488,261 @@ public class FormEmailVerificationTests
     }
 
     [Fact]
-    public async Task Turning_a_form_off_removes_its_code_count()
+    public async Task A_verifying_form_turned_off_and_on_by_a_client_that_does_not_send_the_field_still_verifies()
     {
         var type = await CreateTypeAsync();
         await EnableAsync(type, "email");
         await RequestCodeAsync(type, Address());
+        var admin = await AdminAsync();
 
-        var counted = await BudgetAsync(type);
-        counted.Should().NotBeNull("a code was sent for the form");
-        counted!.Sent.Should().Be(1);
-
-        var off = await (await AdminAsync()).PutAsJsonAsync($"/api/forms/{type}", new { enabled = false });
+        var off = await admin.PutAsJsonAsync($"/api/forms/{type}", new { enabled = false });
         off.StatusCode.Should().Be(HttpStatusCode.OK, await off.Content.ReadAsStringAsync());
+        (await VerifyFieldAsync(off)).Should().Be("email", "the answer says what is kept");
+        (await Visitor().GetAsync($"/api/public/forms/{type}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
 
-        (await BudgetAsync(type)).Should().BeNull();
+        var kept = await BudgetAsync(type);
+        kept.Should().NotBeNull("the form's count row carries the field while the form is off");
+        kept!.VerifyEmailFieldWhenOff.Should().Be("email");
+        kept.Sent.Should().Be(1, "turning the form off does not reset its send count");
+
+        var on = await admin.PutAsJsonAsync($"/api/forms/{type}", new { enabled = true });
+        on.StatusCode.Should().Be(HttpStatusCode.OK, await on.Content.ReadAsStringAsync());
+        (await VerifyFieldAsync(on)).Should().Be("email");
+        (await BudgetAsync(type))!.VerifyEmailFieldWhenOff.Should().BeNull("the form row holds it again");
+
+        var bare = await SubmitAsync(type, Address(), code: null);
+        bare.StatusCode.Should().Be(HttpStatusCode.BadRequest, "the form still verifies");
+        (await ErrorNamesAsync(bare)).Should().Equal(CodeError);
+        (await EntriesAsync(type)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Turning_a_form_on_with_an_explicit_null_keeps_what_it_verified_and_an_empty_string_drops_it()
+    {
+        var type = await CreateTypeAsync();
+        await EnableAsync(type, "email");
+        var admin = await AdminAsync();
+
+        (await admin.PutAsJsonAsync($"/api/forms/{type}", new { enabled = false })).EnsureSuccessStatusCode();
+        var withNull = await admin.PutAsJsonAsync($"/api/forms/{type}", new { enabled = true, verifyEmailField = (string?)null });
+        (await VerifyFieldAsync(withNull)).Should().Be("email", "null says nothing, like leaving the field out");
+
+        (await admin.PutAsJsonAsync($"/api/forms/{type}", new { enabled = false })).EnsureSuccessStatusCode();
+        var withEmpty = await admin.PutAsJsonAsync($"/api/forms/{type}", new { enabled = true, verifyEmailField = "" });
+        withEmpty.StatusCode.Should().Be(HttpStatusCode.OK, await withEmpty.Content.ReadAsStringAsync());
+        (await VerifyFieldAsync(withEmpty)).Should().BeNull("an empty string turns verification off");
+
+        (await admin.PutAsJsonAsync($"/api/forms/{type}", new { enabled = false })).EnsureSuccessStatusCode();
+        (await BudgetAsync(type)).Should().BeNull("a form that verified nothing leaves no row behind");
+        var again = await admin.PutAsJsonAsync($"/api/forms/{type}", new { enabled = true });
+        (await VerifyFieldAsync(again)).Should().BeNull("there is nothing to put back");
+        (await SubmitAsync(type, Address(), code: null)).StatusCode.Should().Be(HttpStatusCode.Accepted);
+    }
+
+    [Fact]
+    public async Task Turning_a_form_back_on_is_refused_when_the_field_it_verified_is_no_longer_an_email_field()
+    {
+        var type = await CreateTypeAsync();
+        await EnableAsync(type, "email");
+        var admin = await AdminAsync();
+        (await admin.PutAsJsonAsync($"/api/forms/{type}", new { enabled = false })).EnsureSuccessStatusCode();
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var definition = await session.Query<ContentTypeDefinition>().SingleAsync(d => d.Name == type);
+            definition.Fields.Single(f => f.Name == "email").Type = "string";
+            session.Store(definition);
+            await session.SaveChangesAsync();
+        }
+
+        var silent = await admin.PutAsJsonAsync($"/api/forms/{type}", new { enabled = true });
+        silent.StatusCode.Should().Be(HttpStatusCode.BadRequest, "the client has to say what to do with verification");
+        (await ErrorNamesAsync(silent)).Should().Equal("verifyEmailField");
+        (await Visitor().GetAsync($"/api/public/forms/{type}")).StatusCode.Should().Be(HttpStatusCode.NotFound, "the form stayed off");
+        (await BudgetAsync(type))!.VerifyEmailFieldWhenOff.Should().Be("email", "a refused request changes nothing");
+
+        var decided = await admin.PutAsJsonAsync($"/api/forms/{type}", new { enabled = true, verifyEmailField = "" });
+        decided.StatusCode.Should().Be(HttpStatusCode.OK, await decided.Content.ReadAsStringAsync());
+        (await VerifyFieldAsync(decided)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task An_address_that_is_not_one_bare_mailbox_is_400_on_both_routes_and_sends_nothing()
+    {
+        var type = await CreateTypeAsync();
+        await EnableAsync(type, "email");
+        var mailbox = Address();
+        var shapes = new[]
+        {
+            $"x1<{mailbox}>",
+            $"(x1){mailbox}",
+            $"\"x1\"{mailbox}",
+            $"{mailbox}.",
+            $"x1,{mailbox}",
+            $"x1;{mailbox}",
+            $"x1:{mailbox}",
+            $"x1\\{mailbox}",
+            $"x1\u0001{mailbox}",
+            mailbox.Replace("@example.com", "@[192.0.2.1]"),
+            new string('a', 65) + mailbox,
+            new string('a', 60) + "@" + string.Join('.', Enumerable.Repeat(new string('b', 60), 4)) + ".example.com",
+        };
+
+        foreach (var shape in shapes)
+        {
+            var request = await Visitor().PostAsJsonAsync($"/api/public/forms/{type}/email-code", new { email = shape });
+            request.StatusCode.Should().Be(HttpStatusCode.BadRequest, "the code route takes one bare mailbox, not '{0}'", shape);
+
+            var submitted = await SubmitAsync(type, shape, "123456");
+            submitted.StatusCode.Should().Be(HttpStatusCode.BadRequest, "submit takes one bare mailbox, not '{0}'", shape);
+            (await ErrorNamesAsync(submitted)).Should().Contain("data.email");
+        }
+
+        // The run a caller would use to get past five an hour: one mailbox, a new display name each time.
+        for (var i = 0; i < 8; i++)
+        {
+            var variant = await Visitor().PostAsJsonAsync($"/api/public/forms/{type}/email-code", new { email = $"n{i}<{mailbox}>" });
+            variant.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        }
+
+        _factory.Email.Messages.Count(m => m.To.Contains(mailbox)).Should().Be(0);
+        (await RowAsync(mailbox)).Should().BeNull();
+        (await BudgetAsync(type)).Should().BeNull("nothing was sent for the form");
+        (await EntriesAsync(type)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_second_code_replaces_the_first()
+    {
+        var type = await CreateTypeAsync();
+        await EnableAsync(type, "email");
+        var address = Address();
+        await RequestCodeAsync(type, address);
+        var first = CodeFor(_factory.Email, address);
+        await RequestCodeAsync(type, address);
+        var second = CodeFor(_factory.Email, address);
+        _factory.Email.Messages.Count(m => m.To == address).Should().Be(2);
+
+        // One time in a million the two codes are the same six digits, and then there is nothing to tell apart.
+        if (first != second)
+        {
+            var stale = await SubmitAsync(type, address, first);
+            stale.StatusCode.Should().Be(HttpStatusCode.BadRequest, "the first code stopped working when the second was sent");
+            (await ErrorNamesAsync(stale)).Should().Equal(CodeError);
+            (await EntriesAsync(type)).Should().BeEmpty();
+        }
+
+        var current = await SubmitAsync(type, address, second);
+        current.StatusCode.Should().Be(HttpStatusCode.Accepted, await current.Content.ReadAsStringAsync());
+        (await EntriesAsync(type)).Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task A_code_request_is_answered_the_same_when_the_provider_times_out_and_logs_no_address()
+    {
+        var log = new CapturingLogger();
+        var timingOut = new ThrowingEmailService(() => new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout of 100 seconds elapsing."));
+        var host = _factory.WithWebHostBuilder(b => b.ConfigureServices(services =>
+        {
+            services.RemoveAll<IEmailService>();
+            services.AddSingleton<IEmailService>(timingOut);
+            services.AddSingleton<ILogger<FormEmailVerifier>>(log);
+        }));
+        var type = await CreateTypeAsync();
+        await EnableAsync(type, "email");
+        var address = Address();
+
+        var down = await Visitor(host).PostAsJsonAsync($"/api/public/forms/{type}/email-code", new { email = address });
+        var up = await Visitor().PostAsJsonAsync($"/api/public/forms/{type}/email-code", new { email = Address() });
+
+        timingOut.Attempts.Should().Be(1, "the host did try to send");
+        down.StatusCode.Should().Be(HttpStatusCode.Accepted, await down.Content.ReadAsStringAsync());
+        (await down.Content.ReadAsStringAsync()).Should().Be(await up.Content.ReadAsStringAsync());
+
+        var errors = log.Lines.Where(l => l.Level == LogLevel.Error).ToList();
+        errors.Should().HaveCount(1);
+        errors[0].Text.Should().Contain(type).And.Contain(nameof(TaskCanceledException));
+        log.Lines.Should().NotContain(l => l.Text.Contains(address), "the address stays out of the log");
+    }
+
+    [Fact]
+    public async Task A_provider_that_quotes_the_recipient_in_its_error_does_not_put_the_address_in_the_log()
+    {
+        var log = new CapturingLogger();
+        var address = Address();
+        var quoting = new ThrowingEmailService(() => new InvalidOperationException($"550 mailbox unavailable: {address}"));
+        var host = _factory.WithWebHostBuilder(b => b.ConfigureServices(services =>
+        {
+            services.RemoveAll<IEmailService>();
+            services.AddSingleton<IEmailService>(quoting);
+            services.AddSingleton<ILogger<FormEmailVerifier>>(log);
+        }));
+        var type = await CreateTypeAsync();
+        await EnableAsync(type, "email");
+
+        var response = await Visitor(host).PostAsJsonAsync($"/api/public/forms/{type}/email-code", new { email = address });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        log.Lines.Where(l => l.Level == LogLevel.Error).Should().HaveCount(1);
+        log.Lines.Should().NotContain(l => l.Text.Contains(address));
+    }
+
+    [Fact]
+    public async Task A_provider_that_hangs_is_cut_off_at_the_send_deadline()
+    {
+        var hanging = new HangingEmailService();
+        var host = _factory.WithWebHostBuilder(b =>
+        {
+            b.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Modules:Forms:EmailVerification:SendTimeoutSeconds"] = "1",
+            }));
+            b.ConfigureServices(services =>
+            {
+                services.RemoveAll<IEmailService>();
+                services.AddSingleton<IEmailService>(hanging);
+            });
+        });
+        var type = await CreateTypeAsync();
+        await EnableAsync(type, "email");
+        var client = Visitor(host);
+        client.Timeout = TimeSpan.FromSeconds(30);
+
+        var response = await client.PostAsJsonAsync($"/api/public/forms/{type}/email-code", new { email = Address() });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted, "the request answers once the one second deadline passes");
+        hanging.Cancelled.Should().BeTrue("the provider was stopped through its token");
+    }
+
+    [Fact]
+    public async Task A_full_batch_of_stale_rows_is_removed_up_to_its_newest_and_the_rest_wait_for_the_next_send()
+    {
+        var marker = $"stale-{Guid.NewGuid():N}";
+        var extra = 5;
+        var oldest = DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()).AddHours(-12);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            for (var i = 0; i < FormEmailVerifier.SweepBatch + extra; i++)
+            {
+                var at = oldest.AddSeconds(i);
+                session.Store(new FormEmailVerification { Id = $"{marker}-{i:D4}", Form = marker, LastSentAt = at, WindowStartedAt = at });
+            }
+            await session.SaveChangesAsync();
+        }
+
+        var type = await CreateTypeAsync();
+        await EnableAsync(type, "email");
+        await RequestCodeAsync(type, Address());
+
+        (await StaleIdsAsync(marker)).Should().HaveCount(extra + 1,
+            "one send removes the oldest batch short of its newest row, and these are the oldest rows there are");
+        (await StaleIdsAsync(marker)).Should().Contain($"{marker}-{FormEmailVerifier.SweepBatch - 1:D4}", "the batch's newest row is the one it stops at");
+
+        await RequestCodeAsync(type, Address());
+
+        (await StaleIdsAsync(marker)).Should().BeEmpty("fewer than a batch is left, so the next send removes all of it");
     }
 
     [Fact]
@@ -549,6 +791,57 @@ public class FormEmailVerificationTests
                 Content = new StringContent($"{{\"success\":{(ok ? "true" : "false")}}}", System.Text.Encoding.UTF8, "application/json"),
             };
         }
+    }
+
+    /// <summary>Fails every send with the exception it is given, and counts the tries.</summary>
+    private sealed class ThrowingEmailService(Func<Exception> failure) : IEmailService
+    {
+        public int Attempts { get; private set; }
+
+        public Task SendEmailAsync(string to, string subject, string body, CancellationToken cancellationToken = default)
+        {
+            Attempts++;
+            throw failure();
+        }
+    }
+
+    /// <summary>Never answers, the way a relay that accepts the connection and goes quiet does.</summary>
+    private sealed class HangingEmailService : IEmailService
+    {
+        public bool Cancelled { get; private set; }
+
+        public async Task SendEmailAsync(string to, string subject, string body, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                Cancelled = true;
+                throw;
+            }
+        }
+    }
+
+    /// <summary>Keeps the exception text with the message, since a log sink writes both.</summary>
+    private sealed class CapturingLogger : ILogger<FormEmailVerifier>
+    {
+        public System.Collections.Concurrent.ConcurrentQueue<(LogLevel Level, string Text)> Lines { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            => Lines.Enqueue((logLevel, $"{formatter(state, exception)} {exception}"));
+    }
+
+    private async Task<IReadOnlyList<string>> StaleIdsAsync(string marker)
+    {
+        using var scope = _factory.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<IQuerySession>()
+            .Query<FormEmailVerification>().Where(v => v.Form == marker).Select(v => v.Id).ToListAsync();
     }
 
     private static string Address() => $"ana-{Guid.NewGuid():N}@example.com";

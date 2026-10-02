@@ -21,11 +21,33 @@ public sealed class FormsOptions
     public const string EmailCodeRateLimitPolicy = "forms-email-code";
 
     public FormEmailVerificationOptions EmailVerification { get; set; } = new();
+
+    /// <summary>
+    /// Refuses an <c>EmailVerification</c> setting below 1, naming it, so the host does not start
+    /// with a limit that reads as off and behaves as a lockout.
+    /// </summary>
+    /// <param name="configuration">The module's own section, <c>Modules:Forms</c>.</param>
+    public static void RequireValidEmailVerification(IConfiguration configuration)
+    {
+        var settings = configuration.GetSection(nameof(EmailVerification)).Get<FormEmailVerificationOptions>()
+            ?? new FormEmailVerificationOptions();
+
+        foreach (var (name, value) in settings.Values())
+        {
+            if (value < 1)
+            {
+                throw new InvalidOperationException(
+                    $"Modules:Forms:{nameof(EmailVerification)}:{name} is {value}, and it must be at least 1. "
+                  + "A limit cannot be turned off by setting it to zero. To stop verifying, turn it off on the form.");
+            }
+        }
+    }
 }
 
 /// <summary>
 /// Limits for the one-time codes a form sends to verify an email field. They apply only to a form
-/// that has verification turned on. A value below 1 is read as 1.
+/// that has verification turned on. A value below 1 stops the host at startup, see
+/// <see cref="FormsOptions.RequireValidEmailVerification"/>.
 /// </summary>
 public sealed class FormEmailVerificationOptions
 {
@@ -49,6 +71,25 @@ public sealed class FormEmailVerificationOptions
 
     /// <summary>The window for the two stored limits in minutes. Default 60.</summary>
     public int WindowMinutes { get; set; } = 60;
+
+    /// <summary>
+    /// How long a code request waits for the email provider before it gives up and answers. Default
+    /// 10 seconds. The provider is stopped through its cancellation token, so this holds for a
+    /// provider that honours one.
+    /// </summary>
+    public int SendTimeoutSeconds { get; set; } = 10;
+
+    internal IEnumerable<(string Name, int Value)> Values() =>
+    [
+        (nameof(CodeLifetimeMinutes), CodeLifetimeMinutes),
+        (nameof(MaxAttempts), MaxAttempts),
+        (nameof(RequestsPerClient), RequestsPerClient),
+        (nameof(RequestWindowSeconds), RequestWindowSeconds),
+        (nameof(CodesPerAddress), CodesPerAddress),
+        (nameof(CodesPerForm), CodesPerForm),
+        (nameof(WindowMinutes), WindowMinutes),
+        (nameof(SendTimeoutSeconds), SendTimeoutSeconds),
+    ];
 }
 
 /// <summary>Cloudflare Turnstile verification. Off unless <see cref="Enabled"/> is true.</summary>

@@ -23,6 +23,7 @@ public sealed class FormsModule : IBarakoModule
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
     {
         // `configuration` is this module's own section, Modules:Forms.
+        FormsOptions.RequireValidEmailVerification(configuration);
         services.Configure<FormsOptions>(configuration);
         services.AddHttpClient<ITurnstileVerifier, TurnstileVerifier>();
         services.AddScoped<FormEmailVerifier>();
@@ -50,8 +51,8 @@ public sealed class FormsModule : IBarakoModule
                 return RateLimitPartition.GetFixedWindowLimiter($"forms-email-code-{ip}", _ =>
                     new FixedWindowRateLimiterOptions
                     {
-                        PermitLimit = Math.Max(1, limits.RequestsPerClient),
-                        Window = TimeSpan.FromSeconds(Math.Max(1, limits.RequestWindowSeconds)),
+                        PermitLimit = limits.RequestsPerClient,
+                        Window = TimeSpan.FromSeconds(limits.RequestWindowSeconds),
                     });
             }));
     }
@@ -64,8 +65,9 @@ public sealed class FormsModule : IBarakoModule
             .DocumentAlias("public_forms")
             .Identity(x => x.ContentType);
 
-        // Per tenant too, so a code sent in one tenant is not found from another. Both are loaded
-        // by id only, so neither has an index.
+        // Per tenant too, so a code sent in one tenant is not found from another. Neither has an
+        // index: both are loaded by id, and the cleanup's scan by LastSentAt is over one tenant's
+        // rows, which the send limits keep few.
         schema.For<FormEmailVerification>().DocumentAlias("form_email_verifications");
         schema.For<FormEmailBudget>().DocumentAlias("form_email_budgets");
     }

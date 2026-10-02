@@ -3,11 +3,14 @@
 --
 -- form_email_verifications holds one row per email address a form sent a one-time code to: the
 -- code's hash, when it expires, how often it was checked and how many codes the address was sent
--- lately. The id is a SHA-256 of the address, so the address itself is not in the table.
--- form_email_budgets holds one row per form: how many codes it sent in the current window. Both
--- are conjoined multi-tenant, so tenant_id leads the primary key. Both are loaded by id only, so
--- neither has an index. Empty on arrival: nothing writes here until a form turns verification on
--- and a visitor asks for a code.
+-- lately. The id is a SHA-256 of the address with no key and no salt: the address is not readable
+-- in the table, but anyone who can read the table can hash a candidate address and see whether it
+-- has a row. form_email_budgets holds one row per form: how many codes it sent in the current
+-- window, and the field it verified while the form is turned off. Both are conjoined multi-tenant,
+-- so tenant_id leads the primary key. Neither has an index: rows are loaded by id, and the cleanup
+-- that runs on each send reads one tenant's verification rows by time, which the send limits keep
+-- few. Empty on arrival: nothing writes here until a form turns verification on and a visitor asks
+-- for a code.
 --
 -- CreateOnly would create them on first boot, since a missing table is a creation and not an
 -- alteration; this file exists so db-assert passes before the deploy instead of reporting the

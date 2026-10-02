@@ -89,9 +89,12 @@ Authorization: Bearer <token with manage_forms>
 ```
 
 `verifyEmailField` has to name an email field a visitor can fill in, or the request is refused with
-400. Left out, the form keeps what it has; an empty string turns verification off. Turning the form
-itself off forgets the setting. `GET /api/forms` and the form definition both report
-`verifyEmailField`, and the definition marks that field `required` whatever the type says.
+400. Left out or null, the form keeps what it has; an empty string turns verification off. Turning
+the form itself off and on again keeps the setting too, so a console that does not know the field
+cannot drop verification by toggling the form. If the field has stopped being an email field in the
+meantime, turning the form on is refused with 400 until the request says what to verify.
+`GET /api/forms` and the form definition both report `verifyEmailField`, and the definition marks
+that field `required` whatever the type says.
 
 The visitor asks for a code, then sends it with the submission:
 
@@ -100,9 +103,11 @@ POST /api/public/forms/race-signup/email-code
 { "email": "ana@example.com", "honeypot": "", "turnstileToken": null }
 ```
 
-- **202** `{ "accepted": true }`. The same answer whether the mail went out or the provider refused
-  it (that is logged), and for a filled honeypot, which sends nothing.
-- **400** the address is not one email address, or the Turnstile check failed.
+- **202** `{ "accepted": true }`. The same answer whether the mail went out, the provider refused
+  it or the provider did not answer within `SendTimeoutSeconds`, and for a filled honeypot, which
+  sends nothing. A failed send is logged with the tenant, the form and the kind of failure, never
+  the address.
+- **400** the address is not one bare mailbox (see below), or the Turnstile check failed.
 - **404** the slug is not a form, or the form does not verify an email field.
 - **429** past a limit, see below. Nothing is stored or sent.
 
@@ -119,6 +124,16 @@ already used, guessed at too often, sent to another address, sent for another fo
 missing address is a 400 named `data.<field>`. The code is checked last, after every other check
 has passed, so a submission that fails for another reason does not use up an attempt.
 
+Both routes take the address only as one bare mailbox: ASCII letters, digits and
+``.!#$%&'*+/=?^_`{|}~-`` before the `@` (at most 64 characters, no dot first, last or doubled), a
+dotted host name of letters, digits and hyphens after it, and at most 254 characters in all. A
+display name (`Ana <ana@example.com>`), a comment, quotes, a trailing dot, an address literal and
+anything outside ASCII are refused with 400, on the code route as `email` and on submit as
+`data.<field>`. The email field type itself is looser, and a mail library reads several of those
+spellings as the same mailbox, so without this one mailbox could be sent a fresh five codes under
+each spelling. An alias the mail provider resolves, such as a plus tag, is still a different address
+here.
+
 What a code is:
 
 - six digits from a cryptographic random source, stored only as a BCrypt hash
@@ -128,8 +143,15 @@ What a code is:
   lowercased the same way when the code is sent and when it is checked.
 - replaced by the next code sent to the same address, on any form of the tenant
 
+A refusal with no live code runs the same hash comparison as a wrong guess, but a wrong guess also
+writes the attempt, so the two can differ by a few milliseconds. Someone who measures that learns
+whether a code is outstanding for an address, and each such probe uses one of that code's five
+attempts.
+
 An accepted submission adds an audit event, `form.email.verified`, whose target is the entry. It
-holds the form and the field name, not the address and not the code.
+holds the form and the field name, not the address and not the code. These come from anonymous
+traffic, one per accepted submission, and the audit chain can fork when two are written at the same
+moment, as it can for any two audited actions.
 
 Limits on sending, each answered with 429:
 
@@ -143,15 +165,27 @@ So one form sends at most 100 messages an hour whatever addresses and IPs a call
 and one address gets at most 5 an hour from a tenant. Past the per form limit nobody can get a code
 for that form until the window moves, real visitors included, so raise it for a busy sign-up and
 turn Turnstile on, which this route checks too when it is enabled. The per address 429 tells a
-caller that five codes were asked for at that address in the last hour. Nothing else in an answer
-depends on the address.
+caller that five codes were asked for at that address in the last hour. No other answer on this
+route depends on the address.
+
+The limits can be turned on a known address. Five requests in an hour stop that address getting
+another code until the window moves, and five wrong submissions kill its live code. Either costs
+the caller their own per client budget, and Turnstile when it is on.
+
+The per client limit counts the address the connection comes from. Behind a proxy with forwarded
+headers not configured, every visitor shares one budget, as they already do for submissions.
 
 The mail is built from the form's display name and the code. Nothing from the request goes into it.
 
-Two tables hold this: `form_email_verifications`, one row per address with the hash of the address
-as its id, and `form_email_budgets`, one row per form. Rows whose code and window have both passed
-are removed, up to 200 at a time, whenever a code is sent in the same tenant. Nothing removes them in
-a tenant where no code is asked for again.
+Two tables hold this: `form_email_verifications`, one row per address, and `form_email_budgets`, one
+row per form, which also remembers the verified field while the form is off. The address row's id
+is a SHA-256 of the address with no key and no salt. That keeps addresses out of a plain read of the
+table. It does not stop someone with database access testing whether a given address has a row,
+which includes an address that asked for a code and never submitted. Neither table has an index:
+rows are loaded by id, and the cleanup reads one tenant's rows by time on every send, a scan the
+limits above keep small. Rows whose code and window have both passed are removed, up to 200 at a
+time, whenever a code is sent in the same tenant. Nothing removes them in a tenant where no code is
+asked for again.
 
 ### Definition
 
@@ -190,9 +224,13 @@ Section `Modules:Forms`:
 | `EmailVerification:CodesPerAddress` | `5` | codes sent to one address per window, per tenant |
 | `EmailVerification:CodesPerForm` | `100` | codes one form sends per window |
 | `EmailVerification:WindowMinutes` | `60` | the window for the two limits above |
+| `EmailVerification:SendTimeoutSeconds` | `10` | how long a code request waits for the email provider |
 
 With Turnstile enabled and no secret set, every submission is refused and an error is logged. An
-`EmailVerification` value below 1 is read as 1.
+`EmailVerification` value below 1 stops the host at startup with an error naming the setting: a
+limit cannot be turned off by setting it to zero. The send deadline works by cancelling the
+provider, so it holds for a provider that honours cancellation, which the Resend and SMTP modules
+do.
 
 ## Notification
 

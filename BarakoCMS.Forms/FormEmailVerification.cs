@@ -6,8 +6,10 @@ namespace BarakoCMS.Forms;
 /// </summary>
 /// <remarks>
 /// One row per address, so a new code replaces the old one and the row count is bounded by the
-/// addresses asked for inside the window. The address itself is not stored: <see cref="Id"/> is a
-/// SHA-256 of it, which is all a lookup needs. The code is not stored either, only its BCrypt hash,
+/// addresses asked for inside the window. <see cref="Id"/> is a SHA-256 of the address with no key
+/// and no salt. That keeps the address out of a plain read of the table and nothing more: someone
+/// who can read the table can hash a candidate address and see whether it has a row, including an
+/// address that asked for a code and never submitted. The code is stored only as its BCrypt hash,
 /// the at-rest rule <c>OtpCode.CodeHash</c> follows.
 /// </remarks>
 public sealed class FormEmailVerification
@@ -34,7 +36,10 @@ public sealed class FormEmailVerification
     public DateTimeOffset LastSentAt { get; set; }
 }
 
-/// <summary>How many codes one form has sent lately, across every address.</summary>
+/// <summary>
+/// How many codes one form has sent lately, across every address, and which field it verified when
+/// it was last turned off.
+/// </summary>
 public sealed class FormEmailBudget
 {
     /// <summary>The form's content type name.</summary>
@@ -44,4 +49,11 @@ public sealed class FormEmailBudget
 
     /// <summary>Codes sent for this form since <see cref="WindowStartedAt"/>.</summary>
     public int Sent { get; set; }
+
+    /// <summary>
+    /// Set while the form is turned off: the field it verified, so turning it back on from a client
+    /// that does not send <c>verifyEmailField</c> does not quietly drop verification. Null while the
+    /// form is on, where <see cref="PublicForm.VerifyEmailField"/> holds it.
+    /// </summary>
+    public string? VerifyEmailFieldWhenOff { get; set; }
 }

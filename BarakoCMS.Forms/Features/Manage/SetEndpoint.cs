@@ -33,6 +33,10 @@ internal sealed class FormResponse
 /// would fail validation and the form would look broken rather than misconfigured. Refuses a
 /// singleton type, which could only ever take one submission. Refuses to verify a field that is not
 /// an email field a visitor can fill in, since no submission could ever pass.
+///
+/// Turning a form off deletes its row, as it always has, and keeps the field it verified beside
+/// its send count. Turning it on again without <c>verifyEmailField</c> puts that field back, so a
+/// client that has never heard of the setting cannot drop verification by toggling the form.
 /// </remarks>
 internal sealed class SetEndpoint(IDocumentSession session) : Endpoint<SetRequest, FormResponse>
 {
@@ -55,10 +59,10 @@ internal sealed class SetEndpoint(IDocumentSession session) : Endpoint<SetReques
 
         if (!req.Enabled)
         {
+            var kept = await FormEmailVerifier.RememberFieldAsync(session, definition.Name, ct);
             session.Delete<PublicForm>(definition.Name);
-            session.Delete<FormEmailBudget>(definition.Name);
             await session.SaveChangesAsync(ct);
-            await Send.OkAsync(new FormResponse { ContentType = definition.Name, Enabled = false }, ct);
+            await Send.OkAsync(new FormResponse { ContentType = definition.Name, Enabled = false, VerifyEmailField = kept }, ct);
             return;
         }
 
@@ -97,9 +101,24 @@ internal sealed class SetEndpoint(IDocumentSession session) : Endpoint<SetReques
             EnabledBy = Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId) ? userId : Guid.Empty,
         };
 
+        var remembered = await FormEmailVerifier.TakeRememberedFieldAsync(session, definition.Name, ct);
         if (req.VerifyEmailField is not null)
         {
             form.VerifyEmailField = verifyField?.Name;
+        }
+        else if (remembered is not null)
+        {
+            var restored = FormEmailVerifier.EmailField(definition, remembered);
+            if (restored is null)
+            {
+                ValidationFailures.Add(new ValidationFailure("verifyEmailField",
+                    "This form verified a field that is no longer an email field a visitor can fill in. "
+                  + "Send verifyEmailField to name one, or an empty string to turn verification off."));
+                await Send.ErrorsAsync(400, ct);
+                return;
+            }
+
+            form.VerifyEmailField = restored.Name;
         }
 
         session.Store(form);

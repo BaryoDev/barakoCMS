@@ -4,7 +4,6 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using barakoCMS.Core.Interfaces;
-using barakoCMS.Core.Validation;
 using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Multitenancy;
@@ -26,9 +25,10 @@ namespace BarakoCMS.Forms;
 /// one code yields at most one entry.
 ///
 /// Every read-then-write on a row here runs under a transaction-scoped advisory lock: one per
-/// address, which both paths take, and one per form, which only a send takes and takes first. That
-/// is what makes the attempt cap and the two stored limits hold against requests sent side by side.
-/// Mail is sent after the commit, so no lock is held across the provider call.
+/// address, which both paths take, and one per form, which a send takes first and which turning a
+/// form on or off takes too. That is what makes the attempt cap and the two stored limits hold
+/// against requests sent side by side. Mail is sent after the commit, so no lock is held across
+/// the provider call.
 /// </remarks>
 internal sealed class FormEmailVerifier(
     IDocumentSession session,
@@ -45,13 +45,21 @@ internal sealed class FormEmailVerifier(
     /// <summary>One sentence for a wrong, expired, spent, dead or missing code, so they cannot be told apart.</summary>
     public const string Refusal = "The code is wrong or has expired. Request a new one.";
 
+    /// <summary>The longest address taken, the limit SMTP puts on a path.</summary>
+    public const int MaxAddressLength = 254;
+
+    /// <summary>Stale rows one send removes at most.</summary>
+    internal const int SweepBatch = 200;
+
+    private const int MaxLocalPartLength = 64;
+    private const string LocalPartSymbols = ".!#$%&'*+/=?^_`{|}~-";
     private const int CodeLength = 6;
-    private const int MaxAddressLength = 254;
-    private const int SweepBatch = 200;
+    private const int MaxLoggedNameLength = 100;
 
     /// <summary>
-    /// Compared against when there is no live code, so that refusal costs what a real comparison
-    /// costs and the time taken does not say whether a code is outstanding for an address.
+    /// Compared against when there is no live code, so that refusal costs the hash a real
+    /// comparison costs. It does not make the two paths equal: a wrong code against a live one also
+    /// writes and commits the attempt, a few milliseconds a caller who measures could see.
     /// </summary>
     private static readonly Lazy<string> NoCodeHash =
         new(() => BCrypt.Net.BCrypt.HashPassword(Guid.NewGuid().ToString("N")));
@@ -59,11 +67,41 @@ internal sealed class FormEmailVerifier(
     /// <summary>The one normalisation, used when a code is sent and when it is checked.</summary>
     public static string Normalise(string? address) => (address ?? string.Empty).Trim().ToLowerInvariant();
 
+    /// <summary>
+    /// Whether <paramref name="address"/> is one bare mailbox: ASCII letters, digits and the usual
+    /// symbols before the @, a dotted host name after it, at most <see cref="MaxAddressLength"/>
+    /// characters.
+    /// </summary>
+    /// <remarks>
+    /// Narrower than the core's email field check on purpose. That one takes a display name, a
+    /// comment or a trailing dot, each of which a mail library reads as the same mailbox while the
+    /// string, and so the row and its limits, differs. Everything here is spelled one way, so the
+    /// per address limit and the attempt cap count the mailbox and not the spelling. What it cannot
+    /// see is an alias the provider resolves, such as a plus tag.
+    /// </remarks>
     public static bool IsAddress(string? address)
     {
         var normalised = Normalise(address);
-        return normalised.Length is > 0 and <= MaxAddressLength
-            && FieldTypeRegistry.IsValidValue("email", normalised);
+        if (normalised.Length is 0 or > MaxAddressLength)
+        {
+            return false;
+        }
+
+        var at = normalised.IndexOf('@');
+        if (at <= 0 || at != normalised.LastIndexOf('@'))
+        {
+            return false;
+        }
+
+        var local = normalised[..at];
+        var host = normalised[(at + 1)..];
+
+        return local.Length <= MaxLocalPartLength
+            && local.All(c => char.IsAsciiLetterOrDigit(c) || LocalPartSymbols.Contains(c))
+            && DotsAreInside(local)
+            && host.Contains('.')
+            && host.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '-')
+            && DotsAreInside(host);
     }
 
     public static string AddressId(string normalisedAddress) =>
@@ -83,19 +121,79 @@ internal sealed class FormEmailVerifier(
         string.IsNullOrWhiteSpace(form.VerifyEmailField) ? null : EmailField(definition, form.VerifyEmailField);
 
     /// <summary>
+    /// Takes the form's lock for the rest of the session's transaction. A send holds it while it
+    /// reads and writes the form's <see cref="FormEmailBudget"/>, so anything else that writes that
+    /// row takes it first.
+    /// </summary>
+    public static async Task LockFormAsync(IDocumentSession session, string form, CancellationToken ct)
+    {
+        await session.BeginTransactionAsync(ct);
+        await LockAsync(session, $"form:{form}", ct);
+    }
+
+    /// <summary>
+    /// On turning a form off: moves the field it verified onto the form's
+    /// <see cref="FormEmailBudget"/> row, which outlives the form row, and returns it. A form that
+    /// verified nothing leaves no row behind. Staged on <paramref name="session"/> for the caller
+    /// to save.
+    /// </summary>
+    /// <remarks>
+    /// Under the form's lock, because a send writes the same row and would otherwise store its
+    /// own copy over this one.
+    /// </remarks>
+    public static async Task<string?> RememberFieldAsync(IDocumentSession session, string form, CancellationToken ct)
+    {
+        await LockFormAsync(session, form, ct);
+
+        var current = await session.LoadAsync<PublicForm>(form, ct);
+        var budget = await session.LoadAsync<FormEmailBudget>(form, ct);
+        var verified = current is not null ? current.VerifyEmailField : budget?.VerifyEmailFieldWhenOff;
+
+        if (string.IsNullOrWhiteSpace(verified))
+        {
+            session.Delete<FormEmailBudget>(form);
+            return null;
+        }
+
+        budget ??= new FormEmailBudget { Id = form, WindowStartedAt = DateTimeOffset.UtcNow };
+        budget.VerifyEmailFieldWhenOff = verified;
+        session.Store(budget);
+        return verified;
+    }
+
+    /// <summary>
+    /// On turning a form on: the field it verified when it was turned off, or null, with the note
+    /// of it cleared in the caller's save.
+    /// </summary>
+    public static async Task<string?> TakeRememberedFieldAsync(IDocumentSession session, string form, CancellationToken ct)
+    {
+        await LockFormAsync(session, form, ct);
+
+        var budget = await session.LoadAsync<FormEmailBudget>(form, ct);
+        if (budget?.VerifyEmailFieldWhenOff is not { } verified)
+        {
+            return null;
+        }
+
+        budget.VerifyEmailFieldWhenOff = null;
+        session.Store(budget);
+        return verified;
+    }
+
+    /// <summary>
     /// Stores a fresh code for <paramref name="address"/> on this form and emails it.
     /// </summary>
     /// <returns>
     /// False when the address or the form is past its limit, in which case nothing is stored or
-    /// sent. True otherwise, whether or not the provider took the message: a failed send is logged
-    /// and not reported, so the answer does not depend on the provider's view of an address.
+    /// sent. True otherwise, whether or not the provider took the message: a send that fails or
+    /// runs past its deadline is logged and not reported, so the answer does not depend on the
+    /// provider's view of an address.
     /// </returns>
     public async Task<bool> RequestCodeAsync(ContentTypeDefinition definition, string address, CancellationToken ct)
     {
         var settings = options.Value.EmailVerification;
-        var window = TimeSpan.FromMinutes(Math.Max(1, settings.WindowMinutes));
-        var lifetimeMinutes = Math.Max(1, settings.CodeLifetimeMinutes);
-        var lifetime = TimeSpan.FromMinutes(lifetimeMinutes);
+        var window = TimeSpan.FromMinutes(settings.WindowMinutes);
+        var lifetime = TimeSpan.FromMinutes(settings.CodeLifetimeMinutes);
 
         var to = Normalise(address);
         var id = AddressId(to);
@@ -104,9 +202,8 @@ internal sealed class FormEmailVerifier(
         var code = RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6", CultureInfo.InvariantCulture);
         var hash = BCrypt.Net.BCrypt.HashPassword(code);
 
-        await session.BeginTransactionAsync(ct);
-        await LockAsync($"form:{definition.Name}", ct);
-        await LockAsync($"address:{id}", ct);
+        await LockFormAsync(session, definition.Name, ct);
+        await LockAsync(session, $"address:{id}", ct);
 
         var now = DateTimeOffset.UtcNow;
 
@@ -127,7 +224,7 @@ internal sealed class FormEmailVerifier(
             row.Sent = 0;
         }
 
-        if (budget.Sent >= Math.Max(1, settings.CodesPerForm) || row.Sent >= Math.Max(1, settings.CodesPerAddress))
+        if (budget.Sent >= settings.CodesPerForm || row.Sent >= settings.CodesPerAddress)
         {
             return false;
         }
@@ -146,19 +243,27 @@ internal sealed class FormEmailVerifier(
         await StageSweepAsync(now - (window > lifetime ? window : lifetime), ct);
         await session.SaveChangesAsync(ct);
 
-        var name = FormName(definition);
+        var name = Clean(string.IsNullOrWhiteSpace(definition.DisplayName) ? definition.Name : definition.DisplayName);
         var body =
             $"<p>Your verification code for {WebUtility.HtmlEncode(name)} is:</p>"
           + $"<p style=\"font-size:28px;font-weight:700;letter-spacing:4px\">{code}</p>"
-          + $"<p>It expires in {lifetimeMinutes} minutes and works once. If you did not ask for it, ignore this email.</p>";
+          + $"<p>It expires in {settings.CodeLifetimeMinutes} minutes and works once. If you did not ask for it, ignore this email.</p>";
 
         try
         {
-            await email.SendForTenantAsync(tenant.Slug, to, $"Your verification code for {name}", body, ct);
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            deadline.CancelAfter(TimeSpan.FromSeconds(settings.SendTimeoutSeconds));
+            await email.SendForTenantAsync(tenant.Slug, to, $"Your verification code for {name}", body, deadline.Token);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
-            logger.LogError(ex, "The email verification code for form {Form} could not be sent.", definition.Name);
+            // Filtered on the request's own token and not on the exception's type: a provider that
+            // times out throws a cancellation while the caller is still there, and that is a failed
+            // send like any other. Only the type is logged. A provider's message commonly quotes the
+            // recipient, and the address stays out of the log.
+            logger.LogError(
+                "The email verification code for form {Form} in tenant {Tenant} could not be sent ({Failure}).",
+                Clean(definition.Name), Clean(tenant.Slug), ex.GetType().Name);
         }
 
         return true;
@@ -195,17 +300,23 @@ internal sealed class FormEmailVerifier(
             // Refusing is the safe direction: the owner asked for verified addresses, and taking
             // unverified ones would look exactly like verification working.
             logger.LogError(
-                "Form {Form} verifies an email field its content type no longer offers, so every submission to it is refused.",
-                definition.Name);
+                "Form {Form} in tenant {Tenant} verifies an email field its content type no longer offers, so every submission to it is refused.",
+                Clean(definition.Name), Clean(tenant.Slug));
             failures.Add(new ValidationFailure(CodeField, "This form cannot take submissions right now."));
             return false;
         }
 
+        var label = string.IsNullOrWhiteSpace(field.DisplayName) ? field.Name : field.DisplayName;
         var address = Normalise(data.TryGetValue(field.Name, out var value) ? Text(value) : null);
         if (address.Length == 0)
         {
-            var label = string.IsNullOrWhiteSpace(field.DisplayName) ? field.Name : field.DisplayName;
             failures.Add(new ValidationFailure($"data.{field.Name}", $"'{label}' is required."));
+            return false;
+        }
+
+        if (!IsAddress(address))
+        {
+            failures.Add(new ValidationFailure($"data.{field.Name}", $"'{label}' must be a plain email address, such as name@example.com."));
             return false;
         }
 
@@ -222,11 +333,11 @@ internal sealed class FormEmailVerifier(
             return false;
         }
 
-        var maxAttempts = Math.Max(1, options.Value.EmailVerification.MaxAttempts);
+        var maxAttempts = options.Value.EmailVerification.MaxAttempts;
         var id = AddressId(address);
 
         await session.BeginTransactionAsync(ct);
-        await LockAsync($"address:{id}", ct);
+        await LockAsync(session, $"address:{id}", ct);
 
         var row = await session.LoadAsync<FormEmailVerification>(id, ct);
 
@@ -277,6 +388,9 @@ internal sealed class FormEmailVerifier(
     /// <see cref="SweepBatch"/> of them, oldest first.
     /// </summary>
     /// <remarks>
+    /// The table has no index on <c>LastSentAt</c>, so this reads one tenant's rows on every send,
+    /// under the form's lock. The send limits bound how many rows a tenant gathers in a window.
+    ///
     /// Deleted by a condition on the row and not by id. A send for one of those addresses can be
     /// rewriting its row at the same moment, and Postgres checks the condition again once that
     /// commits, so a row that was just refreshed is left alone.
@@ -303,19 +417,24 @@ internal sealed class FormEmailVerifier(
         session.DeleteWhere<FormEmailVerification>(v => v.LastSentAt < before);
     }
 
-    private async Task LockAsync(string what, CancellationToken ct) =>
+    private static async Task LockAsync(IDocumentSession session, string what, CancellationToken ct) =>
         await session.QueryAsync<int>(
             "select 1 from pg_advisory_xact_lock(hashtextextended(?, 0))",
             ct,
             $"barakocms:forms-email-verification:{session.TenantId}:{what}");
 
-    /// <summary>The form's display name with control characters removed, since it goes into a subject line.</summary>
-    private static string FormName(ContentTypeDefinition definition)
+    /// <summary>
+    /// A stored name with control characters removed and a length cap, for a subject line or a log
+    /// line. A content type name can hold a newline, and the tenant comes from a request header.
+    /// </summary>
+    private static string Clean(string value)
     {
-        var name = string.IsNullOrWhiteSpace(definition.DisplayName) ? definition.Name : definition.DisplayName;
-        var clean = new string(name.Where(c => !char.IsControl(c)).ToArray()).Trim();
-        return clean.Length > 100 ? clean[..100] : clean;
+        var clean = new string(value.Where(c => !char.IsControl(c)).ToArray()).Trim();
+        return clean.Length > MaxLoggedNameLength ? clean[..MaxLoggedNameLength] : clean;
     }
+
+    private static bool DotsAreInside(string part) =>
+        part.Length > 0 && part[0] != '.' && part[^1] != '.' && !part.Contains("..", StringComparison.Ordinal);
 
     private static string? Text(object? value) => value switch
     {

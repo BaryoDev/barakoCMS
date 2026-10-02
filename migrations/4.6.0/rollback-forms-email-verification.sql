@@ -7,9 +7,10 @@
 --
 -- WHAT IS LOST: codes that were sent and not yet used, and the counts behind the per address and
 -- per form limits. By default a code lives ten minutes and a count an hour, so a visitor who was
--- half way through asks for a new code. Which forms verify is not in these tables: it is a field in the
--- form's own row in mt_doc_public_forms, which an earlier release ignores, so a form that verified
--- takes unverified submissions again once the earlier release is running.
+-- half way through asks for a new code. Also lost: for a form that is turned off, the note of which
+-- field it verified. For a form that is on, that is not in these tables: it is a field in the form's
+-- own row in mt_doc_public_forms, which an earlier release ignores, so a form that verified takes
+-- unverified submissions again once the earlier release is running.
 --
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/rollback-forms-email-verification.sql
 --
