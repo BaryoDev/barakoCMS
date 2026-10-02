@@ -117,8 +117,9 @@ partition, and for nothing else:
 
 - A workflow in a partition with no `Tenant` document is not read, and its credential parameters
   stay as they were stored.
-- Credentials inside a Conditional action's `ThenActions` or `ElseActions` are not covered by this
-  pass, with enforcement on or off.
+
+Credentials inside a Conditional action's `ThenActions` or `ElseActions` are encrypted along with
+the rest of the workflow. A branch that is not valid JSON is left as it was stored.
 
 The application role cannot count rows the policy hides from it, so the pass cannot warn about a
 partition it does not see. It logs one line at Information level on every start with enforcement on,

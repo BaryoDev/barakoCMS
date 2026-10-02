@@ -1,6 +1,9 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Encodings.Web;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using barakoCMS.Infrastructure.Security;
 using barakoCMS.Models;
 using Microsoft.Extensions.Configuration;
@@ -99,23 +102,35 @@ internal static class WebhookSigning
 
         foreach (var action in workflow.Actions)
         {
-            foreach (var name in action.Parameters.Keys.Where(IsSensitiveParameterName).ToList())
-            {
-                var value = action.Parameters[name];
-
-                if (string.IsNullOrWhiteSpace(value))
-                {
-                    if (name != SecretParameter) continue;
-
-                    action.Parameters.Remove(name);
-                    changed = true;
-                    continue;
-                }
-
-                action.Parameters[name] = protector.Protect(name == SecretParameter ? value.Trim() : value);
-                changed = true;
-            }
+            changed |= ProtectParameters(action.Type, action.Parameters, protector);
         }
+
+        return changed;
+    }
+
+    private static bool ProtectParameters(string? type, Dictionary<string, string> parameters, ISecretProtector protector)
+    {
+        var changed = false;
+
+        foreach (var name in parameters.Keys.Where(IsSensitiveParameterName).ToList())
+        {
+            var value = parameters[name];
+
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                if (name != SecretParameter) continue;
+
+                parameters.Remove(name);
+                changed = true;
+                continue;
+            }
+
+            parameters[name] = protector.Protect(name == SecretParameter ? value.Trim() : value);
+            changed = true;
+        }
+
+        changed |= RewriteBranches(type, parameters, (childType, childParameters) =>
+            ProtectParameters(childType, childParameters, protector));
 
         return changed;
     }
@@ -158,46 +173,178 @@ internal static class WebhookSigning
         for (var index = 0; index < workflow.Actions.Count; index++)
         {
             var action = workflow.Actions[index];
+            var actionIndex = index;
 
-            foreach (var name in action.Parameters.Keys.Where(IsSensitiveParameterName).ToList())
-            {
-                var value = action.Parameters[name];
-
-                if (string.IsNullOrWhiteSpace(value))
-                {
-                    if (name != SecretParameter) continue;
-
-                    action.Parameters.Remove(name);
-                    changed = true;
-                    continue;
-                }
-
-                if (LooksProtected(value)) continue;
-
-                var decrypted = protector.Unprotect(value);
-                if (decrypted is not null)
-                {
-                    // A prefixed envelope encrypted a second time by a build that still recognised
-                    // ciphertext by shape, when both ran against one database. The inner envelope is
-                    // the credential; prefixing the outer one would hand the action ciphertext.
-                    var inner = LooksProtected(decrypted) && protector.Unprotect(decrypted) is not null;
-                    action.Parameters[name] = inner ? decrypted : AesGcmEnvelope.VersionPrefix + value;
-                    changed = true;
-                    continue;
-                }
-
-                if (name == SecretParameter && AesGcmEnvelope.IsWellFormed(value))
-                {
-                    undecryptableSecret?.Invoke(index, name);
-                    continue;
-                }
-
-                action.Parameters[name] = protector.Protect(name == SecretParameter ? value.Trim() : value);
-                changed = true;
-            }
+            // A child of a Conditional is reported against the Conditional's index, since a child
+            // has no index of its own in the definition.
+            changed |= MigrateParameters(
+                action.Type, action.Parameters, protector, name => undecryptableSecret?.Invoke(actionIndex, name));
         }
 
         return changed;
+    }
+
+    private static bool MigrateParameters(
+        string? type, Dictionary<string, string> parameters, ISecretProtector protector, Action<string> undecryptableSecret)
+    {
+        var changed = false;
+
+        foreach (var name in parameters.Keys.Where(IsSensitiveParameterName).ToList())
+        {
+            var value = parameters[name];
+
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                if (name != SecretParameter) continue;
+
+                parameters.Remove(name);
+                changed = true;
+                continue;
+            }
+
+            if (LooksProtected(value)) continue;
+
+            var decrypted = protector.Unprotect(value);
+            if (decrypted is not null)
+            {
+                // A prefixed envelope encrypted a second time by a build that still recognised
+                // ciphertext by shape, when both ran against one database. The inner envelope is
+                // the credential; prefixing the outer one would hand the action ciphertext.
+                var inner = LooksProtected(decrypted) && protector.Unprotect(decrypted) is not null;
+                parameters[name] = inner ? decrypted : AesGcmEnvelope.VersionPrefix + value;
+                changed = true;
+                continue;
+            }
+
+            if (name == SecretParameter && AesGcmEnvelope.IsWellFormed(value))
+            {
+                undecryptableSecret(name);
+                continue;
+            }
+
+            parameters[name] = protector.Protect(name == SecretParameter ? value.Trim() : value);
+            changed = true;
+        }
+
+        changed |= RewriteBranches(type, parameters, (childType, childParameters) =>
+            MigrateParameters(childType, childParameters, protector, undecryptableSecret));
+
+        return changed;
+    }
+
+    private const string ConditionalType = "Conditional";
+    private const string ChildTypeProperty = "Type";
+    private const string ChildParametersProperty = "Parameters";
+    private const string ChildSecretSetProperty = "SecretSet";
+    private static readonly string[] BranchParameters = ["ThenActions", "ElseActions"];
+
+    // A branch is a JSON string inside a JSON document, never HTML, so the relaxed encoder keeps
+    // what was typed readable instead of turning every non-ASCII character into an escape.
+    private static readonly JsonSerializerOptions BranchJson = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+
+    private static bool IsConditional(string? type) =>
+        string.Equals(type, ConditionalType, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Runs <paramref name="rewrite"/> over the parameters of every child action a Conditional
+    /// carries in its branches, and writes a branch back when a child changed.
+    /// </summary>
+    /// <remarks>
+    /// A nested branch is a JSON string inside a JSON string, so each level is strictly shorter than
+    /// the one holding it and the recursion is bounded by the size of the outermost value.
+    /// </remarks>
+    private static bool RewriteBranches(
+        string? type, Dictionary<string, string> parameters, Func<string?, Dictionary<string, string>, bool> rewrite)
+    {
+        if (!IsConditional(type)) return false;
+
+        var changed = false;
+        foreach (var branch in BranchParameters)
+        {
+            if (!parameters.TryGetValue(branch, out var json)) continue;
+
+            var rewritten = RewriteBranch(json, child =>
+            {
+                var childType = TypeOfChild(child);
+                var childChanged = false;
+                foreach (var childParameters in ParameterObjects(child))
+                {
+                    childChanged |= RewriteStrings(childParameters, strings => rewrite(childType, strings));
+                }
+
+                return childChanged;
+            });
+            if (rewritten is null) continue;
+
+            parameters[branch] = rewritten;
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    /// <summary>The branch with <paramref name="rewriteChild"/> applied to each child, or null when nothing changed.</summary>
+    /// <remarks>A branch that cannot be read as a JSON array is left as it is, which null also means here.</remarks>
+    private static string? RewriteBranch(string? json, Func<JsonObject, bool> rewriteChild)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+
+        try
+        {
+            if (JsonNode.Parse(json) is not JsonArray children) return null;
+
+            var changed = false;
+            foreach (var child in children)
+            {
+                if (child is JsonObject childObject) changed |= rewriteChild(childObject);
+            }
+
+            return changed ? children.ToJsonString(BranchJson) : null;
+        }
+        catch (Exception ex) when (ex is JsonException or ArgumentException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    private static string? TypeOfChild(JsonObject child) =>
+        child.Where(property => property.Key == ChildTypeProperty)
+            .Select(property => StringOf(property.Value))
+            .LastOrDefault();
+
+    // Any casing, although the action reads only "Parameters": a credential under a key the action
+    // ignores is still a credential somebody typed.
+    private static List<JsonObject> ParameterObjects(JsonObject child) =>
+        child.Where(property => string.Equals(property.Key, ChildParametersProperty, StringComparison.OrdinalIgnoreCase))
+            .Select(property => property.Value)
+            .OfType<JsonObject>()
+            .ToList();
+
+    private static string? StringOf(JsonNode? node) =>
+        node is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
+
+    private static bool RewriteStrings(JsonObject parameters, Func<Dictionary<string, string>, bool> rewrite)
+    {
+        var strings = new Dictionary<string, string>();
+        foreach (var property in parameters)
+        {
+            if (StringOf(property.Value) is { } text) strings[property.Key] = text;
+        }
+
+        var before = strings.Keys.ToList();
+        if (!rewrite(strings)) return false;
+
+        foreach (var name in before.Where(removed => !strings.ContainsKey(removed)))
+        {
+            parameters.Remove(name);
+        }
+
+        foreach (var (name, text) in strings)
+        {
+            parameters[name] = JsonValue.Create(text);
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -298,4 +445,55 @@ internal static class WebhookSigning
 
         return copy;
     }
+
+    /// <summary>
+    /// The same, for an action as the API returns it: a Conditional's branches also lose their
+    /// children's credential values, and each child says whether it has a secret set.
+    /// </summary>
+    public static Dictionary<string, string> WithoutSecret(string? type, IReadOnlyDictionary<string, string> parameters)
+    {
+        var copy = WithoutSecret(parameters);
+        if (!IsConditional(type)) return copy;
+
+        foreach (var branch in BranchParameters)
+        {
+            if (copy.TryGetValue(branch, out var json) && WithoutChildSecrets(json) is { } redacted)
+            {
+                copy[branch] = redacted;
+            }
+        }
+
+        return copy;
+    }
+
+    private static string? WithoutChildSecrets(string? branchJson) =>
+        RewriteBranch(branchJson, child =>
+        {
+            var nestsBranches = IsConditional(TypeOfChild(child));
+            var secretSet = false;
+
+            foreach (var parameters in ParameterObjects(child))
+            {
+                secretSet |= parameters.Any(property =>
+                    property.Key == SecretParameter && !string.IsNullOrWhiteSpace(StringOf(property.Value)));
+
+                foreach (var name in parameters.Select(property => property.Key).Where(IsSensitiveParameterName).ToList())
+                {
+                    parameters.Remove(name);
+                }
+
+                if (!nestsBranches) continue;
+
+                foreach (var branch in BranchParameters)
+                {
+                    if (parameters.TryGetPropertyValue(branch, out var nested) && WithoutChildSecrets(StringOf(nested)) is { } redacted)
+                    {
+                        parameters[branch] = JsonValue.Create(redacted);
+                    }
+                }
+            }
+
+            child[ChildSecretSetProperty] = JsonValue.Create(secretSet);
+            return true;
+        });
 }

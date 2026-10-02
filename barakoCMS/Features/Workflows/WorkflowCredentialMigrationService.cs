@@ -25,8 +25,8 @@ namespace barakoCMS.Features.Workflows;
 /// always logs how many partitions and workflows it read: a pass that reached nothing must not look
 /// like a pass with nothing left to do.
 ///
-/// Only the credential-named parameters on a workflow's own actions are covered. The child actions
-/// a Conditional action carries in its parameters are not parsed (issue #871).
+/// The child actions a Conditional action carries in <c>ThenActions</c> and <c>ElseActions</c> are
+/// covered too, at any depth. A branch that is not valid JSON is left as it is.
 ///
 /// It is safe to run on several instances at once and on every boot, since
 /// <see cref="WebhookSigning.MigrateStoredCredentials"/> leaves a prefixed value alone; two

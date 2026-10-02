@@ -42,6 +42,10 @@ internal sealed class WorkflowResponse
 /// The stored value is ciphertext, so returning it would not hand out the secret, but a response
 /// shape with nowhere to put it cannot be made to do that by a later change that forgets why. Same
 /// reasoning as <c>EmailSettingsResponse.ApiKeySet</c>.
+///
+/// The children a Conditional carries in <c>ThenActions</c> and <c>ElseActions</c> get the same
+/// treatment inside that JSON: credential-named keys are left out and each child gains a
+/// <c>SecretSet</c> of its own.
 /// </remarks>
 internal sealed class WorkflowActionResponse
 {
@@ -52,7 +56,7 @@ internal sealed class WorkflowActionResponse
     public static WorkflowActionResponse From(WorkflowAction a) => new()
     {
         Type = a.Type,
-        Parameters = WebhookSigning.WithoutSecret(a.Parameters),
+        Parameters = WebhookSigning.WithoutSecret(a.Type, a.Parameters),
         SecretSet = WebhookSigning.HasSecret(a.Parameters),
     };
 }

@@ -1,4 +1,5 @@
 using barakoCMS.Infrastructure.Attributes;
+using barakoCMS.Infrastructure.Security;
 using barakoCMS.Infrastructure.Services;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
@@ -102,9 +103,11 @@ internal class ConditionalAction : IWorkflowAction
         // The registered extractor when there is one, so children resolve exactly as top-level
         // actions do. A host that registers none still gets the built-in rules.
         var extractor = _serviceProvider.GetService<ITemplateVariableExtractor>();
+        var protector = _serviceProvider.GetService<ISecretProtector>();
 
         var succeededCount = 0;
         var failedTypes = new List<string>();
+        var credentialErrors = new List<string>();
         var anyPermanentFailure = false;
 
         foreach (var childAction in actions)
@@ -118,13 +121,32 @@ internal class ConditionalAction : IWorkflowAction
                 continue;
             }
 
+            // The same decryption the runner does for a top-level action: every credential but
+            // Secret, which Webhook decrypts itself. A nested Conditional decrypts its own children.
+            var childParameters = childAction.Parameters;
+            if (protector is not null)
+            {
+                var (unprotected, credentialError) = WebhookSigning.UnprotectCredentials(childParameters, protector);
+                if (credentialError is not null)
+                {
+                    // The error names the parameter and never holds its value, so unlike a child's
+                    // own error it is safe on the run record. Permanent: a retry has the same key.
+                    credentialErrors.Add($"{childAction.Type}: {credentialError}");
+                    failedTypes.Add(childAction.Type);
+                    anyPermanentFailure = true;
+                    continue;
+                }
+
+                childParameters = unprotected;
+            }
+
             WorkflowActionResult childResult;
             try
             {
                 childResult = await plugin.RunAsync(
                     extractor is null
-                        ? ActionParameters.Resolve(childAction.Type, childAction.Parameters, content)
-                        : ActionParameters.Resolve(extractor, childAction.Type, childAction.Parameters, content),
+                        ? ActionParameters.Resolve(childAction.Type, childParameters, content)
+                        : ActionParameters.Resolve(extractor, childAction.Type, childParameters, content),
                     content, ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -174,6 +196,11 @@ internal class ConditionalAction : IWorkflowAction
         var message = failedTypes.Count == actions.Count
             ? $"All {actions.Count} child action(s) failed in the {branch} branch: {names}."
             : $"{failedTypes.Count} of {actions.Count} child action(s) failed in the {branch} branch: {names}.";
+
+        if (credentialErrors.Count > 0)
+        {
+            message += " " + string.Join(" ", credentialErrors);
+        }
 
         // A retry re-runs every child from the top, so it is only safe when nothing has succeeded
         // yet. Once one child has succeeded alongside a failure, retrying would resend what that
