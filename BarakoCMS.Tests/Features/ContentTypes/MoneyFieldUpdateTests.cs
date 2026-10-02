@@ -70,8 +70,13 @@ public class MoneyFieldUpdateTests
         await session.SaveChangesAsync();
     }
 
-    /// <summary>A user who may create and update the type, holding a token that carries tokenRole.</summary>
-    private async Task<string> WriterAsync(string tokenRole, string contentType)
+    /// <summary>
+    /// A stored user who may create and update the type. What they may see and set is decided by
+    /// what is stored: "SuperAdmin" also gives them the seeded SuperAdmin role, a capability name
+    /// puts that capability on their role, and anything else leaves the role with none. The token
+    /// claims the role's own name, which decides nothing.
+    /// </summary>
+    private async Task<string> WriterAsync(string access, string contentType)
     {
         using var scope = _factory.Services.CreateScope();
         var store = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
@@ -81,6 +86,7 @@ public class MoneyFieldUpdateTests
         {
             Id = Guid.NewGuid(),
             Name = $"dbrole_{Guid.NewGuid():N}",
+            SystemCapabilities = SystemCapabilities.IsKnown(access) ? new List<string> { access } : new List<string>(),
             Permissions =
             [
                 new ContentTypePermission
@@ -99,11 +105,13 @@ public class MoneyFieldUpdateTests
             Id = Guid.NewGuid(),
             Username = $"user_{Guid.NewGuid()}",
             Email = $"{Guid.NewGuid()}@example.com",
-            RoleIds = [role.Id],
+            RoleIds = access == "SuperAdmin"
+                ? new List<Guid> { role.Id, SystemRoles.SuperAdminRoleId }
+                : new List<Guid> { role.Id },
         };
         session.Store(user);
         await session.SaveChangesAsync();
-        return _factory.CreateToken(new[] { tokenRole }, user.Id.ToString());
+        return _factory.CreateToken(new[] { role.Name }, user.Id.ToString());
     }
 
     private async Task<Guid> CreateAsync(string token, string contentType, Dictionary<string, object> data)
@@ -153,7 +161,7 @@ public class MoneyFieldUpdateTests
     public async Task A_caller_who_cannot_see_the_field_is_refused_without_being_told_the_stored_amount()
     {
         var type = await SeedTypeAsync(SensitivityLevel.Hidden, currency: null);
-        var admin = await WriterAsync("SuperAdmin", type);
+        var admin = await WriterAsync(SystemCapabilities.ViewHidden, type);
         var viewer = await WriterAsync($"Viewer_{Guid.NewGuid():N}", type);
 
         var id = await CreateAsync(admin, type, new()
@@ -161,6 +169,13 @@ public class MoneyFieldUpdateTests
             ["Name"] = "Ana",
             ["Salary"] = decimal.Parse(HiddenAmount, System.Globalization.CultureInfo.InvariantCulture),
         });
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var stored = await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<Content>(id);
+            stored!.Data.Should().ContainKey("Salary",
+                "the writer holds view_hidden, so the amount was stored. Without it there is nothing to put back and the refusal below is not about this field");
+        }
+
         await DeclareCurrencyAsync(type, "USD");
 
         var refused = await UpdateAsync(viewer, id, new() { ["Name"] = "Changed" });

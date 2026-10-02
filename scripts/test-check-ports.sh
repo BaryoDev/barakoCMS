@@ -27,7 +27,9 @@
 # cannot turn this into a pass.
 #
 # Not covered: the second `old_is_running` call in upgrade-check.sh, after the rollback. Reaching it
-# needs a stand-in for the whole upgrade.
+# needs a stand-in for the whole upgrade. The data check after the rollback sits in the same place,
+# so it is tested on its own, with the other two of lib-upgrade-data.sh, and the two before the
+# hosts are tested through the script as well.
 #
 #   bash scripts/test-check-ports.sh
 
@@ -296,14 +298,21 @@ STUB
 # A `docker` for upgrade-check.sh that starts no container. It writes every call down, hands back
 # made-up ids, and reports as published either the port the script asked for or, when the script
 # left the choice to Docker, one of its own: 40123 for postgres, and for the released image whatever
-# port the kernel gave the python server started in its place. Every query answers 5, which is
-# enough events and enough progression for the script to carry on to the hosts.
+# port the kernel gave the python server started in its place. A query answers 5, which is enough
+# events and enough progression for the script to carry on to the hosts, except the two the script
+# asks about the seeded HR role (lib-upgrade-data.sh). Those answer what a database upgraded from a
+# release that seeded the role would: one such role, and one holding view_sensitive once the
+# forward file has run.
 #
 # $1 is what `docker inspect` says about the released image's container: true while it runs.
+# $2 is how many roles are the seeded HR role, and $3 how many of them hold view_sensitive after
+# the forward file. Both default to 1.
 fake_docker() {
     : > "$state/calls"
     : > "$state/old.pid"
     echo "$1" > "$state/running"
+    echo "${2:-1}" > "$state/seeded-hr"
+    echo "${3:-1}" > "$state/seeded-hr-granted"
     cat > "$bin/docker" <<STUB
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$state/calls"
@@ -333,11 +342,61 @@ case "\${1:-}" in
     port) echo "127.0.0.1:\$(cat "$state/\$2.port")" ;;
     inspect) cat "$state/running" ;;
     exec)
-        case " \$* " in *" -tAc "*) echo 5 ;; esac ;;
+        case " \$* " in
+            *" -tAc "*mt_doc_roles*view_sensitive*) cat "$state/seeded-hr-granted" ;;
+            *" -tAc "*mt_doc_roles*) cat "$state/seeded-hr" ;;
+            *" -tAc "*) echo 5 ;;
+        esac ;;
 esac
 exit 0
 STUB
     chmod +x "$bin/docker"
+}
+
+# hr_check <function> <seeded count> <granted count>: one check of lib-upgrade-data.sh, given a
+# query function that answers the two counts and refuses anything else. Prints what the check said.
+hr_check() {
+    (
+        check="$1" seeded="$2" granted="$3"
+        FROM_VERSION=9.9.9
+        fail() { printf 'FAILED: %s\n' "$1"; exit 1; }
+        psql_q() {
+            case "$1" in
+                *"00000000-0000-0000-0000-000000000003"*"'Name' = 'HR'"*view_sensitive*) echo "$granted" ;;
+                *"00000000-0000-0000-0000-000000000003"*"'Name' = 'HR'"*) echo "$seeded" ;;
+                *) echo "FAILED: a query the stub does not know: $1"; exit 2 ;;
+            esac
+        }
+        . scripts/lib-upgrade-data.sh
+        "$check"
+    )
+}
+
+not() { ! "$@"; }
+
+upgrade_data_cases() {
+    echo
+    echo "lib-upgrade-data.sh, the checks around migrations/4.6.0:"
+    expect "a database holding the seeded HR role passes the check before the forward file" \
+        hr_check require_seeded_hr 1 0
+    hr_check require_seeded_hr 0 0 > "$output" 2>&1
+    expect "a database with no such role fails it" [ $? -eq 1 ]
+    expect "and the message says the file would prove nothing" \
+        grep -q "no role named HR under the seeded id" "$output"
+
+    expect "the role holding view_sensitive after the forward file passes" \
+        hr_check require_seeded_hr_granted 1 1
+    hr_check require_seeded_hr_granted 1 0 > "$output" 2>&1
+    expect "the role not holding it after the forward file fails" [ $? -eq 1 ]
+    expect "and the message names the forward file" \
+        grep -q "sensitivity-by-capability.sql did not give the HR role view_sensitive" "$output"
+
+    expect "the role not holding view_sensitive after the rollback passes" \
+        hr_check require_seeded_hr_not_granted 1 0
+    hr_check require_seeded_hr_not_granted 1 1 > "$output" 2>&1
+    expect "the role still holding it after the rollback fails" [ $? -eq 1 ]
+    expect "and the message names the rollback file" \
+        grep -q "rollback-sensitivity-by-capability.sql left view_sensitive on the seeded HR role" "$output"
 }
 
 # run_upgrade [NAME=value ...]: the assignments are the script's environment.
@@ -392,6 +451,31 @@ upgrade_cases() {
         *) bad "the host is given the postgres port asked for (connection string: $(recorded CONN))" ;;
     esac
     expect "the host is told to bind the port asked for" [ "$(recorded URLS)" = "http://127.0.0.1:$new_wanted" ]
+
+    echo
+    echo "upgrade-check.sh, when the database has no seeded HR role:"
+    stubs fake-pg
+    fake_docker true 0
+    run_upgrade
+    expect "the run fails" [ $? -ne 0 ]
+    expect "the script stops before the forward file, saying it would prove nothing" \
+        grep -q "no role named HR under the seeded id" "$output"
+    expect "the forward file was not applied" \
+        [ "$(grep -c "cp migrations/4.6.0/sensitivity-by-capability.sql" "$state/calls")" = 0 ]
+    expect "it does not go on to the db-assert that has to pass" not grep -q "core db-assert must now pass" "$output"
+
+    echo
+    echo "upgrade-check.sh, when the forward file leaves the seeded HR role without view_sensitive:"
+    stubs fake-pg
+    fake_docker true 1 0
+    run_upgrade
+    expect "the run fails" [ $? -ne 0 ]
+    expect "the forward file was applied" \
+        [ "$(grep -c "cp migrations/4.6.0/sensitivity-by-capability.sql" "$state/calls")" = 1 ]
+    expect "the script stops there, naming the file and what its holders would lose" \
+        grep -q "sensitivity-by-capability.sql did not give the HR role view_sensitive" "$output"
+    expect "it does not go on to the hosts, whose seeder would grant it in the file's place" \
+        not grep -q "core db-assert must now pass" "$output"
 
     echo
     echo "upgrade-check.sh, when the FROM_VERSION container has stopped and something still answers:"
@@ -546,6 +630,7 @@ script_cases() {
     fi
 }
 
+upgrade_data_cases
 upgrade_cases
 
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then

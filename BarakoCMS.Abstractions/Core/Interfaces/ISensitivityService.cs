@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using barakoCMS.Models;
 using Microsoft.AspNetCore.Http;
 
@@ -48,19 +49,22 @@ public interface ISensitivityService
     /// implementation that does not override it refuses more, never less. That holds only if the
     /// implementation's <see cref="ApplyAsync"/> never masks a field declared Public: one that
     /// does has to override this, or the default lets a caller filter on a field it masks.
+    ///
+    /// Asynchronous because the answer can need the caller's stored roles. It takes the request's
+    /// principal as it is, and an implementation looks up whatever it decides from.
     /// </remarks>
-    bool MaySeeField(FieldDefinition field, HttpContext httpContext)
-        => field.Sensitivity == SensitivityLevel.Public;
+    ValueTask<bool> MaySeeFieldAsync(FieldDefinition field, ClaimsPrincipal user, CancellationToken ct = default)
+        => ValueTask.FromResult(field.Sensitivity == SensitivityLevel.Public);
 
     /// <summary>
     /// Whether this caller reads the data of a document at the given sensitivity.
     /// </summary>
     /// <remarks>
-    /// The document-level half of <see cref="MaySeeField"/>: <see cref="ApplyAsync"/> clears the
+    /// The document-level half of <see cref="MaySeeFieldAsync"/>: <see cref="ApplyAsync"/> clears the
     /// data of a document the caller may not see, and matching on that data would give it back one
     /// guess at a time. The default answers for a Public document only, with the same condition:
     /// an implementation that withholds a Public document has to override this.
     /// </remarks>
-    bool MaySeeDocument(SensitivityLevel level, HttpContext httpContext)
-        => level == SensitivityLevel.Public;
+    ValueTask<bool> MaySeeDocumentAsync(SensitivityLevel level, ClaimsPrincipal user, CancellationToken ct = default)
+        => ValueTask.FromResult(level == SensitivityLevel.Public);
 }

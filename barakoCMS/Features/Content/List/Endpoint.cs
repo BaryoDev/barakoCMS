@@ -281,12 +281,22 @@ internal class Endpoint(
             .FirstOrDefaultAsync(d => d.Name == contentType, ct)
             ?? new ContentTypeDefinition { Name = contentType };
 
+        // Asked for every declared field before the parse, which takes a plain predicate. The
+        // parser also refuses a readable name whose twin by case is withheld, so it needs the
+        // answer for the fields the request does not name as well.
         var sensitivity = Resolve<barakoCMS.Core.Interfaces.ISensitivityService>();
+        var readable = new HashSet<FieldDefinition>(ReferenceEqualityComparer.Instance);
+        foreach (var declared in definition.Fields)
+        {
+            if (await sensitivity.MaySeeFieldAsync(declared, User, ct))
+                readable.Add(declared);
+        }
+
         var parsed = DeliveryQuery.Parse(
             fieldFilters,
             definition,
             DeliveryQuery.MaxRadiusKm(Resolve<IConfiguration>()),
-            readable: field => sensitivity.MaySeeField(field, HttpContext),
+            readable: readable.Contains,
             nameFields: false);
 
         if (!parsed.IsValid)
@@ -296,7 +306,7 @@ internal class Endpoint(
 
         foreach (var level in new[] { SensitivityLevel.Sensitive, SensitivityLevel.Hidden })
         {
-            if (sensitivity.MaySeeDocument(level, HttpContext)) continue;
+            if (await sensitivity.MaySeeDocumentAsync(level, User, ct)) continue;
 
             var withheld = level;
             query = query.Where(c => c.Sensitivity != withheld);

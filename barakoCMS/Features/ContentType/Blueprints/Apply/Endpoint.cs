@@ -114,6 +114,9 @@ internal sealed class Endpoint(
             }
         }
 
+        // A blueprint file names roles, and a definition is stored with their ids, as on create.
+        await barakoCMS.Core.RoleReferences.ToIdsAsync(session, types.SelectMany(t => t.Fields ?? []), ct);
+
         foreach (var type in types)
         {
             session.Store(type);

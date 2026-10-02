@@ -66,6 +66,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0/marten-9-37-event-store-columns.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.4.0/marten-9-38-quick-append-events.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/refresh-token-hash-index.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/sensitivity-by-capability.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/tenant-profile-to-site.sql
 ```
 
@@ -113,6 +114,16 @@ dropped and built again. The Forms file creates one empty table. All of them are
 
 The Email file creates the empty table Email.Resend uses to record which tenant sent each email,
 so a later bounce can be put back on that tenant. It is safe to run twice.
+
+The sensitivity file (4.6.0) changes data, not schema. It gives the seeded HR role the
+`view_sensitive` capability, which is what its name used to grant, and rewrites the role names in
+every field's `visibleToRoles` to role ids. Stop the API, run it, then start 4.6.0. The order
+matters here more than for an index: 4.5 and earlier match those lists against the role names in
+the token, so an earlier release serving a migrated database masks every listed field for every
+role on its list, and only SuperAdmin reads them, until 4.6.0 is running. Nothing is disclosed in
+that state and no value is changed. 4.6.0 on a database the file has not reached is safe to serve,
+since it still matches names. A role named HR under any id but the seeded one is not granted, and
+the file says so in a notice that names the id. It is safe to run twice.
 
 Then confirm the schema matches what 4.0 expects, without starting the server. The command is an
 argument to the 4.0 image, which hands it to the host instead of booting the web app. With compose,
@@ -187,6 +198,7 @@ statements from the file by hand rather than re-running the whole thing.
 Stop 4.0, then:
 
 ```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/rollback-sensitivity-by-capability.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/rollback-tenant-profile-to-site.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/rollback-email-sent-emails.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/rollback-refresh-token-hash-index.sql

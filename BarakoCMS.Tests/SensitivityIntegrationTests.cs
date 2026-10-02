@@ -12,8 +12,8 @@ namespace BarakoCMS.Tests;
 
 /// <summary>
 /// Real end-to-end tests for schema-driven sensitivity: they seed a content type whose SSN field is
-/// Hidden and BirthDay field is Sensitive, sign in as different roles, GET/LIST through the HTTP
-/// pipeline, and assert what each role actually receives.
+/// Hidden and BirthDay field is Sensitive, sign in as users whose stored roles differ, GET/LIST
+/// through the HTTP pipeline, and assert what each one actually receives.
 /// </summary>
 [Collection("Sequential")]
 public class SensitivityIntegrationTests
@@ -27,7 +27,7 @@ public class SensitivityIntegrationTests
         _client = factory.CreateClient();
     }
 
-    // A unique content type whose SSN is Hidden (SuperAdmin only) and BirthDay is Sensitive (HR+).
+    // A unique content type whose SSN is Hidden (view_hidden) and BirthDay is Sensitive (view_sensitive).
     private async Task<string> SeedSchema()
     {
         var contentType = $"emp_{Guid.NewGuid():N}";
@@ -50,64 +50,35 @@ public class SensitivityIntegrationTests
         return contentType;
     }
 
-    // A user who can READ contentType, holding a token that carries tokenRole for the sensitivity
-    // filter's IsInRole checks. The DB role has a unique name (Role.Name is uniquely indexed) and
-    // grants read via an explicit permission, so it is decoupled from the token's semantic role.
-    private async Task<string> SetupReader(string tokenRole, string contentType)
-    {
-        using var scope = _factory.Services.CreateScope();
-        var store = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
-        using var session = store.LightweightSession();
-
-        var role = new Role
-        {
-            Id = Guid.NewGuid(),
-            Name = $"dbrole_{Guid.NewGuid():N}",
-            Permissions = new List<ContentTypePermission>
-            {
-                new()
-                {
-                    ContentTypeSlug = contentType,
-                    Read = new PermissionRule { Enabled = true },
-                    Create = new PermissionRule { Enabled = false },
-                    Update = new PermissionRule { Enabled = false },
-                    Delete = new PermissionRule { Enabled = false },
-                },
-            },
-        };
-        session.Store(role);
-        var user = new User
-        {
-            Id = Guid.NewGuid(),
-            Username = $"user_{Guid.NewGuid()}",
-            Email = $"{Guid.NewGuid()}@example.com",
-            RoleIds = new List<Guid> { role.Id },
-        };
-        session.Store(user);
-        await session.SaveChangesAsync();
-
-        return _factory.CreateToken(new[] { tokenRole }, user.Id.ToString());
-    }
+    // A stored user who can READ contentType through a role of their own. What they may see is
+    // decided by that stored role: "SuperAdmin" also gives them the seeded SuperAdmin role, a
+    // capability name puts that capability on their role, and anything else leaves the role with
+    // none. The role's name is random (Role.Name is uniquely indexed), so no name decides anything.
+    private Task<string> SetupReader(string access, string contentType) => SetupCaller(access, contentType, write: false);
 
     // Like SetupReader but also grants create + update, for write-path tests.
-    private async Task<string> SetupWriter(string tokenRole, string contentType)
+    private Task<string> SetupWriter(string access, string contentType) => SetupCaller(access, contentType, write: true);
+
+    private async Task<string> SetupCaller(string access, string contentType, bool write)
     {
         using var scope = _factory.Services.CreateScope();
         var store = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
         using var session = store.LightweightSession();
 
+        var superAdmin = access == "SuperAdmin";
         var role = new Role
         {
             Id = Guid.NewGuid(),
             Name = $"dbrole_{Guid.NewGuid():N}",
+            SystemCapabilities = SystemCapabilities.IsKnown(access) ? new List<string> { access } : new List<string>(),
             Permissions = new List<ContentTypePermission>
             {
                 new()
                 {
                     ContentTypeSlug = contentType,
                     Read = new PermissionRule { Enabled = true },
-                    Create = new PermissionRule { Enabled = true },
-                    Update = new PermissionRule { Enabled = true },
+                    Create = new PermissionRule { Enabled = write },
+                    Update = new PermissionRule { Enabled = write },
                     Delete = new PermissionRule { Enabled = false },
                 },
             },
@@ -118,11 +89,16 @@ public class SensitivityIntegrationTests
             Id = Guid.NewGuid(),
             Username = $"user_{Guid.NewGuid()}",
             Email = $"{Guid.NewGuid()}@example.com",
-            RoleIds = new List<Guid> { role.Id },
+            RoleIds = superAdmin
+                ? new List<Guid> { role.Id, SystemRoles.SuperAdminRoleId }
+                : new List<Guid> { role.Id },
         };
         session.Store(user);
         await session.SaveChangesAsync();
-        return _factory.CreateToken(new[] { tokenRole }, user.Id.ToString());
+
+        // The claims a real token would carry: the names of the roles the user holds.
+        var claimed = superAdmin ? new[] { role.Name, "SuperAdmin" } : new[] { role.Name };
+        return _factory.CreateToken(claimed, user.Id.ToString());
     }
 
     private async Task<Guid> SeedRecord(string contentType, SensitivityLevel level)
@@ -179,15 +155,15 @@ public class SensitivityIntegrationTests
     }
 
     [Fact]
-    public async Task HR_sees_birthday_but_not_ssn()
+    public async Task A_role_holding_view_sensitive_sees_birthday_but_not_ssn()
     {
         var ct = await SeedSchema();
-        var token = await SetupReader("HR", ct);
+        var token = await SetupReader(SystemCapabilities.ViewSensitive, ct);
         var id = await SeedRecord(ct, SensitivityLevel.Sensitive);
         var (status, root) = await Get(token, id);
         status.Should().Be(HttpStatusCode.OK);
-        Data(root).TryGetProperty("SSN", out _).Should().BeFalse("SSN is Hidden (SuperAdmin only)");
-        Data(root).GetProperty("BirthDay").GetString().Should().Contain("1990-05-15", "HR may see the Sensitive BirthDay");
+        Data(root).TryGetProperty("SSN", out _).Should().BeFalse("SSN is Hidden, and view_sensitive does not reach it");
+        Data(root).GetProperty("BirthDay").GetString().Should().Contain("1990-05-15", "view_sensitive is what the Sensitive BirthDay asks for");
     }
 
     [Fact]
@@ -309,10 +285,10 @@ public class SensitivityIntegrationTests
     }
 
     [Fact]
-    public async Task HR_can_write_sensitive_field_but_not_hidden()
+    public async Task A_role_holding_view_sensitive_can_write_sensitive_field_but_not_hidden()
     {
         var ct = await SeedSchema();
-        var hr = await SetupWriter("HR", ct);
+        var hr = await SetupWriter(SystemCapabilities.ViewSensitive, ct);
         var admin = await SetupReader("SuperAdmin", ct);
 
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", hr);
@@ -325,8 +301,8 @@ public class SensitivityIntegrationTests
         var id = JsonDocument.Parse(await create.Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetGuid();
 
         var (_, root) = await Get(admin, id);
-        Data(root).GetProperty("BirthDay").GetString().Should().Contain("2001-02-03", "HR may write the Sensitive BirthDay");
-        Data(root).TryGetProperty("SSN", out _).Should().BeFalse("HR still cannot write the Hidden SSN");
+        Data(root).GetProperty("BirthDay").GetString().Should().Contain("2001-02-03", "a caller who may see the Sensitive BirthDay may set it");
+        Data(root).TryGetProperty("SSN", out _).Should().BeFalse("view_sensitive does not let a caller write the Hidden SSN");
     }
 
     /*

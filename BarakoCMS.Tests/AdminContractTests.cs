@@ -77,7 +77,7 @@ public class AdminContractTests
             var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
             s.Store(custom);
             // A seeded role under a name nobody would guess, so a name-based check cannot pass.
-            s.Store(new Role { Id = SystemRoles.HRRoleId, Name = "People Operations" });
+            s.Store(new Role { Id = barakoCMS.Data.DataSeeder.DemoHrRoleId, Name = "People Operations" });
             await s.SaveChangesAsync();
         }
 
@@ -94,7 +94,7 @@ public class AdminContractTests
         }
         items.Should().NotBeEmpty();
 
-        var renamed = items.First(i => i.GetProperty("id").GetGuid() == SystemRoles.HRRoleId);
+        var renamed = items.First(i => i.GetProperty("id").GetGuid() == barakoCMS.Data.DataSeeder.DemoHrRoleId);
         renamed.GetProperty("isSystem").GetBoolean().Should().BeTrue(
             "it is a seeded role whatever it has been renamed to, and the id is the key");
 
