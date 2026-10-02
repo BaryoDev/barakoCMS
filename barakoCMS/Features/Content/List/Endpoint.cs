@@ -1,6 +1,7 @@
 using FastEndpoints;
 using Marten;
 using Marten.Linq.MatchesSql;
+using barakoCMS.Features.Public;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 
@@ -119,6 +120,22 @@ internal class Endpoint(
             query = query.Where(c => c.MatchesSql(SearchSql, EscapeLike(term)));
         }
 
+        // filter[field][op]=value, the delivery API's syntax. Read off the query string, since the
+        // field name is part of the key and no request property can be named for it.
+        var fieldFilters = DeliveryQuery.FilterPairs(HttpContext.Request.Query);
+        if (fieldFilters.Count > 0)
+        {
+            var (filtered, refusal) = await ApplyFieldFiltersAsync(query, fieldFilters, req.ContentType, ct);
+            if (refusal is not null)
+            {
+                AddError(refusal);
+                await Send.ErrorsAsync(400, ct);
+                return;
+            }
+
+            query = filtered;
+        }
+
         // 3. Apply Sorting
         query = req.SortOrder.ToLower() == "asc"
             ? query.OrderBy(c => c.CreatedAt)
@@ -230,6 +247,63 @@ internal class Endpoint(
     /// </remarks>
     private const string SearchSql =
         "EXISTS (SELECT 1 FROM jsonb_each_text(d.data -> 'Data') kv WHERE kv.value ILIKE '%' || ? || '%')";
+
+    /// <summary>
+    /// Narrows the query by the request's field filters, or says why they are refused.
+    /// </summary>
+    /// <remarks>
+    /// Unlike status and search, a field filter is not safe to run ahead of the sensitivity scrub.
+    /// The scrub hides a value in the response, and which rows come back for
+    /// <c>filter[Salary][gte]=50000</c> gives it away regardless. So a filter is accepted only on a
+    /// field this caller reads unmasked, and a filtered list leaves out any entry whose document
+    /// sensitivity would have its data withheld from them, where the unfiltered list returns such
+    /// an entry blanked.
+    ///
+    /// A field name is looked up among the type's declared fields and replaced by the schema's own
+    /// spelling before it is used, and name and value both reach SQL as bound parameters (see
+    /// <c>DeliveryQuery.ToSql</c>).
+    ///
+    /// A type with no stored definition declares no fields, so every filter on it is refused, in
+    /// the same words as an unknown field on a type that has one. Neither answer names the fields
+    /// that would have been accepted: reading a type's schema takes a capability this caller may
+    /// not hold.
+    /// </remarks>
+    private async Task<(IQueryable<barakoCMS.Models.Content> Query, string? Refusal)> ApplyFieldFiltersAsync(
+        IQueryable<barakoCMS.Models.Content> query,
+        List<KeyValuePair<string, string?>> fieldFilters,
+        string? contentType,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(contentType))
+            return (query, "A field filter needs contentType. Fields are declared per content type.");
+
+        var definition = await session.Query<ContentTypeDefinition>()
+            .FirstOrDefaultAsync(d => d.Name == contentType, ct)
+            ?? new ContentTypeDefinition { Name = contentType };
+
+        var sensitivity = Resolve<barakoCMS.Core.Interfaces.ISensitivityService>();
+        var parsed = DeliveryQuery.Parse(
+            fieldFilters,
+            definition,
+            DeliveryQuery.MaxRadiusKm(Resolve<IConfiguration>()),
+            readable: field => sensitivity.MaySeeField(field, HttpContext),
+            nameFields: false);
+
+        if (!parsed.IsValid)
+            return (query, parsed.Error);
+
+        query = parsed.ApplyTo(query);
+
+        foreach (var level in new[] { SensitivityLevel.Sensitive, SensitivityLevel.Hidden })
+        {
+            if (sensitivity.MaySeeDocument(level, HttpContext)) continue;
+
+            var withheld = level;
+            query = query.Where(c => c.Sensitivity != withheld);
+        }
+
+        return (query, null);
+    }
 
     /// <summary>Neutralises the two LIKE wildcards so a search means what was typed.</summary>
     private static string EscapeLike(string term) => term

@@ -53,10 +53,12 @@ internal class Endpoint(
             return;
         }
 
+        var queued = 0;
+
         // On this session and unsaved, so the runs commit with the erasure and the audit entry.
         if (contentType is not null)
         {
-            await workflowRuns.QueueDeletedAsync(req.Id, contentType, ct);
+            queued = await workflowRuns.QueueDeletedAsync(req.Id, contentType, ct);
         }
 
         // Queued, not yet committed, and the audit entry joins it on the same session so that one
@@ -70,6 +72,8 @@ internal class Endpoint(
             targetType: "content", targetId: req.Id.ToString(), ct: ct);
 
         await session.SaveChangesAsync(ct);
+
+        barakoCMS.Features.Workflows.WorkflowMetrics.Default.Queued(barakoCMS.Models.WorkflowEvents.Deleted, queued);
 
         await Send.NoContentAsync(ct);
     }

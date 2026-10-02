@@ -39,4 +39,25 @@ public interface IConditionEvaluator
         Models.Content content,
         Models.User user)
         => Evaluate(conditions, content.Data, user);
+
+    /// <summary>
+    /// Evaluate conditions that may compare against the caller's member profile, written
+    /// <c>$CURRENT_USER.&lt;name&gt;</c> as the whole of a scalar expected value.
+    /// </summary>
+    /// <param name="callerProfile">
+    /// The caller's profile in the current tenant, or null when they have no membership there.
+    /// </param>
+    /// <remarks>
+    /// A name the profile does not hold, or holds with an empty value, denies the rule whatever the
+    /// operator is. The two older overloads do not resolve these variables and compare the text.
+    ///
+    /// The default implementation denies any rule that names a variable, so an implementor written
+    /// before these existed cannot grant on one it does not understand.
+    /// </remarks>
+    bool Evaluate(
+        Dictionary<string, object> conditions,
+        Models.Content content,
+        Models.User user,
+        IReadOnlyDictionary<string, string>? callerProfile)
+        => !CallerAttributes.Mentioned(conditions) && Evaluate(conditions, content, user);
 }

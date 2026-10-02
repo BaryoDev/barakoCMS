@@ -384,6 +384,9 @@ The condition language is frozen as a contract at `_eq`, `_ne`, `_in`, `_nin` an
 Every role document in every deployment is written against it, and #445 makes it a second
 implementation, so adding an operator means adding it in two places at once or not at all.
 
+#918 added one thing, in both places at once: `$CURRENT_USER.<name>`, a value from the caller's
+member profile (D31), as the whole value of `_eq` or `_ne`. An unresolved name denies the rule.
+
 **Rules out:** the database-first backend shape. No PostgREST-style layer that maps HTTP straight onto SQL, no
 per-end-user Postgres role, no row-level security carrying business rules, and no browser holding a
 database connection.

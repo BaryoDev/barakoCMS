@@ -69,6 +69,20 @@ search endpoint is anonymous. The default, 1000, is twice what one index run wri
 more embeddings than the limit is searched over that many only, and the response says so with
 `"truncated": true`.
 
+## Filters
+
+Semantic search takes the delivery list's `filter[field][op]=value` parameters, with the same
+Public field rule and the same caps (see `docs/delivery-api.md` in the barakoCMS repository):
+
+```text
+GET /api/public/news/semantic?q=flood+warning&filter[Category][eq]=advisory
+```
+
+The filter runs before ranking. The entries that match are read first, up to
+`SemanticSearchScanLimit`, and only their embeddings are ranked. When more entries match than the
+limit, the response sets `"truncated": true`. A filter on a field that is not Public, an unknown
+field or operator, a sixth filter and a value over 256 characters each return 400.
+
 The module ships **inert**: without `Ai:Enabled` it registers and does nothing, so adding the
 package cannot change how an existing site behaves. Point `EmbeddingBaseUrl` at your own Ollama
 instance. Keep it on a private network — an embedding endpoint

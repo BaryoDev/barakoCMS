@@ -94,6 +94,14 @@ A non-empty `honeypot` gets the same 202 and nothing is stored.
 `options` lists a choice field's options in display order and is empty for any other type.
 `multiple` says whether the field takes a list.
 
+Every field also carries `currency` and `scale`. Both are null except on a `money` field that
+declares a currency, where `currency` is its ISO 4217 code and `scale` is the most decimal places an
+amount may carry: the field's own if it declares one, the currency's otherwise. Such a field takes
+the amount as a JSON number or as the plain decimal text an input holds (`"12.50"`), and stores a
+number either way. An amount with more decimal places than `scale`, or text with a thousands
+separator, a currency symbol or an exponent, is a 400. See `docs/money-fields.md` in the core
+repository.
+
 ## Configuration
 
 Section `Modules:Forms`:

@@ -9,6 +9,9 @@ Implements barakoCMS's `IEmailService` using the [Resend](https://resend.com) HT
 that send email (password-reset, passwordless OTP sign-in, workflow emails) deliver for real instead
 of hitting the built-in mock.
 
+A workflow email that names attachments is posted with them; see `docs/configuring-email.md` in the
+repository.
+
 ## Enable it
 
 ```sh

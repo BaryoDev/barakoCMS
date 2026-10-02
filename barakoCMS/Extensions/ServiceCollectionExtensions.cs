@@ -981,11 +981,15 @@ public static class ServiceCollectionExtensions
         // provider (e.g. a Resend email module) without being clobbered by these mocks.
         services.TryAddScoped<barakoCMS.Core.Interfaces.IEmailService, barakoCMS.Infrastructure.Services.MockEmailService>();
         services.TryAddScoped<barakoCMS.Core.Interfaces.ISmsService, barakoCMS.Infrastructure.Services.MockSmsService>();
+        services.TryAddScoped<barakoCMS.Core.Interfaces.IFileStore, barakoCMS.Infrastructure.Services.NoFileStore>();
         services.AddScoped<barakoCMS.Core.Interfaces.ISensitivityService, barakoCMS.Infrastructure.Services.SensitivityService>();
         services.AddScoped<barakoCMS.Core.Interfaces.IContentSourcingPolicy, barakoCMS.Infrastructure.Services.ContentSourcingPolicyService>();
         // The public projection, so a module serving its own anonymous route does not hold a second
         // copy of the published/sensitivity/opt-in/field-allowlist checks.
         services.AddScoped<barakoCMS.Core.Interfaces.IPublicContentProjector, barakoCMS.Infrastructure.Services.PublicContentProjector>();
+        // The delivery filters, so a module's anonymous route over content refuses the same fields
+        // the core list refuses and binds its values the same way.
+        services.AddScoped<barakoCMS.Core.Interfaces.IPublicContentFilterParser, barakoCMS.Infrastructure.Services.PublicContentFilterParser>();
         // Constructed by hand rather than by type, so the configuration-reading constructor is the
         // one that runs. Both constructors are satisfiable from the container and the selection would
         // otherwise be a container detail, which is how EventSourcing:DocumentTypesAppend would end
@@ -1015,6 +1019,11 @@ public static class ServiceCollectionExtensions
         // asks for strict lockdown gets SensitiveOnly and a clean startup. Refused here rather than
         // served inert, because the operator who sets it is the one who needs it.
         barakoCMS.Infrastructure.Services.SensitivityService.ValidateMode(configuration);
+
+        // Tenancy mode, validated for the same reason: an operator who set Multi and mistyped it
+        // would otherwise run a deployment that serves unregistered slugs while believing it
+        // refuses them. Read here only to refuse; the instance in use is registered further down.
+        barakoCMS.Infrastructure.Multitenancy.TenancyOptions.FromConfiguration(configuration);
 
         // Connectors hold live third-party credentials, so a key that is present and wrong is
         // refused before the host is built rather than at the first send. An absent key is not an
@@ -1104,6 +1113,12 @@ public static class ServiceCollectionExtensions
                               barakoCMS.Infrastructure.Multitenancy.TenantDomainSource>();
         services.Configure<barakoCMS.Infrastructure.Multitenancy.MultitenancyOptions>(
             configuration.GetSection(barakoCMS.Infrastructure.Multitenancy.MultitenancyOptions.SectionName));
+
+        // Built once, from the host's final configuration. AddErasureAndPolicyChecks has already
+        // refused a value that is not a mode.
+        services.AddSingleton(sp => barakoCMS.Infrastructure.Multitenancy.TenancyOptions.FromConfiguration(
+            sp.GetRequiredService<IConfiguration>()));
+
         services.AddScoped<barakoCMS.Infrastructure.Services.IConfigurationService, barakoCMS.Infrastructure.Services.ConfigurationService>();
     }
 
@@ -1395,6 +1410,12 @@ public static class ServiceCollectionExtensions
         var configuration = app.ApplicationServices.GetRequiredService<IConfiguration>();
         var env = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
 
+        // Building the store is what runs each module's ConfigureSchema, and it is built on first
+        // use. Asked for here so the schema hook runs before any ConfigureApp below, which is the
+        // order MODULES.md states, and so a module whose schema is refused fails as itself and not
+        // inside whichever module's ConfigureApp first asked for the store.
+        _ = app.ApplicationServices.GetRequiredService<IDocumentStore>();
+
         UseExceptionHandling(app);
 
         UseForwardedHeadersAndHttps(app, configuration, env);
@@ -1410,6 +1431,8 @@ public static class ServiceCollectionExtensions
         UseObservability(app);
 
         UseTenantAndAuthentication(app);
+
+        ModuleAppPipeline.Use(app, app.ApplicationServices.GetServices<IBarakoModule>());
 
         UseOutputCaching(app);
 
@@ -1601,6 +1624,19 @@ public static class ServiceCollectionExtensions
 
     private static void UseTenantAndAuthentication(IApplicationBuilder app)
     {
+        // Once per start. In Multi partitions are skipped without a line per pass, so this is where
+        // an operator reads that they are.
+        if (app.ApplicationServices.GetRequiredService<barakoCMS.Infrastructure.Multitenancy.TenancyOptions>().IsMulti)
+        {
+            app.ApplicationServices.GetRequiredService<ILoggerFactory>()
+                .CreateLogger("barakoCMS.Infrastructure.Multitenancy.TenancyMode")
+                .LogInformation(
+                    "Tenancy:Mode is Multi. The default partition and any partition with no Tenant document are not served, "
+                  + "and the workflow runner, the retention sweeps, the credential encryption pass, the scheduled content sweep "
+                  + "and the collection sync sweep do not visit them. Rows already stored there are left as they are. "
+                  + "docs/multi-tenancy.md has a query that lists them.");
+        }
+
         // Resolve the tenant from the subdomain, early so downstream code can read it.
         app.UseMiddleware<barakoCMS.Infrastructure.Multitenancy.TenantResolutionMiddleware>();
 
