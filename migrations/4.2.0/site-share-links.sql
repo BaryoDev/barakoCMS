@@ -16,7 +16,10 @@
 --
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.2.0/site-share-links.sql
 --
--- Safe to run twice, and it changes nothing on a database that ran the current 4.0.0 file.
+-- Safe to run twice. On a database that ran the current 4.0.0 file it changes nothing, with one
+-- exception: the last three statements are db-patch output for Tenancy:DatabaseEnforcement off, so
+-- where enforcement is on and 4.2 or later has already started, they drop the policy the app built.
+-- Apply the file with the API stopped, and the next start puts the policy back.
 
 CREATE TABLE IF NOT EXISTS public.mt_doc_site_share_links (
     tenant_id           varchar                     NOT NULL DEFAULT '*DEFAULT*',

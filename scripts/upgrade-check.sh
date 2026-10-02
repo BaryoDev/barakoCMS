@@ -46,15 +46,15 @@
 # parse. Running it here means a future edit that breaks it fails this job instead of an operator
 # mid-incident.
 #
-# A 4.1 start (FROM_VERSION=4.1.0) runs the same sequence without the two 4.0.0 files. A database
-# that 4.1 created has already had the 4.0.0 file as it stood then, and nobody runs it a second time,
-# so anything a later release folded into that file reaches such a database only through a file of
-# its own. That is how mt_doc_site_share_links went missing from every upgraded 4.0 and 4.1 install
-# while this job, starting from 3.x, stayed green (#1007). Its rollback stops at 4.1 and boots that
-# image again.
+# A 4.0 or 4.1 start (FROM_VERSION=4.1.0) runs the same sequence without the two 4.0.0 files. Such
+# a database is already past the 4.0.0 file and nobody runs it a second time, so anything a later
+# release folded into that file reaches it only through a file of its own. That is how
+# mt_doc_site_share_links went missing from every upgraded 4.0 and 4.1 install while this job,
+# starting from 3.x, stayed green (#1007). Its rollback stops at FROM_VERSION and boots that image
+# again.
 #
 # Usage: scripts/upgrade-check.sh                       (FROM_VERSION defaults to the last 3.x release)
-#        FROM_VERSION=4.1.0 scripts/upgrade-check.sh    (a database 4.1 created)
+#        FROM_VERSION=4.1.0 scripts/upgrade-check.sh    (a database 4.0 or 4.1 created)
 
 set -euo pipefail
 
@@ -82,13 +82,13 @@ trap cleanup EXIT
 step() { printf '\n=== %s\n' "$1"; }
 fail() { printf '\nFAILED: %s\n' "$1" >&2; exit 1; }
 
-# Which files a database still needs depends on what created it. Anything other than the two starts
-# below stops here rather than guessing: a 4.0 start lacks tables the 4.0.0 file gained before 4.1
-# and has no file for them, and a 4.2 or later start would have to leave out its own release's files.
+# Which files a database still needs depends on what created it. 4.0 and 4.1 declare the same
+# objects, so a database either one booted takes the same files. Anything else stops here rather
+# than guessing: a 4.2 or later start would have to leave out its own release's files.
 case "$FROM_VERSION" in
     3.*) FROM_3X=1 ;;
-    4.1.*) FROM_3X=0 ;;
-    *) fail "FROM_VERSION=${FROM_VERSION} is not a start this script knows. Use a 3.x release or 4.1.x." ;;
+    4.0.*|4.1.*) FROM_3X=0 ;;
+    *) fail "FROM_VERSION=${FROM_VERSION} is not a start this script knows. Use a 3.x, 4.0.x or 4.1.x release." ;;
 esac
 
 # $1 is the host dll, core or Suite; the rest are its arguments.
@@ -217,7 +217,7 @@ echo "workflow projection progression is $PROGRESSION_BEFORE"
 
 step "db-assert must refuse the un-migrated database, on both hosts"
 if run_core db-assert >"$WORK/assert-before-core.log" 2>&1; then
-    fail "core db-assert passed against a ${FROM_VERSION} database. The committed migration is stale: regenerate it with db-patch, or delete it if 4.0 no longer needs one."
+    fail "core db-assert passed against a ${FROM_VERSION} database. The committed migration is stale: regenerate it with db-patch, or delete it if the working tree no longer needs one."
 fi
 if run_suite db-assert >"$WORK/assert-before-suite.log" 2>&1; then
     fail "Suite db-assert passed against a ${FROM_VERSION} database, where core alone refuses it"
@@ -235,8 +235,8 @@ docker cp migrations/4.2.0/user-normalized-identity.sql "$PG:/tmp/users.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/users.sql >/dev/null
 
 # The share links table (#841, #1007). The 4.0.0 file creates it too, so on a 3.x start this is the
-# second run of the same statements and shows the file is harmless there. On a 4.1 start it is the
-# only thing that creates the table, and the check says so: a 4.1 database that already has it means
+# second run of the same statements and shows the file is harmless there. On a 4.x start it is the
+# only thing that creates the table, and the check says so: a 4.x database that already has it means
 # this file has stopped doing anything and someone should find out.
 if [ "$FROM_3X" = 0 ]; then
     [ "$(psql_q "select to_regclass('public.mt_doc_site_share_links') is null;")" = "t" ] \
@@ -317,11 +317,11 @@ kill -0 "$HOST_PID" 2>/dev/null || {
     fail "something answered /health but the host we started is gone, so every check below would describe another process"
 }
 
-step "the 3.x admin can still sign in"
+step "the ${FROM_VERSION} admin can still sign in"
 NEW_TOKEN=$(curl -s -X POST "$NEW_URL/api/auth/login" -H 'Content-Type: application/json' \
     -d "{\"username\":\"admin\",\"password\":\"${ADMIN_PASSWORD}\"}" \
     | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('accessToken') or d.get('token') or '')")
-[ -n "$NEW_TOKEN" ] || fail "the ${FROM_VERSION} admin cannot sign in to 4.0"
+[ -n "$NEW_TOKEN" ] || fail "the ${FROM_VERSION} admin cannot sign in to the working tree's build"
 
 step "an event appends to the stream that already existed"
 curl -s -X PUT "$NEW_URL/api/contents/$CONTENT_ID/status" -H "Authorization: Bearer $NEW_TOKEN" \
@@ -440,4 +440,4 @@ else
     DOWN_LAST="migrations/4.2.0/rollback-site-share-links.sql and migrations/4.2.0/rollback-user-normalized-identity.sql"
 fi
 
-printf '\nThe %s to 4.0 upgrade works on the Suite host, with %smigrations/4.2.0/user-normalized-identity.sql, migrations/4.2.0/site-share-links.sql, migrations/4.3.0/collection-syncs.sql, migrations/4.3.0/marten-9-37-event-store-columns.sql, migrations/4.4.0/marten-9-38-quick-append-events.sql, migrations/4.5.0/refresh-token-hash-index.sql, migrations/4.2.0/stored-files-parent-index.sql, migrations/4.2.0/forms-public-forms.sql and migrations/4.5.0/email-sent-emails.sql applied first, and rolls back cleanly with migrations/4.5.0/rollback-email-sent-emails.sql, migrations/4.5.0/rollback-refresh-token-hash-index.sql, migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql, migrations/4.3.0/rollback-collection-syncs.sql, migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql, %s.\n' "$FROM_VERSION" "$UP_FIRST" "$DOWN_LAST"
+printf '\nThe upgrade from %s to the working tree works on the Suite host, with %smigrations/4.2.0/user-normalized-identity.sql, migrations/4.2.0/site-share-links.sql, migrations/4.3.0/collection-syncs.sql, migrations/4.3.0/marten-9-37-event-store-columns.sql, migrations/4.4.0/marten-9-38-quick-append-events.sql, migrations/4.5.0/refresh-token-hash-index.sql, migrations/4.2.0/stored-files-parent-index.sql, migrations/4.2.0/forms-public-forms.sql and migrations/4.5.0/email-sent-emails.sql applied first, and rolls back cleanly with migrations/4.5.0/rollback-email-sent-emails.sql, migrations/4.5.0/rollback-refresh-token-hash-index.sql, migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql, migrations/4.3.0/rollback-collection-syncs.sql, migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql, %s.\n' "$FROM_VERSION" "$UP_FIRST" "$DOWN_LAST"

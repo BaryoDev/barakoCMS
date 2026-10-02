@@ -80,9 +80,14 @@ database needs this file too.
 The share links file creates `mt_doc_site_share_links`, empty. The `4.0.0` file creates the same
 table, but only since 4.2.0, so coming from 3.x today this file changes nothing. A database that was
 already on 4.0 or 4.1 ran the `4.0.0` file before the table was in it, and this file is the only
-thing that gives it one: without it `db-assert` reports the table as outstanding. Coming from 4.1,
-leave the `4.0.0` file out and run the rest, which is the sequence CI runs from 4.1.0. It is safe
-to run twice.
+thing that gives it one: without it `db-assert` reports the table as outstanding. Coming from 4.0 or
+4.1, leave the `4.0.0` file out and run the rest, which is the sequence CI runs from 4.1.0. It is
+safe to run twice.
+
+Its last three statements turn row level security off on the table, which is what `db-patch` emits
+with `Tenancy:DatabaseEnforcement` off. On a database that has enforcement on and has already
+started 4.2 or later, they drop the policy the app built: apply the file with the API stopped, as
+with every file here, and the next start puts the policy back.
 
 Run every file with the API stopped. A running API keeps a transaction open for as long as it
 runs, and an index built `CONCURRENTLY` waits for every transaction older than itself, so against
@@ -179,6 +184,10 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.2.0
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.0.0/rollback-to-3.x.sql
 ```
 
+Stop before the files of the release you are going back to. The list above goes all the way to
+3.x. Going back to 4.2 or later, leave both `4.2.0` files out: 4.2 declares the share links table,
+and running that rollback there drops every link for nothing.
+
 Newest first. An earlier release asserts its own schema and reports a table it does not declare as
 outstanding, so it refuses to boot while `mt_doc_collection_syncs` is still there. Dropping it loses
 the sync schedules and field mappings, which nothing else records; the entries those syncs wrote are
@@ -190,8 +199,8 @@ tokens up by their plain value, which 4.5.0 no longer stores, so anyone who sign
 
 The share links file drops `mt_doc_site_share_links`, and every share link with it. Only the hash
 of each key is stored, so the links cannot be saved first and put back: after upgrading again,
-create new ones and send them out. Going back to 4.1, stop after the two `4.2.0` files and leave
-`rollback-to-3.x.sql` out, which is the rollback CI runs from 4.1.0. Going back to 3.x, that last
+create new ones and send them out. Going back to 4.0 or 4.1, stop after the two `4.2.0` files and
+leave `rollback-to-3.x.sql` out, which is the rollback CI runs from 4.1.0. Going back to 3.x, that last
 file drops the same table, and running both is harmless.
 
 The user file puts the username and email unique indexes back on the stored values, which is where

@@ -16,12 +16,15 @@ namespace BarakoCMS.Tests;
 /// container starts, so a database that was on 4.0 or 4.1 needs
 /// <c>migrations/4.2.0/site-share-links.sql</c> applied by hand. This runs that file into an empty
 /// schema and compares the columns, constraints and indexes it produces with the ones Marten created
-/// in <c>public</c>, so the file cannot drift from what the core declares.
+/// in <c>public</c>, so the file cannot drift from what the core declares. The fixture runs with
+/// database enforcement off, which is the state the file's row level security lines produce, so the
+/// two flags and the policy count are part of what is compared.
 /// </remarks>
 [Collection("Sequential")]
 public class SiteShareLinksMigrationTests
 {
     private const string Table = "mt_doc_site_share_links";
+    private const int ShapeLines = 11;
 
     private readonly IntegrationTestFixture _factory;
 
@@ -45,9 +48,11 @@ public class SiteShareLinksMigrationTests
             var expected = await ShapeAsync(connection, "public", ct);
             var actual = await ShapeAsync(connection, scratch, ct);
 
-            // Six columns, the primary key constraint, and three indexes: the primary key's own,
-            // the expiry index and the per-tenant unique key hash index.
-            expected.Should().HaveCount(10, "that is what Marten builds for {0}", Table);
+            // Six columns, the primary key constraint, three indexes (the primary key's own, the
+            // expiry index and the per-tenant unique key hash index) and the row level security line.
+            expected.Should().HaveCount(ShapeLines, "that is what Marten builds for {0}", Table);
+            expected.Should().Contain("row security enabled=false forced=false policies=0",
+                "the fixture runs with database enforcement off");
             expected.Should().Contain(line => line.StartsWith("index ") && line.Contains("'ExpiresAt'"),
                 "the core declares .Index(x => x.ExpiresAt)");
             expected.Should().Contain(
@@ -77,7 +82,7 @@ public class SiteShareLinksMigrationTests
         {
             await ExecuteAsync(connection, $"CREATE SCHEMA {scratch}", ct);
             await ExecuteAsync(connection, up, ct);
-            (await ShapeAsync(connection, scratch, ct)).Should().HaveCount(10, "the migration built the table");
+            (await ShapeAsync(connection, scratch, ct)).Should().HaveCount(ShapeLines, "the migration built the table");
 
             await ExecuteAsync(connection, down, ct);
             await ExecuteAsync(connection, down, ct);
@@ -111,7 +116,10 @@ public class SiteShareLinksMigrationTests
         return (scratch, scoped);
     }
 
-    /// <summary>Columns, constraints and indexes of the table, with the schema name taken out.</summary>
+    /// <summary>
+    /// Columns, constraints, indexes and row level security state of the table, with the schema
+    /// name taken out.
+    /// </summary>
     private static async Task<List<string>> ShapeAsync(NpgsqlConnection connection, string schema, CancellationToken ct)
     {
         var lines = new List<string>();
@@ -126,6 +134,12 @@ public class SiteShareLinksMigrationTests
             schema, lines, ct);
         await ReadAsync(connection,
             "select 'index ' || indexdef from pg_indexes where schemaname = @schema and tablename = @table order by indexname",
+            schema, lines, ct);
+        await ReadAsync(connection,
+            "select 'row security enabled=' || t.relrowsecurity::text || ' forced=' || t.relforcerowsecurity::text "
+          + "|| ' policies=' || (select count(*) from pg_policies p where p.schemaname = @schema and p.tablename = @table)::text "
+          + "from pg_class t join pg_namespace n on n.oid = t.relnamespace "
+          + "where n.nspname = @schema and t.relname = @table",
             schema, lines, ct);
         return lines.Select(line => line.Replace($"{schema}.{Table}", Table)).ToList();
     }
