@@ -312,9 +312,12 @@ a request passes through:
 5. CORS.
 6. Authentication, the token revocation check and the tenant access check.
 7. `UseAuthorization`.
-8. **Module middleware**, one module after another.
-9. Core's output cache.
-10. What answers: the health probes, the OpenAPI document and the endpoints. An endpoint's global
+8. The rate limits that need a verified caller: the quota per API key (`RateLimiting:ApiKey`) and
+   the named policies partitioned by `User` or `ApiKey`. With neither configured this step does
+   nothing.
+9. **Module middleware**, one module after another.
+10. Core's output cache.
+11. What answers: the health probes, the OpenAPI document and the endpoints. An endpoint's global
     pre-processors, the capability gate among them, run inside the endpoint.
 
 What your middleware can rely on there:
@@ -324,6 +327,9 @@ What your middleware can rely on there:
 - **The caller is known.** `HttpContext.User` is the authenticated caller, or anonymous on an
   endpoint that allows it. A request with no token on an endpoint that needs one never reaches
   your middleware, and the token revocation check and the tenant access check have already run.
+- **The request is within every core rate limit.** The limiter in step 2 and the one in step 8 have
+  both let it through, so a request over an API key's quota, or over a named policy counted per
+  user or per key, is answered 429 and never reaches your middleware.
 - **The endpoint is matched and has not run.** `context.GetEndpoint()` returns it on a host built on
   `WebApplication`, which is how every barakoCMS host is built.
 
