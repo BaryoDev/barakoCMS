@@ -63,4 +63,5 @@ would have to change with it.
 
 The value is delivered as stored. The OpenAPI document describes a choice as a string `enum` of the
 option values, or an array of them with `uniqueItems` for a multiple choice, so a renderer can map each
-value to a colour or an icon. Filtering is covered in the [delivery API](delivery-api.md#filtering).
+value to a colour or an icon. Filtering is covered in the [delivery API](delivery-api.md#filtering),
+and the entries list takes the same filter: `GET /api/contents?contentType=lead&filter[Stage][eq]=won`.
