@@ -4,7 +4,7 @@ using barakoCMS.Core.Interfaces;
 namespace BarakoCMS.Tests;
 
 /// <summary>One time a handler was given a message, and how it went.</summary>
-/// <param name="Tenant">The tenant the message was queued for.</param>
+/// <param name="Tenant">The tenant the message was queued in.</param>
 /// <param name="MessageId">The message's id, the same on every delivery of it.</param>
 /// <param name="Message">The message as the handler received it, read back from what was stored.</param>
 /// <param name="At">What the clock said.</param>
@@ -17,6 +17,13 @@ public sealed record InMemoryDelivery(
 public sealed record InMemoryPendingMessage(string Tenant, string MessageId, object Message, DateTimeOffset DueAt);
 
 /// <summary>A message that failed <see cref="InMemoryDurableWork.MaxAttempts"/> times and will not be run again.</summary>
+/// <param name="Tenant">The tenant the message was queued in.</param>
+/// <param name="MessageId">The message's id.</param>
+/// <param name="Message">The message, read back from what was stored.</param>
+/// <param name="Reason">
+/// The type name of the last exception, never its message, which is the least a host may keep. For
+/// a message with no handler, a sentence saying so.
+/// </param>
 public sealed record InMemoryDeadLetter(string Tenant, string MessageId, object Message, string Reason);
 
 /// <summary>A run parked through <see cref="IDurableRuns.WaitAsync"/> that has neither been resumed nor timed out.</summary>
@@ -30,7 +37,8 @@ internal enum StagedKind
     Resume,
 }
 
-internal sealed record Staged(StagedKind Kind, string Tenant, string? Key, DateTimeOffset? DueAt, Type Type, string Json);
+internal sealed record Staged(
+    StagedKind Kind, string Tenant, string? Key, DateTimeOffset? DueAt, string MessageId, Type Type, string Json);
 
 /// <summary>
 /// The durable work seams in memory, for a test that wants to see what was queued and run it.
@@ -43,24 +51,27 @@ internal sealed record Staged(StagedKind Kind, string Tenant, string? Key, DateT
 /// order they were committed. The same test gives the same result every time.
 /// </para>
 /// <para>
-/// <see cref="Begin"/> opens a unit of work, which is what stands in for the session a caller
-/// writes with. <see cref="InMemoryUnitOfWork.Commit"/> is its save. A unit of work that is
-/// disposed without it leaves nothing behind.
+/// <see cref="Begin"/> opens a unit of work for one tenant, which is what stands in for the session
+/// a caller writes with. <see cref="InMemoryUnitOfWork.Commit"/> is its save. A unit of work that
+/// is disposed without it leaves nothing behind.
 /// </para>
 /// <para>
 /// What it keeps of the contract: a message is handled only after its unit of work commits, a
-/// scheduled message is not handled before its time, a run id starts once and a wait key parks
-/// once per tenant, a wait is resumed or timed out and never both, the handler is told the tenant
-/// the caller named, a message is read back from JSON before it is handled, and a throwing handler
-/// is tried again after <see cref="RetryDelay"/> until <see cref="MaxAttempts"/> and then dead
-/// lettered.
+/// scheduled message is not handled before its time, a message is queued in its unit of work's
+/// tenant and the handler is told which, a run id starts once and a wait key parks once per tenant
+/// and the caller is answered false otherwise, a unit of work that loses a key to another fails to
+/// commit with <see cref="DurableWorkConflictException"/> and leaves nothing, a wait is resumed or
+/// timed out and never both, a message is read back from JSON before it is handled, and a throwing
+/// handler is tried again after <see cref="RetryDelay"/> until <see cref="MaxAttempts"/> and then
+/// dead lettered.
 /// </para>
 /// <para>
 /// What it cannot show: a crash, a restart, two nodes, or a handler outliving a time limit.
 /// <see cref="Redeliver"/> stands in for those, by handing a handled message to its handler again.
-/// It never forgets a run id or a wait key, where a host forgets them once finished work is
-/// removed. Its retry wait is fixed, where a host backs off. It is not safe to use from two
-/// threads.
+/// It always delivers in the same order, where the contract promises none, so a test that passes
+/// here does not show that a handler tolerates another order. It never forgets a run id or a wait
+/// key, where a host forgets them once finished work is removed. Its retry wait is fixed, where a
+/// host backs off. It is not safe to use from two threads.
 /// </para>
 /// </remarks>
 public sealed class InMemoryDurableWork
@@ -82,6 +93,7 @@ public sealed class InMemoryDurableWork
     private readonly int _maxAttempts = 5;
     private readonly TimeSpan _retryDelay = TimeSpan.FromSeconds(30);
     private long _sequence;
+    private long _messageIds;
 
     /// <param name="now">Where the clock starts. The machine's clock is never read.</param>
     public InMemoryDurableWork(DateTimeOffset now) => Now = now;
@@ -244,18 +256,31 @@ public sealed class InMemoryDurableWork
         _pending.Add(stored);
     }
 
+    internal string NextMessageId() => $"message-{++_messageIds}";
+
+    internal bool IsStarted(string tenant, string runId) => _runs.Contains((tenant, runId));
+
+    internal bool IsWaitKeyUsed(string tenant, string waitKey) => _waitKeys.Contains((tenant, waitKey));
+
     internal bool IsWaiting(string tenant, string waitKey) => _waits.ContainsKey((tenant, waitKey));
 
     /// <summary>Commits one unit of work, all of it or none of it.</summary>
     internal void Apply(IReadOnlyList<Staged> staged)
     {
-        foreach (var resume in staged.Where(s => s.Kind == StagedKind.Resume))
+        foreach (var item in staged)
         {
-            if (!_waits.ContainsKey((resume.Tenant, resume.Key!)))
+            var lost = item.Kind switch
             {
-                throw new InvalidOperationException(
-                    $"The wait '{resume.Key}' was resumed or timed out before this unit of work committed, "
-                    + "so nothing in the unit of work was committed.");
+                StagedKind.Start => _runs.Contains((item.Tenant, item.Key!)),
+                StagedKind.Wait => _waitKeys.Contains((item.Tenant, item.Key!)),
+                StagedKind.Resume => !_waits.ContainsKey((item.Tenant, item.Key!)),
+                _ => false,
+            };
+
+            if (lost)
+            {
+                throw new DurableWorkConflictException(
+                    $"'{item.Key}' was committed by another unit of work first, so nothing in this one was committed.");
             }
         }
 
@@ -264,29 +289,23 @@ public sealed class InMemoryDurableWork
             switch (item.Kind)
             {
                 case StagedKind.Message:
-                    Store(item.Tenant, item.Type, item.Json, item.DueAt ?? Now);
+                    Store(item.Tenant, item.MessageId, item.Type, item.Json, item.DueAt ?? Now);
                     break;
 
                 case StagedKind.Start:
-                    if (_runs.Add((item.Tenant, item.Key!)))
-                    {
-                        Store(item.Tenant, item.Type, item.Json, Now);
-                    }
-
+                    _runs.Add((item.Tenant, item.Key!));
+                    Store(item.Tenant, item.MessageId, item.Type, item.Json, Now);
                     break;
 
                 case StagedKind.Wait:
-                    if (_waitKeys.Add((item.Tenant, item.Key!)))
-                    {
-                        _waits[(item.Tenant, item.Key!)] =
-                            new Parked(++_sequence, item.Tenant, item.Key!, item.DueAt!.Value, item.Type, item.Json);
-                    }
-
+                    _waitKeys.Add((item.Tenant, item.Key!));
+                    _waits[(item.Tenant, item.Key!)] = new Parked(
+                        ++_sequence, item.Tenant, item.Key!, item.DueAt!.Value, item.MessageId, item.Type, item.Json);
                     break;
 
                 case StagedKind.Resume:
                     _waits.Remove((item.Tenant, item.Key!));
-                    Store(item.Tenant, item.Type, item.Json, Now);
+                    Store(item.Tenant, item.MessageId, item.Type, item.Json, Now);
                     break;
             }
         }
@@ -328,10 +347,12 @@ public sealed class InMemoryDurableWork
         var message = stored.Read();
         stored.Attempts++;
         Exception? error = null;
+        string? reason = null;
 
         if (!_handlers.TryGetValue(stored.Type, out var handler))
         {
-            error = new InvalidOperationException($"No handler is registered for {stored.Type.Name}.");
+            reason = $"No handler is registered for {stored.Type.Name}.";
+            error = new InvalidOperationException(reason);
         }
         else
         {
@@ -352,6 +373,7 @@ public sealed class InMemoryDurableWork
             catch (Exception ex)
             {
                 error = ex;
+                reason = ex.GetType().Name;
             }
         }
 
@@ -365,7 +387,7 @@ public sealed class InMemoryDurableWork
 
         if (stored.Attempts >= MaxAttempts)
         {
-            _deadLetters.Add(new InMemoryDeadLetter(stored.Tenant, stored.MessageId, message, error.Message));
+            _deadLetters.Add(new InMemoryDeadLetter(stored.Tenant, stored.MessageId, message, reason!));
             return;
         }
 
@@ -384,7 +406,7 @@ public sealed class InMemoryDurableWork
         foreach (var parked in timedOut)
         {
             _waits.Remove((parked.Tenant, parked.Key));
-            Store(parked.Tenant, parked.Type, parked.Json, parked.TimeoutAt);
+            Store(parked.Tenant, parked.MessageId, parked.Type, parked.Json, parked.TimeoutAt);
         }
     }
 
@@ -403,15 +425,13 @@ public sealed class InMemoryDurableWork
         return next;
     }
 
-    private void Store(string tenant, Type type, string json, DateTimeOffset dueAt)
+    private void Store(string tenant, string messageId, Type type, string json, DateTimeOffset dueAt)
     {
-        var sequence = ++_sequence;
-
         var stored = new Stored
         {
-            Sequence = sequence,
+            Sequence = ++_sequence,
             Tenant = tenant,
-            MessageId = $"message-{sequence}",
+            MessageId = messageId,
             Type = type,
             Json = json,
             DueAt = dueAt,
@@ -444,7 +464,8 @@ public sealed class InMemoryDurableWork
             ?? throw new InvalidOperationException($"The stored {Type.Name} read back as null.");
     }
 
-    private sealed record Parked(long Sequence, string Tenant, string Key, DateTimeOffset TimeoutAt, Type Type, string Json);
+    private sealed record Parked(
+        long Sequence, string Tenant, string Key, DateTimeOffset TimeoutAt, string MessageId, Type Type, string Json);
 }
 
 /// <summary>
@@ -452,15 +473,15 @@ public sealed class InMemoryDurableWork
 /// would resolve from its scope, with <see cref="Commit"/> standing in for the save.
 /// </summary>
 /// <remarks>
-/// It belongs to one tenant, the way a session does, and refuses work named for another. Disposing
-/// it without committing discards what was staged, which is a request that threw or a save that
-/// failed.
+/// It belongs to one tenant, the way a session does, and everything staged in it is queued in that
+/// tenant. It can be committed more than once, as a session can be saved more than once. Disposing
+/// it discards what was staged since the last commit, which is a request that threw.
 /// </remarks>
 public sealed class InMemoryUnitOfWork : IDurableOutbox, IDurableRuns, IDisposable
 {
     private readonly InMemoryDurableWork _work;
     private readonly List<Staged> _staged = new();
-    private bool _closed;
+    private bool _disposed;
 
     internal InMemoryUnitOfWork(InMemoryDurableWork work, string tenant)
     {
@@ -471,121 +492,113 @@ public sealed class InMemoryUnitOfWork : IDurableOutbox, IDurableRuns, IDisposab
     /// <summary>The tenant this unit of work was opened for.</summary>
     public string Tenant { get; }
 
-    /// <summary>Whether <see cref="Commit"/> went through.</summary>
-    public bool Committed { get; private set; }
+    /// <inheritdoc />
+    public Task<string> EnqueueAsync<TMessage>(TMessage message, CancellationToken cancellationToken)
+        where TMessage : class =>
+        Task.FromResult(Stage(StagedKind.Message, key: null, dueAt: null, message, cancellationToken));
 
     /// <inheritdoc />
-    public Task EnqueueAsync<TMessage>(string tenant, TMessage message, CancellationToken cancellationToken)
-        where TMessage : class
-    {
-        Stage(StagedKind.Message, tenant, key: null, dueAt: null, message, cancellationToken);
-        return Task.CompletedTask;
-    }
+    public Task<string> ScheduleAsync<TMessage>(TMessage message, DateTimeOffset dueAt, CancellationToken cancellationToken)
+        where TMessage : class =>
+        Task.FromResult(Stage(StagedKind.Message, key: null, dueAt, message, cancellationToken));
 
     /// <inheritdoc />
-    public Task ScheduleAsync<TMessage>(string tenant, TMessage message, DateTimeOffset dueAt, CancellationToken cancellationToken)
-        where TMessage : class
-    {
-        Stage(StagedKind.Message, tenant, key: null, dueAt, message, cancellationToken);
-        return Task.CompletedTask;
-    }
-
-    /// <inheritdoc />
-    public Task StartAsync<TMessage>(string tenant, string runId, TMessage message, CancellationToken cancellationToken)
+    public Task<bool> StartAsync<TMessage>(string runId, TMessage message, CancellationToken cancellationToken)
         where TMessage : class
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(runId);
-        Stage(StagedKind.Start, tenant, runId, dueAt: null, message, cancellationToken);
-        return Task.CompletedTask;
-    }
+        Check(cancellationToken);
 
-    /// <inheritdoc />
-    public Task WaitAsync<TMessage>(string tenant, string waitKey, DateTimeOffset timeoutAt, TMessage onTimeout, CancellationToken cancellationToken)
-        where TMessage : class
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(waitKey);
-        Stage(StagedKind.Wait, tenant, waitKey, timeoutAt, onTimeout, cancellationToken);
-        return Task.CompletedTask;
-    }
-
-    /// <inheritdoc />
-    public Task<bool> ResumeAsync<TMessage>(string tenant, string waitKey, TMessage message, CancellationToken cancellationToken)
-        where TMessage : class
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(waitKey);
-        Check(tenant, cancellationToken);
-        ArgumentNullException.ThrowIfNull(message);
-
-        var alreadyStaged = _staged.Any(s => s.Kind == StagedKind.Resume && string.Equals(s.Key, waitKey, StringComparison.Ordinal));
-
-        if (alreadyStaged || !_work.IsWaiting(tenant, waitKey))
+        if (IsStaged(StagedKind.Start, runId) || _work.IsStarted(Tenant, runId))
         {
             return Task.FromResult(false);
         }
 
-        Stage(StagedKind.Resume, tenant, waitKey, dueAt: null, message, cancellationToken);
+        Stage(StagedKind.Start, runId, dueAt: null, message, cancellationToken);
+        return Task.FromResult(true);
+    }
+
+    /// <inheritdoc />
+    public Task<bool> WaitAsync<TMessage>(string waitKey, DateTimeOffset timeoutAt, TMessage onTimeout, CancellationToken cancellationToken)
+        where TMessage : class
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(waitKey);
+        Check(cancellationToken);
+
+        if (IsStaged(StagedKind.Wait, waitKey) || _work.IsWaitKeyUsed(Tenant, waitKey))
+        {
+            return Task.FromResult(false);
+        }
+
+        Stage(StagedKind.Wait, waitKey, timeoutAt, onTimeout, cancellationToken);
+        return Task.FromResult(true);
+    }
+
+    /// <inheritdoc />
+    public Task<bool> ResumeAsync<TMessage>(string waitKey, TMessage message, CancellationToken cancellationToken)
+        where TMessage : class
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(waitKey);
+        Check(cancellationToken);
+
+        if (IsStaged(StagedKind.Resume, waitKey) || !_work.IsWaiting(Tenant, waitKey))
+        {
+            return Task.FromResult(false);
+        }
+
+        Stage(StagedKind.Resume, waitKey, dueAt: null, message, cancellationToken);
         return Task.FromResult(true);
     }
 
     /// <summary>
-    /// Commits everything staged, all of it or none of it. This is the caller's save.
+    /// Commits everything staged since the last commit, all of it or none of it. This is the
+    /// caller's save.
     /// </summary>
-    /// <exception cref="InvalidOperationException">
-    /// The unit of work was already committed or discarded, or a wait it resumes was resumed or
-    /// timed out first. Nothing it staged is committed then.
+    /// <exception cref="DurableWorkConflictException">
+    /// A run id, a wait key or a resume staged here was committed by another unit of work first.
+    /// Nothing staged here is committed, and what was staged is gone.
     /// </exception>
+    /// <exception cref="ObjectDisposedException">The unit of work was disposed.</exception>
     public void Commit()
     {
-        EnsureOpen();
+        ObjectDisposedException.ThrowIf(_disposed, this);
 
         try
         {
             _work.Apply(_staged);
-            Committed = true;
         }
         finally
         {
-            _closed = true;
             _staged.Clear();
         }
     }
 
-    /// <summary>Discards what was staged, unless it was committed.</summary>
+    /// <summary>Discards what was staged since the last commit.</summary>
     public void Dispose()
     {
-        _closed = true;
+        _disposed = true;
         _staged.Clear();
     }
 
-    private void Stage<TMessage>(
-        StagedKind kind, string tenant, string? key, DateTimeOffset? dueAt, TMessage message, CancellationToken cancellationToken)
+    private bool IsStaged(StagedKind kind, string key) =>
+        _staged.Any(s => s.Kind == kind && string.Equals(s.Key, key, StringComparison.Ordinal));
+
+    private string Stage<TMessage>(
+        StagedKind kind, string? key, DateTimeOffset? dueAt, TMessage message, CancellationToken cancellationToken)
         where TMessage : class
     {
-        Check(tenant, cancellationToken);
+        Check(cancellationToken);
         ArgumentNullException.ThrowIfNull(message);
 
         var type = message.GetType();
-        _staged.Add(new Staged(kind, tenant, key, dueAt, type, JsonSerializer.Serialize(message, type)));
+        var messageId = _work.NextMessageId();
+        _staged.Add(new Staged(kind, Tenant, key, dueAt, messageId, type, JsonSerializer.Serialize(message, type)));
+        return messageId;
     }
 
-    private void Check(string tenant, CancellationToken cancellationToken)
+    private void Check(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        EnsureOpen();
-        ArgumentException.ThrowIfNullOrWhiteSpace(tenant);
-
-        if (!string.Equals(tenant, Tenant, StringComparison.Ordinal))
-        {
-            throw new ArgumentException(
-                $"This unit of work was opened for tenant '{Tenant}' and the call named '{tenant}'.", nameof(tenant));
-        }
-    }
-
-    private void EnsureOpen()
-    {
-        if (_closed)
-        {
-            throw new InvalidOperationException("This unit of work was already committed or discarded.");
-        }
+        ObjectDisposedException.ThrowIf(_disposed, this);
     }
 }

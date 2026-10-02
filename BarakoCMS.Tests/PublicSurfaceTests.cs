@@ -103,19 +103,144 @@ public class PublicSurfaceTests
         typeof(barakoCMS.Core.Interfaces.IDurableRuns),
         typeof(barakoCMS.Core.Interfaces.IDurableMessageHandler<>),
         typeof(barakoCMS.Core.Interfaces.DurableMessageContext),
+        typeof(barakoCMS.Core.Interfaces.DurableWorkConflictException),
     ];
 
-    private const BindingFlags Declared = BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly;
+    private const BindingFlags Declared =
+        BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
 
     private static string NameOf(Type type) => type.IsGenericType
         ? $"{type.Name[..type.Name.IndexOf('`')]}<{string.Join(", ", type.GetGenericArguments().Select(NameOf))}>"
         : type.Name;
 
-    private static string Signature(MethodInfo method)
+    private static string Parameters(MethodBase method) =>
+        string.Join(", ", method.GetParameters().Select(p => $"{NameOf(p.ParameterType)} {p.Name}"));
+
+    private static string Constraints(Type[] genericArguments)
     {
-        var parameters = method.GetParameters().Select(p => $"{NameOf(p.ParameterType)} {p.Name}");
-        return $"{NameOf(method.DeclaringType!)}.{method.Name}({string.Join(", ", parameters)}): {NameOf(method.ReturnType)}";
+        var clauses = new List<string>();
+
+        foreach (var argument in genericArguments.Where(a => a.IsGenericParameter))
+        {
+            var parts = new List<string>();
+            var attributes = argument.GenericParameterAttributes;
+
+            if (attributes.HasFlag(GenericParameterAttributes.ReferenceTypeConstraint))
+            {
+                parts.Add("class");
+            }
+
+            if (attributes.HasFlag(GenericParameterAttributes.NotNullableValueTypeConstraint))
+            {
+                parts.Add("struct");
+            }
+
+            parts.AddRange(argument.GetGenericParameterConstraints().Select(NameOf));
+
+            if (attributes.HasFlag(GenericParameterAttributes.DefaultConstructorConstraint))
+            {
+                parts.Add("new()");
+            }
+
+            if (parts.Count > 0)
+            {
+                clauses.Add($" where {argument.Name} : {string.Join(", ", parts)}");
+            }
+        }
+
+        return string.Concat(clauses);
     }
+
+    private static Type[] OwnBases(Type type)
+    {
+        var inherited = type.BaseType?.GetInterfaces() ?? Type.EmptyTypes;
+        var bases = new List<Type>();
+
+        if (type.BaseType is { } parent && parent != typeof(object))
+        {
+            bases.Add(parent);
+        }
+
+        bases.AddRange(type.GetInterfaces().Except(inherited));
+        return bases.ToArray();
+    }
+
+    /// <summary>
+    /// One type as text: its kind, arity, constraints and bases, then every public constructor,
+    /// property and method it declares, static ones included.
+    /// </summary>
+    private static IEnumerable<string> Shape(Type type)
+    {
+        var name = NameOf(type);
+        var kind = type.IsInterface ? "interface" : type.IsSealed ? "sealed class" : "class";
+        var bases = OwnBases(type);
+        var inherits = bases.Length == 0 ? string.Empty : " : " + string.Join(", ", bases.Select(NameOf));
+
+        yield return $"{kind} {name}{inherits}{Constraints(type.GetGenericArguments())}";
+
+        foreach (var constructor in type.GetConstructors(BindingFlags.Public | BindingFlags.Instance))
+        {
+            yield return $"{name}..ctor({Parameters(constructor)})";
+        }
+
+        foreach (var property in type.GetProperties(Declared))
+        {
+            var required = property.CustomAttributes.Any(a => a.AttributeType.Name == "RequiredMemberAttribute")
+                ? "required "
+                : string.Empty;
+            var get = property.GetMethod is { IsPublic: true } ? "get; " : string.Empty;
+            var set = string.Empty;
+
+            if (property.SetMethod is { IsPublic: true } setter)
+            {
+                var init = setter.ReturnParameter.GetRequiredCustomModifiers().Any(m => m.Name == "IsExternalInit");
+                set = init ? "init; " : "set; ";
+            }
+
+            yield return $"{name}.{required}{NameOf(property.PropertyType)} {property.Name} {{ {get}{set}}}";
+        }
+
+        foreach (var method in type.GetMethods(Declared).Where(m => !m.IsSpecialName))
+        {
+            var modifier = method.IsStatic ? "static " : string.Empty;
+            var arity = method.IsGenericMethodDefinition
+                ? $"<{string.Join(", ", method.GetGenericArguments().Select(a => a.Name))}>"
+                : string.Empty;
+
+            yield return $"{name}.{modifier}{method.Name}{arity}({Parameters(method)}): {NameOf(method.ReturnType)}"
+                + Constraints(method.GetGenericArguments());
+        }
+    }
+
+    /// <summary>Every type a seam names anywhere a consumer compiles against it.</summary>
+    private static IEnumerable<Type> Named(Type type)
+    {
+        var named = new List<Type>();
+
+        if (type.BaseType is { } parent)
+        {
+            named.Add(parent);
+        }
+
+        named.AddRange(type.GetInterfaces());
+        named.AddRange(ConstraintTypes(type.GetGenericArguments()));
+        named.AddRange(type.GetConstructors(BindingFlags.Public | BindingFlags.Instance)
+            .SelectMany(c => c.GetParameters())
+            .Select(p => p.ParameterType));
+        named.AddRange(type.GetProperties(Declared).Select(p => p.PropertyType));
+
+        foreach (var method in type.GetMethods(Declared))
+        {
+            named.Add(method.ReturnType);
+            named.AddRange(method.GetParameters().Select(p => p.ParameterType));
+            named.AddRange(ConstraintTypes(method.GetGenericArguments()));
+        }
+
+        return named.SelectMany(Flatten).Where(t => !t.IsGenericParameter);
+    }
+
+    private static IEnumerable<Type> ConstraintTypes(Type[] genericArguments) =>
+        genericArguments.Where(a => a.IsGenericParameter).SelectMany(a => a.GetGenericParameterConstraints());
 
     private static IEnumerable<Type> Flatten(Type type) => type.IsGenericType
         ? type.GetGenericArguments().SelectMany(Flatten).Prepend(type)
@@ -124,7 +249,7 @@ public class PublicSurfaceTests
     [Fact]
     public void The_durable_work_seams_are_public_types_of_the_contract_assembly()
     {
-        DurableWorkSeams.Should().HaveCount(4);
+        DurableWorkSeams.Should().HaveCount(5);
 
         foreach (var seam in DurableWorkSeams)
         {
@@ -138,54 +263,56 @@ public class PublicSurfaceTests
             .Select(t => t.FullName!)
             .ToArray();
 
-        durable.Should().HaveCount(4, "a fifth durable work type is a widening of the contract, to be added here on purpose");
+        durable.Should().HaveCount(5, "a sixth durable work type is a widening of the contract, to be added here on purpose");
         durable.Should().BeEquivalentTo(DurableWorkSeams.Select(t => t.FullName!).ToArray());
     }
 
     // A member that ships cannot be removed or changed inside a major version, so a change to any
-    // line here is a breaking change to the package surface and an addition is a decision.
+    // line here is a breaking change to the package surface and an addition is a decision. The text
+    // carries what a consumer compiles against: kind, arity, constraints, bases, constructors,
+    // required and init, static members, parameter names and types, and return types.
     [Fact]
-    public void The_durable_work_seams_have_exactly_the_members_they_shipped_with()
+    public void The_durable_work_seams_have_exactly_the_shape_they_shipped_with()
     {
-        var members = DurableWorkSeams
-            .SelectMany(t => t.GetMethods(Declared))
-            .Select(Signature)
-            .ToArray();
+        var shape = DurableWorkSeams.SelectMany(Shape).ToArray();
 
         var shipped = new[]
         {
-            "IDurableOutbox.EnqueueAsync(String tenant, TMessage message, CancellationToken cancellationToken): Task",
-            "IDurableOutbox.ScheduleAsync(String tenant, TMessage message, DateTimeOffset dueAt, CancellationToken cancellationToken): Task",
-            "IDurableRuns.StartAsync(String tenant, String runId, TMessage message, CancellationToken cancellationToken): Task",
-            "IDurableRuns.WaitAsync(String tenant, String waitKey, DateTimeOffset timeoutAt, TMessage onTimeout, CancellationToken cancellationToken): Task",
-            "IDurableRuns.ResumeAsync(String tenant, String waitKey, TMessage message, CancellationToken cancellationToken): Task<Boolean>",
+            "interface IDurableOutbox",
+            "IDurableOutbox.EnqueueAsync<TMessage>(TMessage message, CancellationToken cancellationToken): Task<String> where TMessage : class",
+            "IDurableOutbox.ScheduleAsync<TMessage>(TMessage message, DateTimeOffset dueAt, CancellationToken cancellationToken): Task<String> where TMessage : class",
+            "interface IDurableRuns",
+            "IDurableRuns.StartAsync<TMessage>(String runId, TMessage message, CancellationToken cancellationToken): Task<Boolean> where TMessage : class",
+            "IDurableRuns.WaitAsync<TMessage>(String waitKey, DateTimeOffset timeoutAt, TMessage onTimeout, CancellationToken cancellationToken): Task<Boolean> where TMessage : class",
+            "IDurableRuns.ResumeAsync<TMessage>(String waitKey, TMessage message, CancellationToken cancellationToken): Task<Boolean> where TMessage : class",
+            "interface IDurableMessageHandler<TMessage> where TMessage : class",
             "IDurableMessageHandler<TMessage>.HandleAsync(TMessage message, DurableMessageContext context, CancellationToken cancellationToken): Task",
-            "DurableMessageContext.get_Tenant(): String",
-            "DurableMessageContext.set_Tenant(String value): Void",
-            "DurableMessageContext.get_MessageId(): String",
-            "DurableMessageContext.set_MessageId(String value): Void",
+            "sealed class DurableMessageContext",
+            "DurableMessageContext..ctor()",
+            "DurableMessageContext.required String Tenant { get; init; }",
+            "DurableMessageContext.required String MessageId { get; init; }",
+            "sealed class DurableWorkConflictException : Exception",
+            "DurableWorkConflictException..ctor(String message)",
+            "DurableWorkConflictException..ctor(String message, Exception innerException)",
         };
 
-        members.Should().HaveCount(shipped.Length);
-        members.Should().BeEquivalentTo(shipped);
+        shape.Should().HaveCount(shipped.Length);
+        shape.Should().BeEquivalentTo(shipped);
     }
 
-    // D34 for these seams: no Marten, Wolverine, FastEndpoints or ASP.NET type in a signature, so
-    // the framework behind them can change without breaking a module built against them.
+    // D34 for these seams: no Marten, Wolverine, FastEndpoints or ASP.NET type anywhere a consumer
+    // compiles against one (a parameter, a return, a property, a base, a constraint, a constructor),
+    // so the framework behind them can change without breaking a module built against them.
     [Fact]
     public void The_durable_work_seams_name_only_contract_and_base_library_types()
     {
-        var named = DurableWorkSeams
-            .SelectMany(t => t.GetMethods(Declared))
-            .SelectMany(m => m.GetParameters().Select(p => p.ParameterType).Append(m.ReturnType))
-            .SelectMany(Flatten)
-            .Where(t => !t.IsGenericParameter)
-            .Distinct()
-            .ToArray();
+        var named = DurableWorkSeams.SelectMany(Named).Distinct().ToArray();
 
         named.Should().NotBeEmpty("the seams have parameters, so an empty scan is a broken scan");
-        named.Should().Contain(typeof(CancellationToken), "every operation takes one, so the scan reached the signatures");
+        named.Should().Contain(typeof(CancellationToken), "every operation takes one, so the scan reached the parameters");
         named.Should().Contain(typeof(barakoCMS.Core.Interfaces.DurableMessageContext), "and the handler's own");
+        named.Should().Contain(typeof(Exception), "and the bases");
+        named.Should().Contain(typeof(Task<bool>), "and the returns");
 
         var foreign = named
             .Where(t => t.Assembly != Contract && t.Assembly != typeof(object).Assembly)
@@ -196,6 +323,12 @@ public class PublicSurfaceTests
             "a seam that names a framework's type makes that framework part of what a module compiles "
           + "against, which is what the seams exist to prevent");
     }
+
+    private static readonly string[] MessagingFrameworks =
+    [
+        "Wolverine", "MassTransit", "NServiceBus", "Rebus", "Brighter", "Hangfire", "Quartz", "Temporalio",
+        "RabbitMQ", "Confluent.Kafka", "Azure.Messaging", "AWSSDK.SQS", "AWSSDK.SimpleNotificationService",
+    ];
 
     [Fact]
     public void The_contract_assembly_references_no_messaging_framework()
@@ -208,9 +341,13 @@ public class PublicSurfaceTests
 
         referenced.Should().NotBeEmpty("an empty list means the reflection read nothing");
 
-        referenced.Should().NotContain(name => name.StartsWith("Wolverine", StringComparison.OrdinalIgnoreCase),
-            "Wolverine stands behind the seams in the core's Infrastructure. In the contract it would "
-          + "be a dependency of every module");
+        var messaging = referenced
+            .Where(name => MessagingFrameworks.Any(prefix => name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+            .ToArray();
+
+        messaging.Should().BeEmpty(
+            "whatever runs durable work stands behind the seams in the core's Infrastructure. In the "
+          + "contract it would be a dependency of every module");
     }
 
     /// <summary>

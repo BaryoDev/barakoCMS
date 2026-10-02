@@ -42,6 +42,10 @@ public class InMemoryDurableWorkTests
         unit.Commit();
     }
 
+    private static Task ParkAsync(InMemoryDurableWork work, string tenant, string waitKey) =>
+        CommitAsync(work, tenant, async unit =>
+            (await unit.WaitAsync(waitKey, Start.AddHours(1), new TimedOut(waitKey), Ct)).Should().BeTrue());
+
     [Fact]
     public async Task A_message_is_handled_only_after_its_unit_of_work_commits()
     {
@@ -49,7 +53,7 @@ public class InMemoryDurableWorkTests
 
         using (var unit = work.Begin("alpha"))
         {
-            await unit.EnqueueAsync("alpha", new Ping("committed"), Ct);
+            await unit.EnqueueAsync(new Ping("committed"), Ct);
 
             (await work.RunDueAsync(Ct)).Should().Be(0, "nothing is stored until the unit of work commits");
             work.Pending.Should().BeEmpty();
@@ -68,14 +72,14 @@ public class InMemoryDurableWorkTests
 
         using (var abandoned = work.Begin("alpha"))
         {
-            await abandoned.EnqueueAsync("alpha", new Ping("abandoned"), Ct);
-            await abandoned.ScheduleAsync("alpha", new Ping("abandoned later"), Start.AddMinutes(5), Ct);
-            await abandoned.StartAsync("alpha", "run-abandoned", new Ping("abandoned run"), Ct);
-            await abandoned.WaitAsync("alpha", "wait-abandoned", Start.AddMinutes(5), new TimedOut("wait-abandoned"), Ct);
+            await abandoned.EnqueueAsync(new Ping("abandoned"), Ct);
+            await abandoned.ScheduleAsync(new Ping("abandoned later"), Start.AddMinutes(5), Ct);
+            (await abandoned.StartAsync("tests:run-abandoned", new Ping("abandoned run"), Ct)).Should().BeTrue();
+            (await abandoned.WaitAsync("tests:wait-abandoned", Start.AddMinutes(5), new TimedOut("abandoned"), Ct)).Should().BeTrue();
         }
 
         // The control. Without it, a fake that delivered nothing at all would pass.
-        await CommitAsync(work, "alpha", unit => unit.EnqueueAsync("alpha", new Ping("kept"), Ct));
+        await CommitAsync(work, "alpha", unit => unit.EnqueueAsync(new Ping("kept"), Ct));
 
         await work.AdvanceAsync(TimeSpan.FromHours(1), Ct);
 
@@ -83,28 +87,35 @@ public class InMemoryDurableWorkTests
         work.Handled<Ping>().Should().ContainSingle().Which.Text.Should().Be("kept");
         work.Waits.Should().BeEmpty();
         work.Pending.Should().BeEmpty();
+
+        // An id and a key that were staged and never committed were never used.
+        await CommitAsync(work, "alpha", async unit =>
+            (await unit.StartAsync("tests:run-abandoned", new Ping("started after all"), Ct)).Should().BeTrue());
+        await work.RunDueAsync(Ct);
+        work.Handled<Ping>().Should().HaveCount(2);
     }
 
     [Fact]
     public async Task A_unit_of_work_whose_commit_fails_leaves_nothing_behind()
     {
         var work = Work();
-        await CommitAsync(work, "alpha", unit =>
-            unit.WaitAsync("alpha", "reply-1", Start.AddHours(1), new TimedOut("reply-1"), Ct));
+        await ParkAsync(work, "alpha", "tests:reply-1");
 
         using var first = work.Begin("alpha");
         using var second = work.Begin("alpha");
 
-        (await first.ResumeAsync("alpha", "reply-1", new Reply("first"), Ct)).Should().BeTrue();
-        (await second.ResumeAsync("alpha", "reply-1", new Reply("second"), Ct)).Should().BeTrue(
+        (await first.ResumeAsync("tests:reply-1", new Reply("first"), Ct)).Should().BeTrue();
+        (await second.ResumeAsync("tests:reply-1", new Reply("second"), Ct)).Should().BeTrue(
             "neither resume has committed, so both still see the wait");
-        await second.EnqueueAsync("alpha", new Ping("staged beside the losing resume"), Ct);
+        await second.EnqueueAsync(new Ping("staged beside the losing resume"), Ct);
 
         first.Commit();
 
         var commit = () => second.Commit();
-        commit.Should().Throw<InvalidOperationException>();
-        second.Committed.Should().BeFalse();
+        commit.Should().Throw<DurableWorkConflictException>();
+
+        // What the failed commit held is gone, and is not committed by a later save either.
+        second.Commit();
 
         await work.AdvanceAsync(TimeSpan.FromHours(2), Ct);
 
@@ -115,68 +126,56 @@ public class InMemoryDurableWorkTests
     }
 
     [Fact]
-    public async Task A_handler_is_told_the_tenant_the_caller_named()
+    public async Task A_message_is_queued_in_the_tenant_of_its_unit_of_work_and_the_handler_is_told_which()
     {
         var contexts = new List<DurableMessageContext>();
-        var work = new InMemoryDurableWork(Start).Handle<Ping>((_, context, _, _) =>
+        var units = new List<string>();
+        var work = new InMemoryDurableWork(Start).Handle<Ping>((_, context, unit, _) =>
         {
             contexts.Add(context);
+            units.Add(unit.Tenant);
             return Task.CompletedTask;
         });
 
-        await CommitAsync(work, "alpha", unit => unit.EnqueueAsync("alpha", new Ping("for alpha"), Ct));
-        await CommitAsync(work, "beta", unit => unit.ScheduleAsync("beta", new Ping("for beta"), Start, Ct));
+        await CommitAsync(work, "alpha", unit => unit.EnqueueAsync(new Ping("for alpha"), Ct));
+        await CommitAsync(work, "beta", unit => unit.ScheduleAsync(new Ping("for beta"), Start, Ct));
 
         await work.RunDueAsync(Ct);
 
         contexts.Should().HaveCount(2);
         contexts.Select(c => c.Tenant).Should().Equal("alpha", "beta");
         contexts.Select(c => c.MessageId).Should().OnlyHaveUniqueItems();
+        units.Should().Equal("alpha", "beta");
         work.Delivered.Select(d => d.Tenant).Should().Equal("alpha", "beta");
     }
 
     [Fact]
-    public async Task A_handler_is_given_a_unit_of_work_for_the_tenant_of_its_message()
+    public async Task The_caller_is_given_the_id_the_handler_sees()
     {
-        var tenants = new List<string>();
-        var work = new InMemoryDurableWork(Start).Handle<Ping>((_, _, unit, _) =>
+        var seen = new List<string>();
+        var work = new InMemoryDurableWork(Start).Handle<Ping>((_, context, _, _) =>
         {
-            tenants.Add(unit.Tenant);
+            seen.Add(context.MessageId);
             return Task.CompletedTask;
         });
 
-        await CommitAsync(work, "beta", unit => unit.EnqueueAsync("beta", new Ping("for beta"), Ct));
-        await work.RunDueAsync(Ct);
+        string enqueued;
+        string scheduled;
 
-        tenants.Should().ContainSingle().Which.Should().Be("beta");
-    }
-
-    [Fact]
-    public async Task A_unit_of_work_refuses_work_named_for_another_tenant()
-    {
-        var work = Work();
-        await CommitAsync(work, "beta", unit =>
-            unit.WaitAsync("beta", "reply-1", Start.AddHours(1), new TimedOut("reply-1"), Ct));
-
-        using var unit = work.Begin("alpha");
-
-        var calls = new Func<Task>[]
+        using (var unit = work.Begin("alpha"))
         {
-            async () => await unit.EnqueueAsync("beta", new Ping("x"), Ct),
-            async () => await unit.ScheduleAsync("beta", new Ping("x"), Start, Ct),
-            async () => await unit.StartAsync("beta", "run-1", new Ping("x"), Ct),
-            async () => await unit.WaitAsync("beta", "wait-1", Start, new TimedOut("wait-1"), Ct),
-            async () => await unit.ResumeAsync("beta", "reply-1", new Reply("x"), Ct),
-        };
-
-        foreach (var call in calls)
-        {
-            await call.Should().ThrowAsync<ArgumentException>();
+            enqueued = await unit.EnqueueAsync(new Ping("now"), Ct);
+            scheduled = await unit.ScheduleAsync(new Ping("later"), Start.AddMinutes(5), Ct);
+            unit.Commit();
         }
 
-        unit.Commit();
-        (await work.RunDueAsync(Ct)).Should().Be(0, "a refused call stages nothing");
-        work.Waits.Should().ContainSingle().Which.WaitKey.Should().Be("reply-1");
+        enqueued.Should().NotBeNullOrWhiteSpace();
+        scheduled.Should().NotBe(enqueued);
+
+        await work.AdvanceAsync(TimeSpan.FromMinutes(5), Ct);
+
+        seen.Should().HaveCount(2);
+        seen.Should().Equal(enqueued, scheduled);
     }
 
     [Fact]
@@ -184,9 +183,9 @@ public class InMemoryDurableWorkTests
     {
         var work = new InMemoryDurableWork(Start)
             .Handle<Reply>((_, _, _, _) => Task.CompletedTask)
-            .Handle<Ping>(async (ping, context, unit, ct) =>
+            .Handle<Ping>(async (ping, _, unit, ct) =>
             {
-                await unit.EnqueueAsync(context.Tenant, new Reply(ping.Text), ct);
+                await unit.EnqueueAsync(new Reply(ping.Text), ct);
 
                 if (ping.Text == "saves")
                 {
@@ -196,8 +195,8 @@ public class InMemoryDurableWorkTests
 
         await CommitAsync(work, "alpha", async unit =>
         {
-            await unit.EnqueueAsync("alpha", new Ping("saves"), Ct);
-            await unit.EnqueueAsync("alpha", new Ping("forgets to save"), Ct);
+            await unit.EnqueueAsync(new Ping("saves"), Ct);
+            await unit.EnqueueAsync(new Ping("forgets to save"), Ct);
         });
 
         await work.RunDueAsync(Ct);
@@ -207,11 +206,31 @@ public class InMemoryDurableWorkTests
     }
 
     [Fact]
+    public async Task A_unit_of_work_can_be_committed_more_than_once_and_each_commit_takes_what_was_staged_since()
+    {
+        var work = Work();
+
+        using (var unit = work.Begin("alpha"))
+        {
+            await unit.EnqueueAsync(new Ping("first save"), Ct);
+            unit.Commit();
+            await unit.EnqueueAsync(new Ping("second save"), Ct);
+            unit.Commit();
+            await unit.EnqueueAsync(new Ping("never saved"), Ct);
+        }
+
+        await work.RunDueAsync(Ct);
+
+        work.Handled<Ping>().Should().HaveCount(2);
+        work.Handled<Ping>().Select(p => p.Text).Should().Equal("first save", "second save");
+    }
+
+    [Fact]
     public async Task A_scheduled_message_is_not_handled_before_its_time()
     {
         var work = Work();
         var dueAt = Start.AddMinutes(10);
-        await CommitAsync(work, "alpha", unit => unit.ScheduleAsync("alpha", new Ping("later"), dueAt, Ct));
+        await CommitAsync(work, "alpha", unit => unit.ScheduleAsync(new Ping("later"), dueAt, Ct));
 
         (await work.AdvanceToAsync(dueAt - TimeSpan.FromTicks(1), Ct)).Should().Be(0);
         work.Pending.Should().ContainSingle().Which.DueAt.Should().Be(dueAt);
@@ -226,10 +245,10 @@ public class InMemoryDurableWorkTests
         var work = Work();
         await CommitAsync(work, "alpha", async unit =>
         {
-            await unit.ScheduleAsync("alpha", new Ping("second"), Start.AddMinutes(20), Ct);
-            await unit.ScheduleAsync("alpha", new Ping("first"), Start.AddMinutes(10), Ct);
-            await unit.EnqueueAsync("alpha", new Ping("now"), Ct);
-            await unit.ScheduleAsync("alpha", new Ping("already past"), Start.AddMinutes(-5), Ct);
+            await unit.ScheduleAsync(new Ping("second"), Start.AddMinutes(20), Ct);
+            await unit.ScheduleAsync(new Ping("first"), Start.AddMinutes(10), Ct);
+            await unit.EnqueueAsync(new Ping("now"), Ct);
+            await unit.ScheduleAsync(new Ping("already past"), Start.AddMinutes(-5), Ct);
         });
 
         (await work.AdvanceAsync(TimeSpan.FromHours(1), Ct)).Should().Be(4);
@@ -240,51 +259,91 @@ public class InMemoryDurableWorkTests
     }
 
     [Fact]
-    public async Task A_run_id_starts_once_per_tenant()
+    public async Task A_run_id_starts_once_per_tenant_and_a_second_start_is_answered_false()
     {
         var work = Work();
 
-        using (var one = work.Begin("alpha"))
-        using (var two = work.Begin("alpha"))
+        using (var unit = work.Begin("alpha"))
         {
-            await one.StartAsync("alpha", "run-1", new Ping("first"), Ct);
-            await two.StartAsync("alpha", "run-1", new Ping("raced"), Ct);
-            one.Commit();
-            two.Commit();
+            (await unit.StartAsync("tests:run-1", new Ping("first"), Ct)).Should().BeTrue();
+            (await unit.StartAsync("tests:run-1", new Ping("twice in one unit"), Ct)).Should().BeFalse();
+            unit.Commit();
+        }
+
+        using (var unit = work.Begin("alpha"))
+        {
+            (await unit.StartAsync("tests:run-1", new Ping("before it ran"), Ct)).Should().BeFalse();
+            unit.Commit();
         }
 
         await work.RunDueAsync(Ct);
 
-        await CommitAsync(work, "alpha", unit => unit.StartAsync("alpha", "run-1", new Ping("after it ran"), Ct));
-        await CommitAsync(work, "beta", unit => unit.StartAsync("beta", "run-1", new Ping("another tenant"), Ct));
-        await CommitAsync(work, "alpha", unit => unit.StartAsync("alpha", "run-2", new Ping("another run"), Ct));
+        using (var unit = work.Begin("alpha"))
+        {
+            (await unit.StartAsync("tests:run-1", new Ping("after it ran"), Ct)).Should().BeFalse();
+            (await unit.StartAsync("tests:run-2", new Ping("another run"), Ct)).Should().BeTrue();
+            unit.Commit();
+        }
+
+        using (var unit = work.Begin("beta"))
+        {
+            (await unit.StartAsync("tests:run-1", new Ping("another tenant"), Ct)).Should().BeTrue();
+            unit.Commit();
+        }
 
         await work.RunDueAsync(Ct);
 
         work.Handled<Ping>().Should().HaveCount(3);
-        work.Handled<Ping>().Select(p => p.Text).Should().Equal("first", "another tenant", "another run");
+        work.Handled<Ping>().Select(p => p.Text).Should().Equal("first", "another run", "another tenant");
+    }
+
+    [Fact]
+    public async Task A_start_that_loses_a_race_fails_to_commit_and_takes_its_unit_of_work_with_it()
+    {
+        var work = Work();
+
+        using var winner = work.Begin("alpha");
+        using var loser = work.Begin("alpha");
+
+        (await winner.StartAsync("tests:run-1", new Ping("winner"), Ct)).Should().BeTrue();
+        (await loser.StartAsync("tests:run-1", new Ping("loser"), Ct)).Should().BeTrue(
+            "neither start has committed, so the id is still free");
+
+        // Stands for the document a caller stores beside the start.
+        await loser.EnqueueAsync(new Ping("the loser's own write"), Ct);
+
+        winner.Commit();
+
+        var commit = () => loser.Commit();
+        commit.Should().Throw<DurableWorkConflictException>();
+
+        (await loser.StartAsync("tests:run-1", new Ping("asked again"), Ct)).Should().BeFalse(
+            "the caller that asks again is told the id is taken");
+
+        await work.RunDueAsync(Ct);
+
+        work.Handled<Ping>().Should().ContainSingle().Which.Text.Should().Be("winner");
     }
 
     [Fact]
     public async Task A_resumed_wait_delivers_the_resume_once_and_never_its_timeout()
     {
         var work = Work();
-        await CommitAsync(work, "alpha", unit =>
-            unit.WaitAsync("alpha", "reply-1", Start.AddHours(1), new TimedOut("reply-1"), Ct));
+        await ParkAsync(work, "alpha", "tests:reply-1");
 
         work.Waits.Should().ContainSingle().Which.TimeoutAt.Should().Be(Start.AddHours(1));
         (await work.AdvanceAsync(TimeSpan.FromMinutes(30), Ct)).Should().Be(0, "a parked run does nothing while it waits");
 
         using (var unit = work.Begin("alpha"))
         {
-            (await unit.ResumeAsync("alpha", "reply-1", new Reply("answered"), Ct)).Should().BeTrue();
-            (await unit.ResumeAsync("alpha", "reply-1", new Reply("answered twice"), Ct)).Should().BeFalse();
+            (await unit.ResumeAsync("tests:reply-1", new Reply("answered"), Ct)).Should().BeTrue();
+            (await unit.ResumeAsync("tests:reply-1", new Reply("answered twice"), Ct)).Should().BeFalse();
             unit.Commit();
         }
 
         using (var late = work.Begin("alpha"))
         {
-            (await late.ResumeAsync("alpha", "reply-1", new Reply("answered again"), Ct)).Should().BeFalse();
+            (await late.ResumeAsync("tests:reply-1", new Reply("answered again"), Ct)).Should().BeFalse();
             late.Commit();
         }
 
@@ -301,22 +360,21 @@ public class InMemoryDurableWorkTests
     public async Task A_wait_nobody_resumes_delivers_its_timeout_and_a_late_resume_finds_nothing()
     {
         var work = Work();
-        await CommitAsync(work, "alpha", unit =>
-            unit.WaitAsync("alpha", "reply-1", Start.AddHours(1), new TimedOut("reply-1"), Ct));
+        await ParkAsync(work, "alpha", "tests:reply-1");
 
         (await work.AdvanceToAsync(Start.AddHours(1) - TimeSpan.FromTicks(1), Ct)).Should().Be(0);
         (await work.AdvanceAsync(TimeSpan.FromTicks(1), Ct)).Should().Be(1);
 
         using (var late = work.Begin("alpha"))
         {
-            (await late.ResumeAsync("alpha", "reply-1", new Reply("too late"), Ct)).Should().BeFalse();
+            (await late.ResumeAsync("tests:reply-1", new Reply("too late"), Ct)).Should().BeFalse();
             late.Commit();
         }
 
         await work.RunDueAsync(Ct);
 
         work.Delivered.Should().HaveCount(1);
-        work.Handled<TimedOut>().Should().ContainSingle().Which.WaitKey.Should().Be("reply-1");
+        work.Handled<TimedOut>().Should().ContainSingle().Which.WaitKey.Should().Be("tests:reply-1");
         work.Handled<Reply>().Should().BeEmpty();
     }
 
@@ -324,16 +382,15 @@ public class InMemoryDurableWorkTests
     public async Task A_resume_staged_before_the_timeout_and_committed_after_it_fails_to_commit()
     {
         var work = Work();
-        await CommitAsync(work, "alpha", unit =>
-            unit.WaitAsync("alpha", "reply-1", Start.AddHours(1), new TimedOut("reply-1"), Ct));
+        await ParkAsync(work, "alpha", "tests:reply-1");
 
         using var slow = work.Begin("alpha");
-        (await slow.ResumeAsync("alpha", "reply-1", new Reply("slow"), Ct)).Should().BeTrue();
+        (await slow.ResumeAsync("tests:reply-1", new Reply("slow"), Ct)).Should().BeTrue();
 
         await work.AdvanceAsync(TimeSpan.FromHours(1), Ct);
 
         var commit = () => slow.Commit();
-        commit.Should().Throw<InvalidOperationException>();
+        commit.Should().Throw<DurableWorkConflictException>();
 
         await work.RunDueAsync(Ct);
 
@@ -349,9 +406,9 @@ public class InMemoryDurableWorkTests
 
         using (var unit = work.Begin("alpha"))
         {
-            await unit.WaitAsync("alpha", "reply-1", Start.AddHours(1), new TimedOut("reply-1"), Ct);
+            (await unit.WaitAsync("tests:reply-1", Start.AddHours(1), new TimedOut("tests:reply-1"), Ct)).Should().BeTrue();
 
-            (await unit.ResumeAsync("alpha", "reply-1", new Reply("too early"), Ct)).Should().BeFalse(
+            (await unit.ResumeAsync("tests:reply-1", new Reply("too early"), Ct)).Should().BeFalse(
                 "the wait is staged and has not committed");
 
             unit.Commit();
@@ -359,7 +416,7 @@ public class InMemoryDurableWorkTests
 
         using (var other = work.Begin("beta"))
         {
-            (await other.ResumeAsync("beta", "reply-1", new Reply("wrong tenant"), Ct)).Should().BeFalse();
+            (await other.ResumeAsync("tests:reply-1", new Reply("wrong tenant"), Ct)).Should().BeFalse();
             other.Commit();
         }
 
@@ -369,7 +426,7 @@ public class InMemoryDurableWorkTests
 
         using (var own = work.Begin("alpha"))
         {
-            (await own.ResumeAsync("alpha", "reply-1", new Reply("right tenant"), Ct)).Should().BeTrue();
+            (await own.ResumeAsync("tests:reply-1", new Reply("right tenant"), Ct)).Should().BeTrue();
             own.Commit();
         }
 
@@ -378,43 +435,73 @@ public class InMemoryDurableWorkTests
     }
 
     [Fact]
-    public async Task A_wait_key_that_was_already_used_does_not_park_again()
+    public async Task A_wait_key_that_was_already_used_is_answered_false_and_parks_nothing()
     {
         var work = Work();
-        await CommitAsync(work, "alpha", unit =>
-            unit.WaitAsync("alpha", "reply-1", Start.AddHours(1), new TimedOut("reply-1"), Ct));
-        await CommitAsync(work, "alpha", async unit =>
-            (await unit.ResumeAsync("alpha", "reply-1", new Reply("answered"), Ct)).Should().BeTrue());
+        await ParkAsync(work, "alpha", "tests:reply-1");
+
+        using (var unit = work.Begin("alpha"))
+        {
+            (await unit.WaitAsync("tests:reply-1", Start.AddHours(1), new TimedOut("while it waits"), Ct)).Should().BeFalse();
+            (await unit.ResumeAsync("tests:reply-1", new Reply("answered"), Ct)).Should().BeTrue();
+            unit.Commit();
+        }
+
         await work.RunDueAsync(Ct);
 
-        // The handler that parked the run is run again, as after a crash, and parks it again.
-        await CommitAsync(work, "alpha", unit =>
-            unit.WaitAsync("alpha", "reply-1", Start.AddHours(1), new TimedOut("reply-1"), Ct));
+        using (var unit = work.Begin("alpha"))
+        {
+            // The handler that parked the run is run again, as after a crash, and parks it again.
+            (await unit.WaitAsync("tests:reply-1", Start.AddHours(1), new TimedOut("after the resume"), Ct)).Should().BeFalse();
 
-        // The control: a key that was never used does park.
-        await CommitAsync(work, "alpha", unit =>
-            unit.WaitAsync("alpha", "reply-2", Start.AddHours(1), new TimedOut("reply-2"), Ct));
+            // The control: a key that was never used does park, once.
+            (await unit.WaitAsync("tests:reply-2", Start.AddHours(1), new TimedOut("tests:reply-2"), Ct)).Should().BeTrue();
+            (await unit.WaitAsync("tests:reply-2", Start.AddHours(1), new TimedOut("twice in one unit"), Ct)).Should().BeFalse();
+            unit.Commit();
+        }
 
-        work.Waits.Should().ContainSingle().Which.WaitKey.Should().Be("reply-2");
+        work.Waits.Should().ContainSingle().Which.WaitKey.Should().Be("tests:reply-2");
 
         await work.AdvanceAsync(TimeSpan.FromHours(2), Ct);
 
-        work.Handled<TimedOut>().Should().ContainSingle().Which.WaitKey.Should().Be("reply-2");
+        work.Handled<TimedOut>().Should().ContainSingle().Which.WaitKey.Should().Be("tests:reply-2");
         work.Handled<Reply>().Should().ContainSingle().Which.Answer.Should().Be("answered");
+    }
+
+    [Fact]
+    public async Task A_wait_that_loses_a_race_fails_to_commit()
+    {
+        var work = Work();
+
+        using var winner = work.Begin("alpha");
+        using var loser = work.Begin("alpha");
+
+        (await winner.WaitAsync("tests:reply-1", Start.AddHours(1), new TimedOut("winner"), Ct)).Should().BeTrue();
+        (await loser.WaitAsync("tests:reply-1", Start.AddHours(2), new TimedOut("loser"), Ct)).Should().BeTrue();
+
+        winner.Commit();
+
+        var commit = () => loser.Commit();
+        commit.Should().Throw<DurableWorkConflictException>();
+
+        await work.AdvanceAsync(TimeSpan.FromHours(3), Ct);
+
+        work.Handled<TimedOut>().Should().ContainSingle().Which.WaitKey.Should().Be("winner");
+        work.Delivered[0].At.Should().Be(Start.AddHours(1));
     }
 
     [Fact]
     public async Task A_run_that_parks_itself_until_its_next_due_time_fires_once_per_due_time()
     {
         var interval = TimeSpan.FromHours(1);
-        var work = new InMemoryDurableWork(Start).Handle<Tick>(async (tick, context, unit, ct) =>
+        var work = new InMemoryDurableWork(Start).Handle<Tick>(async (tick, _, unit, ct) =>
         {
             var next = tick.DueAt + interval;
-            await unit.WaitAsync(context.Tenant, $"sweep:{next:O}", next, new Tick(next), ct);
+            await unit.WaitAsync($"tests:sweep:{next:O}", next, new Tick(next), ct);
             unit.Commit();
         });
 
-        await CommitAsync(work, "alpha", unit => unit.StartAsync("alpha", $"sweep:{Start:O}", new Tick(Start), Ct));
+        await CommitAsync(work, "alpha", unit => unit.StartAsync($"tests:sweep:{Start:O}", new Tick(Start), Ct));
 
         await work.AdvanceAsync(interval, Ct);
         work.Delivered.Should().HaveCount(2);
@@ -434,12 +521,42 @@ public class InMemoryDurableWorkTests
     }
 
     [Fact]
+    public async Task A_recurring_run_that_parks_its_next_due_time_before_working_outlives_a_tick_that_is_dead_lettered()
+    {
+        var interval = TimeSpan.FromHours(1);
+        var work = new InMemoryDurableWork(Start) { MaxAttempts = 2, RetryDelay = TimeSpan.FromMinutes(1) }
+            .Handle<Tick>(async (tick, _, unit, ct) =>
+            {
+                var next = tick.DueAt + interval;
+                await unit.WaitAsync($"tests:sweep:{next:O}", next, new Tick(next), ct);
+                unit.Commit();
+
+                if (tick.DueAt == Start)
+                {
+                    throw new InvalidOperationException("the work of the first tick always fails");
+                }
+            });
+
+        await CommitAsync(work, "alpha", unit => unit.StartAsync($"tests:sweep:{Start:O}", new Tick(Start), Ct));
+
+        await work.AdvanceAsync(interval * 2, Ct);
+
+        work.DeadLetters.Should().ContainSingle().Which.Message.Should().Be(new Tick(Start));
+        work.Delivered.Count(d => d.Error is not null).Should().Be(2, "the first tick was tried twice and given up on");
+
+        var fired = work.Handled<Tick>().Select(t => t.DueAt).ToArray();
+        fired.Should().HaveCount(2);
+        fired.Should().Equal(Start + interval, Start + interval * 2);
+        work.Waits.Should().ContainSingle().Which.TimeoutAt.Should().Be(Start + interval * 3);
+    }
+
+    [Fact]
     public async Task A_handler_that_throws_is_tried_again_after_the_retry_delay_and_then_dead_lettered()
     {
         var work = new InMemoryDurableWork(Start) { MaxAttempts = 3, RetryDelay = TimeSpan.FromMinutes(1) }
-            .Handle<Ping>((_, _, _, _) => throw new InvalidOperationException("provider down"));
+            .Handle<Ping>((_, _, _, _) => throw new InvalidOperationException("the provider said: key sk-123 is wrong"));
 
-        await CommitAsync(work, "alpha", unit => unit.EnqueueAsync("alpha", new Ping("doomed"), Ct));
+        await CommitAsync(work, "alpha", unit => unit.EnqueueAsync(new Ping("doomed"), Ct));
 
         (await work.RunDueAsync(Ct)).Should().Be(1);
         work.Pending.Should().ContainSingle().Which.DueAt.Should().Be(Start.AddMinutes(1));
@@ -452,7 +569,8 @@ public class InMemoryDurableWorkTests
         work.Delivered.Select(d => d.At).Should().Equal(Start, Start.AddMinutes(1), Start.AddMinutes(2));
         work.Delivered.Select(d => d.MessageId).Distinct().Should().ContainSingle("every attempt is the same message");
         work.Delivered.Should().OnlyContain(d => d.Error is InvalidOperationException);
-        work.DeadLetters.Should().ContainSingle().Which.Reason.Should().Be("provider down");
+        work.DeadLetters.Should().ContainSingle().Which.Reason.Should().Be(
+            nameof(InvalidOperationException), "the type's name is kept and the message, which can hold a credential, is not");
         work.Pending.Should().BeEmpty();
         work.Handled<Ping>().Should().BeEmpty();
     }
@@ -467,7 +585,7 @@ public class InMemoryDurableWorkTests
             return calls == 1 ? throw new InvalidOperationException("provider down") : Task.CompletedTask;
         });
 
-        await CommitAsync(work, "alpha", unit => unit.EnqueueAsync("alpha", new Ping("recovers"), Ct));
+        await CommitAsync(work, "alpha", unit => unit.EnqueueAsync(new Ping("recovers"), Ct));
         await work.AdvanceAsync(TimeSpan.FromMinutes(10), Ct);
 
         work.Delivered.Should().HaveCount(2);
@@ -481,7 +599,7 @@ public class InMemoryDurableWorkTests
     {
         var work = new InMemoryDurableWork(Start) { MaxAttempts = 2 };
 
-        await CommitAsync(work, "alpha", unit => unit.EnqueueAsync("alpha", new Ping("nobody listens"), Ct));
+        await CommitAsync(work, "alpha", unit => unit.EnqueueAsync(new Ping("nobody listens"), Ct));
         await work.AdvanceAsync(TimeSpan.FromMinutes(10), Ct);
 
         work.Delivered.Should().HaveCount(2);
@@ -502,7 +620,7 @@ public class InMemoryDurableWorkTests
 
         await CommitAsync(work, "alpha", async unit =>
         {
-            await unit.EnqueueAsync("alpha", queued, Ct);
+            await unit.EnqueueAsync(queued, Ct);
             queued.Value = 2;
         });
 
@@ -517,7 +635,7 @@ public class InMemoryDurableWorkTests
     public async Task A_redelivered_message_reaches_its_handler_again_with_the_same_id()
     {
         var work = Work();
-        await CommitAsync(work, "alpha", unit => unit.EnqueueAsync("alpha", new Ping("twice"), Ct));
+        await CommitAsync(work, "alpha", unit => unit.EnqueueAsync(new Ping("twice"), Ct));
         await work.RunDueAsync(Ct);
 
         var first = work.Delivered.Should().ContainSingle().Which;
@@ -535,7 +653,7 @@ public class InMemoryDurableWorkTests
     public async Task A_message_that_was_never_handled_cannot_be_redelivered()
     {
         var work = Work();
-        await CommitAsync(work, "alpha", unit => unit.ScheduleAsync("alpha", new Ping("later"), Start.AddHours(1), Ct));
+        await CommitAsync(work, "alpha", unit => unit.ScheduleAsync(new Ping("later"), Start.AddHours(1), Ct));
 
         var pending = work.Pending.Should().ContainSingle().Which;
 
@@ -551,13 +669,13 @@ public class InMemoryDurableWorkTests
     [Fact]
     public async Task A_handler_that_queues_itself_with_no_delay_is_stopped_and_reported()
     {
-        var work = new InMemoryDurableWork(Start).Handle<Ping>(async (ping, context, unit, ct) =>
+        var work = new InMemoryDurableWork(Start).Handle<Ping>(async (ping, _, unit, ct) =>
         {
-            await unit.EnqueueAsync(context.Tenant, ping, ct);
+            await unit.EnqueueAsync(ping, ct);
             unit.Commit();
         });
 
-        await CommitAsync(work, "alpha", unit => unit.EnqueueAsync("alpha", new Ping("forever"), Ct));
+        await CommitAsync(work, "alpha", unit => unit.EnqueueAsync(new Ping("forever"), Ct));
 
         var run = async () => await work.RunDueAsync(Ct);
         await run.Should().ThrowAsync<InvalidOperationException>();
@@ -577,7 +695,7 @@ public class InMemoryDurableWorkTests
     }
 
     [Fact]
-    public async Task The_clock_does_not_move_backwards_and_a_closed_unit_of_work_takes_nothing()
+    public async Task The_clock_does_not_move_backwards_and_a_disposed_unit_of_work_takes_nothing()
     {
         var work = Work();
 
@@ -588,14 +706,13 @@ public class InMemoryDurableWorkTests
         await negative.Should().ThrowAsync<ArgumentOutOfRangeException>();
 
         var unit = work.Begin("alpha");
-        unit.Commit();
-        unit.Committed.Should().BeTrue();
+        unit.Dispose();
 
-        var late = async () => await unit.EnqueueAsync("alpha", new Ping("after the save"), Ct);
-        await late.Should().ThrowAsync<InvalidOperationException>();
+        var late = async () => await unit.EnqueueAsync(new Ping("after the scope ended"), Ct);
+        await late.Should().ThrowAsync<ObjectDisposedException>();
 
-        var twice = () => unit.Commit();
-        twice.Should().Throw<InvalidOperationException>();
+        var save = () => unit.Commit();
+        save.Should().Throw<ObjectDisposedException>();
 
         work.Now.Should().Be(Start);
     }

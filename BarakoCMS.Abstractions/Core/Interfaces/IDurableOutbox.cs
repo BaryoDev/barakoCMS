@@ -9,22 +9,23 @@ namespace barakoCMS.Core.Interfaces;
 /// session the caller is already writing with, and do not commit. The message is stored when the
 /// caller saves that session, or not at all: a caller that throws before saving, or whose save
 /// fails, has queued nothing. A caller that stages and never saves has also queued nothing, so save
-/// afterwards. Resolve this from the scope that is doing the writing, a request's own scope or a
-/// scope opened for one tenant by a background service.
+/// afterwards. A unit of work may be saved more than once, and each save commits what was staged
+/// since the one before. Resolve this from the scope that is doing the writing.
 /// </para>
 /// <para>
-/// <b>The tenant is named on every call.</b> Nothing reads it from the request or from the scope.
-/// It is the tenant's slug, exactly as the registry holds it, and
-/// <see cref="Models.Tenant.DefaultSlug"/> for the default tenant. It has to be the tenant of the
-/// unit of work the call rides, and a call naming any other throws before anything is staged. Work
-/// for another tenant is staged from a unit of work opened for that tenant.
+/// <b>The tenant is the unit of work's.</b> A message is stored for the tenant of the session it
+/// was staged in, its handler runs in that tenant, and
+/// <see cref="DurableMessageContext.Tenant"/> tells the handler which. No member takes a tenant, so
+/// a message cannot be queued for one tenant from a unit of work that belongs to another: work for
+/// another tenant is staged from a unit of work opened for that tenant.
 /// </para>
 /// <para>
-/// <b>At least once.</b> A message that was committed is handled at least once, by the
-/// <see cref="IDurableMessageHandler{TMessage}"/> registered for its type. It survives a restart and
-/// a redeploy. It can be handled more than once, and no order is promised between two messages,
-/// including two staged in one unit of work. A caller that needs one message per key starts a run
-/// through <see cref="IDurableRuns"/>.
+/// <b>Attempted at least once.</b> A message that was committed is given to the
+/// <see cref="IDurableMessageHandler{TMessage}"/> registered for its type at least once, and ends
+/// either handled or as a dead letter. It survives a restart and a redeploy. It can be given to its
+/// handler more than once, and no order is promised between two messages, including two staged in
+/// one unit of work. A caller that needs one message per key starts a run through
+/// <see cref="IDurableRuns"/>.
 /// </para>
 /// <para>
 /// <b>The message is stored data.</b> It is written as JSON and read back before it is handled, so
@@ -43,13 +44,14 @@ public interface IDurableOutbox
     /// <summary>
     /// Stages a message to be handled as soon as the current unit of work commits.
     /// </summary>
-    /// <param name="tenant">The slug of the tenant the handler runs in, which is the tenant of the current unit of work.</param>
+    /// <returns>
+    /// The message's id, assigned here and not at the commit. It is the
+    /// <see cref="DurableMessageContext.MessageId"/> the handler is given on every delivery, so the
+    /// caller can store it beside its own write. It names nothing if the unit of work never commits.
+    /// </returns>
     /// <param name="message">The message. Routed by its own type, not by <typeparamref name="TMessage"/>.</param>
     /// <param name="cancellationToken">Cancels the staging, not the message once it is committed.</param>
-    /// <exception cref="ArgumentException">
-    /// <paramref name="tenant"/> is blank or is not the tenant of the current unit of work.
-    /// </exception>
-    Task EnqueueAsync<TMessage>(string tenant, TMessage message, CancellationToken cancellationToken)
+    Task<string> EnqueueAsync<TMessage>(TMessage message, CancellationToken cancellationToken)
         where TMessage : class;
 
     /// <summary>
@@ -60,13 +62,10 @@ public interface IDurableOutbox
     /// looks for due work, and nothing here promises an upper bound. A time already past is due at
     /// once. The wait is stored with the message, so it survives a restart and a redeploy.
     /// </remarks>
-    /// <param name="tenant">The slug of the tenant the handler runs in, which is the tenant of the current unit of work.</param>
+    /// <returns>The message's id, as <see cref="EnqueueAsync"/> returns it.</returns>
     /// <param name="message">The message. Routed by its own type, not by <typeparamref name="TMessage"/>.</param>
     /// <param name="dueAt">The earliest moment the message may be handled.</param>
     /// <param name="cancellationToken">Cancels the staging, not the message once it is committed.</param>
-    /// <exception cref="ArgumentException">
-    /// <paramref name="tenant"/> is blank or is not the tenant of the current unit of work.
-    /// </exception>
-    Task ScheduleAsync<TMessage>(string tenant, TMessage message, DateTimeOffset dueAt, CancellationToken cancellationToken)
+    Task<string> ScheduleAsync<TMessage>(TMessage message, DateTimeOffset dueAt, CancellationToken cancellationToken)
         where TMessage : class;
 }
