@@ -1,7 +1,8 @@
 namespace barakoCMS.Models;
 
 /// <summary>
-/// One attempt to deliver a webhook: where it went, what was sent, what came back.
+/// One attempt to deliver a webhook, or to send a request through a connector: where it went, what
+/// was sent, what came back.
 /// </summary>
 /// <remarks>
 /// Written on success and on failure, because "did it fire?" is the first question every time and
@@ -63,6 +64,36 @@ public class WebhookDelivery
 
     /// <summary>Which attempt at the action this was, counting from one.</summary>
     public int Attempt { get; set; } = 1;
+
+    /// <summary>
+    /// The connector a Request action sent through. Null on a webhook row, which is how the two
+    /// kinds are told apart: a row stored before connector sends were recorded has no such field
+    /// and reads as a webhook row.
+    /// </summary>
+    /// <remarks>
+    /// A connector row follows the rules above with three differences. <see cref="RequestHeaders"/>
+    /// keeps the name of a header that carries a credential and replaces its value. The values that
+    /// went on the request as credentials are cut out of <see cref="ResponseBody"/> before it is
+    /// stored. <see cref="Error"/> also says when a response arrived and the request's success rule
+    /// was not met.
+    /// </remarks>
+    public Guid? ConnectorId { get; set; }
+
+    /// <summary>The connector's slug when the request was sent.</summary>
+    public string? ConnectorSlug { get; set; }
+
+    /// <summary>The slug of the request definition that was sent.</summary>
+    public string? RequestSlug { get; set; }
+
+    /// <summary>The HTTP method of a connector row. A webhook is always a POST and leaves this null.</summary>
+    public string? Method { get; set; }
+
+    /// <summary>
+    /// How many times a connector row's request went to the provider: 0 when it was refused before
+    /// anything was sent, 2 when a 401 to a cached OAuth token was answered with a new token and one
+    /// more send. The status and body are the last answer's. Null on a webhook row.
+    /// </summary>
+    public int? RequestsSent { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }

@@ -104,3 +104,48 @@ again.
 a refresh token or a user's consent is not covered. Each API instance holds its own token, so N
 instances make N token requests per lifetime. Two calls arriving together with no token cached each
 ask for one.
+
+## The delivery log
+
+Every send a workflow's `Request` action makes through a connector leaves one row, the way a
+webhook delivery does. `GET /api/connector-deliveries` lists them newest first, paginated, behind
+`view_workflow_runs`, the capability the webhook delivery list uses. Filters:
+
+- `connector`: a connector's slug.
+- `requestSlug`: a request definition's slug.
+- `workflowId` and `runId`.
+- `status`: `2xx`, `3xx`, `4xx`, `5xx`, or `failed` for a row with no response. An unknown value
+  is a 400.
+
+**One row is one attempt at the action**, not one HTTP request. A send that met a 401, was granted
+a new token and went once more is one row whose `requestsSent` is 2, holding the last answer. A
+request refused before anything went out (the composer refused it, or the credentials could not be
+attached) is a row with `requestsSent` 0 and the reason in `error`. The token request has no row.
+`requestsSent` counts what the sender sent, not the outbound client's own retries of a failed
+connection.
+
+Each row holds the workflow id, the run id, the trigger event and the attempt number when the
+runner made the call, the connector's id and slug, the request's slug, the method, the URL cut to
+scheme, host and port, the request headers, the response status, the response body, the duration
+and `error`, which also says when a response arrived and the request's success rule was not met.
+
+**What a row never holds.** The request body is not stored. A request header keeps its name and
+has `[redacted]` for a value unless its value is exactly what the request definition composed, its
+name does not read as a credential, and it quotes none of the values that were redacted. So the
+header the connector's credential went out in is redacted whatever it is called. The response body
+is the first 4096 bytes, with every redacted header value taken out of it, along with the token
+without its scheme, both halves of a Basic pair, and the value of any field of the request body
+whose name reads as a credential. Only an exact copy is found: a provider that answers with a
+credential encoded some other way is why reading `responseBody` needs
+`view_webhook_response_bodies` on top of `view_workflow_runs`, as it does for a webhook delivery.
+
+**Retention** is the webhook delivery sweep in [webhooks.md](webhooks.md): the rows are the same
+document, so `Webhooks:DeliveryLogRetentionDays` removes them and
+`Webhooks:ResponseBodyRetentionHours` clears their response bodies.
+
+**If the row cannot be written**, the send's result stands and a warning is logged with the
+connector and request slugs. The write gets five seconds and a database session of its own.
+
+**Not recorded.** A connector test and a collection sync's fetch leave no row: a test's result is
+on the connector and in the audit log, and a sync keeps its own last result. A host that registers
+its own `IConnectorSender` gets no rows either.

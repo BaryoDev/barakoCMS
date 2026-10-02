@@ -87,7 +87,8 @@ internal sealed class ConnectorSender(
     IQuerySession session,
     IConnectorSecretProtector protector,
     ConnectorTokenCache tokens,
-    ILogger<ConnectorSender> logger) : IConnectorSender, IConnectorFetcher
+    IConnectorDeliveryLog deliveries,
+    ILogger<ConnectorSender> logger) : IConnectorSender, IConnectorFetcher, IConnectorDeliverySender
 {
     /// <summary>
     /// The longest one token request may take, from the first byte sent to the last byte read.
@@ -98,6 +99,13 @@ internal sealed class ConnectorSender(
     /// liked, and the workflow runner is one loop.
     /// </remarks>
     internal TimeSpan GrantTimeout { get; init; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>The longest the write of one delivery row may hold up the caller.</summary>
+    /// <remarks>
+    /// The send has already happened by then, and the workflow runner is one loop. A database that
+    /// is slow to take the row costs the row, not the run.
+    /// </remarks>
+    internal TimeSpan RecordTimeout { get; init; } = TimeSpan.FromSeconds(5);
 
     public async Task<ConnectorCallResult> ProbeAsync(Connector connector, CancellationToken ct)
     {
@@ -167,8 +175,58 @@ internal sealed class ConnectorSender(
         }
     }
 
+    public Task<ConnectorCallResult> SendAsync(
+        Connector connector, ComposedRequest composed, SuccessRule rule, string? successJsonPath, CancellationToken ct) =>
+        SendCoreAsync(connector, composed, rule, successJsonPath, null, ct);
+
+    /// <remarks>
+    /// One row for the call, not one for each HTTP request it took. A webhook row is one attempt at
+    /// the action, and so is this: a send that met a 401, was granted a new token and went again is
+    /// still one attempt, and the row counts the requests in <see cref="WebhookDelivery.RequestsSent"/>.
+    /// The token request has no row. Its answer is the token.
+    /// </remarks>
     public async Task<ConnectorCallResult> SendAsync(
-        Connector connector, ComposedRequest composed, SuccessRule rule, string? successJsonPath, CancellationToken ct)
+        Connector connector, ComposedRequest composed, SuccessRule rule, string? successJsonPath,
+        ConnectorDeliveryContext delivery, CancellationToken ct)
+    {
+        var draft = new ConnectorDeliveryDraft(composed);
+        var result = await SendCoreAsync(connector, composed, rule, successJsonPath, draft, ct);
+
+        await RecordAsync(connector, delivery, draft, result, ct);
+
+        return result;
+    }
+
+    /// <summary>
+    /// Writes the row. A failure to record is logged and does not change the outcome: the send
+    /// happened or did not, and the row is the record of that, not a part of it.
+    /// </summary>
+    private async Task RecordAsync(
+        Connector connector, ConnectorDeliveryContext delivery, ConnectorDeliveryDraft draft,
+        ConnectorCallResult result, CancellationToken ct)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(RecordTimeout);
+
+        try
+        {
+            await deliveries.WriteAsync(session.TenantId, draft.ToRow(connector, delivery, result), deadline.Token);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                "Could not record the delivery of request {Request} through connector {Slug} ({Exception})",
+                delivery.RequestSlug, connector.Slug, ex.GetType().Name);
+        }
+    }
+
+    private async Task<ConnectorCallResult> SendCoreAsync(
+        Connector connector, ComposedRequest composed, SuccessRule rule, string? successJsonPath,
+        ConnectorDeliveryDraft? draft, CancellationToken ct)
     {
         if (!composed.Ok)
         {
@@ -195,15 +253,19 @@ internal sealed class ConnectorSender(
             return new ConnectorCallResult(false, null, 0, attached);
         }
 
+        draft?.Sending(request);
+
         var timer = Stopwatch.StartNew();
 
         try
         {
             using var first = await client.SendAsync(request, ct);
             using var again = await RetryWithNewTokenAsync(client, connector, request, first,
-                () => BuildRequest(composed, target), HttpCompletionOption.ResponseContentRead, ct);
+                () => BuildRequest(composed, target), HttpCompletionOption.ResponseContentRead, ct, draft);
             var response = again ?? first;
             timer.Stop();
+
+            if (draft is not null) await draft.ReadResponseAsync(response, ct);
 
             // The body is read only when a rule needs it, and it is never returned or logged. A 401
             // from an OAuth provider frequently contains the credential that was sent.
@@ -520,7 +582,8 @@ internal sealed class ConnectorSender(
     /// </remarks>
     private async Task<HttpResponseMessage?> RetryWithNewTokenAsync(
         HttpClient client, Connector? connector, HttpRequestMessage refused, HttpResponseMessage answer,
-        Func<HttpRequestMessage> rebuild, HttpCompletionOption completion, CancellationToken ct)
+        Func<HttpRequestMessage> rebuild, HttpCompletionOption completion, CancellationToken ct,
+        ConnectorDeliveryDraft? draft = null)
     {
         if (connector is null || answer.StatusCode != HttpStatusCode.Unauthorized) return null;
         if (!refused.Options.TryGetValue(SentCachedToken, out var key)) return null;
@@ -529,6 +592,8 @@ internal sealed class ConnectorSender(
 
         using var again = rebuild();
         if (await TryAttachAuthAsync(again, connector, ct) is not null) return null;
+
+        draft?.Sending(again);
 
         return await client.SendAsync(again, completion, ct);
     }

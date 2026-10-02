@@ -152,7 +152,9 @@ the wire and checks it fails with a different secret.
 ## The delivery log
 
 `GET /api/webhook-deliveries` lists deliveries newest first, paginated, gated on `view_workflow_runs`
-(the capability that reads workflow runs). Filters:
+(the capability that reads workflow runs). It lists webhooks only: what a `Request` action sent
+through a connector is stored as the same document and listed by `GET /api/connector-deliveries`
+(see [connectors.md](connectors.md)). Filters:
 
 - `workflowId`: one workflow's deliveries.
 - `status`: a class, one of `2xx`, `3xx`, `4xx`, `5xx`, or `failed` for a delivery that got no
