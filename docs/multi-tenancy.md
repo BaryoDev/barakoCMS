@@ -110,6 +110,9 @@ deployment with no memberships at all behaves exactly as it did before multi-ten
   belong to. The new token expires when the presented one would have, and the presented one is
   revoked. It returns no refresh token (`refreshToken` is empty): the one from sign-in keeps
   working, since a refresh mints for the `X-Tenant` it is sent and re-checks membership.
+  The body names the target as `{ "tenant": "<handle>" }`. `club` is an alias of `tenant`, kept for
+  clients written when it was the only name, and both go through the same membership check. A
+  request that sets both to different tenants is a 400, and so is one that sets neither.
 - `/api/tenants` creates, lists and updates tenants, gated on `SuperAdmin`.
 - `GET /api/tenants/{handle}/public` is the anonymous lookup a sign-in page needs.
 
