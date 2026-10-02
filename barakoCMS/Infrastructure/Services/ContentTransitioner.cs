@@ -478,11 +478,8 @@ internal sealed class ContentTransitioner(
             .Select(r => r.Name)
             .ToListAsync(ct);
 
-        if (roleNames.Count == 0)
-        {
-            roleNames.Add("User");
-        }
+        IEnumerable<string> names = roleNames.Count == 0 ? new[] { "User" } : roleNames;
 
-        return roleNames.Select(name => new Claim(ClaimTypes.Role, name)).ToList();
+        return names.Select(name => new Claim(ClaimTypes.Role, name)).ToList();
     }
 }
