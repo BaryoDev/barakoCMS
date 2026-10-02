@@ -22,18 +22,22 @@
 
 set -euo pipefail
 
+. "$(dirname "$0")/lib-ports.sh"
+
 PG="restore-check-pg"
-PG_PORT="${PG_PORT:-55434}"
-APP_PORT="${APP_PORT:-58095}"
+# Empty means whoever binds the port chooses it: Docker for Postgres, the kernel for the host. A
+# value set by the caller is used as given. See lib-ports.sh for why there is no default.
+PG_PORT="${PG_PORT:-}"
+APP_PORT="${APP_PORT:-}"
+APP_BIND="${APP_PORT:-0}"
 DB="barako_restore_check"
 JWT_KEY='restore-check-key-that-is-at-least-32-chars-long'
 ADMIN_PASSWORD='RestoreCheck!123'
 WORK="$(mktemp -d)"
-CONN="Host=127.0.0.1;Port=${PG_PORT};Database=${DB};Username=postgres;Password=postgres"
 
 cleanup() {
     if [ -n "${HOST_PID:-}" ]; then kill "$HOST_PID" 2>/dev/null || true; wait "$HOST_PID" 2>/dev/null || true; fi
-    docker rm -f "$PG" >/dev/null 2>&1 || true
+    remove_started "$WORK/pg.cid"
     rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -50,9 +54,11 @@ else
     port_in_use() { return 1; }
 fi
 
-for port in "$PG_PORT" "$APP_PORT"; do
+# Only a port the caller asked for can be checked ahead of time. One the system chooses does not
+# exist yet, and cannot be taken by anything else once it does.
+for port in $PG_PORT $APP_PORT; do
     if port_in_use "$port"; then
-        fail "port $port is already in use; something else would answer the checks below"
+        fail "port $port was asked for and is held by a listener this run did not start; something else would answer the checks below"
     fi
 done
 
@@ -62,7 +68,8 @@ start_host() {
     # health check for the next boot and every assertion after it describes the wrong process.
     exec env -i PATH="$PATH" HOME="$HOME" DOTNET_ROOT="${DOTNET_ROOT:-}" \
         ASPNETCORE_ENVIRONMENT=Production \
-        ASPNETCORE_URLS="http://127.0.0.1:${APP_PORT}" \
+        ASPNETCORE_URLS="http://127.0.0.1:${APP_BIND}" \
+        "$LISTEN_LOG_ENV" \
         ConnectionStrings__DefaultConnection="$CONN" \
         JWT__Key="$JWT_KEY" \
         InitialAdmin__Username=admin \
@@ -73,8 +80,14 @@ start_host() {
 }
 
 wait_for_health() {
+    # Each boot binds again, so the port is read again, from the log of the process just started.
+    APP_PORT=$(listen_port "$WORK/$1" "$HOST_PID") || { cat "$WORK/$1" >&2; fail "the host this run started is not listening"; }
     for _ in $(seq 1 60); do
-        [ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${APP_PORT}/health" || true)" = "200" ] && return 0
+        if [ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${APP_PORT}/health" || true)" = "200" ]; then
+            kill -0 "$HOST_PID" 2>/dev/null \
+                || fail "something answered /health on port $APP_PORT but the host this run started is gone, so every check below would describe another process"
+            return 0
+        fi
         kill -0 "$HOST_PID" 2>/dev/null || { cat "$WORK/$1" >&2; fail "the host exited during startup"; }
         sleep 2
     done
@@ -88,8 +101,11 @@ step "building the host"
 dotnet publish barakoCMS/barakoCMS.csproj -c Release -o "$WORK/publish" --nologo -v q -clp:ErrorsOnly -p:RestoreLockedMode=true
 
 step "starting postgres"
-docker run -d --name "$PG" -e POSTGRES_DB="$DB" -e POSTGRES_USER=postgres \
-    -e POSTGRES_PASSWORD=postgres -p "${PG_PORT}:5432" postgres:16-alpine >/dev/null
+PG_ID=$(docker run -d --cidfile "$WORK/pg.cid" --name "$PG" -e POSTGRES_DB="$DB" -e POSTGRES_USER=postgres \
+    -e POSTGRES_PASSWORD=postgres -p "$(publish_spec "$PG_PORT" 5432)" postgres:16-alpine 2>"$WORK/docker-run.err") \
+    || fail "$(publish_failure "$WORK/docker-run.err" "$PG_PORT" postgres)"
+PG_PORT=$(published_port "$PG_ID" 5432) || fail "cannot tell which host port postgres was published on"
+CONN="Host=127.0.0.1;Port=${PG_PORT};Database=${DB};Username=postgres;Password=postgres"
 # pg_isready over the Unix socket is satisfied by the WRONG server. The postgres image boots a
 # temporary initdb instance on the socket only, creates the database, shuts it down, and then starts
 # the real one listening on TCP. So a socket check succeeds during bootstrap, the wait breaks early,
@@ -124,8 +140,13 @@ echo "$CONTENT_BEFORE content rows, $USERS_BEFORE users"
 kill "$HOST_PID"; wait "$HOST_PID" 2>/dev/null || true; HOST_PID=""
 # Wait for the port, not just the process: the assertions after the restore are worthless if the
 # next boot silently fails to bind and the old host answers them.
-for _ in $(seq 1 30); do port_in_use "$APP_PORT" || break; sleep 1; done
-port_in_use "$APP_PORT" && fail "the first host is still holding port $APP_PORT"
+#
+# Only when the caller fixed the port. Otherwise the next boot binds a new one and reads it from its
+# own log, so it cannot mistake the old host for itself.
+if [ "$APP_BIND" != 0 ]; then
+    for _ in $(seq 1 30); do port_in_use "$APP_PORT" || break; sleep 1; done
+    port_in_use "$APP_PORT" && fail "the first host is still holding port $APP_PORT"
+fi
 
 
 step "taking a backup with the script the deployments run"

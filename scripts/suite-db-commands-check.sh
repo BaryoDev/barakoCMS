@@ -27,17 +27,23 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+. scripts/lib-ports.sh
+
 PG="suite-db-commands-pg"
-PG_PORT="${PG_PORT:-55436}"
-APP_PORT="${APP_PORT:-58096}"
+# Empty means Docker chooses the host port and the script reads it back. A value set by the caller
+# is used as given. See lib-ports.sh for why there is no default.
+PG_PORT="${PG_PORT:-}"
+# No command here is meant to serve, so nothing reads this port back. Port 0 means that a Suite which
+# ignores its command and serves anyway still binds, and is caught for that rather than for a port
+# that happened to be taken.
+APP_PORT="${APP_PORT:-0}"
 DB="barako_suite_db_commands"
 JWT_KEY='suite-db-commands-key-that-is-at-least-32-chars-long'
 COMMAND_TIMEOUT="${COMMAND_TIMEOUT:-180}"
 WORK="$(mktemp -d)"
-CONN="Host=127.0.0.1;Port=${PG_PORT};Database=${DB};Username=postgres;Password=postgres"
 
 cleanup() {
-    docker rm -f "$PG" >/dev/null 2>&1 || true
+    remove_started "$WORK/pg.cid"
     rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -48,9 +54,15 @@ fail() { printf '\nFAILED: %s\n' "$1" >&2; exit 1; }
 run_suite() {
     # Explicit environment, not an inherited one, for the same reason as upgrade-check.sh: a stray
     # connection string in the shell would point the host at some other database.
+    #
+    # LISTEN_LOG_ENV is for the "Now listening on" check below. A Suite that served would log that
+    # line only at Information, and the shipped appsettings.json turns that source down to Warning.
+    # The check works without this today only because the host is started from a directory with no
+    # appsettings.json in it. See lib-ports.sh.
     env -i PATH="$PATH" HOME="$HOME" DOTNET_ROOT="${DOTNET_ROOT:-}" \
         ASPNETCORE_ENVIRONMENT=Production \
         ASPNETCORE_URLS="http://127.0.0.1:${APP_PORT}" \
+        "$LISTEN_LOG_ENV" \
         ConnectionStrings__DefaultConnection="$CONN" \
         JWT__Key="$JWT_KEY" \
         SKIP_SEEDER=true \
@@ -67,8 +79,11 @@ dotnet publish BarakoCMS.Suite/BarakoCMS.Suite.csproj -c Release -o "$WORK/publi
     -clp:ErrorsOnly -p:RestoreLockedMode=true -nodeReuse:false
 
 step "starting postgres"
-docker run -d --name "$PG" -e POSTGRES_DB="$DB" -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
-    -p "127.0.0.1:${PG_PORT}:5432" postgres:16-alpine >/dev/null
+PG_ID=$(docker run -d --cidfile "$WORK/pg.cid" --name "$PG" -e POSTGRES_DB="$DB" -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
+    -p "$(publish_spec "$PG_PORT" 5432)" postgres:16-alpine 2>"$WORK/docker-run.err") \
+    || fail "$(publish_failure "$WORK/docker-run.err" "$PG_PORT" postgres)"
+PG_PORT=$(published_port "$PG_ID" 5432) || fail "cannot tell which host port postgres was published on"
+CONN="Host=127.0.0.1;Port=${PG_PORT};Database=${DB};Username=postgres;Password=postgres"
 # Over TCP: the image's bootstrap server answers on the socket before the real one is up.
 for _ in $(seq 1 60); do docker exec "$PG" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 && break; sleep 2; done
 docker exec "$PG" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 || fail "postgres never became ready"
