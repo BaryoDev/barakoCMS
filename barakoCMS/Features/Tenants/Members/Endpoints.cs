@@ -1,8 +1,10 @@
 using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Multitenancy;
+using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using FastEndpoints;
+using FluentValidation;
 using Marten;
 
 namespace barakoCMS.Features.Tenants.Members;
@@ -14,7 +16,8 @@ internal sealed record MemberResponse(
     string Email,
     List<Guid> RoleIds,
     MembershipStatus Status,
-    DateTimeOffset JoinedAt);
+    DateTimeOffset JoinedAt,
+    Dictionary<string, string> Profile);
 
 /// <summary>A role an administrator of a tenant may hand out inside it.</summary>
 internal sealed record AssignableRoleResponse(Guid Id, string Name, string Description);
@@ -59,6 +62,10 @@ internal static class Members
                && !await barakoCMS.Features.Users.PlatformRoles.IsSuperAdminAsync(session, caller, ct);
     }
 
+    /// <summary>A copy with the default comparer, so names stay case sensitive whatever the binder built.</summary>
+    public static Dictionary<string, string> CopyOf(Dictionary<string, string>? profile) =>
+        profile is null ? new() : new Dictionary<string, string>(profile, StringComparer.Ordinal);
+
     public static DateTimeOffset Instant(DateTime value) =>
         new(DateTime.SpecifyKind(value, DateTimeKind.Utc));
 
@@ -68,7 +75,48 @@ internal static class Members
         user?.Email ?? string.Empty,
         membership.RoleIds,
         membership.Status,
-        Instant(membership.JoinedAt));
+        Instant(membership.JoinedAt),
+        membership.Profile ?? new());
+
+    /// <summary>
+    /// Attribute names only, for the audit log. A value can be a person's record id or ward, and
+    /// the audit log is read more widely than the roster.
+    /// </summary>
+    public static List<string> ProfileNames(Dictionary<string, string>? profile) =>
+        profile is null ? [] : profile.Keys.OrderBy(name => name, StringComparer.Ordinal).ToList();
+}
+
+/// <summary>
+/// A profile is checked before anything is stored, on both member writes.
+/// </summary>
+/// <remarks>
+/// A permission condition trusts these values (<c>$CURRENT_USER.&lt;name&gt;</c>), which is why they
+/// are written only here, behind <c>manage_tenant_members</c>, and by no route a member can reach
+/// for their own account.
+/// </remarks>
+internal sealed class AddMemberValidator : Validator<AddMemberRequest>
+{
+    public AddMemberValidator()
+    {
+        RuleFor(x => x.Profile).Custom((profile, context) =>
+        {
+            if (CallerAttributes.ProfileError(profile) is { } error)
+                context.AddFailure(error);
+        });
+    }
+}
+
+/// <inheritdoc cref="AddMemberValidator"/>
+internal sealed class UpdateMemberValidator : Validator<UpdateMemberRequest>
+{
+    public UpdateMemberValidator()
+    {
+        RuleFor(x => x.Profile).Custom((profile, context) =>
+        {
+            if (CallerAttributes.ProfileError(profile) is { } error)
+                context.AddFailure(error);
+        });
+    }
 }
 
 /// <summary>GET /api/tenants/members: the roster for the caller's tenant, newest first.</summary>
@@ -114,6 +162,9 @@ internal sealed class AddMemberRequest
 {
     public string Email { get; set; } = string.Empty;
     public List<Guid> RoleIds { get; set; } = new();
+
+    /// <summary>The member's profile. Left out, a new or re-added member starts with none.</summary>
+    public Dictionary<string, string>? Profile { get; set; }
 }
 
 /// <summary>
@@ -188,6 +239,7 @@ internal sealed class AddMemberEndpoint(
                 RoleIds = roleIds,
                 Status = MembershipStatus.Active,
                 JoinedAt = DateTime.UtcNow,
+                Profile = Members.CopyOf(req.Profile),
             };
         }
         else
@@ -197,6 +249,10 @@ internal sealed class AddMemberEndpoint(
             // first, and would lose the date they originally joined.
             membership.Status = MembershipStatus.Active;
             membership.RoleIds = roleIds;
+
+            // Replaced with the roles and for the same reason: what somebody held before they were
+            // removed is not what they are being given now.
+            membership.Profile = Members.CopyOf(req.Profile);
         }
 
         session.Store(membership);
@@ -205,7 +261,12 @@ internal sealed class AddMemberEndpoint(
         await AuditLog.RecordAsync(session, slug, "tenant.member.added", actorId,
             User.FindFirst("Username")?.Value,
             targetType: "User", targetId: user.Id.ToString(),
-            metadata: new() { ["invited"] = invited, ["roleIds"] = roleIds.Select(r => r.ToString()).ToList() },
+            metadata: new()
+            {
+                ["invited"] = invited,
+                ["roleIds"] = roleIds.Select(r => r.ToString()).ToList(),
+                ["profileNames"] = Members.ProfileNames(membership.Profile),
+            },
             ct: ct);
 
         await session.SaveChangesAsync(ct);
@@ -232,6 +293,12 @@ internal sealed class UpdateMemberRequest
     public Guid UserId { get; set; }
     public List<Guid> RoleIds { get; set; } = new();
     public MembershipStatus Status { get; set; } = MembershipStatus.Active;
+
+    /// <summary>
+    /// The member's whole profile. Left out, the stored one is kept, so a client that does not
+    /// know about profiles cannot erase one by editing roles.
+    /// </summary>
+    public Dictionary<string, string>? Profile { get; set; }
 }
 
 /// <summary>
@@ -286,13 +353,20 @@ internal sealed class UpdateMemberEndpoint(
 
         membership.RoleIds = roleIds;
         membership.Status = req.Status;
+        if (req.Profile is not null)
+            membership.Profile = Members.CopyOf(req.Profile);
         session.Store(membership);
 
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
         await AuditLog.RecordAsync(session, slug, "tenant.member.updated", actorId,
             User.FindFirst("Username")?.Value,
             targetType: "User", targetId: req.UserId.ToString(),
-            metadata: new() { ["status"] = req.Status.ToString(), ["roleIds"] = roleIds.Select(r => r.ToString()).ToList() },
+            metadata: new()
+            {
+                ["status"] = req.Status.ToString(),
+                ["roleIds"] = roleIds.Select(r => r.ToString()).ToList(),
+                ["profileNames"] = Members.ProfileNames(membership.Profile),
+            },
             ct: ct);
 
         await session.SaveChangesAsync(ct);

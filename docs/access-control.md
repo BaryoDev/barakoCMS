@@ -74,6 +74,37 @@ status code each one answers.
 { "Read": { "Enabled": true, "Conditions": { "memberId": { "_eq": "$CURRENT_USER" } } } }
 ```
 
+### Something about the caller other than their id
+
+`$CURRENT_USER` is the caller's user id. `$CURRENT_USER.<name>` is a value from the caller's member
+profile in the current tenant, so a branch manager reads their branch's orders without having
+created them:
+
+```json
+{ "Read": { "Enabled": true, "Conditions": { "Branch": { "_eq": "$CURRENT_USER.branch" } } } }
+```
+
+The profile is `Membership.Profile`, a map of text values. It is written with the member, by
+`POST /api/tenants/members` and `PUT /api/tenants/members/{userId}` (`profile`), both behind
+`manage_tenant_members`, and by nothing else. A member cannot set their own. `PUT` replaces the whole
+profile when it sends one and keeps the stored one when it does not. A profile holds at most 32
+attributes; a name starts with a letter, holds letters, digits and underscores, and is at most 64
+characters; a value is at most 256.
+
+What a rule author needs to know:
+
+- The variable is the whole of the value of `_eq` or `_ne`. Under `_in` or `_nin` the rule denies,
+  and inside a list it is plain text, as `$CURRENT_USER` is.
+- Names are case sensitive. `$CURRENT_USER.branch` does not read `Branch`.
+- A caller with no value matches nothing, whatever the operator: no active membership in this
+  tenant, no attribute of that name, or an empty value. `_ne` does not grant in that case.
+- The value is compared as text, the way a value written into the rule is, so a profile value of
+  `42` matches a number field holding 42.
+- It is read from the membership on every request and is not in the token. A change applies to the
+  member's next request.
+- A user whose roles come only from `User.RoleIds`, with no membership row in the tenant, has no
+  profile. Add them as a member of the tenant to give them one.
+
 ## Layer 3: Field + document sensitivity
 
 This is the "Employee has SIN + birthday sensitive, rest viewable" ask, plus the

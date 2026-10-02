@@ -13,13 +13,22 @@ namespace barakoCMS.Infrastructure.Multitenancy;
 public static class MembershipRoles
 {
     public static async Task<List<Guid>> EffectiveRoleIdsAsync(
-        IQuerySession session, User user, string tenantSlug, CancellationToken ct)
+        IQuerySession session, User user, string tenantSlug, CancellationToken ct) =>
+        EffectiveRoleIds(user, await ActiveMembershipAsync(session, user.Id, tenantSlug, ct));
+
+    /// <summary>
+    /// The user's active membership in the tenant, or null. One query, so a caller that needs the
+    /// member profile as well as the roles reads both from the same row.
+    /// </summary>
+    public static Task<Membership?> ActiveMembershipAsync(
+        IQuerySession session, Guid userId, string tenantSlug, CancellationToken ct) =>
+        session.Query<Membership>()
+            .Where(m => m.UserId == userId && m.TenantSlug == tenantSlug && m.Status == MembershipStatus.Active)
+            .FirstOrDefaultAsync(ct);
+
+    public static List<Guid> EffectiveRoleIds(User user, Membership? membership)
     {
         var global = user.RoleIds ?? new List<Guid>();
-
-        var membership = await session.Query<Membership>()
-            .Where(m => m.UserId == user.Id && m.TenantSlug == tenantSlug && m.Status == MembershipStatus.Active)
-            .FirstOrDefaultAsync(ct);
 
         if (membership is null)
             return global;
