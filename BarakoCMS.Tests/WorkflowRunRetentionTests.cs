@@ -122,6 +122,61 @@ public class WorkflowRunRetentionTests
         survivors.Should().Equal(["recent-cancel"]);
     }
 
+    /// <summary>
+    /// The hourly sweep lists the partitions that hold a finished run, by status number, and visits
+    /// only those. A tenant whose only finished run is a cancelled one has to be on that list.
+    /// </summary>
+    /// <remarks>
+    /// This fixture runs with database tenancy off, so the list comes from the rows. The same
+    /// question with it on is asked in TenantPartitionsTests.
+    /// </remarks>
+    [Fact]
+    public async Task The_sweep_of_every_tenant_reaches_a_partition_whose_only_finished_run_is_cancelled()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var tenant = $"cxl-{Guid.NewGuid():N}"[..21];
+        var now = DateTimeOffset.UtcNow;
+
+        var old = Run(RunStatus.Cancelled, now.AddDays(-400), "cancelled-only");
+        var recent = Run(RunStatus.Cancelled, now.AddDays(-1), "cancelled-recent");
+
+        await using (var session = store.LightweightSession(tenant))
+        {
+            session.Store(old);
+            await session.SaveChangesAsync(ct);
+        }
+
+        var service = new WorkflowRunRetentionService(
+            store,
+            _fixture.Services.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>(),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<WorkflowRunRetentionService>.Instance);
+
+        (await service.TrySweepAllTenantsAsync(now, ct)).Should().BeTrue("no other sweep holds the lock in this fixture");
+
+        await using (var check = store.QuerySession(tenant))
+        {
+            (await check.LoadAsync<WorkflowRun>(old.Id, ct)).Should().BeNull(
+                "the partition was listed, so the run past the failure window was removed");
+        }
+
+        // The control, in the same partition after the fact: a sweep that removed every cancelled
+        // run would satisfy the assertion above.
+        await using (var session = store.LightweightSession(tenant))
+        {
+            session.Store(recent);
+            await session.SaveChangesAsync(ct);
+        }
+
+        (await service.TrySweepAllTenantsAsync(now, ct)).Should().BeTrue();
+
+        await using (var check = store.QuerySession(tenant))
+        {
+            (await check.LoadAsync<WorkflowRun>(recent.Id, ct)).Should().NotBeNull(
+                "a cancelled run inside the failure window stays");
+        }
+    }
+
     [Fact]
     public async Task Nothing_unfinished_is_ever_removed_however_old_it_is()
     {

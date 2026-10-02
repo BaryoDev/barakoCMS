@@ -48,8 +48,12 @@ public class WorkflowRunCancelTests
         run.Status.Should().Be(expected);
     }
 
+    /// <summary>
+    /// Cancelled means the action never went out. An attempt that was claimed and whose lease ran
+    /// out may have, so it is stopped as Unknown.
+    /// </summary>
     [Fact]
-    public void Cancel_moves_what_has_not_started_and_leaves_an_action_under_a_live_lease()
+    public void Cancel_moves_what_has_not_started_marks_an_abandoned_claim_unknown_and_leaves_a_live_lease()
     {
         var now = DateTimeOffset.UtcNow;
         var run = new WorkflowRun
@@ -67,12 +71,40 @@ public class WorkflowRunCancelTests
 
         run.Actions.Should().HaveCount(4);
         run.Actions.Select(a => a.Status).Should().Equal(
-            AttemptStatus.Succeeded, AttemptStatus.Running, AttemptStatus.Cancelled, AttemptStatus.Cancelled);
+            AttemptStatus.Succeeded, AttemptStatus.Running, AttemptStatus.Unknown, AttemptStatus.Cancelled);
         run.Actions[1].LeasedBy.Should().Be("live");
+        run.Actions[2].Error.Should().Be(WorkflowRun.InFlightWhenStopped);
+        run.Actions[2].LeasedBy.Should().BeNull();
         run.Actions[3].NextAttemptAt.Should().BeNull();
+        run.Actions[3].Error.Should().BeNull();
         run.CancelledAt.Should().Be(now);
         run.Status.Should().Be(RunStatus.Running);
         run.NextDueAt.Should().Be(now.AddMinutes(5), "the runner looks again when the live lease ends, and at nothing before");
+    }
+
+    /// <summary>
+    /// A stopped run whose only stopped attempt is Unknown still ends Cancelled and leaves the due
+    /// query, which reads Pending and Running runs.
+    /// </summary>
+    [Fact]
+    public void A_stopped_run_left_with_an_unknown_attempt_ends_cancelled_and_is_not_due()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var run = new WorkflowRun
+        {
+            Actions =
+            [
+                new WorkflowActionAttempt { Ordinal = 0, Status = AttemptStatus.Running, LeasedBy = "dead", LeaseExpiresAt = now.AddMinutes(-5) },
+            ],
+        };
+
+        run.Cancel(now).Should().Be(1);
+
+        run.Actions.Should().HaveCount(1);
+        run.Actions[0].Status.Should().Be(AttemptStatus.Unknown);
+        run.Status.Should().Be(RunStatus.Cancelled);
+        run.NextDueAt.Should().BeNull();
+        run.CompletedAt.Should().NotBeNull();
     }
 
     [Fact]
@@ -118,21 +150,26 @@ public class WorkflowRunCancelTests
     /// <summary>
     /// Through the runner: the cancelled run's action is never called, and the run beside it is.
     /// </summary>
+    /// <remarks>
+    /// Both runs are due when the cancel lands, so a cancel that moved nothing would leave the first
+    /// one to be claimed by the drain, and its action would be counted.
+    /// </remarks>
     [Fact]
     public async Task A_cancelled_runs_waiting_action_never_executes()
     {
         var admin = await _harness.AdminAsync();
         var contentId = await _harness.StoreContentAsync();
-
-        var cancelled = await _harness.SeedRunAsync(Guid.NewGuid(), contentId, [WorkflowStopHarness.Waiting()]);
-        var control = await _harness.SeedRunAsync(Guid.NewGuid(), contentId, [WorkflowStopHarness.Waiting()]);
-
-        (await admin.PostAsync($"/api/workflow-runs/{cancelled.Id}/cancel", null, Ct))
-            .StatusCode.Should().Be(HttpStatusCode.OK);
+        WorkflowRun cancelled = null!;
+        WorkflowRun control = null!;
 
         await _harness.WithHostedRunnerPausedAsync(async () =>
         {
-            await _harness.MakeDueAsync(control.Id);
+            cancelled = await _harness.SeedRunAsync(Guid.NewGuid(), contentId, [WorkflowStopHarness.Waiting(due: true)]);
+            control = await _harness.SeedRunAsync(Guid.NewGuid(), contentId, [WorkflowStopHarness.Waiting(due: true)]);
+
+            (await admin.PostAsync($"/api/workflow-runs/{cancelled.Id}/cancel", null, Ct))
+                .StatusCode.Should().Be(HttpStatusCode.OK);
+
             await _harness.DrainAsync();
         });
 
@@ -141,7 +178,13 @@ public class WorkflowRunCancelTests
 
         var after = await _harness.LoadRunAsync(cancelled.Id);
         after.Actions.Should().HaveCount(1);
+        after.Actions[0].Status.Should().Be(AttemptStatus.Cancelled);
         after.Actions[0].Attempts.Should().Be(0);
+        after.Status.Should().Be(RunStatus.Cancelled);
+
+        var ran = await _harness.LoadRunAsync(control.Id);
+        ran.Actions.Should().HaveCount(1);
+        ran.Actions[0].Status.Should().Be(AttemptStatus.Succeeded);
     }
 
     /// <summary>
@@ -185,7 +228,8 @@ public class WorkflowRunCancelTests
     /// </summary>
     /// <remarks>
     /// The action fails in the way the runner retries. Without the cancel the first action would be
-    /// Pending again with a wait, and the second would run.
+    /// Pending again with a wait, and the second would run. It ends Failed and not Cancelled:
+    /// Cancelled is kept for an action that never went out.
     /// </remarks>
     [Fact]
     public async Task A_cancel_during_a_claimed_action_leaves_it_running_and_stops_the_run_after_it()
@@ -228,7 +272,9 @@ public class WorkflowRunCancelTests
         after.Actions.Should().HaveCount(2);
         after.Actions[0].Attempts.Should().Be(1);
         after.Actions[0].Error.Should().Contain("503", "its outcome is still recorded");
-        after.Actions[0].Status.Should().Be(AttemptStatus.Cancelled, "a failure the runner would retry is not queued again on a stopped run");
+        after.Actions[0].Status.Should().Be(AttemptStatus.Failed,
+            "it ran and failed, so it is not Cancelled, and on a stopped run the failure is not queued again");
+        after.Actions[0].Retryable.Should().BeTrue();
         after.Actions[0].NextAttemptAt.Should().BeNull();
         after.Actions[1].Status.Should().Be(AttemptStatus.Cancelled);
         after.Status.Should().Be(RunStatus.Cancelled);
@@ -331,6 +377,104 @@ public class WorkflowRunCancelTests
         after.Status.Should().Be(RunStatus.Running);
         after.CancelledAt.Should().NotBeNull();
         after.NextDueAt.Should().Be(after.Actions[0].LeaseExpiresAt);
+    }
+
+    /// <summary>
+    /// A second cancel while the last action is still out changes nothing, writes nothing and
+    /// records nothing.
+    /// </summary>
+    [Fact]
+    public async Task Cancelling_a_run_again_while_an_action_is_still_out_records_nothing_more()
+    {
+        var admin = await _harness.AdminAsync();
+        var run = await _harness.SeedRunAsync(Guid.NewGuid(), Guid.NewGuid(),
+            [WorkflowStopHarness.RunningElsewhere(), WorkflowStopHarness.Waiting()]);
+
+        (await admin.PostAsync($"/api/workflow-runs/{run.Id}/cancel", null, Ct))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        var first = await _harness.LoadRunAsync(run.Id);
+
+        var again = await admin.PostAsync($"/api/workflow-runs/{run.Id}/cancel", null, Ct);
+        var body = await again.Content.ReadAsStringAsync(Ct);
+
+        again.StatusCode.Should().Be(HttpStatusCode.OK, "{0}", body);
+        using (var doc = JsonDocument.Parse(body))
+        {
+            doc.RootElement.GetProperty("actions").EnumerateArray().Select(a => a.GetProperty("status").GetString())
+                .Should().Equal("Running", "Cancelled");
+        }
+
+        (await _harness.AuditOfAsync("workflow.run.cancelled", run.Id)).Should().HaveCount(1,
+            "the first request stopped the run and the second changed nothing");
+
+        var second = await _harness.LoadRunAsync(run.Id);
+        second.CancelledAt.Should().Be(first.CancelledAt);
+        second.Actions.Should().HaveCount(2);
+        second.Actions[1].CompletedAt.Should().Be(first.Actions[1].CompletedAt, "the run was not written a second time");
+    }
+
+    /// <summary>
+    /// The runner's outcome write refused by a cancel that landed between its read and its save,
+    /// then made again on a fresh read.
+    /// </summary>
+    /// <remarks>
+    /// On the document, in the steps the runner takes. Nothing outside the runner can get between
+    /// its read and its save, so the runner making the second read itself is not driven here. What
+    /// this pins is that the second read is worth making: the cancel left the attempt Running under
+    /// the same lease, so the outcome can still be recorded, and the run then ends Cancelled with
+    /// the action shown as having succeeded.
+    /// </remarks>
+    [Fact]
+    public async Task An_outcome_refused_by_a_cancel_can_be_recorded_on_a_second_read()
+    {
+        var admin = await _harness.AdminAsync();
+        var run = await _harness.SeedRunAsync(Guid.NewGuid(), Guid.NewGuid(),
+            [WorkflowStopHarness.RunningElsewhere(), WorkflowStopHarness.Waiting()]);
+
+        await using (var firstRead = _harness.Store.LightweightSession())
+        {
+            var read = await firstRead.LoadAsync<WorkflowRun>(run.Id, Ct);
+
+            (await admin.PostAsync($"/api/workflow-runs/{run.Id}/cancel", null, Ct))
+                .StatusCode.Should().Be(HttpStatusCode.OK);
+
+            Finish(read!.Actions[0]);
+            read.Recompute();
+            firstRead.Update(read);
+
+            var saving = async () => await firstRead.SaveChangesAsync(Ct);
+            (await saving.Should().ThrowAsync<Exception>())
+                .Which.GetType().Name.Should().Contain("Concurrency");
+        }
+
+        await using (var secondRead = _harness.Store.LightweightSession())
+        {
+            var read = await secondRead.LoadAsync<WorkflowRun>(run.Id, Ct);
+
+            read!.Actions.Should().HaveCount(2);
+            read.Actions[0].Status.Should().Be(AttemptStatus.Running, "the cancel left the action that was out");
+            read.Actions[0].LeasedBy.Should().Be(WorkflowStopHarness.OtherNode, "under the lease it was claimed with");
+
+            Finish(read.Actions[0]);
+            read.Recompute();
+            secondRead.Update(read);
+            await secondRead.SaveChangesAsync(Ct);
+        }
+
+        var after = await _harness.LoadRunAsync(run.Id);
+        after.Actions.Should().HaveCount(2);
+        after.Actions.Select(a => a.Status).Should().Equal(AttemptStatus.Succeeded, AttemptStatus.Cancelled);
+        after.Status.Should().Be(RunStatus.Cancelled);
+        after.NextDueAt.Should().BeNull();
+    }
+
+    private static void Finish(WorkflowActionAttempt attempt)
+    {
+        attempt.Status = AttemptStatus.Succeeded;
+        attempt.Attempts++;
+        attempt.LeasedBy = null;
+        attempt.LeaseExpiresAt = null;
+        attempt.CompletedAt = DateTimeOffset.UtcNow;
     }
 
     [Fact]

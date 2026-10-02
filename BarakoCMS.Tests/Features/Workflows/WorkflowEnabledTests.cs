@@ -238,6 +238,81 @@ public class WorkflowEnabledTests
         (await _harness.LoadRunAsync(stopped.Id)).Status.Should().Be(RunStatus.Cancelled);
     }
 
+    /// <summary>
+    /// A retry accepted for a switched off workflow would send nothing: the runner cancels the run
+    /// at the next claim, and a cancelled run can never be retried. So it is refused before anything
+    /// is written, and the same retry is accepted once the workflow is on.
+    /// </summary>
+    [Fact]
+    public async Task Retrying_an_action_of_a_switched_off_workflows_run_is_refused_until_it_is_switched_on()
+    {
+        var admin = await _harness.AdminAsync();
+        var off = await _harness.StoreWorkflowAsync(w => w.Enabled = false);
+        var run = await _harness.SeedRunAsync(off, Guid.NewGuid(), [WorkflowStopHarness.Finished(AttemptStatus.Failed)]);
+
+        var refused = await admin.PostAsync($"/api/workflow-runs/{run.Id}/actions/0/retry", null, Ct);
+
+        refused.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain("switched off");
+
+        var after = await _harness.LoadRunAsync(run.Id);
+        after.Actions.Should().HaveCount(1);
+        after.Actions[0].Status.Should().Be(AttemptStatus.Failed);
+        after.Status.Should().Be(RunStatus.Failed, "a refused retry leaves the run as it was, so it can be retried later");
+        (await _harness.AuditOfAsync("workflow.action.retried", run.Id)).Should().BeEmpty();
+
+        (await SetEnabledAsync(admin, off, true)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        try
+        {
+            var accepted = await admin.PostAsync($"/api/workflow-runs/{run.Id}/actions/0/retry", null, Ct);
+
+            accepted.StatusCode.Should().Be(HttpStatusCode.OK, "{0}", await accepted.Content.ReadAsStringAsync(Ct));
+            (await _harness.AuditOfAsync("workflow.action.retried", run.Id)).Should().HaveCount(1);
+        }
+        finally
+        {
+            // The accepted retry is due at once. Taken out so no runner picks it up after the test.
+            await using var cleanup = _harness.Store.LightweightSession();
+            cleanup.DeleteWhere<WorkflowRun>(r => r.Id == run.Id);
+            await cleanup.SaveChangesAsync(CancellationToken.None);
+        }
+    }
+
+    /// <summary>
+    /// A switch that read the workflow before a delete was saved must not put the workflow back.
+    /// </summary>
+    /// <remarks>
+    /// On two sessions, in the steps the endpoint takes: it loads, changes the flag and updates. A
+    /// store there is an upsert and would insert the deleted workflow again. An update of a row that
+    /// is gone is refused, and the endpoint answers that refusal with 404.
+    /// </remarks>
+    [Fact]
+    public async Task A_switch_that_read_the_workflow_before_a_delete_is_refused_and_does_not_bring_it_back()
+    {
+        var id = await _harness.StoreWorkflowAsync();
+
+        await using var switching = _harness.Store.LightweightSession();
+        var read = await switching.LoadAsync<WorkflowDefinition>(id, Ct);
+
+        await using (var deleting = _harness.Store.LightweightSession())
+        {
+            deleting.Delete<WorkflowDefinition>(id);
+            await deleting.SaveChangesAsync(Ct);
+        }
+
+        read!.Enabled = false;
+        switching.Update(read);
+
+        var saving = async () => await switching.SaveChangesAsync(Ct);
+
+        (await saving.Should().ThrowAsync<Exception>())
+            .Which.GetType().Name.Should().Contain("NonExistentDocument",
+                "the endpoint maps this refusal, by this name, to 404");
+
+        (await _harness.LoadWorkflowAsync(id)).Should().BeNull("the delete stands");
+    }
+
     /// <summary>The inline engine is still a public entry point, and selects definitions the same way.</summary>
     [Fact]
     public async Task The_inline_engine_does_not_run_a_disabled_workflow()

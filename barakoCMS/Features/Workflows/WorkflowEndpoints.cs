@@ -168,12 +168,23 @@ internal sealed class SetWorkflowEnabledEndpoint(
         if (workflow.Enabled != enabled)
         {
             workflow.Enabled = enabled;
-            session.Store(workflow);
+
+            // An update and not a store. A store is an upsert, and a delete committed after the
+            // load above would be undone by it: the workflow would be inserted again.
+            session.Update(workflow);
 
             await WorkflowAudit.RecordAsync(session, tenant.Slug,
                 enabled ? "workflow.enabled" : "workflow.disabled", workflow, User, ct: ct);
 
-            await session.SaveChangesAsync(ct);
+            try
+            {
+                await session.SaveChangesAsync(ct);
+            }
+            catch (Exception ex) when (ex.GetType().Name.Contains("NonExistentDocument"))
+            {
+                await Send.NotFoundAsync(ct);
+                return;
+            }
         }
 
         await Send.ResponseAsync(WorkflowResponse.From(workflow), cancellation: ct);

@@ -77,16 +77,95 @@ public class WorkflowDeleteTests
         audit[0].TargetType.Should().Be(nameof(WorkflowDefinition));
         audit[0].Metadata.Should().NotBeNull();
         Convert.ToInt32(audit[0].Metadata!["cancelledRuns"]).Should().Be(2, "the waiting run and the one in flight");
+    }
+
+    /// <summary>
+    /// Through the runner: a run that was due when its workflow was deleted is never executed.
+    /// </summary>
+    /// <remarks>
+    /// Both runs are due before the delete, with the hosted runner stopped. The runner does not stop
+    /// a run whose definition is gone, so a delete that cancelled nothing would leave the first run
+    /// to be claimed by the drain, and its action would be counted.
+    /// </remarks>
+    [Fact]
+    public async Task A_run_that_was_due_when_its_workflow_was_deleted_never_executes()
+    {
+        var admin = await _harness.AdminAsync();
+        var contentId = await _harness.StoreContentAsync();
+        var doomed = await _harness.StoreWorkflowAsync();
+        var kept = await _harness.StoreWorkflowAsync();
+        WorkflowRun stopped = null!;
+        WorkflowRun control = null!;
 
         await _harness.WithHostedRunnerPausedAsync(async () =>
         {
-            await _harness.MakeDueAsync(other.Id);
+            stopped = await _harness.SeedRunAsync(doomed, contentId, [WorkflowStopHarness.Waiting(due: true)]);
+            control = await _harness.SeedRunAsync(kept, contentId, [WorkflowStopHarness.Waiting(due: true)]);
+
+            (await admin.DeleteAsync($"/api/workflows/{doomed}", Ct)).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
             await _harness.DrainAsync();
         });
 
-        WorkflowStopHarness.TimesRun(waiting.Actions[0]).Should().Be(0, "a cancelled run's action never executes");
-        WorkflowStopHarness.TimesRun(inFlight.Actions[1]).Should().Be(0);
-        WorkflowStopHarness.TimesRun(other.Actions[0]).Should().Be(1, "the runner did run, and ran the kept workflow's run");
+        var after = await _harness.LoadRunAsync(stopped.Id);
+        after.Actions.Should().HaveCount(1);
+        after.Actions[0].Status.Should().Be(AttemptStatus.Cancelled);
+        after.Actions[0].Attempts.Should().Be(0);
+        after.Status.Should().Be(RunStatus.Cancelled);
+        WorkflowStopHarness.TimesRun(stopped.Actions[0]).Should().Be(0, "a cancelled run's action never executes");
+
+        var ran = await _harness.LoadRunAsync(control.Id);
+        ran.Actions.Should().HaveCount(1);
+        ran.Actions[0].Status.Should().Be(AttemptStatus.Succeeded, "the runner did run, and ran the kept workflow's run");
+        WorkflowStopHarness.TimesRun(control.Actions[0]).Should().Be(1);
+    }
+
+    /// <summary>
+    /// A failed run outlives its workflow as history, and its actions cannot be sent again.
+    /// </summary>
+    /// <remarks>
+    /// A finished run is not cancelled by the delete, so without this a retry would queue an
+    /// attempt with nothing to stop it: the runner does not stop a run whose definition is gone.
+    /// The second run, of a workflow that still exists, is retried the same way and accepted, so the
+    /// refusal is about the delete.
+    /// </remarks>
+    [Fact]
+    public async Task Retrying_an_action_of_a_deleted_workflows_run_is_refused_and_writes_nothing()
+    {
+        var admin = await _harness.AdminAsync();
+        var doomed = await _harness.StoreWorkflowAsync();
+        var kept = await _harness.StoreWorkflowAsync();
+
+        var orphan = await _harness.SeedRunAsync(doomed, Guid.NewGuid(), [WorkflowStopHarness.Finished(AttemptStatus.Failed)]);
+        var control = await _harness.SeedRunAsync(kept, Guid.NewGuid(), [WorkflowStopHarness.Finished(AttemptStatus.Failed)]);
+
+        (await admin.DeleteAsync($"/api/workflows/{doomed}", Ct)).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        var refused = await admin.PostAsync($"/api/workflow-runs/{orphan.Id}/actions/0/retry", null, Ct);
+
+        refused.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain("deleted");
+
+        var after = await _harness.LoadRunAsync(orphan.Id);
+        after.Actions.Should().HaveCount(1);
+        after.Actions[0].Status.Should().Be(AttemptStatus.Failed);
+        after.Status.Should().Be(RunStatus.Failed, "a refused retry leaves the run as it was");
+        (await _harness.AuditOfAsync("workflow.action.retried", orphan.Id)).Should().BeEmpty();
+
+        try
+        {
+            var accepted = await admin.PostAsync($"/api/workflow-runs/{control.Id}/actions/0/retry", null, Ct);
+
+            accepted.StatusCode.Should().Be(HttpStatusCode.OK, "{0}", await accepted.Content.ReadAsStringAsync(Ct));
+            (await _harness.AuditOfAsync("workflow.action.retried", control.Id)).Should().HaveCount(1);
+        }
+        finally
+        {
+            // The accepted retry is due at once. Taken out so no runner picks it up after the test.
+            await using var cleanup = _harness.Store.LightweightSession();
+            cleanup.DeleteWhere<WorkflowRun>(r => r.Id == control.Id);
+            await cleanup.SaveChangesAsync(CancellationToken.None);
+        }
     }
 
     /// <summary>

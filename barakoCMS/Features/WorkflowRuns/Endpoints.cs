@@ -235,6 +235,23 @@ internal sealed class RetryAttemptEndpoint(
             return;
         }
 
+        // The runner cancels a run whose workflow is switched off, so a retry accepted here would
+        // send nothing and leave the run Cancelled, which can never be retried again. Refused
+        // before anything is written, so the run keeps its status and can be retried once the
+        // workflow is on. A workflow that was deleted must not fire again through a retry either.
+        var workflow = await session.LoadAsync<WorkflowDefinition>(run.WorkflowDefinitionId, ct);
+        if (workflow is null)
+        {
+            ThrowError("The workflow that run belonged to has been deleted, so its actions are not run again.", 409);
+            return;
+        }
+
+        if (!workflow.Enabled)
+        {
+            ThrowError("That workflow is switched off. Switch it on first, then retry.", 409);
+            return;
+        }
+
         // Read before the reset. Retrying an Unknown is a decision to risk sending twice, and the
         // audit entry below is the record of who made it; reading the field afterwards would have
         // recorded every retry as ordinary.
@@ -308,7 +325,8 @@ internal sealed class RetryAttemptEndpoint(
 /// <remarks>
 /// An action running under a live lease is left. Its request is already with the third party, so
 /// it finishes and records its outcome, and the run ends after it. If it fails it is not queued
-/// again.
+/// again. An action still marked running after its lease ran out becomes Unknown: it was claimed,
+/// so it may have gone out, and Cancelled is kept for an action that never did.
 ///
 /// The write is the same optimistic one the runner's claim makes on the run, so a cancel and a
 /// claim of the same run cannot both be saved. Whichever is second is refused: the runner moves on,
@@ -348,7 +366,17 @@ internal sealed class CancelRunEndpoint(
             return;
         }
 
+        var alreadyStopped = run.CancelledAt is not null;
         var cancelled = run.Cancel(DateTimeOffset.UtcNow);
+
+        // A repeat while the last action is still out changes nothing, so it writes nothing and
+        // records nothing, and answers with the run as it stands.
+        if (alreadyStopped && cancelled == 0)
+        {
+            await Send.ResponseAsync(RunResponse.From(run), cancellation: ct);
+            return;
+        }
+
         session.Update(run);
 
         var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
@@ -358,7 +386,7 @@ internal sealed class CancelRunEndpoint(
             metadata: new Dictionary<string, object>
             {
                 ["workflow"] = run.WorkflowName,
-                ["cancelledActions"] = cancelled,
+                ["cancelledActions"] = run.Actions.Count(a => a.Status == AttemptStatus.Cancelled),
                 // An action left running is the one thing this could not stop, so the entry says
                 // whether there was one.
                 ["leftRunning"] = run.Actions.Count(a => a.Status == AttemptStatus.Running),

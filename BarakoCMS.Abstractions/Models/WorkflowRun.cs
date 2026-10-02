@@ -84,8 +84,8 @@ public class WorkflowRun
     /// the mail server was down hides that two of them went out, which is exactly what an operator
     /// deciding whether to retry needs to know.
     ///
-    /// A stopped run reads Cancelled once nothing of it is waiting or in flight, whatever its other
-    /// actions did. The attempts say which of them went out.
+    /// A stopped run reads Cancelled once nothing of it is waiting or in flight, whatever its
+    /// actions did, an Unknown one included. The attempts say which of them went out.
     /// </remarks>
     public void Recompute()
     {
@@ -126,32 +126,48 @@ public class WorkflowRun
     /// </summary>
     /// <remarks>
     /// An attempt running under a live lease is left. Its request is already with the third party
-    /// and changing the record would not recall it. An attempt still marked Running after its lease
-    /// ran out is one the runner would start again, so it is stopped with the waiting ones.
+    /// and changing the record would not recall it.
+    ///
+    /// An attempt still marked Running after its lease ran out is one the runner would start again,
+    /// so it is stopped too, but as Unknown and not as Cancelled. It was claimed, so its request may
+    /// have gone out, and Cancelled is kept for an action that never did.
     /// </remarks>
-    /// <returns>How many attempts were moved to Cancelled.</returns>
+    /// <returns>How many attempts were stopped, Cancelled and Unknown together.</returns>
     public int Cancel(DateTimeOffset now)
     {
         CancelledAt ??= now;
 
-        var moved = 0;
+        var stopped = 0;
 
         foreach (var attempt in Actions)
         {
             var abandoned = attempt.Status == AttemptStatus.Running && !(attempt.LeaseExpiresAt > now);
             if (attempt.Status != AttemptStatus.Pending && !abandoned) continue;
 
-            attempt.Status = AttemptStatus.Cancelled;
+            if (abandoned)
+            {
+                attempt.Status = AttemptStatus.Unknown;
+                attempt.Error = InFlightWhenStopped;
+            }
+            else
+            {
+                attempt.Status = AttemptStatus.Cancelled;
+            }
+
             attempt.NextAttemptAt = null;
             attempt.LeasedBy = null;
             attempt.LeaseExpiresAt = null;
             attempt.CompletedAt = now;
-            moved++;
+            stopped++;
         }
 
         Recompute();
-        return moved;
+        return stopped;
     }
+
+    /// <summary>The error on an attempt that was claimed, never reported back, and was then stopped.</summary>
+    public const string InFlightWhenStopped =
+        "The action was in flight when the run was stopped and never reported back, so it is not known whether it arrived.";
 
     /// <summary>
     /// Mirrors the order the runner claims in: a waiting attempt does not hold up the ones after it,
@@ -259,6 +275,7 @@ public class WorkflowActionAttempt
 /// retry it by hand having decided that duplicate delivery is the lesser risk.
 ///
 /// <see cref="Cancelled"/> is kept apart from <see cref="Skipped"/> for the same kind of reason.
-/// Skipped is the content having gone, which nobody decided. Cancelled is somebody stopping the run.
+/// Skipped is the content having gone, which nobody decided. Cancelled is somebody stopping the run
+/// before the action started, so a Cancelled action never went out.
 /// </remarks>
 public enum AttemptStatus { Pending, Running, Succeeded, Failed, Unknown, Skipped, Cancelled }
