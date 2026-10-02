@@ -78,6 +78,26 @@ public class MembershipWriterTests
             + "stage the audit entry on the same session");
     }
 
+    /// <summary>
+    /// The patch the writers share stages no entry, so it must not be callable from another file.
+    /// </summary>
+    [Fact]
+    public void The_patch_the_writers_share_is_private_to_them()
+    {
+        const System.Reflection.BindingFlags Any =
+            System.Reflection.BindingFlags.Static
+            | System.Reflection.BindingFlags.Public
+            | System.Reflection.BindingFlags.NonPublic;
+
+        var methods = typeof(global::barakoCMS.Features.Tenants.Members.Members)
+            .GetMethods(Any)
+            .Where(m => m.Name == "QueueWrite")
+            .ToList();
+
+        methods.Should().HaveCount(1, "the writers queue their patch through it");
+        methods[0].IsPrivate.Should().BeTrue("a caller outside Members could queue a write with no audit entry");
+    }
+
     [Theory]
     [InlineData("session.Store(new Membership { UserId = id });")]
     [InlineData("var m = new Membership();")]
