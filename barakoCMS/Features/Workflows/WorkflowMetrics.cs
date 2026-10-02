@@ -144,6 +144,18 @@ internal sealed class WorkflowMetrics
 
     public void Halted() => RunsHalted.Inc();
 
+    /// <summary>
+    /// Whether this attempt, as just recorded, halted its run: it ended Failed or Unknown and an
+    /// action after it was skipped because of it.
+    /// </summary>
+    /// <remarks>
+    /// Read from the run after <see cref="WorkflowRun.HaltAfter"/> has been applied. A halting
+    /// action that failed with nothing left behind it stopped nothing and is not counted.
+    /// </remarks>
+    internal static bool HaltedTheRun(WorkflowRun run, WorkflowActionAttempt attempt) =>
+        attempt.Status is AttemptStatus.Failed or AttemptStatus.Unknown
+        && run.Actions.Any(a => a.Status == AttemptStatus.Skipped && a.HaltedBy == attempt.Ordinal);
+
     public void PassCompleted(DateTimeOffset now) => LastPass.Set(UnixSeconds(now));
 
     public void Backlog(int due, TimeSpan oldest, DateTimeOffset now)

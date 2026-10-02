@@ -158,8 +158,14 @@ public class WorkflowRunnerMetricsTests
     /// The same failure on an action left to continue. The run is not halted, and the action after
     /// it runs.
     /// </summary>
+    /// <remarks>
+    /// The halt counter has no action label, so a halting retry another class left behind would
+    /// move it if this test's runner were the one to run its last attempt. Everything already due
+    /// is drained by another runner first, which leaves only a retry coming due during this test's
+    /// own drain.
+    /// </remarks>
     [Fact]
-    public async Task A_failure_of_an_action_set_to_continue_lets_the_next_action_be_counted()
+    public async Task A_failure_of_an_action_set_to_continue_counts_the_next_action_and_no_halt()
     {
         var (runner, metrics, _) = NewRunner();
         var workflowId = await _harness.StoreWorkflowAsync();
@@ -168,6 +174,8 @@ public class WorkflowRunnerMetricsTests
 
         await _harness.WithHostedRunnerPausedAsync(async () =>
         {
+            await _harness.DrainAsync();
+
             var seeded = await _harness.SeedRunAsync(workflowId, contentId,
                 [Attempt(MeteredRunnerAction.Refuse), Attempt(MeteredRunnerAction.Succeed)]);
 
@@ -181,6 +189,71 @@ public class WorkflowRunnerMetricsTests
         metrics.Attempts.WithLabels(Metered, "failed").Value.Should().Be(1);
         metrics.Attempts.WithLabels(Metered, "succeeded").Value.Should().Be(1);
         metrics.RunsFinished.WithLabels("partially_failed").Value.Should().BeGreaterThanOrEqualTo(1);
+        metrics.RunsHalted.Value.Should().Be(0, "an action set to continue stops nothing");
+    }
+
+    /// <summary>
+    /// A timeout halts as a failure does: it does not say whether the step happened.
+    /// </summary>
+    [Fact]
+    public async Task A_halting_action_that_times_out_is_counted_as_unknown_and_as_a_halt()
+    {
+        var (runner, metrics, _) = NewRunner();
+        var workflowId = await _harness.StoreWorkflowAsync();
+        var contentId = await _harness.StoreContentAsync();
+        WorkflowRun run = null!;
+
+        await _harness.WithHostedRunnerPausedAsync(async () =>
+        {
+            var halting = Attempt(MeteredRunnerAction.TimeOut);
+            halting.OnFailure = WorkflowFailurePolicy.Halt;
+
+            var seeded = await _harness.SeedRunAsync(workflowId, contentId, [halting, Attempt(MeteredRunnerAction.Succeed)]);
+
+            await DrainAsync(runner);
+
+            run = await _harness.LoadRunAsync(seeded.Id);
+        });
+
+        run.Actions.Should().HaveCount(2);
+        run.Actions.Select(a => a.Status).Should().Equal(AttemptStatus.Unknown, AttemptStatus.Skipped);
+        run.Actions[1].HaltedBy.Should().Be(0);
+
+        metrics.Attempts.WithLabels(Metered, "unknown").Value.Should().Be(1);
+        metrics.Attempts.WithLabels(Metered, "succeeded").Value.Should().Be(0, "the action after the halt never ran");
+        metrics.RunsHalted.Value.Should().BeGreaterThanOrEqualTo(1);
+    }
+
+    /// <summary>
+    /// A run that was told to stop while it waited. The runner cancels what is left in place of
+    /// claiming it, and that is the only place such a run is counted as finished.
+    /// </summary>
+    [Fact]
+    public async Task A_stopped_run_the_runner_cancels_in_place_of_claiming_is_counted_as_finished_cancelled()
+    {
+        var (runner, metrics, _) = NewRunner();
+        var workflowId = await _harness.StoreWorkflowAsync();
+        var contentId = await _harness.StoreContentAsync();
+        WorkflowRun run = null!;
+
+        await _harness.WithHostedRunnerPausedAsync(async () =>
+        {
+            var seeded = await _harness.SeedRunAsync(
+                workflowId, contentId, [Attempt(MeteredRunnerAction.Succeed)], cancelledAt: DateTimeOffset.UtcNow);
+            seeded.Status.Should().Be(RunStatus.Pending, "the run has to be unfinished for the runner to be the one that ends it");
+
+            await DrainAsync(runner);
+
+            run = await _harness.LoadRunAsync(seeded.Id);
+        });
+
+        run.Status.Should().Be(RunStatus.Cancelled);
+        run.Actions.Should().HaveCount(1);
+        run.Actions[0].Status.Should().Be(AttemptStatus.Cancelled);
+
+        metrics.RunsFinished.WithLabels("cancelled").Value.Should().BeGreaterThanOrEqualTo(1);
+        metrics.Attempts.WithLabels(Metered, "succeeded").Value.Should().Be(0, "a cancelled action never went out");
+        metrics.ActionDuration.WithLabels(Metered).Count.Should().Be(0);
     }
 
     [Fact]
@@ -385,28 +458,104 @@ public class WorkflowRunnerMetricsTests
 
             await DrainAsync(runner);
 
+            (await runner.MeasureBacklogAsync(Ct)).Should().BeTrue();
+            var measuredAt = metrics.BacklogMeasured.Value;
+            var waiting = metrics.DueRuns.Value;
+            measuredAt.Should().BeGreaterThan(0);
+
+            // Due now, so a count that did finish would publish at least one more than the last.
+            await MakeDueAsync(tenant, parked.Id);
+
             using var stopped = new CancellationTokenSource();
             await stopped.CancelAsync();
 
             var measured = await runner.MeasureBacklogAsync(stopped.Token);
 
             measured.Should().BeFalse("the partition this test seeded has to be read, and the read is cancelled");
-            metrics.BacklogMeasured.Value.Should().Be(0);
-            metrics.DueRuns.Value.Should().Be(0);
+            metrics.BacklogMeasured.Value.Should().Be(measuredAt, "the time of the last count that finished is how a reader sees the numbers are old");
+            metrics.DueRuns.Value.Should().Be(waiting, "the last numbers stay");
 
             await StopAsync(tenant, parked.Id);
         });
     }
 
-    private (WorkflowRunner Runner, WorkflowMetrics Metrics, CollectorRegistry Registry) NewRunner()
+    /// <summary>
+    /// <c>Workflows:BacklogIntervalSeconds</c> at 0: the loop completes passes and never counts.
+    /// </summary>
+    [Fact]
+    public async Task With_the_backlog_interval_at_zero_the_loop_completes_passes_and_never_counts_the_backlog()
+    {
+        var (runner, metrics, _) = NewRunner(backlogIntervalSeconds: 0);
+
+        await _harness.WithHostedRunnerPausedAsync(async () =>
+        {
+            await runner.StartAsync(CancellationToken.None);
+
+            try
+            {
+                var deadline = DateTimeOffset.UtcNow.AddSeconds(30);
+                while (metrics.LastPass.Value == 0 && DateTimeOffset.UtcNow < deadline)
+                {
+                    await Task.Delay(100, Ct);
+                }
+
+                // The count follows the pass in the same turn of the loop. Long enough for it to
+                // have been made if it were going to be.
+                await Task.Delay(TimeSpan.FromSeconds(1), Ct);
+            }
+            finally
+            {
+                await runner.StopAsync(CancellationToken.None);
+            }
+        });
+
+        metrics.LastPass.Value.Should().BeGreaterThan(0, "the loop ran, so the line below is about the setting");
+        metrics.BacklogMeasured.Value.Should().Be(0);
+    }
+
+    /// <summary>
+    /// A count that keeps failing warns once, and a count that succeeds starts the next streak.
+    /// </summary>
+    [Fact]
+    public async Task A_failing_backlog_count_warns_once_per_streak_and_a_count_that_succeeds_ends_the_streak()
+    {
+        var (runner, _, _) = NewRunner();
+
+        await _harness.WithHostedRunnerPausedAsync(async () =>
+        {
+            await DrainAsync(runner);
+
+            runner.NoteBacklogFailure("TimeoutException").Should().BeTrue("the first failure is logged");
+            runner.NoteBacklogFailure("TimeoutException").Should().BeFalse("the second one within five minutes is not");
+
+            (await runner.MeasureBacklogAsync(Ct)).Should().BeTrue();
+
+            runner.NoteBacklogFailure("TimeoutException").Should().BeTrue("a failure after a count that worked is a new streak");
+        });
+    }
+
+    private (WorkflowRunner Runner, WorkflowMetrics Metrics, CollectorRegistry Registry) NewRunner(
+        int? backlogIntervalSeconds = null)
     {
         var registry = Prometheus.Metrics.NewCustomRegistry();
         var metrics = new WorkflowMetrics(registry);
 
+        var config = _factory.Services.GetRequiredService<IConfiguration>();
+        if (backlogIntervalSeconds is { } seconds)
+        {
+            config = new ConfigurationBuilder()
+                .AddConfiguration(config)
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    [WorkflowRunner.BacklogIntervalKey] = seconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                })
+                .Build();
+        }
+
         var runner = new WorkflowRunner(
             _factory.Services,
             _factory.Services.GetRequiredService<ILogger<WorkflowRunner>>(),
-            _factory.Services.GetRequiredService<IConfiguration>())
+            config)
         {
             Metrics = metrics,
         };

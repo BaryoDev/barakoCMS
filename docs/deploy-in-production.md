@@ -76,12 +76,23 @@ Workflow actions run in the background, so a runner that has stopped changes not
 see. The API publishes when the runner last completed a pass, how many runs are due and how old the
 oldest is, and how each action attempt ended, on `/metrics`. Set `Metrics__ScrapeKey` on the `app`
 service to switch the endpoint on, and see "Watching the runner" in `docs/workflow-runs.md` for the
-metric names and the alert expressions. The two to start with:
+metric names, what each alert fires on, and the forms for more than one node. On a single VM, the
+four to start with:
 
 ```
-time() - max(barakocms_workflow_runner_last_pass_timestamp_seconds) > 600
-max(barakocms_workflow_oldest_due_run_age_seconds) > 900
+time() - barakocms_workflow_runner_last_pass_timestamp_seconds > 600
+absent(barakocms_workflow_runner_last_pass_timestamp_seconds)
+barakocms_workflow_oldest_due_run_age_seconds > 900
+  and on (instance) (time() - barakocms_workflow_backlog_measured_timestamp_seconds < 120)
+absent(barakocms_workflow_backlog_measured_timestamp_seconds)
 ```
+
+In order: the runner has not completed a pass in ten minutes, it has never completed one, work has
+been due for fifteen minutes on a measurement that is fresh, and the backlog has never been
+measured. The first says nothing on a runner that never completed a pass, and the third says
+nothing while the backlog was never measured, which is why each has its `absent` after it. The backlog is
+measured every 30 seconds by default (`Workflows__BacklogIntervalSeconds`, 0 switches it off, and
+the last two alerts go with it).
 
 ## Pointing a frontend at it
 

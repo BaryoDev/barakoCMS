@@ -89,13 +89,38 @@ internal sealed class WorkflowRunner(
     /// <summary>Where this runner counts what it does. A test gives it a registry of its own.</summary>
     internal WorkflowMetrics Metrics { get; init; } = WorkflowMetrics.Default;
 
-    /// <summary>The least time between two counts of the due runs.</summary>
-    internal static readonly TimeSpan BacklogEvery = TimeSpan.FromSeconds(30);
+    public const string BacklogIntervalKey = "Workflows:BacklogIntervalSeconds";
+
+    public const int DefaultBacklogIntervalSeconds = 30;
+
+    public const int MaxBacklogIntervalSeconds = 3600;
 
     /// <summary>How long one count of the due runs may take before it is given up.</summary>
     internal static readonly TimeSpan BacklogBudget = TimeSpan.FromSeconds(10);
 
-    private long _backlogMeasuredAt;
+    /// <summary>The least time between two warnings while the count keeps failing.</summary>
+    internal static readonly TimeSpan BacklogWarnEvery = TimeSpan.FromMinutes(5);
+
+    private readonly TimeSpan? _backlogEvery = ReadBacklogInterval(config);
+    private long? _backlogMeasuredAt;
+    private int _backlogFailures;
+    private long _backlogWarnedAt;
+
+    /// <summary>The least time between two counts of the due runs. Null when the count is switched off.</summary>
+    /// <remarks>Refused out of range, for the reason <see cref="ReadConcurrency"/> gives.</remarks>
+    internal static TimeSpan? ReadBacklogInterval(IConfiguration config)
+    {
+        var seconds = config.GetValue(BacklogIntervalKey, DefaultBacklogIntervalSeconds);
+
+        if (seconds is < 0 or > MaxBacklogIntervalSeconds)
+        {
+            throw new InvalidOperationException(
+                $"{BacklogIntervalKey} must be between 0 and {MaxBacklogIntervalSeconds}, and is {seconds}. "
+              + "It is how many seconds pass between two counts of the due workflow runs, and 0 switches the count off.");
+        }
+
+        return seconds == 0 ? null : TimeSpan.FromSeconds(seconds);
+    }
 
     /// <summary>How many actions of different runs this node may have in flight at once.</summary>
     /// <remarks>
@@ -366,7 +391,8 @@ internal sealed class WorkflowRunner(
 
     private async Task MeasureBacklogWhenDueAsync(CancellationToken ct)
     {
-        if (Stopwatch.GetElapsedTime(_backlogMeasuredAt) < BacklogEvery) return;
+        if (_backlogEvery is not { } every) return;
+        if (_backlogMeasuredAt is { } last && Stopwatch.GetElapsedTime(last) < every) return;
 
         _backlogMeasuredAt = Stopwatch.GetTimestamp();
         await MeasureBacklogAsync(ct);
@@ -377,27 +403,28 @@ internal sealed class WorkflowRunner(
     /// Never throws.
     /// </summary>
     /// <remarks>
-    /// Called from the loop between passes, at most once every <see cref="BacklogEvery"/>, and never
-    /// from a scrape. A scrape reads the last numbers.
+    /// Called from the loop between passes, at most once every <see cref="BacklogIntervalKey"/>
+    /// seconds, and never from a scrape. A scrape reads the last numbers.
     ///
     /// One count per partition, which reads what the due query of a pass reads, and one more read
-    /// of a single run in a partition that has something due. It stops at
+    /// of one timestamp in a partition that has something due. It stops at
     /// <see cref="BacklogBudget"/>, so a slow database costs the passes that long and no longer.
     ///
     /// When it fails or runs out of time nothing is published: the gauges keep the last numbers and
     /// the time they were measured, which is how a reader tells they are old. Part of a count would
-    /// read as a backlog that shrank.
+    /// read as a backlog that shrank. On a node where it has never succeeded the gauges are not
+    /// published at all.
     /// </remarks>
     /// <returns>Whether new numbers were published.</returns>
     internal async Task<bool> MeasureBacklogAsync(CancellationToken ct)
     {
         if (_partitions is not { } partitions) return false;
 
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        budget.CancelAfter(BacklogBudget);
+
         try
         {
-            using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            budget.CancelAfter(BacklogBudget);
-
             using var scope = services.CreateScope();
             var store = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
 
@@ -418,26 +445,52 @@ internal sealed class WorkflowRunner(
                     .Where(DueAt(now))
                     .OrderBy(r => r.CreatedAt)
                     .Take(1)
+                    .Select(r => r.CreatedAt)
                     .ToListAsync(budget.Token);
 
-                if (first.Count > 0 && (oldest is null || first[0].CreatedAt < oldest))
+                if (first.Count > 0 && (oldest is null || first[0] < oldest))
                 {
-                    oldest = first[0].CreatedAt;
+                    oldest = first[0];
                 }
             }
 
             Metrics.Backlog(due, oldest is { } queuedAt ? now - queuedAt : TimeSpan.Zero, now);
+            _backlogFailures = 0;
             return true;
         }
         catch (Exception ex)
         {
             if (!ct.IsCancellationRequested)
             {
-                logger.LogWarning(ex, "The workflow runner could not count the due runs, so the backlog gauges keep their last values");
+                NoteBacklogFailure(budget.IsCancellationRequested
+                    ? $"it took longer than {BacklogBudget.TotalSeconds:0} seconds"
+                    : ex.GetType().Name);
             }
 
             return false;
         }
+    }
+
+    /// <summary>Warns that the count failed: on the first failure in a row, then at most every <see cref="BacklogWarnEvery"/>.</summary>
+    /// <remarks>
+    /// The count is tried again every interval, so a database that stays slow would otherwise write
+    /// the same line for as long as it does. No exception is logged: the type says which kind of
+    /// failure it is, and a message can quote what the database was asked.
+    /// </remarks>
+    /// <returns>Whether a line was written.</returns>
+    internal bool NoteBacklogFailure(string reason)
+    {
+        _backlogFailures++;
+
+        if (_backlogFailures > 1 && Stopwatch.GetElapsedTime(_backlogWarnedAt) < BacklogWarnEvery) return false;
+
+        _backlogWarnedAt = Stopwatch.GetTimestamp();
+        logger.LogWarning(
+            "The workflow runner could not count the due runs ({Reason}), {Failures} time(s) in a row. "
+          + "The backlog gauges are not updated until a count succeeds",
+            reason, _backlogFailures);
+
+        return true;
     }
 
     /// <summary>
@@ -620,11 +673,7 @@ internal sealed class WorkflowRunner(
             Metrics.Recorded(attempt.ActionType, outcome.Registered, attempt.Status, outcome.ElapsedMs);
             Metrics.Finished(latest.Status);
 
-            if (attempt.Status is AttemptStatus.Failed or AttemptStatus.Unknown
-                && latest.Actions.Any(a => a.Status == AttemptStatus.Skipped && a.HaltedBy == attempt.Ordinal))
-            {
-                Metrics.Halted();
-            }
+            if (WorkflowMetrics.HaltedTheRun(latest, attempt)) Metrics.Halted();
         }
 
         return true;

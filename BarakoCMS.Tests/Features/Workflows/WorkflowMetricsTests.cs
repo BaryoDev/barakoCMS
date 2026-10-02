@@ -1,6 +1,9 @@
 using barakoCMS.Features.Workflows;
 using barakoCMS.Models;
 using FluentAssertions;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace BarakoCMS.Tests.Features.Workflows;
 
@@ -83,6 +86,113 @@ public class WorkflowMetricsTests
         {
             metrics.RunsFinished.WithLabels(status).Value.Should().Be(0);
         }
+    }
+
+    [Fact]
+    public void A_failed_or_unknown_attempt_halted_its_run_only_when_an_action_was_skipped_behind_it()
+    {
+        Run(AttemptStatus.Failed, skippedBehind: 0).Should().BeTrue();
+        Run(AttemptStatus.Unknown, skippedBehind: 0).Should().BeTrue("a timeout halts as a failure does");
+
+        Run(AttemptStatus.Failed, skippedBehind: null).Should().BeFalse("the action after it was skipped because the content went");
+        Run(AttemptStatus.Succeeded, skippedBehind: 0).Should().BeFalse("an attempt that succeeded halted nothing");
+        Run(AttemptStatus.Pending, skippedBehind: 0).Should().BeFalse("an attempt queued again has not failed yet");
+
+        static bool Run(AttemptStatus first, int? skippedBehind)
+        {
+            var run = new WorkflowRun
+            {
+                Actions =
+                [
+                    new WorkflowActionAttempt { Ordinal = 0, Status = first },
+                    new WorkflowActionAttempt { Ordinal = 1, Status = AttemptStatus.Skipped, HaltedBy = skippedBehind },
+                ],
+            };
+
+            return WorkflowMetrics.HaltedTheRun(run, run.Actions[0]);
+        }
+    }
+
+    [Fact]
+    public void A_failed_attempt_with_a_later_action_that_ran_did_not_halt_its_run()
+    {
+        var run = new WorkflowRun
+        {
+            Actions =
+            [
+                new WorkflowActionAttempt { Ordinal = 0, Status = AttemptStatus.Failed },
+                new WorkflowActionAttempt { Ordinal = 1, Status = AttemptStatus.Succeeded },
+            ],
+        };
+
+        WorkflowMetrics.HaltedTheRun(run, run.Actions[0]).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(null, 30)]
+    [InlineData("30", 30)]
+    [InlineData("5", 5)]
+    [InlineData("3600", 3600)]
+    public void The_backlog_interval_is_thirty_seconds_unless_it_is_set(string? configured, int seconds)
+    {
+        WorkflowRunner.ReadBacklogInterval(Config(configured)).Should().Be(TimeSpan.FromSeconds(seconds));
+    }
+
+    [Fact]
+    public void A_backlog_interval_of_zero_switches_the_count_off()
+    {
+        WorkflowRunner.ReadBacklogInterval(Config("0")).Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("-1")]
+    [InlineData("3601")]
+    public void A_backlog_interval_out_of_range_is_refused_by_name(string configured)
+    {
+        var read = () => WorkflowRunner.ReadBacklogInterval(Config(configured));
+
+        read.Should().Throw<InvalidOperationException>().WithMessage($"*{WorkflowRunner.BacklogIntervalKey}*");
+    }
+
+    /// <summary>
+    /// The warning for a count that failed: one line for the streak, the reason it was given, and
+    /// no exception, so no stack trace and no message from the database.
+    /// </summary>
+    [Fact]
+    public void A_failing_backlog_count_writes_one_warning_with_the_reason_and_no_exception()
+    {
+        var logger = new CapturingLogger();
+        var runner = new WorkflowRunner(new ServiceCollection().BuildServiceProvider(), logger, Config(null));
+
+        runner.NoteBacklogFailure("NpgsqlException").Should().BeTrue();
+        runner.NoteBacklogFailure("NpgsqlException").Should().BeFalse();
+        runner.NoteBacklogFailure("NpgsqlException").Should().BeFalse();
+
+        logger.Lines.Should().HaveCount(1);
+        var line = logger.Lines.Single();
+        line.Level.Should().Be(LogLevel.Warning);
+        line.Text.Should().Contain("NpgsqlException").And.Contain("1 time(s)");
+        line.Exception.Should().BeNull();
+    }
+
+    private static IConfiguration Config(string? backlogIntervalSeconds) =>
+        new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                [WorkflowRunner.BacklogIntervalKey] = backlogIntervalSeconds,
+            })
+            .Build();
+
+    private sealed class CapturingLogger : ILogger<WorkflowRunner>
+    {
+        public System.Collections.Concurrent.ConcurrentQueue<(LogLevel Level, string Text, Exception? Exception)> Lines { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            => Lines.Enqueue((logLevel, formatter(state, exception), exception));
     }
 
     [Fact]

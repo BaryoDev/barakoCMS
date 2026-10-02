@@ -241,53 +241,115 @@ What the numbers do not include:
 
 ### The backlog gauges
 
-`due_runs` and `oldest_due_run_age_seconds` are measured by the runner between passes, at most once
-every 30 seconds, and never by a scrape. A scrape reads the last numbers. Each measurement is one
-count per tenant partition, the same read a pass already makes to find what is due, and one more
-read of a single run in a partition that has something due. It stops after 10 seconds. With
-`Tenancy:DatabaseEnforcement` on, that is one count per registered tenant, as a pass is.
+`due_runs` and `oldest_due_run_age_seconds` are measured by the runner between passes and never by
+a scrape. A scrape reads the last numbers.
 
-If a measurement fails or runs out of time, nothing is published, the node logs a warning, and the
-gauges keep their last values. The runner goes on to its next pass either way. That is why the time
-of the measurement is published beside them: old numbers are told apart by their age.
+```json
+{
+  "Workflows": {
+    "BacklogIntervalSeconds": 30
+  }
+}
+```
 
-Every node measures the same database, so take `max` across nodes, not `sum`.
+`Workflows:BacklogIntervalSeconds` is the least time between two measurements. The default is 30.
+It takes 0 to 3600, and a value outside that range stops the API from starting, with an error that
+names the setting. **0 switches the measurement off**: the three backlog gauges are then never
+published, and the backlog alerts below have nothing to read, so remove them with it.
 
-A run that failed and is waiting on a retry is not due until its wait ends, and its age is counted
-from when it was first queued. So a run on its fifth attempt reads a few minutes old the moment it
+What a measurement costs: one count per tenant partition, which reads what a pass already reads
+there to find what is due, and one more read of a single timestamp in a partition that has something
+due. An idle runner makes a pass every 5 seconds, so at the default the measurement adds about one
+partition sweep to every six the runner makes anyway. The partitions are the ones a pass visits:
+those holding unfinished runs, or every registered tenant when the list comes from the tenant
+registry (`Tenancy:DatabaseEnforcement` on, or `Multi` mode). A measurement stops after 10 seconds,
+and that is the most it can hold up the next pass.
+
+If a measurement fails or runs out of time, nothing is published and the gauges keep their last
+values. The runner goes on to its next pass either way. The node logs one warning when the failures
+start, naming the kind of failure, and then at most one every five minutes while they go on. That is
+why the time of the measurement is published beside the numbers: old numbers are told apart by
+their age. On a node where no measurement has ever finished, the three gauges are not published at
+all, which is what the "never measured" alert below is for.
+
+Every node measures the same database, so two healthy nodes report the same backlog. Do not sum
+them.
+
+What the age gauge does not catch on its own:
+
+- **A runner that has stopped.** The runner measures the gauge itself, so the number freezes when
+  the runner does. The last pass alert is the one that catches it.
+- **A provider that is down.** A run that failed and is waiting on a retry is not due until its wait
+  ends, and after five attempts it is `Failed` and no longer waiting at all. The failure ratio alert
+  is the one that catches it.
+
+What it does catch is a runner that is alive and not keeping up. A retried run's age is counted
+from when it was first queued, so a run on its fifth attempt reads a few minutes old the moment it
 comes due. Set the age threshold above that.
 
 A node with `Workflows:RunnerEnabled` off publishes none of the four gauges.
 
 ### Alerts
 
-The runner has stopped, or every pass is failing. A pass waits for its actions, so the threshold
-has to be longer than the slowest action:
+Each expression below is evaluated per node (Prometheus adds an `instance` label to every series it
+scrapes), except the failure ratio. With `max` over the nodes, one node whose runner had stopped
+would be hidden by another whose runner had not.
+
+**A node's runner has not completed a pass in ten minutes.** Fires once for each such node, while
+the node still answers scrapes. A pass waits for its actions, so the threshold has to be longer than
+the slowest action. A node that is down altogether drops out of this one, and `up == 0` reports it.
 
 ```
-time() - max(barakocms_workflow_runner_last_pass_timestamp_seconds) > 600
+time() - barakocms_workflow_runner_last_pass_timestamp_seconds > 600
 ```
 
-No node has completed a pass since it started:
+**A node has never completed a pass.** Fires for each scraped node that publishes no last pass:
+its runner has not finished one since it started. It also matches a node with
+`Workflows:RunnerEnabled` off, so leave those out by `instance`. Change `job` to the name in your
+scrape config.
+
+```
+up{job="barakocms"} == 1 unless on (instance) barakocms_workflow_runner_last_pass_timestamp_seconds
+```
+
+**No node at all reports a pass.**
 
 ```
 absent(barakocms_workflow_runner_last_pass_timestamp_seconds)
 ```
 
-Work is due and is not being taken. This is the one that catches a runner that is alive and not
-keeping up:
+**Work has been due for fifteen minutes and is not being taken.** Read only from a node whose
+measurement is fresh, so a node that stopped measuring cannot keep an old age firing. Use a few
+times the measurement interval for the freshness. Every node with a fresh measurement fires
+together, since they count the same database.
 
 ```
-max(barakocms_workflow_oldest_due_run_age_seconds) > 900
+barakocms_workflow_oldest_due_run_age_seconds > 900
+  and on (instance) (time() - barakocms_workflow_backlog_measured_timestamp_seconds < 120)
 ```
 
-The backlog numbers are old, so the alert above cannot be trusted:
+**A node's backlog numbers are old.** Its measurements have been failing or timing out for five
+minutes, so the alert above says nothing for that node.
 
 ```
-time() - max(barakocms_workflow_backlog_measured_timestamp_seconds) > 300
+time() - barakocms_workflow_backlog_measured_timestamp_seconds > 300
 ```
 
-More than half the attempts of one action type are failing, which is usually a provider being down:
+**The backlog has never been measured.** The first is for one node, or for "no node at all". The
+second fires for each scraped node that has never finished a measurement, which is the case where
+the count does not fit in its 10 seconds from the start. Both also fire when
+`Workflows:BacklogIntervalSeconds` is 0, so they go with the setting.
+
+```
+absent(barakocms_workflow_backlog_measured_timestamp_seconds)
+```
+
+```
+up{job="barakocms"} == 1 unless on (instance) barakocms_workflow_backlog_measured_timestamp_seconds
+```
+
+**More than half the attempts of one action type are failing**, across all nodes, which is usually
+a provider being down:
 
 ```
 sum by (action) (rate(barakocms_workflow_attempts_total{outcome=~"failed|retried|unknown"}[10m]))
