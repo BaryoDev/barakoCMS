@@ -52,6 +52,10 @@ the repository.
   on a type that already has entries. An import does not change who may read a stored field; a
   bundle that raises, lowers or leaves out a non-Public field is refused, and
   `PUT /api/content-types/{name}/fields/{field}/sensitivity` is the way to change it.
+- An import does not change the currency or scale a stored money field declares either. A bundle
+  that carries a different one, or none where the stored field has one, is refused, and
+  `PUT /api/content-types/{name}/fields/{field}/currency` is the way to change it. A field the
+  stored type does not have yet takes what the bundle declares.
 - Each entry goes through the same write path as `POST /api/contents`: a field the caller may not
   see is dropped, the entry is validated against its type as the bundle leaves it, the type's
   lifecycle hooks run, and the entry starts in the type's initial lifecycle state. The singleton cap

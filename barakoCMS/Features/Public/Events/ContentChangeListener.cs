@@ -192,6 +192,8 @@ internal sealed class ContentChangeListener(
                     ReferenceType = f.ReferenceType,
                     Options = f.Options,
                     Multiple = f.Multiple,
+                    Currency = f.Currency,
+                    Scale = f.Scale,
                     IsRequired = f.IsRequired,
                     DefaultValue = f.DefaultValue,
                     ValidationRules = f.ValidationRules,

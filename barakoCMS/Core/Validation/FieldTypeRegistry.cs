@@ -75,6 +75,9 @@ public static class FieldTypeRegistry
         new("markdown", "markdown", IsString),
         new("time",     "time",     v => AsString(v) is { } s && IsTime(s)),
         new("json",     "json",     IsJson),
+        // A number, like decimal. A field that declares a currency is also held to that currency's
+        // decimal places, which needs the definition, so ContentValidatorService checks it through
+        // MoneyFields.
         new("money",    "money",    IsDecimal),
 
         // A pointer to another content item, Contentful and Sanity style rather than a real foreign
