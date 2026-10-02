@@ -62,6 +62,7 @@
 set -euo pipefail
 
 . "$(dirname "$0")/lib-ports.sh"
+. "$(dirname "$0")/lib-upgrade-data.sh"
 
 FROM_VERSION="${FROM_VERSION:-3.21.0}"
 IMAGE="${IMAGE:-ghcr.io/baryodev/barako-cms:${FROM_VERSION}}"
@@ -306,15 +307,13 @@ docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-tra
 # Data, not schema (#883). FROM_VERSION seeded a role named HR under the fixed id, whose holders read
 # Sensitive fields by that name, and the working tree decides the same thing by capability. The
 # file grants to that role and to no other role named HR. The count is checked before the new build
-# boots, because its seeder grants the same capability and would hide a file that does nothing.
+# boots, because its seeder grants the same capability and would hide a file that does nothing. The
+# three checks are in lib-upgrade-data.sh.
 step "applying migrations/4.6.0/sensitivity-by-capability.sql"
-SEEDED_HR="id = '00000000-0000-0000-0000-000000000003' and data ->> 'Name' = 'HR'"
-[ "$(psql_q "select count(*) from mt_doc_roles where $SEEDED_HR;")" = "1" ] \
-    || fail "the ${FROM_VERSION} database has no role named HR under the seeded id, so migrations/4.6.0/sensitivity-by-capability.sql proves nothing on this start"
+require_seeded_hr
 docker cp migrations/4.6.0/sensitivity-by-capability.sql "$PG:/tmp/sensitivity.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/sensitivity.sql >/dev/null
-[ "$(psql_q "select count(*) from mt_doc_roles where $SEEDED_HR and data -> 'SystemCapabilities' ? 'view_sensitive';")" = "1" ] \
-    || fail "migrations/4.6.0/sensitivity-by-capability.sql did not give the HR role view_sensitive, so its holders would stop reading Sensitive fields on upgrade"
+require_seeded_hr_granted
 echo "HR holds view_sensitive"
 
 step "the migration left the daemon's progression alone"
@@ -418,8 +417,7 @@ HOST_PID=""
 step "applying migrations/4.6.0/rollback-sensitivity-by-capability.sql"
 docker cp migrations/4.6.0/rollback-sensitivity-by-capability.sql "$PG:/tmp/sensitivity-down.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/sensitivity-down.sql >/dev/null
-[ "$(psql_q "select count(*) from mt_doc_roles where $SEEDED_HR and data -> 'SystemCapabilities' ? 'view_sensitive';")" = "0" ] \
-    || fail "migrations/4.6.0/rollback-sensitivity-by-capability.sql left view_sensitive on the seeded HR role, which the forward file put there"
+require_seeded_hr_not_granted
 step "applying migrations/4.5.0/rollback-email-sent-emails.sql"
 docker cp migrations/4.5.0/rollback-email-sent-emails.sql "$PG:/tmp/sent-emails-down.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/sent-emails-down.sql >/dev/null
