@@ -62,7 +62,7 @@ bucket" rather than as an error.
 | `ServiceUrl` | Set for R2 or a self-hosted store; leave null for AWS |
 | `ForcePathStyle` | Usually `true` for self-hosted stores |
 | `PublicBaseUrl` | Serve public files from your CDN domain. The key is appended, so a public file's URL is `{PublicBaseUrl}/public/{name}` |
-| `UsePublicReadAcl` | Defaults to `true`. Set it to `false` on buckets that block public ACLs |
+| `UsePublicReadAcl` | Defaults to `true`. Set it to `false` on buckets that block public ACLs, and grant read on `public/*` as below, not on the bucket |
 
 Keys belong in environment variables or a secret store, never in a checked-in `appsettings.json`.
 
@@ -78,7 +78,10 @@ or by key prefix, never by the `isPublic` flag in the database. Granted on the w
 serve a private file to anyone who has its key. Granted on `public/*`, they serve public files and
 nothing else.
 
-On AWS S3, with `UsePublicReadAcl` set to `false`, this policy is the whole grant:
+On AWS S3 there are two ways to do that. Neither is run by this module's tests, which check where
+objects land and not what a bucket serves; the policies below are the shape AWS documents.
+
+**Direct bucket URLs.** With `UsePublicReadAcl` set to `false`, this is the bucket policy:
 
 ```json
 {
@@ -98,9 +101,17 @@ On AWS S3, with `UsePublicReadAcl` set to `false`, this policy is the whole gran
 Do not grant `s3:GetObject` on `arn:aws:s3:::my-bucket/*`, and do not grant `s3:ListBucket` to
 anonymous callers. Set `PublicBaseUrl` to the bucket's URL (`https://my-bucket.s3.eu-west-1.amazonaws.com`).
 
-With CloudFront, keep the bucket private and let only the distribution read the prefix. Create the
-distribution with the bucket as its origin and an origin access control, leave the origin path
-empty so the URL path is the key, and scope the bucket policy to the distribution and the prefix:
+The policy alone is not enough on a new bucket. AWS turns on all four Block Public Access settings
+when a bucket is created, and two of them stop this route: `BlockPublicPolicy` rejects a policy
+with `"Principal": "*"` when it is saved, and `RestrictPublicBuckets` refuses anonymous reads even
+with such a policy in place. Both have to be off, on the bucket and on the account, for the direct
+URL to work. `BlockPublicAcls` and `IgnorePublicAcls` can stay on.
+
+**CloudFront, the one to prefer.** It needs none of the four settings changed: the bucket stays
+private and only the distribution reads the prefix. Create the distribution with the bucket as its
+origin and an origin access control, leave the origin path empty so the URL path is the key (an
+origin path of `/public` would look for `public/public/{name}`), and scope the bucket policy to the
+distribution and the prefix:
 
 ```json
 {
@@ -131,11 +142,13 @@ ones. Leave `PublicBaseUrl` unset there and public files are streamed through
 `GET /api/public/files/{id}`.
 
 The storage refuses a write whose key and visibility disagree: a private object under `public/`, or
-a public one under `private/`.
+a public one under `private/`. The key is read loosely for that check, so `/public/x`,
+`./public/x`, `a/../public/x`, `public\x` and `Public/x` are refused for a private object too. A
+host writing its own `IFileStorage` can ask the same question with `FileKeys.Contradicts`.
 
 ### Files stored before the prefixes
 
-A file uploaded before BarakoCMS.Files 4.3.2 keeps the key on its row, at the bucket root
+A file uploaded before BarakoCMS.Files 4.4.0 keeps the key on its row, at the bucket root
 with no prefix, and nothing moves it. The API reads, resizes and deletes it by that key as before,
 and a new resize of it is stored under the prefix for its visibility.
 
@@ -150,7 +163,7 @@ readable by anyone who has a key.
 
 | Store | Notes |
 |---|---|
-| AWS S3 | Leave `ServiceUrl` null and set `Region`. `UsePublicReadAcl` only works on a bucket with ACLs enabled, and new buckets have them disabled, so prefer the policy on `public/*` above. |
+| AWS S3 | Leave `ServiceUrl` null and set `Region`. `UsePublicReadAcl` only works on a bucket with ACLs enabled, and new buckets have them disabled, so prefer CloudFront or the policy on `public/*` above. |
 | Cloudflare R2 | No object ACLs, so set `UsePublicReadAcl` to `false`. A bucket made public in the R2 dashboard is public as a whole, private files included: see "Key layout and public access". |
 | [SeaweedFS](https://github.com/seaweedfs/seaweedfs) | Apache-2.0. The module's own tests run against it. Does not apply an ACL sent with an upload, so set `UsePublicReadAcl` to `false`. Anonymous read granted on the whole bucket covers private files too: see "Key layout and public access". |
 | [Garage](https://garagehq.deuxfleurs.fr/) | AGPL-3.0. No object ACLs, so treat it like R2 and set `UsePublicReadAcl` to `false`. |

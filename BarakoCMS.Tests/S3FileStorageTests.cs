@@ -88,11 +88,21 @@ public class S3FileStorageTests : IAsyncLifetime
         r.PublicUrl.Should().BeNull("private files are not publicly addressable");
     }
 
-    [Fact]
-    public async Task A_private_object_is_refused_under_the_public_prefix()
+    /// <summary>
+    /// The first row is the plain case. The rest are keys a store or a proxy that collapses slashes,
+    /// dot segments or case would land under <c>public/</c> all the same.
+    /// </summary>
+    [Theory]
+    [InlineData("public/leak.pdf")]
+    [InlineData("/public/leak.pdf")]
+    [InlineData("./public/leak.pdf")]
+    [InlineData("//public/leak.pdf")]
+    [InlineData("a/../public/leak.pdf")]
+    [InlineData("Public/leak.pdf")]
+    public async Task A_private_object_is_refused_under_the_public_prefix(string key)
     {
         var refused = async () => await _storage.PutAsync(
-            Bytes("secret"), "public/leak.pdf", "application/pdf", isPublic: false);
+            Bytes("secret"), key, "application/pdf", isPublic: false);
 
         await refused.Should().ThrowAsync<ArgumentException>(
             "a policy or CDN scoped to public/* serves whatever is under it");
@@ -105,16 +115,22 @@ public class S3FileStorageTests : IAsyncLifetime
         Encoding.UTF8.GetString((await _storage.GetAsync("private/kept.pdf"))!).Should().Be("secret");
     }
 
-    [Fact]
-    public async Task A_public_object_is_refused_under_the_private_prefix()
+    [Theory]
+    [InlineData("private/pic.png")]
+    [InlineData("/private/pic.png")]
+    [InlineData("./private/pic.png")]
+    [InlineData("//private/pic.png")]
+    [InlineData("a/../private/pic.png")]
+    [InlineData("Private/pic.png")]
+    public async Task A_public_object_is_refused_under_the_private_prefix(string key)
     {
         var refused = async () => await _storage.PutAsync(
-            Bytes("img"), "private/pic.png", "image/png", isPublic: true);
+            Bytes("img"), key, "image/png", isPublic: true);
 
         await refused.Should().ThrowAsync<ArgumentException>(
             "its public URL would point at a prefix no public grant covers");
         (await _storage.GetAsync("private/pic.png")).Should().BeNull("a refused write stores nothing");
-        _storage.PublicUrl("private/pic.png", isPublic: true).Should().BeNull();
+        _storage.PublicUrl(key, isPublic: true).Should().BeNull();
 
         // The pairing, and the URL a grant on public/* has to cover.
         var kept = await _storage.PutAsync(Bytes("img"), "public/pic.png", "image/png", isPublic: true);
