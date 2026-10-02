@@ -104,6 +104,38 @@ Design and documentation contributions go through the same pull request process 
 the test requirements below, for obvious reasons, but the packaging guardrails still apply, so an
 icon has to be a real PNG under 1MB, and `dotnet test` will tell you if it isn't.
 
+## The wiki is generated from `docs/`
+
+Edit the doc in `docs/`, never the wiki page. `.github/workflows/wiki-sync.yml` runs on every push
+to master that touches `docs/`, regenerates the pages with `scripts/wiki-sync.sh` and pushes them to
+the wiki as one commit naming the source commit. A hand edit to a generated page is overwritten by
+the next run.
+
+The sync only writes pages it wrote before, which it records in `.wiki-sync-manifest` in the wiki.
+Any other page is left alone, and if a doc would land on one (a `docs/Configuration.md` beside the
+hand-written `Configuration` page) the run fails instead of overwriting it. `Home` and
+`barakoCMS-*` release pages are also protected by name, whatever the manifest says. Only files git
+tracks are published, so an ignored working note in `docs/` never reaches the wiki.
+
+A doc that must not be public goes in `docs/.wikiignore`. Adding an already published doc there
+removes the page, but the wiki's git history keeps the old text, so treat anything that was
+published as public. A broken link in a doc fails the run, and a failed run leaves the wiki as it
+was, so a red `wiki sync` on master means the wiki is stale.
+
+To run it without waiting for a push, start the workflow from the Actions tab (`wiki sync`, Run
+workflow). To run it by hand, with your own push access, do it from an up to date master and nothing
+else: the script publishes whatever commit is checked out, so a feature branch or a stale master
+puts older docs over newer ones. It prints the commit and branch before it writes.
+
+```bash
+git switch master && git pull --ff-only
+git clone https://github.com/BaryoDev/barakoCMS.wiki.git /tmp/wiki
+bash scripts/wiki-publish.sh /tmp/wiki
+```
+
+`bash scripts/wiki-sync.sh /tmp/wiki` on its own writes the pages into the clone and stops, which is
+the way to read the result before anything is pushed.
+
 ## Writing a module
 
 Modules are how barakoCMS grows without the core growing. A module is an ordinary class library that
