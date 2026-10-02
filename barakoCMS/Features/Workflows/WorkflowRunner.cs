@@ -45,12 +45,16 @@ internal static class WorkflowRetryPolicy
 }
 
 /// <summary>
-/// Executes queued workflow actions, one at a time, outside the projection.
+/// Executes queued workflow actions outside the projection, a bounded number at a time.
 /// </summary>
 /// <remarks>
 /// The projection decides and records; this does the I/O. That is the whole point of #329: an
 /// action that posts to three third parties used to hold a Marten daemon shard for the duration,
 /// so a slow provider stalled workflow processing for every tenant and a hanging one stopped it.
+///
+/// Actions of different runs may be in flight together, up to <see cref="ConcurrencyKey"/> on this
+/// node. Actions of one run never are: the next one cannot be claimed until the one before it has
+/// recorded its outcome or lost its lease.
 /// </remarks>
 internal sealed class WorkflowRunner(
     IServiceProvider services,
@@ -61,8 +65,19 @@ internal sealed class WorkflowRunner(
 
     internal const int CandidatesPerPass = 20;
 
+    public const string ConcurrencyKey = "Workflows:RunnerConcurrency";
+
+    /// <summary>One action at a time per node, as it was before the setting existed.</summary>
+    public const int DefaultConcurrency = 1;
+
+    /// <summary>
+    /// A pass reads <see cref="CandidatesPerPass"/> runs per tenant, so one tenant could not fill
+    /// more slots than that.
+    /// </summary>
+    public const int MaxConcurrency = CandidatesPerPass;
+
     private readonly string _node = $"{Environment.MachineName}-{Guid.NewGuid():N}"[..40];
-    private readonly Random _random = new();
+    private readonly int _concurrency = ReadConcurrency(config);
 
     private string[]? _partitions;
     private long _scannedAt;
@@ -70,6 +85,26 @@ internal sealed class WorkflowRunner(
 
     /// <summary>How many times this runner has listed the partitions.</summary>
     internal int PartitionScans { get; private set; }
+
+    /// <summary>How many actions of different runs this node may have in flight at once.</summary>
+    /// <remarks>
+    /// Refused out of range, not clamped. Every action is a call to a third party, so the number is
+    /// how hard one node may hit a provider, and a typing mistake should stop the host from starting
+    /// instead of quietly becoming some other number.
+    /// </remarks>
+    internal static int ReadConcurrency(IConfiguration config)
+    {
+        var value = config.GetValue(ConcurrencyKey, DefaultConcurrency);
+
+        if (value is < 1 or > MaxConcurrency)
+        {
+            throw new InvalidOperationException(
+                $"{ConcurrencyKey} must be between 1 and {MaxConcurrency}, and is {value}. "
+              + "It is how many workflow actions one node runs at once. For more than that, add nodes.");
+        }
+
+        return value;
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -110,7 +145,10 @@ internal sealed class WorkflowRunner(
         }
     }
 
-    /// <summary>Claims one attempt and runs it. Returns whether there was anything to do.</summary>
+    /// <summary>
+    /// Claims attempts up to the bound, runs them together and waits for all of them. Returns
+    /// whether there was anything to do.
+    /// </summary>
     /// <remarks>
     /// The partition list is kept between passes for up to <see cref="Idle"/>, so draining a backlog
     /// does not scan for partitions once per action. A pass that finds nothing in a kept list scans
@@ -141,18 +179,71 @@ internal sealed class WorkflowRunner(
         PartitionScans++;
     }
 
+    /// <summary>What one pass has taken so far.</summary>
+    /// <remarks>
+    /// Made by the pass and handed down, never kept on the runner, so two passes on one runner
+    /// cannot share one. Only the claiming loop of its pass reads or writes it. The actions it
+    /// starts are handed what they need and never touch it.
+    /// </remarks>
+    private sealed class Pass(int slots)
+    {
+        public int Free = slots;
+
+        public readonly List<Task> Running = [];
+
+        /// <summary>The due runs of each tenant asked so far, less the ones already offered.</summary>
+        public readonly Dictionary<string, Queue<Guid>> Due = new(StringComparer.Ordinal);
+    }
+
+    /// <summary>A run that took a slot. With no attempt, it was cancelled in place of being claimed.</summary>
+    private sealed record Claim(WorkflowRun Run, WorkflowActionAttempt? Attempt);
+
     /// <summary>
-    /// One pass over the kept partitions, starting after the one served last.
+    /// Fills the slots of one pass, a round of the tenants at a time, then waits for what it started.
     /// </summary>
     /// <remarks>
-    /// A pass ends at the first claim. Always starting from the top let a tenant that sorts early
-    /// and always has work keep every tenant after it waiting.
+    /// A round gives each tenant at most one slot, so a tenant with a long queue gets a second one
+    /// only after the round has been past every other tenant with work. The rounds stop when the
+    /// slots are full or a round took none.
     ///
-    /// A tenant that throws is logged and passed over. The next pass starts after it, the same as
-    /// after a tenant that was served, or one run that cannot be read would be where every pass
-    /// starts and ends.
+    /// Everything started is awaited here, also when claiming throws, so no action outlives the
+    /// pass that started it and the bound holds from one pass to the next.
     /// </remarks>
     private async Task<bool> RunDueAsync(IDocumentStore store, CancellationToken ct)
+    {
+        var pass = new Pass(_concurrency);
+
+        try
+        {
+            int before;
+
+            do
+            {
+                before = pass.Free;
+                await ClaimRoundAsync(store, pass, ct);
+            }
+            while (pass.Free > 0 && pass.Free < before);
+        }
+        finally
+        {
+            await Task.WhenAll(pass.Running);
+        }
+
+        return pass.Free < _concurrency;
+    }
+
+    /// <summary>
+    /// One round over the kept partitions, starting after the one served last.
+    /// </summary>
+    /// <remarks>
+    /// Always starting from the top let a tenant that sorts early and always has work keep every
+    /// tenant after it waiting.
+    ///
+    /// A tenant that throws is logged and passed over for the rest of the pass. The next pass
+    /// starts after it, the same as after a tenant that was served, or one run that cannot be read
+    /// would be where every pass starts and ends.
+    /// </remarks>
+    private async Task ClaimRoundAsync(IDocumentStore store, Pass pass, CancellationToken ct)
     {
         var partitions = _partitions!;
         var start = 0;
@@ -163,16 +254,15 @@ internal sealed class WorkflowRunner(
             if (start < 0) start = 0;
         }
 
-        for (var i = 0; i < partitions.Length; i++)
+        for (var i = 0; i < partitions.Length && pass.Free > 0; i++)
         {
             var tenantId = partitions[(start + i) % partitions.Length];
 
             try
             {
-                if (await RunDueInAsync(store, tenantId, ct))
+                if (await RunDueInAsync(store, tenantId, pass, ct))
                 {
                     _lastServed = tenantId;
-                    return true;
                 }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -182,43 +272,72 @@ internal sealed class WorkflowRunner(
             catch (Exception ex)
             {
                 _lastServed = tenantId;
+                pass.Due[tenantId] = new();
                 logger.LogError(ex,
                     "The workflow runner failed in tenant {Tenant} and went on to the next",
                     barakoCMS.Infrastructure.Logging.LogSafe.Value(tenantId));
             }
         }
+    }
+
+    /// <summary>Gives one tenant the next free slot, if it has a run that takes it.</summary>
+    /// <remarks>
+    /// A tenant's due runs are read once per pass and kept, so a later round does not query again
+    /// and a run is offered at most once per pass.
+    ///
+    /// The action starts on the pool as soon as it is claimed, so its lease is not spent waiting
+    /// for the other slots to fill, and a handler that works before its first await does not hold
+    /// up the claiming.
+    /// </remarks>
+    private async Task<bool> RunDueInAsync(IDocumentStore store, string tenantId, Pass pass, CancellationToken ct)
+    {
+        if (!pass.Due.TryGetValue(tenantId, out var due))
+        {
+            due = new Queue<Guid>(await DueRunsAsync(store, tenantId, ct));
+            pass.Due[tenantId] = due;
+        }
+
+        while (due.TryDequeue(out var runId))
+        {
+            var claim = await TryClaimAsync(store, runId, tenantId, ct);
+            if (claim is null) continue;
+
+            pass.Free--;
+
+            if (claim.Attempt is { } attempt)
+            {
+                var run = claim.Run;
+                pass.Running.Add(Task.Run(
+                    () => RunClaimedAsync(store, run, attempt, tenantId, ct), CancellationToken.None));
+            }
+
+            return true;
+        }
 
         return false;
     }
 
-    /// <summary>Claims and runs the first due attempt one tenant has, if it has one.</summary>
-    private async Task<bool> RunDueInAsync(IDocumentStore store, string tenantId, CancellationToken ct)
+    /// <summary>The oldest runs of one tenant that can be claimed now.</summary>
+    private static async Task<IReadOnlyList<Guid>> DueRunsAsync(IDocumentStore store, string tenantId, CancellationToken ct)
     {
         var now = DateTimeOffset.UtcNow;
 
         await using var query = store.QuerySession(tenantId);
 
         // Due-ness is in the query so the twenty are twenty runs that can be claimed. A run stored
-        // before NextDueAt was kept has none and is read as due; TryRunAsync decides.
+        // before NextDueAt was kept has none and is read as due; TryClaimAsync decides.
         //
         // Not indexed. Marten writes the null test on the raw JSON value and the comparison on
         // mt_immutable_timestamptz of it, and Postgres uses an index for an OR only when every arm
         // matches one. The null arm has to stay while an older node can still write a run without
         // the value, so an index on the comparison alone would be maintained and never read.
-        var due = await query.Query<WorkflowRun>()
+        return await query.Query<WorkflowRun>()
             .Where(r => (r.Status == RunStatus.Pending || r.Status == RunStatus.Running)
                 && (r.NextDueAt == null || r.NextDueAt <= now))
             .OrderBy(r => r.CreatedAt)
             .Take(CandidatesPerPass)
             .Select(r => r.Id)
             .ToListAsync(ct);
-
-        foreach (var runId in due)
-        {
-            if (await TryRunAsync(store, runId, tenantId, ct)) return true;
-        }
-
-        return false;
     }
 
     /// <summary>
@@ -242,31 +361,29 @@ internal sealed class WorkflowRunner(
 
     internal const string UnfinishedFilter = "(data ->> 'Status')::integer in (0, 1)";
 
-    /// <summary>Claims the next due attempt of one run and executes it.</summary>
-    private async Task<bool> TryRunAsync(IDocumentStore store, Guid runId, string tenantId, CancellationToken ct)
+    /// <summary>Claims the next due attempt of one run, or cancels what a stopped run has left.</summary>
+    /// <returns>Null when nothing was written, which leaves the slot for the next run.</returns>
+    private async Task<Claim?> TryClaimAsync(IDocumentStore store, Guid runId, string tenantId, CancellationToken ct)
     {
-        WorkflowActionAttempt? claimed;
-        WorkflowRun run;
-
         // The claim is its own transaction. Optimistic concurrency on the run is what stops two
         // nodes taking the same attempt: both load it, both write, and the second is refused. A lock
         // would serialise every node onto one attempt at a time, which is the shape the scheduler
         // needs and the wrong one here.
         await using (var session = store.LightweightSession(tenantId))
         {
-            run = (await session.LoadAsync<WorkflowRun>(runId, ct))!;
-            if (run is null) return false;
+            var run = await session.LoadAsync<WorkflowRun>(runId, ct);
+            if (run is null) return null;
 
             if (run.CancelledAt is not null || await IsSwitchedOffAsync(session, run.WorkflowDefinitionId, ct))
             {
-                return await CancelRemainingAsync(session, run, ct);
+                return await CancelRemainingAsync(session, run, ct) ? new Claim(run, null) : null;
             }
 
-            claimed = NextDue(run);
+            var claimed = NextDue(run);
             if (claimed is null)
             {
                 await RecordNextDueAsync(session, run, ct);
-                return false;
+                return null;
             }
 
             claimed.Status = AttemptStatus.Running;
@@ -284,10 +401,42 @@ internal sealed class WorkflowRunner(
             {
                 // Another node got there first. Not an error, and not worth a log line at warning:
                 // it is the mechanism working.
-                return false;
+                return null;
             }
-        }
 
+            return new Claim(run, claimed);
+        }
+    }
+
+    /// <summary>Executes one claimed attempt and records how it went. Never throws.</summary>
+    /// <remarks>
+    /// It runs beside the other attempts of its pass, so whatever goes wrong here is logged and ends
+    /// here. Thrown on, it would be the pass that failed, with the other outcomes unread. The
+    /// attempt is left Running under its lease, and is taken again when the lease ends.
+    /// </remarks>
+    private async Task RunClaimedAsync(
+        IDocumentStore store, WorkflowRun run, WorkflowActionAttempt claimed, string tenantId, CancellationToken ct)
+    {
+        try
+        {
+            await ExecuteAndRecordAsync(store, run, claimed, tenantId, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // The host is stopping.
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex,
+                "The workflow runner failed on run {RunId} action {Ordinal} in tenant {Tenant}",
+                run.Id, claimed.Ordinal, barakoCMS.Infrastructure.Logging.LogSafe.Value(tenantId));
+        }
+    }
+
+    private async Task ExecuteAndRecordAsync(
+        IDocumentStore store, WorkflowRun run, WorkflowActionAttempt claimed, string tenantId, CancellationToken ct)
+    {
+        var runId = run.Id;
         var outcome = await ExecuteAsync(store, run, claimed, tenantId, ct);
 
         // Twice, because a cancel or a delete may write the run between the read and the save here.
@@ -302,8 +451,6 @@ internal sealed class WorkflowRunner(
             // generated per try. On a stopped run it is marked Unknown when the lease ends.
             logger.LogWarning("Could not record the outcome of run {RunId} action {Ordinal}", runId, claimed.Ordinal);
         }
-
-        return true;
     }
 
     /// <summary>Writes one attempt's outcome onto the run as it is stored now.</summary>
@@ -592,7 +739,7 @@ internal sealed class WorkflowRunner(
         {
             attempt.Status = AttemptStatus.Pending;
             attempt.Retryable = null;
-            attempt.NextAttemptAt = DateTimeOffset.UtcNow.Add(WorkflowRetryPolicy.Backoff(attempt.Attempts, _random));
+            attempt.NextAttemptAt = DateTimeOffset.UtcNow.Add(WorkflowRetryPolicy.Backoff(attempt.Attempts, Random.Shared));
             return;
         }
 

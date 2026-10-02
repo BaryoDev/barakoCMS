@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -85,8 +86,19 @@ internal sealed class ConnectorSender(
     IHttpClientFactory httpClientFactory,
     IQuerySession session,
     IConnectorSecretProtector protector,
+    ConnectorTokenCache tokens,
     ILogger<ConnectorSender> logger) : IConnectorSender, IConnectorFetcher
 {
+    /// <summary>
+    /// The longest one token request may take, from the first byte sent to the last byte read.
+    /// </summary>
+    /// <remarks>
+    /// The client's own timeouts stop at the response headers, and the body is read after them. A
+    /// token endpoint that sent headers and then nothing would hold the caller for as long as it
+    /// liked, and the workflow runner is one loop.
+    /// </remarks>
+    internal TimeSpan GrantTimeout { get; init; } = TimeSpan.FromSeconds(30);
+
     public async Task<ConnectorCallResult> ProbeAsync(Connector connector, CancellationToken ct)
     {
         if (!Uri.TryCreate(connector.BaseUrl, UriKind.Absolute, out var baseUri)
@@ -130,7 +142,10 @@ internal sealed class ConnectorSender(
 
         try
         {
-            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+            using var first = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+            using var again = await RetryWithNewTokenAsync(client, connector, request, first,
+                () => new HttpRequestMessage(HttpMethod.Get, target), HttpCompletionOption.ResponseHeadersRead, ct);
+            var response = again ?? first;
             timer.Stop();
 
             return new ConnectorCallResult(
@@ -172,18 +187,7 @@ internal sealed class ConnectorSender(
         // when it is sent is the case a check here could not see.
         var client = httpClientFactory.CreateClient("ExternalApi");
 
-        using var request = new HttpRequestMessage(new HttpMethod(composed.Method), target);
-
-        foreach (var (name, value) in composed.Headers)
-        {
-            request.Headers.TryAddWithoutValidation(name, value);
-        }
-
-        if (composed.Body is not null)
-        {
-            request.Content = new StringContent(
-                composed.Body, Encoding.UTF8, composed.BodyContentType ?? "application/json");
-        }
+        using var request = BuildRequest(composed, target);
 
         var attached = await TryAttachAuthAsync(request, connector, ct);
         if (attached is not null)
@@ -195,7 +199,10 @@ internal sealed class ConnectorSender(
 
         try
         {
-            using var response = await client.SendAsync(request, ct);
+            using var first = await client.SendAsync(request, ct);
+            using var again = await RetryWithNewTokenAsync(client, connector, request, first,
+                () => BuildRequest(composed, target), HttpCompletionOption.ResponseContentRead, ct);
+            var response = again ?? first;
             timer.Stop();
 
             // The body is read only when a rule needs it, and it is never returned or logged. A 401
@@ -245,18 +252,7 @@ internal sealed class ConnectorSender(
         // proxy decision are the ones already reviewed rather than a second set.
         var client = httpClientFactory.CreateClient("ExternalApi");
 
-        using var request = new HttpRequestMessage(new HttpMethod(composed.Method), target);
-
-        foreach (var (name, value) in composed.Headers)
-        {
-            request.Headers.TryAddWithoutValidation(name, value);
-        }
-
-        if (composed.Body is not null)
-        {
-            request.Content = new StringContent(
-                composed.Body, Encoding.UTF8, composed.BodyContentType ?? "application/json");
-        }
+        using var request = BuildRequest(composed, target);
 
         if (connector is not null)
         {
@@ -281,7 +277,10 @@ internal sealed class ConnectorSender(
 
         try
         {
-            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+            using var first = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+            using var again = await RetryWithNewTokenAsync(client, connector, request, first,
+                () => BuildRequest(composed, target), HttpCompletionOption.ResponseHeadersRead, ct);
+            var response = again ?? first;
 
             if (!response.IsSuccessStatusCode)
             {
@@ -331,7 +330,7 @@ internal sealed class ConnectorSender(
     /// against a provider that sends no Content-Length or an untrue one. Nothing about a response
     /// from a third party is a reason to allocate what it says to allocate.
     /// </remarks>
-    private static async Task<string?> ReadCappedAsync(HttpResponseMessage response, int maxBytes, CancellationToken ct)
+    internal static async Task<string?> ReadCappedAsync(HttpResponseMessage response, int maxBytes, CancellationToken ct)
     {
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
 
@@ -373,7 +372,7 @@ internal sealed class ConnectorSender(
 
             case ConnectorAuth.Basic:
             {
-                var username = connector.Settings.GetValueOrDefault(ConnectorSettingKeys.Username) ?? string.Empty;
+                var username = connector.Settings?.GetValueOrDefault(ConnectorSettingKeys.Username) ?? string.Empty;
                 var password = await SecretAsync(connector.Id, ConnectorSecretKeys.Password, ct);
                 if (password is null) return Missing(ConnectorSecretKeys.Password);
 
@@ -384,7 +383,7 @@ internal sealed class ConnectorSender(
 
             case ConnectorAuth.ApiKeyHeader:
             {
-                var header = connector.Settings.GetValueOrDefault(ConnectorSettingKeys.HeaderName);
+                var header = connector.Settings?.GetValueOrDefault(ConnectorSettingKeys.HeaderName);
                 if (string.IsNullOrWhiteSpace(header))
                 {
                     return $"Auth is ApiKeyHeader, so Settings needs '{ConnectorSettingKeys.HeaderName}'.";
@@ -398,10 +397,7 @@ internal sealed class ConnectorSender(
             }
 
             case ConnectorAuth.OAuth2ClientCredentials:
-                // Refused rather than accepted and inert. An operator who picks this has decided
-                // they need a token exchange, and starting the call without one would report a 401
-                // as a credential problem when it is a missing feature.
-                return "OAuth2ClientCredentials is not implemented yet. Use BearerToken with a token you obtained, or ApiKeyHeader.";
+                return await TryAttachGrantedTokenAsync(request, connector, ct);
 
             default:
                 return $"Unknown auth mode '{connector.Auth}'.";
@@ -419,6 +415,141 @@ internal sealed class ConnectorSender(
 
     private static string Missing(string key) =>
         $"No '{key}' secret is stored for this connector, or it will not decrypt under the current Connectors:Key.";
+
+    private static readonly HttpRequestOptionsKey<ConnectorTokenKey> SentCachedToken = new("barakocms.connector.cached-token");
+
+    /// <summary>
+    /// Attaches a token from the client credentials grant: the cached one, or a new one from the
+    /// token endpoint. Returns null when it went on, or the reason it did not.
+    /// </summary>
+    /// <remarks>
+    /// The token request goes through the same ExternalApi client as the call itself, so the token
+    /// URL meets the same address guard, redirect policy and timeouts. Neither the secret nor the
+    /// token is logged, stored or put in a message.
+    /// </remarks>
+    private async Task<string?> TryAttachGrantedTokenAsync(
+        HttpRequestMessage request, Connector connector, CancellationToken ct)
+    {
+        var tokenUrl = connector.Settings?.GetValueOrDefault(ConnectorSettingKeys.TokenUrl);
+        if (!Uri.TryCreate(tokenUrl?.Trim(), UriKind.Absolute, out var tokenUri)
+            || (tokenUri.Scheme != Uri.UriSchemeHttp && tokenUri.Scheme != Uri.UriSchemeHttps))
+        {
+            return $"Auth is OAuth2ClientCredentials, so Settings needs '{ConnectorSettingKeys.TokenUrl}' as an absolute http or https URL.";
+        }
+
+        var clientId = connector.Settings?.GetValueOrDefault(ConnectorSettingKeys.ClientId);
+        if (string.IsNullOrWhiteSpace(clientId))
+        {
+            return $"Auth is OAuth2ClientCredentials, so Settings needs '{ConnectorSettingKeys.ClientId}'.";
+        }
+
+        var clientAuth = connector.Settings?.GetValueOrDefault(ConnectorSettingKeys.ClientAuth);
+        var inBody = string.Equals(clientAuth, ConnectorSettingKeys.ClientAuthBody, StringComparison.OrdinalIgnoreCase);
+        if (!inBody
+            && !string.IsNullOrWhiteSpace(clientAuth)
+            && !string.Equals(clientAuth, ConnectorSettingKeys.ClientAuthBasic, StringComparison.OrdinalIgnoreCase))
+        {
+            return $"Settings '{ConnectorSettingKeys.ClientAuth}' must be {ConnectorSettingKeys.ClientAuthBasic} or {ConnectorSettingKeys.ClientAuthBody}.";
+        }
+
+        var key = new ConnectorTokenKey(session.TenantId, connector.Id, connector.UpdatedAt.Ticks);
+
+        if (tokens.Get(key) is { } cached)
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", cached);
+            request.Options.Set(SentCachedToken, key);
+            return null;
+        }
+
+        var secret = await SecretAsync(connector.Id, ConnectorSecretKeys.ClientSecret, ct);
+        if (secret is null) return Missing(ConnectorSecretKeys.ClientSecret);
+
+        TokenGrant grant;
+
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(GrantTimeout);
+
+        try
+        {
+            grant = await ClientCredentialsGrant.RequestAsync(
+                httpClientFactory.CreateClient("ExternalApi"),
+                new ClientCredentials(
+                    tokenUri, clientId.Trim(), secret,
+                    connector.Settings?.GetValueOrDefault(ConnectorSettingKeys.Scope),
+                    connector.Settings?.GetValueOrDefault(ConnectorSettingKeys.Audience),
+                    inBody),
+                deadline.Token);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // The caller's own cancellation, not the deadline: the deadline cancels the linked
+            // source and leaves the caller's token alone.
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning("Connector {Slug} token request failed: {Reason}", connector.Slug, ex.GetType().Name);
+
+            return ex switch
+            {
+                HttpRequestException => $"The token endpoint at {tokenUri.IdnHost} could not be reached. The host may be unreachable, or its address is blocked.",
+                OperationCanceledException => $"The token endpoint at {tokenUri.IdnHost} timed out.",
+                _ => $"The token request to {tokenUri.IdnHost} failed.",
+            };
+        }
+
+        if (grant.AccessToken is null)
+        {
+            logger.LogWarning("Connector {Slug} was granted no token: {Reason}", connector.Slug, grant.Error);
+            return grant.Error;
+        }
+
+        tokens.Set(key, grant.AccessToken, ConnectorTokenCache.LifetimeFor(grant.ExpiresIn));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", grant.AccessToken);
+        return null;
+    }
+
+    /// <summary>
+    /// Sends once more with a new token when the provider answered 401 to a cached one. Null when
+    /// that is not what happened, and the first answer stands.
+    /// </summary>
+    /// <remarks>
+    /// A provider can revoke a token before the lifetime it gave, and the cache cannot know. One
+    /// new token and one more send, never a loop: a 401 to a token granted for this call, or to
+    /// one granted within the last minute, is the provider's answer.
+    /// </remarks>
+    private async Task<HttpResponseMessage?> RetryWithNewTokenAsync(
+        HttpClient client, Connector? connector, HttpRequestMessage refused, HttpResponseMessage answer,
+        Func<HttpRequestMessage> rebuild, HttpCompletionOption completion, CancellationToken ct)
+    {
+        if (connector is null || answer.StatusCode != HttpStatusCode.Unauthorized) return null;
+        if (!refused.Options.TryGetValue(SentCachedToken, out var key)) return null;
+
+        if (!tokens.TryRetire(key, refused.Headers.Authorization?.Parameter)) return null;
+
+        using var again = rebuild();
+        if (await TryAttachAuthAsync(again, connector, ct) is not null) return null;
+
+        return await client.SendAsync(again, completion, ct);
+    }
+
+    private static HttpRequestMessage BuildRequest(ComposedRequest composed, Uri target)
+    {
+        var request = new HttpRequestMessage(new HttpMethod(composed.Method), target);
+
+        foreach (var (name, value) in composed.Headers)
+        {
+            request.Headers.TryAddWithoutValidation(name, value);
+        }
+
+        if (composed.Body is not null)
+        {
+            request.Content = new StringContent(
+                composed.Body, Encoding.UTF8, composed.BodyContentType ?? "application/json");
+        }
+
+        return request;
+    }
 
     private static readonly Regex RelParameter = new(
         @"rel\s*=\s*(?:""(?<v>[^""]*)""|(?<v>[^\s;,]+))",
@@ -458,6 +589,26 @@ public static class ConnectorSettingKeys
 {
     public const string Username = "Username";
     public const string HeaderName = "HeaderName";
+
+    /// <summary>Where OAuth2ClientCredentials asks for a token.</summary>
+    public const string TokenUrl = "TokenUrl";
+
+    public const string ClientId = "ClientId";
+
+    /// <summary>Optional. Sent as <c>scope</c> on the token request.</summary>
+    public const string Scope = "Scope";
+
+    /// <summary>Optional. Sent as <c>audience</c> on the token request, for providers that ask for one.</summary>
+    public const string Audience = "Audience";
+
+    /// <summary>
+    /// How the client id and secret reach the token endpoint: <see cref="ClientAuthBasic"/> when
+    /// absent, or <see cref="ClientAuthBody"/>.
+    /// </summary>
+    public const string ClientAuth = "ClientAuth";
+
+    public const string ClientAuthBasic = "Basic";
+    public const string ClientAuthBody = "Body";
 
     /// <summary>
     /// The header name a <see cref="barakoCMS.Models.RequestDefinition"/> uses to carry the

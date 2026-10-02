@@ -33,6 +33,12 @@ internal static class WebhookSigning
     public const string DeliveryHeader = "X-Barako-Delivery";
 
     /// <summary>
+    /// The tenant, for routing a delivery before its body is read. Not signed: the body's
+    /// <c>tenant</c> is the value a receiver trusts.
+    /// </summary>
+    public const string TenantHeader = "X-Barako-Tenant";
+
+    /// <summary>
     /// Set true to let a Webhook with a Secret post to an <c>http://</c> URL. Off by default: a
     /// signed body over cleartext hands a network observer the payload and a signature it can replay
     /// inside the receiver's tolerance window. A lab talking to a loopback receiver is what it is for.

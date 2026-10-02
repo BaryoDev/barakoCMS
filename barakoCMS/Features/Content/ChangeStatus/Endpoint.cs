@@ -1,4 +1,6 @@
 using barakoCMS.Core.Interfaces;
+using barakoCMS.Core.Validation;
+using barakoCMS.Infrastructure.Logging;
 using FastEndpoints;
 using Marten;
 using barakoCMS.Infrastructure.Audit;
@@ -11,6 +13,7 @@ internal class Endpoint(
     barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
     IContentWriter contentWriter,
+    IContentSourcingPolicy sourcing,
     IConfiguration configuration,
     ILogger<Endpoint> logger) : Endpoint<Request, Response>
 {
@@ -67,7 +70,7 @@ internal class Endpoint(
         // lifecycle.
         if (lifecycle is not null)
         {
-            await HandleTransitionAsync(req, content, lifecycle, user, userId, ct);
+            await HandleTransitionAsync(req, content, definition!, lifecycle, user, userId, ct);
             return;
         }
 
@@ -156,10 +159,19 @@ internal class Endpoint(
     /// predate the rules, and refusing every edit to them is not a migration path. Off logs the
     /// violation and allows it, which is a deliberate escape hatch rather than an oversight, and it
     /// defaults to on.
+    ///
+    /// A transition may declare fields. The ones it requires must be sent in Data with the move, a
+    /// value already on the entry does not count, and Data may carry only the fields the transition
+    /// declares. The caller needs the transition permission and not Update to send them: a reviewer
+    /// who may not edit an entry still has to say why they rejected it, and the declared list is
+    /// what keeps that from becoming a general edit. Sent values go through the gates an update
+    /// runs (field sensitivity, the type's validation, the before-save hooks) and are recorded as a
+    /// ContentUpdated beside the ContentTransitioned, in one commit.
     /// </remarks>
     private async Task HandleTransitionAsync(
         Request req,
         barakoCMS.Models.Content content,
+        barakoCMS.Models.ContentTypeDefinition definition,
         barakoCMS.Models.LifecycleDefinition lifecycle,
         barakoCMS.Models.User user,
         Guid userId,
@@ -250,12 +262,164 @@ internal class Endpoint(
                 content.Id, message);
         }
 
-        var transitioned = new barakoCMS.Events.ContentTransitioned(
-            content.Id, transition.Name, currentState, transition.To, userId, DateTime.UtcNow);
+        // After every permission check above, so a caller who may not make this move learns nothing
+        // about the fields it asks for.
+        var takes = TransitionFields.Resolve(transition, definition);
+
+        if (takes.Skipped.Count > 0)
+        {
+            logger.LogWarning(
+                "Transition {Transition} on content type {ContentType} names {Count} field(s) the type does not declare, so they were skipped: {Fields}",
+                LogSafe.Value(transition.Name), LogSafe.Value(content.ContentType), takes.Skipped.Count,
+                LogSafe.Value(string.Join(", ", takes.Skipped)));
+        }
+
+        Dictionary<string, object>? data = null;
+        var sentValues = new Dictionary<barakoCMS.Models.FieldDefinition, object?>();
+        IReadOnlyDictionary<string, object> stored = content.Data;
+        long? streamVersion = null;
+        Guid? documentVersion = null;
+
+        if (takes.TakesFields && req.Data is { Count: > 0 } sent)
+        {
+            // The version first, the entry second. A transition never wrote data before, so the copy
+            // loaded at the top of the request was good enough; now the sent values are laid over a
+            // copy of the whole bag, and a bag read before another writer's commit would put that
+            // writer's fields back as they were. Reading the version and then the entry again means
+            // a write before this point is in the copy, and a write after it fails the commit.
+            //
+            // An event-sourced type is guarded by its stream version, which the writer binds to the
+            // append. Every other type is guarded by the document's own version, bound below.
+            if (await sourcing.IsEventSourcedAsync(content.ContentType, ct))
+            {
+                streamVersion = (await session.Events.FetchStreamStateAsync(content.Id, ct))?.Version ?? 0;
+            }
+            else
+            {
+                documentVersion = (await session.MetadataForAsync(content, ct))?.CurrentVersion;
+            }
+
+            var current = await session.LoadAsync<barakoCMS.Models.Content>(content.Id, ct);
+
+            // The checks above read the first copy. If the entry moved state since, they answered
+            // for a state it is no longer in.
+            if (current is null
+                || !string.Equals(current.LifecycleState, content.LifecycleState, StringComparison.Ordinal))
+            {
+                ThrowError(ChangedByAnotherWriter, 409);
+                return;
+            }
+
+            stored = current.Data;
+            data = new Dictionary<string, object>(current.Data, current.Data.Comparer);
+
+            var notTaken = 0;
+
+            foreach (var (key, value) in sent)
+            {
+                var field = takes.Find(key);
+                if (field is null)
+                {
+                    notTaken++;
+                    continue;
+                }
+
+                if (!sentValues.TryAdd(field, value))
+                {
+                    AddError($"Field '{field.DisplayName}' ({field.Name}) was sent more than once, ignoring case.");
+                    continue;
+                }
+
+                // Under the key the entry already stores it as, which is the one the validator reads.
+                var storedKey = data.Keys.FirstOrDefault(k => TransitionFields.Matches(k, field.Name)) ?? field.Name;
+                data[storedKey] = value;
+            }
+
+            // Counted and not named: the keys are whatever the caller typed.
+            if (notTaken > 0)
+            {
+                AddError($"'{transition.Name}' takes {string.Join(", ", takes.Names)} in data, and "
+                    + $"{notTaken} other {(notTaken == 1 ? "field was" : "fields were")} sent.");
+            }
+
+            ThrowIfAnyErrors();
+
+            // A caller who may not see a field may not change it. Reverts any such field to what is
+            // stored, before the required check reads it.
+            await Resolve<ISensitivityService>()
+                .ApplyWriteAsync(content.ContentType, data, stored, HttpContext, ct);
+        }
+
+        foreach (var field in TransitionFields.NotSent(takes, data, sentValues))
+        {
+            AddError($"Field '{field.DisplayName}' ({field.Name}) is required by the transition '{transition.Name}'.");
+        }
+
+        ThrowIfAnyErrors();
+
+        var events = new List<object>();
+
+        if (data is not null)
+        {
+            var validation = await Resolve<barakoCMS.Infrastructure.Services.IContentValidatorService>()
+                .ValidateAsync(content.ContentType, data, existing: content);
+            if (!validation.IsValid)
+            {
+                foreach (var error in validation.Errors)
+                {
+                    AddError(error);
+                }
+
+                ThrowIfAnyErrors();
+            }
+
+            var hookErrors = await Resolve<barakoCMS.Infrastructure.Services.IContentLifecycleRunner>()
+                .RunBeforeSaveAsync(content.ContentType, content.Id, data, stored, userId, ct);
+            if (hookErrors.Count > 0)
+            {
+                foreach (var error in hookErrors)
+                {
+                    AddError(error);
+                }
+
+                ThrowIfAnyErrors();
+            }
+
+            var publicFields = definition.Fields
+                .Where(f => f.Sensitivity == barakoCMS.Models.SensitivityLevel.Public)
+                .Select(f => f.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            var searchText = string.Join(
+                ' ',
+                data
+                    .Where(kv => publicFields.Contains(kv.Key))
+                    .Select(kv => kv.Value?.ToString())
+                    .Where(v => !string.IsNullOrWhiteSpace(v)));
+
+            events.Add(new barakoCMS.Events.ContentUpdated(content.Id, data, userId, searchText, DateTime.UtcNow));
+        }
+
+        events.Add(new barakoCMS.Events.ContentTransitioned(
+            content.Id, transition.Name, currentState, transition.To, userId, DateTime.UtcNow));
 
         try
         {
-            await contentWriter.AppendOptimisticAsync(content, new object[] { transitioned }, ct);
+            if (data is null)
+            {
+                await contentWriter.AppendOptimisticAsync(content, events, ct);
+            }
+            else
+            {
+                await contentWriter.AppendAsync(content, events, streamVersion, ct);
+
+                // After the append and before the commit: the writer loads the document again to
+                // store it, and a version bound before that load is discarded.
+                if (documentVersion is { } expected)
+                {
+                    session.UpdateExpectedVersion(content, expected);
+                }
+            }
 
             await AuditLog.RecordAsync(session, tenant.Slug, $"content.transitioned", userId, user.Username,
                 targetType: content.ContentType, targetId: content.Id.ToString(),
@@ -264,11 +428,15 @@ internal class Endpoint(
 
             await session.SaveChangesAsync(ct);
         }
+        catch (StaleContentException)
+        {
+            ThrowError(ChangedByAnotherWriter, 409);
+        }
         catch (Exception ex) when (ex is JasperFx.ConcurrencyException
             || ex.GetType().Name.Contains("Concurrency")
             || ex.GetType().Name.Contains("UnexpectedMaxEventId"))
         {
-            ThrowError("The content was changed by another writer. Please refresh and try again.", 409);
+            ThrowError(ChangedByAnotherWriter, 409);
         }
 
         await Send.ResponseAsync(new Response
@@ -276,4 +444,7 @@ internal class Endpoint(
             Message = $"{transition.Name} moved this entry to {transition.To}",
         });
     }
+
+    private const string ChangedByAnotherWriter =
+        "The content was changed by another writer. Please refresh and try again.";
 }
