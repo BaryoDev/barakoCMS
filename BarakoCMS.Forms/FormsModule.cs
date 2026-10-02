@@ -25,23 +25,43 @@ public sealed class FormsModule : IBarakoModule
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
     {
         // `configuration` is this module's own section, Modules:Forms.
+        FormsOptions.RequireValidPerForm(configuration);
         services.Configure<FormsOptions>(configuration);
         services.AddHttpClient<ITurnstileVerifier, TurnstileVerifier>();
 
         services.Configure<RateLimiterOptions>(options =>
             options.AddPolicy(FormsOptions.RateLimitPolicy, context =>
-            {
-                var limits = context.RequestServices.GetRequiredService<IOptions<FormsOptions>>().Value;
-                var ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-
-                return RateLimitPartition.GetFixedWindowLimiter($"forms-{ip}", _ =>
-                    new FixedWindowRateLimiterOptions
-                    {
-                        PermitLimit = Math.Max(1, limits.PermitLimit),
-                        Window = TimeSpan.FromSeconds(Math.Max(1, limits.WindowSeconds)),
-                    });
-            }));
+                Partition(context, context.RequestServices.GetRequiredService<IOptions<FormsOptions>>().Value)));
     }
+
+    /// <summary>
+    /// One bucket per client IP across every form, unless <see cref="FormsOptions.PerForm"/> names
+    /// the form in the route, which then has its own bucket per client IP and its own numbers.
+    /// </summary>
+    /// <remarks>
+    /// The limiter runs before the tenant is resolved and cannot read a form, so the form is the
+    /// slug in the route matched against configuration, in any case. The bucket is keyed on the
+    /// configured spelling and never on what the caller sent: a slug nobody configured, real or
+    /// not, lands in the shared bucket, so sending other slugs or other spellings opens no new one.
+    /// The tenant is left out of the key because <c>X-Tenant</c> and the host are the caller's to
+    /// choose, and a bucket per value sent would be no limit.
+    /// </remarks>
+    internal static RateLimitPartition<string> Partition(HttpContext context, FormsOptions limits)
+    {
+        var ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+        return limits.OwnLimit(context.Request.RouteValues["slug"] as string) is { } own
+            ? Window($"forms-form|{own.Form}|{ip}", own.PermitLimit, own.WindowSeconds)
+            : Window($"forms-{ip}", limits.PermitLimit, limits.WindowSeconds);
+    }
+
+    private static RateLimitPartition<string> Window(string key, int permitLimit, int windowSeconds) =>
+        RateLimitPartition.GetFixedWindowLimiter(key, _ =>
+            new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = Math.Max(1, permitLimit),
+                Window = TimeSpan.FromSeconds(Math.Max(1, windowSeconds)),
+            });
 
     public void ConfigureSchema(IModuleSchema schema)
     {

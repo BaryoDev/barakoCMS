@@ -53,6 +53,9 @@ public class ModuleConfigureAppTests : IClassFixture<ModuleConfigureAppTests.Hos
             o.Modules.Add(new ProbeOff());
             o.Settings["BarakoCMS:Modules:Enabled"] = "ProbeFirst,ProbeSecond";
             o.Settings["JWT:Key"] = IntegrationTestFixture.JwtKey;
+            // Counts only requests an API key authenticated, and every other test here signs in
+            // with a token or not at all.
+            o.Settings["RateLimiting:ApiKey:PermitLimit"] = "2";
         })
         {
         }
@@ -248,6 +251,57 @@ public class ModuleConfigureAppTests : IClassFixture<ModuleConfigureAppTests.Hos
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         Header(response, OrderHeader).Should().BeNull("UseAuthorization answers before module middleware runs");
+    }
+
+    /// <summary>
+    /// Pins the side of module middleware the API key quota sits on. With the two swapped, the
+    /// refused request reaches the probe and its 429 carries the probe's header.
+    /// </summary>
+    [Fact]
+    public async Task A_request_over_the_api_key_quota_never_reaches_module_middleware()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var key = await StoreApiKeyAsync(ct);
+        var echoes = new[] { $"one-{Guid.NewGuid():N}", $"two-{Guid.NewGuid():N}", $"three-{Guid.NewGuid():N}" };
+
+        var responses = new List<HttpResponseMessage>();
+        foreach (var echo in echoes)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, "/api/contents");
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", key);
+            request.Headers.Add(EchoRequestHeader, echo);
+            responses.Add(await _host.CreateClient().SendAsync(request, ct));
+        }
+
+        responses.Should().HaveCount(3);
+        responses[0].StatusCode.Should().NotBe(HttpStatusCode.TooManyRequests);
+        responses[1].StatusCode.Should().NotBe(HttpStatusCode.TooManyRequests);
+        responses[2].StatusCode.Should().Be(HttpStatusCode.TooManyRequests, "the host allows this key two requests a minute");
+        Header(responses[2], OrderHeader).Should().BeNull("the quota answers before module middleware runs");
+
+        var seen = Probe("ProbeFirst").Echoes.Where(e => Array.IndexOf(echoes, e) >= 0).ToArray();
+        seen.Should().HaveCount(2, "the control: the two requests within the quota reached the module");
+        seen.Should().Equal(echoes[0], echoes[1]);
+    }
+
+    /// <summary>An API key owned by the seeded admin on the default tenant. Returns the secret.</summary>
+    private async Task<string> StoreApiKeyAsync(CancellationToken ct)
+    {
+        var secret = "bcms_" + Guid.NewGuid().ToString("N");
+        await using var session = _host.OpenSession();
+        var admin = await session.Query<User>().FirstAsync(u => u.Username == _host.AdminUsername, ct);
+        session.Store(new ApiKey
+        {
+            Id = Guid.NewGuid(),
+            Name = "quota order",
+            KeyHash = barakoCMS.Infrastructure.Auth.ApiKeyService.Hash(secret),
+            Prefix = secret[..12],
+            UserId = admin.Id,
+            TenantSlug = Tenant.DefaultSlug,
+            Scopes = ["*"],
+        });
+        await session.SaveChangesAsync(ct);
+        return secret;
     }
 
     [Fact]
