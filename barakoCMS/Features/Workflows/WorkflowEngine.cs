@@ -41,7 +41,7 @@ internal class WorkflowEngine(
             {
                 if (MatchesConditions(workflow, content))
                 {
-                    await ExecuteActionsAsync(workflow, content, ct);
+                    await ExecuteActionsAsync(workflow, eventType, content, ct);
                 }
             }
             catch (Exception ex)
@@ -75,7 +75,7 @@ internal class WorkflowEngine(
         return true;
     }
 
-    private async Task ExecuteActionsAsync(WorkflowDefinition workflow, barakoCMS.Models.Content content, CancellationToken ct)
+    private async Task ExecuteActionsAsync(WorkflowDefinition workflow, string eventType, barakoCMS.Models.Content content, CancellationToken ct)
     {
         var run = debugger.StartExecution(workflow.Id, content.Id);
         var overallTimer = Stopwatch.StartNew();
@@ -108,6 +108,10 @@ internal class WorkflowEngine(
                 // Resolve {{...}} template variables against the content BEFORE executing, so live
                 // runs behave like the dry-run preview.
                 resolvedParams = ActionParameters.Resolve(variableExtractor, action.Type, parameters, content);
+
+                // The same channel the runner uses, so an action reads the trigger the same way on
+                // either path.
+                resolvedParams[ActionParameters.TriggerEventParameter] = eventType;
 
                 logger.LogInformation("Executing workflow action '{ActionType}' for workflow '{WorkflowName}'", action.Type, workflow.Name);
                 var result = await handler.RunAsync(resolvedParams, content, ct);

@@ -281,6 +281,31 @@ public class WorkflowTransitionTriggerTests
         (await WaitForAsync(probe, atLeast: 1)).Should().Be(1);
     }
 
+    /// <summary>
+    /// An undeclared transition sent only in the list is refused against the list entry, not against
+    /// the single field the request never sent.
+    /// </summary>
+    [Fact]
+    public async Task An_undeclared_transition_in_the_list_of_events_is_refused_by_its_list_entry()
+    {
+        await AuthenticateAsync();
+        var type = await TypeWithLifecycleAsync();
+
+        var res = await _client.PostAsJsonAsync("/api/workflows", new
+        {
+            name = NewName("wf"),
+            triggerContentType = type,
+            triggerEvents = new[] { WorkflowEvents.ForTransition("Escalate") },
+            actions = new[] { Probe(NewName("probe")) },
+        });
+        var body = await res.Content.ReadAsStringAsync();
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, "got {0}: {1}", res.StatusCode, body);
+        body.Should().Contain("triggerEvents[0]: ", "the error has to point at the entry to fix");
+        body.Should().Contain("Escalate");
+        body.Should().NotContain("triggerEvent: ", "the request sent no single field");
+    }
+
     private async Task AuthenticateAsync()
     {
         var (token, _) = await TestHelpers.CreateAdminUserAsync(_factory);

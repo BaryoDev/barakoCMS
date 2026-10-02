@@ -478,6 +478,78 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         // but we can verify it executed successfully
     }
 
+    /// <summary>
+    /// Issue #1050: a Conditional's condition is evaluated by the action against the entry, so the
+    /// preview shows it as written. The Email beside it shows the preview still resolves the rest.
+    /// </summary>
+    [Fact]
+    public async Task A_dry_run_shows_a_conditionals_condition_as_written()
+    {
+        var dryRunRequest = new
+        {
+            workflow = new
+            {
+                id = Guid.NewGuid(),
+                name = "Conditional preview",
+                triggerContentType = "PurchaseOrder",
+                triggerEvent = "Created",
+                conditions = new Dictionary<string, string>(),
+                actions = new[]
+                {
+                    new
+                    {
+                        type = "Conditional",
+                        parameters = new Dictionary<string, string>
+                        {
+                            { "Condition", "{{status}} == Published" },
+                            { "ThenActions", "[]" }
+                        }
+                    },
+                    new
+                    {
+                        type = "Email",
+                        parameters = new Dictionary<string, string>
+                        {
+                            { "To", "test@example.com" },
+                            { "Subject", "Now {{status}}" }
+                        }
+                    }
+                }
+            },
+            sampleContent = new
+            {
+                id = Guid.NewGuid(),
+                contentType = "PurchaseOrder",
+                status = 1, // Published
+                data = new Dictionary<string, object>(),
+                createdAt = DateTime.UtcNow,
+                updatedAt = DateTime.UtcNow
+            }
+        };
+
+        var response = await _client.PostAsJsonAsync(
+            "/api/workflows/dry-run", dryRunRequest, TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        var actions = doc.RootElement.GetProperty("actions").EnumerateArray().ToList();
+
+        actions.Should().HaveCount(2);
+        PreviewedParameter(actions[0], "Condition").Should().Be("{{status}} == Published");
+        PreviewedParameter(actions[1], "Subject").Should().Be("Now Published");
+    }
+
+    /// <summary>Looked up without regard to case, so the test does not depend on how dictionary keys are cased.</summary>
+    private static string? PreviewedParameter(JsonElement action, string name)
+    {
+        var matches = action.GetProperty("resolvedParameters").EnumerateObject()
+            .Where(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        matches.Should().HaveCount(1, "the preview carries the '{0}' parameter", name);
+        return matches[0].Value.GetString();
+    }
+
     #endregion
 
     #region GET /api/workflows/{id}/debug Tests

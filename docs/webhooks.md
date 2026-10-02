@@ -23,7 +23,8 @@ queue in #106.
 ```
 
 `event` is the trigger that fired the workflow (`Created`, `Updated`, `Published`, `Unpublished`,
-`Deleted` or `transition:<Name>`), so one URL behind several events can tell them apart. `data`
+`Deleted` or `transition:<Name>`), so one URL behind several events can tell them apart. A webhook
+inside a `Conditional` action carries the same `event` as the run it belongs to. `data`
 holds the fields the content type marks Public, and is empty for an entry that is itself Sensitive
 or Hidden.
 
@@ -52,7 +53,13 @@ action decrypts it, at the moment of sending.
 The same applies to any action parameter whose name reads as a credential (`Password`, `Token`,
 `ApiKey`, `AccessKey`, `PrivateKey`, `Credential` and similar, matched as a substring). Those are
 encrypted on save too, and the runner decrypts them just before the action runs, so a custom action
-reads them as it always did. Only `Secret` reaches the action still encrypted. Credential
+reads them as it always did. Only `Secret` reaches the action still encrypted. The child actions a
+Conditional carries in `ThenActions` and `ElseActions` are treated the same way, at any depth: their
+credentials are encrypted on save, left out of what the API returns (each child carries a
+`SecretSet` flag instead), and decrypted just before the child runs. A branch that is not a JSON
+array of actions the Conditional can run (each an object, parameter values as text, no repeated
+property name) is stored as it was sent, is not run and is not returned; the action's
+`unreadableBranches` names it, and the startup pass logs a warning naming it. Credential
 parameters on a workflow's own actions that were stored in clear before 4.2 are encrypted in place
 when the API starts. With `Tenancy:DatabaseEnforcement` on, that pass visits registered tenants and
 the default partition only (see [tenancy-at-the-database.md](tenancy-at-the-database.md)).

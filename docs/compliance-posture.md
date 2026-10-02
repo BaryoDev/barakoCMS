@@ -51,7 +51,7 @@ Each row is a control that is implemented and checkable, not a plan.
 | Secret scanning | Gitleaks on every pull request |
 | Software bill of materials | One CycloneDX SBOM covering the whole solution, generated on each release run and kept as a 90-day workflow artifact. Not per package, none for the container image, and not attached to the GitHub release |
 | Backup and restore | Every deployment path takes verified backups; CI restores one and boots against it on every pull request (`docs/backup-and-restore.md`) |
-| Upgrade safety | CI upgrades a real database created by the last 3.x release (3.21.0) and rolls it back (`scripts/upgrade-check.sh`, `docs/upgrading-to-4.0.md`). An upgrade between 4.x releases is not exercised in CI |
+| Upgrade safety | CI upgrades a real database created by the last 3.x release (3.21.0) and rolls it back, then does the same from one created by 4.1.0 (`scripts/upgrade-check.sh`, `docs/upgrading-to-4.0.md`). No other 4.x start is exercised in CI |
 | Vulnerability disclosure | Private channel with a stated timeline (`SECURITY.md`) |
 | Licence | MPL-2.0. No seat cap, no revenue cap, no metered features |
 
