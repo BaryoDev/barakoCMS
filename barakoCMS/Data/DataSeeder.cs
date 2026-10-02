@@ -27,15 +27,14 @@ public static class DataSeeder
 
         // 3-5. Everything demo. One gate at the top so the next demo seeder added below inherits it
         // instead of having to remember. See SeedsDemoContent for what decides this.
-        if (SeedsDemoContent(configuration, environment))
-        {
-            await SeedAttendanceContentTypeAsync(session);
-            await SeedAttendanceWorkflowAsync(session);
-            await SeedAttendanceRecordsAsync(session);
-        }
-        else
+        if (!SeedsDemoContent(configuration, environment))
         {
             Console.WriteLine("[DataSeeder] Demo content skipped (Seed:DemoContent is off)");
+        }
+        else if (await SeedAttendanceContentTypeAsync(session))
+        {
+            await SeedAttendanceWorkflowAsync(session);
+            await SeedAttendanceRecordsAsync(session);
         }
 
         // Committed before the backfill, which queries for content that needs indexing and would
@@ -297,24 +296,54 @@ public static class DataSeeder
     /// empty, and the demo entries validated against no schema at all, because a missing definition
     /// means loose mode. See issue #322.
     /// </remarks>
-    internal static async Task SeedAttendanceContentTypeAsync(IDocumentSession session)
+    /// <returns>
+    /// False when the name was decided as event sourced, so the demo type, which holds a Sensitive
+    /// field, was not stored and the demo content that depends on it should not be either.
+    /// </returns>
+    internal static async Task<bool> SeedAttendanceContentTypeAsync(IDocumentSession session)
     {
+        // Keyed by the normalised name, so a type created through the API as "attendancerecord"
+        // decides it for the name stored here.
+        var policyName = barakoCMS.Core.ContentTypeName.Normalize(AttendanceContentTypeName);
+        var standing = await session.LoadAsync<ContentTypeSourcingPolicy>(policyName);
+
+        if (standing is { EventSourced: true })
+        {
+            Console.WriteLine("[DataSeeder] Demo content skipped (the AttendanceRecord name is event sourced, "
+                              + "and the demo type holds a Sensitive field)");
+            return false;
+        }
+
         var existing = await session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(d => d.Name == AttendanceContentTypeName);
 
         if (existing != null)
         {
             Console.WriteLine("[DataSeeder] AttendanceRecord content type already exists");
-            return;
+            return true;
         }
 
         session.Store(AttendanceContentType());
+
+        // The name's decision goes in with the type, as it does on create. Inserted, not stored: a
+        // decision recorded since the read above makes this commit fail, type included, instead of
+        // being overwritten.
+        if (standing is null)
+        {
+            session.Insert(new ContentTypeSourcingPolicy
+            {
+                Name = policyName,
+                EventSourced = false,
+                DecidedAt = DateTimeOffset.UtcNow,
+            });
+        }
 
         // Committed here rather than at the end of the seed run: the records seeded next are
         // validated and search-indexed against this definition, and a query in the same session does
         // not see an uncommitted store.
         await session.SaveChangesAsync();
         Console.WriteLine("[DataSeeder] Created AttendanceRecord content type");
+        return true;
     }
 
     internal const string AttendanceContentTypeName = "AttendanceRecord";
