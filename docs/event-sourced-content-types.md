@@ -50,7 +50,7 @@ default and matches how every type behaves today.
 ## Personal data is refused
 
 An event-sourced type will not accept fields marked anything other than Public. Creating one with a
-Sensitive or Hidden field is refused, and so is raising a field to either level later.
+Sensitive or Hidden field is refused, and so is adding one later or raising a field to either level.
 
 The reason is a direct conflict. An event-sourced type's value is a history that is never altered.
 The right to erasure is an obligation to remove personal data on request. In this project erasure

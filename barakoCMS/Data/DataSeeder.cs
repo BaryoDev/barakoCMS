@@ -27,15 +27,20 @@ public static class DataSeeder
 
         // 3-5. Everything demo. One gate at the top so the next demo seeder added below inherits it
         // instead of having to remember. See SeedsDemoContent for what decides this.
-        if (SeedsDemoContent(configuration, environment))
+        if (!SeedsDemoContent(configuration, environment))
+        {
+            Console.WriteLine("[DataSeeder] Demo content skipped (Seed:DemoContent is off)");
+        }
+        else if (await AttendanceNameIsEventSourcedAsync(session))
+        {
+            Console.WriteLine("[DataSeeder] Demo content skipped (the AttendanceRecord name is event sourced, "
+                              + "and the demo type holds a Sensitive field)");
+        }
+        else
         {
             await SeedAttendanceContentTypeAsync(session);
             await SeedAttendanceWorkflowAsync(session);
             await SeedAttendanceRecordsAsync(session);
-        }
-        else
-        {
-            Console.WriteLine("[DataSeeder] Demo content skipped (Seed:DemoContent is off)");
         }
 
         // Committed before the backfill, which queries for content that needs indexing and would
@@ -318,6 +323,18 @@ public static class DataSeeder
     }
 
     internal const string AttendanceContentTypeName = "AttendanceRecord";
+
+    /// <summary>
+    /// Whether the demo type's name was decided as event sourced before the demo content arrived.
+    /// </summary>
+    /// <remarks>
+    /// The demo type holds a Sensitive field, and an event-sourced type may not. The decision is
+    /// keyed by the normalised name, so a type created through the API as "attendancerecord" decides
+    /// it for the name this seeder stores.
+    /// </remarks>
+    internal static async Task<bool> AttendanceNameIsEventSourcedAsync(IDocumentSession session) =>
+        (await session.LoadAsync<ContentTypeSourcingPolicy>(
+            barakoCMS.Core.ContentTypeName.Normalize(AttendanceContentTypeName)))?.EventSourced ?? false;
 
     /// <summary>The demo schema. SSN is Sensitive, so it is masked on read and stays out of SearchText.</summary>
     internal static ContentTypeDefinition AttendanceContentType() => new()

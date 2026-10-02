@@ -156,6 +156,82 @@ public class SeedDemoContentTests
         }
     }
 
+    /// <summary>
+    /// The demo type holds a Sensitive field, so it is not stored under a name that was decided as
+    /// event sourced.
+    /// </summary>
+    /// <remarks>
+    /// The pair is the second seed: with the decision gone the same call creates the demo content,
+    /// so the first result is about the decision and not about a seeder that creates nothing.
+    /// </remarks>
+    [Fact]
+    public async Task SeedAsync_skips_the_demo_content_when_its_type_name_is_event_sourced()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var policyName = barakoCMS.Core.ContentTypeName.Normalize(ContentTypeName);
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+
+        await using (var setup = store.LightweightSession())
+        {
+            // SeedUsersAsync only runs on an empty user table, and the demo accounts it would create
+            // are not what this test is about.
+            setup.Store(new User
+            {
+                Id = Guid.NewGuid(),
+                Username = $"seed_sourcing_probe_{Guid.NewGuid():N}",
+                Email = "seed-sourcing-probe@example.com",
+                PasswordHash = "not-a-real-hash",
+                CreatedAt = DateTime.UtcNow
+            });
+            await setup.SaveChangesAsync(ct);
+        }
+
+        try
+        {
+            await ClearDemoContentAsync(ct);
+
+            // Stored before the host below is built, so that host's own startup seed meets it too.
+            await using (var decide = store.LightweightSession())
+            {
+                decide.Store(new ContentTypeSourcingPolicy { Name = policyName, EventSourced = true });
+                await decide.SaveChangesAsync(ct);
+            }
+
+            var host = new HostShim(_fixture.WithSetting("Seed:DemoContent", "true").Services);
+
+            await DataSeeder.SeedAsync(host);
+
+            (await CountDemoContentAsync(ct)).Should().Be(
+                (ContentTypes: 0, Workflows: 0, Records: 0),
+                "the demo type holds a Sensitive field, and an event-sourced type may not");
+
+            await DeletePolicyAsync(store, policyName, ct);
+
+            await DataSeeder.SeedAsync(host);
+
+            var after = await CountDemoContentAsync(ct);
+            after.ContentTypes.Should().Be(1, "the skip above was about the decision, which is gone now");
+            after.Records.Should().BeGreaterThan(0);
+        }
+        finally
+        {
+            await DeletePolicyAsync(store, policyName, CancellationToken.None);
+
+            await using var cleanup = store.LightweightSession();
+            cleanup.DeleteWhere<ContentTypeDefinition>(x => x.Name == ContentTypeName);
+            cleanup.DeleteWhere<WorkflowDefinition>(x => x.Name == WorkflowName);
+            cleanup.DeleteWhere<Content>(x => x.ContentType == ContentTypeName);
+            await cleanup.SaveChangesAsync(CancellationToken.None);
+        }
+    }
+
+    private static async Task DeletePolicyAsync(IDocumentStore store, string name, CancellationToken ct)
+    {
+        await using var session = store.LightweightSession();
+        session.Delete<ContentTypeSourcingPolicy>(name);
+        await session.SaveChangesAsync(ct);
+    }
+
     private async Task ClearDemoContentAsync(CancellationToken ct)
     {
         await using var session = _fixture.Services.GetRequiredService<IDocumentStore>().LightweightSession();

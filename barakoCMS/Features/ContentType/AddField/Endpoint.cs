@@ -69,7 +69,7 @@ internal sealed class Validator : Validator<Request>
 /// involve recreating the type, and a page type could never gain the field a block or widget list
 /// needs.
 ///
-/// Three things this deliberately refuses.
+/// Four things this deliberately refuses.
 ///
 /// A name the type already has, rather than overwriting it. The existing field may have been
 /// renamed, made required or given rules by someone else, and none of that is this endpoint's to
@@ -84,13 +84,18 @@ internal sealed class Validator : Validator<Request>
 /// target, or a duplicate under a different casing is rejected here for the same reason and with the
 /// same message.
 ///
+/// A field that is not Public, on an event-sourced type. The rule create and
+/// <c>SetFieldSensitivity</c> apply: a stream is append-only, so a value written to it cannot be
+/// erased, and a type that could not be created with such a field must not gain one here.
+///
 /// Adding an endpoint and adding an optional field to a response are both additive, so the API
 /// contract version does not move.
 /// </remarks>
 internal sealed class Endpoint(
     IDocumentSession session,
     barakoCMS.Infrastructure.Services.IContentTypeValidatorService validator,
-    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<Request, Response>
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
+    barakoCMS.Core.Interfaces.IContentSourcingPolicy sourcing) : Endpoint<Request, Response>
 {
     public override void Configure()
     {
@@ -122,6 +127,15 @@ internal sealed class Endpoint(
                 $"The content type \"{definition.Name}\" already has a field named \"{clash.Name}\". "
                 + "Changing an existing field is a separate operation and is not supported here.");
             ThrowIfAnyErrors(StatusCodes.Status409Conflict);
+        }
+
+        if (req.Sensitivity != SensitivityLevel.Public && await sourcing.IsEventSourcedAsync(definition.Name, ct))
+        {
+            AddError(
+                $"'{definition.Name}' is event sourced, so its fields have to stay Public. Adding "
+                + $"'{req.FieldName}' as {req.Sensitivity} would put values into an append-only stream "
+                + "that no erasure request can take them out of.");
+            ThrowIfAnyErrors();
         }
 
         var field = new FieldDefinition
