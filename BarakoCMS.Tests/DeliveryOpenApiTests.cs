@@ -161,7 +161,7 @@ public class DeliveryOpenApiTests
             name = "ReferenceCode",
             type = "string",
             defaultValue = "SEEDED-INTERNAL-VALUE",
-            validationRules = new Dictionary<string, object> { ["pattern"] = "^ACME-[0-9]{6}$" },
+            validationRules = new Dictionary<string, object> { ["regex"] = "^ACME-[0-9]{6}$" },
         });
 
         using var doc = await DocumentAsync();

@@ -28,6 +28,9 @@ internal static class FieldRules
     public const string Pattern = "pattern";
     public const string RequiredWhen = "requiredWhen";
 
+    /// <summary>The name <c>pattern</c> was first documented under, still accepted.</summary>
+    public const string PatternAlias = "regex";
+
     public static readonly IReadOnlyList<string> Names =
         [Min, Max, MinLength, MaxLength, Pattern, RequiredWhen];
 
@@ -39,6 +42,9 @@ internal static class FieldRules
     public static readonly TimeSpan PatternTimeout = TimeSpan.FromMilliseconds(250);
 
     private const RegexOptions PatternOptions = RegexOptions.CultureInvariant;
+
+    public const string PatternTimedOut =
+        "took too long to check against its pattern (rule 'pattern'), so it was refused.";
 
     private static readonly HashSet<string> TextTypes = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -82,13 +88,15 @@ internal static class FieldRules
             if (rule is null)
             {
                 errors.Add($"Field '{field.Name}' has the unknown validation rule '{Shorten(name)}'. "
-                    + $"Known rules: {string.Join(", ", Names)}.");
+                    + $"Known rules: {string.Join(", ", Names)}. '{PatternAlias}' is read as '{Pattern}'.");
                 continue;
             }
 
             if (!seen.Add(rule))
             {
-                errors.Add($"Field '{field.Name}' sets the rule '{rule}' more than once.");
+                errors.Add(rule == Pattern
+                    ? $"Field '{field.Name}' sets both '{Pattern}' and '{PatternAlias}', which are the same rule. Keep one."
+                    : $"Field '{field.Name}' sets the rule '{rule}' more than once.");
                 continue;
             }
 
@@ -194,7 +202,7 @@ internal static class FieldRules
         if (Length(rules, MaxLength) is { } maxLength && s.Length > maxLength)
             errors.Add($"{label} must be at most {maxLength} characters long (rule 'maxLength').");
 
-        if (TryGet(rules, Pattern, out var rawPattern) && AsString(rawPattern) is { Length: > 0 } pattern
+        if (TryGetPattern(rules, out var rawPattern) && AsString(rawPattern) is { Length: > 0 } pattern
             && pattern.Length <= MaxPatternLength)
         {
             try
@@ -204,7 +212,7 @@ internal static class FieldRules
             }
             catch (RegexMatchTimeoutException)
             {
-                errors.Add($"{label} took too long to check against its pattern (rule 'pattern'), so it was refused.");
+                errors.Add($"{label} {PatternTimedOut}");
             }
             catch (ArgumentException)
             {
@@ -297,8 +305,25 @@ internal static class FieldRules
     private static int? Length(Dictionary<string, object> rules, string rule) =>
         TryGet(rules, rule, out var raw) ? AsLength(raw) : null;
 
-    private static string? Canonical(string? name) =>
-        name is null ? null : Names.FirstOrDefault(n => n.Equals(name, StringComparison.OrdinalIgnoreCase));
+    private static string? Canonical(string? name)
+    {
+        if (name is null)
+            return null;
+
+        return name.Equals(PatternAlias, StringComparison.OrdinalIgnoreCase)
+            ? Pattern
+            : Names.FirstOrDefault(n => n.Equals(name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    // A stored field carrying the rule under both names is one a save refuses, so neither applies.
+    private static bool TryGetPattern(Dictionary<string, object> rules, out object? value)
+    {
+        var named = TryGet(rules, Pattern, out var byName);
+        var aliased = TryGet(rules, PatternAlias, out var byAlias);
+
+        value = named ? byName : byAlias;
+        return named != aliased;
+    }
 
     private static bool TryGet(Dictionary<string, object> rules, string rule, out object? value)
     {

@@ -39,11 +39,55 @@ public class ContentTypeRuleValidationTests
     [Fact]
     public void An_unknown_rule_name_is_refused_naming_the_field_and_the_rule()
     {
-        var (isValid, errors) = Save("string", ("regex", "^[A-Z]+$"));
+        var (isValid, errors) = Save("string", ("matches", "^[A-Z]+$"));
 
         isValid.Should().BeFalse();
         errors.Should().HaveCount(1);
-        errors[0].Should().Contain("Subject").And.Contain("'regex'").And.Contain("pattern");
+        errors[0].Should().Contain("Subject").And.Contain("'matches'").And.Contain("pattern");
+    }
+
+    [Fact]
+    public void A_rule_named_regex_is_accepted_as_a_pattern()
+    {
+        Save("string", ("regex", "^[A-Z]+$")).IsValid.Should().BeTrue();
+
+        var (isValid, errors) = Save("string", ("regex", "([A-Z"));
+
+        isValid.Should().BeFalse();
+        errors.Should().HaveCount(1);
+        errors[0].Should().Contain("Subject").And.Contain("not a valid regular expression");
+    }
+
+    [Fact]
+    public void A_field_with_both_regex_and_pattern_is_refused()
+    {
+        var (isValid, errors) = Save("string", ("regex", "^[A-Z]+$"), ("pattern", "^[A-Z]+$"));
+
+        isValid.Should().BeFalse();
+        errors.Should().HaveCount(1);
+        errors[0].Should().Contain("Subject").And.Contain("'regex'").And.Contain("'pattern'");
+    }
+
+    [Fact]
+    public void A_stored_field_with_an_unknown_rule_does_not_refuse_a_field_added_beside_it()
+    {
+        var stored = new FieldDefinition
+        {
+            Name = "Legacy",
+            DisplayName = "Legacy",
+            Type = "string",
+            ValidationRules = new() { ["matches"] = "^[A-Z]+$" },
+        };
+        var added = new FieldDefinition { Name = "Grade", DisplayName = "Grade", Type = "int" };
+
+        Validator.Validate("report", "Report", [stored, added], [stored]).IsValid.Should().BeTrue();
+
+        added.ValidationRules = new() { ["matches"] = 1 };
+        var (isValid, errors) = Validator.Validate("report", "Report", [stored, added], [stored]);
+
+        isValid.Should().BeFalse();
+        errors.Should().HaveCount(1);
+        errors[0].Should().Contain("Grade").And.Contain("'matches'");
     }
 
     [Fact]

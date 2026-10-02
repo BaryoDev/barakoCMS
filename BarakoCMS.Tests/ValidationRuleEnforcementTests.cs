@@ -146,9 +146,26 @@ public class ValidationRuleEnforcementTests
     }
 
     [Fact]
+    public async Task A_rule_named_regex_is_enforced_as_a_pattern()
+    {
+        var field = Field("PatientNumber", "string", ("regex", "^PT-[0-9]{6}$"));
+
+        var (isValid, errors) = await WriteAsync(new() { ["PatientNumber"] = "PT-12" }, field);
+
+        isValid.Should().BeFalse();
+        errors.Should().HaveCount(1);
+        errors[0].Should().Contain("PatientNumber").And.Contain("'pattern'");
+
+        (await WriteAsync(new() { ["PatientNumber"] = "PT-123456" }, field)).IsValid.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task A_pattern_that_runs_past_its_timeout_fails_the_write()
     {
-        var field = Field("Code", "string", ("pattern", "^(a+)+$"));
+        // Each run of word characters can end at any position and the optional space never matches,
+        // so against forty letters and a character that fails the anchor the engine has two to the
+        // thirty-ninth ways to split the input and tries them all.
+        var field = Field("Code", "string", ("pattern", @"^(\w+\s?)+$"));
         var clock = Stopwatch.StartNew();
 
         var (isValid, errors) = await WriteAsync(new() { ["Code"] = new string('a', 40) + "!" }, field);
@@ -156,7 +173,9 @@ public class ValidationRuleEnforcementTests
         clock.Stop();
         isValid.Should().BeFalse();
         errors.Should().HaveCount(1);
-        errors[0].Should().Contain("Code").And.Contain("'pattern'");
+        errors[0].Should().Contain("Code").And.EndWith(
+            barakoCMS.Core.Validation.FieldRules.PatternTimedOut,
+            "a plain mismatch is a different message, and this has to be the cut-off one");
         clock.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5), "the match is cut off, not waited for");
     }
 
@@ -201,7 +220,7 @@ public class ValidationRuleEnforcementTests
     {
         var (isValid, errors) = await WriteAsync(
             new() { ["Code"] = "abc" },
-            Field("Code", "string", ("regex", "^[0-9]+$"), ("pattern", "(")));
+            Field("Code", "string", ("format", "^[0-9]+$"), ("pattern", "(")));
 
         errors.Should().BeEmpty();
         isValid.Should().BeTrue();

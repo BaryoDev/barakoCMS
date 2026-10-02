@@ -2,6 +2,9 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
+using Marten;
+using Microsoft.Extensions.DependencyInjection;
+using barakoCMS.Models;
 
 namespace BarakoCMS.Tests;
 
@@ -100,6 +103,55 @@ public class ValidationRulesEndpointTests
 
         res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await res.Content.ReadAsStringAsync(Ct)).Should().Contain("Grade").And.Contain("max");
+    }
+
+    [Fact]
+    public async Task A_type_stored_with_an_unknown_rule_still_accepts_a_new_field()
+    {
+        var type = $"legacy{Guid.NewGuid():n}"[..16];
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(),
+                Name = type,
+                DisplayName = type,
+                Fields =
+                [
+                    new FieldDefinition
+                    {
+                        Name = "Code",
+                        DisplayName = "Code",
+                        Type = "string",
+                        ValidationRules = new() { ["matches"] = "^[A-Z]+$" },
+                    },
+                ],
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var client = await AdminAsync();
+
+        var res = await client.PostAsJsonAsync($"/api/content-types/{type}/fields", new
+        {
+            fieldName = "Grade",
+            type = "int",
+            validationRules = new { max = 100 },
+        }, Ct);
+
+        res.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", res.StatusCode,
+            await res.Content.ReadAsStringAsync(Ct));
+
+        var refused = await client.PostAsJsonAsync($"/api/content-types/{type}/fields", new
+        {
+            fieldName = "Score",
+            type = "int",
+            validationRules = new { maximum = 100 },
+        }, Ct);
+
+        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest, "the field being added is still checked");
+        (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain("Score").And.Contain("maximum");
     }
 
     [Fact]
