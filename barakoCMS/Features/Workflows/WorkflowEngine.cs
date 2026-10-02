@@ -35,10 +35,19 @@ internal class WorkflowEngine(
             return;
         }
 
+        // A Deleted event means here what it means on the queued path: the entry is erased, an
+        // action is told which entry went and nothing of what it held, and a workflow with
+        // conditions does not fire, since its conditions read the data that is gone. Whatever the
+        // caller passed, only the id and the content type go further.
+        var erased = eventType == WorkflowEvents.Deleted;
+        if (erased) content = new ErasedContent(content.Id, contentType);
+
         foreach (var workflow in workflows)
         {
             try
             {
+                if (erased && workflow.Conditions is { Count: > 0 }) continue;
+
                 if (MatchesConditions(workflow, content))
                 {
                     await ExecuteActionsAsync(workflow, eventType, content, ct);

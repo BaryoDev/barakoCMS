@@ -131,10 +131,15 @@ public class WorkflowRun
     /// An attempt still marked Running after its lease ran out is one the runner would start again,
     /// so it is stopped too, but as Unknown and not as Cancelled. It was claimed, so its request may
     /// have gone out, and Cancelled is kept for an action that never did.
+    ///
+    /// A run with nothing waiting and nothing in flight has finished, and is left exactly as it is.
+    /// Marking it would rewrite what a run that succeeded or failed says happened.
     /// </remarks>
     /// <returns>How many attempts were stopped, Cancelled and Unknown together.</returns>
     public int Cancel(DateTimeOffset now)
     {
+        if (!Actions.Any(a => a.Status is AttemptStatus.Pending or AttemptStatus.Running)) return 0;
+
         CancelledAt ??= now;
 
         var stopped = 0;

@@ -395,11 +395,11 @@ internal sealed class WorkflowRunner(
     /// </returns>
     internal static async Task<bool> CancelRemainingAsync(IDocumentSession session, WorkflowRun run, CancellationToken ct)
     {
-        var alreadyStopped = run.CancelledAt is not null;
+        var stopped = run.CancelledAt;
         var stored = run.NextDueAt;
 
         var moved = run.Cancel(DateTimeOffset.UtcNow);
-        if (alreadyStopped && moved == 0 && run.NextDueAt == stored) return false;
+        if (moved == 0 && run.CancelledAt == stopped && run.NextDueAt == stored) return false;
 
         session.Update(run);
 

@@ -148,6 +148,68 @@ public class WorkflowTriggerEventsTests
             "an erased entry has no status or timestamps, and Draft and the time of the run would be invented");
     }
 
+    /// <summary>
+    /// The inline engine, called with Deleted and an entry that still holds its data.
+    /// </summary>
+    /// <remarks>
+    /// Nothing in this repository calls the engine with Deleted, but it is a public entry point and
+    /// it tells the action the trigger was Deleted, for which the action contract promises an id
+    /// and a content type and nothing else. So the engine keeps that promise whatever it was handed,
+    /// and passes over a workflow with conditions, the way the queue does.
+    /// </remarks>
+    [Fact]
+    public async Task The_inline_engine_hands_a_Deleted_action_the_id_and_type_only_and_passes_over_a_workflow_with_conditions()
+    {
+        var contentType = NewName("wf");
+        var needle = $"erased-{Guid.NewGuid():n}";
+        var plainKey = NewName("engine-deleted");
+        var conditionedKey = NewName("engine-deleted");
+
+        await StoreWorkflowAsync(w =>
+        {
+            w.TriggerContentType = contentType;
+            w.TriggerEvent = WorkflowEvents.Deleted;
+            w.Actions = [Echo(plainKey)];
+        });
+        await StoreWorkflowAsync(w =>
+        {
+            w.TriggerContentType = contentType;
+            w.TriggerEvent = WorkflowEvents.Deleted;
+            // Matches the entry handed in, so only the rule about conditions keeps it from running.
+            w.Conditions = new Dictionary<string, string> { ["FullName"] = needle };
+            w.Actions = [Echo(conditionedKey)];
+        });
+
+        var entry = new Content
+        {
+            Id = Guid.NewGuid(),
+            ContentType = contentType,
+            Status = ContentStatus.Published,
+            Data = new Dictionary<string, object> { ["FullName"] = needle },
+        };
+
+        using var scope = _factory.Services.CreateScope();
+        var engine = scope.ServiceProvider.GetRequiredService<IWorkflowEngine>();
+
+        await engine.ProcessEventAsync(contentType, WorkflowEvents.Deleted, entry, CancellationToken.None);
+
+        DeletedEchoAction.ReceivedByRun.TryGetValue(plainKey, out var received).Should().BeTrue(
+            "the workflow without conditions has to have run for the rest to mean anything");
+        received!.ContentId.Should().Be(entry.Id);
+        received.ContentType.Should().Be(contentType);
+        received.ContentJson.Should().NotContain(needle, "the action is told which entry went, not what it held");
+        received.ParametersJson.Should().NotContain(needle, "a template cannot read data the action is not given");
+
+        DeletedEchoAction.ReceivedByRun.ContainsKey(conditionedKey).Should().BeFalse(
+            "its conditions read the entry's data, and a Deleted trigger is given none");
+    }
+
+    private static WorkflowAction Echo(string key) => new()
+    {
+        Type = "DeletedEcho",
+        Parameters = new Dictionary<string, string> { ["RunId"] = key, ["Note"] = "{{data.FullName}}" },
+    };
+
     [Fact]
     public async Task Erasing_an_entry_created_again_under_the_same_id_fires_Deleted_again()
     {
