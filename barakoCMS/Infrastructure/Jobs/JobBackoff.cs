@@ -14,4 +14,21 @@ public static class JobBackoff
         var seconds = Math.Min((long)baseSeconds << exponent, maxSeconds);
         return TimeSpan.FromSeconds(seconds);
     }
+
+    /// <summary>
+    /// The same wait, shortened by a random share of up to <see cref="JitterFraction"/>.
+    /// </summary>
+    /// <remarks>
+    /// Jobs that failed together otherwise retry together, at the moment the provider they all
+    /// depend on is least able to take it. The jitter only ever shortens the wait, so the result
+    /// never passes <paramref name="maxSeconds"/>, and waits at the cap stay spread out too.
+    /// </remarks>
+    public static TimeSpan DelayFor(int attempt, int baseSeconds, int maxSeconds, Random random)
+    {
+        var full = DelayFor(attempt, baseSeconds, maxSeconds);
+        return full - full * (random.NextDouble() * JitterFraction);
+    }
+
+    /// <summary>How much of a wait the jitter may take off.</summary>
+    public const double JitterFraction = 0.25;
 }
