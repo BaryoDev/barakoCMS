@@ -352,6 +352,13 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         Environment.SetEnvironmentVariable("DATABASE_URL", ConnectionString);
         Environment.SetEnvironmentVariable("ConnectionStrings__DefaultConnection", ConnectionString);
         Environment.SetEnvironmentVariable("SKIP_SEEDER", "true");
+        // The Memory health check reads the private memory of the process, and a full run keeps
+        // every host it built alive in this one process, which passes the default 4096 MB ceiling.
+        // Liveness and readiness then answer 503 for reasons no test chose. An environment
+        // variable, because AddBarakoCMS reads the ceiling while it registers the check, before
+        // the in-memory settings below are applied. HealthProbeTests proves the check itself still
+        // fails at a low ceiling. See #1081.
+        Environment.SetEnvironmentVariable("HealthChecks__MaxPrivateMemoryMegabytes", "1048576");
 
         // Canonical system roles with their well-known ids, before any test runs.
         // xunit v3 changed execution order inside the Sequential collection, and
