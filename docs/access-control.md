@@ -696,7 +696,9 @@ something they did not have (the bytes) or take something away for good, so both
 uploader, or an account holding Admin or SuperAdmin; `upload_files` on its own is not enough. Until
 content can reference a file (#141) there is no richer answer than that. Before issue #547 the two
 gates disagreed: download already asked for the uploader or an admin, delete asked only for
-`upload_files`, so a media editor could delete a file they could not read.
+`upload_files`, so a media editor could delete a file they could not read. A module that reads or
+deletes a file through `IFileStore` names the signed-in user, and the store applies these same two
+rules to that user; see `MODULES.md`.
 
 A module grants its own capabilities at seed time, to the roles its old `Roles(...)` gate listed,
 using `ModuleCapabilities.GrantAsync`. Additive, idempotent, and it skips a role the host never

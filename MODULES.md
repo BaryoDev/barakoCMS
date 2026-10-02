@@ -464,10 +464,29 @@ the same module order, at the position described under [Middleware](#middleware)
 Default services (e.g. the mock `IEmailService`) are registered with `TryAdd`, so a module can
 substitute a real implementation.
 
-`IFileStore` is how the core, or a module that must not reference BarakoCMS.Files, reads a public
-file by id in the scope's tenant. BarakoCMS.Files implements it. It hands out public files only: a
-private file reads as absent, and a read of any file would be a separate member with its own access
-rule. With no such module the default throws on every call, naming the module to enable.
+`IFileStore` is how the core, or a module that must not reference BarakoCMS.Files, stores, reads
+and deletes a file in the scope's tenant. BarakoCMS.Files implements it. No member takes a tenant:
+the scope decides it.
+
+- `FindPublicAsync`, `OpenPublicAsync` and `PublicUrlAsync` take no caller and hand out public
+  files only. A private file reads as absent. These are the members for work with no user, such as
+  a workflow.
+- `FindAsync` and `OpenAsync` take the signed-in user as a `ClaimsPrincipal` and give that user
+  what the two download routes would: any public file, and a private one only to the user it
+  belongs to or to an account holding Admin or SuperAdmin. A principal that is not signed in,
+  comes from an API key, or carries a `tenant` claim for another tenant gets public files only.
+- `SaveAsync` stores a file after the checks an upload gets (allowed type, content matching the
+  type, 10 MB, and the virus scan when one is configured) and answers with the file or the reason
+  it was refused. It checks nobody's right to store: the module calling it gates its own route.
+  `Owner` is the user the file belongs to, and may be left empty.
+- `DeleteAsync` deletes for a caller who could delete through `DELETE /api/files/{id}`: one
+  holding `upload_files` who is the file's owner or an administrator. It answers `InUse` while an
+  entry names the file, unless forced.
+
+`SaveAsync` and `DeleteAsync` commit through the scope's session, so anything else staged on that
+session is committed with them. With no module that stores files the default throws on every call,
+naming the module to enable. Every member except `FindPublicAsync` and `OpenPublicAsync` has a
+default that throws `NotSupportedException`, so a store written against those two still compiles.
 
 ### Durable work
 

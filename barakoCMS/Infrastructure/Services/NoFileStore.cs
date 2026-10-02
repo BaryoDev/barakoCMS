@@ -13,4 +13,19 @@ internal sealed class NoFileStore : IFileStore
 
     public Task<Stream?> OpenPublicAsync(Guid id, CancellationToken cancellationToken = default) =>
         throw new InvalidOperationException(Message);
+
+    public Task<string?> PublicUrlAsync(Guid id, CancellationToken cancellationToken = default) =>
+        throw new InvalidOperationException(Message);
+
+    public Task<StoredFileInfo?> FindAsync(Guid id, System.Security.Claims.ClaimsPrincipal caller, CancellationToken cancellationToken = default) =>
+        throw new InvalidOperationException(Message);
+
+    public Task<Stream?> OpenAsync(Guid id, System.Security.Claims.ClaimsPrincipal caller, CancellationToken cancellationToken = default) =>
+        throw new InvalidOperationException(Message);
+
+    public Task<FileSaveResult> SaveAsync(FileToStore file, CancellationToken cancellationToken = default) =>
+        throw new InvalidOperationException(Message);
+
+    public Task<FileDeleteResult> DeleteAsync(Guid id, System.Security.Claims.ClaimsPrincipal caller, bool force = false, CancellationToken cancellationToken = default) =>
+        throw new InvalidOperationException(Message);
 }
