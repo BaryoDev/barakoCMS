@@ -300,6 +300,91 @@ public class PublicSurfaceTests
         shape.Should().BeEquivalentTo(shipped);
     }
 
+    // What a module moves an entry through its lifecycle with. Released, these freeze for a major.
+    private static readonly Type[] TransitionSeam =
+    [
+        typeof(barakoCMS.Core.Interfaces.IContentTransitioner),
+        typeof(barakoCMS.Core.Interfaces.ContentTransitionActor),
+        typeof(barakoCMS.Core.Interfaces.ContentTransitionOptions),
+        typeof(barakoCMS.Core.Interfaces.ContentTransitionResult),
+        typeof(barakoCMS.Core.Interfaces.ContentTransitionOutcome),
+    ];
+
+    [Fact]
+    public void The_transition_seam_is_five_public_types_of_the_contract_assembly()
+    {
+        TransitionSeam.Should().HaveCount(5);
+
+        foreach (var type in TransitionSeam)
+        {
+            type.Assembly.Should().BeSameAs(Contract, $"{type.Name} is what a module compiles against");
+            type.IsPublic.Should().BeTrue($"{type.Name} is package surface");
+            type.Namespace.Should().Be("barakoCMS.Core.Interfaces");
+        }
+
+        var transition = Contract.GetExportedTypes()
+            .Where(t => t.Name.Contains("ContentTransition", StringComparison.Ordinal))
+            .Where(t => t.Namespace == "barakoCMS.Core.Interfaces")
+            .Select(t => t.FullName!)
+            .ToArray();
+
+        transition.Should().HaveCount(5, "a sixth transition type is a widening of the contract, to be added here on purpose");
+        transition.Should().BeEquivalentTo(TransitionSeam.Select(t => t.FullName!).ToArray());
+    }
+
+    // The same pin as the durable work seams, for the same reason. What is not here is not public:
+    // the result's factories and the actor's recorded id are internal to the core, so a line for
+    // either appearing in the shape is a widening somebody has to mean.
+    [Fact]
+    public void The_transition_seam_has_exactly_the_shape_it_shipped_with()
+    {
+        var shape = TransitionSeam.SelectMany(Shape).ToArray();
+
+        var shipped = new[]
+        {
+            "interface IContentTransitioner",
+            "IContentTransitioner.TransitionAsync(Content content, String transition, ContentTransitionActor actor, ContentTransitionOptions options, CancellationToken cancellationToken): Task<ContentTransitionResult>",
+            "sealed class ContentTransitionActor",
+            "ContentTransitionActor.Nullable<Guid> UserId { get; }",
+            "ContentTransitionActor.String SystemName { get; }",
+            "ContentTransitionActor.Boolean IsSystem { get; }",
+            "ContentTransitionActor.static ForUser(Guid userId): ContentTransitionActor",
+            "ContentTransitionActor.static ForSystem(String name): ContentTransitionActor",
+            "sealed class ContentTransitionOptions",
+            "ContentTransitionOptions..ctor()",
+            "ContentTransitionOptions.IReadOnlyDictionary<String, Object> Data { get; init; }",
+            "ContentTransitionOptions.Boolean SkipPermissionChecks { get; init; }",
+            "sealed class ContentTransitionResult",
+            "ContentTransitionResult.ContentTransitionOutcome Outcome { get; }",
+            "ContentTransitionResult.Boolean Succeeded { get; }",
+            "ContentTransitionResult.IReadOnlyList<String> Errors { get; }",
+            "ContentTransitionResult.String Transition { get; }",
+            "ContentTransitionResult.String FromState { get; }",
+            "ContentTransitionResult.String ToState { get; }",
+            "sealed class ContentTransitionOutcome : Enum",
+        };
+
+        shape.Should().HaveCount(shipped.Length);
+        shape.Should().BeEquivalentTo(shipped);
+
+        typeof(barakoCMS.Core.Interfaces.ContentTransitionActor)
+            .GetField(nameof(barakoCMS.Core.Interfaces.ContentTransitionActor.MaxSystemNameLength))!
+            .GetRawConstantValue().Should().Be(64, "a constant is compiled into the caller, so its value is contract too");
+    }
+
+    // Shape does not read an enum's members, and a stored or logged number means what it meant when
+    // it was written. Zero is the value nobody set, and it is not the success.
+    [Fact]
+    public void The_transition_outcomes_keep_their_names_and_numbers()
+    {
+        var outcomes = Enum.GetValues<barakoCMS.Core.Interfaces.ContentTransitionOutcome>()
+            .Select(o => $"{o} = {(int)o}")
+            .ToArray();
+
+        outcomes.Should().HaveCount(5);
+        outcomes.Should().Equal("Unknown = 0", "Transitioned = 1", "Forbidden = 2", "Invalid = 3", "Conflict = 4");
+    }
+
     // D34 for these seams: no Marten, Wolverine, FastEndpoints or ASP.NET type anywhere a consumer
     // compiles against one (a parameter, a return, a property, a base, a constraint, a constructor),
     // so the framework behind them can change without breaking a module built against them.
