@@ -62,14 +62,62 @@ public class ResourceContractTests
           + "stored property is a silent wire break and adding one publishes it to every client");
     }
 
+    private static readonly Assembly Package = typeof(barakoCMS.Models.WorkflowDefinition).Assembly;
+
+    /// <summary>Whether a type is one the package stores or hands to a module, and so not a request.</summary>
+    /// <remarks>
+    /// The rule: a class in <c>barakoCMS.Models</c> of the package assembly, apart from the paging
+    /// requests, which are the two types in that namespace written to be bound. Read from the
+    /// namespace and not from a list, so a document added later is covered without anybody
+    /// remembering to add it here. It is wider than the documents the store registers: a model
+    /// that is never stored is still not a request.
+    /// </remarks>
+    private static bool IsPackageModel(Type type) =>
+        type.IsClass
+        && type.Assembly == Package
+        && type.Namespace == "barakoCMS.Models"
+        && !typeof(barakoCMS.Models.PaginatedRequest).IsAssignableFrom(type);
+
+    /// <summary>
+    /// The package model a request binds: the request itself, a type it derives from, or the element
+    /// of a collection it is. Null when it binds none.
+    /// </summary>
+    /// <remarks>
+    /// Properties are not followed. A model nested inside a request, as the sample entry of a
+    /// workflow dry run is, is not found.
+    /// </remarks>
+    private static Type? BoundModel(Type request)
+    {
+        var candidates = new List<Type> { request };
+
+        if (request.IsArray)
+        {
+            candidates.Add(request.GetElementType()!);
+        }
+
+        foreach (var shape in request.GetInterfaces().Append(request))
+        {
+            if (shape.IsGenericType && shape.GetGenericTypeDefinition() == typeof(IEnumerable<>))
+            {
+                candidates.Add(shape.GetGenericArguments()[0]);
+            }
+        }
+
+        foreach (var candidate in candidates)
+        {
+            for (var b = candidate; b is not null; b = b.BaseType)
+            {
+                if (IsPackageModel(b)) return b;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>
     /// The same rule on the way in. An endpoint that binds the stored document lets a request set
     /// every property the document has, including one added later that no caller should choose.
     /// </summary>
-    /// <remarks>
-    /// The request type itself only. A stored document nested inside a request, as the sample entry
-    /// of a workflow dry run is, is not looked for.
-    /// </remarks>
     [Fact]
     public void No_endpoint_binds_a_stored_document_as_its_request()
     {
@@ -93,14 +141,45 @@ public class ResourceContractTests
             "the control: with no endpoints found there would be no offenders and nothing proven");
 
         var offenders = requests
-            .Where(r => StoredDocuments.Contains(r.Request))
-            .Select(r => $"{r.Endpoint} binds {r.Request.Name}")
+            .Select(r => (r.Endpoint, r.Request, Model: BoundModel(r.Request)))
+            .Where(r => r.Model is not null)
+            .Select(r => $"{r.Endpoint} binds {r.Request.Name}, which is or holds {r.Model!.Name}")
             .Distinct()
             .ToList();
 
         offenders.Should().BeEmpty(
             "an endpoint that binds the stored document accepts every property it has, so a "
           + "server-owned one added later can be set by any caller the moment it is saved");
+    }
+
+    private sealed class WorkflowSubclassRequest : barakoCMS.Models.WorkflowDefinition;
+
+    private sealed class RunPageRequest : barakoCMS.Models.ListRequest
+    {
+        public string? Status { get; init; }
+    }
+
+    private sealed class PlainRequest
+    {
+        public string Name { get; init; } = string.Empty;
+    }
+
+    [Fact]
+    public void A_subclass_or_a_list_of_a_package_model_is_caught_and_a_paging_request_is_not()
+    {
+        BoundModel(typeof(barakoCMS.Models.WorkflowDefinition)).Should().Be(typeof(barakoCMS.Models.WorkflowDefinition));
+        BoundModel(typeof(WorkflowSubclassRequest)).Should().Be(typeof(barakoCMS.Models.WorkflowDefinition),
+            "a subclass binds every property of the document it derives from");
+        BoundModel(typeof(List<barakoCMS.Models.Role>)).Should().Be(typeof(barakoCMS.Models.Role));
+        BoundModel(typeof(barakoCMS.Models.Role[])).Should().Be(typeof(barakoCMS.Models.Role));
+        BoundModel(typeof(barakoCMS.Models.Connector)).Should().Be(typeof(barakoCMS.Models.Connector),
+            "the rule is the namespace, so a document nobody listed is covered");
+
+        BoundModel(typeof(barakoCMS.Models.PaginatedRequest)).Should().BeNull();
+        BoundModel(typeof(barakoCMS.Models.ListRequest)).Should().BeNull();
+        BoundModel(typeof(RunPageRequest)).Should().BeNull("a request that only pages derives from a type made to be bound");
+        BoundModel(typeof(PlainRequest)).Should().BeNull();
+        BoundModel(typeof(string)).Should().BeNull();
     }
 
     /// <summary>A paginated envelope is a wrapper; what matters is what it wraps.</summary>

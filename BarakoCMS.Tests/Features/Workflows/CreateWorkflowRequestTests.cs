@@ -17,9 +17,10 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// The request types are reached through the endpoints and never named, so these tests compile
 /// against an endpoint that binds the stored type and fail there, which is what they are for.
 ///
-/// Two kinds of test. The shape tests fail when an endpoint binds <see cref="WorkflowDefinition"/>.
-/// The tests that go over HTTP hold what a caller sees still, and pass either way: an id sent to
-/// create was already overwritten before this, so no request can tell the two apart.
+/// Two kinds of test. The shape tests and the malformed id fail when an endpoint binds
+/// <see cref="WorkflowDefinition"/>: an id that is not a GUID cannot be bound to the stored type,
+/// so that request is refused there and saved here. The other tests that go over HTTP pass either
+/// way. They pin what a caller sees for a request both types read alike.
 /// </remarks>
 [Collection("Sequential")]
 public class CreateWorkflowRequestTests
@@ -97,7 +98,7 @@ public class CreateWorkflowRequestTests
 
             JsonSerializer.Serialize(request[name].GetValue(requestDefaults))
                 .Should().Be(JsonSerializer.Serialize(stored[name].GetValue(storedDefaults)),
-                    "a request that leaves {0} out must be read as it was", name);
+                    "a request that leaves {0} out must get the stored type's default", name);
         }
     }
 
@@ -145,8 +146,8 @@ public class CreateWorkflowRequestTests
     }
 
     /// <summary>
-    /// The id of a workflow that already exists, sent to create. Holds either way: the handler
-    /// overwrote a bound id before the request type existed.
+    /// The id of a workflow that already exists, sent to create. Passes either way: the handler
+    /// sets the id itself, so a well-formed one is never the one stored.
     /// </summary>
     [Fact]
     public async Task An_id_sent_to_create_names_no_workflow_and_overwrites_none()
@@ -175,7 +176,32 @@ public class CreateWorkflowRequestTests
         (await _harness.LoadWorkflowAsync(unused)).Should().BeNull();
     }
 
-    /// <summary>Holds either way. A property no type declares was skipped by the binder before too.</summary>
+    /// <summary>
+    /// The id is not read, so one that is not a GUID is no reason to refuse the request. Fails when
+    /// create binds a type with a GUID id: the binder answers 400 before the handler runs.
+    /// </summary>
+    [Fact]
+    public async Task A_malformed_id_sent_to_create_is_ignored()
+    {
+        var admin = await _harness.AdminAsync();
+        var name = WorkflowStopHarness.NewName("655-malformed");
+
+        var created = await CreateAsync(admin, new
+        {
+            id = "not-a-guid",
+            name,
+            triggerContentType = WorkflowStopHarness.NewName("post"),
+            triggerEvent = "Published",
+            actions = Email(),
+        });
+
+        var stored = await StoredNamedAsync(name);
+        stored.Should().HaveCount(1);
+        stored[0].Id.Should().NotBe(Guid.Empty);
+        stored[0].Id.Should().Be(created.GetProperty("id").GetGuid());
+    }
+
+    /// <summary>Passes either way. The binder skips a property the request type does not declare.</summary>
     [Fact]
     public async Task A_property_the_API_does_not_know_is_ignored_and_the_workflow_is_saved()
     {
@@ -200,7 +226,7 @@ public class CreateWorkflowRequestTests
     }
 
     /// <summary>
-    /// Holds either way against the stored type, and fails if the request stops handing a field to
+    /// Passes either way against the stored type, and fails if the request stops handing a field to
     /// the definition: each accepted field is sent with a value that is not its default.
     /// </summary>
     [Fact]
@@ -244,7 +270,7 @@ public class CreateWorkflowRequestTests
         stored.Enabled.Should().BeFalse();
     }
 
-    /// <summary>Holds either way. The schema validator's words still reach the caller as they did.</summary>
+    /// <summary>Passes either way. A refusal carries the schema validator's field and message.</summary>
     [Fact]
     public async Task A_refused_create_answers_400_with_the_schema_validator_s_field_and_message()
     {
@@ -263,7 +289,7 @@ public class CreateWorkflowRequestTests
         saved.GetProperty("name").GetString().Should().Be(name);
     }
 
-    /// <summary>Holds either way. The id a dry run sends is a reference, and it is kept.</summary>
+    /// <summary>Passes either way. The id a dry run sends is a reference, and the log is filed under it.</summary>
     [Fact]
     public async Task A_dry_run_is_logged_under_the_workflow_id_the_request_names()
     {

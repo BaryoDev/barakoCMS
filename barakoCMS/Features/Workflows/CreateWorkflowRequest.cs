@@ -5,9 +5,8 @@ namespace barakoCMS.Features.Workflows;
 /// <summary>A workflow as a caller writes it, rather than as it is stored.</summary>
 /// <remarks>
 /// Every field of <see cref="WorkflowDefinition"/> a caller chooses, under the same name, with the
-/// same type and the same default, so a request reads as it did when the endpoint bound the stored
-/// type. <c>Id</c> is the one field left out. The server picks it, and a request that sends one is
-/// read as if it had not.
+/// same type and the same default. <c>Id</c> is the one field left out. The server picks it, and
+/// an <c>id</c> in a request is not read at all, whatever its value.
 ///
 /// A field added to the stored type is not accepted until it is added here, which is the point:
 /// whether a caller may set it is decided, not inherited.
@@ -25,8 +24,8 @@ internal class CreateWorkflowRequest
 
     /// <summary>The definition this request describes, with no id.</summary>
     /// <remarks>
-    /// Values are handed over as they were read, a null included, so the schema validator sees what
-    /// it saw before and answers the same.
+    /// Values are handed over unchanged, a null included. The schema validator is what refuses a
+    /// value, and it has to see the one the request sent.
     /// </remarks>
     public WorkflowDefinition ToDefinition() => new()
     {
