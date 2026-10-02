@@ -65,13 +65,15 @@ public class PreviewShareLinkTests
         var missing = await MintAsync(admin, type, "no-such-slug");
         missing.StatusCode.Should().Be(HttpStatusCode.NotFound);
         missing.Headers.Contains("Deprecation").Should().BeTrue();
-        (await MintAsync(_host.AnonymousIn(tenant), type, "wip")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        var anonymous = await MintAsync(_host.AnonymousIn(tenant), type, "wip");
+        anonymous.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        anonymous.Headers.Contains("Deprecation").Should().BeFalse("the handler sets the header, and this answer is written before it runs");
         (await _host.SlugReadAsync(tenant, type, "wip", preview: token)).StatusCode.Should().Be(HttpStatusCode.OK, "the token works where it always went");
         (await _host.StoredLinksAsync(tenant)).Should().HaveCount(1, "only the one answered 200 issued a link");
     }
 
     [Fact]
-    public async Task A_preview_token_is_a_stored_entry_link_that_is_listed_and_audited()
+    public async Task A_preview_token_is_a_stored_entry_link_with_a_fixed_label_that_is_neither_listed_nor_audited()
     {
         var tenant = await _host.TenantAsync();
         var type = await _host.TypeAsync(tenant);
@@ -82,34 +84,42 @@ public class PreviewShareLinkTests
 
         var stored = await _host.StoredLinksAsync(tenant);
         stored.Should().HaveCount(1);
-        stored[0].KeyHash.Should().Be(ShareLinkTestHost.Sha256Hex(token));
+        stored[0].KeyHash.Should().Be(ShareLinkTestHost.EntryHashHex(token));
         stored[0].EntryId.Should().Be(wip);
         stored[0].Preview.Should().BeTrue();
         stored[0].Path.Should().BeNull();
         stored[0].CreatedBy.Should().StartWith("scp-");
         (stored[0].ExpiresAt - stored[0].CreatedAt).Should().Be(PreviewToken.DefaultLifetime);
+        stored[0].Label.Should().Be("Preview token");
+        JsonSerializer.Serialize(stored[0]).Should().NotContain(type, "the row copies nothing from the entry but its id")
+            .And.NotContain("wip").And.NotContain(token);
 
+        (await AuditsAsync(tenant)).Should().BeEmpty("the route wrote no audit row before and writes none now");
+        var emptyList = await admin.GetAsync(ShareLinkTestHost.EntryLinks(wip), Ct);
+        emptyList.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await emptyList.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("totalItems").GetInt32().Should().Be(0);
+
+        // The control: a link an editor makes on the same entry is listed and audited, so the
+        // list and the audit query above were looking in the right place.
+        var editorLinkId = (await ShareLinkTestHost.CreateEntryLinkAsync(admin, wip, new { label = "Editor's link" })).GetProperty("id").GetGuid();
         var listed = await admin.GetAsync(ShareLinkTestHost.EntryLinks(wip), Ct);
         listed.StatusCode.Should().Be(HttpStatusCode.OK);
-        var listText = await listed.Content.ReadAsStringAsync(Ct);
-        using var list = JsonDocument.Parse(listText);
-        list.RootElement.GetProperty("items").GetArrayLength().Should().Be(1);
-        list.RootElement.GetProperty("items")[0].GetProperty("id").GetGuid().Should().Be(stored[0].Id);
-        list.RootElement.GetProperty("items")[0].GetProperty("preview").GetBoolean().Should().BeTrue();
-        list.RootElement.GetProperty("items")[0].GetProperty("scope").GetString().Should().Be("entry");
-        listText.Should().NotContain(token).And.NotContain(stored[0].KeyHash);
+        var list = await listed.Content.ReadFromJsonAsync<JsonElement>(Ct);
+        list.GetProperty("totalItems").GetInt32().Should().Be(1);
+        list.GetProperty("items").GetArrayLength().Should().Be(1);
+        list.GetProperty("items")[0].GetProperty("id").GetGuid().Should().Be(editorLinkId);
+        var audits = await AuditsAsync(tenant);
+        audits.Should().HaveCount(1);
+        audits[0].TargetId.Should().Be(editorLinkId.ToString());
+    }
 
+    private async Task<List<AuditEvent>> AuditsAsync(string tenant)
+    {
         using var scope = _fixture.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
-        var audits = await session.Query<AuditEvent>()
+        return (await session.Query<AuditEvent>()
             .Where(e => e.TenantSlug == tenant && e.Action.StartsWith("site.share_link."))
-            .ToListAsync(Ct);
-        audits.Should().HaveCount(1);
-        audits[0].Action.Should().Be("site.share_link.created");
-        audits[0].TargetId.Should().Be(stored[0].Id.ToString());
-        var auditText = JsonSerializer.Serialize(audits);
-        auditText.Should().Contain(wip.ToString());
-        auditText.Should().NotContain(token).And.NotContain(stored[0].KeyHash);
+            .ToListAsync(Ct)).ToList();
     }
 
     [Fact]
@@ -147,14 +157,37 @@ public class PreviewShareLinkTests
 
         var stored = await _host.StoredLinksAsync(tenant);
         stored.Should().HaveCount(2);
-        stored.Single(l => l.KeyHash == ShareLinkTestHost.Sha256Hex(token)).LastUsedAt
+        stored.Single(l => l.KeyHash == ShareLinkTestHost.EntryHashHex(token)).LastUsedAt
             .Should().BeCloseTo(DateTimeOffset.UtcNow, TimeSpan.FromMinutes(1));
-        stored.Single(l => l.KeyHash == ShareLinkTestHost.Sha256Hex(hiddenToken)).LastUsedAt
+        stored.Single(l => l.KeyHash == ShareLinkTestHost.EntryHashHex(hiddenToken)).LastUsedAt
             .Should().BeNull("a token that opened nothing was not used");
     }
 
     [Fact]
-    public async Task Revoking_a_preview_token_ends_the_preview_at_once()
+    public async Task A_live_preview_token_is_refused_at_the_open_route()
+    {
+        var tenant = await _host.TenantAsync();
+        var type = await _host.TypeAsync(tenant);
+        var wip = await _host.EntryAsync(tenant, type, "wip");
+        var admin = await _host.SuperAdminInAsync(tenant);
+        var token = await TokenAsync(admin, type, "wip");
+        var entryKey = (await ShareLinkTestHost.CreateEntryLinkAsync(admin, wip, new { label = "Editor's link" })).GetProperty("key").GetString()!;
+
+        (await _host.SlugReadAsync(tenant, type, "wip", preview: token)).StatusCode.Should().Be(HttpStatusCode.OK, "the token is live where it was issued for");
+        (await _host.OpenAsync(tenant, entryKey)).StatusCode.Should().Be(HttpStatusCode.OK, "an editor's link to the same entry opens");
+
+        var opened = await _host.OpenAsync(tenant, token);
+        var wrong = await _host.OpenAsync(tenant, "wrong");
+
+        opened.StatusCode.Should().Be(HttpStatusCode.NotFound, "a preview token has one use, the query it was issued for");
+        opened.Headers.CacheControl!.NoStore.Should().BeTrue();
+        var text = await opened.Content.ReadAsStringAsync(Ct);
+        text.Should().Be(await wrong.Content.ReadAsStringAsync(Ct));
+        text.Should().NotContain(ShareLinkTestHost.BodyOf("wip"));
+    }
+
+    [Fact]
+    public async Task A_preview_token_is_not_revoked_through_the_entry_and_a_revoked_row_opens_nothing()
     {
         var tenant = await _host.TenantAsync();
         var type = await _host.TypeAsync(tenant);
@@ -162,13 +195,23 @@ public class PreviewShareLinkTests
         var admin = await _host.SuperAdminInAsync(tenant);
         var token = await TokenAsync(admin, type, "wip");
         (await _host.SlugReadAsync(tenant, type, "wip", preview: token)).StatusCode.Should().Be(HttpStatusCode.OK, "the positive control");
-        var linkId = (await _host.StoredLinksAsync(tenant)).Single().Id;
+        var link = (await _host.StoredLinksAsync(tenant)).Single();
 
-        var revoked = await admin.DeleteAsync($"{ShareLinkTestHost.EntryLinks(wip)}/{linkId}", Ct);
+        (await admin.DeleteAsync($"{ShareLinkTestHost.EntryLinks(wip)}/{link.Id}", Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound,
+            "the entry's routes do not manage preview tokens");
+        (await _host.StoredLinksAsync(tenant)).Single().RevokedAt.Should().BeNull();
+        (await _host.SlugReadAsync(tenant, type, "wip", preview: token)).StatusCode.Should().Be(HttpStatusCode.OK);
 
-        revoked.StatusCode.Should().Be(HttpStatusCode.NoContent);
-        (await _host.SlugReadAsync(tenant, type, "wip", preview: token)).StatusCode.Should().Be(HttpStatusCode.NotFound);
-        (await _host.OpenAsync(tenant, token)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        await using (var session = store.LightweightSession(tenant))
+        {
+            link.RevokedAt = DateTimeOffset.UtcNow;
+            session.Store(link);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        (await _host.SlugReadAsync(tenant, type, "wip", preview: token)).StatusCode.Should().Be(HttpStatusCode.NotFound,
+            "the lookup refuses a revoked row whoever revoked it");
     }
 
     [Fact]
@@ -201,7 +244,7 @@ public class PreviewShareLinkTests
         var stored = await _host.StoredLinksAsync(tenant);
         stored.Should().HaveCount(2, "the expired preview token is gone and the new one is in");
         stored.Select(l => l.KeyHash).Should().BeEquivalentTo(
-            new[] { ShareLinkTestHost.Sha256Hex(token), ShareLinkTestHost.Sha256Hex(expiredEditorLink) },
+            new[] { ShareLinkTestHost.EntryHashHex(token), ShareLinkTestHost.EntryHashHex(expiredEditorLink) },
             "an expired link an editor made stays in the entry's list");
     }
 
@@ -251,31 +294,57 @@ public class PreviewShareLinkTests
     }
 
     [Fact]
-    public async Task A_caller_with_read_alone_still_mints_and_minting_is_not_capped()
+    public async Task A_caller_with_read_alone_still_mints_and_an_entry_keeps_at_most_20_live_tokens()
     {
         var tenant = await _host.TenantAsync();
         var type = await _host.TypeAsync(tenant);
         var wip = await _host.EntryAsync(tenant, type, "wip");
+        var other = await _host.EntryAsync(tenant, type, "other");
         var reader = await _host.EditorInAsync(tenant, type, mayRead: true, mayUpdate: false);
         var stranger = await _host.EditorInAsync(tenant, type, mayRead: false, mayUpdate: false);
+        var start = DateTimeOffset.UtcNow.AddMinutes(-10);
+        var keys = new List<string>();
         for (var i = 0; i < 25; i++)
         {
-            await _host.StoreLinkAsync(tenant, l =>
+            var created = start.AddSeconds(i);
+            keys.Add(await _host.StoreLinkAsync(tenant, l =>
             {
                 l.EntryId = wip;
                 l.Preview = true;
-                l.ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(30);
-            });
+                l.CreatedAt = created;
+                l.ExpiresAt = created.AddMinutes(30);
+            }));
         }
+
+        var otherKey = await _host.StoreLinkAsync(tenant, l =>
+        {
+            l.EntryId = other;
+            l.Preview = true;
+            l.CreatedAt = start.AddMinutes(-5);
+            l.ExpiresAt = start.AddMinutes(25);
+        });
+        var editorKey = await _host.StoreLinkAsync(tenant, l =>
+        {
+            l.EntryId = wip;
+            l.CreatedAt = start.AddMinutes(-5);
+        });
+        (await _host.StoredLinksAsync(tenant)).Should().HaveCount(27);
 
         var token = await TokenAsync(reader, type, "wip");
 
         (await _host.SlugReadAsync(tenant, type, "wip", preview: token)).StatusCode.Should().Be(HttpStatusCode.OK);
-        (await _host.StoredLinksAsync(tenant)).Should().HaveCount(26);
+        var hashes = (await _host.StoredLinksAsync(tenant)).Select(l => l.KeyHash).ToList();
+        hashes.Should().HaveCount(22, "20 live tokens on the entry, the other entry's token and the editor's link");
+        hashes.Should().Contain(ShareLinkTestHost.EntryHashHex(token));
+        hashes.Should().Contain(ShareLinkTestHost.EntryHashHex(otherKey), "another entry's tokens are not what made this one full");
+        hashes.Should().Contain(ShareLinkTestHost.EntryHashHex(editorKey), "a link an editor made is never dropped to make room");
+        hashes.Should().NotContain(keys.Take(6).Select(ShareLinkTestHost.EntryHashHex), "the six oldest went");
+        hashes.Should().Contain(keys.Skip(6).Select(ShareLinkTestHost.EntryHashHex), "the nineteen newest stayed");
+
         (await MintAsync(stranger, type, "wip")).StatusCode.Should().Be(HttpStatusCode.NotFound, "no read on the entry, as before");
         (await reader.GetAsync(ShareLinkTestHost.EntryLinks(wip), Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden,
             "minting a 30 minute token takes read, managing the entry's links takes update");
-        (await _host.StoredLinksAsync(tenant)).Should().HaveCount(26);
+        (await _host.StoredLinksAsync(tenant)).Should().HaveCount(22);
     }
 
     [Fact]

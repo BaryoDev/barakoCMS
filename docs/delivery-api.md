@@ -30,10 +30,11 @@ links calls that endpoint from its own code with a token that satisfies both. De
 rather than overlooked (#306), and recorded here so nobody goes looking for a screen that does not
 exist.
 
-The route is deprecated and says so in a `Deprecation` header. The token is the key of an entry
-share link that lasts 30 minutes, so it is listed on the entry, audited and revocable; a link made
-with `POST /api/contents/{id}/share-links` replaces it, and its key is posted in a body rather
-than put in a URL. See "Links to one entry or one page" in [site-settings.md](site-settings.md).
+The route is deprecated and its 200 says so in a `Deprecation` header. The token is the key of an
+entry share link that lasts 30 minutes: stored hashed, capped at 20 live per entry, deleted with
+its entry. A link made with `POST /api/contents/{id}/share-links` replaces it; that one is
+listed, audited and revocable, and its key is posted in a body rather than put in a URL. See
+"Links to one entry or one page" and "Preview tokens" in [site-settings.md](site-settings.md).
 
 ## Routes
 

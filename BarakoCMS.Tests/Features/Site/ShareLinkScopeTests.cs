@@ -59,7 +59,7 @@ public class ShareLinkScopeTests
         stored[0].EntryId.Should().Be(wip);
         stored[0].Path.Should().BeNull();
         stored[0].Preview.Should().BeFalse();
-        stored[0].KeyHash.Should().Be(ShareLinkTestHost.Sha256Hex(key));
+        stored[0].KeyHash.Should().Be(ShareLinkTestHost.EntryHashHex(key));
 
         var opened = await _host.OpenAsync(tenant, key);
 
@@ -75,7 +75,7 @@ public class ShareLinkScopeTests
         entry.GetProperty("data").GetProperty("Related").GetString().Should().Be(other.ToString(), "a reference stays the id it is stored as");
         text.Should().NotContain(ShareLinkTestHost.SecretValue, "a link is not a signed-in caller and gets Public fields only");
         text.Should().NotContain(ShareLinkTestHost.BodyOf("other"), "the referenced draft is not opened by a link to this one");
-        text.Should().NotContain(key).And.NotContain(ShareLinkTestHost.Sha256Hex(key));
+        text.Should().NotContain(key).And.NotContain(ShareLinkTestHost.EntryHashHex(key));
         (await _host.StoredLinksAsync(tenant)).Single().LastUsedAt.Should().BeCloseTo(DateTimeOffset.UtcNow, TimeSpan.FromMinutes(1));
 
         (await _host.SlugReadAsync(tenant, type, "other")).StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -110,6 +110,59 @@ public class ShareLinkScopeTests
     }
 
     [Fact]
+    public async Task A_row_that_names_an_entry_is_not_a_site_link_even_under_the_sites_hash()
+    {
+        var tenant = await _host.TenantAsync();
+        var type = await _host.TypeAsync(tenant);
+        var wip = await _host.EntryAsync(tenant, type, "wip");
+        var siteKey = await _host.StoreLinkAsync(tenant, _ => { });
+        var misfiledKey = await _host.StoreLinkAsync(tenant, l => l.EntryId = wip, plainHash: true);
+        var misfiled = (await _host.StoredLinksAsync(tenant)).Single(l => l.EntryId == wip);
+        misfiled.KeyHash.Should().Be(ShareLinkTestHost.Sha256Hex(misfiledKey), "otherwise redeem never finds the row and the refusal below is the lookup's, not the check's");
+
+        (await _host.RedeemAsync(tenant, siteKey)).StatusCode.Should().Be(HttpStatusCode.OK, "the positive control");
+
+        (await _host.RedeemAsync(tenant, misfiledKey)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var opened = await _host.OpenAsync(tenant, misfiledKey);
+        opened.StatusCode.Should().Be(HttpStatusCode.NotFound, "open serves an entry only from a row under the entry hash");
+        (await opened.Content.ReadAsStringAsync(Ct)).Should().NotContain(ShareLinkTestHost.BodyOf("wip"));
+        (await _host.StoredLinksAsync(tenant)).Single(l => l.EntryId == wip).LastUsedAt.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task An_entry_page_or_preview_key_is_stored_under_a_hash_a_site_lookup_cannot_find()
+    {
+        var tenant = await _host.TenantAsync();
+        var type = await _host.TypeAsync(tenant);
+        var wip = await _host.EntryAsync(tenant, type, "wip");
+        var admin = await _host.SuperAdminInAsync(tenant);
+        var entryKey = KeyOf(await ShareLinkTestHost.CreateEntryLinkAsync(admin, wip, new { label = "One entry" }));
+        var pageKey = KeyOf(await ShareLinkTestHost.CreateEntryLinkAsync(admin, wip, new { label = "One page", path = "/wip" }));
+        var minted = await admin.PostAsJsonAsync("/api/preview", new { Type = type, Slug = "wip" }, Ct);
+        var previewKey = (await OkJsonAsync(minted)).GetProperty("token").GetString()!;
+        var siteKey = KeyOf(await ShareLinkTestHost.CreateSiteLinkAsync(admin, "Whole site"));
+
+        var stored = await _host.StoredLinksAsync(tenant);
+        stored.Should().HaveCount(4);
+        var hashes = stored.Select(l => l.KeyHash).ToList();
+        hashes.Should().Contain(ShareLinkTestHost.Sha256Hex(siteKey), "a site link keeps the hash it always had, which is the control");
+
+        // The lookup a build from before entry links runs at redeem: the plain SHA-256 of what was sent.
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        await using var session = store.QuerySession(tenant);
+        foreach (var key in new[] { entryKey, pageKey, previewKey })
+        {
+            hashes.Should().NotContain(ShareLinkTestHost.Sha256Hex(key));
+            hashes.Should().Contain(ShareLinkTestHost.EntryHashHex(key));
+            (await ShareLinkKeys.FindActiveAsync(session, key, DateTimeOffset.UtcNow, Ct)).Should().BeNull();
+            (await ShareLinkKeys.FindActiveEntryAsync(session, key, DateTimeOffset.UtcNow, Ct)).Should().NotBeNull();
+        }
+
+        (await ShareLinkKeys.FindActiveAsync(session, siteKey, DateTimeOffset.UtcNow, Ct)).Should().NotBeNull();
+        (await ShareLinkKeys.FindActiveEntryAsync(session, siteKey, DateTimeOffset.UtcNow, Ct)).Should().BeNull();
+    }
+
+    [Fact]
     public async Task A_key_to_the_whole_site_opens_as_site_scope_and_carries_no_entry()
     {
         var tenant = await _host.TenantAsync();
@@ -134,14 +187,12 @@ public class ShareLinkScopeTests
         var tenant = await _host.TenantAsync();
         var type = await _host.TypeAsync(tenant);
         var wip = await _host.EntryAsync(tenant, type, "wip");
-        await _host.EntryAsync(tenant, type, "other");
         var key = KeyOf(await ShareLinkTestHost.CreateEntryLinkAsync(await _host.SuperAdminInAsync(tenant), wip, new { label = "Not for a query" }));
 
         (await _host.OpenAsync(tenant, key)).StatusCode.Should().Be(HttpStatusCode.OK, "the key is live, posted in a body");
 
         (await _host.SlugReadAsync(tenant, type, "wip", preview: key)).StatusCode.Should().Be(HttpStatusCode.NotFound,
             "a key that can last 90 days is not taken from a query string, which is logged");
-        (await _host.SlugReadAsync(tenant, type, "other", preview: key)).StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]
@@ -169,6 +220,70 @@ public class ShareLinkScopeTests
             .PostAsJsonAsync(ShareLinkTestHost.EntryLinks(wip), new { label = "Across" }, Ct);
         crossedCreate.StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await _host.StoredLinksAsync(theirs)).Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task An_admin_of_another_tenant_cannot_list_or_revoke_an_entrys_links()
+    {
+        var ours = await _host.TenantAsync();
+        var theirs = await _host.TenantAsync();
+        var type = await _host.TypeAsync(ours);
+        var wip = await _host.EntryAsync(ours, type, "wip");
+        var theirType = await _host.TypeAsync(theirs);
+        var theirWip = await _host.EntryAsync(theirs, theirType, "wip");
+        var ourAdmin = await _host.SuperAdminInAsync(ours);
+        var theirAdmin = await _host.SuperAdminInAsync(theirs);
+        var created = await ShareLinkTestHost.CreateEntryLinkAsync(ourAdmin, wip, new { label = "Ours" });
+        var linkId = created.GetProperty("id").GetGuid();
+
+        var ourList = await OkJsonAsync(await ourAdmin.GetAsync(ShareLinkTestHost.EntryLinks(wip), Ct));
+        ourList.GetProperty("items").GetArrayLength().Should().Be(1, "the positive control");
+
+        (await theirAdmin.GetAsync(ShareLinkTestHost.EntryLinks(wip), Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await theirAdmin.DeleteAsync($"{ShareLinkTestHost.EntryLinks(wip)}/{linkId}", Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await theirAdmin.DeleteAsync($"{ShareLinkTestHost.EntryLinks(theirWip)}/{linkId}", Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound,
+            "their own entry does not reach a link in our partition");
+        var theirList = await OkJsonAsync(await theirAdmin.GetAsync(ShareLinkTestHost.EntryLinks(theirWip), Ct));
+        theirList.GetProperty("totalItems").GetInt32().Should().Be(0);
+
+        var stored = await _host.StoredLinksAsync(ours);
+        stored.Should().HaveCount(1);
+        stored[0].RevokedAt.Should().BeNull();
+        (await _host.OpenAsync(ours, KeyOf(created))).StatusCode.Should().Be(HttpStatusCode.OK, "the link is still live");
+    }
+
+    [Fact]
+    public async Task A_caller_whose_update_is_conditional_manages_links_only_where_the_condition_holds()
+    {
+        var tenant = await _host.TenantAsync();
+        var type = await _host.TypeAsync(tenant);
+        var draft = await _host.EntryAsync(tenant, type, "draft");
+        var published = await _host.EntryAsync(tenant, type, "published", ContentStatus.Published);
+        var whileDraft = new PermissionRule
+        {
+            Enabled = true,
+            Conditions = new Dictionary<string, object>
+            {
+                ["$status"] = new Dictionary<string, object> { ["_eq"] = "Draft" },
+            },
+        };
+        var editor = await _host.EditorInAsync(tenant, type, mayRead: true, mayUpdate: true, update: whileDraft);
+        var publishedLinkId = (await ShareLinkTestHost.CreateEntryLinkAsync(
+            await _host.SuperAdminInAsync(tenant), published, new { label = "Admin's link" })).GetProperty("id").GetGuid();
+
+        var draftLinkId = (await ShareLinkTestHost.CreateEntryLinkAsync(editor, draft, new { label = "On a draft" })).GetProperty("id").GetGuid();
+        (await editor.GetAsync(ShareLinkTestHost.EntryLinks(draft), Ct)).StatusCode.Should().Be(HttpStatusCode.OK, "the condition holds for a draft");
+
+        (await editor.PostAsJsonAsync(ShareLinkTestHost.EntryLinks(published), new { label = "Nope" }, Ct))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden, "the rule grants update only while the entry is a draft");
+        (await editor.GetAsync(ShareLinkTestHost.EntryLinks(published), Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await editor.DeleteAsync($"{ShareLinkTestHost.EntryLinks(published)}/{publishedLinkId}", Ct))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        var stored = await _host.StoredLinksAsync(tenant);
+        stored.Should().HaveCount(2);
+        stored.Should().OnlyContain(l => l.RevokedAt == null);
+        (await editor.DeleteAsync($"{ShareLinkTestHost.EntryLinks(draft)}/{draftLinkId}", Ct)).StatusCode.Should().Be(HttpStatusCode.NoContent);
     }
 
     [Fact]
@@ -276,17 +391,34 @@ public class ShareLinkScopeTests
         text.Should().NotContain(ShareLinkTestHost.BodyOf("child"), "a page link opens the page and no other draft");
         text.Should().NotContain(ShareLinkTestHost.SecretValue);
 
-        var refusedPaths = new[] { "//evil.example", "/\\evil.example", "about/team", "/about team", "/about?x=1", "/about#x", "", "/" + new string('a', 2048) };
+        var refusedPaths = new[]
+        {
+            "//evil.example", "/\\evil.example", "about/team", "/about team", "/about?x=1", "/about#x", "",
+            "/" + new string('a', 2048),
+            "/.//evil.example", "/..//evil.example", "/a/..//evil.example", "/a//b",
+            "/a/./b", "/a/../b", "/a/..", "/.", "/a\\b",
+            "/a%2f%2fevil.example", "/%2e%2e/b",
+            "/a\u202Eb", "/a\u200Bb", "/a\u2066b", "/a\u0000b", "/a\tb",
+        };
+        refusedPaths.Should().HaveCount(24);
         foreach (var path in refusedPaths)
         {
             (await admin.PostAsJsonAsync(ShareLinkTestHost.EntryLinks(page), new { label = "Bad path", path }, Ct))
-                .StatusCode.Should().Be(HttpStatusCode.BadRequest, $"'{path}' is not a path on the site");
+                .StatusCode.Should().Be(HttpStatusCode.BadRequest, "'{0}' is not a path on the site", Uri.EscapeDataString(path));
+        }
+
+        // The other side of each rule: a dot inside a segment, a trailing slash and the root are paths.
+        var acceptedPaths = new[] { "/", "/about/team/", "/v1.2/notes", "/a..b" };
+        foreach (var path in acceptedPaths)
+        {
+            (await admin.PostAsJsonAsync(ShareLinkTestHost.EntryLinks(page), new { label = "Good path", path }, Ct))
+                .StatusCode.Should().Be(HttpStatusCode.Created, "'{0}' is a path on the site", path);
         }
 
         var stored = await _host.StoredLinksAsync(tenant);
-        stored.Should().HaveCount(1);
-        stored[0].Path.Should().Be("/about/team");
-        stored[0].EntryId.Should().Be(page);
+        stored.Should().HaveCount(1 + acceptedPaths.Length);
+        stored.Select(l => l.Path).Should().BeEquivalentTo(new[] { "/about/team" }.Concat(acceptedPaths));
+        stored.Should().OnlyContain(l => l.EntryId == page);
     }
 
     [Fact]

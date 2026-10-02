@@ -47,10 +47,16 @@ internal static class ShareLinkKeys
     public const int MaxActive = 100;
 
     /// <summary>
-    /// Active links per entry, for the same reason. Links issued by <c>POST /api/preview</c> are not
-    /// counted: that route has no answer for a full list, and each of those lasts 30 minutes.
+    /// Active links per entry, for the same reason. Links issued by <c>POST /api/preview</c> are
+    /// counted apart, under <see cref="MaxPreviewPerEntry"/>.
     /// </summary>
     public const int MaxActivePerEntry = 20;
+
+    /// <summary>
+    /// Live preview tokens per entry. <c>POST /api/preview</c> has no answer for a full list, so
+    /// past this it drops the entry's oldest tokens to make room instead of refusing.
+    /// </summary>
+    public const int MaxPreviewPerEntry = 20;
 
     /// <summary>Longer than any key this API issues, so an oversized body is not hashed.</summary>
     private const int MaxKeyLength = 256;
@@ -64,7 +70,45 @@ internal static class ShareLinkKeys
     public static string Hash(string key) =>
         Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(key)));
 
-    /// <summary>The active link for <paramref name="key"/> in the session's tenant, or null.</summary>
+    /// <summary>The hash an entry, page or preview link is stored under.</summary>
+    /// <remarks>
+    /// A different hash from a link to the site, so that a lookup by <see cref="Hash"/> cannot find
+    /// one. That matters for a build from before entry links, running beside this one or rolled
+    /// back to: its redeem finds a row by <see cref="Hash"/> and reads it as leave to show the
+    /// whole held site, and it knows nothing of <see cref="SiteShareLink.EntryId"/>.
+    ///
+    /// The input is one 0xFF byte and then the key. No string encodes to UTF-8 holding 0xFF, so no
+    /// value a caller can send hashes to this through <see cref="Hash"/>. A text prefix would not
+    /// do: the caller would send the prefix with the key.
+    /// </remarks>
+    public static string EntryHash(string key)
+    {
+        var utf8 = Encoding.UTF8.GetBytes(key);
+        var input = new byte[utf8.Length + 1];
+        input[0] = 0xFF;
+        utf8.CopyTo(input, 1);
+        return Convert.ToHexStringLower(SHA256.HashData(input));
+    }
+
+    /// <summary>The active entry, page or preview link for <paramref name="key"/> in the session's tenant, or null.</summary>
+    public static async Task<SiteShareLink?> FindActiveEntryAsync(IQuerySession session, string? key, DateTimeOffset now, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(key) || key.Length > MaxKeyLength)
+        {
+            return null;
+        }
+
+        var hash = EntryHash(key);
+        return await session.Query<SiteShareLink>()
+            .Where(l => l.KeyHash == hash && l.EntryId != null && l.RevokedAt == null && l.ExpiresAt > now)
+            .FirstOrDefaultAsync(ct);
+    }
+
+    /// <summary>
+    /// The active link for <paramref name="key"/> in the session's tenant, looked up as a link to the
+    /// site, or null. An entry, page or preview link is stored under <see cref="EntryHash"/> and is
+    /// not found here.
+    /// </summary>
     /// <remarks>
     /// Looked up by hash through the unique KeyHash index. The lookup is not constant time, and does
     /// not need to be: what it could leak is how much of a SHA-256 matched, which says nothing about
@@ -161,9 +205,6 @@ internal sealed class ShareLinkResponse
     /// <summary>The path a page link was created for. Null for the other scopes.</summary>
     public string? Path { get; init; }
 
-    /// <summary>True for a link <c>POST /api/preview</c> issued.</summary>
-    public bool Preview { get; init; }
-
     public static ShareLinkResponse From(SiteShareLink l) => new()
     {
         Id = l.Id,
@@ -175,7 +216,6 @@ internal sealed class ShareLinkResponse
         LastUsedAt = l.LastUsedAt,
         Scope = ShareLinkScope.Of(l),
         Path = l.Path,
-        Preview = l.Preview,
     };
 }
 

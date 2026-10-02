@@ -18,18 +18,26 @@ internal static class EntryShareLinks
     public const int MaxPathLength = 2048;
 
     /// <summary>
-    /// A path on the site: one leading slash, and nothing a browser could read as another origin
-    /// or as the start of a query or a fragment.
+    /// A path on the site: a leading slash, and nothing a browser or a frontend that tidies the
+    /// path could read as another origin or as the start of a query or a fragment.
     /// </summary>
     /// <remarks>
     /// The path is handed back to whoever opens the link, and a frontend is expected to send them
-    /// there. <c>//host</c> and <c>/\host</c> both leave the site in a browser, so neither is stored.
+    /// there. <c>//host</c> and <c>/\host</c> both leave the site in a browser. So does
+    /// <c>/a/..//host</c> once something resolves the dot segment, and a percent sign can hide any
+    /// of them, so an empty segment, a <c>.</c> or <c>..</c> segment and <c>%</c> are refused
+    /// wherever they sit. Format characters (the bidi overrides among them) are refused because
+    /// they change what a person reading the link sees.
     /// </remarks>
     public static bool IsSitePath(string? path) =>
         path is { Length: > 0 and <= MaxPathLength }
         && path[0] == '/'
-        && (path.Length == 1 || path[1] != '/')
-        && !path.Any(c => char.IsWhiteSpace(c) || char.IsControl(c) || c is '\\' or '?' or '#');
+        && !path.Contains("//", StringComparison.Ordinal)
+        && !path.Split('/').Any(segment => segment is "." or "..")
+        && !path.Any(c => c is '\\' or '?' or '#' or '%'
+                          || char.IsWhiteSpace(c)
+                          || char.IsControl(c)
+                          || char.GetUnicodeCategory(c) == System.Globalization.UnicodeCategory.Format);
 
     /// <summary>
     /// The entry named in the route, and whether the caller may manage its links: update permission
@@ -85,7 +93,7 @@ internal sealed class CreateEntryShareLinkValidator : Validator<CreateEntryShare
 
         RuleFor(x => x.Path)
             .Must(EntryShareLinks.IsSitePath)
-            .WithMessage($"path must start with one / and hold no whitespace, backslash, ? or #, in at most {EntryShareLinks.MaxPathLength} characters.")
+            .WithMessage($"path must start with / and hold no empty, . or .. segment and no whitespace, backslash, ?, # or %, in at most {EntryShareLinks.MaxPathLength} characters.")
             .When(x => x.Path is not null);
     }
 }
@@ -157,7 +165,7 @@ internal sealed class CreateEntryShareLinkEndpoint(
         {
             Id = Guid.NewGuid(),
             Label = req.Label.Trim(),
-            KeyHash = ShareLinkKeys.Hash(key),
+            KeyHash = ShareLinkKeys.EntryHash(key),
             CreatedAt = now,
             CreatedBy = User.FindFirst("Username")?.Value,
             ExpiresAt = req.ExpiresAt?.ToUniversalTime() ?? now.Add(ShareLinkKeys.DefaultLifetime),
@@ -195,8 +203,12 @@ internal sealed class CreateEntryShareLinkEndpoint(
 
 /// <summary>
 /// GET /api/contents/{id}/share-links: this entry's links, newest first, without keys or hashes.
-/// Links <c>POST /api/preview</c> issued are listed too, so they can be revoked.
 /// </summary>
+/// <remarks>
+/// Tokens <c>POST /api/preview</c> issued are left out, here and in revoke. A caller with read
+/// alone can mint them, each is gone in 30 minutes, and listed they would push the links an editor
+/// made down the page.
+/// </remarks>
 internal sealed class ListEntryShareLinksEndpoint(
     IQuerySession session,
     IPermissionResolver permissions) : Endpoint<PaginatedRequest, ShareLinkListResponse>
@@ -223,9 +235,9 @@ internal sealed class ListEntryShareLinksEndpoint(
         }
 
         var entryId = entry.Id;
-        var total = await session.Query<SiteShareLink>().Where(l => l.EntryId == entryId).CountAsync(ct);
+        var total = await session.Query<SiteShareLink>().Where(l => l.EntryId == entryId && !l.Preview).CountAsync(ct);
         var page = await session.Query<SiteShareLink>()
-            .Where(l => l.EntryId == entryId)
+            .Where(l => l.EntryId == entryId && !l.Preview)
             .OrderByDescending(l => l.CreatedAt)
             .Skip(req.Skip)
             .Take(req.Take)
@@ -244,7 +256,8 @@ internal sealed class ListEntryShareLinksEndpoint(
 
 /// <summary>
 /// DELETE /api/contents/{id}/share-links/{linkId}: revoke one of this entry's links. Revoking twice
-/// is still 204. A link that belongs to another entry, or to the whole site, is 404 here.
+/// is still 204. A link that belongs to another entry, or to the whole site, is 404 here, and so is
+/// a preview token, which the list does not show either.
 /// </summary>
 internal sealed class RevokeEntryShareLinkEndpoint(
     IDocumentSession session,
@@ -275,7 +288,7 @@ internal sealed class RevokeEntryShareLinkEndpoint(
         var link = Guid.TryParse(Route<string>("linkId"), out var linkId)
             ? await session.LoadAsync<SiteShareLink>(linkId, ct)
             : null;
-        if (link is null || link.EntryId != entry.Id)
+        if (link is null || link.EntryId != entry.Id || link.Preview)
         {
             await Send.NotFoundAsync(ct);
             return;
@@ -330,9 +343,11 @@ internal sealed class OpenShareLinkResponse
 /// </summary>
 /// <remarks>
 /// The key travels in the body, so it is in no URL, no access log and no Referer. 200 or 404 and
-/// nothing else: a wrong key, an expired or revoked link, another tenant's key and a link whose
-/// entry is gone or can no longer be delivered all answer the same 404. The request names no entry,
-/// so there is no id for a caller to change.
+/// nothing else: a wrong key, an expired or revoked link, another tenant's key, a preview token
+/// and a link whose entry is gone or can no longer be delivered all answer the same 404. The
+/// request names no entry, so there is no id for a caller to change.
+///
+/// A preview token is refused so that it has one use, the <c>?preview=</c> query it was issued for.
 /// </remarks>
 internal sealed class OpenShareLinkEndpoint(
     IDocumentSession session) : Endpoint<OpenShareLinkRequest, OpenShareLinkResponse>
@@ -349,8 +364,13 @@ internal sealed class OpenShareLinkEndpoint(
         HttpContext.Response.Headers.CacheControl = "no-store";
 
         var now = DateTimeOffset.UtcNow;
-        var link = await ShareLinkKeys.FindActiveAsync(session, req.Key, now, ct);
-        if (link is null)
+        // Two hashes, two lookups. A row found under the site hash that names an entry is not a
+        // site link and is not served as one.
+        var site = await ShareLinkKeys.FindActiveAsync(session, req.Key, now, ct);
+        var link = (site is { EntryId: null })
+            ? site
+            : await ShareLinkKeys.FindActiveEntryAsync(session, req.Key, now, ct);
+        if (link is null || link.Preview)
         {
             await Send.NotFoundAsync(ct);
             return;

@@ -545,7 +545,7 @@ internal class GetBySlugEndpoint(
         var previewToken = Query<string>(barakoCMS.Infrastructure.Preview.PreviewToken.QueryParam, isRequired: false);
 
         /* What POST /api/preview hands out is the key of an entry share link, looked up in this
-         * tenant, so revoking the link ends the preview at once. Only a link that route issued is
+         * tenant, so the preview ends when the row does. Only a link that route issued is
          * taken from the query: a key an editor made can last 90 days, and a query string is logged.
          * A JWT from before the route issued links is still verified until it runs out, 30 minutes
          * at most; a share key holds no dot, which is how the two are told apart.
@@ -560,7 +560,7 @@ internal class GetBySlugEndpoint(
             previewId = barakoCMS.Infrastructure.Preview.PreviewToken.ValidatedEntryId(config, previewToken, tenant.Slug, type, slug);
         }
         else if (!string.IsNullOrEmpty(previewToken)
-                 && await barakoCMS.Features.Site.ShareLinks.ShareLinkKeys.FindActiveAsync(session, previewToken, previewNow, ct)
+                 && await barakoCMS.Features.Site.ShareLinks.ShareLinkKeys.FindActiveEntryAsync(session, previewToken, previewNow, ct)
                      is { Preview: true, EntryId: { } linkedId } found
                  && await session.LoadAsync<ContentDoc>(linkedId, ct) is { } linked
                  && linked.ContentType == type
@@ -609,9 +609,19 @@ internal class GetBySlugEndpoint(
 
         if (previewLink is not null)
         {
-            var write = Resolve<IDocumentSession>();
-            barakoCMS.Features.Site.ShareLinks.ShareLinkKeys.RecordUse(write, previewLink, previewNow);
-            await write.SaveChangesAsync(ct);
+            // Best effort. The draft is already read, and a failed timestamp is no reason to
+            // answer 500 for it. The type alone is logged: the message can quote the statement.
+            try
+            {
+                var write = Resolve<IDocumentSession>();
+                barakoCMS.Features.Site.ShareLinks.ShareLinkKeys.RecordUse(write, previewLink, previewNow);
+                await write.SaveChangesAsync(ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Resolve<ILogger<GetBySlugEndpoint>>().LogWarning(
+                    "Recording the use of a preview token failed with {ExceptionType}", ex.GetType().Name);
+            }
         }
 
         if (previewId is not null)

@@ -336,5 +336,112 @@ public class ApiKeyIntegrationTests
         }
     }
 
+    // ---- entry share links (#857) ---------------------------------------------
+
+    /// <summary>A draft of a deliverable type in the default tenant, with one link stored on it.</summary>
+    private async Task<(Guid EntryId, Guid LinkId)> SeedLinkedEntryAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var type = $"keylink{Guid.NewGuid():n}"[..14];
+        session.Store(new ContentTypeDefinition
+        {
+            Id = Guid.NewGuid(),
+            Name = type,
+            DisplayName = type,
+            IsPubliclyDeliverable = true,
+            Fields = new() { new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" } },
+        });
+        var entryId = Guid.NewGuid();
+        session.Store(new Content
+        {
+            Id = entryId,
+            ContentType = type,
+            Status = ContentStatus.Draft,
+            Data = new() { ["Title"] = "draft" },
+        });
+        var linkId = Guid.NewGuid();
+        session.Store(new SiteShareLink
+        {
+            Id = linkId,
+            Label = "Stored",
+            KeyHash = Guid.NewGuid().ToString("N"),
+            CreatedAt = DateTimeOffset.UtcNow,
+            ExpiresAt = DateTimeOffset.UtcNow.AddDays(1),
+            EntryId = entryId,
+        });
+        await session.SaveChangesAsync();
+        return (entryId, linkId);
+    }
+
+    private async Task<List<SiteShareLink>> LinksOfAsync(Guid entryId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        return (await session.Query<SiteShareLink>().Where(l => l.EntryId == entryId).ToListAsync()).ToList();
+    }
+
+    /// <summary>
+    /// A share link is a credential for someone with no account, and one a key made would outlive
+    /// the key's revocation. The entry link routes sit under <c>/api/contents</c>, the one path a
+    /// key reaches, so they are closed by shape, like the site's share link routes.
+    /// </summary>
+    [Theory]
+    [InlineData("*", "/api/contents/{0}/share-links")]
+    [InlineData("content:write", "/api/contents/{0}/share-links")]
+    [InlineData("*", "/API/Contents/{0}/Share-Links/")]
+    public async Task Key_CannotCreateListOrRevokeAnEntrysShareLinks(string scope, string route)
+    {
+        var (userId, jwt) = await SuperAdminAsync();
+        var secret = await StoreKeyAsync(userId, new[] { "content:read", scope });
+        var (entryId, linkId) = await SeedLinkedEntryAsync();
+        var links = string.Format(route, entryId);
+
+        var create = WithKey(HttpMethod.Post, links, secret);
+        create.Content = JsonContent.Create(new { label = "From a key" });
+        var refusals = new[]
+        {
+            await _client.SendAsync(create),
+            await _client.SendAsync(Get(links, secret)),
+            await _client.SendAsync(WithKey(HttpMethod.Delete, $"{links.TrimEnd('/')}/{linkId}", secret)),
+        };
+
+        refusals.Should().HaveCount(3);
+        foreach (var refusal in refusals)
+        {
+            refusal.StatusCode.Should().Be(HttpStatusCode.Forbidden, "API keys do not reach share links");
+            (await refusal.Content.ReadAsStringAsync()).Should().Be("API keys are limited to the content API.");
+        }
+
+        var untouched = await LinksOfAsync(entryId);
+        untouched.Should().HaveCount(1, "the key made no link");
+        untouched[0].RevokedAt.Should().BeNull("the key revoked no link");
+
+        // The control: the same user, signed in, does all three.
+        var plain = $"/api/contents/{entryId}/share-links";
+        var signedInCreate = WithKey(HttpMethod.Post, plain, jwt);
+        signedInCreate.Content = JsonContent.Create(new { label = "Signed in" });
+        var created = await _client.SendAsync(signedInCreate);
+        created.StatusCode.Should().Be(HttpStatusCode.Created, because: await created.Content.ReadAsStringAsync());
+        (await _client.SendAsync(Get(plain, jwt))).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await _client.SendAsync(WithKey(HttpMethod.Delete, $"{plain}/{linkId}", jwt))).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        var after = await LinksOfAsync(entryId);
+        after.Should().HaveCount(2);
+        after.Single(l => l.Id == linkId).RevokedAt.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task ReadKey_ReadingBySlugFromATypeNamedShareLinks_IsNotTreatedAsAShareLinkRoute()
+    {
+        var (userId, _) = await SuperAdminAsync();
+        var secret = await StoreKeyAsync(userId, new[] { "content:read" });
+
+        var res = await _client.SendAsync(Get("/api/contents/by-slug/share-links/missing", secret));
+
+        res.StatusCode.Should().Be(HttpStatusCode.NotFound,
+            "a by-slug read needs content:read, and a missing slug is 404 whatever the type is called");
+    }
+
     private sealed record CreatedKey(Guid Id, string Key, string Prefix, string Name);
 }

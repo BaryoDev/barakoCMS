@@ -15,7 +15,11 @@ public class SiteShareLink
 
     public string Label { get; set; } = string.Empty;
 
-    /// <summary>Lowercase hex SHA-256 of the key.</summary>
+    /// <summary>
+    /// Lowercase hex SHA-256 of the key, for a link to the site. A link that names an entry is
+    /// stored under the SHA-256 of one 0xFF byte followed by the key, which no lookup by the plain
+    /// hash can reach, so a build from before entry links never takes one for a link to the site.
+    /// </summary>
     public string KeyHash { get; set; } = string.Empty;
 
     public DateTimeOffset CreatedAt { get; set; }
@@ -45,7 +49,7 @@ public class SiteShareLink
     /// <summary>
     /// True when <c>POST /api/preview</c> issued the link. Only such a link is accepted in the
     /// <c>?preview=</c> query of a slug read, because its key lives 30 minutes and a query string
-    /// ends up in access logs.
+    /// ends up in access logs. It is accepted nowhere else, and is not listed with the entry's links.
     /// </summary>
     public bool Preview { get; set; }
 }

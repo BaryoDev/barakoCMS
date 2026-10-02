@@ -36,6 +36,19 @@ internal sealed class ShareLinkTestHost(IntegrationTestFixture fixture)
     public static string Sha256Hex(string key) =>
         Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(key)));
 
+    /// <summary>
+    /// The hash an entry, page or preview link is stored under: SHA-256 of one 0xFF byte and then the
+    /// key. Worked out here and not read from the production helper, so a change to it fails a test.
+    /// </summary>
+    public static string EntryHashHex(string key)
+    {
+        var utf8 = Encoding.UTF8.GetBytes(key);
+        var input = new byte[utf8.Length + 1];
+        input[0] = 0xFF;
+        utf8.CopyTo(input, 1);
+        return Convert.ToHexStringLower(SHA256.HashData(input));
+    }
+
     public static int WebKeyBytes(string key) =>
         Convert.FromBase64String(key.Replace('-', '+').Replace('_', '/') + new string('=', (4 - key.Length % 4) % 4)).Length;
 
@@ -111,19 +124,22 @@ internal sealed class ShareLinkTestHost(IntegrationTestFixture fixture)
         return (await session.Query<SiteShareLink>().ToListAsync(Ct)).ToList();
     }
 
-    /// <summary>Stores a link directly and returns its key.</summary>
-    public async Task<string> StoreLinkAsync(string tenant, Action<SiteShareLink> shape)
+    /// <summary>
+    /// Stores a link directly and returns its key. A link that names an entry goes under the entry
+    /// hash, as the API stores it, unless <paramref name="plainHash"/> asks for the site's hash.
+    /// </summary>
+    public async Task<string> StoreLinkAsync(string tenant, Action<SiteShareLink> shape, bool plainHash = false)
     {
         var key = WebEncode(RandomNumberGenerator.GetBytes(32));
         var link = new SiteShareLink
         {
             Id = Guid.NewGuid(),
             Label = "Stored",
-            KeyHash = Sha256Hex(key),
             CreatedAt = DateTimeOffset.UtcNow,
             ExpiresAt = DateTimeOffset.UtcNow.AddDays(1),
         };
         shape(link);
+        link.KeyHash = plainHash || link.EntryId is null ? Sha256Hex(key) : EntryHashHex(key);
 
         var store = fixture.Services.GetRequiredService<IDocumentStore>();
         await using var session = store.LightweightSession(tenant);
@@ -175,7 +191,7 @@ internal sealed class ShareLinkTestHost(IntegrationTestFixture fixture)
     public Task<HttpClient> SuperAdminInAsync(string tenant) => SignedInAsync(tenant, SystemRoles.SuperAdminRoleId, "SuperAdmin");
 
     /// <summary>A caller whose one role names <paramref name="type"/> and nothing else.</summary>
-    public async Task<HttpClient> EditorInAsync(string tenant, string type, bool mayRead, bool mayUpdate)
+    public async Task<HttpClient> EditorInAsync(string tenant, string type, bool mayRead, bool mayUpdate, PermissionRule? update = null)
     {
         var role = new Role
         {
@@ -187,7 +203,7 @@ internal sealed class ShareLinkTestHost(IntegrationTestFixture fixture)
                 {
                     ContentTypeSlug = type,
                     Read = new PermissionRule { Enabled = mayRead },
-                    Update = new PermissionRule { Enabled = mayUpdate },
+                    Update = update ?? new PermissionRule { Enabled = mayUpdate },
                 },
             ],
         };
