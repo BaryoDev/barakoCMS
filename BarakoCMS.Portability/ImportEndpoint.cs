@@ -242,6 +242,9 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
 
             RepointReferences(existing.FirstOrDefault(t => t.Name.Equals(rec.ContentType, StringComparison.OrdinalIgnoreCase)), data, newIds);
 
+            if (rec.Id is { } sourceRecordId && newIds.TryGetValue(sourceRecordId, out var expectedId))
+                batch.Expect(expectedId, rec.ContentType);
+
             pending.Add((i, new ContentCreateRequest
             {
                 ContentType = rec.ContentType,

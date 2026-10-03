@@ -400,6 +400,12 @@ internal sealed class CollectionSyncRunner(
             // written, since writing it would put a key in the bag that no schema describes.
             if (definition is null) continue;
 
+            if (barakoCMS.Core.Validation.ReferenceFields.IsMultiple(definition))
+            {
+                reason = $"'{field}' holds a list of references, which a sync does not fill";
+                return null;
+            }
+
             if (!row.TryGetValue(path, out var text) || text.Length == 0) continue;
 
             if (!TryConvert(text, definition.Type, out var value))
@@ -428,6 +434,12 @@ internal sealed class CollectionSyncRunner(
                 f => string.Equals(f.Name, field, StringComparison.OrdinalIgnoreCase));
 
             if (definition is null) continue;
+
+            if (barakoCMS.Core.Validation.ReferenceFields.IsMultiple(definition))
+            {
+                reason = $"'{field}' holds a list of references, which a sync does not fill";
+                return null;
+            }
 
             switch (SyncRules.Evaluate(rule, row))
             {

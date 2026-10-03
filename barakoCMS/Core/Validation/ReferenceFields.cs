@@ -28,6 +28,26 @@ internal static class ReferenceFields
     /// <summary>How many ids one error names before it says how many more there are.</summary>
     private const int NamedInError = 5;
 
+    // Ambient rather than a parameter, because IContentValidatorService is a published interface
+    // and the batch that knows these entries reaches the validator only through it.
+    private static readonly AsyncLocal<IReadOnlyDictionary<Guid, string>?> Expected = new();
+
+    /// <summary>
+    /// Entries a batch will write, by id and content type, that a list checked inside the returned
+    /// scope may name although they are not stored yet.
+    /// </summary>
+    public static IDisposable Expecting(IReadOnlyDictionary<Guid, string>? entries)
+    {
+        var previous = Expected.Value;
+        Expected.Value = entries;
+        return new Restore(previous);
+    }
+
+    private sealed class Restore(IReadOnlyDictionary<Guid, string>? previous) : IDisposable
+    {
+        public void Dispose() => Expected.Value = previous;
+    }
+
     public static bool IsMultiple(FieldDefinition field) =>
         field.Multiple && string.Equals(field.Type, "reference", StringComparison.OrdinalIgnoreCase);
 
@@ -70,7 +90,13 @@ internal static class ReferenceFields
                 .ToListAsync())
             .ToDictionary(c => c.Id);
 
-        var missing = ids.Where(id => !found.ContainsKey(id)).ToList();
+        var expected = Expected.Value;
+        string? TypeOf(Guid id) =>
+            found.TryGetValue(id, out var entry) ? entry.ContentType
+            : expected is not null && expected.TryGetValue(id, out var pending) ? pending
+            : null;
+
+        var missing = ids.Where(id => TypeOf(id) is null).ToList();
         if (missing.Count > 0)
             return $"Field '{field.DisplayName}' references {Named(missing)}, which "
                  + (missing.Count == 1 ? "does" : "do") + " not exist.";
@@ -78,7 +104,7 @@ internal static class ReferenceFields
         // The type each wrong entry is of is not named, unlike the single reference's error: a
         // writer is not always allowed to read the entries they name.
         var wrong = ids
-            .Where(id => !string.Equals(found[id].ContentType, field.ReferenceType, StringComparison.OrdinalIgnoreCase))
+            .Where(id => !string.Equals(TypeOf(id), field.ReferenceType, StringComparison.OrdinalIgnoreCase))
             .ToList();
         if (wrong.Count > 0)
             return $"Field '{field.DisplayName}' points at '{field.ReferenceType}', and {Named(wrong)} "

@@ -352,17 +352,15 @@ internal sealed class DeliveryQuery
             return ($"({KeyLookup} #>> '{{}}') ILIKE ?", [f.Field, $"%{Escape(f.Value)}%"]);
         }
 
-        // A list matches an entry that holds the value among others, one element compared exactly,
-        // never a substring of the list's text. @> carries no ?, so the field name and the value
-        // still bind. A stored value that is not a list, written before the field took several,
-        // contains nothing and is left out rather than failing the query.
+        // A list matches an entry that holds the value among others, one whole element, never a
+        // substring of the list's text. A stored value that is not a list, written before the field
+        // took several, holds nothing and is left out rather than failing the query.
         if (f.Op == FilterOp.Has)
-            return ($"{KeyLookup} @> ?::jsonb", [f.Field, ListElement(f)]);
+            return HoldsSql(f);
 
         if (f.Multiple)
         {
-            var holds = $"{KeyLookup} @> ?::jsonb";
-            object[] listParameters = [f.Field, ListElement(f)];
+            var (holds, listParameters) = HoldsSql(f);
             return f.Op switch
             {
                 FilterOp.Eq => (holds, listParameters),
@@ -630,23 +628,39 @@ internal sealed class DeliveryQuery
             .Select(f => f.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-    internal static string ListOperatorError(string op, string field) =>
+    internal static string ListOperatorError(string op, string field, bool offerHas = true) =>
         $"Operator '{op}' does not apply to '{field}', which holds a list of options or references. "
-        + "Use eq for entries holding a value, or ne for entries that do not.";
+        + (offerHas
+            ? "Use eq or has for entries holding a value, or ne for entries that do not."
+            : "Use eq for entries holding a value, or ne for entries that do not.");
 
     /// <summary>
-    /// A one-element JSON list holding the filter's value, for a containment match. An id on a
-    /// reference field is written the way the entry write stores it, so any case of the same id
-    /// matches.
+    /// Whether the field's list holds the filter's value as one element: true, false, or null when
+    /// the entry has no value in the field, so <c>ne</c> leaves such an entry out as it does for a
+    /// choice.
     /// </summary>
-    private static string ListElement(DeliveryFilter f)
+    /// <remarks>
+    /// A choice is compared exactly with <c>@&gt;</c>, as it always was. A reference compares ids
+    /// without regard to case, because an id is the same id in either case and a list can hold one
+    /// written by a path that does not check its form, such as a bundle that turned an array into a
+    /// reference. An array compares each element that is text, a number or true/false by its text,
+    /// so <c>has=5</c> finds the number 5. The value comes first among the parameters because it
+    /// comes first in the text.
+    /// </remarks>
+    private static (string Sql, object[] Parameters) HoldsSql(DeliveryFilter f)
     {
-        var element = string.Equals(f.Type, "reference", StringComparison.OrdinalIgnoreCase)
-                      && Guid.TryParse(f.Value, out var id)
-            ? id.ToString()
-            : f.Value;
+        if (string.Equals(f.Type, "choice", StringComparison.OrdinalIgnoreCase))
+            return ($"{KeyLookup} @> ?::jsonb", [f.Field, System.Text.Json.JsonSerializer.Serialize(new[] { f.Value })]);
 
-        return System.Text.Json.JsonSerializer.Serialize(new[] { element });
+        var isReference = string.Equals(f.Type, "reference", StringComparison.OrdinalIgnoreCase);
+        var value = isReference && Guid.TryParse(f.Value, out var id) ? id.ToString() : f.Value;
+        var element = isReference
+            ? "EXISTS (SELECT 1 FROM jsonb_array_elements_text(k.v) x WHERE lower(x) = lower(?))"
+            : "EXISTS (SELECT 1 FROM jsonb_array_elements(k.v) x "
+              + "WHERE jsonb_typeof(x) IN ('string', 'number', 'boolean') AND x #>> '{}' = ?)";
+
+        return ("(SELECT CASE WHEN k.v IS NULL THEN NULL WHEN jsonb_typeof(k.v) <> 'array' THEN false "
+              + $"ELSE {element} END FROM (SELECT {KeyLookup} AS v) k)", [value, f.Field]);
     }
 
     /// <summary>Letters and digits only, starting with a letter. No quote, no semicolon, no space.</summary>

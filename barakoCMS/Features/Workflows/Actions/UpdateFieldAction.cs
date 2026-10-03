@@ -213,6 +213,14 @@ internal class UpdateFieldAction : IWorkflowAction
                 return WorkflowActionResult.Failure($"Could not read the content type of content {targetContent.Id} ({ex.GetType().Name}).");
             }
 
+            // The parameter is one piece of text, and an entry write refuses that in a list field, so
+            // storing it would make every later save of the entry fail.
+            if (declared is not null && barakoCMS.Core.Validation.ReferenceFields.IsMultiple(declared))
+            {
+                return WorkflowActionResult.PermanentFailure(
+                    $"Field '{declared.Name}' holds a list of references, and this action sets a field to one text value.");
+            }
+
             if (declared is not null
                 && barakoCMS.Core.Validation.MoneyFields.TryResolve(declared, out var currency, out var scale))
             {

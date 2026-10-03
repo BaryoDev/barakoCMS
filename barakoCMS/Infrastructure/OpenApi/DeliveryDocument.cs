@@ -94,7 +94,7 @@ internal static class DeliveryDocument
                 parameters: new JsonArray(
                     QueryParameter("page", "integer", "Page number, 1-indexed."),
                     QueryParameter("pageSize", "integer", $"Items per page, 1 to {PaginatedRequest.MaxPageSize}."),
-                    QueryParameter("include", "string", $"Comma-separated reference fields to resolve inline, at most {PublicDelivery.MaxIncludes}."))),
+                    QueryParameter("include", "string", $"Comma-separated reference fields to resolve inline, at most {PublicDelivery.MaxIncludes}, and at most {PublicDelivery.MaxIncludedEntries} distinct ids on one page."))),
         };
 
         paths[$"{route}/search"] = new JsonObject

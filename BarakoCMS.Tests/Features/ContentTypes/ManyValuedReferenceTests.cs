@@ -295,6 +295,77 @@ public class ManyValuedReferenceTests : IAsyncLifetime
         ids.Should().Equal(byName["Grace"], byName["Ada"]);
     }
 
+    /// <summary>
+    /// Two entries that list each other, which the API can create (create A, create B listing A,
+    /// update A to list B), import back in one bundle. No order writes either one first.
+    /// </summary>
+    [Fact]
+    public async Task A_bundle_import_takes_two_records_that_list_each_other()
+    {
+        var article = NewName("mvarticle");
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var setup = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            setup.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(), Name = article, DisplayName = article,
+                Fields =
+                [
+                    new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" },
+                    new FieldDefinition
+                    {
+                        Name = "RelatedArticles", DisplayName = "Related articles", Type = "reference",
+                        ReferenceType = article, Multiple = true,
+                    },
+                ],
+            });
+            await setup.SaveChangesAsync();
+        }
+
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+
+        var res = await _client.PostAsJsonAsync("/api/portability/import", new
+        {
+            dryRun = false,
+            contentTypes = Array.Empty<object>(),
+            contents = new object[]
+            {
+                new
+                {
+                    id = first, contentType = article, status = "Published",
+                    data = new Dictionary<string, object>
+                    {
+                        ["Title"] = "first", ["RelatedArticles"] = new[] { second.ToString() },
+                    },
+                },
+                new
+                {
+                    id = second, contentType = article, status = "Published",
+                    data = new Dictionary<string, object>
+                    {
+                        ["Title"] = "second", ["RelatedArticles"] = new[] { first.ToString() },
+                    },
+                },
+            },
+        });
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+
+        using var read = _fixture.Services.CreateScope();
+        var session = read.ServiceProvider.GetRequiredService<IQuerySession>();
+        var stored = await session.Query<Content>().Where(c => c.ContentType == article).ToListAsync();
+        stored.Should().HaveCount(2);
+
+        var byTitle = stored.ToDictionary(c => c.Data["Title"].ToString()!);
+        foreach (var (title, other) in new[] { ("first", "second"), ("second", "first") })
+        {
+            FieldTypeRegistry.TryReadChoice(byTitle[title].Data["RelatedArticles"], out var ids, out var isList)
+                .Should().BeTrue();
+            isList.Should().BeTrue();
+            ids.Should().Equal(byTitle[other].Id.ToString());
+        }
+    }
+
     // ---- read time -------------------------------------------------------------------------
 
     [Fact]
@@ -383,6 +454,70 @@ public class ManyValuedReferenceTests : IAsyncLifetime
 
         (await TitlesAsync($"/api/public/{evt}?filter[Speakers][has]={grace.ToString().ToUpperInvariant()}"))
             .Should().Equal("longer");
+    }
+
+    [Fact]
+    public async Task Eq_ne_and_has_on_a_list_reference_compare_ids_in_any_case_and_other_operators_are_refused()
+    {
+        var (_, evt) = await StoreTypesAsync();
+        var ada = Guid.NewGuid();
+        var grace = Guid.NewGuid();
+
+        // Stored directly, as a bundle that turned an array into a reference would leave it.
+        await StoreEntryAsync(evt, new()
+        {
+            ["Title"] = "upper", ["Speakers"] = new List<object> { ada.ToString().ToUpperInvariant() },
+        });
+        await StoreEntryAsync(evt, new()
+        {
+            ["Title"] = "lower", ["Speakers"] = new List<object> { grace.ToString() },
+        });
+
+        (await TitlesAsync($"/api/public/{evt}?filter[Speakers][eq]={ada}")).Should().Equal("upper");
+        (await TitlesAsync($"/api/public/{evt}?filter[Speakers][has]={ada}")).Should().Equal("upper");
+        (await TitlesAsync($"/api/public/{evt}?filter[Speakers][ne]={grace.ToString().ToUpperInvariant()}"))
+            .Should().Equal("upper");
+
+        foreach (var op in new[] { "contains", "lt" })
+        {
+            var res = await _fixture.CreateClient().GetAsync($"/api/public/{evt}?filter[Speakers][{op}]={ada}");
+            (await RefusalAsync(res)).Should().Contain("list of options or references");
+        }
+    }
+
+    [Fact]
+    public async Task Has_on_an_array_matches_a_number_or_true_false_element_by_its_text()
+    {
+        var (_, evt) = await StoreTypesAsync();
+        await StoreEntryAsync(evt, new() { ["Title"] = "numbers", ["Tags"] = new List<object> { 5L, true } });
+        await StoreEntryAsync(evt, new() { ["Title"] = "text", ["Tags"] = new List<object> { "5" } });
+        await StoreEntryAsync(evt, new() { ["Title"] = "fifty", ["Tags"] = new List<object> { 50L } });
+
+        (await TitlesAsync($"/api/public/{evt}?filter[Tags][has]=5")).Should().Equal("numbers", "text");
+        (await TitlesAsync($"/api/public/{evt}?filter[Tags][has]=true")).Should().Equal("numbers");
+    }
+
+    [Fact]
+    public async Task A_saved_query_limits_a_list_reference_to_eq_and_ne()
+    {
+        var (_, evt) = await StoreTypesAsync();
+
+        using var scope = _fixture.Services.CreateScope();
+        var runner = new barakoCMS.Infrastructure.Connectors.QueryRunner(
+            scope.ServiceProvider.GetRequiredService<IQuerySession>());
+
+        QueryDefinition Query(string op) => new()
+        {
+            ContentType = evt,
+            Fields = ["Title"],
+            Filters = [new QueryFilter { Field = "Speakers", Op = op, Value = Guid.NewGuid().ToString() }],
+        };
+
+        (await runner.ValidateAsync(Query("eq"), CancellationToken.None)).Should().BeNull();
+
+        var refused = await runner.ValidateAsync(Query("lt"), CancellationToken.None);
+        refused.Should().Contain("list of options or references").And.NotContain("or has",
+            "a saved query has no has operator to offer");
     }
 
     [Fact]

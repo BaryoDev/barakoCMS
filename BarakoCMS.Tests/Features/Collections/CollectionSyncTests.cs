@@ -412,6 +412,28 @@ public partial class CollectionSyncTests
             "got {0}", await accepted.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
     }
 
+    /// <summary>
+    /// A mapping onto a reference that holds a list is refused: a source value is one piece of text,
+    /// and the sync path does not check each id the way an entry write does.
+    /// </summary>
+    [Fact]
+    public async Task A_mapping_onto_a_list_of_references_is_refused()
+    {
+        var setup = await ArrangeAsync(() => (HttpStatusCode.OK, TwoPackages), save: false, fields:
+        [
+            new FieldDefinition { Name = "packageId", Type = "string" },
+            new FieldDefinition { Name = "downloads", Type = "int" },
+            new FieldDefinition { Name = "summary", Type = "reference", ReferenceType = "pkgauthor", Multiple = true },
+        ]);
+
+        var response = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/collection-syncs", SyncBody(setup), TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))
+            .Should().Contain("holds a list of references");
+    }
+
     /// <summary>A floor on a field that is not numeric is refused, since "greater" has to mean something.</summary>
     [Fact]
     public async Task A_floor_on_a_field_that_is_not_numeric_is_refused()

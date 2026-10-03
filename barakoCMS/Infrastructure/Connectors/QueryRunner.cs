@@ -90,7 +90,7 @@ internal sealed class QueryRunner(IQuerySession session) : IQueryRunner
 
             if (lists.Contains(filter.Field) && Ops[filter.Op] is not (FilterOp.Eq or FilterOp.Ne))
             {
-                return DeliveryQuery.ListOperatorError(filter.Op, filter.Field);
+                return DeliveryQuery.ListOperatorError(filter.Op, filter.Field, offerHas: false);
             }
         }
 
