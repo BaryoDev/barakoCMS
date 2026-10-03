@@ -112,6 +112,104 @@ What a rule author needs to know:
 - A user whose roles come only from `User.RoleIds`, with no membership row in the tenant, has no
   profile. Add them as a member of the tenant to give them one.
 
+### Something about the entry a row points at
+
+An enrollment names a class, and only the class names its instructor. A condition key written
+`Reference.Field` follows the row's reference field to the entry it points at and compares a field
+of that entry, so an instructor reads the enrollments of the classes they teach without the
+instructor's id being copied onto every enrollment:
+
+```json
+{ "Read": { "Enabled": true, "Conditions": { "Class.InstructorUser": { "_eq": "$CURRENT_USER" } } } }
+```
+
+`Class` is a field of the enrollment type declared as `reference`, and `InstructorUser` is a field
+of the type it points at. The same key works on a Read, an Update and a transition rule, with
+`_eq`, `_ne`, `_in` and `_nin`, and beside conditions on the row itself.
+
+It denies unless all of this holds, whatever the operator is:
+
+- The first name is a field the row's type declares as a `reference`, spelled as declared. If the
+  field's type is changed later, the condition stops granting.
+- The row holds an id there, as text in the hyphenated form and no other: eight, four, four,
+  four and twelve hexadecimal digits. Upper or lower case both read.
+- The id is an entry in this tenant, of the type the reference declares, whose document sensitivity
+  is Public. An erased entry and one in another tenant are both not there.
+- The caller may read that entry under their own Read rules for its type. The instructor's role
+  needs a Read rule on classes that covers the class.
+- The second name is a field the referenced type declares with Public sensitivity, and the entry
+  holds it.
+- The comparison is on text: `_eq` and `_ne` against a text value (`$CURRENT_USER` and
+  `$CURRENT_USER.<name>` included), `_in` and `_nin` against a list of text holding at least one.
+  A number or a true/false written into the rule denies here, where on a field of the row itself
+  it is compared as text.
+
+One reference is followed, not two. `Class.Teacher.Email` is refused when the role is saved, and
+if the Read rule on classes itself follows a reference, that rule grants nothing to a condition
+arriving through an enrollment (the class can still be read directly under it).
+
+A key holding a dot is never looked up in the row's own data. An entry write keeps keys its type
+does not declare, so before this a rule naming `Class.InstructorUser` matched a row carrying a key
+spelled exactly that. It no longer does.
+
+`POST /api/roles` and `PUT /api/roles/{id}` check such a condition and answer 400 for a key that is
+not two names around one dot, a first name that is not a reference field of the rule's content type,
+a second name that is not a Public field of the referenced type, an operator outside the four, a
+comparison that is not on text, a content type the tenant does not define, and a condition on a
+Create rule (Create has no stored entry and does not evaluate conditions). One write checks such
+conditions on at most 50 content types.
+
+The check is against the content types of the tenant the request is made in. Roles are stored once
+for all tenants, so in another tenant the same condition resolves against that tenant's types and
+denies where they do not declare it. An update passes over a condition the stored role already
+holds unchanged (same content type, same rule, same key, same operators and values), so a role
+holding a condition written for another tenant's types, or one stored before this check existed,
+can still be renamed or given another permission from here. A condition the update adds, edits or
+moves is checked.
+
+A role stored with a key the check would refuse still reads back, and the condition denies. At
+start the API logs one warning naming the roles, by name and id, that hold a dotted condition
+following a reference in no tenant, so the roles an upgrade changed can be found.
+
+What it costs, and where it stops:
+
+- A check on one entry (get, update, status change, transition, preview) loads the entry each of
+  its references points at: one read for each. The same holds for the first ten rows a request
+  asks about, which covers the candidates of a get by slug and a push of up to ten entries. A row
+  holding two references into one type is one row.
+- A pass over more rows than that resolves the condition once, to the ids of the referenced
+  entries that satisfy it and that the caller may read, and tests each row's reference against
+  that set. That is one query per condition, whoever else's rows the pass walks over.
+  `GET /api/contents` with a `contentType` builds its query from the same ids, so it filters,
+  pages and counts in the database.
+- The set holds at most 1,000 ids: referenced entries that satisfy the condition and that the
+  caller may read. A condition keyed on the caller (`_eq $CURRENT_USER`) rarely reaches that. One
+  that is not, such as `Class.Visibility _eq public` or any `_ne` or `_nin`, reaches it as the
+  tenant grows. What happens then depends on the pass:
+  - `GET /api/contents` with a `contentType` keeps working when the database can answer the whole
+    condition, which is when the caller's Read rules for the referenced type compile to SQL. The
+    list is filtered by a subquery in place of the ids, with no bound on how many entries it
+    selects, and the rows of each page load the entries they point at.
+  - A check on up to ten rows keeps working, as above.
+  - Every other pass over many rows is refused with a 403 whose reason names the condition and
+    the bound: `GET /api/contents` with no `contentType`, the export, the page tree, a push of
+    more than ten existing entries, and a list of a named type when the caller's Read rules for
+    the referenced type do not compile (a `$status` rule, for one). It is refused at the
+    eleventh row, or before the list loads anything, and one warning is logged. It is not
+    answered with the rows it reached, because nothing in such a list would say it was short.
+    The cure is on the role: narrow the condition.
+- When the caller's Read rules for the referenced type do not compile, the matches are read as
+  whole entries, 500 to a statement, each starting after the last id the one before it read, and
+  each match is asked the read rules in memory. So the 1,000 counts what the caller may read. At
+  most 2,000 matches are read this way, in four statements, and more than 2,000 matches leaves
+  the condition with no set however few of them the caller may read. Nothing is kept between
+  requests, so every page of a named list and every pass over more than ten rows pays this
+  again, and a request that is then refused has paid it first. A Read rule on the referenced
+  type that compiles costs one query for ids.
+- What a request has read this way is dropped when its session commits, so a write followed by a
+  check in the same request reads again.
+- A refusal by id is still 403, as it is for every other condition.
+
 ## Layer 3: Field + document sensitivity
 
 This is the "Employee has SIN + birthday sensitive, rest viewable" ask, plus the
@@ -799,3 +897,128 @@ asks for `manage_content_types`, since adding fields to a content type is exactl
 is. Admin holds both by default, matching what it reached before.
 
 Third-party modules calling `Roles(...)` are unaffected and compile unchanged.
+
+## What the audit log records about grants
+
+The requests in the table below each write one row to `GET /api/audit`. For those requests the row is
+staged on the same session as the change and the endpoint saves once, so a failed save leaves
+neither. That holds for the routes listed and for nothing else: the paths under "Grants that write no
+row" change what somebody can do and record nothing. A row holds who did it, what it was done to and
+names or ids for before and after. It never holds a field value, an API key, a key's hash or its
+display prefix.
+
+| Change | Action | Metadata |
+|---|---|---|
+| Role created | `role.created` | `name`, `capabilities`, `permissions` |
+| Role changed | `role.updated` | `name`, `nameBefore`, `capabilitiesBefore`, `capabilitiesAfter`, `permissionsBefore`, `permissionsAfter`, `conditionsChanged`; `capabilitiesAdded` and `capabilitiesRemoved` when the lists differ; `conditionsChangedIn` when a condition changed |
+| Role deleted | `role.deleted` | `name`, `capabilities`, `permissions` |
+| Global role given to a user | `user.role.assigned` | `roleId`, `roleName` |
+| Global role taken from a user | `user.role.removed` | `roleId`, `roleName` |
+| Tenant created | `tenant.member.added` in the new tenant's log | `invited` (false), `roleIds`, `roleNames`, `tenantCreated` |
+| Tenant switched off or on | `tenant.deactivated`, `tenant.activated` in that tenant's log | none |
+| Member added, or added again | `tenant.member.added` | `invited`, `roleIds`, `roleNames`; `previousStatus`, `previousRoleIds`, `previousRoleNames` when the membership already existed |
+| Member's roles or status changed (suspending is this) | `tenant.member.updated` | `status`, `roleIds`, `roleNames`, `previousStatus`, `previousRoleIds`, `previousRoleNames` |
+| Member removed | `tenant.member.removed` | `previousStatus`, `previousRoleIds`, `previousRoleNames` |
+| API key created | `apikey.created` | `name`, `scopes`, `contentTypes`, `actsAsUserId`, `expiresAt` when set |
+| API key revoked | `apikey.revoked` | `name`, `actsAsUserId` |
+| Field added | `contenttype.field_added` | `field`, `type`, `required`, `sensitivity`, `visibleToRoleIds`, `visibleToRoles` |
+| Field's level, role list or mask changed | `contenttype.field.sensitivity.changed` or `.lowered` | `from`, `to`, `visibleToRoleIdsFrom`, `visibleToRolesFrom`, `visibleToRoleIdsTo`, `visibleToRolesTo`, `maskFrom`, `maskTo` |
+
+The three member rows also carry `profileAdded`, `profileRemoved` and `profileChanged` when a
+profile changed: the attribute names, never their values.
+
+### Where a membership is written
+
+A membership has three writers, `Members.AddAsync`, `ChangeAsync` and `RemoveAsync`, and each stages
+its row beside the write. The member routes and tenant creation all go through them. The patch they
+share, `QueueWrite`, is private to `Members`, so no other file can queue a membership write with no
+row.
+
+`MembershipWriterTests` reads the source for a write anywhere else. Outside the member endpoints
+file and outside comment lines it fails on `new Membership` as a whole word, on `Membership x = new(`,
+on a session call typed on the document (`Patch<Membership>`, `Store<Membership>`, and the insert,
+update and delete spellings), and on any file that loads or queries memberships and also calls
+`.Store(`, `.Insert(` or `.Update(`. It does not catch a membership handed to another file that
+stores it, or a write through raw SQL.
+
+### Ids and names
+
+A role is referred to by id wherever a row had one already: `roleId` on the `user.role.*` rows,
+`roleIds` and `previousRoleIds` on the member rows. The id is the reference, since it survives a
+rename. Beside it is the name the role had when the change was made (`roleName`, `roleNames`,
+`previousRoleNames`, in the same order as the ids), read in the same request. A row is never
+rewritten, so the two cannot come apart inside it; after a rename the row still says what the role
+was called at the time. A role that no longer exists has an empty name beside its id.
+
+The field rows follow the same rule. A field stores its role list as ids, so `visibleToRoleIds`,
+`visibleToRoleIdsFrom` and `visibleToRoleIdsTo` hold those ids, and `visibleToRoles`,
+`visibleToRolesFrom` and `visibleToRolesTo` hold the names beside them in the same order, resolved
+through `RoleReferences.ToNamesAsync` when the change is made. A stored id whose role is gone has an
+empty name. Text the request sent that matched no role is stored on the field as sent; in the row it
+has an empty id and the text as its name. Each of these lists is the same capped object a role row
+uses: the first 50 `items`, the full `count`, `truncated`, and a name cut at 200 characters, since
+nothing limits the list a request sends.
+
+### The shape of a role row
+
+A list on a role row is an object: `items` holds the first 50 entries, `count` the full number and
+`truncated` whether any were left out. A name longer than 200 characters is cut to 200. A role
+document has no limit of its own, so this is what bounds the row.
+
+Each entry of `permissions` is an object, so nothing a request sent is joined into a sentence:
+
+```json
+{
+  "contentType": "invoice",
+  "actions": ["read", "update"],
+  "transitions": { "items": ["approve"], "count": 1, "truncated": false },
+  "conditions": {
+    "items": [{ "rule": "update", "field": "department", "operators": ["_in"] }],
+    "count": 1,
+    "truncated": false
+  }
+}
+```
+
+A condition is recorded as the field it tests and the operators it uses, never the value it compares
+against. A value can change with the field and operators staying the same, so `conditionsChanged`
+says whether any stored condition differs from the one it replaced, values included, and
+`conditionsChangedIn` names the content types where it does.
+
+### Who reads what
+
+The stored row is complete. `GET /api/audit` returns no more of it than the caller could read from
+the route that owns the data:
+
+- A `role.*` row is returned with only `name` and `nameBefore` in its metadata unless the caller
+  passes the gate on `GET /api/roles` (`manage_roles`).
+- An `apikey.*` row is returned with only `name` unless the caller passes the gate on
+  `GET /api/api-keys` (`manage_api_keys`).
+
+The action, actor, target and time are always returned. This matters because roles are global
+documents and a role row goes to the log of the tenant the request resolved to: without it, a
+platform administrator editing a role while resolved to one tenant would show that tenant's
+administrators the capabilities of platform roles and the content types other tenants' permissions
+name. A tenant admin reads their own tenant's rows; a SuperAdmin reads across tenants with `?tenant=`.
+
+### Before values are a read, not a lock
+
+The "before" in a row is what the endpoint loaded at the start of the request. Two edits of the same
+role, membership or user arriving together can both load the same state and both record it as their
+"before", and two revocations of one key can both write a row. The last save wins on the document,
+as it did before these rows existed.
+
+### Grants that write no row
+
+- The seeder, at startup: creating the system roles and the first users, giving a seeded role the
+  default capabilities it is missing, and, with demo content on, creating the HR role and giving it
+  `view_sensitive`.
+- A module's seeder: `ModuleCapabilities.GrantAsync` adding the module's capabilities to seeded
+  roles, and `AccountingModule.SeedAsync` creating the `Accountant` role.
+- Self-registration giving a new account the `User` role.
+- A content type created with Sensitive or Hidden fields, by `POST /api/content-types` or by applying
+  a blueprint. The blueprint row names the types only.
+- A portability import adding a new Sensitive or Hidden field to an existing type. Its row holds
+  counts only. An import cannot change the level, role list or mask of a field that already exists.
+- An entry's own sensitivity level changing. That is on the entry's event stream.
+- Reads of Sensitive and Hidden fields.

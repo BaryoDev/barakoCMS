@@ -1,6 +1,7 @@
 using FastEndpoints;
 using barakoCMS.Infrastructure.Auth;
 using Marten;
+using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Models;
 
 namespace barakoCMS.Features.Roles.Create;
@@ -9,7 +10,8 @@ internal class Endpoint(
     IDocumentSession session,
     CapabilityVocabulary vocabulary,
     IConfiguration configuration,
-    ILogger<Endpoint> logger) : Endpoint<Request, Response>
+    ILogger<Endpoint> logger,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<Request, Response>
 {
     public override void Configure()
     {
@@ -28,6 +30,10 @@ internal class Endpoint(
             foreach (var name in unknown)
                 AddError(r => r.SystemCapabilities, CapabilityVocabulary.UnknownMessage(name));
         }
+
+        foreach (var error in await ReferenceConditionRules.CheckAsync(session, req.Permissions, stored: null, ct))
+            AddError(r => r.Permissions, error);
+
         ThrowIfAnyErrors();
 
         var role = new Role
@@ -41,6 +47,10 @@ internal class Endpoint(
         };
 
         session.Store(role);
+        Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
+        await AuditLog.RecordAsync(session, tenant.Slug, "role.created", actorId, User.FindFirst("Username")?.Value,
+            targetType: "Role", targetId: role.Id.ToString(),
+            metadata: RoleAudit.Describe(RoleAudit.Of(role)), ct: ct);
         await session.SaveChangesAsync(ct);
 
         if (unknown.Count > 0)

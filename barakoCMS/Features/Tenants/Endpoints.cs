@@ -202,15 +202,12 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         // there is never a registered-but-memberless window.
         if (Guid.TryParse(User.FindFirst("UserId")?.Value, out var creatorId))
         {
-            _session.Store(new Membership
-            {
-                Id = Guid.NewGuid(),
-                UserId = creatorId,
-                TenantSlug = handle,
-                RoleIds = new List<Guid> { barakoCMS.Data.DataSeeder.AdminRoleId },
-                Status = MembershipStatus.Active,
-                JoinedAt = DateTime.UtcNow,
-            });
+            // Through the one writer of a membership, which stages the entry in the new tenant's
+            // own log, the one its administrators read.
+            await barakoCMS.Features.Tenants.Members.Members.AddAsync(
+                _session, User, creatorId, handle,
+                new List<Guid> { barakoCMS.Data.DataSeeder.AdminRoleId }, profile: null,
+                new Dictionary<string, object> { ["invited"] = false, ["tenantCreated"] = true }, ct);
         }
 
         await _session.SaveChangesAsync(ct);
@@ -263,6 +260,16 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
 
         tenant.Name = req.Name;
         TenantProfiles.ClearBlanked(tenant, req);
+        // Switching a tenant off stops tokens being issued for it and refuses its API keys, and
+        // switching it on restores both, so either is recorded in that tenant's log.
+        if (tenant.IsActive != req.IsActive)
+        {
+            Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
+            await barakoCMS.Infrastructure.Audit.AuditLog.RecordAsync(
+                _session, tenant.Slug, req.IsActive ? "tenant.activated" : "tenant.deactivated", actorId,
+                User.FindFirst("Username")?.Value, targetType: "Tenant", targetId: tenant.Slug, ct: ct);
+        }
+
         tenant.IsActive = req.IsActive;
         if (domains is not null)
             tenant.Domains = domains.ToList();
