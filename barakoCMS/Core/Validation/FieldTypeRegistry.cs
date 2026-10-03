@@ -100,6 +100,10 @@ public static class FieldTypeRegistry
         // each value is a declared option, and whether the field takes one or several, needs the
         // definition, so ContentValidatorService checks it.
         new("choice", "choice", v => TryReadChoice(v, out _, out _)),
+
+        // A small image carried in the entry as a data URI, checked in full here because the check
+        // needs nothing but the value. See InlineImageFields.
+        new(InlineImageFields.TypeName, InlineImageFields.TypeName, InlineImageFields.IsValid),
     };
 
     // Alias -> canonical spec. Aliases are the historical synonyms both live

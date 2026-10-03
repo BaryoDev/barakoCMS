@@ -162,7 +162,15 @@ public class ContentValidatorService(IQuerySession session) : IContentValidatorS
                 var value = keyDetails.Value;
                 var expectedType = field.Type.ToLower();
 
-                if (!FieldTypeRegistry.IsValidValue(expectedType, value))
+                if (InlineImageFields.Is(expectedType))
+                {
+                    if (!InlineImageFields.IsUnchanged(field, value, existing)
+                        && InlineImageFields.ValueError(field, value) is { } imageError)
+                    {
+                        errors.Add(imageError);
+                    }
+                }
+                else if (!FieldTypeRegistry.IsValidValue(expectedType, value))
                 {
                     var actualType = GetActualTypeName(value);
                     errors.Add($"Field '{field.DisplayName}' expects type '{expectedType}' but received '{actualType}'");

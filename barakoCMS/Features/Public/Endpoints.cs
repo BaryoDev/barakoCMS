@@ -232,9 +232,12 @@ internal static class PublicDelivery
             .Select(f => f.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        return c.Data
+        var data = c.Data
             .Where(kv => publicNames.Contains(kv.Key))
             .ToDictionary(kv => kv.Key, kv => kv.Value);
+
+        barakoCMS.Core.Validation.InlineImageFields.DropUndeliverable(data, def);
+        return data;
     }
 
     /// <summary>
@@ -269,6 +272,9 @@ internal static class PublicDelivery
         var data = c.Data
             .Where(kv => publicNames.Contains(kv.Key))
             .ToDictionary(kv => kv.Key, kv => kv.Value);
+
+        // Whatever reaches a renderer's <img src> from here is a data URI of an allowed image type.
+        barakoCMS.Core.Validation.InlineImageFields.DropUndeliverable(data, def);
 
         // Resolved off the projected data, not the document, so a field the type marked non-Public
         // cannot reach a frontend through this block after being scrubbed out of Data.

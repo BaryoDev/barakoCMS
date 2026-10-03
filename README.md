@@ -415,6 +415,7 @@ credentials, including OAuth 2.0 client credentials), [idempotency on the author
 site and site settings in one call), [site settings](docs/site-settings.md) (the `site` entry a
 renderer reads its identity and theme from), [choice fields](docs/choice-fields.md),
 [money fields](docs/money-fields.md) (a currency on the field, and amounts held to its decimal places),
+[inline image fields](docs/inline-image-fields.md) (a small image kept in the entry as a data URI),
 [field hints, sections and roles](docs/field-hints-and-roles.md) (which editor a field wants, which
 field is the title, and where a type's entries live on the site),
 [scheduling](docs/scheduling.md) (publish, unpublish and sensitivity at a set time),

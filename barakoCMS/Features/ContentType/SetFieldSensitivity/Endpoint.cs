@@ -143,6 +143,7 @@ internal class Endpoint(
         // to be built from in both directions.
         var publicFields = def.Fields
             .Where(f => f == field ? to == SensitivityLevel.Public : f.Sensitivity == SensitivityLevel.Public)
+            .Where(f => !barakoCMS.Core.Validation.InlineImageFields.Is(f.Type))
             .Select(f => f.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 

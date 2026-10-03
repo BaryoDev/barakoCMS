@@ -586,7 +586,7 @@ public static class DataSeeder
                 .ToDictionary(
                     g => g.Key,
                     g => g.First().Fields
-                        .Where(f => f.Sensitivity == SensitivityLevel.Public)
+                        .Where(f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.InlineImageFields.Is(f.Type))
                         .Select(f => f.Name)
                         .ToHashSet(StringComparer.OrdinalIgnoreCase),
                     StringComparer.OrdinalIgnoreCase);
