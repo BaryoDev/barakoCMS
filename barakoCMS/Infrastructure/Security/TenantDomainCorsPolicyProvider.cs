@@ -1,5 +1,6 @@
 using barakoCMS.Infrastructure.Multitenancy;
 using Microsoft.AspNetCore.Cors.Infrastructure;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Microsoft.Net.Http.Headers;
 
@@ -56,8 +57,11 @@ internal sealed class TenantDomainCorsPolicyProvider(
         var origin = context.Request.Headers.Origin.ToString();
         var tenantDomain = !policy.IsOriginAllowed(origin) && await IsTenantDomainAsync(origin, context.RequestAborted);
 
-        OnResponseStarting(context, tenantDomain);
-        return tenantDomain ? ForTenantDomain(policy, origin) : policy;
+        if (!tenantDomain)
+            return policy;
+
+        WithoutCredentialsOnResponse(context);
+        return ForTenantDomain(policy, origin);
     }
 
     private async Task<bool> IsTenantDomainAsync(string origin, CancellationToken ct)
@@ -94,27 +98,42 @@ internal sealed class TenantDomainCorsPolicyProvider(
     }
 
     /// <summary>
-    /// Runs after the CORS middleware has written its headers, since response-starting callbacks run
-    /// newest first and this one is registered before the middleware registers its own.
+    /// Takes <c>Access-Control-Allow-Credentials</c> off the response to a tenant domain origin, as the
+    /// last thing before it is sent.
     /// </summary>
     /// <remarks>
-    /// <c>Vary: Origin</c> on every answer, allowed or not: with tenant domains on, one URL answers
-    /// differently per origin, and the framework adds it only to an allowed answer when more than
-    /// one origin is configured. A shared cache that ignored that would hand one origin's answer to
-    /// another.
-    ///
-    /// <c>Access-Control-Allow-Credentials</c> is removed for a tenant domain even though its policy
-    /// never sets it, because the output cache replays the headers it stored: a response cached for
-    /// a listed origin carries the header, and the CORS middleware only ever adds it, never clears it.
+    /// The policy above never sets it. This is for a header already on the response from elsewhere,
+    /// such as a cached response replayed with its headers; <c>TenantDomainCorsTests</c> asks that of
+    /// the output-cached redirect route. Response-starting callbacks run newest first, and this one is
+    /// registered before the CORS middleware registers its own, so it runs after it.
     /// </remarks>
-    private static void OnResponseStarting(HttpContext context, bool tenantDomain)
+    private static void WithoutCredentialsOnResponse(HttpContext context) =>
+        context.Response.OnStarting(() =>
+        {
+            context.Response.Headers.Remove(HeaderNames.AccessControlAllowCredentials);
+            return Task.CompletedTask;
+        });
+
+    /// <summary>
+    /// With the setting on, adds <c>Vary: Origin</c> to every response that reaches this point,
+    /// whether or not the request had an <c>Origin</c>.
+    /// </summary>
+    /// <remarks>
+    /// One URL now answers differently per origin, and the framework adds the header only to an
+    /// allowed answer when more than one origin is configured. A public delivery response fetched
+    /// without an <c>Origin</c> (by a renderer, say) is cacheable for a minute, and a shared cache
+    /// that stored it without this would serve it to a browser on a tenant domain with no allow
+    /// header. Registered before the CORS middleware, so it runs after it and sees the header the
+    /// middleware may already have added.
+    /// </remarks>
+    internal static void VaryByOrigin(HttpContext context)
     {
+        if (!IsOn(context.RequestServices.GetRequiredService<IConfiguration>()))
+            return;
+
         context.Response.OnStarting(() =>
         {
             var headers = context.Response.Headers;
-            if (tenantDomain)
-                headers.Remove(HeaderNames.AccessControlAllowCredentials);
-
             var varies = headers.Vary
                 .SelectMany(value => (value ?? string.Empty).Split(','))
                 .Any(name => string.Equals(name.Trim(), HeaderNames.Origin, StringComparison.OrdinalIgnoreCase));
@@ -123,5 +142,23 @@ internal sealed class TenantDomainCorsPolicyProvider(
 
             return Task.CompletedTask;
         });
+    }
+
+    /// <summary>
+    /// Puts this provider in place of the framework's default one, and leaves a provider the host
+    /// registered itself alone.
+    /// </summary>
+    /// <remarks>
+    /// <c>AddCors</c> adds the default only when no provider is registered, so a host that registered
+    /// its own before <c>AddBarakoCMS</c> has it here, and replacing it would change that host's CORS
+    /// even with the setting off.
+    /// </remarks>
+    internal static void Register(IServiceCollection services)
+    {
+        var existing = services.LastOrDefault(d => d.ServiceType == typeof(ICorsPolicyProvider) && !d.IsKeyedService);
+        if (existing is not null && existing.ImplementationType != typeof(DefaultCorsPolicyProvider))
+            return;
+
+        services.Replace(ServiceDescriptor.Transient<ICorsPolicyProvider, TenantDomainCorsPolicyProvider>());
     }
 }

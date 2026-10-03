@@ -119,7 +119,7 @@ public class TlsAskTests
     }
 
     [Fact]
-    public async Task The_sixty_first_question_from_one_address_in_a_minute_is_refused()
+    public async Task The_sixty_first_question_about_one_name_in_a_minute_is_refused_from_any_address()
     {
         var client = From(_fixture);
         var unknown = Domain();
@@ -131,10 +131,75 @@ public class TlsAskTests
             codes.Add(response.StatusCode);
         }
 
+        // The first 50, not 60: another test's made-up name can share this name's bucket in the
+        // same minute, which takes a permit or two.
         codes.Should().HaveCount(61);
-        codes.Take(60).Should().OnlyContain(c => c == HttpStatusCode.NotFound);
+        codes.Take(50).Should().OnlyContain(c => c == HttpStatusCode.NotFound);
         codes[60].Should().Be(HttpStatusCode.TooManyRequests);
 
-        (await Ask(From(_fixture), unknown)).StatusCode.Should().Be(HttpStatusCode.NotFound, "another address has its own bucket");
+        (await Ask(From(_fixture), unknown)).StatusCode.Should().Be(HttpStatusCode.TooManyRequests,
+            "the bucket belongs to the name asked about, not to the caller");
+    }
+
+    /// <summary>
+    /// The proxy asks from one address, so a flood of made-up server names arrives from the same
+    /// address as the real one. 150 at once is past both a 60-a-minute bucket per address and the
+    /// global 100 a minute per address with its queue of 10; sent one after another, the queue
+    /// would only make the global limit slow, not refuse.
+    /// </summary>
+    [Fact]
+    public async Task A_flood_of_made_up_names_from_one_address_does_not_stop_a_registered_name()
+    {
+        var domain = Domain();
+        await StoreTenantAsync(_fixture, active: true, domain);
+        var client = From(_fixture);
+
+        var flood = Enumerable.Range(0, 150).Select(async _ =>
+        {
+            using var response = await Ask(client, Domain());
+            return response.StatusCode;
+        });
+        var codes = await Task.WhenAll(flood);
+
+        codes.Should().HaveCount(150);
+        codes.Should().OnlyContain(c => c == HttpStatusCode.NotFound, "made-up names spread over thousands of buckets");
+
+        (await Ask(client, domain)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+}
+
+/// <summary>Which bucket a TLS ask is counted in.</summary>
+public class TlsAskPartitionTests
+{
+    private static string Key(string? domain)
+    {
+        var context = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        if (domain is not null)
+            context.Request.QueryString = Microsoft.AspNetCore.Http.QueryString.Create("domain", domain);
+        return barakoCMS.Infrastructure.Security.RateLimitSetup.TlsAskPartitionKey(context);
+    }
+
+    [Fact]
+    public void A_name_and_its_www_form_share_a_bucket_whoever_asks()
+    {
+        Key("bakery.example").Should().Be(Key("www.bakery.example")).And.Be(Key("BAKERY.example"));
+    }
+
+    [Fact]
+    public void Anything_that_is_not_a_host_shares_one_bucket()
+    {
+        Key(null).Should().Be("tls-ask|not-a-host");
+        Key("203.0.113.9").Should().Be("tls-ask|not-a-host");
+        Key("bakery.example:443").Should().Be("tls-ask|not-a-host");
+    }
+
+    [Fact]
+    public void Ten_thousand_made_up_names_land_in_at_most_the_bounded_number_of_buckets()
+    {
+        var keys = Enumerable.Range(0, 10_000).Select(i => Key($"made-up-{i}.example")).ToHashSet();
+
+        keys.Should().NotBeEmpty();
+        keys.Count.Should().BeLessThanOrEqualTo(barakoCMS.Infrastructure.Security.RateLimitSetup.TlsAskBuckets);
+        keys.Count.Should().BeGreaterThan(1000, "spread out, not piled into a few buckets");
     }
 }

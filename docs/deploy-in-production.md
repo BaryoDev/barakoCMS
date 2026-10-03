@@ -124,7 +124,10 @@ are refused: `http`, any port, a path, user info, a wildcard, an IP literal, `nu
 subdomain of a registered domain. A tenant domain origin never gets
 `Access-Control-Allow-Credentials`, so a page there cannot use a visitor's refresh cookie; an origin
 that needs credentials goes in `FRONTEND_ORIGINS`, and a listed origin keeps them. With the setting
-on, every answer carries `Vary: Origin`. Any value but `true` leaves it off.
+on, every response that gets past the rate limiter and tenant resolution carries `Vary: Origin`,
+whether or not the request had an `Origin`, so a shared cache does not hand a response fetched by a
+renderer to a browser on a tenant domain. A 429, or a Multi-mode 404 for an unknown tenant, does not
+carry it. Any value but `true` leaves the setting off.
 
 Only a platform administrator (`manage_tenants`) can write a tenant's domains, so this does not let
 a tenant administrator add an origin. The domain map is cached: a change applies on the next request
@@ -133,10 +136,15 @@ the others. If the map cannot be read, only `FRONTEND_ORIGINS` is allowed.
 
 **TLS.** `GET /api/tenants/tls-ask?domain={host}` answers 200 for a domain an active tenant holds
 (or its `www.` form) and 404 for anything else, naming no tenant. It is Caddy's on-demand TLS `ask`
-endpoint. It is anonymous, answers in Multi mode without a tenant, and is limited to 60 questions a
-minute per client address (`tls-ask`, fixed). Caddy asks from its own address, so in practice that
-is one bucket for the proxy: a flood of made-up server names can delay a new domain's first
-certificate by up to a minute, and never gets one issued.
+endpoint. It is anonymous and answers in Multi mode without a tenant.
+
+It is limited by the name asked about, not by the caller, because Caddy asks every question from its
+own address. The `tls-ask` policy (fixed) spreads names over 4096 buckets by a hash seeded per
+process and allows 60 questions a minute per bucket, and the route is left out of the global per-IP
+limit. A flood of made-up server names then lands in thousands of buckets and leaves a real name's
+bucket nearly empty, and the limiter never holds more than 4096 partitions. What remains: asking
+about one real name more than 60 times a minute, or about names found by probing to share its
+bucket, holds that name's answers at 429 (which Caddy reads as no) while it lasts.
 
 A site proxy that issues certificates on demand, for barakoPress serving the client domains (the
 shipped `Caddyfile` here serves only `{$DOMAIN_API}` and stays as it is):

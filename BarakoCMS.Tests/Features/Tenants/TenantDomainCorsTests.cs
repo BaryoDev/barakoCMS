@@ -215,6 +215,60 @@ public class TenantDomainCorsTests
         VariesByOrigin(unknown).Should().BeTrue();
     }
 
+    /// <summary>
+    /// A request with no <c>Origin</c>, such as a renderer's, gets an answer a shared cache may store
+    /// and then hand to a browser on a tenant domain. It has to say it varies by origin too.
+    /// </summary>
+    [Fact]
+    public async Task With_the_setting_on_a_response_to_a_request_without_origin_varies_by_origin()
+    {
+        var on = await On().CreateClient().GetAsync(Route, Ct);
+        on.StatusCode.Should().Be(HttpStatusCode.OK);
+        VariesByOrigin(on).Should().BeTrue();
+
+        var off = await Off().CreateClient().GetAsync(Route, Ct);
+        off.StatusCode.Should().Be(HttpStatusCode.OK);
+        VariesByOrigin(off).Should().BeFalse("with the setting off nothing about the response changes");
+    }
+
+    /// <summary>
+    /// The redirect resolve route is output cached. A listed origin fills the cache first, and its
+    /// response carries <c>Access-Control-Allow-Credentials</c>; the same URL asked from a tenant
+    /// domain must not carry it, whether or not the cache stored that header.
+    /// </summary>
+    [Fact]
+    public async Task A_cached_response_first_served_to_a_listed_origin_carries_no_credentials_to_a_tenant_domain()
+    {
+        var host = On();
+        var domain = Domain();
+        var origin = $"https://{domain}";
+        await StoreTenantAsync(host, Handle(), domain);
+
+        var (token, _) = await TestHelpers.CreateAdminUserAsync(_fixture);
+        var admin = _fixture.CreateClient();
+        admin.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var from = "/old-" + Guid.NewGuid().ToString("N")[..10];
+        var save = await admin.PostAsJsonAsync("/api/redirects", new { fromPath = from, toPath = "/new-home", permanent = true }, Ct);
+        save.IsSuccessStatusCode.Should().BeTrue(await save.Content.ReadAsStringAsync(Ct));
+
+        var url = $"/api/public/redirects/resolve?path={Uri.EscapeDataString(from)}";
+        var client = host.CreateClient();
+
+        var listedRequest = new HttpRequestMessage(HttpMethod.Get, url);
+        listedRequest.Headers.Add("Origin", Listed);
+        var listed = await client.SendAsync(listedRequest, Ct);
+        listed.IsSuccessStatusCode.Should().BeTrue(await listed.Content.ReadAsStringAsync(Ct));
+        listed.Headers.GetValues("Access-Control-Allow-Credentials").Should().ContainSingle().Which.Should().Be("true",
+            "the control: the response that fills the cache carries the header");
+
+        var tenantRequest = new HttpRequestMessage(HttpMethod.Get, url);
+        tenantRequest.Headers.Add("Origin", origin);
+        var tenant = await client.SendAsync(tenantRequest, Ct);
+        tenant.IsSuccessStatusCode.Should().BeTrue();
+        AllowedOrigin(tenant).Should().Be(origin);
+        tenant.Headers.Contains("Access-Control-Allow-Credentials").Should().BeFalse();
+    }
+
     /// <summary>The default. A guard: it passes with or without the change, and says the default must not move.</summary>
     [Fact]
     public async Task With_the_setting_off_a_registered_domain_is_not_an_allowed_origin()
@@ -370,5 +424,41 @@ public class TenantDomainLookupTests
 
         TenantDomainLookup.BareHost("a" + longest).Should().BeNull();
         TenantDomainLookup.BareHost(new string('a', 10_000) + ".example").Should().BeNull();
+    }
+}
+
+/// <summary>Which CORS policy provider the app ends up with.</summary>
+public class TenantDomainCorsRegistrationTests
+{
+    private sealed class HostProvider : ICorsPolicyProvider
+    {
+        public Task<CorsPolicy?> GetPolicyAsync(HttpContext context, string? policyName) => Task.FromResult<CorsPolicy?>(null);
+    }
+
+    private static List<ServiceDescriptor> Providers(IServiceCollection services) =>
+        services.Where(d => d.ServiceType == typeof(ICorsPolicyProvider)).ToList();
+
+    [Fact]
+    public void The_framework_default_is_replaced()
+    {
+        var services = new ServiceCollection();
+        services.AddCors();
+
+        TenantDomainCorsPolicyProvider.Register(services);
+
+        Providers(services).Should().ContainSingle().Which.ImplementationType.Should().Be(typeof(TenantDomainCorsPolicyProvider));
+    }
+
+    [Fact]
+    public void A_provider_the_host_registered_first_is_kept()
+    {
+        var services = new ServiceCollection();
+        services.AddTransient<ICorsPolicyProvider, HostProvider>();
+        services.AddCors();
+
+        TenantDomainCorsPolicyProvider.Register(services);
+
+        Providers(services).Should().ContainSingle().Which.ImplementationType.Should().Be(typeof(HostProvider),
+            "replacing it would change that host's CORS even with the setting off");
     }
 }
