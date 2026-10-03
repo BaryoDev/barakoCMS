@@ -73,7 +73,7 @@ public class Endpoint(IQuerySession session, TenantContext tenant, IConfiguratio
     {
         Get("/api/client-errors");
         Definition.RequireCapability(
-            DiagnosticsCapabilities.ManageClientErrors, DiagnosticsCapabilities.LegacyRoles);
+            DiagnosticsCapabilities.ManageClientErrors, DiagnosticsCapabilities.Defaults.LegacyRoles);
     }
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
@@ -84,7 +84,7 @@ public class Endpoint(IQuerySession session, TenantContext tenant, IConfiguratio
         // nothing. Holding the capability through a global role sees every tenant's errors, and
         // anyone else sees the current tenant's.
         if (!await PlatformScope.HoldsGloballyAsync(session, User, configuration,
-                DiagnosticsCapabilities.ManageClientErrors, DiagnosticsCapabilities.LegacyRoles, ct))
+                DiagnosticsCapabilities.ManageClientErrors, DiagnosticsCapabilities.Defaults.LegacyRoles, ct))
         {
             var slug = tenant.Slug;
             query = query.Where(e => e.Tenant == slug);

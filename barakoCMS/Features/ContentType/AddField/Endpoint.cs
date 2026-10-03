@@ -228,6 +228,9 @@ internal sealed class Endpoint(
         definition.UpdatedAt = DateTime.UtcNow;
         session.Store(definition);
 
+        // The field stores role ids. The entry holds each id with the name it has now.
+        var roles = await RoleAudit.RoleListsAsync(session, [field.VisibleToRoles], [], ct);
+
         var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
         await AuditLog.RecordAsync(session, tenant.Slug, "contenttype.field_added", actorId,
             User.FindFirst("Username")?.Value,
@@ -237,6 +240,9 @@ internal sealed class Endpoint(
                 ["field"] = field.Name,
                 ["type"] = field.Type,
                 ["required"] = field.IsRequired,
+                ["sensitivity"] = field.Sensitivity.ToString(),
+                ["visibleToRoleIds"] = roles[0].Ids,
+                ["visibleToRoles"] = roles[0].Names,
             }, ct: ct);
 
         await session.SaveChangesAsync(ct);

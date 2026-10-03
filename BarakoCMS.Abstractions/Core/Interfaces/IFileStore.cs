@@ -17,8 +17,9 @@ namespace barakoCMS.Core.Interfaces;
 /// <para>
 /// <b>Any other read names its caller.</b> <see cref="FindAsync"/>, <see cref="OpenAsync"/> and
 /// <see cref="DeleteAsync"/> take the signed-in user the work is done for and give that user what
-/// the store's own API would: a private file is read by the user it belongs to or by an account
-/// administering the tenant, and by nobody else. There is no member that reads a private file for
+/// the store's own API would: a private file is read by the user it belongs to or by a user whose
+/// roles in the tenant hold the store's override capability (in BarakoCMS.Files,
+/// <c>manage_all_files</c>), and by nobody else. There is no member that reads a private file for
 /// no user.
 /// </para>
 /// <para>
@@ -73,8 +74,8 @@ public interface IFileStore
 
     /// <summary>
     /// The record of a file <paramref name="caller"/> may download: a public file, or a private one
-    /// that belongs to that user or that the user administers. Null for any other file, and for an
-    /// id this tenant does not have.
+    /// that belongs to that user or that the user's override capability opens. Null for any other
+    /// file, and for an id this tenant does not have.
     /// </summary>
     Task<StoredFileInfo?> FindAsync(Guid id, ClaimsPrincipal caller, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException($"{GetType().Name} does not read a file for a caller.");
@@ -141,8 +142,8 @@ public sealed class FileToStore
 
     /// <summary>
     /// The user the file belongs to, who may download it through the store's API as if they had
-    /// uploaded it. Left empty, the file belongs to no user and only an account administering the
-    /// tenant reads it while it is private.
+    /// uploaded it. Left empty, the file belongs to no user and only a user holding the store's
+    /// override capability reads it while it is private.
     /// </summary>
     public Guid Owner { get; init; }
 

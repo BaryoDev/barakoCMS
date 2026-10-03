@@ -36,5 +36,5 @@ public sealed class DiagnosticsModule : IBarakoModule
     /// Admin. Additive and idempotent, and it skips a role the host never seeded.
     /// </remarks>
     public Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) =>
-        ModuleCapabilities.GrantAsync(session, DiagnosticsCapabilities.SeededRoles, DiagnosticsCapabilities.All, ct);
+        DiagnosticsCapabilities.Defaults.GrantAsync(session, ct);
 }

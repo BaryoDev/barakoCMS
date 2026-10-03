@@ -63,6 +63,41 @@ internal static class Members
                && !await barakoCMS.Features.Users.PlatformRoles.IsSuperAdminAsync(session, caller, ct);
     }
 
+    /// <summary>What a member holds at one moment, read before a change so the entry can say what it replaced.</summary>
+    public sealed record Held(MembershipStatus Status, List<Guid> RoleIds)
+    {
+        public static Held By(Membership membership) => new(membership.Status, (membership.RoleIds ?? []).ToList());
+    }
+
+    /// <summary>
+    /// The role part of a member row: ids with names beside them, for the roles being given and,
+    /// when the membership already existed, for the status and roles it held before.
+    /// </summary>
+    public static async Task<Dictionary<string, object>> AuditMetadataAsync(
+        IQuerySession session, IReadOnlyCollection<Guid>? roleIds, Held? before, CancellationToken ct)
+    {
+        var ids = (roleIds ?? []).Concat(before?.RoleIds ?? []).Distinct().ToList();
+        var names = ids.Count == 0
+            ? new Dictionary<Guid, string>()
+            : (await session.Query<Role>().Where(r => ids.Contains(r.Id)).ToListAsync(ct)).ToDictionary(r => r.Id, r => r.Name);
+
+        var metadata = new Dictionary<string, object>();
+        if (roleIds is not null)
+        {
+            metadata["roleIds"] = roleIds.Select(id => id.ToString()).ToList();
+            metadata["roleNames"] = roleIds.Select(id => names.GetValueOrDefault(id, string.Empty)).ToList();
+        }
+
+        if (before is not null)
+        {
+            metadata["previousStatus"] = before.Status.ToString();
+            metadata["previousRoleIds"] = before.RoleIds.Select(id => id.ToString()).ToList();
+            metadata["previousRoleNames"] = before.RoleIds.Select(id => names.GetValueOrDefault(id, string.Empty)).ToList();
+        }
+
+        return metadata;
+    }
+
     /// <summary>A copy with the default comparer, so names stay case sensitive whatever the binder built.</summary>
     public static Dictionary<string, string> CopyOf(Dictionary<string, string>? profile) =>
         profile is null ? new() : new Dictionary<string, string>(profile, StringComparer.Ordinal);
@@ -94,7 +129,7 @@ internal static class Members
     /// The document passed in is brought up to date for the response only. The session is a
     /// lightweight one and does not track it.
     /// </remarks>
-    public static void QueueWrite(
+    private static void QueueWrite(
         IDocumentSession session,
         Membership membership,
         List<Guid> roleIds,
@@ -145,6 +180,84 @@ internal static class Members
         metadata["profileAdded"] = added;
         metadata["profileRemoved"] = removed;
         metadata["profileChanged"] = changed;
+    }
+
+    /// <summary>
+    /// Stores a membership that did not exist and stages its audit entry on the same session.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="AddAsync"/>, <see cref="ChangeAsync"/> and <see cref="RemoveAsync"/> are the only
+    /// writers of a membership, and each stages the entry beside the write, for the caller's one
+    /// save. An endpoint that wrote a membership itself is how a grant came to have no entry
+    /// (creating a tenant did), so <c>MembershipWriterTests</c> fails on a write anywhere else.
+    /// </remarks>
+    public static async Task<Membership> AddAsync(
+        IDocumentSession session, System.Security.Claims.ClaimsPrincipal actor, Guid userId, string slug,
+        List<Guid> roleIds, Dictionary<string, string>? profile, Dictionary<string, object> details,
+        CancellationToken ct)
+    {
+        var membership = new Membership
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            TenantSlug = slug,
+            RoleIds = roleIds,
+            Status = MembershipStatus.Active,
+            JoinedAt = DateTime.UtcNow,
+            Profile = CopyOf(profile),
+        };
+
+        session.Store(membership);
+        await RecordAsync(session, actor, "tenant.member.added", membership, roleIds, null, null, details, ct);
+        return membership;
+    }
+
+    /// <summary>
+    /// Queues a change to an existing membership through <see cref="QueueWrite"/> and stages its
+    /// audit entry, which says what the member held before. See <see cref="AddAsync"/>.
+    /// </summary>
+    public static async Task ChangeAsync(
+        IDocumentSession session, System.Security.Claims.ClaimsPrincipal actor, string action,
+        Membership membership, List<Guid> roleIds, MembershipStatus status,
+        Dictionary<string, string>? profile, Dictionary<string, object> details, CancellationToken ct)
+    {
+        var before = Held.By(membership);
+        var profileBefore = membership.Profile;
+
+        QueueWrite(session, membership, roleIds, status, profile);
+        await RecordAsync(session, actor, action, membership, roleIds, before, profileBefore, details, ct);
+    }
+
+    /// <summary>
+    /// Marks a membership Removed, touching no other field, and stages its audit entry. See
+    /// <see cref="AddAsync"/>.
+    /// </summary>
+    public static async Task RemoveAsync(
+        IDocumentSession session, System.Security.Claims.ClaimsPrincipal actor, Membership membership,
+        CancellationToken ct)
+    {
+        var before = Held.By(membership);
+
+        session.Patch<Membership>(membership.Id).Set(x => x.Status, MembershipStatus.Removed);
+        await RecordAsync(
+            session, actor, "tenant.member.removed", membership, null, before, membership.Profile,
+            new Dictionary<string, object>(), ct);
+    }
+
+    private static async Task RecordAsync(
+        IDocumentSession session, System.Security.Claims.ClaimsPrincipal actor, string action,
+        Membership membership, IReadOnlyCollection<Guid>? roleIds, Held? before,
+        Dictionary<string, string>? profileBefore, Dictionary<string, object> details, CancellationToken ct)
+    {
+        var metadata = await AuditMetadataAsync(session, roleIds, before, ct);
+        foreach (var (key, value) in details)
+            metadata[key] = value;
+        RecordProfileChange(metadata, profileBefore, membership.Profile);
+
+        Guid.TryParse(actor.FindFirst("UserId")?.Value, out var actorId);
+        await AuditLog.RecordAsync(session, membership.TenantSlug, action, actorId,
+            actor.FindFirst("Username")?.Value,
+            targetType: "User", targetId: membership.UserId.ToString(), metadata: metadata, ct: ct);
     }
 }
 
@@ -295,22 +408,11 @@ internal sealed class AddMemberEndpoint(
         if (await Members.RefusesPlatformRolesAsync(session, User, roleIds, membership, ct))
             ThrowError(barakoCMS.Features.Users.PlatformRoles.PlatformRoleRefusedMessage, 403);
 
-        Dictionary<string, string>? profileBefore = null;
+        var details = new Dictionary<string, object> { ["invited"] = invited };
 
         if (membership is null)
         {
-            membership = new Membership
-            {
-                Id = Guid.NewGuid(),
-                UserId = user.Id,
-                TenantSlug = slug,
-                RoleIds = roleIds,
-                Status = MembershipStatus.Active,
-                JoinedAt = DateTime.UtcNow,
-                Profile = Members.CopyOf(req.Profile),
-            };
-
-            session.Store(membership);
+            membership = await Members.AddAsync(session, User, user.Id, slug, roleIds, req.Profile, details, ct);
         }
         else
         {
@@ -322,25 +424,11 @@ internal sealed class AddMemberEndpoint(
             // they held before they were removed is not what they are being given now. Somebody
             // who never left keeps theirs unless the request sends one, the same as an update.
             var returning = membership.Status == MembershipStatus.Removed;
-            profileBefore = membership.Profile;
 
-            Members.QueueWrite(session, membership, roleIds, MembershipStatus.Active,
-                req.Profile is not null || returning ? Members.CopyOf(req.Profile) : null);
+            await Members.ChangeAsync(session, User, "tenant.member.added", membership, roleIds,
+                MembershipStatus.Active,
+                req.Profile is not null || returning ? Members.CopyOf(req.Profile) : null, details, ct);
         }
-
-        var metadata = new Dictionary<string, object>
-        {
-            ["invited"] = invited,
-            ["roleIds"] = roleIds.Select(r => r.ToString()).ToList(),
-        };
-        Members.RecordProfileChange(metadata, profileBefore, membership.Profile);
-
-        Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
-        await AuditLog.RecordAsync(session, slug, "tenant.member.added", actorId,
-            User.FindFirst("Username")?.Value,
-            targetType: "User", targetId: user.Id.ToString(),
-            metadata: metadata,
-            ct: ct);
 
         await session.SaveChangesAsync(ct);
         permissions.InvalidateUserPermissions(user.Id);
@@ -424,24 +512,9 @@ internal sealed class UpdateMemberEndpoint(
         if (await Members.RefusesPlatformRolesAsync(session, User, roleIds, membership, ct))
             ThrowError(barakoCMS.Features.Users.PlatformRoles.PlatformRoleRefusedMessage, 403);
 
-        var profileBefore = membership.Profile;
-
-        Members.QueueWrite(session, membership, roleIds, req.Status,
-            req.Profile is null ? null : Members.CopyOf(req.Profile));
-
-        var metadata = new Dictionary<string, object>
-        {
-            ["status"] = req.Status.ToString(),
-            ["roleIds"] = roleIds.Select(r => r.ToString()).ToList(),
-        };
-        Members.RecordProfileChange(metadata, profileBefore, membership.Profile);
-
-        Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
-        await AuditLog.RecordAsync(session, slug, "tenant.member.updated", actorId,
-            User.FindFirst("Username")?.Value,
-            targetType: "User", targetId: req.UserId.ToString(),
-            metadata: metadata,
-            ct: ct);
+        await Members.ChangeAsync(session, User, "tenant.member.updated", membership, roleIds, req.Status,
+            req.Profile is null ? null : Members.CopyOf(req.Profile),
+            new Dictionary<string, object> { ["status"] = req.Status.ToString() }, ct);
 
         await session.SaveChangesAsync(ct);
         permissions.InvalidateUserPermissions(req.UserId);
@@ -491,12 +564,7 @@ internal sealed class RemoveMemberEndpoint(
 
         // Marked, never deleted. The row is what the audit trail and a later re-add both read, and
         // deleting it would silently start somebody's history over.
-        session.Patch<Membership>(membership.Id).Set(x => x.Status, MembershipStatus.Removed);
-
-        Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
-        await AuditLog.RecordAsync(session, slug, "tenant.member.removed", actorId,
-            User.FindFirst("Username")?.Value,
-            targetType: "User", targetId: req.UserId.ToString(), ct: ct);
+        await Members.RemoveAsync(session, User, membership, ct);
 
         await session.SaveChangesAsync(ct);
         permissions.InvalidateUserPermissions(req.UserId);

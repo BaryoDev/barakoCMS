@@ -12,7 +12,7 @@ internal class Endpoint(
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
     IConfiguration configuration) : Endpoint<Request, Response>
 {
-    private static readonly string[] LegacyRoles = ["SuperAdmin", "Admin"];
+    private static readonly IReadOnlyList<string> LegacyRoles = CapabilityGate.AdminLegacyRoles;
 
     public override void Configure()
     {
@@ -72,11 +72,22 @@ internal class Endpoint(
             }
         }
 
-        user.RoleIds.Remove(req.RoleId);
+        var held = user.RoleIds.Remove(req.RoleId);
         session.Store(user);
-        Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
-        await AuditLog.RecordAsync(session, tenant.Slug, "user.role.removed", actorId, User.FindFirst("Username")?.Value,
-            targetType: "User", targetId: req.UserId.ToString(), metadata: new() { ["roleId"] = req.RoleId.ToString() }, ct: ct);
+
+        // Only a role the user held is a change, so a request naming one they never had writes no
+        // row saying it was taken away.
+        if (held)
+        {
+            var metadata = new Dictionary<string, object> { ["roleId"] = req.RoleId.ToString() };
+            if (role is not null)
+                metadata["roleName"] = role.Name;
+
+            Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
+            await AuditLog.RecordAsync(session, tenant.Slug, "user.role.removed", actorId, User.FindFirst("Username")?.Value,
+                targetType: "User", targetId: req.UserId.ToString(), metadata: metadata, ct: ct);
+        }
+
         await session.SaveChangesAsync(ct);
 
         // Removing a role narrows the user's access — evict cached decisions so it applies now.

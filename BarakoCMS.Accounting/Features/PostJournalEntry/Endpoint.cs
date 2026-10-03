@@ -35,7 +35,7 @@ public class Endpoint(LedgerService ledger) : Endpoint<Request, Response>
     {
         Post("/api/accounting/journal-entries");
         Definition.RequireCapability(
-            AccountingCapabilities.PostEntries, AccountingCapabilities.LegacyRoles);
+            AccountingCapabilities.PostEntries, AccountingCapabilities.Defaults.LegacyRoles);
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
