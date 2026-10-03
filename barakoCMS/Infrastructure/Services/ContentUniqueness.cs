@@ -237,8 +237,13 @@ internal sealed class ContentUniqueness(IDocumentSession session, ILogger? logge
         // Without regard to case, like the singleton cap: a rule a caller can walk past by typing
         // the type's name in capitals is not a rule.
         var lowered = contentType.ToLower();
-        var definition = await session.Query<ContentTypeDefinition>()
-            .FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct);
+
+        // A real session always answers a query; a test double built on a mock may hand back null,
+        // and a type it cannot read declares no rule.
+        var definitions = session.Query<ContentTypeDefinition>();
+        var definition = definitions is null
+            ? null
+            : await definitions.FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct);
 
         TypeRules? rules = null;
 
