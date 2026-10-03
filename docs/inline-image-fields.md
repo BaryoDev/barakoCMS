@@ -51,7 +51,9 @@ field and the limits and does not repeat the value:
 6. The bytes start with the signature of the declared type, the same signatures the Files module
    checks on upload. PNG bytes declared as JPEG, or HTML declared as PNG, are refused.
 7. The width and height read from the image header are both above zero and their product is at
-   most 4,194,304 pixels (2048 by 2048). No pixel is decoded on the server.
+   most 4,194,304 pixels (2048 by 2048). For a GIF that is the logical screen grown to hold the
+   first frame, its offset included, since a browser draws it that way; a GIF with no frame is
+   refused. No pixel is decoded on the server.
 
 The request body limit (`RequestLimits:MaxBodyBytes`, 10 MB by default) sits in front of all of
 this, as it does for every field.
@@ -63,7 +65,8 @@ checked in full.
 ## Writers that refuse the field
 
 - The `UpdateField` workflow action fails, without retrying, when its field is an inline image: its
-  value is text and an inline image is an object.
+  value is text and an inline image is an object. So does `CreateTask` when one of its `Data.*`
+  parameters names an inline image field, and it creates nothing.
 - A collection sync that maps a value onto an inline image field is refused when it is saved. A sync
   saved before the field changed type skips the item, as it does a value that does not convert.
 
@@ -81,6 +84,14 @@ nothing. So only a `data:image/png`, `jpeg`, `gif` or `webp` base64 URI reaches 
 The server never serves an inline image as a file. It only appears inside JSON responses, which
 carry `X-Content-Type-Options: nosniff` and the API's `Content-Security-Policy` like every other
 response.
+
+An inline image field is not a filter or sort target, on delivery or on `GET /api/contents`: a
+`filter[Logo][...]` or `sort=Logo` is a 400 naming the field. A match would scan up to 87 KB per
+row, and would answer for stored values delivery leaves out.
+
+The delivery OpenAPI document describes the field as an object with `url` (a string matching
+`^data:image/(png|jpeg|gif|webp);base64,`) and `alt` (a nullable string), and never lists it as
+always present, since delivery can leave it out.
 
 ## What it costs
 

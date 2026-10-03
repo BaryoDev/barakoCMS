@@ -283,10 +283,8 @@ internal static class InlineImageFields
                 break;
 
             case "image/gif":
-                if (image.Length < 10)
+                if (!TryReadGifSize(image, out width, out height))
                     return false;
-                width = BinaryPrimitives.ReadUInt16LittleEndian(image[6..8]);
-                height = BinaryPrimitives.ReadUInt16LittleEndian(image[8..10]);
                 break;
 
             case "image/webp":
@@ -304,6 +302,69 @@ internal static class InlineImageFields
         }
 
         return width > 0 && height > 0;
+    }
+
+    /// <summary>
+    /// The logical screen grown to hold the first frame, as a browser draws it. A GIF can declare a
+    /// 1 by 1 screen and a first frame of 65535 by 65535, so the screen alone is no bound.
+    /// </summary>
+    /// <remarks>
+    /// Skips the global colour table and any extension blocks to the first image descriptor. Every
+    /// step moves forward at least one byte and stops at the end of the image, so the walk is
+    /// bounded. No descriptor, or a frame of zero width or height, is a size that cannot be read.
+    /// </remarks>
+    private static bool TryReadGifSize(ReadOnlySpan<byte> image, out long width, out long height)
+    {
+        width = 0;
+        height = 0;
+
+        if (image.Length < 13)
+            return false;
+
+        long screenWidth = BinaryPrimitives.ReadUInt16LittleEndian(image[6..8]);
+        long screenHeight = BinaryPrimitives.ReadUInt16LittleEndian(image[8..10]);
+
+        var i = 13;
+        if ((image[10] & 0x80) != 0)
+            i += 3 << ((image[10] & 0x07) + 1);
+
+        while (i < image.Length)
+        {
+            if (image[i] == 0x2C)
+            {
+                if (i + 10 > image.Length)
+                    return false;
+
+                long left = BinaryPrimitives.ReadUInt16LittleEndian(image.Slice(i + 1, 2));
+                long top = BinaryPrimitives.ReadUInt16LittleEndian(image.Slice(i + 3, 2));
+                long frameWidth = BinaryPrimitives.ReadUInt16LittleEndian(image.Slice(i + 5, 2));
+                long frameHeight = BinaryPrimitives.ReadUInt16LittleEndian(image.Slice(i + 7, 2));
+                if (frameWidth == 0 || frameHeight == 0)
+                    return false;
+
+                width = Math.Max(screenWidth, left + frameWidth);
+                height = Math.Max(screenHeight, top + frameHeight);
+                return true;
+            }
+
+            if (image[i] != 0x21)
+                return false;
+
+            // Introducer and label, then sub-blocks until one of size zero.
+            i += 2;
+            while (true)
+            {
+                if (i >= image.Length)
+                    return false;
+
+                var size = image[i];
+                i += 1 + size;
+                if (size == 0)
+                    break;
+            }
+        }
+
+        return false;
     }
 
     private static bool TryReadWebPSize(ReadOnlySpan<byte> image, out long width, out long height)
@@ -346,8 +407,9 @@ internal static class InlineImageFields
     }
 
     /// <summary>
-    /// Walks the markers to the first frame header. Each step moves forward by at least two bytes and
-    /// the image is at most <see cref="MaxBytes"/>, so the walk is bounded.
+    /// Walks the markers to the first frame header. Each step moves forward by at least one byte (a
+    /// fill byte is one, a marker two or more) and stops at the end of the image, so the walk is
+    /// bounded by <see cref="MaxBytes"/> steps.
     /// </summary>
     private static bool TryReadJpegSize(ReadOnlySpan<byte> image, out long width, out long height)
     {

@@ -41,13 +41,31 @@ public class InlineImageFieldTests
         return bytes;
     }
 
-    private static byte[] Gif(ushort width, ushort height)
+    private static byte[] Gif(ushort width, ushort height) => Gif(width, height, 0, 0, width, height);
+
+    /// <summary>
+    /// A GIF with a two colour global table, a graphic control extension, then one frame, so a
+    /// reader has to walk past both to reach the frame.
+    /// </summary>
+    private static byte[] Gif(ushort screenWidth, ushort screenHeight, ushort left, ushort top, ushort frameWidth, ushort frameHeight)
     {
-        var bytes = new byte[32];
-        "GIF89a"u8.CopyTo(bytes);
-        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(6), width);
-        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(8), height);
-        return bytes;
+        var header = new byte[13];
+        "GIF89a"u8.CopyTo(header);
+        BinaryPrimitives.WriteUInt16LittleEndian(header.AsSpan(6), screenWidth);
+        BinaryPrimitives.WriteUInt16LittleEndian(header.AsSpan(8), screenHeight);
+        header[10] = 0x80;
+
+        var descriptor = new byte[10];
+        descriptor[0] = 0x2C;
+        BinaryPrimitives.WriteUInt16LittleEndian(descriptor.AsSpan(1), left);
+        BinaryPrimitives.WriteUInt16LittleEndian(descriptor.AsSpan(3), top);
+        BinaryPrimitives.WriteUInt16LittleEndian(descriptor.AsSpan(5), frameWidth);
+        BinaryPrimitives.WriteUInt16LittleEndian(descriptor.AsSpan(7), frameHeight);
+
+        byte[] colours = [0, 0, 0, 255, 255, 255];
+        byte[] control = [0x21, 0xF9, 0x04, 0, 0, 0, 0, 0];
+        byte[] pixels = [0x02, 0x02, 0x4C, 0x01, 0x00, 0x3B];
+        return [.. header, .. colours, .. control, .. descriptor, .. pixels];
     }
 
     private static byte[] Jpeg(ushort width, ushort height)
@@ -222,6 +240,38 @@ public class InlineImageFieldTests
     }
 
     [Fact]
+    public async Task A_gif_whose_first_frame_is_larger_than_its_screen_is_held_to_the_frame()
+    {
+        (await WriteAsync(Image(DataUri("image/gif", Gif(1, 1, 0, 0, 64, 64))))).IsValid
+            .Should().BeTrue("a frame larger than the screen is legal, and 64 by 64 is within the limit");
+
+        var huge = await WriteAsync(Image(DataUri("image/gif", Gif(1, 1, 0, 0, ushort.MaxValue, ushort.MaxValue))));
+        var offset = await WriteAsync(Image(DataUri("image/gif", Gif(2048, 2048, 1, 0, 2048, 2048))));
+
+        foreach (var (isValid, errors) in new[] { huge, offset })
+        {
+            isValid.Should().BeFalse("a browser grows the canvas to hold the first frame");
+            errors.Should().HaveCount(1);
+            errors[0].Should().Contain("more pixels than the limit");
+        }
+    }
+
+    [Fact]
+    public async Task A_gif_with_no_frame_is_refused()
+    {
+        var screenOnly = Gif(16, 16)[..19];
+        byte[] trailer = [.. screenOnly, 0x3B];
+
+        foreach (var bytes in new[] { screenOnly, trailer })
+        {
+            var (isValid, errors) = await WriteAsync(Image(DataUri("image/gif", bytes)));
+            isValid.Should().BeFalse();
+            errors.Should().HaveCount(1);
+            errors[0].Should().Contain("width and height could not be read");
+        }
+    }
+
+    [Fact]
     public async Task An_image_whose_header_gives_no_size_is_refused()
     {
         var noHeader = new byte[40];
@@ -272,7 +322,8 @@ public class InlineImageFieldTests
 
         errors.Should().HaveCount(4);
         foreach (var error in errors)
-            error.Should().NotContain(marker).And.NotContain("qzx-marker");
+            error.Should().Contain("64 KB", "the inline image message")
+                .And.NotContain(marker).And.NotContain("qzx-marker");
     }
 
     [Fact]
@@ -300,6 +351,55 @@ public class InlineImageFieldTests
         (await WriteAsync("https://example.com/hero.png", field)).IsValid.Should().BeTrue();
         (await WriteAsync(DataUri("image/png", Png(32, 32)), field)).IsValid
             .Should().BeFalse("the image editor is a hint and opts nothing in");
+    }
+
+    private static ContentTypeDefinition Brand() => new()
+    {
+        Name = "brand", DisplayName = "Brand", IsPubliclyDeliverable = true,
+        Fields =
+        [
+            new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string", IsRequired = true },
+            new FieldDefinition { Name = "Logo", DisplayName = "Logo", Type = "inlineimage", IsRequired = true },
+        ],
+    };
+
+    [Fact]
+    public void An_inline_image_field_is_neither_a_filter_nor_a_sort_target()
+    {
+        var filter = DeliveryQuery.Parse([new KeyValuePair<string, string?>("filter[Logo][eq]", "svg")], Brand());
+        var sort = DeliveryQuery.Parse([new KeyValuePair<string, string?>("sort", "-logo")], Brand());
+        var authoring = DeliveryQuery.Parse(
+            [new KeyValuePair<string, string?>("filter[Logo][ne]", "x")], Brand(), readable: _ => true, nameFields: false);
+
+        filter.IsValid.Should().BeFalse();
+        filter.Error.Should().Contain("'Logo' is not filterable");
+        sort.IsValid.Should().BeFalse();
+        sort.Error.Should().Contain("'logo' is not sortable");
+        authoring.IsValid.Should().BeFalse();
+        authoring.Error.Should().Contain("'Logo' is not filterable");
+
+        DeliveryQuery.Parse([new KeyValuePair<string, string?>("filter[Title][eq]", "Acme")], Brand()).IsValid
+            .Should().BeTrue("the control: another field of the type still filters");
+    }
+
+    [Fact]
+    public void The_delivery_document_describes_an_inline_image_as_a_data_uri_object_and_not_as_always_present()
+    {
+        var document = barakoCMS.Infrastructure.OpenApi.DeliveryDocument.Build([Brand()]);
+        var schemas = document["schemas"]!.AsObject();
+        var fields = schemas.Where(s => s.Key.EndsWith("Fields", StringComparison.Ordinal)).ToList();
+
+        fields.Should().HaveCount(1);
+        var schema = fields[0].Value!;
+        var logo = schema["properties"]!["Logo"]!;
+
+        logo["type"]!.GetValue<string>().Should().Be("object");
+        logo["properties"]!["url"]!["pattern"]!.GetValue<string>().Should().Be("^data:image/(png|jpeg|gif|webp);base64,");
+        logo["properties"]!["alt"]!["nullable"]!.GetValue<bool>().Should().BeTrue();
+
+        var required = schema["required"]!.AsArray().Select(n => n!.GetValue<string>()).ToList();
+        required.Should().HaveCount(1);
+        required.Should().Equal("Title");
     }
 
     [Fact]
