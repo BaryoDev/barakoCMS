@@ -159,7 +159,7 @@ public class ContentTypeValidatorService : IContentTypeValidatorService
                 {
                     errors.AddRange(ChoiceErrors(field));
                 }
-                else if (field.Options is { Count: > 0 } || field.Multiple)
+                else if (field.Options is { Count: > 0 } || (field.Multiple && !ReferenceFields.IsMultiple(field)))
                 {
                     errors.Add($"Field '{field.Name}' declares options but is of type '{field.Type}', not choice.");
                 }

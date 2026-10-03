@@ -167,7 +167,14 @@ public class FieldDefinition
     /// </remarks>
     public List<FieldOption>? Options { get; set; }
 
-    /// <summary>For a <c>choice</c> field, whether an entry holds a list of options rather than one.</summary>
+    /// <summary>
+    /// For a <c>choice</c> or <c>reference</c> field, whether an entry holds a list of options or
+    /// ids rather than one.
+    /// </summary>
+    /// <remarks>
+    /// Refused on any other type. A many-valued reference holds at most 100 ids, each naming an
+    /// entry of <see cref="ReferenceType"/>, with no id twice.
+    /// </remarks>
     public bool Multiple { get; set; }
 
     /// <summary>

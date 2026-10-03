@@ -129,13 +129,23 @@ internal static class ReferenceConditions
         return text is not null && Id.IsMatch(text) && Guid.TryParseExact(text, "D", out id);
     }
 
-    /// <summary>The field a path follows, or null when the type does not declare it as a reference.</summary>
+    /// <summary>
+    /// The field a path follows, or null when the type does not declare it as a reference that
+    /// holds one id.
+    /// </summary>
+    /// <remarks>
+    /// A reference holding a list is not followed. A list has no one answer: "any entry matches"
+    /// grants more than one id ever did, and "every entry matches" grants on an empty list. So the
+    /// condition is refused when a role is saved and denies everywhere else, in the per-entry check
+    /// and the list predicate alike, since both start here.
+    /// </remarks>
     public static FieldDefinition? ReferenceField(ContentTypeDefinition? definition, string name)
     {
         var field = definition?.Fields.FirstOrDefault(f => string.Equals(f.Name, name, StringComparison.Ordinal));
 
         return field is not null
             && string.Equals(field.Type, "reference", StringComparison.OrdinalIgnoreCase)
+            && !field.Multiple
             && !string.IsNullOrWhiteSpace(field.ReferenceType)
             ? field
             : null;

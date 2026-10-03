@@ -129,8 +129,10 @@ of the type it points at. The same key works on a Read, an Update and a transiti
 
 It denies unless all of this holds, whatever the operator is:
 
-- The first name is a field the row's type declares as a `reference`, spelled as declared. If the
-  field's type is changed later, the condition stops granting.
+- The first name is a field the row's type declares as a `reference` holding one id, spelled as
+  declared. A reference with `multiple` is not followed, since a list has no one answer: "any
+  entry matches" grants more than one id did, and "every entry matches" grants on an empty list.
+  If the field's type is changed later, the condition stops granting.
 - The row holds an id there, as text in the hyphenated form and no other: eight, four, four,
   four and twelve hexadecimal digits. Upper or lower case both read.
 - The id is an entry in this tenant, of the type the reference declares, whose document sensitivity
@@ -153,7 +155,8 @@ does not declare, so before this a rule naming `Class.InstructorUser` matched a 
 spelled exactly that. It no longer does.
 
 `POST /api/roles` and `PUT /api/roles/{id}` check such a condition and answer 400 for a key that is
-not two names around one dot, a first name that is not a reference field of the rule's content type,
+not two names around one dot, a first name that is not a reference field of the rule's content type
+(a reference with `multiple` counts as not one, with the same message),
 a second name that is not a Public field of the referenced type, an operator outside the four, a
 comparison that is not on text, a content type the tenant does not define, and a condition on a
 Create rule (Create has no stored entry and does not evaluate conditions). One write checks such

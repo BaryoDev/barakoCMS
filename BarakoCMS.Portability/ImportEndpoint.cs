@@ -357,8 +357,8 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
 
     /// <summary>
     /// Points each reference field holding the source id of another record in this bundle at the id
-    /// that record is imported under. A reference to anything outside the bundle is left alone, and
-    /// validation refuses it unless it exists here.
+    /// that record is imported under, each id of a list included. A reference to anything outside
+    /// the bundle is left alone, and validation refuses it unless it exists here.
     /// </summary>
     private static void RepointReferences(
         ContentTypeDefinition? schema, Dictionary<string, object> data, Dictionary<Guid, Guid> newIds)
@@ -369,6 +369,14 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
         {
             foreach (var key in data.Keys.Where(k => k.Equals(field.Name, StringComparison.OrdinalIgnoreCase)).ToList())
             {
+                if (barakoCMS.Core.Validation.FieldTypeRegistry.TryReadChoice(data[key], out var listed, out var isList) && isList)
+                {
+                    data[key] = listed
+                        .Select(id => Guid.TryParse(id, out var source) && newIds.TryGetValue(source, out var copy) ? copy.ToString() : id)
+                        .ToList<object>();
+                    continue;
+                }
+
                 var raw = data[key] is System.Text.Json.JsonElement je ? je.ToString() : data[key]?.ToString();
                 if (Guid.TryParse(raw, out var target) && newIds.TryGetValue(target, out var imported))
                     data[key] = imported.ToString();
@@ -391,7 +399,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
         var imported = newIds.Values.ToHashSet();
 
         var dependsOn = pending.ToDictionary(p => p.Index, p => p.Request.Data.Values
-            .Select(v => v is System.Text.Json.JsonElement je ? je.ToString() : v?.ToString())
+            .SelectMany(v => Texts(v))
             .Select(v => Guid.TryParse(v, out var g) && imported.Contains(g) && byNewId.TryGetValue(g, out var at) && at != p.Index ? at : -1)
             .Where(at => at >= 0)
             .ToHashSet());
@@ -408,6 +416,15 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
             written.Add(next.Index);
             yield return next;
         }
+    }
+
+    /// <summary>A value as the text it holds: each element of a list of text, or the value itself.</summary>
+    private static IEnumerable<string?> Texts(object? value)
+    {
+        if (barakoCMS.Core.Validation.FieldTypeRegistry.TryReadChoice(value, out var listed, out var isList) && isList)
+            return listed;
+
+        return new[] { value is System.Text.Json.JsonElement je ? je.ToString() : value?.ToString() };
     }
 
     /// <summary>

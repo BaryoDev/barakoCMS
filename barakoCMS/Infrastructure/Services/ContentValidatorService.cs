@@ -162,7 +162,12 @@ public class ContentValidatorService(IQuerySession session) : IContentValidatorS
                 var value = keyDetails.Value;
                 var expectedType = field.Type.ToLower();
 
-                if (!FieldTypeRegistry.IsValidValue(expectedType, value))
+                if (ReferenceFields.IsMultiple(field))
+                {
+                    if (await ReferenceFields.ValueErrorAsync(session, field, value) is { } referencesError)
+                        errors.Add(referencesError);
+                }
+                else if (!FieldTypeRegistry.IsValidValue(expectedType, value))
                 {
                     var actualType = GetActualTypeName(value);
                     errors.Add($"Field '{field.DisplayName}' expects type '{expectedType}' but received '{actualType}'");
@@ -301,9 +306,9 @@ public class ContentValidatorService(IQuerySession session) : IContentValidatorS
     internal static bool IsBlank(FieldDefinition field, object? value) =>
         value is null || string.IsNullOrWhiteSpace(value.ToString()) || IsEmptyList(field, value);
 
-    /// <summary>A required multiple choice holding an empty list has nothing chosen.</summary>
+    /// <summary>A required multiple choice or reference holding an empty list has nothing in it.</summary>
     private static bool IsEmptyList(FieldDefinition field, object value) =>
-        string.Equals(field.Type, "choice", StringComparison.OrdinalIgnoreCase)
+        (string.Equals(field.Type, "choice", StringComparison.OrdinalIgnoreCase) || ReferenceFields.IsMultiple(field))
         && FieldTypeRegistry.TryReadChoice(value, out var values, out var isList)
         && isList
         && values.Count == 0;
