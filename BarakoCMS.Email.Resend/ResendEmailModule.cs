@@ -47,5 +47,5 @@ public sealed class ResendEmailModule : IBarakoModule
     /// Admin. Additive and idempotent, and it skips a role the host never seeded.
     /// </remarks>
     public Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) =>
-        ModuleCapabilities.GrantAsync(session, ResendEmailCapabilities.SeededRoles, ResendEmailCapabilities.All, ct);
+        ResendEmailCapabilities.Defaults.GrantAsync(session, ct);
 }

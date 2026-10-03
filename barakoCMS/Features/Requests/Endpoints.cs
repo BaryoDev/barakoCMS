@@ -83,7 +83,7 @@ internal static class RequestRules
     /// <see cref="SystemCapabilities.ManageRequests"/>, kept as the legacy fallback so an upgrade
     /// does not lock a deployment out.
     /// </summary>
-    internal static readonly string[] LegacyRoles = ["SuperAdmin", "Admin"];
+    internal static readonly IReadOnlyList<string> LegacyRoles = CapabilityGate.AdminLegacyRoles;
 
     /// <summary>Methods a configured integration may use.</summary>
     /// <remarks>

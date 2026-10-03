@@ -41,7 +41,7 @@ public class Endpoint(
         // readable URL on the deployment's own domain. Gated to match the rest of the write
         // surface. A per-user quota is the separate question (#138 covers scanning).
         Definition.RequireCapability(
-            FileCapabilities.UploadFiles, FileCapabilities.LegacyRoles);
+            FileCapabilities.UploadFiles, FileCapabilities.Defaults.LegacyRoles);
         AllowFileUploads();
     }
 

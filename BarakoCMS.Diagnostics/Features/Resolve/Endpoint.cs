@@ -39,7 +39,7 @@ public class Endpoint(IDocumentSession session, TenantContext tenant, IConfigura
     {
         Post("/api/client-errors/{id}/resolve");
         Definition.RequireCapability(
-            DiagnosticsCapabilities.ManageClientErrors, DiagnosticsCapabilities.LegacyRoles);
+            DiagnosticsCapabilities.ManageClientErrors, DiagnosticsCapabilities.Defaults.LegacyRoles);
     }
 
     public override async Task HandleAsync(ResolveRequest req, CancellationToken ct)
@@ -50,7 +50,7 @@ public class Endpoint(IDocumentSession session, TenantContext tenant, IConfigura
         // Another tenant's error answers as missing, the same as the list, which never shows it.
         if (error.Tenant != tenant.Slug
             && !await PlatformScope.HoldsGloballyAsync(session, User, configuration,
-                DiagnosticsCapabilities.ManageClientErrors, DiagnosticsCapabilities.LegacyRoles, ct))
+                DiagnosticsCapabilities.ManageClientErrors, DiagnosticsCapabilities.Defaults.LegacyRoles, ct))
         {
             await Send.NotFoundAsync(ct);
             return;

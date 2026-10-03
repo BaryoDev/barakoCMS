@@ -18,7 +18,8 @@ internal sealed record KnownCapability(string Name, string Source, string? Note 
 
 /// <summary>
 /// Every capability this instance understands: core's <see cref="SystemCapabilities.Known"/> plus
-/// the name every registered endpoint asks for through <see cref="CapabilityGate.RequireCapability"/>.
+/// the name every registered endpoint asks for through <c>CapabilityGate.RequireCapability</c> or
+/// names with <see cref="CapabilityGate.ChecksCapability"/>.
 /// </summary>
 /// <remarks>
 /// Read off the routing table rather than off a list a module has to maintain. A module already
@@ -90,16 +91,18 @@ internal sealed class CapabilityVocabulary
             byName[name] = new KnownCapability(name, CoreSource, name == SystemCapabilities.All ? WildcardNote : null);
         }
 
-        var required = _services.GetServices<EndpointDataSource>()
+        // A name a handler checks for itself is on the routing table too, as CheckedCapability.
+        var named = _services.GetServices<EndpointDataSource>()
             .SelectMany(source => source.Endpoints)
             .Select(endpoint => (
-                Required: endpoint.Metadata.GetMetadata<RequiredCapability>(),
+                Name: endpoint.Metadata.GetMetadata<RequiredCapability>()?.Capability
+                      ?? endpoint.Metadata.GetMetadata<CheckedCapability>()?.Capability,
                 Assembly: endpoint.Metadata.OfType<EndpointDefinition>().FirstOrDefault()?.EndpointType.Assembly))
-            .Where(x => x.Required is not null && x.Assembly is not null);
+            .Where(x => x.Name is not null && x.Assembly is not null);
 
-        foreach (var (metadata, assembly) in required)
+        foreach (var (capability, assembly) in named)
         {
-            var name = metadata!.Capability;
+            var name = capability!;
             if (byName.ContainsKey(name)) continue;
 
             byName[name] = new KnownCapability(name, assembly == core ? CoreSource : SourceOf(assembly!, modules));

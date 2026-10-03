@@ -37,7 +37,7 @@ public sealed class SummaryEndpoint(
     {
         Get("/api/analytics/{websiteId}/summary");
         Definition.RequireCapability(
-            AnalyticsCapabilities.ViewAnalytics, AnalyticsCapabilities.LegacyRoles);
+            AnalyticsCapabilities.ViewAnalytics, AnalyticsCapabilities.Defaults.LegacyRoles);
     }
 
     public override async Task HandleAsync(AnalyticsWindowRequest req, CancellationToken ct)

@@ -1,3 +1,6 @@
+using barakoCMS.Models;
+using barakoCMS.Modules;
+
 namespace BarakoCMS.Import;
 
 /// <summary>
@@ -21,17 +24,19 @@ public static class ImportCapabilities
     /// </remarks>
     public const string AnalyzeSpreadsheets = "analyze_spreadsheets";
 
-    /// <summary>
-    /// The roles that reached the endpoint before the gate existed.
-    /// </summary>
-    /// <remarks>
-    /// It had no <c>Roles(...)</c> at all, so there is nothing to preserve and this is a genuine
-    /// narrowing rather than a migration. Admin and SuperAdmin are named because they are who the
-    /// import tool was for; a deployment that gave it to somebody else grants them the capability.
-    /// </remarks>
-    public static readonly string[] LegacyRoles = ["Admin", "SuperAdmin"];
-
-    internal static readonly string[] SeededRoles = ["Admin"];
-
     internal static readonly string[] All = [AnalyzeSpreadsheets];
+
+    /// <summary>Who starts with these: the seeded Admin role, by its id.</summary>
+    /// <remarks>
+    /// The endpoint had no <c>Roles(...)</c> at all, so there is nothing to preserve and this is a
+    /// genuine narrowing rather than a migration. Admin is granted, and SuperAdmin is on the legacy
+    /// list, because they are who the import tool was for; a deployment that gave it to somebody
+    /// else grants them the capability.
+    /// </remarks>
+    internal static readonly CapabilityDefaults Defaults = CapabilityDefaults.For(All).GrantedTo(SystemRoles.Admin);
+
+    /// <summary>The role names the gate honours while <c>Auth:LegacyRoleFallback</c> is on.</summary>
+    [Obsolete("The gate takes its legacy list from the module's own capability defaults, so nothing "
+            + "outside the module needs this. Removal planned for barakoCMS 6.0.")]
+    public static readonly string[] LegacyRoles = [.. Defaults.LegacyRoles];
 }

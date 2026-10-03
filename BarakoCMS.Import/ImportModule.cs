@@ -24,5 +24,5 @@ public sealed class ImportModule : IBarakoModule
     /// Additive and idempotent, and it skips a role the host never seeded.
     /// </remarks>
     public Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) =>
-        ModuleCapabilities.GrantAsync(session, ImportCapabilities.SeededRoles, ImportCapabilities.All, ct);
+        ImportCapabilities.Defaults.GrantAsync(session, ct);
 }

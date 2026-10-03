@@ -1,6 +1,16 @@
 namespace barakoCMS.Models;
 
 /// <summary>
+/// A role a seeder creates, named the two ways a database can hold it.
+/// </summary>
+/// <param name="Id">The fixed id the role is seeded under. This is the key.</param>
+/// <param name="Name">
+/// The name the role is seeded under. A token's role claim carries it, and it finds the role in a
+/// database where no role holds <paramref name="Id"/>.
+/// </param>
+public sealed record SeededRole(Guid Id, string Name);
+
+/// <summary>
 /// The roles the seeder creates, identified the way the server identifies them.
 /// </summary>
 /// <remarks>
@@ -31,6 +41,36 @@ public static class SystemRoles
 
     private static readonly Guid[] Ids =
         [SuperAdminRoleId, AdminRoleId, Guid.Parse(DemoHr), UserRoleId];
+
+    private const string SuperAdminName = "SuperAdmin";
+
+    /// <summary>The Admin role as a default is declared for it: its seeded id and its seeded name.</summary>
+    public static readonly SeededRole Admin = new(AdminRoleId, "Admin");
+
+    /// <summary>
+    /// The role names a capability gate honours while <c>Auth:LegacyRoleFallback</c> is on, for a
+    /// surface these roles reached before capabilities: each role's seeded name, then SuperAdmin.
+    /// </summary>
+    /// <remarks>
+    /// SuperAdmin is always in the list. A list naming Admin and not SuperAdmin would lock the
+    /// higher role out of a surface the lower one reaches.
+    /// </remarks>
+    public static IReadOnlyList<string> LegacyNames(params SeededRole[] roles)
+    {
+        ArgumentNullException.ThrowIfNull(roles);
+
+        var names = new List<string>(roles.Length + 1);
+        foreach (var role in roles)
+        {
+            if (!names.Contains(role.Name, StringComparer.Ordinal))
+                names.Add(role.Name);
+        }
+
+        if (!names.Contains(SuperAdminName, StringComparer.Ordinal))
+            names.Add(SuperAdminName);
+
+        return names.AsReadOnly();
+    }
 
     /// <summary>Whether this role is one the seeder created and the server refuses to delete.</summary>
     public static bool Contains(Guid roleId) => Array.IndexOf(Ids, roleId) >= 0;
