@@ -55,17 +55,23 @@ internal class UpdateFieldAction : IWorkflowAction
     private readonly IContentWriter _contentWriter;
     private readonly IContentLifecycleRunner _lifecycle;
     private readonly ILogger<UpdateFieldAction> _logger;
+    private readonly IFileStore? _files;
 
     /// <summary>
     /// Creates a new UpdateFieldAction.
     /// </summary>
     public UpdateFieldAction(
-        IDocumentSession session, IContentWriter contentWriter, IContentLifecycleRunner lifecycle, ILogger<UpdateFieldAction> logger)
+        IDocumentSession session,
+        IContentWriter contentWriter,
+        IContentLifecycleRunner lifecycle,
+        ILogger<UpdateFieldAction> logger,
+        IFileStore? files = null)
     {
         _session = session;
         _contentWriter = contentWriter;
         _lifecycle = lifecycle;
         _logger = logger;
+        _files = files;
     }
 
     /// <inheritdoc />
@@ -219,6 +225,32 @@ internal class UpdateFieldAction : IWorkflowAction
             {
                 return WorkflowActionResult.PermanentFailure(
                     $"Field '{declared.Name}' holds an inline image, which this action cannot set.");
+            }
+
+            if (barakoCMS.Core.Validation.FileFields.IsFileField(declared))
+            {
+                // A workflow runs for no signed-in user, so it attaches a public file or nothing,
+                // which is the rule its email attachments follow. The file the entry already holds
+                // stays. Permanent, and the value is not named, as for an amount below.
+                bool usable;
+                try
+                {
+                    usable = barakoCMS.Core.Validation.FileFields.Holds(targetContent.Data, declared.Name, value)
+                        || (_files is not (null or NoFileStore)
+                            && barakoCMS.Core.Validation.FileFields.TryReadId(value, out var fileId)
+                            && await _files.FindPublicAsync(fileId, ct) is not null);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to read the file for field {Field}", field);
+                    return WorkflowActionResult.Failure($"Could not read the file for field '{declared.Name}' ({ex.GetType().Name}).");
+                }
+
+                if (!usable)
+                {
+                    return WorkflowActionResult.PermanentFailure(
+                        $"Field '{declared.Name}' takes the id of a public stored file, and the value this action was given is not one.");
+                }
             }
 
             if (declared is not null

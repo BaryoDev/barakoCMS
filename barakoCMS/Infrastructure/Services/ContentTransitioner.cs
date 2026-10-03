@@ -305,7 +305,14 @@ internal sealed class ContentTransitioner(
         if (data is not null)
         {
             var validation = await services.GetRequiredService<IContentValidatorService>()
-                .ValidateAsync(content.ContentType, data, existing: content);
+                .ValidateAsync(
+                    content.ContentType,
+                    data,
+                    // The entry as stored now, which the data was built from, not the caller's copy.
+                    existing: current,
+                    // A file is checked for the actor, never for whoever made the request; a system
+                    // actor names nobody and takes public files only.
+                    caller: user is null ? null : (ownRequest ?? RequestNaming(user)).User);
             if (!validation.IsValid && validation.Errors.Count > 0)
             {
                 return ContentTransitionResult.Invalid(validation.Errors);
@@ -449,11 +456,22 @@ internal sealed class ContentTransitioner(
     /// A request to answer field sensitivity for, when the actor has none of their own here.
     /// </summary>
     /// <remarks>
-    /// The sensitivity service takes an HttpContext and reads one thing from it: the UserId claim,
-    /// from which it looks up the roles and capabilities the user holds in this scope's tenant. So
-    /// the context made here carries that claim and nothing else. It states no role and no
-    /// capability, because none it stated would be read, and one that was read would be an answer
-    /// this class made up.
+    /// Two things read the principal made here, and they read it differently.
+    ///
+    /// The sensitivity service reads one thing: the UserId claim, from which it looks up the roles
+    /// and capabilities the user holds in this scope's tenant. So an actor who is an administrator
+    /// is treated as one for field sensitivity.
+    ///
+    /// The file store, asked about a <c>file</c> field the move carries, reads the claims
+    /// themselves: signed in (the authentication type set below), no API key claim, no tenant
+    /// claim for another tenant, and then the UserId and the role claims. The principal states no
+    /// role, so the actor reaches public files and the files they uploaded, and an administrator
+    /// actor does not reach other users' private files the way their own request would. That is
+    /// the narrower answer, kept on purpose. When the Files module decides file access from the
+    /// stored capability rather than role claims (#886), the two readers agree.
+    ///
+    /// The context states no role and no capability, because none it stated would be read by the
+    /// sensitivity service, and one the file store read would be an answer this class made up.
     /// </remarks>
     private HttpContext RequestNaming(User user)
     {

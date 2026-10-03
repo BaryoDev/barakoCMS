@@ -39,4 +39,11 @@ internal class Response
     /// Event-stream version. Send this back in an update's Version field for optimistic concurrency.
     /// </summary>
     public long Version { get; set; }
+
+    /// <summary>
+    /// The file each <c>file</c> field names, keyed as the field is in <c>Data</c>, which keeps
+    /// the id. Only a file this caller may download is here. Left out when there is none.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, barakoCMS.Infrastructure.Services.ResolvedFile>? Files { get; set; }
 }

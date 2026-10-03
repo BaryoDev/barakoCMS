@@ -111,8 +111,8 @@ public sealed class ContentCreator(
             await sensitivity.ApplyWriteAsync(schema, request.Data, existing: null, httpContext, ct);
 
         var (isValid, errors) = schema is null
-            ? await validator.ValidateAsync(request.ContentType, request.Data, existing: null)
-            : await validator.ValidateFieldsAsync(schema, request.ContentType, request.Data, existing: null);
+            ? await validator.ValidateAsync(request.ContentType, request.Data, existing: null, caller: httpContext.User)
+            : await validator.ValidateFieldsAsync(schema, request.ContentType, request.Data, existing: null, caller: httpContext.User);
 
         string? slug = null;
         if (isValid && schema is not null && batch is not null)

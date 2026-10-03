@@ -101,6 +101,11 @@ public static class FieldTypeRegistry
         // definition, so ContentValidatorService checks it.
         new("choice", "choice", v => TryReadChoice(v, out _, out _)),
 
+        // The id of one stored file. Only the shape is checked here. Whether the file exists and
+        // the caller may use it needs the file store and the caller, so ContentValidatorService
+        // checks it through FileFields.
+        new(FileFields.TypeName, "file", v => FileFields.TryReadId(v, out _)),
+
         // A small image carried in the entry as a data URI, checked in full here because the check
         // needs nothing but the value. See InlineImageFields.
         new(InlineImageFields.TypeName, InlineImageFields.TypeName, InlineImageFields.IsValid),

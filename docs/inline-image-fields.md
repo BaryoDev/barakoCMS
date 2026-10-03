@@ -2,14 +2,17 @@
 
 An `inlineimage` field keeps a small image inside the entry itself, as a base64 data URI, instead of
 pointing at a stored file. It is for an icon, a logo or an avatar of a few kilobytes. For anything
-else, upload the image to the Files module and keep its address or id in the entry: that is the
-usual way to keep images in the database, since the Files module stores the bytes in Postgres by
-default, one row per file.
+else, upload the image to the Files module and point at it with a [file field](file-fields.md):
+that is the usual way to keep images in the database, since the Files module stores the bytes in
+Postgres by default, one row per file, and a file field gets usage tracking and image variants. The
+two are separate types, so a field is one or the other: an inline image field refuses a file id
+and a file field refuses a data URI, as a new value.
 
 ## Opting in
 
 The field type is the opt-in. Nothing else changes: a `url` or `string` field with the `image`
-editor hint still holds a URL, and a data URI sent to a `url` field is still refused.
+editor hint still holds a URL, a `file` field still holds a file id, and a data URI sent to either is
+refused.
 
 ```json
 { "name": "Logo", "displayName": "Logo", "type": "inlineimage" }

@@ -54,7 +54,7 @@ somebody else uploaded is downloaded, and deleted, only by a caller holding `man
 `upload_files` alone does not open it. The module grants both capabilities to the seeded Admin
 role at startup, SuperAdmin satisfies both, and any role you create can be given either. The
 where-used lookup scans the tenant's entries for the file's id or
-its storage key as a substring of any field, so it finds a bare id, a `/api/public/files/{id}` URL
+its storage key as a substring of any field, so it finds the id a `file` field holds, a bare id in any other field, a `/api/public/files/{id}` URL
 with or without `?w=`, and an object store's public URL. A usage row always carries the entry's id
 and status; its title is there only when the caller holds read on the type and the sensitivity
 scrub leaves it, the same two checks as `GET /api/contents`.
@@ -99,6 +99,9 @@ public sealed class Receipts(IFileStore files)
   that from one that is not), and the Postgres storage copies it twice more.
 - `DeleteAsync` deletes for a caller `DELETE /api/files/{id}` would delete for, and answers
   `InUse` while an entry names the file unless forced.
+- `FindPublicManyAsync` and `FindManyAsync` answer the two finds for many ids in one query. Each
+  answer carries the file's `PublicUrl` (null when it is private), `Alt` and `Caption`. The core's
+  file fields resolve through these; see `docs/file-fields.md`.
 
 `SaveAsync` and `DeleteAsync` commit, through the scope's session. Call them before staging
 anything else on it: they throw `InvalidOperationException` when work is already staged, so a

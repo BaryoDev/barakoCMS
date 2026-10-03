@@ -91,7 +91,8 @@ internal static class PublicDelivery
         IReadOnlyList<string> includeFields,
         ContentTypeDefinition def,
         IQuerySession session,
-        CancellationToken ct)
+        CancellationToken ct,
+        barakoCMS.Core.Interfaces.IFileStore? files = null)
     {
         if (includeFields.Count == 0 || items.Count == 0)
             return items.ToList();
@@ -124,14 +125,19 @@ internal static class PublicDelivery
                 .ToListAsync(ct))
             .ToDictionary(d => d.Name, StringComparer.OrdinalIgnoreCase);
 
-        var resolved = new Dictionary<Guid, PublicContentResponse>();
+        var projectedTargets = new List<(PublicContentResponse Item, ContentTypeDefinition Definition)>();
         foreach (var target in targets)
         {
             defs.TryGetValue(target.ContentType, out var targetDef);
             var projected = ToPublic(target, targetDef, targetDef is null ? null : SlugField(targetDef));
             if (projected is not null)
-                resolved[target.Id] = projected;
+                projectedTargets.Add((projected, targetDef!));
         }
+
+        // A target's file fields resolve as they do when it is read on its own, in one more read
+        // for all the targets together.
+        var resolved = (await PublicFileFields.ResolveAsync(projectedTargets, files, ct))
+            .ToDictionary(r => r.Id);
 
         return items.Select(item =>
         {
@@ -402,7 +408,9 @@ internal class ListPublishedEndpoint(
         // Resolved after projection, never before. Projecting first means the reference id being
         // resolved has already survived the field allowlist, so a Sensitive reference field is not
         // resolvable by asking for it.
-        items = await PublicDelivery.ResolveIncludesAsync(items, includes, def, session, ct);
+        var files = Resolve<barakoCMS.Core.Interfaces.IFileStore>();
+        items = await PublicFileFields.ResolveAsync(items, def!, files, ct);
+        items = await PublicDelivery.ResolveIncludesAsync(items, includes, def, session, ct, files);
 
         PublicDelivery.SetCache(HttpContext);
         await Send.ResponseAsync(new PaginatedResponse<PublicContentResponse>
@@ -507,6 +515,10 @@ internal class PublicSearchEndpoint(IQuerySession session, IConfiguration config
             .Take(limit)
             .Select(x => x.r)
             .ToList();
+
+        // After the ranking, which reads the stored values, and for the returned entries only.
+        results = await PublicFileFields.ResolveAsync(
+            results, def!, Resolve<barakoCMS.Core.Interfaces.IFileStore>(), ct);
 
         PublicDelivery.SetCache(HttpContext);
         await Send.OkAsync(new PublicSearchResponse(results, results.Count, q), ct);
@@ -623,6 +635,9 @@ internal class GetBySlugEndpoint(
 
         var projected = match is null ? null : PublicDelivery.ToPublic(match, def, slugField, allowUnpublished: previewId is not null);
         if (projected is null) { await Send.NotFoundAsync(ct); return; }
+
+        projected = (await PublicFileFields.ResolveAsync(
+            [projected], def!, Resolve<barakoCMS.Core.Interfaces.IFileStore>(), ct))[0];
 
         if (previewLink is not null)
         {

@@ -153,6 +153,26 @@ public class DeliveryOpenApiTests
     }
 
     [Fact]
+    public async Task A_required_file_field_is_an_object_that_is_not_listed_as_always_present()
+    {
+        var type = TypeName("gallery");
+        await CreateTypeAsync(type, deliverable: true,
+            new { name = "Title", type = "string", isRequired = true },
+            new { name = "Cover", type = "file", isRequired = true });
+
+        using var doc = await DocumentAsync();
+
+        var schema = Schemas(doc).GetProperty($"Public{char.ToUpperInvariant(type[0])}{type[1..]}Fields");
+
+        var required = schema.GetProperty("required").EnumerateArray().Select(e => e.GetString()).ToList();
+        required.Should().Equal(new[] { "Title" }, "delivery leaves a file field out when its file is private or gone");
+
+        var cover = schema.GetProperty("properties").GetProperty("Cover");
+        cover.GetProperty("type").GetString().Should().Be("object");
+        cover.GetProperty("properties").TryGetProperty("url", out _).Should().BeTrue();
+    }
+
+    [Fact]
     public async Task Validation_rules_and_defaults_are_never_published()
     {
         var type = TypeName("applicants");

@@ -183,8 +183,11 @@ internal static class DeliveryDocument
                 continue;
 
             properties[field.Name] = FieldSchema(field);
-            // Delivery leaves out an inline image whose stored value is not an allowed data URI.
-            if (field.IsRequired && !barakoCMS.Core.Validation.InlineImageFields.Is(field.Type))
+            // Delivery leaves out an inline image whose stored value is not an allowed data URI, and a
+            // file field whose file is private or gone, required or not.
+            if (field.IsRequired
+                && !barakoCMS.Core.Validation.InlineImageFields.Is(field.Type)
+                && !barakoCMS.Core.Validation.FileFields.IsFileField(field))
                 required.Add(field.Name);
         }
 
@@ -270,6 +273,23 @@ internal static class DeliveryDocument
                 ["lng"] = new JsonObject { ["type"] = "number", ["minimum"] = -180, ["maximum"] = 180 },
             },
             ["required"] = new JsonArray("lat", "lng"),
+        },
+        // What delivery answers for a file field: the public file it names. The field is left out
+        // of an entry whose file is not public or is gone.
+        "file" => new JsonObject
+        {
+            ["type"] = "object",
+            ["properties"] = new JsonObject
+            {
+                ["id"] = new JsonObject { ["type"] = "string", ["format"] = "uuid" },
+                ["url"] = new JsonObject { ["type"] = "string" },
+                ["fileName"] = new JsonObject { ["type"] = "string" },
+                ["contentType"] = new JsonObject { ["type"] = "string" },
+                ["size"] = new JsonObject { ["type"] = "integer", ["format"] = "int64" },
+                ["alt"] = new JsonObject { ["type"] = "string", ["nullable"] = true },
+                ["caption"] = new JsonObject { ["type"] = "string", ["nullable"] = true },
+            },
+            ["required"] = new JsonArray("id", "url", "fileName", "contentType", "size"),
         },
         _ => new JsonObject(),
     };
