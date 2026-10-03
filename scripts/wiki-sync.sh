@@ -90,7 +90,7 @@ group_of() {
   case "$1" in
     delivering-a-client-project.md|approval-by-configuration.md|deploy-in-production.md|deploy-on-a-managed-platform.md|upgrading-to-4.0.md|configuring-email.md|your-first-module.md)
       printf 'Start here' ;;
-    blueprints.md|site-settings.md|choice-fields.md|money-fields.md|field-hints-and-roles.md|uniqueness-rules.md|event-sourced-content-types.md|seo-fields.md|image-variants.md|url-redirects.md|delivery-api.md|scheduling.md|collection-syncs.md|collection-push.md)
+    blueprints.md|site-settings.md|choice-fields.md|money-fields.md|file-fields.md|field-hints-and-roles.md|uniqueness-rules.md|event-sourced-content-types.md|seo-fields.md|image-variants.md|url-redirects.md|delivery-api.md|scheduling.md|collection-syncs.md|collection-push.md)
       printf 'Content' ;;
     access-control.md|compliance-posture.md|session-and-token-storage.md|scanning-uploads.md)
       printf 'Security and access' ;;
