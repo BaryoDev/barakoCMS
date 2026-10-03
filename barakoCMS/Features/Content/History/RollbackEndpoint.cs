@@ -119,9 +119,10 @@ internal class RollbackEndpoint(
         // and it is reachable by anyone who can press Restore.
 
         // WRITE-PATH SENSITIVITY: a caller who may not see a field may not change it, and restoring
-        // an old value is a change. Reverts any such field to what is stored.
+        // an old value is a change. Reverts any such field to what is stored, and refuses a restore
+        // that changes a field the Update rule does not let the caller set.
         await Resolve<barakoCMS.Core.Interfaces.ISensitivityService>()
-            .ApplyWriteAsync(content.ContentType, data, content.Data, HttpContext, ct);
+            .ApplyWriteAsync(content, data, HttpContext, ct);
 
         var validationResult = await Resolve<barakoCMS.Infrastructure.Services.IContentValidatorService>()
             .ValidateAsync(content.ContentType, data, existing: content);

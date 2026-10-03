@@ -85,7 +85,7 @@ internal static class ReferenceConditions
         return true;
     }
 
-    private static bool IsName(string name) =>
+    public static bool IsName(string name) =>
         name.Length is > 0 and <= MaxNameLength
         && char.IsAsciiLetter(name[0])
         && name.All(ch => char.IsAsciiLetterOrDigit(ch) || ch == '_');
