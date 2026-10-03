@@ -504,6 +504,11 @@ internal sealed class CollectionSyncRunner(
                 }
                 break;
 
+            // A sync runs for no signed-in user and its values come from another system, so it
+            // fills no file field. The item is reported as one that does not convert.
+            case barakoCMS.Core.Validation.FileFields.TypeName:
+                break;
+
             default:
                 value = text;
                 return true;

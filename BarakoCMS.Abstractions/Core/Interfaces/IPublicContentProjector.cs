@@ -89,6 +89,10 @@ public interface IPublicContentProjector
     /// to null. It is the schema that says which fields are Public, so another type's schema applies
     /// another type's allowlist, and an entry whose real type marks a field Sensitive would be served
     /// with that field in it.
+    ///
+    /// A <c>file</c> field is left out, because this member reads nothing. Use
+    /// <see cref="ProjectAsync"/> for the entry a response serves, so a file field is answered as
+    /// <c>GET /api/public/{type}/{slug}</c> answers it.
     /// </remarks>
     /// <param name="content">The document, loaded by the caller.</param>
     /// <param name="definition">
@@ -96,4 +100,18 @@ public interface IPublicContentProjector
     /// saying which fields are Public, nothing is delivered.
     /// </param>
     PublicContentProjection? Project(Content content, ContentTypeDefinition? definition);
+
+    /// <summary>
+    /// <see cref="Project"/>, with each <c>file</c> field answered as the public file it names, the
+    /// way the core delivery routes answer it.
+    /// </summary>
+    /// <remarks>
+    /// Reads the file store of the scope the projector was resolved from, once. A field naming a
+    /// file that is not public, or is gone, is left out, and a <c>SocialImage</c> file field gives
+    /// the SEO image the file's address or none. The default answers what <see cref="Project"/>
+    /// does, so an implementor written before this member leaves file fields out.
+    /// </remarks>
+    Task<PublicContentProjection?> ProjectAsync(
+        Content content, ContentTypeDefinition? definition, CancellationToken cancellationToken = default)
+        => Task.FromResult(Project(content, definition));
 }

@@ -78,6 +78,10 @@ the repository.
   reference field holding the old id of another record in the bundle is pointed at the new one,
   whatever order the records are in. A reference to anything outside the bundle must exist where
   the bundle is imported, so an entry referencing content left behind in another tenant is refused.
+- A bundle carries entries, not files. A `file` field holds a stored file's id, and the import
+  checks it as a new attachment for the importing user, so an entry naming a file this tenant does
+  not have is refused, and with it the whole import. Restore the files first, with the same ids,
+  then import the bundle. See `docs/file-fields.md`.
 - A stored type keeps its lifecycle when the bundle has none. A bundle that changes it, or adds one
   to a type that already has entries, is refused.
 - The entries' events are written together just before the commit, so a long import leaves no

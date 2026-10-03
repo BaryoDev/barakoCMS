@@ -135,10 +135,14 @@ internal static class ShareLinkKeys
     /// one every anonymous read goes through, so a type that is not publicly deliverable, an entry
     /// that is not Public and every field that is not Public stay closed. References are left as
     /// the ids they are stored as: resolving one would need a rule for a draft on the other end,
-    /// and a frontend can read a published target through the ordinary routes.
+    /// and a frontend can read a published target through the ordinary routes. A file field
+    /// resolves as it does on the delivery routes, to a public file or to nothing.
     /// </remarks>
     public static async Task<barakoCMS.Features.Public.PublicContentResponse?> OpenEntryAsync(
-        IQuerySession session, SiteShareLink link, CancellationToken ct)
+        IQuerySession session,
+        SiteShareLink link,
+        CancellationToken ct,
+        barakoCMS.Core.Interfaces.IFileStore? files = null)
     {
         if (link.EntryId is not { } entryId)
         {
@@ -153,11 +157,18 @@ internal static class ShareLinkKeys
 
         var type = entry.ContentType;
         var definition = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
-        return barakoCMS.Features.Public.PublicDelivery.ToPublic(
+        var projected = barakoCMS.Features.Public.PublicDelivery.ToPublic(
             entry,
             definition,
             definition is null ? null : barakoCMS.Features.Public.PublicDelivery.SlugField(definition),
             allowUnpublished: true);
+
+        if (projected is null || definition is null)
+        {
+            return projected;
+        }
+
+        return (await barakoCMS.Features.Public.PublicFileFields.ResolveAsync([projected], definition, files, ct))[0];
     }
 
     /// <summary>Records a redemption by patching LastUsedAt alone.</summary>

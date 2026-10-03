@@ -68,7 +68,7 @@ internal class Endpoint(
         }
 
         Response = await EntryResponse.BuildAsync(
-            content, session, sourcing, Resolve<ISensitivityService>(), HttpContext, ct);
+            content, session, sourcing, Resolve<ISensitivityService>(), HttpContext, ct, Resolve<IFileStore>());
     }
 
     /// <summary>The entries holding this slug, in the request's tenant, oldest first, at most a handful.</summary>

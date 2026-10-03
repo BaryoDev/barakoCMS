@@ -105,6 +105,11 @@ public static class FieldTypeRegistry
         // one, so no write path asks whether a sent value is valid: the value is dropped and the
         // stored or generated one is used. See TokenFields.
         new("token", "token", IsString),
+
+        // The id of one stored file. Only the shape is checked here. Whether the file exists and
+        // the caller may use it needs the file store and the caller, so ContentValidatorService
+        // checks it through FileFields.
+        new(FileFields.TypeName, "file", v => FileFields.TryReadId(v, out _)),
     };
 
     // Alias -> canonical spec. Aliases are the historical synonyms both live

@@ -124,7 +124,7 @@ internal sealed class Endpoint(
             else
                 await sensitivity.ApplyWriteAsync(existing, data, HttpContext, ct);
 
-            var (valid, messages) = await validator.ValidateAsync(req.Type, data, existing);
+            var (valid, messages) = await validator.ValidateAsync(req.Type, data, existing, User);
             if (valid)
             {
                 messages = [.. await hooks.RunBeforeSaveAsync(req.Type, existing?.Id, data, existing?.Data, userId, ct)];
