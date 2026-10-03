@@ -53,9 +53,10 @@ internal class Endpoint(
         }
 
         // WRITE-PATH SENSITIVITY: a caller who may not see a field may not change it. Revert any
-        // such fields to their stored values before applying the update.
+        // such fields to their stored values before applying the update, and refuse a change to a
+        // field the Update rule granting this entry does not let the caller set.
         await Resolve<barakoCMS.Core.Interfaces.ISensitivityService>()
-            .ApplyWriteAsync(existingContent.ContentType, req.Data, existingContent.Data, HttpContext, ct);
+            .ApplyWriteAsync(existingContent, req.Data, HttpContext, ct);
 
         // DYNAMIC VALIDATION - Validate data against ContentType schema
         var validationResult = await validator.ValidateAsync(

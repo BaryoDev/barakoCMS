@@ -596,4 +596,33 @@ public class SiteBlueprintTests
         fix.GetProperty("icon").GetString().Should().Be("check");
         fix.GetProperty("label").GetString().Should().Be("Fix");
     }
+
+    [Fact]
+    public async Task Applying_site_creates_the_optional_profile_fields_a_tenant_used_to_hold()
+    {
+        var client = await AdminInAsync(await TenantAsync());
+
+        (await client.PostAsync("/api/content-types/blueprints/site", null, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var types = await client.GetAsync("/api/content-types?pageSize=100", Ct);
+        using var doc = JsonDocument.Parse(await types.Content.ReadAsStringAsync(Ct));
+        var site = doc.RootElement.GetProperty("items").EnumerateArray().Single(i => i.GetProperty("name").GetString() == "site");
+        var fields = site.GetProperty("fields").EnumerateArray()
+            .ToDictionary(f => f.GetProperty("name").GetString()!, f => f);
+        var added = new Dictionary<string, string>
+        {
+            ["About"] = "text",
+            ["Email"] = "string",
+            ["Location"] = "string",
+            ["LocationUrl"] = "url",
+            ["ContactUrl"] = "url",
+            ["SocialHandle"] = "string",
+        };
+        fields.Should().ContainKeys(added.Keys);
+        foreach (var (name, type) in added)
+        {
+            fields[name].GetProperty("type").GetString().Should().Be(type, name);
+            fields[name].GetProperty("isRequired").GetBoolean().Should().BeFalse("a site with no {0} is still a site", name);
+        }
+    }
 }
