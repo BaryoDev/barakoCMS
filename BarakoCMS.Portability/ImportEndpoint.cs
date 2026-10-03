@@ -402,7 +402,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
         var imported = newIds.Values.ToHashSet();
 
         var dependsOn = pending.ToDictionary(p => p.Index, p => p.Request.Data.Values
-            .SelectMany(v => Texts(v))
+            .Select(v => v is System.Text.Json.JsonElement je ? je.ToString() : v?.ToString())
             .Select(v => Guid.TryParse(v, out var g) && imported.Contains(g) && byNewId.TryGetValue(g, out var at) && at != p.Index ? at : -1)
             .Where(at => at >= 0)
             .ToHashSet());
@@ -419,15 +419,6 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
             written.Add(next.Index);
             yield return next;
         }
-    }
-
-    /// <summary>A value as the text it holds: each element of a list of text, or the value itself.</summary>
-    private static IEnumerable<string?> Texts(object? value)
-    {
-        if (barakoCMS.Core.Validation.FieldTypeRegistry.TryReadChoice(value, out var listed, out var isList) && isList)
-            return listed;
-
-        return new[] { value is System.Text.Json.JsonElement je ? je.ToString() : value?.ToString() };
     }
 
     /// <summary>
