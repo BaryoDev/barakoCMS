@@ -112,6 +112,62 @@ CORS in the browser and looks like the API is down.
 `FRONTEND_ORIGINS` becomes `CORS__AllowedOrigins` on the `app` service, and
 `BarakoCMS.Tests/CorsTests.cs` pins what a listed and an unlisted origin get back from a preflight.
 
+## A client's own domain, with no config edit
+
+A tenant's domains are data (`PUT /api/tenants/{handle}` with `domains`, see
+[delivering-a-client-project.md](delivering-a-client-project.md#custom-domains)). Two opt-in pieces
+let a domain added there work in a browser without touching `FRONTEND_ORIGINS` or a `Caddyfile`.
+
+**CORS.** Set `CORS__AllowTenantDomains=true` on the `app` service. The API then also allows an
+origin that is exactly `https://` plus a domain an active tenant holds, or its `www.` form. These
+are refused: `http`, any port, a path, user info, a wildcard, an IP literal, `null`, and any other
+subdomain of a registered domain. A tenant domain origin never gets
+`Access-Control-Allow-Credentials`, so a page there cannot use a visitor's refresh cookie; an origin
+that needs credentials goes in `FRONTEND_ORIGINS`, and a listed origin keeps them. With the setting
+on, every response that gets past the rate limiter and tenant resolution carries `Vary: Origin`,
+whether or not the request had an `Origin`, so a shared cache does not hand a response fetched by a
+renderer to a browser on a tenant domain. A 429, or a Multi-mode 404 for an unknown tenant, does not
+carry it. Any value but `true` leaves the setting off.
+
+Only a platform administrator (`manage_tenants`) can write a tenant's domains, so this does not let
+a tenant administrator add an origin. The domain map is cached: a change applies on the next request
+on the instance that saved it and within `Multitenancy:CacheDuration` (five minutes by default) on
+the others. If the map cannot be read, only `FRONTEND_ORIGINS` is allowed.
+
+**TLS.** `GET /api/tenants/tls-ask?domain={host}` answers 200 for a domain an active tenant holds
+(or its `www.` form) and 404 for anything else, naming no tenant. It is Caddy's on-demand TLS `ask`
+endpoint. It is anonymous and answers in Multi mode without a tenant.
+
+It is limited by the name asked about, not by the caller, because Caddy asks every question from its
+own address. The `tls-ask` policy (fixed) spreads names over 4096 buckets by a hash seeded per
+process and allows 60 questions a minute per bucket, and the route is left out of the global per-IP
+limit. A flood of made-up server names then lands in thousands of buckets and leaves a real name's
+bucket nearly empty, and the limiter never holds more than 4096 partitions. What remains: asking
+about one real name more than 60 times a minute, or about names found by probing to share its
+bucket, holds that name's answers at 429 (which Caddy reads as no) while it lasts.
+
+A site proxy that issues certificates on demand, for barakoPress serving the client domains (the
+shipped `Caddyfile` here serves only `{$DOMAIN_API}` and stays as it is):
+
+```caddyfile
+{
+    email {$ACME_EMAIL}
+    on_demand_tls {
+        ask http://app:8080/api/tenants/tls-ask
+    }
+}
+
+https:// {
+    tls {
+        on_demand
+    }
+    reverse_proxy press:3000
+}
+```
+
+`TenantDomainCorsTests`, `TenantDomainCorsPolicyProviderTests`, `TenantDomainLookupTests` and
+`TlsAskTests` cover both.
+
 ## Putting a shared cache or CDN in front of it
 
 The shipped production `Caddyfile` is a plain `reverse_proxy` with no cache handler, so a stack

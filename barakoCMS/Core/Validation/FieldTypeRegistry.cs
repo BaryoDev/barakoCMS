@@ -100,6 +100,11 @@ public static class FieldTypeRegistry
         // each value is a declared option, and whether the field takes one or several, needs the
         // definition, so ContentValidatorService checks it.
         new("choice", "choice", v => TryReadChoice(v, out _, out _)),
+
+        // The id of one stored file. Only the shape is checked here. Whether the file exists and
+        // the caller may use it needs the file store and the caller, so ContentValidatorService
+        // checks it through FileFields.
+        new(FileFields.TypeName, "file", v => FileFields.TryReadId(v, out _)),
     };
 
     // Alias -> canonical spec. Aliases are the historical synonyms both live

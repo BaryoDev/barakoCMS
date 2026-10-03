@@ -119,12 +119,13 @@ internal class RollbackEndpoint(
         // and it is reachable by anyone who can press Restore.
 
         // WRITE-PATH SENSITIVITY: a caller who may not see a field may not change it, and restoring
-        // an old value is a change. Reverts any such field to what is stored.
+        // an old value is a change. Reverts any such field to what is stored, and refuses a restore
+        // that changes a field the Update rule does not let the caller set.
         await Resolve<barakoCMS.Core.Interfaces.ISensitivityService>()
-            .ApplyWriteAsync(content.ContentType, data, content.Data, HttpContext, ct);
+            .ApplyWriteAsync(content, data, HttpContext, ct);
 
         var validationResult = await Resolve<barakoCMS.Infrastructure.Services.IContentValidatorService>()
-            .ValidateAsync(content.ContentType, data, existing: content);
+            .ValidateAsync(content.ContentType, data, existing: content, caller: User);
         if (!validationResult.IsValid)
         {
             foreach (var error in validationResult.Errors)
@@ -175,7 +176,18 @@ internal class RollbackEndpoint(
 
         await session.SaveChangesAsync(ct);
 
-        // 8. Return the new state
-        await Send.ResponseAsync(RollbackResponse.From(content), cancellation: ct);
+        // 8. Return the new state, through the read rules a GET applies: the caller is shown what
+        // they may read of it and nothing more. Rollback asks for update, not read, so a caller no
+        // Read rule grants this entry gets it back with no data, as a GET would refuse them.
+        var response = RollbackResponse.From(content);
+        response.Data = new Dictionary<string, object>();
+        if (await permissionResolver.CanPerformActionAsync(actor, content.ContentType, "read", content, ct))
+        {
+            response.Data = new Dictionary<string, object>(content.Data);
+            if (await Resolve<barakoCMS.Core.Interfaces.ISensitivityService>().ApplyAsync(content, response.Data, HttpContext, ct))
+                response.ContentType = "HIDDEN";
+        }
+
+        await Send.ResponseAsync(response, cancellation: ct);
     }
 }

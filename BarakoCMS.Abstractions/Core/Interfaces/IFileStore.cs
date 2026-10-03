@@ -46,8 +46,9 @@ namespace barakoCMS.Core.Interfaces;
 /// <para>
 /// <b>A module implements this.</b> BarakoCMS.Files does. With no such module enabled the host
 /// registers a default whose every member throws <see cref="InvalidOperationException"/> naming the
-/// module to enable. Every member after the first two has a default that throws
-/// <see cref="NotSupportedException"/>, so a store written against the first two still compiles.
+/// module to enable. Every member after the first two has a default, so a store written against
+/// the first two still compiles: the two that read many files ask the single reads, and the rest
+/// throw <see cref="NotSupportedException"/>.
 /// </para>
 /// </remarks>
 public interface IFileStore
@@ -108,6 +109,57 @@ public interface IFileStore
     /// </summary>
     Task<FileDeleteResult> DeleteAsync(Guid id, ClaimsPrincipal caller, bool force = false, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException($"{GetType().Name} does not delete files.");
+
+    /// <summary>
+    /// The public files among <paramref name="ids"/>, keyed by id: each one
+    /// <see cref="FindPublicAsync"/> would answer, and no entry for any other id.
+    /// </summary>
+    /// <remarks>
+    /// For a caller resolving many files at once, such as a page of entries. BarakoCMS.Files
+    /// answers in one read however many ids it is given, so the caller bounds how many it asks for.
+    /// The default asks <see cref="FindPublicAsync"/> once for each distinct id.
+    /// </remarks>
+    async Task<IReadOnlyDictionary<Guid, StoredFileInfo>> FindPublicManyAsync(
+        IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+
+        var found = new Dictionary<Guid, StoredFileInfo>();
+        foreach (var id in ids)
+        {
+            if (!found.ContainsKey(id) && await FindPublicAsync(id, cancellationToken) is { } file)
+            {
+                found[id] = file;
+            }
+        }
+
+        return found;
+    }
+
+    /// <summary>
+    /// The files among <paramref name="ids"/> that <paramref name="caller"/> may download, keyed by
+    /// id: each one <see cref="FindAsync"/> would answer, and no entry for any other id.
+    /// </summary>
+    /// <remarks>
+    /// The same bound as <see cref="FindPublicManyAsync"/>. The default asks
+    /// <see cref="FindAsync"/> once for each distinct id.
+    /// </remarks>
+    async Task<IReadOnlyDictionary<Guid, StoredFileInfo>> FindManyAsync(
+        IReadOnlyCollection<Guid> ids, ClaimsPrincipal caller, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+
+        var found = new Dictionary<Guid, StoredFileInfo>();
+        foreach (var id in ids)
+        {
+            if (!found.ContainsKey(id) && await FindAsync(id, caller, cancellationToken) is { } file)
+            {
+                found[id] = file;
+            }
+        }
+
+        return found;
+    }
 }
 
 /// <summary>What a stored file is, without its bytes.</summary>
@@ -123,6 +175,18 @@ public sealed class StoredFileInfo
 
     /// <summary>The size in bytes recorded at upload.</summary>
     public required long Size { get; init; }
+
+    /// <summary>
+    /// What <see cref="IFileStore.PublicUrlAsync"/> answers for this file: null for a file that is
+    /// not public, and for a store that does not fill it in.
+    /// </summary>
+    public string? PublicUrl { get; init; }
+
+    /// <summary>What a screen reader says for the image, when an editor wrote it. It is the editor's text, not markup.</summary>
+    public string? Alt { get; init; }
+
+    /// <summary>Text shown alongside the file, when an editor wrote it. It is the editor's text, not markup.</summary>
+    public string? Caption { get; init; }
 }
 
 /// <summary>A file to hand to <see cref="IFileStore.SaveAsync"/>.</summary>
