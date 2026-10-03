@@ -23,7 +23,7 @@ public class Endpoint(IQuerySession session) : Endpoint<Request, PaginatedRespon
     public override void Configure()
     {
         Get("/api/files");
-        Definition.RequireCapability(FileCapabilities.UploadFiles, FileCapabilities.LegacyRoles);
+        Definition.RequireCapability(FileCapabilities.UploadFiles, FileCapabilities.Defaults.LegacyRoles);
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)

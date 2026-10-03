@@ -302,7 +302,8 @@ STUB
 # events and enough progression for the script to carry on to the hosts, except the two the script
 # asks about the seeded HR role (lib-upgrade-data.sh). Those answer what a database upgraded from a
 # release that seeded the role would: one such role, and one holding view_sensitive once the
-# forward file has run.
+# forward file has run. On a 4.x start the script also asks whether the share links table is
+# missing, and is told it is, as on a real 4.0 or 4.1 database.
 #
 # $1 is what `docker inspect` says about the released image's container: true while it runs.
 # $2 is how many roles are the seeded HR role, and $3 how many of them hold view_sensitive after
@@ -345,6 +346,7 @@ case "\${1:-}" in
         case " \$* " in
             *" -tAc "*mt_doc_roles*view_sensitive*) cat "$state/seeded-hr-granted" ;;
             *" -tAc "*mt_doc_roles*) cat "$state/seeded-hr" ;;
+            *" -tAc "*to_regclass*) echo t ;;
             *" -tAc "*) echo 5 ;;
         esac ;;
 esac
@@ -373,6 +375,15 @@ hr_check() {
 }
 
 not() { ! "$@"; }
+
+# first_before <text> <start of line>: in the recorded docker calls, the first call containing the
+# text comes before the first call that starts with the other.
+first_before() {
+    awk -v a="$1" -v b="$2" '
+        !x && index($0, a) { x = NR }
+        !y && index($0, b) == 1 { y = NR }
+        END { exit !(x && y && x < y) }' "$state/calls"
+}
 
 upgrade_data_cases() {
     echo
@@ -432,6 +443,23 @@ upgrade_cases() {
     expect "both containers are removed by the ids this run was given" \
         [ "$(grep -cE '^rm -f fake-(pg|old)$' "$state/calls")" = 2 ]
     expect "and nothing is removed by name" [ "$(grep -c '^rm ' "$state/calls")" = 2 ]
+    expect "on a 3.x start the event correlation file is applied once, in its place" \
+        [ "$(grep -c "cp migrations/4.6.0/event-correlation-metadata.sql" "$state/calls")" = 1 ]
+    expect "and not while the FROM_VERSION container is still running" \
+        not first_before "cp migrations/4.6.0/event-correlation-metadata.sql" "stop "
+
+    echo
+    echo "upgrade-check.sh, from a 4.x release, where the event correlation file goes in under the old build:"
+    stubs fake-pg
+    fake_docker true
+    run_upgrade FROM_VERSION=4.1.0
+    expect "the script gets as far as the hosts" grep -q "did not bring core's schema up to date" "$output"
+    expect "the file is applied twice, under the old build and again in its place" \
+        [ "$(grep -c "cp migrations/4.6.0/event-correlation-metadata.sql" "$state/calls")" = 2 ]
+    expect "the first time is before the FROM_VERSION container is stopped" \
+        first_before "cp migrations/4.6.0/event-correlation-metadata.sql" "stop "
+    expect "and the old build is written to after it, and the write is counted" \
+        grep -q "4.1.0 answered 200 and stored 5 event(s) after the file" "$output"
 
     echo
     echo "upgrade-check.sh, with PG_PORT, NEW_PORT and OLD_PORT set by the caller:"

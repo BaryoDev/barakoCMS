@@ -36,7 +36,13 @@ public static class ModuleCapabilities
     ///
     /// Does not commit: the host calls <c>SaveChangesAsync</c> once the seed returns, which is what
     /// keeps a module's seed all-or-nothing.
+    ///
+    /// Keyed on the role's name alone, so a renamed role stops being granted and a role of the
+    /// operator's own that takes the name starts. <see cref="CapabilityDefaults"/> keys on the
+    /// seeded id.
     /// </remarks>
+    [Obsolete("Declare the defaults once with CapabilityDefaults, keyed by seeded role id, and call its "
+            + "GrantAsync. Removal planned for barakoCMS 6.0.")]
     public static async Task<int> GrantAsync(
         IDocumentSession session,
         IReadOnlyCollection<string> roleNames,

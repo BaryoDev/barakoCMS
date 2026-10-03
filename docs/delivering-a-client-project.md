@@ -475,8 +475,9 @@ Three limits to plan around before you promise the client an image workflow:
   `application/pdf`. SVG is deliberately not on the list, because a public SVG opened directly would
   run script on the API's origin. Vector art has to be an external URL.
 - **Uploading is the `upload_files` capability**, not a content permission. Grant it to the custom
-  role from step 5 and the client's editor can upload, describe and remove files; without it they
-  cannot upload anything.
+  role from step 5 and the client's editor can upload and describe files, and download and remove
+  their own; without it they cannot upload anything. Add `manage_all_files` for a role that should
+  also download and remove what other people uploaded, as Admin does.
 - **The API has a media library; the console does not yet.** `GET /api/files?q=&contentType=image/`
   lists and searches uploads, `PATCH /api/files/{id}` sets alt text and a caption, and
   `GET /api/public/files/{id}/meta` hands them to the frontend for a public file. Before deleting,

@@ -14,5 +14,5 @@ internal static class AnalyticsAccess
 {
     public static Task<bool> AllowedAsync(
         IQuerySession session, ClaimsPrincipal user, IConfiguration configuration, string capability, CancellationToken ct) =>
-        PlatformScope.HoldsGloballyAsync(session, user, configuration, capability, AnalyticsCapabilities.LegacyRoles, ct);
+        PlatformScope.HoldsGloballyAsync(session, user, configuration, capability, AnalyticsCapabilities.Defaults.LegacyRoles, ct);
 }

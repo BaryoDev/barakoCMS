@@ -24,16 +24,20 @@ internal partial class WorkflowProjection : EventProjection
 
     public async Task Project(IEvent<barakoCMS.Events.ContentUpdated> e, IDocumentOperations ops, CancellationToken ct)
     {
+        using var origin = OriginOf(e);
         await ProcessEventAsync(barakoCMS.Models.WorkflowEvents.Updated, e.Data.Id, e.TenantId, e.Sequence, ops);
     }
 
     public async Task Project(IEvent<barakoCMS.Events.ContentCreated> e, IDocumentOperations ops, CancellationToken ct)
     {
+        using var origin = OriginOf(e);
         await ProcessEventAsync(barakoCMS.Models.WorkflowEvents.Created, e.Data.Id, e.TenantId, e.Sequence, ops);
     }
 
     public async Task Project(IEvent<barakoCMS.Events.ContentStatusChanged> e, IDocumentOperations ops, CancellationToken ct)
     {
+        using var origin = OriginOf(e);
+
         // Map a status transition to the "Published" trigger event when applicable, so workflows
         // configured with TriggerEvent = "Published" actually fire.
         if (e.Data.NewStatus == barakoCMS.Models.ContentStatus.Published)
@@ -132,9 +136,23 @@ internal partial class WorkflowProjection : EventProjection
     /// </remarks>
     public async Task Project(IEvent<barakoCMS.Events.ContentTransitioned> e, IDocumentOperations ops, CancellationToken ct)
     {
+        using var origin = OriginOf(e);
         await ProcessEventAsync(
             barakoCMS.Models.WorkflowEvents.ForTransition(e.Data.Transition), e.Data.Id, e.TenantId, e.Sequence, ops);
     }
+
+    /// <summary>
+    /// Makes the request that wrote <paramref name="e"/> the origin of whatever is queued for it.
+    /// </summary>
+    /// <remarks>
+    /// The daemon has no request. What it has is the event, which recorded the correlation id of
+    /// the request that wrote it and the traceparent of that request's span, and a run queued here
+    /// copies both. The stored traceparent is passed as the cause so the run is parented to the
+    /// request and never to a span of the daemon. An event stored before the two were kept, or
+    /// written by work no request caused, has neither, and the run is queued with neither.
+    /// </remarks>
+    private static IDisposable OriginOf(IEvent e) =>
+        barakoCMS.Infrastructure.Tracing.Correlation.BeginFrom(e.CorrelationId, e.CausationId);
 
     private async Task ProcessEventAsync(
         string eventType, Guid contentId, string tenantId, long sequence, IDocumentOperations ops)

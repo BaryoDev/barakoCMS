@@ -8,9 +8,11 @@ using Xunit;
 namespace BarakoCMS.Tests;
 
 /// <summary>
-/// <see cref="ModuleCapabilities.GrantAsync"/>, which is how a module's capabilities reach the roles
-/// that already reached its endpoints.
+/// <see cref="ModuleCapabilities.GrantAsync"/>, the grant keyed on role names. It is obsolete and
+/// still ships, so what it did is still held here. <see cref="ModuleCapabilityDefaultsTests"/>
+/// covers the declaration keyed on seeded role ids that the modules use now.
 /// </summary>
+#pragma warning disable CS0618 // the name-keyed overload is the subject of the first three tests
 [Collection("Sequential")]
 public class ModuleCapabilityGrantTests
 {
