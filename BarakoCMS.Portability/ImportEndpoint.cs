@@ -243,6 +243,9 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
 
             RepointReferences(existing.FirstOrDefault(t => t.Name.Equals(rec.ContentType, StringComparison.OrdinalIgnoreCase)), data, newIds);
 
+            if (rec.Id is { } sourceRecordId && newIds.TryGetValue(sourceRecordId, out var expectedId))
+                batch.Expect(expectedId, rec.ContentType);
+
             pending.Add((i, new ContentCreateRequest
             {
                 ContentType = rec.ContentType,
@@ -368,8 +371,8 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
 
     /// <summary>
     /// Points each reference field holding the source id of another record in this bundle at the id
-    /// that record is imported under. A reference to anything outside the bundle is left alone, and
-    /// validation refuses it unless it exists here.
+    /// that record is imported under, each id of a list included. A reference to anything outside
+    /// the bundle is left alone, and validation refuses it unless it exists here.
     /// </summary>
     private static void RepointReferences(
         ContentTypeDefinition? schema, Dictionary<string, object> data, Dictionary<Guid, Guid> newIds)
@@ -380,6 +383,14 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
         {
             foreach (var key in data.Keys.Where(k => k.Equals(field.Name, StringComparison.OrdinalIgnoreCase)).ToList())
             {
+                if (barakoCMS.Core.Validation.FieldTypeRegistry.TryReadChoice(data[key], out var listed, out var isList) && isList)
+                {
+                    data[key] = listed
+                        .Select(id => Guid.TryParse(id, out var source) && newIds.TryGetValue(source, out var copy) ? copy.ToString() : id)
+                        .ToList<object>();
+                    continue;
+                }
+
                 var raw = data[key] is System.Text.Json.JsonElement je ? je.ToString() : data[key]?.ToString();
                 if (Guid.TryParse(raw, out var target) && newIds.TryGetValue(target, out var imported))
                     data[key] = imported.ToString();

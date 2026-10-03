@@ -39,6 +39,7 @@ public sealed class ContentCreateBatch
     private readonly Dictionary<string, ContentTypeDefinition> _schemas = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> _accepted = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<(string Type, string Slug)> _slugs = new();
+    private readonly Dictionary<Guid, string> _expected = new();
 
     /// <summary>
     /// Whether a singleton type may hold only one entry across the store and this batch. True by
@@ -48,6 +49,20 @@ public sealed class ContentCreateBatch
 
     /// <summary>Checks entries of <paramref name="definition"/>'s name against it rather than the store.</summary>
     public void UseSchema(ContentTypeDefinition definition) => _schemas[definition.Name] = definition;
+
+    /// <summary>
+    /// Says this batch will create an entry of <paramref name="contentType"/> under
+    /// <paramref name="id"/>, so a reference list checked before it is written may name it.
+    /// </summary>
+    /// <remarks>
+    /// For entries that list each other, which no write order can satisfy one at a time. Only a
+    /// list reference reads this; a single reference still needs its target written first. The
+    /// caller refuses the whole batch when any entry is refused, so an id expected here and then not
+    /// written is never committed.
+    /// </remarks>
+    public void Expect(Guid id, string contentType) => _expected[id] = contentType;
+
+    internal IReadOnlyDictionary<Guid, string> Expected => _expected;
 
     internal ContentTypeDefinition? SchemaFor(string contentType) =>
         _schemas.TryGetValue(contentType, out var schema) ? schema : null;
@@ -110,9 +125,14 @@ public sealed class ContentCreator(
         else
             await sensitivity.ApplyWriteAsync(schema, request.Data, existing: null, httpContext, ct);
 
-        var (isValid, errors) = schema is null
-            ? await validator.ValidateAsync(request.ContentType, request.Data, existing: null, caller: httpContext.User)
-            : await validator.ValidateFieldsAsync(schema, request.ContentType, request.Data, existing: null, caller: httpContext.User);
+        bool isValid;
+        List<string> errors;
+        using (barakoCMS.Core.Validation.ReferenceFields.Expecting(batch?.Expected))
+        {
+            (isValid, errors) = schema is null
+                ? await validator.ValidateAsync(request.ContentType, request.Data, existing: null, caller: httpContext.User)
+                : await validator.ValidateFieldsAsync(schema, request.ContentType, request.Data, existing: null, caller: httpContext.User);
+        }
 
         string? slug = null;
         if (isValid && schema is not null && batch is not null)

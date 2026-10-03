@@ -85,6 +85,10 @@ internal static class PublicDelivery
     /// A target that does not survive the projection has its field removed rather than left as an
     /// id. Leaving the id would say "there is something here you may not see", and removing it
     /// makes an unreadable target indistinguishable from no reference at all.
+    ///
+    /// A field holding a list of ids becomes the list of the entries that survive, in stored order,
+    /// and an entry that does not survive is left out of it. What a field holds decides, not what
+    /// the field declares, so a value stored before a field changed shape still reads.
     /// </remarks>
     public static async Task<List<PublicContentResponse>> ResolveIncludesAsync(
         IReadOnlyList<PublicContentResponse> items,
@@ -97,16 +101,7 @@ internal static class PublicDelivery
         if (includeFields.Count == 0 || items.Count == 0)
             return items.ToList();
 
-        var ids = new HashSet<Guid>();
-        foreach (var item in items)
-        foreach (var field in includeFields)
-        {
-            if (item.Data.TryGetValue(field, out var raw)
-                && Guid.TryParse(raw?.ToString(), out var id))
-            {
-                ids.Add(id);
-            }
-        }
+        var ids = IncludedIds(items, includeFields);
 
         if (ids.Count == 0)
             return items.ToList();
@@ -145,6 +140,16 @@ internal static class PublicDelivery
             foreach (var field in includeFields)
             {
                 if (!data.TryGetValue(field, out var raw)) continue;
+
+                if (ReferenceList(raw) is { } list)
+                {
+                    data[field] = list
+                        .Where(resolved.ContainsKey)
+                        .Select(listed => resolved[listed])
+                        .ToList();
+                    continue;
+                }
+
                 if (!Guid.TryParse(raw?.ToString(), out var id)) continue;
 
                 if (resolved.TryGetValue(id, out var target))
@@ -156,6 +161,48 @@ internal static class PublicDelivery
             return item with { Data = data };
         }).ToList();
     }
+
+    /// <summary>
+    /// The distinct ids the named fields of these entries hold, single and listed alike. What an
+    /// include resolves, and so what <see cref="MaxIncludedEntries"/> bounds.
+    /// </summary>
+    public static HashSet<Guid> IncludedIds(IReadOnlyList<PublicContentResponse> items, IReadOnlyList<string> includeFields)
+    {
+        var ids = new HashSet<Guid>();
+        foreach (var item in items)
+        foreach (var field in includeFields)
+        {
+            if (!item.Data.TryGetValue(field, out var raw))
+                continue;
+
+            if (ReferenceList(raw) is { } list)
+                ids.UnionWith(list);
+            else if (Guid.TryParse(raw?.ToString(), out var id))
+                ids.Add(id);
+        }
+
+        return ids;
+    }
+
+    /// <summary>The ids a list value holds, in order, skipping anything that is not one. Null for a value that is not a list.</summary>
+    private static List<Guid>? ReferenceList(object? raw) =>
+        barakoCMS.Core.Validation.ReferenceFields.TryReadList(raw, out var texts)
+            ? texts.Select(t => Guid.TryParse(t, out var id) ? id : (Guid?)null)
+                .Where(id => id is not null)
+                .Select(id => id!.Value)
+                .ToList()
+            : null;
+
+    /// <summary>
+    /// The most distinct entries one request resolves through <c>include</c>. A page whose named
+    /// fields hold more is refused rather than resolved in part.
+    /// </summary>
+    /// <remarks>
+    /// Single references never reach it: a page of 100 entries with five includes holds 500 ids at
+    /// most. Lists can, at up to 100 ids each, so the bound is on the total and the caller is told
+    /// to ask for a smaller page or fewer fields. All of them are read in one query.
+    /// </remarks>
+    public const int MaxIncludedEntries = 1000;
 
     /// <summary>
     /// The reference fields a caller asked to resolve, or the reason the request is refused.
@@ -402,6 +449,15 @@ internal class ListPublishedEndpoint(
         // Resolved after projection, never before. Projecting first means the reference id being
         // resolved has already survived the field allowlist, so a Sensitive reference field is not
         // resolvable by asking for it.
+        var included = PublicDelivery.IncludedIds(items, includes).Count;
+        if (included > PublicDelivery.MaxIncludedEntries)
+        {
+            AddError($"This page would resolve {included} referenced entries, and one request resolves at most "
+                     + $"{PublicDelivery.MaxIncludedEntries}. Ask for a smaller pageSize or fewer include fields.");
+            await Send.ErrorsAsync(400, ct);
+            return;
+        }
+
         var files = Resolve<barakoCMS.Core.Interfaces.IFileStore>();
         items = await PublicFileFields.ResolveAsync(items, def!, files, ct);
         items = await PublicDelivery.ResolveIncludesAsync(items, includes, def, session, ct, files);
