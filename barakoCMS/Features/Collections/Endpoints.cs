@@ -100,6 +100,12 @@ internal static class CollectionSyncRules
                      + "filled from an outside source.";
             }
 
+            if (barakoCMS.Core.Validation.InlineImageFields.Is(definition.Type))
+            {
+                return $"'{field}' is an inline image on '{req.ContentType}', so it cannot be filled "
+                     + "from an outside source.";
+            }
+
             // A source value is one piece of text, and nothing on the sync path checks that each id
             // of a list names an entry of the right type.
             if (barakoCMS.Core.Validation.ReferenceFields.IsMultiple(definition))

@@ -124,6 +124,11 @@ internal sealed class DeliveryQuery
         foreach (var withheld in def.Fields.Where(f => !canRead(f)))
             allowed.Remove(withheld.Name);
 
+        // An inline image is up to 87 KB of base64 per row with no index, and its stored value can
+        // be one delivery leaves out, which a filter would still match. Neither filter nor sort.
+        foreach (var image in def.Fields.Where(f => f is not null && barakoCMS.Core.Validation.InlineImageFields.Is(f.Type)))
+            allowed.Remove(image.Name);
+
         foreach (var (rawKey, rawValue) in query)
         {
             if (string.Equals(rawKey, "sort", StringComparison.OrdinalIgnoreCase))

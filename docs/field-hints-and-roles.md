@@ -34,6 +34,10 @@ keep its links in `FooterItems`.
 | `links` | `json`, `array` | a flat list of links |
 | `image` | `url`, `string`, `file` | one image, by its URL or path, or the stored file a [file field](file-fields.md) names |
 
+The `image` hint does not change what the field holds: a URL or a path, or a file field's id. A
+small image kept inside the entry is a field of its own type, `inlineimage`, which takes no editor
+hint. See [inline image fields](inline-image-fields.md).
+
 The value is lower case and one of the list. Anything else is a 400 that names the accepted values
 and does not repeat what was sent. A known value on a field type it is not for is a 400 naming the
 types it is for. `null`, or leaving it out, is no hint, and a console then picks the editor the way

@@ -110,6 +110,10 @@ public static class FieldTypeRegistry
         // the caller may use it needs the file store and the caller, so ContentValidatorService
         // checks it through FileFields.
         new(FileFields.TypeName, "file", v => FileFields.TryReadId(v, out _)),
+
+        // A small image carried in the entry as a data URI, checked in full here because the check
+        // needs nothing but the value. See InlineImageFields.
+        new(InlineImageFields.TypeName, InlineImageFields.TypeName, InlineImageFields.IsValid),
     };
 
     // Alias -> canonical spec. Aliases are the historical synonyms both live

@@ -416,6 +416,7 @@ site and site settings in one call), [site settings](docs/site-settings.md) (the
 renderer reads its identity and theme from), [choice fields](docs/choice-fields.md),
 [money fields](docs/money-fields.md) (a currency on the field, and amounts held to its decimal places),
 [file fields](docs/file-fields.md) (a stored file on an entry, resolved to its address and alt text on delivery),
+[inline image fields](docs/inline-image-fields.md) (a small image kept in the entry as a data URI),
 [field hints, sections and roles](docs/field-hints-and-roles.md) (which editor a field wants, which
 field is the title, and where a type's entries live on the site),
 [token fields](docs/token-fields.md) (a random value the server generates and no caller can write),

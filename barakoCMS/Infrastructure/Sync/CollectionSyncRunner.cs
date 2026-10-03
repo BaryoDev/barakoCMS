@@ -519,6 +519,7 @@ internal sealed class CollectionSyncRunner(
             // A sync runs for no signed-in user and its values come from another system, so it
             // fills no file field. The item is reported as one that does not convert.
             case barakoCMS.Core.Validation.FileFields.TypeName:
+            case barakoCMS.Core.Validation.InlineImageFields.TypeName:
                 break;
 
             default:
@@ -651,7 +652,7 @@ internal sealed class CollectionSyncRunner(
     private static string SearchText(IReadOnlyDictionary<string, object> data, ContentTypeDefinition schema)
     {
         var publicFields = schema.Fields
-            .Where(f => f.Sensitivity == SensitivityLevel.Public)
+            .Where(f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.InlineImageFields.Is(f.Type))
             .Select(f => f.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 

@@ -183,8 +183,11 @@ internal static class DeliveryDocument
                 continue;
 
             properties[field.Name] = FieldSchema(field);
-            // A file field is left out of an entry whose file is private or gone, required or not.
-            if (field.IsRequired && !barakoCMS.Core.Validation.FileFields.IsFileField(field))
+            // Delivery leaves out an inline image whose stored value is not an allowed data URI, and a
+            // file field whose file is private or gone, required or not.
+            if (field.IsRequired
+                && !barakoCMS.Core.Validation.InlineImageFields.Is(field.Type)
+                && !barakoCMS.Core.Validation.FileFields.IsFileField(field))
                 required.Add(field.Name);
         }
 
@@ -246,6 +249,24 @@ internal static class DeliveryDocument
         "bool" => new JsonObject { ["type"] = "boolean" },
         "array" => new JsonObject { ["type"] = "array", ["items"] = new JsonObject() },
         "json" or "object" => new JsonObject { ["type"] = "object" },
+        barakoCMS.Core.Validation.InlineImageFields.TypeName => new JsonObject
+        {
+            ["type"] = "object",
+            ["properties"] = new JsonObject
+            {
+                [barakoCMS.Core.Validation.InlineImageFields.UrlKey] = new JsonObject
+                {
+                    ["type"] = "string",
+                    ["pattern"] = "^data:image/(png|jpeg|gif|webp);base64,",
+                },
+                [barakoCMS.Core.Validation.InlineImageFields.AltKey] = new JsonObject
+                {
+                    ["type"] = "string",
+                    ["nullable"] = true,
+                },
+            },
+            ["required"] = new JsonArray(barakoCMS.Core.Validation.InlineImageFields.UrlKey),
+        },
         "geopoint" => new JsonObject
         {
             ["type"] = "object",

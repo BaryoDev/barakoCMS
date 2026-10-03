@@ -80,8 +80,10 @@ public class CustomActionTests
             { "ContentType", "Task" },
             { "Status", "Draft" },
             { "Title", "Test Task" },
-            { "Data.Priority", "High" }
         };
+
+        // No Data.* parameter here: copying one reads the target type, which a mocked session
+        // cannot answer. CreateTaskInlineImageTests copies a field against a real store.
 
         var triggerContent = new Content
         {

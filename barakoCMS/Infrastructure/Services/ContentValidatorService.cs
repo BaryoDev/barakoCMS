@@ -235,7 +235,15 @@ public class ContentValidatorService(
                 var value = keyDetails.Value;
                 var expectedType = field.Type.ToLower();
 
-                if (ReferenceFields.IsMultiple(field))
+                if (InlineImageFields.Is(expectedType))
+                {
+                    if (!InlineImageFields.IsUnchanged(field, value, existing)
+                        && InlineImageFields.ValueError(field, value) is { } imageError)
+                    {
+                        errors.Add(imageError);
+                    }
+                }
+                else if (ReferenceFields.IsMultiple(field))
                 {
                     if (await ReferenceFields.ValueErrorAsync(session, field, value) is { } referencesError)
                         errors.Add(referencesError);

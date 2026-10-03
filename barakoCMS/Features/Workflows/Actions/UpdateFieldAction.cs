@@ -249,6 +249,14 @@ internal class UpdateFieldAction : IWorkflowAction
                 return WorkflowActionResult.Failure($"Could not read the content type of content {targetContent.Id} ({ex.GetType().Name}).");
             }
 
+            // A parameter is text and an inline image is an object checked byte by byte, so no value
+            // this action can be given is one.
+            if (declared is not null && barakoCMS.Core.Validation.InlineImageFields.Is(declared.Type))
+            {
+                return WorkflowActionResult.PermanentFailure(
+                    $"Field '{declared.Name}' holds an inline image, which this action cannot set.");
+            }
+
             // The parameter is one piece of text, and an entry write refuses that in a list field, so
             // storing it would make every later save of the entry fail.
             if (declared is not null && barakoCMS.Core.Validation.ReferenceFields.IsMultiple(declared))

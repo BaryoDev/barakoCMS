@@ -156,7 +156,7 @@ internal class RollbackEndpoint(
             .FirstOrDefaultAsync(d => d.Name == content.ContentType, ct);
 
         var publicFields = definition?.Fields
-            .Where(f => f.Sensitivity == SensitivityLevel.Public)
+            .Where(f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.InlineImageFields.Is(f.Type))
             .Select(f => f.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase)
             ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
