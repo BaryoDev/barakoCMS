@@ -18,9 +18,9 @@
 #      migrations/4.3.0/collection-syncs.sql, migrations/4.3.0/marten-9-37-event-store-columns.sql,
 #      migrations/4.4.0/marten-9-38-quick-append-events.sql,
 #      migrations/4.5.0/refresh-token-hash-index.sql,
-#      migrations/4.6.0/event-correlation-metadata.sql and
+#      migrations/4.6.0/event-correlation-metadata.sql,
 #      migrations/4.6.0/sensitivity-by-capability.sql, after which the HR role FROM_VERSION seeded
-#      holds view_sensitive
+#      holds view_sensitive, and migrations/4.6.0/tenant-profile-to-site.sql
 #   4. db-assert must PASS on the core host, so those files are exactly what core needs
 #   5. apply the module migrations, migrations/4.2.0/stored-files-parent-index.sql,
 #      migrations/4.2.0/forms-public-forms.sql, migrations/4.5.0/email-sent-emails.sql,
@@ -35,6 +35,7 @@
 #      migrations/4.6.0/rollback-forms-email-verification.sql,
 #      migrations/4.6.0/rollback-external-auth-identities.sql,
 #      migrations/4.6.0/rollback-sensitivity-by-capability.sql,
+#      migrations/4.6.0/rollback-tenant-profile-to-site.sql,
 #      migrations/4.6.0/rollback-event-correlation-metadata.sql,
 #      migrations/4.5.0/rollback-email-sent-emails.sql,
 #      migrations/4.5.0/rollback-refresh-token-hash-index.sql,
@@ -359,6 +360,13 @@ docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-tra
 require_seeded_hr_granted
 echo "HR holds view_sensitive"
 
+# Data only (#885): tenant profile values move into each tenant's site entry. It changes no schema,
+# so the asserts below answer the same with or without it. It runs here so the file is executed
+# against a database an earlier release wrote, and its rollback further down.
+step "applying migrations/4.6.0/tenant-profile-to-site.sql"
+docker cp migrations/4.6.0/tenant-profile-to-site.sql "$PG:/tmp/tenant-profile.sql"
+docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/tenant-profile.sql >/dev/null
+
 step "the migration left the daemon's progression alone"
 PROGRESSION_MIGRATED=$(psql_q "select coalesce(max(last_seq_id), 0) from mt_event_progression where name like '%WorkflowProjection%';")
 [ "$PROGRESSION_MIGRATED" = "$PROGRESSION_BEFORE" ] \
@@ -482,6 +490,9 @@ step "applying migrations/4.6.0/rollback-sensitivity-by-capability.sql"
 docker cp migrations/4.6.0/rollback-sensitivity-by-capability.sql "$PG:/tmp/sensitivity-down.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/sensitivity-down.sql >/dev/null
 require_seeded_hr_not_granted
+step "applying migrations/4.6.0/rollback-tenant-profile-to-site.sql"
+docker cp migrations/4.6.0/rollback-tenant-profile-to-site.sql "$PG:/tmp/tenant-profile-down.sql"
+docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/tenant-profile-down.sql >/dev/null
 step "applying migrations/4.6.0/rollback-event-correlation-metadata.sql"
 docker cp migrations/4.6.0/rollback-event-correlation-metadata.sql "$PG:/tmp/event-correlation-down.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/event-correlation-down.sql >/dev/null
@@ -565,4 +576,4 @@ else
     DOWN_LAST="migrations/4.2.0/rollback-site-share-links.sql and migrations/4.2.0/rollback-user-normalized-identity.sql"
 fi
 
-printf '\nThe upgrade from %s to the working tree works on the Suite host, with %smigrations/4.2.0/user-normalized-identity.sql, migrations/4.2.0/site-share-links.sql, migrations/4.3.0/collection-syncs.sql, migrations/4.3.0/marten-9-37-event-store-columns.sql, migrations/4.4.0/marten-9-38-quick-append-events.sql, migrations/4.5.0/refresh-token-hash-index.sql, migrations/4.6.0/event-correlation-metadata.sql, migrations/4.6.0/sensitivity-by-capability.sql, migrations/4.2.0/stored-files-parent-index.sql, migrations/4.2.0/forms-public-forms.sql, migrations/4.5.0/email-sent-emails.sql, migrations/4.6.0/external-auth-identities.sql and migrations/4.6.0/forms-email-verification.sql applied first, and rolls back cleanly with migrations/4.6.0/rollback-forms-email-verification.sql, migrations/4.6.0/rollback-external-auth-identities.sql, migrations/4.6.0/rollback-sensitivity-by-capability.sql, migrations/4.6.0/rollback-event-correlation-metadata.sql, migrations/4.5.0/rollback-email-sent-emails.sql, migrations/4.5.0/rollback-refresh-token-hash-index.sql, migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql, migrations/4.3.0/rollback-collection-syncs.sql, migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql, %s.\n' "$FROM_VERSION" "$UP_FIRST" "$DOWN_LAST"
+printf '\nThe upgrade from %s to the working tree works on the Suite host, with %smigrations/4.2.0/user-normalized-identity.sql, migrations/4.2.0/site-share-links.sql, migrations/4.3.0/collection-syncs.sql, migrations/4.3.0/marten-9-37-event-store-columns.sql, migrations/4.4.0/marten-9-38-quick-append-events.sql, migrations/4.5.0/refresh-token-hash-index.sql, migrations/4.6.0/event-correlation-metadata.sql, migrations/4.6.0/sensitivity-by-capability.sql, migrations/4.6.0/tenant-profile-to-site.sql, migrations/4.2.0/stored-files-parent-index.sql, migrations/4.2.0/forms-public-forms.sql, migrations/4.5.0/email-sent-emails.sql, migrations/4.6.0/external-auth-identities.sql and migrations/4.6.0/forms-email-verification.sql applied first, and rolls back cleanly with migrations/4.6.0/rollback-forms-email-verification.sql, migrations/4.6.0/rollback-external-auth-identities.sql, migrations/4.6.0/rollback-sensitivity-by-capability.sql, migrations/4.6.0/rollback-tenant-profile-to-site.sql, migrations/4.6.0/rollback-event-correlation-metadata.sql, migrations/4.5.0/rollback-email-sent-emails.sql, migrations/4.5.0/rollback-refresh-token-hash-index.sql, migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql, migrations/4.3.0/rollback-collection-syncs.sql, migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql, %s.\n' "$FROM_VERSION" "$UP_FIRST" "$DOWN_LAST"

@@ -54,6 +54,12 @@ half-filled theme renders rather than breaks.
 | `HeaderLinks` | json | Links in the header beyond the page tree |
 | `FooterColumns` | json | Footer link columns |
 | `SocialLinks` | json | Social profiles |
+| `About` | text | A paragraph about whoever the site belongs to |
+| `Email` | string | A contact address |
+| `Location` | string | Where it is, as a visitor would read it, such as a city |
+| `LocationUrl` | url | A link that opens that place in a maps app |
+| `ContactUrl` | url | A link to get in touch, such as a contact page |
+| `SocialHandle` | string | One social handle, such as `@acme`. `SocialLinks` holds several |
 | `Copyright` | string | The footer's copyright line |
 | `Mode` | string | `Live` or `Holding`. Unset means `Live`. See [Holding a site back](#holding-a-site-back) |
 | `HoldingPath` | string | The site path of the page shown while holding, such as `/holding` |
@@ -69,6 +75,15 @@ half-filled theme renders rather than breaks.
 | `HomePath` | string | The site path of the page served at `/`, such as `/home`. Unset, `/` is what the renderer serves by default |
 | `Labels` | json | The words the renderer's screens print for a visitor. See [Labels](#labels) |
 | `OptionStyles` | json | A tone, icon and word per option of a choice field. See [OptionStyles](#optionstyles) |
+
+### Profile fields
+
+`Logo`, `About`, `Email`, `Location`, `LocationUrl`, `ContactUrl` and `SocialHandle` are the profile
+a tenant used to carry on its own record. `GET /api/tenants/{handle}/public` and the `logoUrl` in
+`GET /api/me/tenants` answer from them. A `site` type created from the blueprint before these fields
+were in it does not have the six new ones: `migrations/4.6.0/tenant-profile-to-site.sql` adds each
+one a tenant had a value for, and the rest are added by hand like any field.
+[multi-tenancy.md](multi-tenancy.md#the-tenant-profile) has the whole move.
 
 ### Colors
 
