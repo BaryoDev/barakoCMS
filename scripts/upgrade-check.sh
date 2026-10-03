@@ -8,13 +8,17 @@
 #
 # The sequence, which is also the documented upgrade and rollback procedure:
 #
-#   1. stand up a database with the released FROM_VERSION and put real content in it
+#   1. stand up a database with the released FROM_VERSION and put real content in it. On a 4.x
+#      start, migrations/4.6.0/event-correlation-metadata.sql is applied here, under the running
+#      FROM_VERSION, which must then still write an event: that file is documented as one that
+#      goes in ahead of the deploy
 #   2. db-assert must FAIL on both hosts, because 4.0's schema does not match a 3.x database
 #   3. apply the reviewed core migrations, migrations/4.0.0/3.x-to-4.0.sql,
 #      migrations/4.2.0/user-normalized-identity.sql, migrations/4.2.0/site-share-links.sql,
 #      migrations/4.3.0/collection-syncs.sql, migrations/4.3.0/marten-9-37-event-store-columns.sql,
 #      migrations/4.4.0/marten-9-38-quick-append-events.sql,
-#      migrations/4.5.0/refresh-token-hash-index.sql and
+#      migrations/4.5.0/refresh-token-hash-index.sql,
+#      migrations/4.6.0/event-correlation-metadata.sql and
 #      migrations/4.6.0/sensitivity-by-capability.sql, after which the HR role FROM_VERSION seeded
 #      holds view_sensitive
 #   4. db-assert must PASS on the core host, so those files are exactly what core needs
@@ -24,12 +28,14 @@
 #      migrations/4.6.0/forms-email-verification.sql
 #   6. db-assert must PASS on the Suite host, so nothing any module registers is left outstanding
 #   7. the Suite boots in Production mode, module schema preflight included, and serves
-#   8. an event appends to a stream that already existed, and the projection daemon resumes from
-#      its stored progression rather than restarting from zero
+#   8. an event appends to a stream that already existed and carries a correlation id, the events
+#      stored before the upgrade keep none, and the projection daemon resumes from its stored
+#      progression rather than restarting from zero
 #   9. the new build stops, and the rollback files are applied newest first:
 #      migrations/4.6.0/rollback-forms-email-verification.sql,
 #      migrations/4.6.0/rollback-external-auth-identities.sql,
 #      migrations/4.6.0/rollback-sensitivity-by-capability.sql,
+#      migrations/4.6.0/rollback-event-correlation-metadata.sql,
 #      migrations/4.5.0/rollback-email-sent-emails.sql,
 #      migrations/4.5.0/rollback-refresh-token-hash-index.sql,
 #      migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql,
@@ -232,6 +238,30 @@ CONTENT_ID=$(curl -s -X POST "$OLD_URL/api/contents" -H "Authorization: Bearer $
 curl -s -X PUT "$OLD_URL/api/contents/$CONTENT_ID/status" -H "Authorization: Bearer $TOKEN" \
     -H 'Content-Type: application/json' -d '{"newStatus":1}' >/dev/null
 
+# The event correlation file (#691) is documented as one that goes in while the old build is still
+# serving. That holds only because the old build writes an event with an INSERT naming its own
+# columns and never calls the function the file replaces, so it is checked here against a live
+# FROM_VERSION and not taken from reading. The file runs again in its place below, after the 4.4.0
+# file, which is what leaves one function and not two. On a 3.x start it is left out: nobody is
+# told to apply it under 3.x, and the 4.0.0 file expects the event store as 3.x left it.
+if [ "$FROM_3X" = 0 ]; then
+    step "migrations/4.6.0/event-correlation-metadata.sql goes in under the running ${FROM_VERSION}, which keeps writing"
+    LAST_SEQ=$(psql_q "select coalesce(max(seq_id), 0) from mt_events;")
+    docker cp migrations/4.6.0/event-correlation-metadata.sql "$PG:/tmp/event-correlation-early.sql"
+    docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/event-correlation-early.sql >/dev/null
+    EARLY_CODE=$(curl -s -o /dev/null -w '%{http_code}' -X PUT "$OLD_URL/api/contents/$CONTENT_ID/status" \
+        -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"newStatus":0}' || true)
+    case "$EARLY_CODE" in
+        2??) ;;
+        *) fail "${FROM_VERSION} answered $EARLY_CODE to a status change made after migrations/4.6.0/event-correlation-metadata.sql was applied. The file is documented as safe to apply while the old build serves, and it is not." ;;
+    esac
+    WRITTEN_AFTER=$(psql_q "select count(*) from mt_events where stream_id = '$CONTENT_ID' and seq_id > ${LAST_SEQ:-0};")
+    [ "${WRITTEN_AFTER:-0}" -ge 1 ] \
+        || fail "${FROM_VERSION} answered $EARLY_CODE but stored no event after migrations/4.6.0/event-correlation-metadata.sql was applied"
+    old_is_running
+    echo "${FROM_VERSION} answered $EARLY_CODE and stored $WRITTEN_AFTER event(s) after the file"
+fi
+
 EVENTS_BEFORE=$(psql_q "select count(*) from mt_events where stream_id = '$CONTENT_ID';")
 [ "$EVENTS_BEFORE" -ge 2 ] || fail "expected an event stream from ${FROM_VERSION}, found $EVENTS_BEFORE events"
 echo "stream $CONTENT_ID has $EVENTS_BEFORE events"
@@ -307,6 +337,15 @@ docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-tra
 step "applying migrations/4.5.0/refresh-token-hash-index.sql"
 docker cp migrations/4.5.0/refresh-token-hash-index.sql "$PG:/tmp/refresh-hash.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/refresh-hash.sql >/dev/null
+
+# The correlation and causation columns on mt_events, and the declared append function with the
+# two matching arguments (#691). After the 4.4.0 file, which replaces the function this one
+# replaces again: run the other way round, the 4.4.0 file would add back a second function under
+# the old argument list. On a 4.x start this is the file's second run, the first being under the
+# running FROM_VERSION above.
+step "applying migrations/4.6.0/event-correlation-metadata.sql"
+docker cp migrations/4.6.0/event-correlation-metadata.sql "$PG:/tmp/event-correlation.sql"
+docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/event-correlation.sql >/dev/null
 
 # Data, not schema (#883). FROM_VERSION seeded a role named HR under the fixed id, whose holders read
 # Sensitive fields by that name, and the working tree decides the same thing by capability. The
@@ -392,6 +431,14 @@ EVENTS_AFTER=$(psql_q "select count(*) from mt_events where stream_id = '$CONTEN
     || fail "no event appended to the pre-existing stream ($EVENTS_BEFORE then $EVENTS_AFTER)"
 echo "$EVENTS_BEFORE then $EVENTS_AFTER events"
 
+# The new build's INSERT names the two columns the 4.6.0 file added. The events FROM_VERSION wrote,
+# the one it wrote after the file included, have neither.
+step "the new event carries a correlation id, and the older ones on the stream have none"
+CORRELATED=$(psql_q "select count(*) from mt_events where stream_id = '$CONTENT_ID' and correlation_id is not null;")
+[ "$CORRELATED" = "$((EVENTS_AFTER - EVENTS_BEFORE))" ] \
+    || fail "expected $((EVENTS_AFTER - EVENTS_BEFORE)) event(s) on stream $CONTENT_ID with a correlation id, the ones the new build appended, and found $CORRELATED"
+echo "$CORRELATED of $EVENTS_AFTER"
+
 step "the projection daemon picked up where it left off"
 # Polled, not slept: the daemon takes the HotCold advisory lock and catches up on its own schedule,
 # and a fixed sleep turns a tenancy assertion into a timing one.
@@ -435,6 +482,9 @@ step "applying migrations/4.6.0/rollback-sensitivity-by-capability.sql"
 docker cp migrations/4.6.0/rollback-sensitivity-by-capability.sql "$PG:/tmp/sensitivity-down.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/sensitivity-down.sql >/dev/null
 require_seeded_hr_not_granted
+step "applying migrations/4.6.0/rollback-event-correlation-metadata.sql"
+docker cp migrations/4.6.0/rollback-event-correlation-metadata.sql "$PG:/tmp/event-correlation-down.sql"
+docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/event-correlation-down.sql >/dev/null
 step "applying migrations/4.5.0/rollback-email-sent-emails.sql"
 docker cp migrations/4.5.0/rollback-email-sent-emails.sql "$PG:/tmp/sent-emails-down.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/sent-emails-down.sql >/dev/null
@@ -515,4 +565,4 @@ else
     DOWN_LAST="migrations/4.2.0/rollback-site-share-links.sql and migrations/4.2.0/rollback-user-normalized-identity.sql"
 fi
 
-printf '\nThe upgrade from %s to the working tree works on the Suite host, with %smigrations/4.2.0/user-normalized-identity.sql, migrations/4.2.0/site-share-links.sql, migrations/4.3.0/collection-syncs.sql, migrations/4.3.0/marten-9-37-event-store-columns.sql, migrations/4.4.0/marten-9-38-quick-append-events.sql, migrations/4.5.0/refresh-token-hash-index.sql, migrations/4.6.0/sensitivity-by-capability.sql, migrations/4.2.0/stored-files-parent-index.sql, migrations/4.2.0/forms-public-forms.sql, migrations/4.5.0/email-sent-emails.sql, migrations/4.6.0/external-auth-identities.sql and migrations/4.6.0/forms-email-verification.sql applied first, and rolls back cleanly with migrations/4.6.0/rollback-forms-email-verification.sql, migrations/4.6.0/rollback-external-auth-identities.sql, migrations/4.6.0/rollback-sensitivity-by-capability.sql, migrations/4.5.0/rollback-email-sent-emails.sql, migrations/4.5.0/rollback-refresh-token-hash-index.sql, migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql, migrations/4.3.0/rollback-collection-syncs.sql, migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql, %s.\n' "$FROM_VERSION" "$UP_FIRST" "$DOWN_LAST"
+printf '\nThe upgrade from %s to the working tree works on the Suite host, with %smigrations/4.2.0/user-normalized-identity.sql, migrations/4.2.0/site-share-links.sql, migrations/4.3.0/collection-syncs.sql, migrations/4.3.0/marten-9-37-event-store-columns.sql, migrations/4.4.0/marten-9-38-quick-append-events.sql, migrations/4.5.0/refresh-token-hash-index.sql, migrations/4.6.0/event-correlation-metadata.sql, migrations/4.6.0/sensitivity-by-capability.sql, migrations/4.2.0/stored-files-parent-index.sql, migrations/4.2.0/forms-public-forms.sql, migrations/4.5.0/email-sent-emails.sql, migrations/4.6.0/external-auth-identities.sql and migrations/4.6.0/forms-email-verification.sql applied first, and rolls back cleanly with migrations/4.6.0/rollback-forms-email-verification.sql, migrations/4.6.0/rollback-external-auth-identities.sql, migrations/4.6.0/rollback-sensitivity-by-capability.sql, migrations/4.6.0/rollback-event-correlation-metadata.sql, migrations/4.5.0/rollback-email-sent-emails.sql, migrations/4.5.0/rollback-refresh-token-hash-index.sql, migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql, migrations/4.3.0/rollback-collection-syncs.sql, migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql, %s.\n' "$FROM_VERSION" "$UP_FIRST" "$DOWN_LAST"

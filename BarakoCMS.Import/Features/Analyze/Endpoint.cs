@@ -41,7 +41,7 @@ public class Endpoint(
         // and one this endpoint cannot ask, because the mapping that names the target is built from
         // the preview it is about to return.
         Definition.RequireCapability(
-            ImportCapabilities.AnalyzeSpreadsheets, ImportCapabilities.LegacyRoles);
+            ImportCapabilities.AnalyzeSpreadsheets, ImportCapabilities.Defaults.LegacyRoles);
     }
 
     public override async Task HandleAsync(CancellationToken ct)

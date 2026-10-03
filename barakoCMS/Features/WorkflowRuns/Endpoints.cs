@@ -26,6 +26,12 @@ internal sealed class RunResponse
 
     /// <summary>When the run was told to stop. Null for a run nobody stopped.</summary>
     public DateTimeOffset? CancelledAt { get; init; }
+
+    /// <summary>
+    /// The <c>X-Correlation-ID</c> of the request that caused the run. Null when no request did,
+    /// and on a run queued before the id was kept.
+    /// </summary>
+    public string? CorrelationId { get; init; }
     public List<AttemptResponse> Actions { get; init; } = new();
 
     public static RunResponse From(WorkflowRun r) => new()
@@ -40,6 +46,7 @@ internal sealed class RunResponse
         CreatedAt = r.CreatedAt,
         CompletedAt = r.CompletedAt,
         CancelledAt = r.CancelledAt,
+        CorrelationId = barakoCMS.Infrastructure.Tracing.Correlation.Normalise(r.CorrelationId),
         Actions = r.Actions.OrderBy(a => a.Ordinal).Select(AttemptResponse.From).ToList(),
     };
 }
@@ -115,7 +122,7 @@ internal static class RunGate
     /// retrying, so the fallback preserves what the names already opened while the split decides
     /// what a role created at runtime can be given.
     /// </summary>
-    internal static readonly string[] LegacyRoles = ["SuperAdmin", "Admin"];
+    internal static readonly IReadOnlyList<string> LegacyRoles = CapabilityGate.AdminLegacyRoles;
 }
 
 internal sealed class ListRunsEndpoint(

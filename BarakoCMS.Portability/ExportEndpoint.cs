@@ -19,7 +19,7 @@ public class ExportEndpoint(
     {
         Get("/api/portability/export");
         Definition.RequireCapability(
-            PortabilityCapabilities.ExportContent, PortabilityCapabilities.LegacyRoles);
+            PortabilityCapabilities.ExportContent, PortabilityCapabilities.Defaults.LegacyRoles);
     }
 
     public override async Task HandleAsync(Req req, CancellationToken ct)

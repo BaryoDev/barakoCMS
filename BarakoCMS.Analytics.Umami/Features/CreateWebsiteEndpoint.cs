@@ -42,7 +42,7 @@ public sealed class CreateWebsiteEndpoint(
     {
         Post("/api/analytics/websites");
         Definition.RequireCapability(
-            AnalyticsCapabilities.ManageAnalyticsWebsites, AnalyticsCapabilities.LegacyRoles);
+            AnalyticsCapabilities.ManageAnalyticsWebsites, AnalyticsCapabilities.Defaults.LegacyRoles);
     }
 
     public override async Task HandleAsync(CreateWebsiteRequest req, CancellationToken ct)

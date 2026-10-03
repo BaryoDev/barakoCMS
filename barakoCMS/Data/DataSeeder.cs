@@ -92,7 +92,7 @@ public static class DataSeeder
     public static readonly Guid HRRoleId = DemoHrRoleId;
     public static readonly Guid UserRoleId = barakoCMS.Models.SystemRoles.UserRoleId;
 
-    private static async Task SeedRolesAsync(IDocumentSession session)
+    internal static async Task SeedRolesAsync(IDocumentSession session)
     {
         // Use deterministic GUIDs for system roles to enable SuperAdmin bypass in CachedPermissionResolver
         var roles = new[]
@@ -104,14 +104,17 @@ public static class DataSeeder
 
         foreach (var role in roles)
         {
-            var existing = await session.Query<Role>().FirstOrDefaultAsync(r => r.Name == role.Name);
+            // By id before by name. A seeded role an operator renamed holds the id, and storing a new
+            // role under that id replaced it, name and permissions included, on every start.
+            var existing = await session.LoadAsync<Role>(role.Id)
+                           ?? await session.Query<Role>().FirstOrDefaultAsync(r => r.Name == role.Name);
             if (existing == null)
             {
                 ApplyCapabilityDefaults(role);
                 session.Store(role);
                 Console.WriteLine($"[DataSeeder] Created role: {role.Name}");
             }
-            else if (ApplyCapabilityDefaults(existing))
+            else if (ApplyCapabilityDefaults(existing, role.Name))
             {
                 session.Store(existing);
                 Console.WriteLine($"[DataSeeder] Backfilled system capabilities on role: {existing.Name}");
@@ -156,9 +159,15 @@ public static class DataSeeder
     /// Access does not depend on this having run. This is what makes the capabilities visible and
     /// editable, not what keeps the lights on.
     /// </remarks>
-    internal static bool ApplyCapabilityDefaults(Role role)
+    internal static bool ApplyCapabilityDefaults(Role role) => ApplyCapabilityDefaults(role, role.Name);
+
+    /// <summary>
+    /// The same, with the defaults of the name the role was seeded under, for a seeded role that has
+    /// since been renamed.
+    /// </summary>
+    internal static bool ApplyCapabilityDefaults(Role role, string seededName)
     {
-        var defaults = barakoCMS.Models.SystemCapabilities.DefaultsFor(role.Name);
+        var defaults = barakoCMS.Models.SystemCapabilities.DefaultsFor(seededName);
         if (defaults.Count == 0)
             return false;
 

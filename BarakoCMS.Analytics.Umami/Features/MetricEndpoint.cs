@@ -35,7 +35,7 @@ public sealed class MetricEndpoint(
     {
         Get("/api/analytics/{websiteId}/metric");
         Definition.RequireCapability(
-            AnalyticsCapabilities.ViewAnalytics, AnalyticsCapabilities.LegacyRoles);
+            AnalyticsCapabilities.ViewAnalytics, AnalyticsCapabilities.Defaults.LegacyRoles);
     }
 
     public override async Task HandleAsync(MetricRequest req, CancellationToken ct)

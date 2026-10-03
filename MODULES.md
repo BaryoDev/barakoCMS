@@ -316,6 +316,29 @@ once your seed returns.
   seeders still run and their committed work stays intact. Once every module has had its turn,
   failures are thrown together as an `AggregateException`, failing startup unless the host catches it.
 - **Seeds must be idempotent.** They run on every start.
+- **Declare who starts with your capabilities once, by seeded role id.** Hold a
+  `CapabilityDefaults` beside your capability names and grant from it:
+
+  ```csharp
+  internal static readonly CapabilityDefaults Defaults =
+      CapabilityDefaults.For(ReadNotes).GrantedTo(SystemRoles.Admin);
+
+  public Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) =>
+      Defaults.GrantAsync(session, ct);
+  ```
+
+  `SystemRoles.Admin` is the seeded Admin role: its fixed id, with its seeded name beside it. The
+  grant finds the role by id, so a renamed Admin keeps your defaults, and falls back to the name
+  where no role holds the id. A role that does not exist is skipped, never created. It only adds:
+  a capability an operator gave a role stays, and one they took off a seeded role comes back on
+  the next start. For a role your own module seeds, pass `new SeededRole(id, name)`. A gate that
+  still honours role names under `Auth:LegacyRoleFallback` takes them from the same declaration:
+  `Definition.RequireCapability(ReadNotes, Defaults.LegacyRoles)`. `ModuleCapabilities.GrantAsync`,
+  which takes role names, still works and is obsolete.
+- **A capability your handler checks itself needs declaring.** `GET /api/capabilities` and the
+  role write check read the vocabulary off the routing table. A name no route requires outright
+  (BarakoCMS.Files asks for `manage_all_files` only when the file is somebody else's) is put there
+  with `Definition.ChecksCapability(name)`, which gates nothing.
 
 Modules previously shared one session committed once at the end, so one failure discarded every
 module's work and any module could read another's uncommitted data.
@@ -479,7 +502,8 @@ the scope decides it.
   a workflow.
 - `FindAsync` and `OpenAsync` take the signed-in user as a `ClaimsPrincipal` and give that user
   what the two download routes would: any public file, and a private one only to the user it
-  belongs to or to an account holding Admin or SuperAdmin. A principal that is not signed in,
+  belongs to or to a user holding `manage_all_files` (Admin and SuperAdmin by default), read from
+  that user's stored roles in the scope's tenant. A principal that is not signed in,
   comes from an API key, or carries a `tenant` claim for another tenant gets public files only.
   Pass the principal of the current request. The store does not check again that its token is
   still valid, that its tenant is still active, or device trust; the request pipeline did.
@@ -490,7 +514,7 @@ the scope decides it.
   sent the file, named as the actor in the audit entry a scanner refusal leaves; leave it null
   for a file a job produced.
 - `DeleteAsync` deletes for a caller who could delete through `DELETE /api/files/{id}`: one
-  holding `upload_files` who is the file's owner or an administrator. It answers `InUse` while an
+  holding `upload_files` who is the file's owner or holds `manage_all_files`. It answers `InUse` while an
   entry names the file, unless forced.
 - `FindPublicManyAsync` and `FindManyAsync` answer what `FindPublicAsync` and `FindAsync` would for
   each of many ids, keyed by id. BarakoCMS.Files reads them all in one query, so the caller bounds

@@ -30,7 +30,7 @@ public class CreateAccountEndpoint(
     {
         Post("/api/accounting/accounts");
         Definition.RequireCapability(
-            AccountingCapabilities.PostEntries, AccountingCapabilities.LegacyRoles);
+            AccountingCapabilities.PostEntries, AccountingCapabilities.Defaults.LegacyRoles);
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
@@ -83,7 +83,7 @@ public class ListAccountsEndpoint(
     {
         Get("/api/accounting/accounts");
         Definition.RequireCapability(
-            AccountingCapabilities.ViewLedger, AccountingCapabilities.LegacyRoles);
+            AccountingCapabilities.ViewLedger, AccountingCapabilities.Defaults.LegacyRoles);
     }
 
     public override async Task HandleAsync(barakoCMS.Models.ListRequest req, CancellationToken ct)
