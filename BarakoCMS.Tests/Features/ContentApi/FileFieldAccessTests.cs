@@ -306,7 +306,7 @@ public class FileFieldAccessTests
 
         // A JSON null under the first spelling is refused the same way.
         var nullFirst = await stranger.Client.PostAsync("/api/contents", new StringContent(
-            $$"""{"contentType":"{{type}}","data":{"Title":"a","Cover":null,"cover":"{{theirs}}"}}""",
+            $$$"""{"contentType":"{{{type}}}","data":{"Title":"a","Cover":null,"cover":"{{{theirs}}}"}}""",
             System.Text.Encoding.UTF8,
             "application/json"), Ct);
         var nullFirstBody = await nullFirst.Content.ReadAsStringAsync(Ct);
