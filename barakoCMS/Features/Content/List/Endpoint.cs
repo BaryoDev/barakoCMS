@@ -128,6 +128,10 @@ internal class Endpoint(
             // The term is a bound parameter. The escaping below is not about injection, it is about
             // meaning: an unescaped % or _ is a wildcard, so searching for "50%" would match every
             // entry containing "50" and searching for "a_b" would match "axb".
+            //
+            // A token is the one value never matched, on either branch, for the reason TokenSearch
+            // gives: the shown keys leave token fields out, and the search over every value skips
+            // them. A tenant with no token field runs the predicate it always ran.
             if (!string.IsNullOrEmpty(req.ContentType)
                 && await SearchableKeysAsync(user, req.ContentType, ct) is { } searchable)
             {
@@ -135,7 +139,11 @@ internal class Endpoint(
             }
             else
             {
-                query = query.Where(c => c.MatchesSql(SearchSql, EscapeLike(term)));
+                var tokenKeys = await TokenSearch.KeysAsync(session, ct);
+                object[] skippingTokens = [EscapeLike(term), tokenKeys];
+                query = tokenKeys.Length == 0
+                    ? query.Where(c => c.MatchesSql(SearchSql, EscapeLike(term)))
+                    : query.Where(c => c.MatchesSql(TokenSearch.Sql, skippingTokens));
             }
         }
 
@@ -305,6 +313,10 @@ internal class Endpoint(
         var keys = new List<string>();
         foreach (var group in (definition?.Fields ?? new List<FieldDefinition>()).GroupBy(f => f.Name.ToLowerInvariant()))
         {
+            // A token is never searched, even for a caller whose Read set names it.
+            if (group.Any(f => barakoCMS.Core.Validation.TokenFields.IsToken(f.Type)))
+                continue;
+
             var all = true;
             foreach (var field in group)
                 all &= await sensitivity.MayReadFieldAsync(contentType, field, null, User, ct);

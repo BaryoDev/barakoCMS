@@ -94,6 +94,8 @@ group_of() {
       printf 'Content' ;;
     access-control.md|compliance-posture.md|session-and-token-storage.md|scanning-uploads.md)
       printf 'Security and access' ;;
+    token-fields.md)
+      printf 'Content' ;;
     multi-tenancy.md|tenancy-at-the-database.md)
       printf 'Tenancy' ;;
     backup-and-restore.md|background-jobs.md|workflow-runs.md|module-inventory.md|idempotency.md|webhooks.md|connectors.md|migrations.md)

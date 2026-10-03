@@ -182,6 +182,7 @@ public class ContentTypeValidatorService : IContentTypeValidatorService
                 }
 
                 errors.AddRange(MoneyFields.DefinitionErrors(field));
+                errors.AddRange(TokenFields.DefinitionErrors(field));
                 errors.AddRange(FieldPresentation.DefinitionErrors(field));
 
                 if (!stored.Contains(field))

@@ -270,6 +270,16 @@ public class FieldDefinition
     /// </remarks>
     public string? Role { get; set; }
 
+    /// <summary>
+    /// For a <c>token</c> field, how many characters a generated token has, from 16 to 128.
+    /// </summary>
+    /// <remarks>
+    /// Null, the default, is 32. Each character carries five bits, so 16 is 80 bits and 32 is 160.
+    /// Read when a token is generated: changing it leaves the tokens already stored as they are.
+    /// Refused on a field of any other type.
+    /// </remarks>
+    public int? TokenLength { get; set; }
+
     public bool IsRequired { get; set; }
     public object? DefaultValue { get; set; }
     public Dictionary<string, object> ValidationRules { get; set; } = new(); // min, max, regex, etc.

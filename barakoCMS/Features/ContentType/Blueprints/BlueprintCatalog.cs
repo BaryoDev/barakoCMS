@@ -189,6 +189,11 @@ internal sealed class BlueprintCatalog(
                 : $"'{name}' is already declared by {clash.Source}.");
         }
 
+        // A blueprint's token field that states no sensitivity is Hidden, as on create. Set on the
+        // parsed file, which is what applying copies.
+        barakoCMS.Core.Validation.TokenFields.ApplyDefaults(
+            (blueprint.ContentTypes ?? []).SelectMany(type => type?.Fields ?? []));
+
         errors.AddRange(ValidateTypes(blueprint));
 
         return new BlueprintEntry

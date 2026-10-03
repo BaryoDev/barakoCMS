@@ -57,14 +57,24 @@ internal sealed record PublicContentResponse(
 internal static class PublicDelivery
 {
     /// <summary>
-    /// The field holding an entry's slug: a field of type "slug", else a field literally named "slug"
-    /// (case-insensitive). Null if the type has no slug field, so it isn't slug-addressable.
+    /// The field holding an entry's slug: a field of type "slug", else a Public text field literally
+    /// named "slug" (case-insensitive). Null if the type has no such field, so it isn't slug-addressable.
     /// </summary>
+    /// <remarks>
+    /// The slug is served to anonymous callers outside the Public field allowlist, as the top-level
+    /// <c>slug</c> and in every URL built from it. So a field picked by its name alone has to be one
+    /// the type already serves: a Hidden field or a token that happens to be called Slug is not a
+    /// slug, and the type then has none, as a type without such a field always had.
+    /// </remarks>
     public static string? SlugField(ContentTypeDefinition def)
     {
         var byType = def.Fields.FirstOrDefault(f => string.Equals(f.Type, "slug", StringComparison.OrdinalIgnoreCase));
         if (byType is not null) return byType.Name;
-        return def.Fields.FirstOrDefault(f => string.Equals(f.Name, "slug", StringComparison.OrdinalIgnoreCase))?.Name;
+        return def.Fields.FirstOrDefault(f =>
+            string.Equals(f.Name, "slug", StringComparison.OrdinalIgnoreCase)
+            && f.Sensitivity == SensitivityLevel.Public
+            && (string.Equals(f.Type, "string", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(f.Type, "text", StringComparison.OrdinalIgnoreCase)))?.Name;
     }
 
 
@@ -281,7 +291,7 @@ internal static class PublicDelivery
             return new();
 
         var publicNames = def.Fields
-            .Where(f => f.Sensitivity == SensitivityLevel.Public)
+            .Where(f => f.Sensitivity == SensitivityLevel.Public && !IsToken(f))
             .Select(f => f.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
@@ -289,6 +299,14 @@ internal static class PublicDelivery
             .Where(kv => publicNames.Contains(kv.Key))
             .ToDictionary(kv => kv.Key, kv => kv.Value);
     }
+
+    /// <summary>A token is never delivered, even from a definition stored with the field Public.</summary>
+    /// <remarks>
+    /// No endpoint stores one that way. A definition written past them would, and this is the last
+    /// place that can still leave the value out.
+    /// </remarks>
+    private static bool IsToken(FieldDefinition field) =>
+        barakoCMS.Core.Validation.TokenFields.IsToken(field.Type);
 
     /// <summary>
     /// Projects a Published, document-Public entry for anonymous delivery, exposing ONLY the fields the
@@ -315,7 +333,7 @@ internal static class PublicDelivery
          * would leak it. Case-insensitive comparison closes the casing gap too.
          */
         var publicNames = def.Fields
-            .Where(f => f.Sensitivity == SensitivityLevel.Public)
+            .Where(f => f.Sensitivity == SensitivityLevel.Public && !IsToken(f))
             .Select(f => f.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 

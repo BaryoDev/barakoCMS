@@ -202,6 +202,8 @@ public class SensitivityService : ISensitivityService
 
     public async ValueTask ApplyWriteAsync(string contentType, IDictionary<string, object> incoming, IReadOnlyDictionary<string, object>? existing, HttpContext httpContext, CancellationToken ct = default)
     {
+        // Read with the mode off as well. Nothing is masked then, but a token is still not a
+        // caller's to write, and only the definition says which fields are tokens.
         var definition = await LoadDefinitionAsync(contentType, ct);
         if (definition == null)
             return;
@@ -289,6 +291,12 @@ public class SensitivityService : ISensitivityService
         System.Security.Claims.ClaimsPrincipal user,
         CancellationToken ct)
     {
+        // First, whatever the mode, the caller and the path: a token is written by the server
+        // alone, so what was sent is dropped and the stored value put back before any rule below
+        // reads the data. Nothing below can then refuse over a token, so no answer tells a caller
+        // whether a guess matched.
+        DropTokens(definition, incoming, existing);
+
         if (_mode != SensitivityMode.Off)
             await DropUnwritableAsync(definition, incoming, existing, user, ct);
 
@@ -371,6 +379,26 @@ public class SensitivityService : ISensitivityService
 
         if (refused.Count > 0 || undeclared > 0)
             throw new FieldWriteRefusedException(refused, undeclared);
+    }
+
+    /// <summary>
+    /// Drops every value sent for a token field and puts the stored one back, or none on create.
+    /// </summary>
+    private static void DropTokens(
+        ContentTypeDefinition definition, IDictionary<string, object> incoming, IReadOnlyDictionary<string, object>? existing)
+    {
+        foreach (var field in definition.Fields)
+        {
+            if (field is null || !barakoCMS.Core.Validation.TokenFields.IsToken(field.Type))
+                continue;
+
+            foreach (var sent in MatchingKeys(incoming, field.Name))
+                incoming.Remove(sent);
+
+            var stored = existing is null ? [] : MatchingKeys(existing, field.Name);
+            if (stored.Count > 0)
+                incoming[stored[0]] = existing![stored[0]];
+        }
     }
 
     /// <summary>

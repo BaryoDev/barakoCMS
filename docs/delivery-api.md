@@ -58,7 +58,8 @@ A [file field](file-fields.md) is answered as the public file it names: its `id`
 that is gone, is left out of the entry, and the entry is still delivered.
 
 `/{type}/{slug}` needs the type to have a slug field: a field of type `slug`, or failing that a
-field named `slug`. Without one the route is 404.
+Public `string` or `text` field named `slug`. Without one the route is 404. A Sensitive or
+Hidden field named `slug`, or a token, is not served as a slug.
 
 A slug is unique within its content type, so the route resolves to one entry. The authoring API
 enforces that on the way in: a create, an update or a rollback carrying a slug another entry of the

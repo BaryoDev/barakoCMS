@@ -212,6 +212,7 @@ internal sealed class ContentChangeListener(
         Editor = f.Editor,
         Section = f.Section,
         Role = f.Role,
+        TokenLength = f.TokenLength,
         IsRequired = f.IsRequired,
         DefaultValue = f.DefaultValue,
         ValidationRules = f.ValidationRules,

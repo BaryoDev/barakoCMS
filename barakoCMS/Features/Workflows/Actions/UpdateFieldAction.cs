@@ -197,6 +197,36 @@ internal class UpdateFieldAction : IWorkflowAction
             dataChanged = true;
         }
 
+        if (dataChanged)
+        {
+            // Permanent: the field is a token on every retry. Checked whatever the value, a missing
+            // one included, since an entry with no stream is written below without the writer that
+            // would put the stored token back.
+            var tokenKey = field.StartsWith("data.", StringComparison.OrdinalIgnoreCase) ? field.Substring(5) : field;
+
+            barakoCMS.Models.FieldDefinition? token;
+            try
+            {
+                var definition = await _session.Query<barakoCMS.Models.ContentTypeDefinition>()
+                    .FirstOrDefaultAsync(d => d.Name == targetContent.ContentType, ct);
+                token = definition?.Fields.FirstOrDefault(
+                    f => f is not null
+                         && string.Equals(f.Name, tokenKey, StringComparison.OrdinalIgnoreCase)
+                         && barakoCMS.Core.Validation.TokenFields.IsToken(f.Type));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to load the content type for field {Field}", field);
+                return WorkflowActionResult.Failure($"Could not read the content type of content {targetContent.Id} ({ex.GetType().Name}).");
+            }
+
+            if (token is not null)
+            {
+                return WorkflowActionResult.PermanentFailure(
+                    $"Field '{token.Name}' is a token, which the server generates, so a workflow cannot write it.");
+            }
+        }
+
         if (dataChanged && value is not null)
         {
             // A parameter is text, and a money field that declares a currency takes a number. Text

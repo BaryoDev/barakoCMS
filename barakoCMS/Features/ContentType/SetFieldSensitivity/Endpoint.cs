@@ -97,6 +97,15 @@ internal class Endpoint(
         var to = req.Sensitivity;
         var lowering = to < from;
 
+        if (to == SensitivityLevel.Public && barakoCMS.Core.Validation.TokenFields.IsToken(field.Type))
+        {
+            AddError(
+                $"'{field.Name}' is a token and cannot be made Public. Keep it Hidden or Sensitive, "
+                + "and name the roles that may read it in visibleToRoles.");
+            await Send.ErrorsAsync(400, ct);
+            return;
+        }
+
         if (to == SensitivityLevel.Public
             && (req.VisibleToRoles is { Count: > 0 } || req.Mask is not null and not FieldMask.Default))
         {

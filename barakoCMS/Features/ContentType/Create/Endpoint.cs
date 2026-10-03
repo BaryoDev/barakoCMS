@@ -84,6 +84,10 @@ internal class Endpoint(
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
+        // A token field sent as Public, which is what leaving sensitivity out sends, is stored
+        // Hidden. First, so the checks below see the field as it will be stored.
+        barakoCMS.Core.Validation.TokenFields.ApplyDefaults(req.Fields);
+
         // 1. Validate ContentType
         var (isValid, errors) = validator.Validate(req.Name, req.DisplayName, req.Fields);
 
@@ -143,6 +147,16 @@ internal class Endpoint(
         if (storedNames.Any(stored => barakoCMS.Core.ContentTypeName.Normalize(stored) == slug))
         {
             ThrowError(DuplicateName, 409);
+        }
+
+        // Entries can exist under a name with no type, holding whatever keys their writers chose.
+        foreach (var token in (req.Fields ?? []).Where(f => f is not null && barakoCMS.Core.Validation.TokenFields.IsToken(f.Type)))
+        {
+            var holding = await barakoCMS.Infrastructure.Services.TokenFieldEntries.HoldingAsync(session, slug, token.Name, ct);
+            if (holding > 0)
+            {
+                ThrowError(barakoCMS.Infrastructure.Services.TokenFieldEntries.Refusal(slug, token.Name, holding), 409);
+            }
         }
 
         // 4. Sourcing policy. Read before anything is written, because two of the three answers here

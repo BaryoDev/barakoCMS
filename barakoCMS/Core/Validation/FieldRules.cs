@@ -52,7 +52,7 @@ internal static class FieldRules
     {
         Min or Max => FieldTypeRegistry.IsNumericType(type) || IsDateType(type),
         MinLength or MaxLength or Pattern => IsTextType(type),
-        RequiredWhen => true,
+        RequiredWhen => !TokenFields.IsToken(type),
         _ => false,
     };
 
@@ -181,7 +181,10 @@ internal static class FieldRules
                     break;
 
                 case RequiredWhen:
-                    if (ConditionError(raw) is { } conditionError)
+                    if (TokenFields.IsToken(field.Type))
+                        errors.Add($"Field '{field.Name}' has the rule '{rule}', which applies to fields "
+                            + $"a caller fills in, and is of type '{field.Type}'.");
+                    else if (ConditionError(raw) is { } conditionError)
                         errors.Add($"Field '{field.Name}' has the rule '{rule}', which {conditionError}.");
                     break;
             }

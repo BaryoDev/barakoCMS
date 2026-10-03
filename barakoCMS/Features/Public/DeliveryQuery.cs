@@ -101,7 +101,10 @@ internal sealed class DeliveryQuery
         if (def is null)
             return new DeliveryQuery { Error = "Unknown content type." };
 
-        Func<FieldDefinition, bool> canRead = readable ?? (f => f.Sensitivity == SensitivityLevel.Public);
+        // A token is left out by type as well, as ToPublic leaves it out: an anonymous filter or
+        // sort on one would read it off by which entries come back.
+        Func<FieldDefinition, bool> canRead = readable
+            ?? (f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.TokenFields.IsToken(f.Type));
 
         // The first spelling wins. Nothing on the save path stops a type declaring two fields that
         // differ only by case, and a dictionary that threw on the second would fail every request

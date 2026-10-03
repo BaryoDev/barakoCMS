@@ -277,7 +277,7 @@ nothing by design and it runs during a restore, where dropping rows the bundle h
 content. A bundle with two entries of a singleton type lands both.
 
 **A slug field is what makes `/api/public/{type}/{slug}` exist.** A field of type `slug`, or failing
-that a field named `slug`. Without one that route is 404.
+that a Public text field named `slug`. Without one that route is 404.
 
 **`eventSourced` is permanent.** It defaults to false, which is every content type that exists today:
 the document is the source of truth and events are still appended for history and workflows. Setting

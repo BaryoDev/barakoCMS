@@ -43,7 +43,7 @@ A signed-in user, or a key that names no types, can push too, with the same perm
 ```
 
 Each entry is the field values of one entry. The type's slug field (the field of type `slug`, or
-the field named `slug`) is the key: an entry whose slug is already stored updates that entry, and
+the Public text field named `slug`) is the key: an entry whose slug is already stored updates that entry, and
 one whose slug is not creates it. A type with no slug field cannot be pushed to.
 
 `status` is `Published` or `Draft`, and defaults to `Published`. An entry in the push ends at that
