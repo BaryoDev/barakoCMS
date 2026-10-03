@@ -206,11 +206,11 @@ public class SensitivityService : ISensitivityService
         if (definition == null)
             return;
 
-        await GuardWriteAsync(definition, incoming, existing, existingEntry: null, httpContext.User, ct);
+        await GuardWriteAsync(definition, incoming, existing, existingEntry: null, updating: false, httpContext.User, ct);
     }
 
     public ValueTask ApplyWriteAsync(ContentTypeDefinition definition, IDictionary<string, object> incoming, IReadOnlyDictionary<string, object>? existing, HttpContext httpContext, CancellationToken ct = default)
-        => GuardWriteAsync(definition, incoming, existing, existingEntry: null, httpContext.User, ct);
+        => GuardWriteAsync(definition, incoming, existing, existingEntry: null, updating: false, httpContext.User, ct);
 
     public async ValueTask ApplyWriteAsync(Content existing, IDictionary<string, object> incoming, HttpContext httpContext, CancellationToken ct = default)
     {
@@ -218,7 +218,16 @@ public class SensitivityService : ISensitivityService
         if (definition == null)
             return;
 
-        await GuardWriteAsync(definition, incoming, existing.Data, existing, httpContext.User, ct);
+        await GuardWriteAsync(definition, incoming, existing.Data, existing, updating: true, httpContext.User, ct);
+    }
+
+    public async ValueTask ApplyTransitionWriteAsync(Content existing, IDictionary<string, object> incoming, HttpContext httpContext, CancellationToken ct = default)
+    {
+        var definition = await LoadDefinitionAsync(existing.ContentType, ct);
+        if (definition == null)
+            return;
+
+        await GuardWriteAsync(definition, incoming, existing.Data, existing, updating: false, httpContext.User, ct);
     }
 
     /// <summary>
@@ -235,48 +244,46 @@ public class SensitivityService : ISensitivityService
         => await MaySeeFieldAsync(field, user, ct)
            && (await RuleFieldsAsync(user, contentType, "read", entry, ct)).Allows(field.Name);
 
-    /// <summary>
-    /// The write rule for a field of a type. Creating, sensitivity lets the caller see it and a
-    /// Create rule lets them set it. Updating an entry, they may read it on that entry and the
-    /// Update rule that grants the entry lets them set it.
-    /// </summary>
-    /// <remarks>
-    /// The write paths apply the same rule in <see cref="GuardWriteAsync"/>, which reads the sets once
-    /// for the entry rather than once for each field.
-    /// </remarks>
-    public async ValueTask<bool> MayWriteFieldAsync(
-        string contentType, FieldDefinition field, Content? existing, System.Security.Claims.ClaimsPrincipal user, CancellationToken ct = default)
+    /// <summary>Whether the caller reads this entry's data at all: its own level, and a Read rule granting it.</summary>
+    private async ValueTask<bool> MayReadEntryAsync(Content entry, System.Security.Claims.ClaimsPrincipal user, CancellationToken ct)
     {
-        if (existing is null)
-        {
-            return await MaySeeFieldAsync(field, user, ct)
-                && (await RuleFieldsAsync(user, contentType, "create", null, ct)).Allows(field.Name);
-        }
+        if (!await MaySeeDocumentAsync(entry.Sensitivity, user, ct))
+            return false;
 
-        return await MayReadFieldAsync(contentType, field, existing, user, ct)
-            && (await RuleFieldsAsync(user, contentType, "update", existing, ct)).Allows(field.Name);
+        return _permissions is not null
+            && await StoredUserAsync(user, ct) is { } stored
+            && await _permissions.CanPerformActionAsync(stored, entry.ContentType, "read", entry, ct);
     }
 
     /// <summary>
-    /// Every write, in one order: sensitivity, then the caller's field sets.
+    /// The write rule, the one every write path applies: sensitivity, then the caller's field sets.
     /// </summary>
     /// <remarks>
     /// Creating (no stored data), a field outside the Create rules' sets that the request gives a
-    /// value is refused. Updating a stored entry, a field the caller may not read on it is put back,
-    /// and one they may read and the Update rule does not let them set is refused when the request
-    /// changes it and put back when it does not. Editing with stored data and no entry, which is a
-    /// transition carrying values, puts back what the caller may not read on every entry of the
-    /// type and refuses nothing: a transition is not an update, and the fields it declares are its
-    /// own set.
+    /// value is refused.
+    ///
+    /// Updating a stored entry the caller may read, a field the Read rules granting it do not show is
+    /// put back, and one they show and the Update rule does not let the caller set is refused when
+    /// the request changes it and put back when it does not. On an entry the caller may not read (no
+    /// Read rule grants it, or its own level withholds its data), nothing is compared: a field a
+    /// writable set names is written and every other one is put back. Comparing there would answer
+    /// a guess at a value the caller cannot read, 403 for wrong and 200 for right.
+    ///
+    /// A transition carrying values (<paramref name="updating"/> false, with the entry) is judged the
+    /// same way for reading and refuses nothing: a transition is not an update, and the fields its
+    /// type declares for it are its own set. Stored data with no entry, which only a module's own
+    /// write passes, is judged against the fields shown on every entry of the type.
     ///
     /// A refusal is a 403 for the whole request (<see cref="FieldWriteRefusedException"/>). Only a
-    /// role holding a set can meet one.
+    /// role holding a set can meet one, and every branch returns before reading anything more when
+    /// the caller's rules hold none.
     /// </remarks>
     private async ValueTask GuardWriteAsync(
         ContentTypeDefinition definition,
         IDictionary<string, object> incoming,
         IReadOnlyDictionary<string, object>? existing,
         Content? existingEntry,
+        bool updating,
         System.Security.Claims.ClaimsPrincipal user,
         CancellationToken ct)
     {
@@ -319,23 +326,36 @@ public class SensitivityService : ISensitivityService
         else
         {
             var readable = await RuleFieldsAsync(user, definition.Name, "read", existingEntry, ct);
-            var writable = existingEntry is null
-                ? FieldSet.All
-                : await RuleFieldsAsync(user, definition.Name, "update", existingEntry, ct);
+            var writable = updating && existingEntry is not null
+                ? await RuleFieldsAsync(user, definition.Name, "update", existingEntry, ct)
+                : FieldSet.All;
 
             if (readable.IsAll && writable.IsAll)
                 return;
 
+            var entryRead = existingEntry is null || await MayReadEntryAsync(existingEntry, user, ct);
+
             var keys = incoming.Keys.Concat(existing.Keys).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             foreach (var key in keys)
             {
+                var settable = KeyAllowed(definition, key, writable);
+
+                if (!entryRead)
+                {
+                    if (!writable.IsAll && settable)
+                        continue;
+
+                    PutBack(incoming, existing, key);
+                    continue;
+                }
+
                 if (!KeyAllowed(definition, key, readable))
                 {
                     PutBack(incoming, existing, key);
                     continue;
                 }
 
-                if (KeyAllowed(definition, key, writable))
+                if (settable)
                     continue;
 
                 var stored = MatchingKeys(existing, key);

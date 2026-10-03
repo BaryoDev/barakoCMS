@@ -60,12 +60,13 @@ public class FieldSetRoleValidationTests
         string[]? readable = null,
         string[]? writable = null,
         string writableOn = "update",
+        string readableOn = "read",
         string? name = null)
     {
         object Rule(string slot) => new Dictionary<string, object?>
         {
             ["enabled"] = true,
-            ["readableFields"] = slot == "read" ? readable : null,
+            ["readableFields"] = slot == readableOn ? readable : null,
             ["writableFields"] = slot == writableOn ? writable : null,
         };
 
@@ -231,6 +232,20 @@ public class FieldSetRoleValidationTests
         ShouldBeRefused(
             await SaveAsync(admin, () => Body(type, writable: ["Attendance"], writableOn: slot)),
             "writableFields is accepted on a Create or Update rule only");
+    }
+
+    [Theory]
+    [InlineData("create")]
+    [InlineData("update")]
+    [InlineData("delete")]
+    public async Task A_readable_set_on_a_rule_other_than_read_is_refused(string slot)
+    {
+        var admin = await AdminAsync();
+        var type = await TypeAsync();
+
+        ShouldBeRefused(
+            await SaveAsync(admin, () => Body(type, readable: ["Attendance"], readableOn: slot)),
+            "readableFields is accepted on a Read rule only");
     }
 
     [Fact]

@@ -481,9 +481,9 @@ fields every conditional rule shows. That is what decides a field filter, a sear
 a reference condition, and the reads that pass sensitivity a type and not an entry (the page tree,
 file usage and the export).
 
-`ISensitivityService.MayReadFieldAsync` is the read rule for one field and
-`SensitivityService.MayWriteFieldAsync` the write rule. The scrub and the write guard apply the same
-two, reading the sets once for the entry.
+`ISensitivityService.MayReadFieldAsync` is the read rule for one field, and the scrub applies the
+same rule, reading the sets once for the entry. The write rule has one home too, the write guard in
+`SensitivityService`, which every write path goes through.
 
 ### Writes
 
@@ -493,6 +493,10 @@ two, reading the sets once for the entry.
   change, so a console that sends the whole entry back keeps working. Left out, it keeps its stored
   value: leaving a field out is not a way to delete it. Values are compared as JSON
   (`JsonElement.DeepEquals`), not as text.
+- **Update of an entry the caller may not read.** No Read rule grants it, or its own level is
+  Sensitive or Hidden and the caller may not see that level. Nothing is compared, since a 403 for a
+  wrong value and a 200 for the right one would tell the caller what the entry holds. A field an
+  Update rule's `writableFields` names is written, and every other field is put back.
 - **Create.** A field outside every Create rule's set that the request gives a value other than
   `null` is refused with 403.
 - The 403 names the fields by their declared spelling and counts keys the type does not declare.
@@ -513,8 +517,8 @@ two, reading the sets once for the entry.
 | `PUT /api/contents/{id}` | unreadable fields put back | 403 on a change |
 | `POST /api/contents`, bulk create, Portability import | | 403 on a value outside the Create set |
 | `POST /api/collections/{type}/push` | unreadable fields put back on an existing entry | 403 on a change, or on create |
-| `POST /api/contents/{id}/rollback/{versionId}` | unreadable fields put back | 403 on a change |
-| A transition carrying data | every entry of the type: unreadable fields put back | none: its declared fields are its set |
+| `POST /api/contents/{id}/rollback/{versionId}` | unreadable fields put back; the response shows what a GET would | 403 on a change |
+| A transition carrying data | per entry: unreadable fields put back | none: its declared fields are its set |
 | Pages tree, file usage, export | every entry of the type | |
 | A condition `Reference.Field` | the referenced field must be shown on every entry of its type, or the condition denies | |
 | Public delivery | none: an anonymous caller holds no rule | |
@@ -543,6 +547,13 @@ The audit row for a role lists each rule's set under `fieldSets` in `permissions
 Nothing about a set is cached across requests. The sets are read off the caller's roles, which the
 resolver reads once per request, so a role change applies to the next request as every other
 permission does.
+
+Asking which rules grant an entry reads the same rows the permission check already asked about, so
+it adds nothing to the bound a condition following a reference has. One path asks a new question:
+an update by a role holding a set asks the Read rules whether the caller may read the entry. When
+those rules follow a reference, a push of more than ten existing entries resolves that condition
+the way a list does, and past its bound answers 403 with the condition's reason. A role with no set
+asks nothing new.
 
 ## Tested (2026-07-16): the bug this replaced
 

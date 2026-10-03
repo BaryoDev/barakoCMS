@@ -176,7 +176,13 @@ internal class RollbackEndpoint(
 
         await session.SaveChangesAsync(ct);
 
-        // 8. Return the new state
-        await Send.ResponseAsync(RollbackResponse.From(content), cancellation: ct);
+        // 8. Return the new state, through the read rules a GET applies: the caller is shown what
+        // they may read of it and nothing more.
+        var response = RollbackResponse.From(content);
+        response.Data = new Dictionary<string, object>(content.Data);
+        if (await Resolve<barakoCMS.Core.Interfaces.ISensitivityService>().ApplyAsync(content, response.Data, HttpContext, ct))
+            response.ContentType = "HIDDEN";
+
+        await Send.ResponseAsync(response, cancellation: ct);
     }
 }

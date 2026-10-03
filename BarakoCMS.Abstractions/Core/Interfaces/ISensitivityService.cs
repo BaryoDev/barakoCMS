@@ -80,6 +80,15 @@ public interface ISensitivityService
         => ApplyWriteAsync(existing.ContentType, incoming, existing.Data, httpContext, ct);
 
     /// <summary>
+    /// The write rule for a transition that carries values on one stored entry: a field the caller
+    /// may not read on that entry is put back to its stored value, and nothing is refused, since a
+    /// transition's declared fields are its own writable set and it is not an update.
+    /// </summary>
+    /// <remarks>The default calls the overload that takes the stored data.</remarks>
+    ValueTask ApplyTransitionWriteAsync(Content existing, IDictionary<string, object> incoming, HttpContext httpContext, CancellationToken ct = default)
+        => ApplyWriteAsync(existing.ContentType, incoming, existing.Data, httpContext, ct);
+
+    /// <summary>
     /// Whether this caller reads a field of a content type: its sensitivity allows it and their
     /// permission rules show it. With an entry, for that entry; without one, for every entry of the
     /// type they may read.

@@ -47,6 +47,13 @@ public class PermissionFieldSetTests
                 new FieldDefinition { Name = "Attendance", DisplayName = "Attendance", Type = "string" },
                 new FieldDefinition { Name = "Grade", DisplayName = "Grade", Type = "string" },
                 new FieldDefinition { Name = "Notes", DisplayName = "Notes", Type = "string" },
+                new FieldDefinition { Name = "Score", DisplayName = "Score", Type = "decimal" },
+                new FieldDefinition { Name = "Count", DisplayName = "Count", Type = "int" },
+                new FieldDefinition { Name = "Meta", DisplayName = "Meta", Type = "json" },
+                new FieldDefinition
+                {
+                    Name = "Salary", DisplayName = "Salary", Type = "decimal", Sensitivity = SensitivityLevel.Sensitive,
+                },
             ],
         });
 
@@ -55,16 +62,22 @@ public class PermissionFieldSetTests
     }
 
     /// <summary>A user holding one role per permission list given.</summary>
-    private async Task<(HttpClient Client, Guid UserId)> CallerAsync(params List<ContentTypePermission>[] roles)
+    private Task<(HttpClient Client, Guid UserId)> CallerAsync(params List<ContentTypePermission>[] roles) =>
+        CallerHoldingAsync([], roles);
+
+    /// <summary>The same, the first role also holding these system capabilities.</summary>
+    private async Task<(HttpClient Client, Guid UserId)> CallerHoldingAsync(
+        string[] capabilities, params List<ContentTypePermission>[] roles)
     {
         using var scope = _factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
 
-        var held = roles.Select(permissions => new Role
+        var held = roles.Select((permissions, i) => new Role
         {
             Id = Guid.NewGuid(),
             Name = $"FieldSet_{Guid.NewGuid():n}",
             Permissions = permissions,
+            SystemCapabilities = i == 0 ? [.. capabilities] : [],
         }).ToList();
 
         foreach (var role in held)
@@ -119,9 +132,10 @@ public class PermissionFieldSetTests
     }
 
     /// <summary>Creates an entry through the API, so it has the stream an update appends to.</summary>
-    private static async Task<Guid> CreateAsync(HttpClient admin, string type, Dictionary<string, object> data)
+    private static async Task<Guid> CreateAsync(
+        HttpClient admin, string type, Dictionary<string, object> data, SensitivityLevel sensitivity = SensitivityLevel.Public)
     {
-        var res = await admin.PostAsJsonAsync("/api/contents", new { contentType = type, data });
+        var res = await admin.PostAsJsonAsync("/api/contents", new { contentType = type, data, sensitivity });
         res.IsSuccessStatusCode.Should().BeTrue("creating an entry returned {0}: {1}",
             res.StatusCode, await res.Content.ReadAsStringAsync());
 
@@ -461,5 +475,199 @@ public class PermissionFieldSetTests
         var stored = await DataAsync(admin, id);
         stored.GetProperty("Grade").GetString().Should().Be("A");
         stored.TryGetProperty("Notes", out _).Should().BeFalse("with no set, an update replaces the data as it always has");
+    }
+
+    /// <summary>Why the caller may not read the entry an update names.</summary>
+    public enum Unread
+    {
+        NoReadRule,
+        NoReadRuleGrantsIt,
+        SensitiveEntry,
+    }
+
+    [Theory]
+    [InlineData(Unread.NoReadRule)]
+    [InlineData(Unread.NoReadRuleGrantsIt)]
+    [InlineData(Unread.SensitiveEntry)]
+    public async Task On_an_entry_the_caller_may_not_read_a_wrong_and_a_right_guess_get_the_same_answer(Unread why)
+    {
+        var type = await TypeAsync();
+        var admin = await SuperAdminAsync();
+
+        var read = why switch
+        {
+            Unread.NoReadRule => new PermissionRule(),
+            Unread.NoReadRuleGrantsIt => new PermissionRule { Enabled = true, Conditions = OwnRecord, ReadableFields = ["Name", "Grade"] },
+            _ => new PermissionRule { Enabled = true },
+        };
+        List<ContentTypePermission> permissions =
+        [
+            new()
+            {
+                ContentTypeSlug = type,
+                Read = read,
+                Update = new PermissionRule { Enabled = true, WritableFields = ["Attendance"] },
+            },
+        ];
+        var (caller, _) = await CallerAsync(permissions);
+
+        var sensitivity = why == Unread.SensitiveEntry ? SensitivityLevel.Sensitive : SensitivityLevel.Public;
+        var id = await CreateAsync(admin, type, Record("kim"), sensitivity);
+
+        // The stored grade is B. A is the wrong guess, B the right one.
+        var answers = new List<HttpStatusCode>();
+        foreach (var guess in new[] { "A", "B" })
+        {
+            var data = Record("kim");
+            data["Grade"] = guess;
+            data["Attendance"] = $"seen {guess}";
+            answers.Add((await PutAsync(caller, id, data)).StatusCode);
+        }
+
+        answers.Should().HaveCount(2);
+        answers.Should().OnlyContain(status => status == HttpStatusCode.OK,
+            "an answer that differed by guess would tell the caller a value they may not read");
+
+        var stored = await DataAsync(admin, id);
+        stored.GetProperty("Grade").GetString().Should().Be("B", "a field outside the writable set is put back");
+        stored.GetProperty("Attendance").GetString().Should().Be("seen B", "the field the writable set names is written");
+    }
+
+    [Fact]
+    public async Task A_value_sent_back_in_another_spelling_of_the_same_json_is_not_a_change()
+    {
+        var type = await TypeAsync();
+        var (teacher, _) = await CallerAsync(Teacher(type));
+        var admin = await SuperAdminAsync();
+
+        var record = Record("lou");
+        record["Score"] = 1.5m;
+        record["Count"] = 1;
+        record["Meta"] = new Dictionary<string, object> { ["a"] = 1, ["b"] = new Dictionary<string, object> { ["c"] = 2 } };
+        var id = await CreateAsync(admin, type, record);
+
+        var sent = Record("lou");
+        sent["Attendance"] = "absent";
+        sent["Score"] = 1.50m;
+        sent["Count"] = 1.0m;
+        sent["Meta"] = new Dictionary<string, object> { ["b"] = new Dictionary<string, object> { ["c"] = 2 }, ["a"] = 1 };
+
+        var res = await PutAsync(teacher, id, sent);
+        res.IsSuccessStatusCode.Should().BeTrue("the same values, written differently, got {0}: {1}",
+            res.StatusCode, await res.Content.ReadAsStringAsync());
+
+        var stored = await DataAsync(admin, id);
+        stored.GetProperty("Attendance").GetString().Should().Be("absent");
+        stored.GetProperty("Meta").GetProperty("b").GetProperty("c").GetInt32().Should().Be(2);
+    }
+
+    [Fact]
+    public async Task The_rollback_response_applies_the_read_rules()
+    {
+        var type = await TypeAsync();
+        var admin = await SuperAdminAsync();
+
+        List<ContentTypePermission> permissions =
+        [
+            new()
+            {
+                ContentTypeSlug = type,
+                Read = new PermissionRule { Enabled = true, ReadableFields = ["Name", "Attendance", "Salary"] },
+                Update = new PermissionRule { Enabled = true },
+            },
+        ];
+        var (restorer, _) = await CallerHoldingAsync([SystemCapabilities.RollbackContent], permissions);
+
+        var record = Record("max");
+        record["Salary"] = 5000m;
+        var id = await CreateAsync(admin, type, record);
+
+        var versions = await admin.GetAsync($"/api/contents/{id}/history");
+        versions.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var listed = JsonDocument.Parse(await versions.Content.ReadAsStringAsync());
+        listed.RootElement.GetProperty("items").GetArrayLength().Should().BeGreaterThan(0);
+        var versionId = listed.RootElement.GetProperty("items")[0].GetProperty("versionId").GetGuid();
+
+        var res = await restorer.PostAsync($"/api/contents/{id}/rollback/{versionId}", null);
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+
+        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+        var data = doc.RootElement.GetProperty("data");
+        data.GetProperty("Name").GetString().Should().Be("max", "a field the caller is shown is in the response");
+        data.TryGetProperty("Notes", out _).Should().BeFalse("the Read rule does not show Notes");
+        data.TryGetProperty("Grade", out _).Should().BeFalse("the Read rule does not show Grade");
+        data.GetProperty("Salary").GetRawText().Should().NotBe("5000",
+            "Salary is Sensitive and the caller does not hold view_sensitive, so it is masked as a GET masks it");
+    }
+
+    [Fact]
+    public async Task A_transition_carrying_a_field_the_rules_granting_that_entry_show_writes_it()
+    {
+        var suffix = Guid.NewGuid().ToString("n")[..10];
+        var type = $"settrans{suffix}";
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(), Name = type, DisplayName = type,
+                Fields =
+                [
+                    new FieldDefinition { Name = "Name", DisplayName = "Name", Type = "string" },
+                    new FieldDefinition { Name = "Notes", DisplayName = "Notes", Type = "string" },
+                ],
+                Lifecycle = new LifecycleDefinition
+                {
+                    States = ["Open", "Closed"],
+                    InitialState = "Open",
+                    Transitions = [new StateTransition { Name = "Close", From = "Open", To = "Closed", OptionalFields = ["Notes"] }],
+                },
+            });
+            await session.SaveChangesAsync();
+        }
+
+        // Everyone's names, and the caller's own record, by its Name, with notes. Ownership by a
+        // field rather than by creator, since a creator may not move their own entry on.
+        var everyone = new ContentTypePermission
+        {
+            ContentTypeSlug = type,
+            Read = new PermissionRule { Enabled = true, ReadableFields = ["Name"] },
+            Transitions = new(StringComparer.OrdinalIgnoreCase) { ["Close"] = new PermissionRule { Enabled = true } },
+        };
+        var own = new ContentTypePermission
+        {
+            ContentTypeSlug = type,
+            Read = new PermissionRule
+            {
+                Enabled = true,
+                Conditions = new Dictionary<string, object>
+                {
+                    ["Name"] = new Dictionary<string, object> { ["_eq"] = "$CURRENT_USER" },
+                },
+                ReadableFields = ["Name", "Notes"],
+            },
+        };
+        var (student, userId) = await CallerAsync([everyone], [own]);
+        var admin = await SuperAdminAsync();
+
+        var mine = await CreateAsync(admin, type, new() { ["Name"] = userId.ToString(), ["Notes"] = "old" });
+        var theirs = await CreateAsync(admin, type, new() { ["Name"] = "someone else", ["Notes"] = "old" });
+
+        foreach (var id in new[] { mine, theirs })
+        {
+            var res = await student.PutAsJsonAsync($"/api/contents/{id}/status", new
+            {
+                id,
+                transition = "Close",
+                data = new Dictionary<string, object> { ["Notes"] = "new" },
+            });
+            res.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", res.StatusCode, await res.Content.ReadAsStringAsync());
+        }
+
+        (await DataAsync(admin, mine)).GetProperty("Notes").GetString().Should().Be("new",
+            "the own-record rule shows Notes on this entry, so the caller may send it");
+        (await DataAsync(admin, theirs)).GetProperty("Notes").GetString().Should().Be("old",
+            "on another entry Notes is not shown, so it is put back");
     }
 }
