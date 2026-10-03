@@ -82,8 +82,14 @@ internal sealed class ContentTokenIssuer(IDocumentSession session)
         if (_fields.TryGetValue(contentType, out var cached))
             return cached;
 
+        // A Marten session never answers null here. A test double of one can, and a write that
+        // cannot read the type's definition has no token field it could be owed.
+        var types = session.Query<ContentTypeDefinition>();
+        if (types is null)
+            return [];
+
         var lowered = contentType.ToLower();
-        var definitions = await session.Query<ContentTypeDefinition>()
+        var definitions = await types
             .Where(d => d.Name.ToLower() == lowered)
             .ToListAsync(ct);
 
