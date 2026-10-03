@@ -418,6 +418,8 @@ renderer reads its identity and theme from), [choice fields](docs/choice-fields.
 [file fields](docs/file-fields.md) (a stored file on an entry, resolved to its address and alt text on delivery),
 [field hints, sections and roles](docs/field-hints-and-roles.md) (which editor a field wants, which
 field is the title, and where a type's entries live on the site),
+[uniqueness rules](docs/uniqueness-rules.md) (values only one entry may hold at a time, such as one
+open time entry per teacher),
 [scheduling](docs/scheduling.md) (publish, unpublish and sensitivity at a set time),
 [deploying on a managed platform](docs/deploy-on-a-managed-platform.md) (App Service, Fargate,
 Cloud Run), [approval by configuration](docs/approval-by-configuration.md) (an invoice through Submit and

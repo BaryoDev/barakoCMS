@@ -354,6 +354,20 @@ internal class UpdateFieldAction : IWorkflowAction
                     barakoCMS.Infrastructure.Services.ContentProjection.Apply(targetContent, @event, DateTime.UtcNow);
                 }
 
+                // The writer is what applies a type's uniqueness rules, and this write goes around
+                // it. A refusal ejects what is staged, the marker included, as the writer does, so
+                // a later save on this session does not record the field as applied.
+                try
+                {
+                    await new barakoCMS.Infrastructure.Services.ContentUniqueness(_session, _logger)
+                        .EnforceAsync(targetContent, ct);
+                }
+                catch (barakoCMS.Core.Interfaces.ContentUniquenessException)
+                {
+                    _session.EjectAllPendingChanges();
+                    throw;
+                }
+
                 _session.Store(targetContent);
             }
 
