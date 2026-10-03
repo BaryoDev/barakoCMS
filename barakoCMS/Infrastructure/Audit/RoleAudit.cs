@@ -167,6 +167,7 @@ internal static class RoleAudit
     {
         var actions = new List<string>();
         var conditions = new List<Dictionary<string, object>>();
+        var fieldSets = new List<Dictionary<string, object>>();
 
         Rule("create", permission.Create);
         Rule("read", permission.Read);
@@ -184,7 +185,7 @@ internal static class RoleAudit
             }
         }
 
-        return new Dictionary<string, object>
+        var described = new Dictionary<string, object>
         {
             ["contentType"] = Clip(permission.ContentTypeSlug),
             ["actions"] = actions,
@@ -192,11 +193,33 @@ internal static class RoleAudit
             ["conditions"] = Capped(conditions),
         };
 
+        // Only when a rule holds one, so a row about a role with no field set reads as it always did.
+        if (fieldSets.Count > 0)
+            described["fieldSets"] = Capped(fieldSets);
+
+        return described;
+
         void Rule(string action, PermissionRule? rule)
         {
             if (rule is { Enabled: true })
                 actions.Add(action);
             AddConditions(conditions, action, null, rule);
+            AddFieldSet(action, "readable", rule?.ReadableFields);
+            AddFieldSet(action, "writable", rule?.WritableFields);
+        }
+
+        void AddFieldSet(string action, string access, List<string>? names)
+        {
+            if (names is null)
+                return;
+
+            var kept = names.Where(n => n is not null).Select(Clip).ToList();
+            fieldSets.Add(new Dictionary<string, object>
+            {
+                ["rule"] = action,
+                ["access"] = access,
+                ["fields"] = Capped(kept),
+            });
         }
     }
 

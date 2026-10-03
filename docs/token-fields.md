@@ -50,6 +50,9 @@ A token is not logged.
 A value a caller sends for a token field is discarded, without an error and without being read.
 This is what the API does with a field the caller may not see: the stored value is put back. For a
 token it applies to every caller, a SuperAdmin included, and with `Sensitivity:Mode` set to `Off`.
+It happens before permission field sets are judged, so a sent token is never the reason a write
+outside a rule's `writableFields` is refused, and a blind write on an entry the caller may not read
+cannot set it.
 
 | Write | What happens to a sent value | The token afterwards |
 | --- | --- | --- |
@@ -93,7 +96,8 @@ every entry one, save each once: a `PUT /api/contents/{id}` with the entry's own
 | `GET /api/portability/export` | Nobody. The field is left out of every exported entry. |
 
 The search matches substrings, so matching a token would give it away a character at a time. That
-is why it is left out even for a caller who may read the field. Such a caller looks an entry up by
+is why it is left out even for a caller who may read the field, a Read rule whose `readableFields`
+names it included. Such a caller looks an entry up by
 its token with an `eq` filter.
 
 A workflow reads the stored entry when it fills a placeholder, so `{{data.ClaimToken}}` in an email

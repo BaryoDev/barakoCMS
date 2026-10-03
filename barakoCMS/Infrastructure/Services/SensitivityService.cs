@@ -1,3 +1,4 @@
+using System.Text.Json;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Models;
 using Marten;
@@ -18,15 +19,24 @@ namespace barakoCMS.Infrastructure.Services;
 /// else. A field that lists none is seen by a role holding
 /// <see cref="SystemCapabilities.ViewSensitive"/> or <see cref="SystemCapabilities.ViewHidden"/>,
 /// whichever its level asks for, and so is an entry whose own level is not Public.
+///
+/// The caller's permission rules then narrow that: a Read rule's
+/// <see cref="PermissionRule.ReadableFields"/> and a Create or Update rule's
+/// <see cref="PermissionRule.WritableFields"/>. A field a rule does not show is left out of a read
+/// whatever its sensitivity, and a rule never shows a field its sensitivity masks. The sets apply
+/// whatever <c>Sensitivity:Mode</c> is, since they are permissions and not masking.
 /// </remarks>
 public class SensitivityService : ISensitivityService
 {
     private readonly IQuerySession _session;
     private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
     private readonly SensitivityMode _mode;
+    private readonly IPermissionResolver? _permissions;
     private readonly Dictionary<string, ContentTypeDefinition?> _schemaCache = new(StringComparer.OrdinalIgnoreCase);
     private System.Security.Claims.ClaimsPrincipal? _storedCaller;
     private string? _storedCallerFor;
+    private User? _storedUser;
+    private string? _storedUserFor;
 
     /// <summary>
     /// Throws when the configured mode cannot do what its name says. Called at startup.
@@ -46,10 +56,12 @@ public class SensitivityService : ISensitivityService
     public SensitivityService(
         IQuerySession session,
         IConfiguration configuration,
-        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
+        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
+        IPermissionResolver? permissions = null)
     {
         _session = session;
         _tenant = tenant;
+        _permissions = permissions;
         _mode = Enum.TryParse<SensitivityMode>(configuration["Sensitivity:Mode"], ignoreCase: true, out var m)
             ? m
             : SensitivityMode.SensitiveOnly;
@@ -80,7 +92,7 @@ public class SensitivityService : ISensitivityService
             return _storedCaller;
 
         IReadOnlyList<Role> roles = [];
-        if (Guid.TryParse(userId, out var id) && await _session.LoadAsync<User>(id, ct) is { } stored)
+        if (await StoredUserAsync(user, ct) is { } stored)
         {
             var roleIds = await barakoCMS.Infrastructure.Multitenancy.MembershipRoles
                 .EffectiveRoleIdsAsync(_session, stored, _tenant.Slug, ct);
@@ -108,33 +120,80 @@ public class SensitivityService : ISensitivityService
         return _storedCaller;
     }
 
+    /// <summary>The caller's stored user, or null when the principal names none. Read once per request.</summary>
+    private async ValueTask<User?> StoredUserAsync(System.Security.Claims.ClaimsPrincipal user, CancellationToken ct)
+    {
+        var userId = user.FindFirst("UserId")?.Value ?? string.Empty;
+        if (_storedUserFor is not null && string.Equals(_storedUserFor, userId, StringComparison.Ordinal))
+            return _storedUser;
+
+        _storedUser = Guid.TryParse(userId, out var id) ? await _session.LoadAsync<User>(id, ct) : null;
+        _storedUserFor = userId;
+        return _storedUser;
+    }
+
+    /// <summary>
+    /// The fields the caller's permission rules allow for an action on a type, for one entry or,
+    /// with none, for every entry. Every field for a caller with no stored user and for an instance
+    /// built without a resolver.
+    /// </summary>
+    private async ValueTask<FieldSet> RuleFieldsAsync(
+        System.Security.Claims.ClaimsPrincipal user, string contentType, string action, Content? entry, CancellationToken ct)
+    {
+        if (_permissions is null || await StoredUserAsync(user, ct) is not { } stored)
+            return FieldSet.All;
+
+        return await _permissions.FieldSetAsync(stored, contentType, action, entry, ct);
+    }
+
     /// <summary>Whether the stored caller holds the seeded SuperAdmin role, by its id.</summary>
     private static bool IsSuperAdmin(System.Security.Claims.ClaimsPrincipal storedCaller) =>
         storedCaller.HasClaim(StoredRoleId, SystemRoles.SuperAdminRoleId.ToString());
 
-    public async ValueTask<bool> ApplyAsync(string contentType, SensitivityLevel level, IDictionary<string, object> data, HttpContext httpContext, CancellationToken ct = default)
+    public ValueTask<bool> ApplyAsync(string contentType, SensitivityLevel level, IDictionary<string, object> data, HttpContext httpContext, CancellationToken ct = default)
+        => ApplyReadAsync(contentType, level, entry: null, data, httpContext.User, ct);
+
+    public ValueTask<bool> ApplyAsync(Content entry, IDictionary<string, object> data, HttpContext httpContext, CancellationToken ct = default)
+        => ApplyReadAsync(entry.ContentType, entry.Sensitivity, entry, data, httpContext.User, ct);
+
+    private async ValueTask<bool> ApplyReadAsync(
+        string contentType, SensitivityLevel level, Content? entry, IDictionary<string, object> data,
+        System.Security.Claims.ClaimsPrincipal user, CancellationToken ct)
     {
         // 1. Document-level.
-        if (!await MaySeeDocumentAsync(level, httpContext.User, ct))
+        if (!await MaySeeDocumentAsync(level, user, ct))
         {
             data.Clear();
             return level == SensitivityLevel.Hidden; // true when the whole document is hidden
         }
 
-        // Nothing below can mask with the mode off, so the schema is not read.
-        if (_mode == SensitivityMode.Off)
+        var shown = await RuleFieldsAsync(user, contentType, "read", entry, ct);
+
+        // Nothing below can mask with the mode off and no set, so the schema is not read.
+        if (_mode == SensitivityMode.Off && shown.IsAll)
             return false;
 
         // 2. Field-level, from the content type's schema.
         var definition = await LoadDefinitionAsync(contentType, ct);
-        if (definition != null)
+        if (definition != null && _mode != SensitivityMode.Off)
         {
             foreach (var field in definition.Fields)
             {
-                if (await MaySeeFieldAsync(field, httpContext.User, ct))
+                if (await MaySeeFieldAsync(field, user, ct))
                     continue;
                 foreach (var key in MatchingKeys(data, field.Name))
                     ApplyMask(data, key, field);
+            }
+        }
+
+        // 3. The fields the caller's Read rules show. Left out rather than masked, as a field whose
+        // mask is Remove is.
+        if (!shown.IsAll)
+        {
+            foreach (var key in data.Keys.ToList())
+            {
+                if (!KeyAllowed(definition, key, shown))
+                    data.Remove(key);
             }
         }
 
@@ -149,12 +208,249 @@ public class SensitivityService : ISensitivityService
         if (definition == null)
             return;
 
-        await DropUnwritableAsync(definition, incoming, existing, httpContext.User, ct);
+        await GuardWriteAsync(definition, incoming, existing, existingEntry: null, updating: false, httpContext.User, ct);
     }
 
-    public async ValueTask ApplyWriteAsync(ContentTypeDefinition definition, IDictionary<string, object> incoming, IReadOnlyDictionary<string, object>? existing, HttpContext httpContext, CancellationToken ct = default)
+    public ValueTask ApplyWriteAsync(ContentTypeDefinition definition, IDictionary<string, object> incoming, IReadOnlyDictionary<string, object>? existing, HttpContext httpContext, CancellationToken ct = default)
+        => GuardWriteAsync(definition, incoming, existing, existingEntry: null, updating: false, httpContext.User, ct);
+
+    public async ValueTask ApplyWriteAsync(Content existing, IDictionary<string, object> incoming, HttpContext httpContext, CancellationToken ct = default)
     {
-        await DropUnwritableAsync(definition, incoming, existing, httpContext.User, ct);
+        var definition = await LoadDefinitionAsync(existing.ContentType, ct);
+        if (definition == null)
+            return;
+
+        await GuardWriteAsync(definition, incoming, existing.Data, existing, updating: true, httpContext.User, ct);
+    }
+
+    public async ValueTask ApplyTransitionWriteAsync(Content existing, IDictionary<string, object> incoming, HttpContext httpContext, CancellationToken ct = default)
+    {
+        var definition = await LoadDefinitionAsync(existing.ContentType, ct);
+        if (definition == null)
+            return;
+
+        await GuardWriteAsync(definition, incoming, existing.Data, existing, updating: false, httpContext.User, ct);
+    }
+
+    /// <summary>
+    /// The read rule for a field of a type: sensitivity lets the caller see it and their Read rules
+    /// show it, on the entry when one is given and on every entry they may read when not.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="ApplyAsync(Content, IDictionary{string, object}, HttpContext, CancellationToken)"/>
+    /// shows exactly the fields this allows, so what a caller may filter or search on and what they
+    /// are shown cannot drift apart.
+    /// </remarks>
+    public async ValueTask<bool> MayReadFieldAsync(
+        string contentType, FieldDefinition field, Content? entry, System.Security.Claims.ClaimsPrincipal user, CancellationToken ct = default)
+        => await MaySeeFieldAsync(field, user, ct)
+           && (await RuleFieldsAsync(user, contentType, "read", entry, ct)).Allows(field.Name);
+
+    /// <summary>Whether the caller reads this entry's data at all: its own level, and a Read rule granting it.</summary>
+    private async ValueTask<bool> MayReadEntryAsync(Content entry, System.Security.Claims.ClaimsPrincipal user, CancellationToken ct)
+    {
+        if (!await MaySeeDocumentAsync(entry.Sensitivity, user, ct))
+            return false;
+
+        return _permissions is not null
+            && await StoredUserAsync(user, ct) is { } stored
+            && await _permissions.CanPerformActionAsync(stored, entry.ContentType, "read", entry, ct);
+    }
+
+    /// <summary>
+    /// The write rule, the one every write path applies: sensitivity, then the caller's field sets.
+    /// </summary>
+    /// <remarks>
+    /// Creating (no stored data), a field outside the Create rules' sets that the request gives a
+    /// value is refused.
+    ///
+    /// Updating a stored entry the caller may read, a field the Read rules granting it do not show is
+    /// put back, and one they show and the Update rule does not let the caller set is refused when
+    /// the request changes it and put back when it does not. On an entry the caller may not read (no
+    /// Read rule grants it, or its own level withholds its data), nothing is compared: a field the
+    /// rule granting the write lets the caller set (every field, when it holds no set) is written
+    /// blind, as an Update rule without a Read rule always could, and every other one is put back.
+    /// Comparing there would answer a guess at a value the caller cannot read, 403 for wrong and
+    /// 200 for right. Sensitivity has already put back what the caller may not see.
+    ///
+    /// A transition carrying values (<paramref name="updating"/> false, with the entry) is judged the
+    /// same way for reading and refuses nothing: a transition is not an update, and the fields its
+    /// type declares for it are its own set. Stored data with no entry, which only a module's own
+    /// write passes, is judged against the fields shown on every entry of the type.
+    ///
+    /// A refusal is a 403 for the whole request (<see cref="FieldWriteRefusedException"/>). Only a
+    /// role holding a set can meet one, and every branch returns before reading anything more when
+    /// the caller's rules hold none.
+    /// </remarks>
+    private async ValueTask GuardWriteAsync(
+        ContentTypeDefinition definition,
+        IDictionary<string, object> incoming,
+        IReadOnlyDictionary<string, object>? existing,
+        Content? existingEntry,
+        bool updating,
+        System.Security.Claims.ClaimsPrincipal user,
+        CancellationToken ct)
+    {
+        // First, whatever the mode, the caller and the path: a token is written by the server
+        // alone, so what was sent is dropped and the stored value put back before any rule below
+        // reads the data. Nothing below can then refuse over a token, so no answer tells a caller
+        // whether a guess matched.
+        DropTokens(definition, incoming, existing);
+
+        if (_mode != SensitivityMode.Off)
+            await DropUnwritableAsync(definition, incoming, existing, user, ct);
+
+        var refused = new List<string>();
+        var undeclared = 0;
+
+        void Refuse(string key)
+        {
+            if (DeclaredName(definition, key) is { } name)
+            {
+                if (!refused.Contains(name))
+                    refused.Add(name);
+            }
+            else
+            {
+                undeclared++;
+            }
+        }
+
+        if (existing is null)
+        {
+            var settable = await RuleFieldsAsync(user, definition.Name, "create", null, ct);
+            if (settable.IsAll)
+                return;
+
+            foreach (var key in incoming.Keys.ToList())
+            {
+                if (KeyAllowed(definition, key, settable))
+                    continue;
+
+                if (!IsNull(incoming[key]))
+                    Refuse(key);
+
+                incoming.Remove(key);
+            }
+        }
+        else
+        {
+            var readable = await RuleFieldsAsync(user, definition.Name, "read", existingEntry, ct);
+            var writable = updating && existingEntry is not null
+                ? await RuleFieldsAsync(user, definition.Name, "update", existingEntry, ct)
+                : FieldSet.All;
+
+            if (readable.IsAll && writable.IsAll)
+                return;
+
+            var entryRead = existingEntry is null || await MayReadEntryAsync(existingEntry, user, ct);
+
+            var keys = incoming.Keys.Concat(existing.Keys).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            foreach (var key in keys)
+            {
+                var settable = KeyAllowed(definition, key, writable);
+
+                if (!entryRead)
+                {
+                    if (settable)
+                        continue;
+
+                    PutBack(incoming, existing, key);
+                    continue;
+                }
+
+                if (!KeyAllowed(definition, key, readable))
+                {
+                    PutBack(incoming, existing, key);
+                    continue;
+                }
+
+                if (settable)
+                    continue;
+
+                var stored = MatchingKeys(existing, key);
+                var storedValue = stored.Count > 0 ? existing[stored[0]] : null;
+                if (MatchingKeys(incoming, key).Any(sent => !SameValue(incoming[sent], storedValue)))
+                    Refuse(key);
+
+                PutBack(incoming, existing, key);
+            }
+        }
+
+        if (refused.Count > 0 || undeclared > 0)
+            throw new FieldWriteRefusedException(refused, undeclared);
+    }
+
+    /// <summary>
+    /// Drops every value sent for a token field and puts the stored one back, or none on create.
+    /// </summary>
+    private static void DropTokens(
+        ContentTypeDefinition definition, IDictionary<string, object> incoming, IReadOnlyDictionary<string, object>? existing)
+    {
+        foreach (var field in definition.Fields)
+        {
+            if (field is null || !barakoCMS.Core.Validation.TokenFields.IsToken(field.Type))
+                continue;
+
+            foreach (var sent in MatchingKeys(incoming, field.Name))
+                incoming.Remove(sent);
+
+            var stored = existing is null ? [] : MatchingKeys(existing, field.Name);
+            if (stored.Count > 0)
+                incoming[stored[0]] = existing![stored[0]];
+        }
+    }
+
+    /// <summary>
+    /// Drops every casing of a key the caller sent and puts the stored value back under the casing
+    /// it was stored as, so neither sending nor omitting the field changes it.
+    /// </summary>
+    private static void PutBack(IDictionary<string, object> incoming, IReadOnlyDictionary<string, object> existing, string key)
+    {
+        foreach (var sent in MatchingKeys(incoming, key))
+            incoming.Remove(sent);
+
+        var stored = MatchingKeys(existing, key);
+        if (stored.Count > 0)
+            incoming[stored[0]] = existing[stored[0]];
+    }
+
+    /// <summary>
+    /// Whether a data key is a field the set allows. A key matches the declared fields of its name
+    /// ignoring case, as masking does, and is allowed only when every one of them is, so a key the
+    /// type does not declare is allowed only by a set that allows every field.
+    /// </summary>
+    private static bool KeyAllowed(ContentTypeDefinition? definition, string key, FieldSet set)
+    {
+        if (set.IsAll)
+            return true;
+
+        var declared = definition?.Fields
+            .Where(f => string.Equals(f.Name, key, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        return declared is { Count: > 0 } && declared.All(f => set.Allows(f.Name));
+    }
+
+    /// <summary>The schema's spelling of a key, or null when the type does not declare it.</summary>
+    private static string? DeclaredName(ContentTypeDefinition definition, string key) =>
+        definition.Fields.FirstOrDefault(f => string.Equals(f.Name, key, StringComparison.OrdinalIgnoreCase))?.Name;
+
+    private static bool IsNull(object? value) =>
+        value is null or JsonElement { ValueKind: JsonValueKind.Null or JsonValueKind.Undefined };
+
+    /// <summary>
+    /// Whether a sent value is the stored one, compared as JSON rather than as text, since the store
+    /// gives an object back with its keys in its own order.
+    /// </summary>
+    private static bool SameValue(object? sent, object? stored)
+    {
+        if (IsNull(sent) || IsNull(stored))
+            return IsNull(sent) && IsNull(stored);
+
+        var left = sent is JsonElement l ? l : JsonSerializer.SerializeToElement(sent);
+        var right = stored is JsonElement r ? r : JsonSerializer.SerializeToElement(stored);
+        return JsonElement.DeepEquals(left, right);
     }
 
     /// <summary>
@@ -203,11 +499,7 @@ public class SensitivityService : ISensitivityService
     {
         foreach (var field in definition.Fields)
         {
-            // A token is written by the server alone, so it is treated here as a field no caller
-            // may see, whoever they are and whatever the mode: what they sent is dropped and the
-            // stored value put back. With the mode off MaySeeFieldAsync answers yes for every
-            // other field, so nothing else is touched.
-            if (!barakoCMS.Core.Validation.TokenFields.IsToken(field.Type) && await MaySeeFieldAsync(field, user, ct))
+            if (await MaySeeFieldAsync(field, user, ct))
                 continue;
 
             // The caller cannot see this field, so they cannot set it. Revert to the stored value

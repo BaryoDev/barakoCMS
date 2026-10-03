@@ -18,6 +18,8 @@ namespace barakoCMS.Infrastructure.Multitenancy;
 /// or a sign-in page finds the tenant in the first place. Both read the registry. The second then
 /// reads the published site entry of the tenant the registry returned, in a session opened for
 /// that tenant by name, so it reaches a registered, active tenant's partition and no other.</item>
+/// <item><c>/api/tenants/tls-ask</c>: a reverse proxy asks whether a host is a tenant's domain, on
+/// the deployment's own host. It reads the registry.</item>
 /// <item><c>/api/auth</c> and below: identity is stored once for the deployment, and a provider
 /// redirects a social sign-in to one fixed address. Which tenant a token is for is the issuer's
 /// decision, and in Multi it refuses the default partition.</item>
@@ -53,7 +55,8 @@ internal static class TenantlessRoutes
         if (HealthProbePaths.IsHealthPath(value) || MetricsScrapeAccess.IsMetricsPath(value))
             return true;
 
-        if (string.Equals(value, "/api/meta", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(value, "/api/meta", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, "/api/tenants/tls-ask", StringComparison.OrdinalIgnoreCase))
             return true;
 
         // ["", "api", "tenants", x, y]

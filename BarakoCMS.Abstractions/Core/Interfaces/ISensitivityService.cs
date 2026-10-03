@@ -57,6 +57,50 @@ public interface ISensitivityService
         => ValueTask.FromResult(field.Sensitivity == SensitivityLevel.Public);
 
     /// <summary>
+    /// <see cref="ApplyAsync(string, SensitivityLevel, IDictionary{string, object}, HttpContext, CancellationToken)"/>
+    /// for one stored entry, so a rule that grants that entry decides which of its fields are shown.
+    /// </summary>
+    /// <remarks>
+    /// The other overload knows the type and not the entry, and answers with the fields shown on
+    /// every entry of the type the caller may read, which can be fewer. The default calls it.
+    /// </remarks>
+    ValueTask<bool> ApplyAsync(Content entry, IDictionary<string, object> data, HttpContext httpContext, CancellationToken ct = default)
+        => ApplyAsync(entry.ContentType, entry.Sensitivity, data, httpContext, ct);
+
+    /// <summary>
+    /// The write rule for an update of one stored entry. A field the caller may not read is put
+    /// back to its stored value. A field the caller may read and the rule granting the update does
+    /// not let them set is refused when the request changes it, and put back when it does not.
+    /// </summary>
+    /// <remarks>
+    /// The default calls the overload that takes the stored data, which reverts what the caller
+    /// may not see and refuses nothing.
+    /// </remarks>
+    ValueTask ApplyWriteAsync(Content existing, IDictionary<string, object> incoming, HttpContext httpContext, CancellationToken ct = default)
+        => ApplyWriteAsync(existing.ContentType, incoming, existing.Data, httpContext, ct);
+
+    /// <summary>
+    /// The write rule for a transition that carries values on one stored entry: a field the caller
+    /// may not read on that entry is put back to its stored value, and nothing is refused, since a
+    /// transition's declared fields are its own writable set and it is not an update.
+    /// </summary>
+    /// <remarks>The default calls the overload that takes the stored data.</remarks>
+    ValueTask ApplyTransitionWriteAsync(Content existing, IDictionary<string, object> incoming, HttpContext httpContext, CancellationToken ct = default)
+        => ApplyWriteAsync(existing.ContentType, incoming, existing.Data, httpContext, ct);
+
+    /// <summary>
+    /// Whether this caller reads a field of a content type: its sensitivity allows it and their
+    /// permission rules show it. With an entry, for that entry; without one, for every entry of the
+    /// type they may read.
+    /// </summary>
+    /// <remarks>
+    /// What a read endpoint asks before it lets a caller filter or search on a field. The default is
+    /// <see cref="MaySeeFieldAsync"/>, which knows no rule.
+    /// </remarks>
+    ValueTask<bool> MayReadFieldAsync(string contentType, FieldDefinition field, Content? entry, ClaimsPrincipal user, CancellationToken ct = default)
+        => MaySeeFieldAsync(field, user, ct);
+
+    /// <summary>
     /// Whether this caller reads the data of a document at the given sensitivity.
     /// </summary>
     /// <remarks>

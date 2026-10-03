@@ -91,6 +91,7 @@ internal static class RateLimitSetup
     public const string SiteSharePolicy = "site-share";
     public const string LogoutPolicy = "logout";
     public const string DeliveryPolicy = "delivery";
+    public const string TlsAskPolicy = "tls-ask";
 
     public const int MaxPolicyNameLength = 64;
 
@@ -111,6 +112,7 @@ internal static class RateLimitSetup
         [SiteSharePolicy] = "SiteShare",
         [DeliveryPolicy] = "Delivery",
         [LogoutPolicy] = null,
+        [TlsAskPolicy] = null,
     };
 
     private static readonly RateLimitWindow OptInDefaults = new(0, 60, 0);
@@ -127,6 +129,17 @@ internal static class RateLimitSetup
     /// auth bucket meant a logout after a few reloads was refused while the session stayed live.
     /// </summary>
     public static readonly RateLimitWindow Logout = new(30, 60, 0);
+
+    /// <summary>
+    /// Fixed, per bucket of asked names (see <see cref="TlsAskPartitionKey"/>). A proxy asks once per
+    /// name it has no certificate for, so a real name stays far below this.
+    /// </summary>
+    public static readonly RateLimitWindow TlsAsk = new(60, 60, 0);
+
+    /// <summary>How many buckets the asked names are spread over, which bounds the limiter's partitions.</summary>
+    public const int TlsAskBuckets = 4096;
+
+    public const string TlsAskPath = "/api/tenants/tls-ask";
 
     /// <summary>Reads and validates the section. Throws with the offending setting named.</summary>
     public static RateLimitSettings Read(IConfiguration configuration)
@@ -178,6 +191,12 @@ internal static class RateLimitSetup
 
         options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
         {
+            // The ask comes from the proxy's one address, so a flood of made-up server names would
+            // fill that address's bucket and refuse the real names with it. The tls-ask policy
+            // counts it instead, by name.
+            if (string.Equals(context.Request.Path.Value, TlsAskPath, StringComparison.OrdinalIgnoreCase))
+                return RateLimitPartition.GetNoLimiter(NotCountedHere);
+
             var partition = GlobalPartitionKey(context, rendererKeyHash);
             var window = partition == RendererPartition ? settings.Renderer : settings.Global;
             return RateLimitPartition.GetFixedWindowLimiter(partition, _ => Options(window));
@@ -190,6 +209,9 @@ internal static class RateLimitSetup
             RateLimitPartition.GetFixedWindowLimiter($"logout-{ClientIp(context)}", _ => Options(Logout)));
 
         options.AddPolicy(DeliveryPolicy, context => DeliveryPartition(context, settings.Delivery, rendererKeyHash));
+
+        options.AddPolicy(TlsAskPolicy, context =>
+            RateLimitPartition.GetFixedWindowLimiter(TlsAskPartitionKey(context), _ => Options(TlsAsk)));
 
         foreach (var policy in settings.Policies)
         {
@@ -343,6 +365,24 @@ internal static class RateLimitSetup
         delivery is { } window && !HasRendererKey(context, rendererKeyHash)
             ? RateLimitPartition.GetFixedWindowLimiter($"delivery|{ClientIp(context)}", _ => Options(window))
             : RateLimitPartition.GetNoLimiter(NotCountedHere);
+
+    /// <summary>
+    /// The bucket of the name a TLS ask is about, not of the caller: a flood of made-up names then
+    /// spreads over <see cref="TlsAskBuckets"/> buckets and leaves a real name's bucket nearly empty.
+    /// </summary>
+    /// <remarks>
+    /// The string hash is seeded per process, so which names share a bucket cannot be worked out in
+    /// advance, only probed for. A value that is not a host goes to one bucket of its own, since every
+    /// such ask is answered no.
+    /// </remarks>
+    internal static string TlsAskPartitionKey(HttpContext context)
+    {
+        var host = barakoCMS.Infrastructure.Multitenancy.TenantDomainLookup.BareHost(context.Request.Query["domain"].ToString());
+        var name = barakoCMS.Infrastructure.Multitenancy.TenantDomainMap.Normalise(host);
+        return name is null
+            ? "tls-ask|not-a-host"
+            : $"tls-ask|{(uint)name.GetHashCode(StringComparison.Ordinal) % TlsAskBuckets}";
+    }
 
     /// <summary>
     /// The renderer partition when the header matches the configured key, otherwise the client IP.

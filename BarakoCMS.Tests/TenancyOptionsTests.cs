@@ -66,6 +66,7 @@ public class TenancyOptionsTests
     [InlineData("GET", "/api/tenants/by-host/acme.example.com")]
     [InlineData("GET", "/api/tenants/acme/public")]
     [InlineData("HEAD", "/api/tenants/acme/public")]
+    [InlineData("GET", "/api/tenants/tls-ask")]
     public void A_listed_route_answers_without_a_tenant(string method, string path)
     {
         TenantlessRoutes.Allows(method, new PathString(path)).Should().BeTrue();
@@ -96,6 +97,8 @@ public class TenancyOptionsTests
     [InlineData("DELETE", "/api/tenants/acme/public")]
     [InlineData("POST", "/api/tenants/by-host/acme.example.com")]
     [InlineData("GET", "/api/tenants/by-host")]
+    [InlineData("POST", "/api/tenants/tls-ask")]
+    [InlineData("GET", "/api/tenants/tls-ask/more")]
     [InlineData("GET", "/api/tenants/acme/public/more")]
     [InlineData("POST", "/api/meta")]
     [InlineData("POST", "/health/live")]

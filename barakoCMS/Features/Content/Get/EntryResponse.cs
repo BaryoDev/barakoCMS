@@ -65,7 +65,7 @@ internal static class EntryResponse
             Version = streamState?.Version ?? 0
         };
 
-        if (await sensitivity.ApplyAsync(response.ContentType, response.Sensitivity, response.Data, http, ct))
+        if (await sensitivity.ApplyAsync(content, response.Data, http, ct))
             response.ContentType = "HIDDEN";
 
         return response;
