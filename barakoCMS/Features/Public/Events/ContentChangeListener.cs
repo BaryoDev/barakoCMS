@@ -95,6 +95,10 @@ internal sealed class ContentChangeListener(
 
             if (projected is not null)
             {
+                // The stream reads no file store from inside a commit, so a file field is left out
+                // rather than sent as an id the delivery routes would not answer.
+                projected = PublicFileFields.LeaveOut(projected, effective);
+
                 var name = stream.Any(e => BecamePublic(e.Data))
                     ? ContentChangeEvents.Published
                     : ContentChangeEvents.Updated;

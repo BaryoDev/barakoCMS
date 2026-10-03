@@ -55,7 +55,56 @@ internal sealed class FileStore(
         // A row stored before uploads were checked carries whatever type its client declared.
         ContentType = UploadTypes.IsExactly(file.ContentType) ? file.ContentType : "application/octet-stream",
         Size = file.Size,
+        PublicUrl = file.IsPublic ? PublicAddress(file) : null,
+        Alt = file.Alt,
+        Caption = file.Caption,
     };
+
+    // The public download route redirects to the store's own URL on the same condition, and
+    // serves every other public file itself.
+    private static string PublicAddress(StoredFile file) =>
+        UploadTypes.IsExactly(file.ContentType) && !string.IsNullOrEmpty(file.PublicUrl)
+            ? file.PublicUrl
+            : $"/api/public/files/{file.Id}";
+
+    public async Task<IReadOnlyDictionary<Guid, StoredFileInfo>> FindPublicManyAsync(
+        IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default)
+    {
+        var files = await LoadManyAsync(ids, cancellationToken);
+        return files.Where(f => f.IsPublic).ToDictionary(f => f.Id, Info);
+    }
+
+    public async Task<IReadOnlyDictionary<Guid, StoredFileInfo>> FindManyAsync(
+        IReadOnlyCollection<Guid> ids, ClaimsPrincipal caller, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(caller);
+
+        var found = new Dictionary<Guid, StoredFileInfo>();
+        foreach (var file in await LoadManyAsync(ids, cancellationToken))
+        {
+            if (await MayReadAsync(file, caller, cancellationToken))
+            {
+                found[file.Id] = Info(file);
+            }
+        }
+
+        return found;
+    }
+
+    /// <summary>The records among these ids in one read, without the cached resizes.</summary>
+    private async Task<IReadOnlyList<StoredFile>> LoadManyAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+
+        var wanted = ids.Distinct().ToArray();
+        if (wanted.Length == 0)
+        {
+            return [];
+        }
+
+        var files = await session.Query<StoredFile>().Where(f => f.Id.In(wanted)).ToListAsync(ct);
+        return files.Where(f => f.ParentFileId is null).ToList();
+    }
 
     public async Task<Stream?> OpenPublicAsync(Guid id, CancellationToken cancellationToken = default)
     {
@@ -85,11 +134,7 @@ internal sealed class FileStore(
             return null;
         }
 
-        // The public download route redirects to the store's own URL on the same condition, and
-        // serves every other public file itself.
-        return UploadTypes.IsExactly(file.ContentType) && !string.IsNullOrEmpty(file.PublicUrl)
-            ? file.PublicUrl
-            : $"/api/public/files/{file.Id}";
+        return PublicAddress(file);
     }
 
     public async Task<StoredFileInfo?> FindAsync(Guid id, ClaimsPrincipal caller, CancellationToken cancellationToken = default)
@@ -246,11 +291,15 @@ internal sealed class FileStore(
             return null;
         }
 
-        return file.IsPublic
-               || await FileAccessRule.MayAccessAsync(caller, file, tenant.Slug, permissions, configuration, ct)
-            ? file
-            : null;
+        return await MayReadAsync(file, caller, ct) ? file : null;
     }
+
+    /// <summary>
+    /// Whether <paramref name="caller"/> may download this file, which is not a cached resize. The
+    /// one rule for reading a file for a caller, one id or many.
+    /// </summary>
+    private async Task<bool> MayReadAsync(StoredFile file, ClaimsPrincipal caller, CancellationToken ct) =>
+        file.IsPublic || await FileAccessRule.MayAccessAsync(caller, file, tenant.Slug, permissions, configuration, ct);
 
     /// <summary><see cref="FileAccessRule.IsSignedInHere"/>, for the scope's tenant.</summary>
     private bool IsSignedInHere(ClaimsPrincipal caller) => FileAccessRule.IsSignedInHere(caller, tenant.Slug);

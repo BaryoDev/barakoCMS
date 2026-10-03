@@ -516,6 +516,12 @@ the scope decides it.
 - `DeleteAsync` deletes for a caller who could delete through `DELETE /api/files/{id}`: one
   holding `upload_files` who is the file's owner or holds `manage_all_files`. It answers `InUse` while an
   entry names the file, unless forced.
+- `FindPublicManyAsync` and `FindManyAsync` answer what `FindPublicAsync` and `FindAsync` would for
+  each of many ids, keyed by id. BarakoCMS.Files reads them all in one query, so the caller bounds
+  how many it asks for. A store that does not implement them is asked once per id. The core's
+  [file fields](docs/file-fields.md) read through these, 500 ids at a time.
+- `StoredFileInfo` carries `PublicUrl` (what `PublicUrlAsync` would answer, null for a private
+  file), `Alt` and `Caption` beside the name, type and size.
 
 `SaveAsync` and `DeleteAsync` commit through the scope's session, which the storage shares. Call
 them before staging anything else on that session: with work already staged they throw

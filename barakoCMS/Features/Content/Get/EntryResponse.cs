@@ -20,7 +20,8 @@ internal static class EntryResponse
         IContentSourcingPolicy sourcing,
         ISensitivityService sensitivity,
         HttpContext http,
-        CancellationToken ct)
+        CancellationToken ct,
+        barakoCMS.Core.Interfaces.IFileStore? files = null)
     {
         var streamState = await session.Events.FetchStreamStateAsync(content.Id, ct);
 
@@ -67,6 +68,10 @@ internal static class EntryResponse
 
         if (await sensitivity.ApplyAsync(content, response.Data, http, ct))
             response.ContentType = "HIDDEN";
+
+        // After the scrub, so a field masked from this caller names no file here either.
+        response.Files = (await EntryFiles.ResolveAsync(
+            [(response.ContentType, response.Data)], session, files, http.User, ct))[0];
 
         return response;
     }

@@ -59,6 +59,6 @@ internal class Endpoint(
         }
 
         Response = await EntryResponse.BuildAsync(
-            content, session, sourcing, Resolve<ISensitivityService>(), HttpContext, ct);
+            content, session, sourcing, Resolve<ISensitivityService>(), HttpContext, ct, Resolve<IFileStore>());
     }
 }
