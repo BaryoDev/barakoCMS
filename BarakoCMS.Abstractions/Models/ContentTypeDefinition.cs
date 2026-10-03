@@ -46,9 +46,8 @@ public class ContentTypeDefinition
     /// runs during a restore or a migration, where dropping rows that the bundle holds loses content
     /// at the worst possible moment. A bundle carrying two entries of a singleton type lands both.
     ///
-    /// The tenant profile is not a substitute. Its shape is fixed and <c>Branding</c> is not writable
-    /// through the API, so a client's emergency number has nowhere to go. <c>SystemSetting</c> is
-    /// deployment level with fixed categories, neither per tenant nor public.
+    /// <c>SystemSetting</c> is not a substitute: it is deployment level with fixed categories,
+    /// neither per tenant nor public.
     /// </remarks>
     public bool IsSingleton { get; set; }
 

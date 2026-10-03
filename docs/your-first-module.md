@@ -85,16 +85,19 @@ cannot declare them for you.
 Create `BarakoCMS.Glossary/GlossaryCapabilities.cs`:
 
 ```csharp
+using barakoCMS.Models;
+using barakoCMS.Modules;
+
 namespace BarakoCMS.Glossary;
 
 public static class GlossaryCapabilities
 {
     public const string ReadTerms = "read_glossary_terms";
 
+    // Who starts with the capability, said once. The seeded Admin role is found by its id.
     // SuperAdmin holds the wildcard and passes any gate without being named.
-    internal static readonly string[] SeededRoles = ["Admin"];
-
-    internal static readonly string[] All = [ReadTerms];
+    internal static readonly CapabilityDefaults Defaults =
+        CapabilityDefaults.For(ReadTerms).GrantedTo(SystemRoles.Admin);
 }
 ```
 
@@ -159,8 +162,7 @@ public sealed class GlossaryModule : IBarakoModule
         if (existing is null)
             session.Store(GlossaryContentTypes.TermDefinition());
 
-        await ModuleCapabilities.GrantAsync(
-            session, GlossaryCapabilities.SeededRoles, GlossaryCapabilities.All, ct);
+        await GlossaryCapabilities.Defaults.GrantAsync(session, ct);
     }
 }
 ```
@@ -175,8 +177,8 @@ What each member does, briefly, with the rule behind it linked:
   `Modules:Glossary` section, never the application root. See
   [Configuration](../MODULES.md#configuration).
 - `SeedAsync` runs on every start, so it checks before it stores. It does not call
-  `SaveChangesAsync`; the host commits your seed. `ModuleCapabilities.GrantAsync` gives Admin the
-  capability your endpoint will ask for. See [Seeding](../MODULES.md#seeding).
+  `SaveChangesAsync`; the host commits your seed. `Defaults.GrantAsync` gives the seeded Admin
+  role the capability your endpoint will ask for. See [Seeding](../MODULES.md#seeding).
 
 **Registering it.** There is nothing to call. The host finds every public `IBarakoModule` in a
 library that references core, so a project or package reference is the registration. See

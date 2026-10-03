@@ -12,7 +12,7 @@ internal class Endpoint(
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
     IConfiguration configuration) : Endpoint<Request, Response>
 {
-    private static readonly string[] LegacyRoles = ["SuperAdmin", "Admin"];
+    private static readonly IReadOnlyList<string> LegacyRoles = CapabilityGate.AdminLegacyRoles;
 
     public override void Configure()
     {

@@ -21,7 +21,7 @@ public class IndexEndpoint(IDocumentSession session, IEmbeddingClient embed) : E
     {
         Post("/api/ai/index/{type}");
         Definition.RequireCapability(
-            AiCapabilities.ManageSearchIndex, AiCapabilities.LegacyRoles);
+            AiCapabilities.ManageSearchIndex, AiCapabilities.Defaults.LegacyRoles);
     }
 
     public override async Task HandleAsync(CancellationToken ct)

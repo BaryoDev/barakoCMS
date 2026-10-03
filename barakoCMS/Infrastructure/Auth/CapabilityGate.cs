@@ -15,6 +15,17 @@ namespace barakoCMS.Infrastructure.Auth;
 public sealed record RequiredCapability(string Capability, IReadOnlyList<string> LegacyRoles);
 
 /// <summary>
+/// Endpoint metadata naming a capability the handler asks about itself, for one record rather than
+/// for the whole route.
+/// </summary>
+/// <remarks>
+/// It gates nothing. It puts the name on the routing table, which is where
+/// <c>GET /api/capabilities</c> and the role write check read the vocabulary from, so a capability
+/// no route requires outright can still be listed and granted.
+/// </remarks>
+public sealed record CheckedCapability(string Capability);
+
+/// <summary>
 /// Declares an endpoint's capability gate from <c>Configure()</c>, in place of <c>Roles(...)</c>.
 /// </summary>
 /// <remarks>
@@ -34,4 +45,32 @@ public static class CapabilityGate
 
         definition.Metadata(new RequiredCapability(capability, legacyRoles));
     }
+
+    /// <summary>
+    /// The same gate, with the legacy list a <c>CapabilityDefaults</c> declaration or
+    /// <see cref="Models.SystemRoles.LegacyNames"/> gives.
+    /// </summary>
+    public static void RequireCapability(
+        this EndpointDefinition definition, string capability, IReadOnlyList<string> legacyRoles)
+    {
+        ArgumentNullException.ThrowIfNull(legacyRoles);
+
+        definition.RequireCapability(capability, legacyRoles.ToArray());
+    }
+
+    /// <summary>
+    /// Names a capability the handler checks itself, so it is listed and can be granted. Gates
+    /// nothing. Use it on an endpoint that does not also call <c>RequireCapability</c>.
+    /// </summary>
+    public static void ChecksCapability(this EndpointDefinition definition, string capability)
+    {
+        if (string.IsNullOrWhiteSpace(capability))
+            throw new ArgumentException("A checked capability needs a name.", nameof(capability));
+
+        definition.Metadata(new CheckedCapability(capability));
+    }
+
+    /// <summary>The legacy list of a core gate that was <c>Roles("SuperAdmin", "Admin")</c>.</summary>
+    internal static readonly IReadOnlyList<string> AdminLegacyRoles =
+        Models.SystemRoles.LegacyNames(Models.SystemRoles.Admin);
 }

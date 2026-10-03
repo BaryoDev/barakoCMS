@@ -63,7 +63,7 @@ internal static class QueryGate
     /// The names that gated queries before <see cref="SystemCapabilities.ManageQueries"/>, kept as
     /// the legacy fallback so an upgrade does not lock a deployment out.
     /// </summary>
-    internal static readonly string[] LegacyRoles = ["SuperAdmin", "Admin"];
+    internal static readonly IReadOnlyList<string> LegacyRoles = CapabilityGate.AdminLegacyRoles;
 
     internal static bool IsSlug(string value) =>
         System.Text.RegularExpressions.Regex.IsMatch(value, "^[a-z0-9][a-z0-9-]{0,62}$");

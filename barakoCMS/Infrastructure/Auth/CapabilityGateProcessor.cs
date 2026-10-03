@@ -5,7 +5,7 @@ namespace barakoCMS.Infrastructure.Auth;
 
 /// <summary>
 /// Enforces the capability gate an endpoint declares with
-/// <see cref="CapabilityGate.RequireCapability"/>. Runs for every request and does nothing unless the
+/// <c>CapabilityGate.RequireCapability</c>. Runs for every request and does nothing unless the
 /// endpoint carries <see cref="RequiredCapability"/> metadata.
 /// </summary>
 /// <remarks>

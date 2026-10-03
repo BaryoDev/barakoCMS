@@ -17,9 +17,9 @@ namespace BarakoCMS.Files;
 /// The public members hand a file over only when it is marked public, as the public download route
 /// does. They take no caller, so no private file leaves through them.
 ///
-/// The members that take a caller apply <see cref="FileOwnership"/> to it, as the download and
-/// delete routes do, after three checks a principal handed to a method has not had: signed in,
-/// not an API key, and not a token for another tenant. The caller has to be the current request's.
+/// The members that take a caller apply <see cref="FileAccessRule"/> to it, as the download and
+/// delete routes do. It starts with three checks a principal handed to a method has not had: signed
+/// in, not an API key, and not a token for another tenant. The caller has to be the current request's.
 /// Whether its token was revoked, its tenant switched off or its device refused is settled by the
 /// request pipeline and is not asked again here.
 ///
@@ -202,7 +202,8 @@ internal sealed class FileStore(
         }
 
         var file = await session.LoadAsync<StoredFile>(id, cancellationToken);
-        if (file is null || file.ParentFileId is not null || !FileOwnership.CanAccess(caller, file))
+        if (file is null || file.ParentFileId is not null
+            || !await FileAccessRule.MayAccessAsync(caller, file, tenant.Slug, permissions, configuration, cancellationToken))
         {
             return FileDeleteResult.NotFound;
         }
@@ -245,39 +246,19 @@ internal sealed class FileStore(
             return null;
         }
 
-        return file.IsPublic || (IsSignedInHere(caller) && FileOwnership.CanAccess(caller, file)) ? file : null;
+        return file.IsPublic
+               || await FileAccessRule.MayAccessAsync(caller, file, tenant.Slug, permissions, configuration, ct)
+            ? file
+            : null;
     }
 
-    /// <summary>
-    /// Whether <paramref name="caller"/> is a principal the authenticated routes of this module
-    /// could have been reached with, asked before anything about one file.
-    /// </summary>
-    /// <remarks>
-    /// Three checks that cost nothing and that a principal handed to a method has not had. An API
-    /// key reaches no file route at all. A token names the tenant it was issued for, its role
-    /// claims are that tenant's, and a request carrying it into another tenant is refused; the
-    /// comparison is the one that refusal makes.
-    ///
-    /// It is not the whole request pipeline. A revoked token, a token older than its user's
-    /// session, a tenant that is switched off or is the default one in Multi mode, and a device
-    /// that is not trusted are all refused before a route runs, and none of them is asked again
-    /// here. The caller has to be the principal of the request this scope serves.
-    /// </remarks>
-    private bool IsSignedInHere(ClaimsPrincipal caller)
-    {
-        if (caller.Identity is not { IsAuthenticated: true } || caller.HasClaim("auth_method", "apikey"))
-        {
-            return false;
-        }
-
-        var claimed = caller.FindFirst("tenant")?.Value;
-        return string.IsNullOrEmpty(claimed) || string.Equals(claimed, tenant.Slug, StringComparison.OrdinalIgnoreCase);
-    }
+    /// <summary><see cref="FileAccessRule.IsSignedInHere"/>, for the scope's tenant.</summary>
+    private bool IsSignedInHere(ClaimsPrincipal caller) => FileAccessRule.IsSignedInHere(caller, tenant.Slug);
 
     /// <summary>The capability gate on the delete route, asked of a principal instead of a request.</summary>
     private async Task<bool> HoldsUploadFilesAsync(ClaimsPrincipal caller, CancellationToken ct)
     {
-        if (FileCapabilities.LegacyRoles.Any(caller.IsInRole)
+        if (FileCapabilities.Defaults.LegacyRoles.Any(caller.IsInRole)
             && configuration.GetValue(CapabilityGateProcessor.LegacyRoleFallbackKey, false))
         {
             return true;

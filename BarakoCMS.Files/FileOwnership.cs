@@ -3,29 +3,20 @@ using System.Security.Claims;
 namespace BarakoCMS.Files;
 
 /// <summary>
-/// Who may read the bytes of a file, or destroy it: the uploader, or an account administering the
-/// tenant. Shared by <c>Download</c> and <c>Delete</c> so the two answer the same question the
-/// same way; see issue #547, where they had drifted.
+/// Whether a file is the caller's own upload. This is the half of <see cref="FileAccessRule"/>
+/// that needs no lookup, and on its own it refuses everyone but the uploader.
 /// </summary>
 /// <remarks>
-/// <c>upload_files</c> alone reaches list, describe and edit for every file in the tenant, and
-/// download and delete for a file this account uploaded, as <c>docs/access-control.md</c> says. None
-/// of list, describe or edit exposes bytes or destroys anything, and list already returns the same
-/// record describe does, so an ownership check on describe alone would hide nothing.
-/// Reading the bytes and deleting them are the two routes that leave the caller with something they
-/// did not have before (the file's content) or take something away for good, so both need this
-/// check in addition to the capability gate. Until content can reference a file (#141) there is no
-/// richer answer than "the person who uploaded it, or someone administering the tenant".
+/// It used to let the role names Admin and SuperAdmin through as well, read off the token. That
+/// override is the <c>manage_all_files</c> capability now, and <see cref="FileAccessRule"/> asks
+/// for it. No role name is read here, so a caller that stops at this check grants less than the
+/// rule, never more.
 /// </remarks>
 internal static class FileOwnership
 {
     public static bool CanAccess(ClaimsPrincipal user, StoredFile file)
     {
-        if (user.IsInRole("SuperAdmin") || user.IsInRole("Admin"))
-        {
-            return true;
-        }
-
+        // The empty id owns nothing: a file stored for no user carries it as UploadedBy.
         return Guid.TryParse(user.FindFirst("UserId")?.Value, out var userId)
             && userId != Guid.Empty
             && file.UploadedBy == userId;
