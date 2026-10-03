@@ -438,7 +438,8 @@ docker compose -f docker-compose.prod.yml up -d
 ```
 
 `db-migrate` (4.6.0 and later) applies the SQL files the release ships that this database has not
-had, and records each one. Do not run it against a serving API: a file waits on the locks the API
+had, and records each one. Do not run it against a serving API, apart from the few files
+[migrations.md](migrations.md) names as safe under the old build: a file waits on the locks the API
 holds, and an index built `CONCURRENTLY` does not finish while the API has a transaction open.
 [migrations.md](migrations.md) covers that, what the first run does on a database that was migrated
 by hand, and how to stop a run. `db-assert` exits 0 when the database already holds every object

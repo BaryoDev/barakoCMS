@@ -5,7 +5,7 @@ using Xunit;
 namespace BarakoCMS.Tests;
 
 /// <summary>
-/// Each file released before the ledger, on a database that does not have its change yet: the skip
+/// Each file that carries a skip query, on a database that does not have its change yet: the skip
 /// query has to answer false, the file has to run, and only then may the query answer true.
 /// </summary>
 /// <remarks>
@@ -84,6 +84,11 @@ public class MigrationSkipQueryTests
         ["Forms/4.2.0/forms-public-forms"] = (
             "select 1;",
             "select to_regclass('public.mt_doc_public_forms') is not null"),
+
+        ["Forms/4.6.0/forms-email-verification"] = (
+            "select 1;",
+            "select to_regclass('public.mt_doc_form_email_budgets') is not null "
+            + "and not (select relrowsecurity from pg_class where oid = to_regclass('public.mt_doc_form_email_verifications'))"),
     };
 
     public static TheoryData<string> Keys()
@@ -98,18 +103,28 @@ public class MigrationSkipQueryTests
 
     public MigrationSkipQueryTests(IntegrationTestFixture factory) => _factory = factory;
 
-    private static IReadOnlyList<ShippedMigration> PreLedger() =>
+    private static IReadOnlyList<ShippedMigration> WithSkipQuery() =>
         ShippedMigrations
-            .Discover([new BarakoCMS.Forms.FormsModule(), new BarakoCMS.Files.FilesModule(), new BarakoCMS.Email.Resend.ResendEmailModule()])
-            .Where(m => Version.Parse(m.Version) < new Version(4, 6, 0))
+            .Discover(
+            [
+                new BarakoCMS.Forms.FormsModule(),
+                new BarakoCMS.Files.FilesModule(),
+                new BarakoCMS.Email.Resend.ResendEmailModule(),
+                new BarakoCMS.ExternalAuth.ExternalAuthModule(),
+            ])
+            .Where(m => m.SkipWhen is not null)
             .ToList();
 
+    /// <summary>
+    /// Every skip query a first-party file ships, the ten released before the ledger and any added
+    /// since, has its false side tested here.
+    /// </summary>
     [Fact]
-    public void Every_file_released_before_the_ledger_has_a_case_here()
+    public void Every_file_with_a_skip_query_has_a_case_here()
     {
-        var keys = PreLedger().Select(m => m.Key).OrderBy(k => k, StringComparer.Ordinal).ToList();
+        var keys = WithSkipQuery().Select(m => m.Key).OrderBy(k => k, StringComparer.Ordinal).ToList();
 
-        keys.Should().HaveCount(10);
+        keys.Count.Should().BeGreaterThanOrEqualTo(11, "ten files released before the ledger, and the Forms 4.6.0 file");
         keys.Should().Equal(Cases.Keys.OrderBy(k => k, StringComparer.Ordinal));
     }
 
@@ -118,7 +133,7 @@ public class MigrationSkipQueryTests
     public async Task The_skip_query_is_false_before_the_file_and_true_only_after_it_has_run(string key)
     {
         var ct = TestContext.Current.CancellationToken;
-        var migration = PreLedger().Single(m => m.Key == key);
+        var migration = WithSkipQuery().Single(m => m.Key == key);
         var (before, proof) = Cases[key];
         await using var database = await MigrationScratchDatabase.CreateAsync(_factory);
         await database.ExecuteAsync(before);

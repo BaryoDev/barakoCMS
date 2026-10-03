@@ -49,9 +49,13 @@ warning    1 other session(s) have a transaction open on this database. Stop the
 It warns and carries on. It cannot tell an API from a backup job, so the decision stays yours.
 
 If you cannot stop the service first, run `db-migrate --status` while it serves, which only reads.
-If nothing is `pending`, running `db-migrate` records the rest without executing a file. If
-something is pending, take the downtime: there is no supported way to run a pending file under a
-serving API.
+If nothing is `pending`, running `db-migrate` records the rest without executing a file. Some files
+say in their header that they can go in while the old build still serves: the two Marten event
+store files (4.3.0, 4.4.0) and `core/4.6.0/event-correlation-metadata`. When those are the only
+pending files, `db-migrate` can run under the old build; it prints the warning above and goes on,
+and each of them is safe to run again. Deploy soon after, since an old instance that restarts
+fails its own start-up check. For any other pending file, take the downtime: there is no supported
+way to run it under a serving API.
 
 `db-migrate` applies the shipped SQL files. `db-assert` then checks that the schema is what the
 build declares. They answer different questions, so run both.
@@ -271,8 +275,8 @@ With `Tenancy:DatabaseEnforcement` on, the app connects as a role that is not a 
   app could not read it.
 - A file that creates a table creates it without the tenant policy, because the policy is
   something the app adds when it creates the table itself. That applies to
-  `Forms/4.2.0/forms-public-forms`, `core/4.3.0/collection-syncs` and `core/4.2.0/site-share-links`
-  when their table is missing. `db-assert` then reports the policy as outstanding. Add it with
+  `Forms/4.2.0/forms-public-forms`, `Forms/4.6.0/forms-email-verification`,
+  `core/4.3.0/collection-syncs` and `core/4.2.0/site-share-links` when their table is missing. `db-assert` then reports the policy as outstanding. Add it with
   `db-apply`, then run `db-assert` again:
 
   ```bash
@@ -308,9 +312,10 @@ MODULES.md has the project file lines.
   alters one of them needs a skip query that is also true when the table is missing (the first
   start creates the table current). `Files/4.2.0/stored-files-parent-index` is the example.
 
-Three files under `migrations/` belong to modules and ship from them:
-`4.2.0/stored-files-parent-index.sql` (Files), `4.2.0/forms-public-forms.sql` (Forms) and
-`4.5.0/email-sent-emails.sql` (Email.Resend). Every other file under `migrations/<version>/` ships
+Five files under `migrations/` belong to modules and ship from them:
+`4.2.0/stored-files-parent-index.sql` (Files), `4.2.0/forms-public-forms.sql` and
+`4.6.0/forms-email-verification.sql` (Forms), `4.5.0/email-sent-emails.sql` (Email.Resend) and
+`4.6.0/external-auth-identities.sql` (ExternalAuth). Every other file under `migrations/<version>/` ships
 from core, including files added later, with no list to update. `scripts/check-module-versions.sh`
 counts a change to a file a module links from `migrations/` as a change to that module, so the
 module's version has to move with it.

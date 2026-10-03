@@ -223,7 +223,8 @@ locks the API holds, and an index built `CONCURRENTLY` does not finish while the
 transaction open, so the job would sit there until the platform kills it. A platform that will not
 let you stop the service without deleting it leaves two choices: take the service out of rotation
 some other way and stop its instances, or apply the pending files yourself in a window you control.
-There is no supported way to run a pending file under a serving API.
+There is no supported way to run a pending file under a serving API, except the few whose header
+says they may go in under the old build ([migrations.md](migrations.md) names them).
 
 A job the platform kills is not cancelled cleanly. See "A run that was killed" in
 [migrations.md](migrations.md) for what the database is left doing and how to find it.
