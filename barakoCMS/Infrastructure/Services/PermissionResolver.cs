@@ -162,6 +162,59 @@ public partial class PermissionResolver(
         return await CompileFollowingReferencesAsync(roles, rules, contentTypeSlug, user, cancellationToken);
     }
 
+    /// <inheritdoc />
+    public async Task<FieldSet> FieldSetAsync(
+        Models.User user,
+        string contentTypeSlug,
+        string action,
+        Models.Content? content = null,
+        CancellationToken cancellationToken = default)
+    {
+        var roles = await RolesForAsync(user, cancellationToken);
+        if (roles.Any(r => r.Id == Models.SystemRoles.SuperAdminRoleId))
+            return FieldSet.All;
+
+        var reading = string.Equals(action, "read", StringComparison.OrdinalIgnoreCase);
+        var rules = new List<Models.PermissionRule>();
+        foreach (var role in roles)
+        {
+            var permission = role.Permissions.FirstOrDefault(p => p.ContentTypeSlug == contentTypeSlug);
+            if (permission is not null && GetRuleForAction(permission, action) is { Enabled: true } rule)
+                rules.Add(rule);
+        }
+
+        FieldSet SetOf(Models.PermissionRule rule) => FieldSet.Of(reading ? rule.ReadableFields : rule.WritableFields);
+
+        // Answered before any condition is read, so a role with no set costs nothing more than it did.
+        if (rules.All(rule => SetOf(rule).IsAll))
+            return FieldSet.All;
+
+        if (string.Equals(action, "create", StringComparison.OrdinalIgnoreCase))
+            return FieldSet.Union(rules.Select(SetOf));
+
+        if (content is not null)
+        {
+            var granting = new List<Models.PermissionRule>();
+            foreach (var rule in rules.OrderBy(r => ReferenceConditions.Mentioned(r.Conditions)))
+            {
+                if (rule.Conditions is null || rule.Conditions.Count == 0
+                    || await GrantsAsync(rule.Conditions, content, user, cancellationToken))
+                    granting.Add(rule);
+            }
+
+            if (granting.Count > 0)
+                return FieldSet.Union(granting.Select(SetOf));
+        }
+
+        // The fields allowed on every entry these rules could grant. A rule with no condition grants
+        // every entry, so its set is the least any entry gets. With none, an entry may be granted by
+        // one conditional rule alone, so only what all of them name is certain.
+        var unconditional = rules.Where(r => r.Conditions is null || r.Conditions.Count == 0).ToList();
+        return unconditional.Count > 0
+            ? FieldSet.Union(unconditional.Select(SetOf))
+            : FieldSet.Intersection(rules.Select(SetOf));
+    }
+
     /// <summary>
     /// Resolves the union of the caller's roles' <see cref="Models.Role.SystemCapabilities"/>.
     /// SuperAdmin bypasses, the same way it does for content permissions.

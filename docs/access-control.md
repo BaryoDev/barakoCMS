@@ -39,7 +39,8 @@ Each role grants create, read, update and delete per content type:
 
 - `Role.Permissions` is a `List<ContentTypePermission>`.
 - `ContentTypePermission` = `ContentTypeSlug` + `Create` / `Read` / `Update` /
-  `Delete`, each a `PermissionRule { Enabled, Conditions }`.
+  `Delete`, each a `PermissionRule { Enabled, Conditions }`, with optional field sets (see
+  "which fields a rule shows" below).
 - `PermissionResolver` enforces it: **additive union** across a user's roles
   (granted if ANY role allows), **SuperAdmin bypasses**, conditions evaluated
   per row.
@@ -393,8 +394,10 @@ The caller's roles are read from the store on each request, the roles they hold
 in the current tenant, not from the token's role claims. Taking a capability off
 a role, or a role off a user, applies on the next request rather than when the
 token expires. A read or a write costs up to three small queries, once per
-request, when the entry or its type is restricted, and none for a Public entry
-of a type with no restricted field.
+request, when the entry or its type is restricted. A Public entry of a type with
+no restricted field costs one read of the caller's account per request, which
+the field sets below need; their roles are the ones the permission check in the
+same request already read.
 
 The rule has one home, `ISensitivityService.MaySeeFieldAsync` and
 `MaySeeDocumentAsync`. The scrub, the write guard and the entries list's field
@@ -436,6 +439,125 @@ Proven by `SensitivityByCapabilityTests`, `HiddenCapabilityGrantTests`,
 `BlueprintRoleReferenceTests`, `SensitivityIntegrationTests`,
 `RoleReferencePortabilityTests`, `SeededRolesTests` and
 `SensitivityByCapabilityMigrationTests`.
+
+## Update (2026-10-03): which fields a rule shows and lets the caller set
+
+A teacher updates attendance and not grades on the same record. A student reads their own notes
+and nobody else's. Neither is a sensitivity level, because both depend on the role and, for the
+student, on the entry. A permission rule carries two optional lists for this (#917):
+
+```json
+{
+  "contentTypeSlug": "record",
+  "read":   { "enabled": true, "readableFields": ["Name", "Attendance", "Grade"] },
+  "update": { "enabled": true, "writableFields": ["Attendance"] }
+}
+```
+
+- `readableFields` is accepted on a Read rule, `writableFields` on a Create or Update rule. A role
+  write answers 400 for either anywhere else. A transition writes the fields its content type
+  declares for it, which is its own set, so neither applies to a transition rule.
+- No list, which is every rule stored before this, means every field, so such a role reads and
+  writes exactly as it did.
+
+### How a set and sensitivity combine
+
+Sensitivity is the ceiling and a set narrows below it. A caller reads a field when its sensitivity
+lets them see it **and** a Read rule that grants the entry shows it. A set never opens a Sensitive
+or Hidden field to a role that lacks `view_sensitive`, `view_hidden` or a place on the field's
+`visibleToRoles`: naming it in `readableFields` does nothing for that role. This is the reading of
+"sensitivity as audience defaults" that grants less. Letting a set widen past sensitivity would
+also let a tenant administrator hand out a Hidden field by assigning a role, which #883 keeps for a
+SuperAdmin, so it would need that rule extended first.
+
+Across a caller's roles the sets are joined, rule by rule, for the rules that grant the entry being
+read. A granting rule with no set shows every field. So a student holding "everyone's names" and
+"my own record, names and notes" reads notes on their own entry and not on anyone else's. A field
+the rules do not show is left out of the response, as a field masked with `Remove` is.
+
+When there is no single entry to ask about, the answer is the fields shown on every entry the caller
+may read: the joined sets of their rules with no condition when there are any, otherwise only the
+fields every conditional rule shows. That is what decides a field filter, a search of a named type,
+a reference condition, and the reads that pass sensitivity a type and not an entry (the page tree,
+file usage and the export).
+
+`ISensitivityService.MayReadFieldAsync` is the read rule for one field, and the scrub applies the
+same rule, reading the sets once for the entry. The write rule has one home too, the write guard in
+`SensitivityService`, which every write path goes through.
+
+### Writes
+
+- **Update.** A field the caller may not read on the entry is put back to its stored value, as a
+  masked field is. A field they may read and the Update rule granting the entry does not let them
+  set is refused with 403 when the request changes it. Sent with its stored value, it is not a
+  change, so a console that sends the whole entry back keeps working. Left out, it keeps its stored
+  value: leaving a field out is not a way to delete it. Values are compared as JSON
+  (`JsonElement.DeepEquals`), not as text.
+- **Update of an entry the caller may not read.** No Read rule grants it, or its own level is
+  Sensitive or Hidden and the caller may not see that level. Nothing is compared, since a 403 for a
+  wrong value and a 200 for the right one would tell the caller what the entry holds. A field the
+  rule granting the write lets the caller set is written blind, as an Update rule without a Read
+  rule always could: the fields its `writableFields` names, or every field when it holds no set.
+  Every other field is put back. Sensitivity still puts back what the caller may not see. A
+  transition carrying values on such an entry writes the fields its type declares for it, which are
+  its own set.
+- **Create.** A field outside every Create rule's set that the request gives a value other than
+  `null` is refused with 403.
+- The 403 names the fields by their declared spelling and counts keys the type does not declare.
+  Nothing of the request is written: the check runs before anything is staged, and a batch (an
+  import, a bulk create, a push) is refused whole.
+- A key the type does not declare is outside every set, so a role holding a set cannot write one.
+
+### What each path does
+
+| Path | Read set | Write set |
+|---|---|---|
+| `GET /api/contents/{id}`, by slug | per entry | |
+| `GET /api/contents` rows | per entry | |
+| `GET /api/contents` field filters | every entry of the type: 400 for a field not shown on all of them | |
+| `GET /api/contents` search, named type | searches only fields shown on every entry | |
+| `GET /api/contents` search, across types | a row is kept only when a value it shows holds the term | |
+| `GET /api/contents/{id}/history` | per entry, the current entry's rules | |
+| `PUT /api/contents/{id}` | unreadable fields put back | 403 on a change |
+| `POST /api/contents`, bulk create, Portability import | | 403 on a value outside the Create set |
+| `POST /api/collections/{type}/push` | unreadable fields put back on an existing entry | 403 on a change, or on create |
+| `POST /api/contents/{id}/rollback/{versionId}` | unreadable fields put back; the response carries the read rules' fields when a Read rule grants the entry, and no data when none does | 403 on a change |
+| A transition carrying data | per entry: unreadable fields put back; on an entry the caller may not read, the declared fields are written | none: its declared fields are its set |
+| Pages tree, file usage, export | every entry of the type | |
+| A condition `Reference.Field` | the referenced field must be shown on every entry of its type, or the condition denies | |
+| Public delivery | none: an anonymous caller holds no rule | |
+| Workflow actions, collection sync | none: they act as the system, not as a user | none |
+
+### Saving a role
+
+`POST /api/roles` and `PUT /api/roles/{id}` answer 400 for a set on the wrong rule, a name that is
+not a field name, a set of more than 200 names, a set on a content type this tenant does not define,
+and a name the type does not declare, spelled as declared (`grade` is not `Grade`). One write checks
+sets on at most 50 content types.
+
+Roles are stored once for all tenants. As with reference conditions, an update passes over a set the
+stored role already holds unchanged, so a role carrying a set written for another tenant's type can
+still be renamed here. In a tenant whose type does not declare a name, that name shows nothing.
+
+A `PUT` that leaves a set out, or sends `null`, keeps the set the stored role holds on that rule of
+that content type. A console that does not know the members sends the role back without them, and
+it does not drop them. An empty list removes the set, and is stored as no set.
+
+The audit row for a role lists each rule's set under `fieldSets` in `permissions`,
+`permissionsBefore` and `permissionsAfter`, by name, when a rule holds one.
+
+### Caches
+
+Nothing about a set is cached across requests. The sets are read off the caller's roles, which the
+resolver reads once per request, so a role change applies to the next request as every other
+permission does.
+
+Asking which rules grant an entry reads the same rows the permission check already asked about, so
+it adds nothing to the bound a condition following a reference has. One path asks a new question:
+an update by a role holding a set asks the Read rules whether the caller may read the entry. When
+those rules follow a reference, a push of more than ten existing entries resolves that condition
+the way a list does, and past its bound answers 403 with the condition's reason. A role with no set
+asks nothing new.
 
 ## Tested (2026-07-16): the bug this replaced
 

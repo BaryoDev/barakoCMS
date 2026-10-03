@@ -23,6 +23,10 @@ internal class Request : PaginatedRequest
     /// sensitivity scrub both run afterwards on whatever this returns. The visibility rules stay in
     /// one place rather than being restated as a query filter that could drift from them.
     ///
+    /// The exception is a field set on the caller's Read rules. Such a caller searches only the
+    /// values of fields those rules show them, so a match never answers for a field they may not
+    /// read. A caller whose rules hold no set searches every value, as before.
+    ///
     /// Field names are not matched, only values. Searching "title" should not return every entry of
     /// every type that has a Title.
     /// </remarks>
@@ -117,7 +121,15 @@ internal class Endpoint(
             // The term is a bound parameter. The escaping below is not about injection, it is about
             // meaning: an unescaped % or _ is a wildcard, so searching for "50%" would match every
             // entry containing "50" and searching for "a_b" would match "axb".
-            query = query.Where(c => c.MatchesSql(SearchSql, EscapeLike(term)));
+            if (!string.IsNullOrEmpty(req.ContentType)
+                && await SearchableKeysAsync(user, req.ContentType, ct) is { } searchable)
+            {
+                query = query.Where(c => c.MatchesSql(SearchShownSql, searchable, EscapeLike(term)));
+            }
+            else
+            {
+                query = query.Where(c => c.MatchesSql(SearchSql, EscapeLike(term)));
+            }
         }
 
         // filter[field][op]=value, the delivery API's syntax. Read off the query string, since the
@@ -194,8 +206,18 @@ internal class Endpoint(
                     Sensitivity = item.Sensitivity
                 };
                 // Same document- and field-level scrubbing as Get, so lists never leak sensitive data.
-                if (await sensitivity.ApplyAsync(item.ContentType, item.Sensitivity, response.Data, HttpContext, ct))
+                if (await sensitivity.ApplyAsync(item, response.Data, HttpContext, ct))
                     response.ContentType = "HIDDEN";
+
+                // Across types the search ran in SQL over every value. Where the caller's Read rules
+                // narrow the fields of this entry, it is kept only when the term is in a value they
+                // are shown, so which entries match cannot tell them what a field they may not read
+                // holds. A named type's search was narrowed in SQL instead, before paging.
+                if (!string.IsNullOrEmpty(term) && string.IsNullOrEmpty(req.ContentType)
+                    && !(await permissionResolver.FieldSetAsync(user, item.ContentType, "read", item, ct)).IsAll
+                    && !ShownValueContains(response.Data, term))
+                    continue;
+
                 permittedItems.Add(response);
             }
         }
@@ -248,6 +270,63 @@ internal class Endpoint(
     private const string SearchSql =
         "EXISTS (SELECT 1 FROM jsonb_each_text(d.data -> 'Data') kv WHERE kv.value ILIKE '%' || ? || '%')";
 
+    /// <summary><see cref="SearchSql"/> over the values of the keys named, lower cased, only.</summary>
+    private const string SearchShownSql =
+        "EXISTS (SELECT 1 FROM jsonb_each_text(d.data -> 'Data') kv WHERE lower(kv.key) = ANY(?) AND kv.value ILIKE '%' || ? || '%')";
+
+    /// <summary>
+    /// The keys a search of one type may match, lower cased, or null when the caller's Read rules
+    /// hold no field set on the type and the search matches every value as it always has.
+    /// </summary>
+    /// <remarks>
+    /// A key is searched when every declared field of that name, ignoring case, is one the caller
+    /// reads on every entry of the type they may read (<c>MayReadFieldAsync</c> with no entry). That
+    /// is the least any row shows them, so a row this matches never matched on a value the row
+    /// withholds. A key the type does not declare is not searched: a field set leaves it out of a
+    /// read too.
+    /// </remarks>
+    private async Task<string[]?> SearchableKeysAsync(barakoCMS.Models.User user, string contentType, CancellationToken ct)
+    {
+        if ((await permissionResolver.FieldSetAsync(user, contentType, "read", null, ct)).IsAll)
+            return null;
+
+        var definition = await session.Query<ContentTypeDefinition>()
+            .FirstOrDefaultAsync(d => d.Name == contentType, ct);
+
+        var sensitivity = Resolve<barakoCMS.Core.Interfaces.ISensitivityService>();
+        var keys = new List<string>();
+        foreach (var group in (definition?.Fields ?? new List<FieldDefinition>()).GroupBy(f => f.Name.ToLowerInvariant()))
+        {
+            var all = true;
+            foreach (var field in group)
+                all &= await sensitivity.MayReadFieldAsync(contentType, field, null, User, ct);
+
+            if (all)
+                keys.Add(group.Key);
+        }
+
+        return keys.ToArray();
+    }
+
+    /// <summary>
+    /// Whether a value the caller is shown holds the term, ignoring case: the search's own test,
+    /// asked of the scrubbed data in memory.
+    /// </summary>
+    /// <remarks>
+    /// Text is compared as it reads, and anything else as its JSON, which is close to what
+    /// <c>jsonb_each_text</c> gives the SQL search. Where the two disagree this only drops a row
+    /// the SQL search matched; it never adds one.
+    /// </remarks>
+    private static bool ShownValueContains(IDictionary<string, object> shown, string term) =>
+        shown.Values.Any(value => (value switch
+        {
+            null => null,
+            string text => text,
+            System.Text.Json.JsonElement { ValueKind: System.Text.Json.JsonValueKind.String } element => element.GetString(),
+            System.Text.Json.JsonElement element => element.GetRawText(),
+            _ => System.Text.Json.JsonSerializer.Serialize(value),
+        })?.Contains(term, StringComparison.OrdinalIgnoreCase) == true);
+
     /// <summary>
     /// Narrows the query by the request's field filters, or says why they are refused.
     /// </summary>
@@ -255,7 +334,8 @@ internal class Endpoint(
     /// Unlike status and search, a field filter is not safe to run ahead of the sensitivity scrub.
     /// The scrub hides a value in the response, and which rows come back for
     /// <c>filter[Salary][gte]=50000</c> gives it away regardless. So a filter is accepted only on a
-    /// field this caller reads unmasked, and a filtered list leaves out any entry whose document
+    /// field this caller reads unmasked and that their Read rules show on every entry of the type
+    /// they may read, and a filtered list leaves out any entry whose document
     /// sensitivity would have its data withheld from them, where the unfiltered list returns such
     /// an entry blanked.
     ///
@@ -288,7 +368,7 @@ internal class Endpoint(
         var readable = new HashSet<FieldDefinition>(ReferenceEqualityComparer.Instance);
         foreach (var declared in definition.Fields)
         {
-            if (await sensitivity.MaySeeFieldAsync(declared, User, ct))
+            if (await sensitivity.MayReadFieldAsync(contentType, declared, null, User, ct))
                 readable.Add(declared);
         }
 

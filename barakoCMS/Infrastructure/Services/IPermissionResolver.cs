@@ -56,6 +56,31 @@ public interface IPermissionResolver
         => Task.FromResult(ReadPredicate.None);
 
     /// <summary>
+    /// The fields the user's rules allow for an action on a content type: <c>read</c> from the
+    /// Read rules' <see cref="Models.PermissionRule.ReadableFields"/>, <c>create</c> and
+    /// <c>update</c> from those rules' <see cref="Models.PermissionRule.WritableFields"/>.
+    /// </summary>
+    /// <remarks>
+    /// With an entry, the sets of the enabled rules whose conditions grant that entry are joined,
+    /// and a granting rule with no set allows every field. With no entry, or an entry no rule
+    /// grants, the answer is the fields allowed on every entry the rules could grant: the joined
+    /// sets of the rules with no condition when there are any, otherwise only what every
+    /// conditional rule's set names. Create rules are not asked their conditions, so for create
+    /// the sets of every enabled Create rule are joined.
+    ///
+    /// Every field when no rule holds a set, which is every role stored before field sets existed.
+    /// The default answers that for a resolver that does not implement it, so a module with its own
+    /// resolver keeps behaving as it did.
+    /// </remarks>
+    Task<FieldSet> FieldSetAsync(
+        Models.User user,
+        string contentTypeSlug,
+        string action,
+        Models.Content? content = null,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(FieldSet.All);
+
+    /// <summary>
     /// Evict any cached permission decisions for a single user. Call after that user's role
     /// assignments change so revoked access takes effect immediately instead of after the TTL.
     /// </summary>

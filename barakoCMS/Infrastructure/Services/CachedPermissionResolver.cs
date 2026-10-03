@@ -64,6 +64,14 @@ public class CachedPermissionResolver(
         inner.ReadPredicateAsync(user, contentTypeSlug, cancellationToken);
 
     /// <summary>
+    /// Forwarded, never cached, for the reason <see cref="ReadPredicateAsync"/> is: the answer is
+    /// built from the rules as they are now, and the roles are already read once per request.
+    /// </summary>
+    public Task<FieldSet> FieldSetAsync(
+        User user, string contentTypeSlug, string action, Content? content = null, CancellationToken cancellationToken = default) =>
+        inner.FieldSetAsync(user, contentTypeSlug, action, content, cancellationToken);
+
+    /// <summary>
     /// Invalidates all cached permissions for a specific user.
     /// Call this when a user's roles or group memberships change.
     /// </summary>

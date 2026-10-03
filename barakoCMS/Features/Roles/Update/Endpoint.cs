@@ -36,6 +36,13 @@ internal class Endpoint(
         foreach (var error in await ReferenceConditionRules.CheckAsync(session, req.Permissions, role?.Permissions, ct))
             AddError(r => r.Permissions, error);
 
+        // A set the request leaves out is kept, so a console that does not know field sets does not
+        // drop them by saving the role. An empty list is what removes one.
+        FieldSetRules.CarryOver(req.Permissions, role?.Permissions);
+        FieldSetRules.Normalise(req.Permissions);
+        foreach (var error in await FieldSetRules.CheckAsync(session, req.Permissions, role?.Permissions, ct))
+            AddError(r => r.Permissions, error);
+
         ThrowIfAnyErrors();
 
         if (role == null)

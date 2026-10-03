@@ -15,6 +15,9 @@ internal class Validator : Validator<Request>
         {
             foreach (var error in ReferenceConditionRules.ShapeErrors(permissions))
                 context.AddFailure(error);
+
+            foreach (var error in FieldSetRules.ShapeErrors(permissions))
+                context.AddFailure(error);
         });
     }
 }
