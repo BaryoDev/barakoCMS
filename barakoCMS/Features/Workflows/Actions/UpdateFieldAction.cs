@@ -227,6 +227,14 @@ internal class UpdateFieldAction : IWorkflowAction
                     $"Field '{declared.Name}' holds an inline image, which this action cannot set.");
             }
 
+            // The parameter is one piece of text, and an entry write refuses that in a list field, so
+            // storing it would make every later save of the entry fail.
+            if (declared is not null && barakoCMS.Core.Validation.ReferenceFields.IsMultiple(declared))
+            {
+                return WorkflowActionResult.PermanentFailure(
+                    $"Field '{declared.Name}' holds a list of references, and this action sets a field to one text value.");
+            }
+
             if (barakoCMS.Core.Validation.FileFields.IsFileField(declared))
             {
                 // A workflow runs for no signed-in user, so it attaches a public file or nothing,
@@ -360,6 +368,20 @@ internal class UpdateFieldAction : IWorkflowAction
                 foreach (var @event in events)
                 {
                     barakoCMS.Infrastructure.Services.ContentProjection.Apply(targetContent, @event, DateTime.UtcNow);
+                }
+
+                // The writer is what applies a type's uniqueness rules, and this write goes around
+                // it. A refusal ejects what is staged, the marker included, as the writer does, so
+                // a later save on this session does not record the field as applied.
+                try
+                {
+                    await new barakoCMS.Infrastructure.Services.ContentUniqueness(_session, _logger)
+                        .EnforceAsync(targetContent, ct);
+                }
+                catch (barakoCMS.Core.Interfaces.ContentUniquenessException)
+                {
+                    _session.EjectAllPendingChanges();
+                    throw;
                 }
 
                 _session.Store(targetContent);

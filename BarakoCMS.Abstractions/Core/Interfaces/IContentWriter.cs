@@ -18,6 +18,11 @@ namespace barakoCMS.Core.Interfaces;
 /// type has its document produced by folding the stream; every other type keeps the document it has
 /// always had, written straight from the change. Both modes append the same events, so history and
 /// the audit trail are unchanged for a type that opts out.
+///
+/// It is also where a type's uniqueness rules are applied: the asynchronous members throw
+/// <see cref="ContentUniquenessException"/> for a write that would leave two entries holding values
+/// a rule allows one entry to hold. The obsolete synchronous members cannot take the lock the rule
+/// needs and do not apply them.
 /// </remarks>
 public interface IContentWriter
 {

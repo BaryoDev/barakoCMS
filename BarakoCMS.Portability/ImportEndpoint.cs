@@ -181,6 +181,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
                     IsPubliclyDeliverable = type.IsPubliclyDeliverable,
                     IsSingleton = type.IsSingleton,
                     RouteTemplate = type.RouteTemplate,
+                    Uniqueness = type.Uniqueness is { Count: > 0 } ? type.Uniqueness : null,
                     CreatedAt = DateTimeOffset.UtcNow,
                     UpdatedAt = DateTimeOffset.UtcNow,
                 };
@@ -242,6 +243,9 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
 
             RepointReferences(existing.FirstOrDefault(t => t.Name.Equals(rec.ContentType, StringComparison.OrdinalIgnoreCase)), data, newIds);
 
+            if (rec.Id is { } sourceRecordId && newIds.TryGetValue(sourceRecordId, out var expectedId))
+                batch.Expect(expectedId, rec.ContentType);
+
             pending.Add((i, new ContentCreateRequest
             {
                 ContentType = rec.ContentType,
@@ -292,8 +296,18 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
                     continue;
                 }
 
-                await creator.StageAsync(request, userId, batch, token);
-                await session.SaveChangesAsync(token);
+                try
+                {
+                    await creator.StageAsync(request, userId, batch, token);
+                    await session.SaveChangesAsync(token);
+                }
+                catch (ContentUniquenessException ex)
+                {
+                    // Another entry, stored or earlier in this bundle, holds this record's values
+                    // under a uniqueness rule of its type. Named like any other refused record.
+                    refused.Add(new ValidationFailure($"contents[{index}]", ex.Message));
+                    session.EjectAllPendingChanges();
+                }
             }
 
             var commit = refused.Count == 0 && !req.DryRun;
@@ -357,8 +371,8 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
 
     /// <summary>
     /// Points each reference field holding the source id of another record in this bundle at the id
-    /// that record is imported under. A reference to anything outside the bundle is left alone, and
-    /// validation refuses it unless it exists here.
+    /// that record is imported under, each id of a list included. A reference to anything outside
+    /// the bundle is left alone, and validation refuses it unless it exists here.
     /// </summary>
     private static void RepointReferences(
         ContentTypeDefinition? schema, Dictionary<string, object> data, Dictionary<Guid, Guid> newIds)
@@ -369,6 +383,14 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
         {
             foreach (var key in data.Keys.Where(k => k.Equals(field.Name, StringComparison.OrdinalIgnoreCase)).ToList())
             {
+                if (barakoCMS.Core.Validation.FieldTypeRegistry.TryReadChoice(data[key], out var listed, out var isList) && isList)
+                {
+                    data[key] = listed
+                        .Select(id => Guid.TryParse(id, out var source) && newIds.TryGetValue(source, out var copy) ? copy.ToString() : id)
+                        .ToList<object>();
+                    continue;
+                }
+
                 var raw = data[key] is System.Text.Json.JsonElement je ? je.ToString() : data[key]?.ToString();
                 if (Guid.TryParse(raw, out var target) && newIds.TryGetValue(target, out var imported))
                     data[key] = imported.ToString();
@@ -437,6 +459,10 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
 
         errors.AddRange(validator.ValidateRouteTemplate(type.RouteTemplate).Errors);
 
+        // Checked only for a type this import creates. A stored type keeps its rules, below.
+        if (stored is null)
+            errors.AddRange(validator.ValidateUniqueness(type.Uniqueness, type.Fields, type.Lifecycle).Errors);
+
         // The validator refuses a role two fields declare, but it saw an oversized list a chunk at
         // a time, and the two can sit in different chunks.
         if (type.Fields.Count > maxFields
@@ -476,6 +502,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
 
         errors.AddRange(SensitivityChanges(type, stored));
         errors.AddRange(DroppedTransitionFields(type, stored));
+        errors.AddRange(UniquenessChanges(type, stored));
 
         // A bundle may not change the currency or scale a stored field declares. That goes through
         // PUT /api/content-types/{name}/fields/{field}/currency, which counts the entries holding an
@@ -566,6 +593,56 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
             }
         }
     }
+
+    /// <summary>
+    /// A bundle may not change the uniqueness rules a stored type declares, or drop a field one of
+    /// them compares.
+    /// </summary>
+    /// <remarks>
+    /// Rules are set on a stored type with <c>PUT /api/content-types/{name}/uniqueness</c>, which
+    /// counts the entries that already share their values before it adds one. A bundle without
+    /// rules keeps the stored ones, so a bundle exported before rules existed imports back. A field
+    /// a stored rule compares and the bundle leaves out would switch the rule off with nothing said.
+    /// </remarks>
+    private static IEnumerable<string> UniquenessChanges(ContentTypeDefinition type, ContentTypeDefinition stored)
+    {
+        var route = $"PUT /api/content-types/{stored.Name}/uniqueness";
+
+        if (type.Uniqueness is { Count: > 0 } && !SameRules(type.Uniqueness, stored.Uniqueness))
+        {
+            yield return "the bundle's uniqueness rules differ from the stored ones, and an import does not "
+                         + $"change a stored type's rules; use {route}.";
+        }
+
+        foreach (var rule in stored.Uniqueness ?? [])
+        {
+            foreach (var name in rule?.Fields ?? [])
+            {
+                if (string.Equals(name, UniquenessRule.CreatedByField, StringComparison.OrdinalIgnoreCase)
+                    || !stored.Fields.Any(f => f.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                    || type.Fields.Any(f => f.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                yield return $"field '{name}' is compared by the stored uniqueness rule '{rule!.Name}' and the "
+                             + "bundle leaves it out, which would switch that rule off. Keep the field.";
+            }
+        }
+    }
+
+    private static bool SameRules(List<UniquenessRule> a, List<UniquenessRule>? b) =>
+        b is not null
+        && a.Count == b.Count
+        && a.All(x => x is not null && b.Count(y => y is not null && SameRule(x, y)) == 1);
+
+    private static bool SameRule(UniquenessRule a, UniquenessRule b) =>
+        string.Equals(a.Name, b.Name, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(
+            string.IsNullOrWhiteSpace(a.WhenState) ? null : a.WhenState,
+            string.IsNullOrWhiteSpace(b.WhenState) ? null : b.WhenState,
+            StringComparison.OrdinalIgnoreCase)
+        && (a.Fields ?? []).SequenceEqual(b.Fields ?? [], StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// A bundle may not change who can read a stored field.

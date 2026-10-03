@@ -44,6 +44,15 @@ internal sealed class ContentTypeResponse
     public string? RouteTemplate { get; init; }
 
     /// <summary>
+    /// Values only one entry of this type may hold at a time, or null when the type declares none.
+    /// </summary>
+    /// <remarks>
+    /// Passed through for the reason <see cref="Lifecycle"/> is: the console has nowhere else to
+    /// read the rules from, and a 409 on save names a rule the editor should be able to look up.
+    /// </remarks>
+    public List<UniquenessRule>? Uniqueness { get; init; }
+
+    /// <summary>
     /// Whether the stream is the source of truth for entries of this type, and permanent either way.
     /// </summary>
     /// <remarks>
@@ -67,6 +76,7 @@ internal sealed class ContentTypeResponse
         IsPubliclyDeliverable = d.IsPubliclyDeliverable,
         IsSingleton = d.IsSingleton,
         RouteTemplate = d.RouteTemplate,
+        Uniqueness = d.Uniqueness,
         EventSourced = eventSourced,
         CreatedAt = d.CreatedAt,
         UpdatedAt = d.UpdatedAt,

@@ -52,7 +52,7 @@ public class CreateAccountEndpoint(
             return;
         }
 
-        session.Store(new barakoCMS.Models.Content
+        var account = new barakoCMS.Models.Content
         {
             Id = Guid.NewGuid(),
             ContentType = AccountingContentTypes.Account,
@@ -68,7 +68,15 @@ public class CreateAccountEndpoint(
                 ["PayeeName"] = req.PayeeName ?? string.Empty,
                 ["IsActive"] = true,
             },
-        });
+        };
+
+        // Stored around the content writer, so the type's uniqueness rules are applied here. A
+        // refusal is answered 409 by the pipeline, like a create through /api/contents.
+        await new barakoCMS.Infrastructure.Services.ContentWriter(
+                session, new barakoCMS.Infrastructure.Services.ContentSourcingPolicyService(session))
+            .CheckUniquenessAsync(account, ct);
+
+        session.Store(account);
         await session.SaveChangesAsync(ct);
 
         await Send.ResponseAsync(new Result { Code = req.Code, Created = true }, 201, ct);

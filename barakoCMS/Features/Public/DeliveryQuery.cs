@@ -5,7 +5,7 @@ using Marten.Linq.MatchesSql;
 
 namespace barakoCMS.Features.Public;
 
-internal enum FilterOp { Eq, Ne, Lt, Lte, Gt, Gte, Contains }
+internal enum FilterOp { Eq, Ne, Lt, Lte, Gt, Gte, Contains, Has }
 
 /// <summary>One validated field comparison, safe to translate into SQL.</summary>
 /// <param name="Field">A field name the content type marks Public. Never caller-supplied text.</param>
@@ -14,7 +14,8 @@ internal enum FilterOp { Eq, Ne, Lt, Lte, Gt, Gte, Contains }
 /// a string field holding "500" would emit the number 500 and match nothing.
 /// </param>
 /// <param name="Multiple">
-/// The field is a choice holding a list, so equality means "holds this value" rather than "is it".
+/// The field is a choice or a reference holding a list, so equality means "holds this value"
+/// rather than "is it".
 /// </param>
 internal readonly record struct DeliveryFilter(string Field, FilterOp Op, string Value, string Type, bool Multiple = false);
 
@@ -69,6 +70,7 @@ internal sealed class DeliveryQuery
         ["gt"] = FilterOp.Gt,
         ["gte"] = FilterOp.Gte,
         ["contains"] = FilterOp.Contains,
+        ["has"] = FilterOp.Has,
     };
 
     /// <summary>
@@ -186,8 +188,15 @@ internal sealed class DeliveryQuery
                 // The canonical name from the schema is stored, never the caller's spelling, so what
                 // reaches the query builder can only be a string the content type already declared.
                 var isList = lists.Contains(canonical);
-                if (isList && parsedOp is not (FilterOp.Eq or FilterOp.Ne))
+                if (isList && parsedOp is not (FilterOp.Eq or FilterOp.Ne or FilterOp.Has))
                     return new DeliveryQuery { Error = ListOperatorError(op, canonical) };
+
+                if (parsedOp == FilterOp.Has && !isList
+                    && !string.Equals(declaredType, "array", StringComparison.OrdinalIgnoreCase))
+                    return new DeliveryQuery
+                    {
+                        Error = $"Operator 'has' needs a field holding a list, and '{canonical}' is not one.",
+                    };
 
                 filters.Add(new DeliveryFilter(canonical, parsedOp, rawValue ?? string.Empty, declaredType, isList));
             }
@@ -348,13 +357,15 @@ internal sealed class DeliveryQuery
             return ($"({KeyLookup} #>> '{{}}') ILIKE ?", [f.Field, $"%{Escape(f.Value)}%"]);
         }
 
-        // A choice holding a list matches an entry that holds the value among others. @> carries no
-        // ?, so the field name and the value still bind. A stored value that is not a list, written
-        // before the field took several, contains nothing and is left out rather than failing the query.
+        // A list matches an entry that holds the value among others, one whole element, never a
+        // substring of the list's text. A stored value that is not a list, written before the field
+        // took several, holds nothing and is left out rather than failing the query.
+        if (f.Op == FilterOp.Has)
+            return HoldsSql(f);
+
         if (f.Multiple)
         {
-            var holds = $"{KeyLookup} @> ?::jsonb";
-            object[] listParameters = [f.Field, System.Text.Json.JsonSerializer.Serialize(new[] { f.Value })];
+            var (holds, listParameters) = HoldsSql(f);
             return f.Op switch
             {
                 FilterOp.Eq => (holds, listParameters),
@@ -613,16 +624,49 @@ internal sealed class DeliveryQuery
              + "(d.data ->> 'CreatedAt')::timestamptz DESC";
     }
 
-    /// <summary>The choice fields that hold a list, by name, case-insensitively.</summary>
+    /// <summary>The choice and reference fields that hold a list, by name, case-insensitively.</summary>
     internal static HashSet<string> ListFields(ContentTypeDefinition def) =>
         def.Fields
-            .Where(f => f.Multiple && string.Equals(f.Type, "choice", StringComparison.OrdinalIgnoreCase))
+            .Where(f => f.Multiple
+                        && (string.Equals(f.Type, "choice", StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(f.Type, "reference", StringComparison.OrdinalIgnoreCase)))
             .Select(f => f.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-    internal static string ListOperatorError(string op, string field) =>
-        $"Operator '{op}' does not apply to '{field}', which holds a list of options. "
-        + "Use eq for entries holding a value, or ne for entries that do not.";
+    internal static string ListOperatorError(string op, string field, bool offerHas = true) =>
+        $"Operator '{op}' does not apply to '{field}', which holds a list of options or references. "
+        + (offerHas
+            ? "Use eq or has for entries holding a value, or ne for entries that do not."
+            : "Use eq for entries holding a value, or ne for entries that do not.");
+
+    /// <summary>
+    /// Whether the field's list holds the filter's value as one element: true, false, or null when
+    /// the entry has no value in the field, so <c>ne</c> leaves such an entry out as it does for a
+    /// choice.
+    /// </summary>
+    /// <remarks>
+    /// A choice is compared exactly with <c>@&gt;</c>, as it always was. A reference compares ids
+    /// without regard to case, because an id is the same id in either case and a list can hold one
+    /// written by a path that does not check its form, such as a bundle that turned an array into a
+    /// reference. An array compares each element that is text, a number or true/false by its text,
+    /// so <c>has=5</c> finds the number 5. The value comes first among the parameters because it
+    /// comes first in the text.
+    /// </remarks>
+    private static (string Sql, object[] Parameters) HoldsSql(DeliveryFilter f)
+    {
+        if (string.Equals(f.Type, "choice", StringComparison.OrdinalIgnoreCase))
+            return ($"{KeyLookup} @> ?::jsonb", [f.Field, System.Text.Json.JsonSerializer.Serialize(new[] { f.Value })]);
+
+        var isReference = string.Equals(f.Type, "reference", StringComparison.OrdinalIgnoreCase);
+        var value = isReference && Guid.TryParse(f.Value, out var id) ? id.ToString() : f.Value;
+        var element = isReference
+            ? "EXISTS (SELECT 1 FROM jsonb_array_elements_text(k.v) x WHERE lower(x) = lower(?))"
+            : "EXISTS (SELECT 1 FROM jsonb_array_elements(k.v) x "
+              + "WHERE jsonb_typeof(x) IN ('string', 'number', 'boolean') AND x #>> '{}' = ?)";
+
+        return ("(SELECT CASE WHEN k.v IS NULL THEN NULL WHEN jsonb_typeof(k.v) <> 'array' THEN false "
+              + $"ELSE {element} END FROM (SELECT {KeyLookup} AS v) k)", [value, f.Field]);
+    }
 
     /// <summary>Letters and digits only, starting with a letter. No quote, no semicolon, no space.</summary>
     internal static bool IsSafeFieldName(string name) =>

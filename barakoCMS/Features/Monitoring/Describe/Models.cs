@@ -19,6 +19,9 @@ internal sealed class DescribeResponse
     /// <summary>Every value a field's <c>role</c> may hold, and the field types each is for.</summary>
     public IReadOnlyList<DescribedFieldHint> FieldRoles { get; set; } = [];
 
+    /// <summary>What a content type's uniqueness rule may compare, and how many a type may hold.</summary>
+    public DescribedUniqueness Uniqueness { get; set; } = DescribedUniqueness.Current;
+
     // Each of the three below is null for a caller who would be refused by the endpoint that
     // already lists it, and a list, possibly empty, for one who would not. Null is "not yours to
     // see" (or, for workflowActions, that the registry could not be read), empty is "none", and a
@@ -57,6 +60,23 @@ internal sealed record DescribedRule(string Name, IReadOnlyList<string> Aliases)
 /// <c>fieldTypes</c>.
 /// </param>
 internal sealed record DescribedFieldHint(string Name, IReadOnlyList<string> FieldTypes);
+
+/// <param name="FieldTypes">The field types a rule may name, each the <c>name</c> of an entry in <c>fieldTypes</c>.</param>
+/// <param name="CreatorField">The name that stands for the entry's creator in a rule's fields.</param>
+/// <param name="MaxRules">The most rules one type may declare.</param>
+/// <param name="MaxFields">The most fields one rule may compare.</param>
+internal sealed record DescribedUniqueness(
+    IReadOnlyList<string> FieldTypes,
+    string CreatorField,
+    int MaxRules,
+    int MaxFields)
+{
+    public static DescribedUniqueness Current { get; } = new(
+        barakoCMS.Core.Validation.UniquenessRules.FieldTypes,
+        UniquenessRule.CreatedByField,
+        barakoCMS.Core.Validation.UniquenessRules.MaxRules,
+        barakoCMS.Core.Validation.UniquenessRules.MaxFields);
+}
 
 /// <param name="Name"><see cref="barakoCMS.Modules.IBarakoModule.Name"/>, verbatim.</param>
 /// <param name="HttpContractVersion">

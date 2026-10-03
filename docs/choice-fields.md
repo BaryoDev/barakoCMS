@@ -31,7 +31,9 @@ Add `"multiple": true` for a field that holds a list, such as the sizes a shirt 
 - Every option has a value, with no leading or trailing space, at most 100 characters. A label is at
   most 200.
 - Two options whose values differ only in case are refused.
-- `options` and `multiple` on a field of any other type are refused.
+- `options` on a field of any other type is refused, and so is `multiple` on any type but a
+  choice or a reference. A reference with `multiple` is described in
+  [the delivery API](delivery-api.md#many-valued-references).
 
 ## Rules when an entry is saved
 

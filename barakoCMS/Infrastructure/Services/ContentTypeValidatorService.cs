@@ -61,6 +61,23 @@ public interface IContentTypeValidatorService
         var errors = FieldPresentation.RouteTemplateErrors(routeTemplate);
         return (errors.Count == 0, errors);
     }
+
+    /// <summary>
+    /// Checks the uniqueness rules a type declares against its fields and its lifecycle. Null and
+    /// empty are valid and mean the type has none.
+    /// </summary>
+    /// <remarks>
+    /// The default is the rule itself, for the reason <see cref="ValidateRouteTemplate"/> gives. A
+    /// stored rule is checked again on every entry write, and one this would refuse is skipped.
+    /// </remarks>
+    (bool IsValid, List<string> Errors) ValidateUniqueness(
+        IReadOnlyList<UniquenessRule>? rules,
+        IReadOnlyCollection<FieldDefinition> fields,
+        LifecycleDefinition? lifecycle)
+    {
+        var errors = UniquenessRules.DefinitionErrors(rules, fields, lifecycle);
+        return (errors.Count == 0, errors);
+    }
 }
 
 public class ContentTypeValidatorService : IContentTypeValidatorService
@@ -159,7 +176,7 @@ public class ContentTypeValidatorService : IContentTypeValidatorService
                 {
                     errors.AddRange(ChoiceErrors(field));
                 }
-                else if (field.Options is { Count: > 0 } || field.Multiple)
+                else if (field.Options is { Count: > 0 } || (field.Multiple && !ReferenceFields.IsMultiple(field)))
                 {
                     errors.Add($"Field '{field.Name}' declares options but is of type '{field.Type}', not choice.");
                 }

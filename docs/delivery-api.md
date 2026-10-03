@@ -131,6 +131,7 @@ Operators:
 | `ne` | not equal |
 | `lt` `lte` `gt` `gte` | ordered comparison |
 | `contains` | case-insensitive substring |
+| `has` | the field holds a list with this value as one whole element |
 | `near` | within `radiusKm` of `lat,lng`, geopoint fields only; see [The near filter](#the-near-filter) |
 
 At most **five filters** per request. A sixth returns 400. The cap is there because arbitrary filter
@@ -155,6 +156,21 @@ numerically: `filter[price][lt]=10` puts 9 below 10 instead of after it.
 A `choice` field is matched by its stored value, exactly, never by its label:
 `filter[EntryType][eq]=FUN`. A choice that holds a list (`multiple`) takes `eq` and `ne` only, meaning
 the entry holds the value or does not; any other operator on it is 400. See [Choice fields](choice-fields.md).
+
+`has` takes a field that holds a list: an `array`, a choice with `multiple`, or a reference with
+`multiple`. It matches an entry whose list holds the value as one whole element, so
+`filter[Tags][has]=abc-123` does not match a list holding `abc-1234`, where `contains` would, since
+`contains` searches the list's text. How an element is compared depends on the field:
+
+- An `array` element that is text, a number or true/false is compared by its text, exactly, case
+  included: `has=5` matches `5` and `"5"` and not `50`, and `has=true` matches `true`. An element
+  that is itself an object or a list never matches.
+- A reference id is compared without regard to case, so `has` finds an id however it was stored.
+- A choice value is compared exactly, as `eq` compares it.
+
+Any other field is 400. A reference with `multiple` takes `eq`, `ne` and `has`, like a choice that
+holds a list, and `eq` and `ne` compare ids the same way `has` does. `has` is served by no index, for
+the reason given under [What a filter costs](#what-a-filter-costs).
 
 Filters narrow what the published-and-public predicate already allows. No filter can widen it.
 
@@ -278,6 +294,49 @@ type opt-in and the field allowlist all still apply. A target that does not surv
 has its field removed rather than left as an id, which makes an unreadable target
 indistinguishable from no reference at all.
 
+A reference with `multiple` holds a list of ids and resolves to a list of entries, in the order the
+ids are stored. An entry that does not survive the projection is left out of the list and not named.
+All the ids on a page are read in one query, and a page whose named fields hold more than **1000**
+distinct ids is 400, telling the caller to ask for a smaller `pageSize` or fewer fields. A single
+reference never reaches that: a full page of 100 entries with five includes holds 500.
+
+### Many-valued references
+
+A `reference` field declared with `"multiple": true` holds a list of ids:
+
+```json
+{ "name": "Speakers", "type": "reference", "referenceType": "speaker", "multiple": true }
+```
+
+An entry write refuses, with 400, a value that is not a list (send a list even of one), more than
+**100** ids, an id not written in lower case with hyphens (the form this API returns ids in), the same
+id twice, and any id that is not an entry of the declared type in the tenant. The error names the
+ids at fault, and does not name the type a wrong one is of. An empty list holds nothing, and a
+required field refuses it. The list is stored in the order sent. The same check runs on every write
+that validates an entry: create, update, collection push, bulk and bundle import, a transition that
+carries data and a rollback. A bundle import points listed ids of records in the
+bundle at the records as imported, as it does a single reference, and takes records that list each
+other: a list may name a record of the same bundle that is written after it. A single reference
+still needs its target written first.
+
+Two writers do not run that check, and refuse a list reference instead: the `UpdateField` workflow
+action fails without retrying, since its value is one piece of text, and a collection sync refuses a
+mapping or rule onto one when it is saved (and skips the item, naming the field, if the field became
+a list after the sync was saved). A form cannot submit a reference at all, so a form on a type with a
+required list reference cannot be submitted.
+
+A stored field cannot change between one id and a list: there is no endpoint that changes a field's
+type or `multiple`. A bundle import that writes a type over a stored one can, and entries stored
+before then keep their value until their next save, which then has to send the new shape. `include`
+reads what an entry holds rather than what the field declares, so either shape still resolves, and
+`eq` and `has` on a list field do not match an entry still holding a single id (and `ne` does).
+
+Every delivery route other than the list with `include` (the slug route, search, preview, share
+links, the Pages routes and semantic search) serves a `Public` list reference as the ids it holds,
+ids of drafts and of entries that are not `Public` included, as a single reference has always been
+served. A caller who compares a list with and without `include` can therefore tell which listed ids
+it may not read. Making the field non-`Public` keeps the ids out of delivery entirely.
+
 ## Search
 
 ```text
@@ -313,7 +372,7 @@ returns that category's best matches even when better matches sit in another. A 
 
 | Status | When |
 | --- | --- |
-| 400 | unknown filter field, unknown operator, malformed `filter[...]`, more than 5 filters, a filter value over 256 characters, unknown or non-reference `include`, more than 5 includes, unsortable field, malformed `near` centre or radius, `near` on a field that is not a `geopoint`, `sort=distance` without a `near` filter, an operator other than `eq` or `ne` on a choice that holds a list |
+| 400 | unknown filter field, unknown operator, malformed `filter[...]`, more than 5 filters, a filter value over 256 characters, unknown or non-reference `include`, more than 5 includes, more than 1000 distinct ids to resolve on one page, `has` on a field that holds no list, unsortable field, malformed `near` centre or radius, `near` on a field that is not a `geopoint`, `sort=distance` without a `near` filter, an operator other than `eq`, `ne` or `has` on a choice or reference that holds a list |
 | 404 | unknown type, type not marked publicly deliverable, no slug field, no published entry at that slug |
 
 A 400 carries the reason, including the fields that would have been accepted.

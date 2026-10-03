@@ -106,6 +106,13 @@ internal static class CollectionSyncRules
                      + "from an outside source.";
             }
 
+            // A source value is one piece of text, and nothing on the sync path checks that each id
+            // of a list names an entry of the right type.
+            if (barakoCMS.Core.Validation.ReferenceFields.IsMultiple(definition))
+            {
+                return $"'{field}' holds a list of references on '{req.ContentType}', which a sync does not fill.";
+            }
+
             // A file field takes a file its writer may use, and a sync writes for nobody.
             if (barakoCMS.Core.Validation.FileFields.IsFileField(definition))
             {
