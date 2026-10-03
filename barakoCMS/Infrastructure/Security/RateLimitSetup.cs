@@ -91,6 +91,7 @@ internal static class RateLimitSetup
     public const string SiteSharePolicy = "site-share";
     public const string LogoutPolicy = "logout";
     public const string DeliveryPolicy = "delivery";
+    public const string TlsAskPolicy = "tls-ask";
 
     public const int MaxPolicyNameLength = 64;
 
@@ -111,6 +112,7 @@ internal static class RateLimitSetup
         [SiteSharePolicy] = "SiteShare",
         [DeliveryPolicy] = "Delivery",
         [LogoutPolicy] = null,
+        [TlsAskPolicy] = null,
     };
 
     private static readonly RateLimitWindow OptInDefaults = new(0, 60, 0);
@@ -127,6 +129,13 @@ internal static class RateLimitSetup
     /// auth bucket meant a logout after a few reloads was refused while the session stayed live.
     /// </summary>
     public static readonly RateLimitWindow Logout = new(30, 60, 0);
+
+    /// <summary>
+    /// Fixed, per client IP. A proxy asks once per name it has no certificate for, so a legitimate
+    /// caller stays far below this; a flood of made-up server names gets 429, which the proxy reads
+    /// as no.
+    /// </summary>
+    public static readonly RateLimitWindow TlsAsk = new(60, 60, 0);
 
     /// <summary>Reads and validates the section. Throws with the offending setting named.</summary>
     public static RateLimitSettings Read(IConfiguration configuration)
@@ -190,6 +199,9 @@ internal static class RateLimitSetup
             RateLimitPartition.GetFixedWindowLimiter($"logout-{ClientIp(context)}", _ => Options(Logout)));
 
         options.AddPolicy(DeliveryPolicy, context => DeliveryPartition(context, settings.Delivery, rendererKeyHash));
+
+        options.AddPolicy(TlsAskPolicy, context =>
+            RateLimitPartition.GetFixedWindowLimiter($"tls-ask-{ClientIp(context)}", _ => Options(TlsAsk)));
 
         foreach (var policy in settings.Policies)
         {

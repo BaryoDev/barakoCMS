@@ -218,6 +218,10 @@ request, because every tenant write clears the cached domain map.
 A renderer that serves several sites finds the tenant for a host with
 `GET /api/tenants/by-host/{host}`, which is anonymous and answers only the handle.
 
+With `CORS:AllowTenantDomains` on and Caddy's on-demand TLS asking the API, that `PUT` is the whole
+change: the domain passes CORS and gets a certificate on its first request, with no config edit and
+no restart. See [A client's own domain, with no config edit](deploy-in-production.md#a-clients-own-domain-with-no-config-edit).
+
 `Branding` is still not writable through the API. A site's identity and theme belong in the `site`
 blueprint instead (#793).
 

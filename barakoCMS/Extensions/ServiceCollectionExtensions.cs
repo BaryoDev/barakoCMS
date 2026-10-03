@@ -482,7 +482,7 @@ public static class ServiceCollectionExtensions
             // Retry-After is deliberately not here. The one place it is set is the SSE stream, and a
             // browser EventSource does not surface response headers to script at all, so exposing it
             // would buy nothing.
-            options.AddPolicy("SecurePolicy", builder =>
+            options.AddPolicy(barakoCMS.Infrastructure.Security.TenantDomainCorsPolicyProvider.PolicyName, builder =>
             {
                 // CORS__AllowedOrigins as an environment variable, CORS:AllowedOrigins in
                 // appsettings.json; configuration binding treats them as the same key.
@@ -504,6 +504,11 @@ public static class ServiceCollectionExtensions
                 }
             });
         });
+
+        // Adds a tenant's registered domains to the policy above when CORS:AllowTenantDomains is on.
+        services.Replace(ServiceDescriptor.Transient<
+            Microsoft.AspNetCore.Cors.Infrastructure.ICorsPolicyProvider,
+            barakoCMS.Infrastructure.Security.TenantDomainCorsPolicyProvider>());
     }
 
     private static void AddPermissionResolution(IServiceCollection services)
@@ -1653,7 +1658,7 @@ public static class ServiceCollectionExtensions
         app.UseMiddleware<barakoCMS.Infrastructure.Multitenancy.TenantResolutionMiddleware>();
 
         // CORS (Must be before Authentication/Authorization)
-        app.UseCors("SecurePolicy");
+        app.UseCors(barakoCMS.Infrastructure.Security.TenantDomainCorsPolicyProvider.PolicyName);
 
         app.UseAuthentication();
         

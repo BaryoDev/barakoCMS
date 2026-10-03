@@ -70,6 +70,11 @@ process. It resolves the host the same way requests are routed: a registered dom
 leading subdomain, so `acme.example.com` answers `acme` when an active tenant has that handle and no
 domain row claims the host. An unknown or inactive handle is a 404 either way.
 
+The same map can drive CORS and TLS, so adding a client's domain needs no config edit or restart.
+`CORS:AllowTenantDomains` (off by default) allows a browser on `https://` plus a registered domain,
+and `GET /api/tenants/tls-ask?domain={host}` answers a reverse proxy's on-demand TLS check. Both are
+in [deploy-in-production.md](deploy-in-production.md#a-clients-own-domain-with-no-config-edit).
+
 `RefuseUnknownHosts` turns a host that looks like a custom domain but matches nothing into a 404,
 rather than quietly serving the default tenant. It is opt-in, because on a single-tenant deployment
 every host is legitimately unrecognised.
@@ -129,6 +134,7 @@ Apart from `/api/auth/*`, each is allowed for `GET` and `HEAD` only:
 | `GET /api/meta` | a console reads the contract version before it knows a tenant |
 | `GET /api/tenants/by-host/{host}` | how a renderer learns the tenant |
 | `GET /api/tenants/{handle}/public` | how a sign-in page learns the tenant |
+| `GET /api/tenants/tls-ask` | how a reverse proxy asks whether to get a certificate for a host |
 | `/api/auth/*` | identity is stored once for the deployment, and a provider redirects a social sign-in to one fixed address |
 
 They run on the `default` slug whatever the request named, so a slug nobody registered never
