@@ -106,6 +106,13 @@ internal static class CollectionSyncRules
             {
                 return $"'{field}' holds a list of references on '{req.ContentType}', which a sync does not fill.";
             }
+
+            // A file field takes a file its writer may use, and a sync writes for nobody.
+            if (barakoCMS.Core.Validation.FileFields.IsFileField(definition))
+            {
+                return $"'{field}' is a file field on '{req.ContentType}', so it cannot be filled from an "
+                     + "outside source.";
+            }
         }
 
         foreach (var (field, rule) in rules)

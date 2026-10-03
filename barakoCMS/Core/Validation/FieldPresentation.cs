@@ -41,7 +41,7 @@ internal static class FieldPresentation
         new("blocks", Lists),
         new("menu", Lists),
         new("links", Lists),
-        new("image", ["url", "string"]),
+        new("image", ["url", "string", FileFields.TypeName]),
     ];
 
     public static IReadOnlyList<Spec> Roles { get; } =

@@ -34,6 +34,10 @@ internal class Endpoint(
         foreach (var error in await ReferenceConditionRules.CheckAsync(session, req.Permissions, stored: null, ct))
             AddError(r => r.Permissions, error);
 
+        FieldSetRules.Normalise(req.Permissions);
+        foreach (var error in await FieldSetRules.CheckAsync(session, req.Permissions, stored: null, ct))
+            AddError(r => r.Permissions, error);
+
         ThrowIfAnyErrors();
 
         var role = new Role

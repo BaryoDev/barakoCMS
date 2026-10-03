@@ -130,8 +130,8 @@ public sealed class ContentCreator(
         using (barakoCMS.Core.Validation.ReferenceFields.Expecting(batch?.Expected))
         {
             (isValid, errors) = schema is null
-                ? await validator.ValidateAsync(request.ContentType, request.Data, existing: null)
-                : await validator.ValidateFieldsAsync(schema, request.ContentType, request.Data, existing: null);
+                ? await validator.ValidateAsync(request.ContentType, request.Data, existing: null, caller: httpContext.User)
+                : await validator.ValidateFieldsAsync(schema, request.ContentType, request.Data, existing: null, caller: httpContext.User);
         }
 
         string? slug = null;

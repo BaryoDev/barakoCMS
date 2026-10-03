@@ -9,13 +9,17 @@ namespace barakoCMS.Infrastructure.Multitenancy;
 /// active tenant. Everything else is refused, so a new route is refused until it is added here.
 /// </summary>
 /// <remarks>
-/// A route belongs here only if it reads nothing stored per tenant, because it runs on the default
-/// partition:
+/// A route belongs here only if it reads nothing stored per tenant through the request's own
+/// session, because that session runs on the default partition:
 /// <list type="bullet">
 /// <item><c>/health</c> and below, and <c>/metrics</c>: a probe and a scraper name no tenant.</item>
 /// <item><c>/api/meta</c>: a console reads the contract version before it knows a tenant.</item>
 /// <item><c>/api/tenants/by-host/{host}</c> and <c>/api/tenants/{handle}/public</c>: how a renderer
-/// or a sign-in page finds the tenant in the first place. Both read the registry.</item>
+/// or a sign-in page finds the tenant in the first place. Both read the registry. The second then
+/// reads the published site entry of the tenant the registry returned, in a session opened for
+/// that tenant by name, so it reaches a registered, active tenant's partition and no other.</item>
+/// <item><c>/api/tenants/tls-ask</c>: a reverse proxy asks whether a host is a tenant's domain, on
+/// the deployment's own host. It reads the registry.</item>
 /// <item><c>/api/auth</c> and below: identity is stored once for the deployment, and a provider
 /// redirects a social sign-in to one fixed address. Which tenant a token is for is the issuer's
 /// decision, and in Multi it refuses the default partition.</item>
@@ -51,7 +55,8 @@ internal static class TenantlessRoutes
         if (HealthProbePaths.IsHealthPath(value) || MetricsScrapeAccess.IsMetricsPath(value))
             return true;
 
-        if (string.Equals(value, "/api/meta", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(value, "/api/meta", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, "/api/tenants/tls-ask", StringComparison.OrdinalIgnoreCase))
             return true;
 
         // ["", "api", "tenants", x, y]

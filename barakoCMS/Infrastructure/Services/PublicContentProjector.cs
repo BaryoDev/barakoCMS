@@ -12,9 +12,10 @@ namespace barakoCMS.Infrastructure.Services;
 /// one function that <c>/api/public/{type}</c>, <c>/api/public/{type}/{slug}</c>, search and include
 /// resolution all already go through, and this adds a module-facing name for it rather than a second
 /// copy. The only work done here is renaming the result into a type a module can reference, since the
-/// response records under <c>Features/</c> stay internal (CLAUDE.md section 6).
+/// response records under <c>Features/</c> stay internal (CLAUDE.md section 6). File fields go
+/// through <c>PublicFileFields</c>, the same code those routes use.
 /// </remarks>
-internal sealed class PublicContentProjector : IPublicContentProjector
+internal sealed class PublicContentProjector(IFileStore? files = null) : IPublicContentProjector
 {
     public bool IsDeliverable(ContentTypeDefinition? definition) =>
         PublicDelivery.IsDeliverable(definition);
@@ -22,7 +23,24 @@ internal sealed class PublicContentProjector : IPublicContentProjector
     public string? SlugField(ContentTypeDefinition? definition) =>
         definition is null ? null : PublicDelivery.SlugField(definition);
 
-    public PublicContentProjection? Project(Content content, ContentTypeDefinition? definition)
+    public PublicContentProjection? Project(Content content, ContentTypeDefinition? definition) =>
+        Projected(content, definition) is { } projected
+            ? Map(PublicFileFields.LeaveOut(projected, definition!))
+            : null;
+
+    public async Task<PublicContentProjection?> ProjectAsync(
+        Content content, ContentTypeDefinition? definition, CancellationToken cancellationToken = default)
+    {
+        if (Projected(content, definition) is not { } projected)
+        {
+            return null;
+        }
+
+        var resolved = await PublicFileFields.ResolveAsync([projected], definition!, files, cancellationToken);
+        return Map(resolved[0]);
+    }
+
+    private static PublicContentResponse? Projected(Content content, ContentTypeDefinition? definition)
     {
         ArgumentNullException.ThrowIfNull(content);
 
@@ -38,13 +56,11 @@ internal sealed class PublicContentProjector : IPublicContentProjector
             return null;
         }
 
-        var projected = PublicDelivery.ToPublic(content, definition, PublicDelivery.SlugField(definition));
-        if (projected is null)
-        {
-            return null;
-        }
+        return PublicDelivery.ToPublic(content, definition, PublicDelivery.SlugField(definition));
+    }
 
-        return new PublicContentProjection(
+    private static PublicContentProjection Map(PublicContentResponse projected) =>
+        new(
             projected.Id,
             projected.ContentType,
             projected.Slug,
@@ -59,5 +75,4 @@ internal sealed class PublicContentProjector : IPublicContentProjector
                     projected.Seo.CanonicalUrl,
                     projected.Seo.ImageUrl,
                     projected.Seo.NoIndex));
-    }
 }

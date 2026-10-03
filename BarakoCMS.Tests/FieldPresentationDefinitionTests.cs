@@ -62,6 +62,7 @@ public class FieldPresentationDefinitionTests
     [InlineData("links", "array")]
     [InlineData("image", "url")]
     [InlineData("image", "string")]
+    [InlineData("image", "file")]
     public void A_known_editor_is_accepted_on_a_field_type_it_is_for(string editor, string type)
     {
         Errors(Field("Thing", type, editor: editor)).Should().BeEmpty();

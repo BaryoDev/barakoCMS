@@ -54,6 +54,21 @@ internal sealed class MalformedRequestMiddleware(RequestDelegate next, ILogger<M
                     StatusCodes.Status403Forbidden)
                 .ExecuteAsync(context);
         }
+        catch (barakoCMS.Infrastructure.Services.FieldWriteRefusedException ex) when (!context.Response.HasStarted)
+        {
+            // A write to a field outside the caller's writable set. The message names the type's
+            // own field names and nothing the request sent. Information, not a warning: it is the
+            // rule working, as a 403 from a permission check is.
+            logger.LogInformation("Refused a write with 403 on {Count} field(s) outside the caller's writable set", ex.Fields.Count);
+
+            context.Response.Clear();
+            await new ProblemDetails(
+                    [new ValidationFailure(string.Empty, ex.Message)],
+                    context.Request.Path,
+                    context.TraceIdentifier,
+                    StatusCodes.Status403Forbidden)
+                .ExecuteAsync(context);
+        }
         catch (Exception ex) when (!context.Response.HasStarted && Classify(ex) is { } refusal)
         {
             // Status and exception type only. The method and path are caller-controlled, and the

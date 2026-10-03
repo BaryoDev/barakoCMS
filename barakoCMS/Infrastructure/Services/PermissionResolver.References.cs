@@ -251,6 +251,12 @@ public partial class PermissionResolver
         if (target is null || !ReferenceConditions.IsComparable(target, targetField))
             return null;
 
+        // Which rows match says what the field holds, so the caller has to be allowed to read it on
+        // every entry of that type they may read. Asked without an entry, so a get and a list
+        // answer the same.
+        if (!(await FieldSetAsync(user, target.Name, "read", null, cancellationToken)).Allows(targetField))
+            return null;
+
         var comparison = ReferenceConditions.Comparison(targetField, operators, user.Id, _profile);
         if (comparison.Sql is null)
             return null;

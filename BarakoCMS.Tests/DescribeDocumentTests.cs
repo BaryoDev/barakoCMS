@@ -92,7 +92,7 @@ public class DescribeDocumentTests
         described.Should().HaveCount(FieldPresentation.Editors.Count + 1);
         described.Select(h => h.Name).Should().Equal(hints.Select(h => h.Name));
         described[described.Count - 1].FieldTypes.Should().Equal(["array"]);
-        described.Single(h => h.Name == "image").FieldTypes.Should().Equal(["url", "string"]);
+        described.Single(h => h.Name == "image").FieldTypes.Should().Equal(["url", "string", "file"]);
     }
 
     [Fact]
