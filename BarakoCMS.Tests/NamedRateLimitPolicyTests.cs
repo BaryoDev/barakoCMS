@@ -158,6 +158,7 @@ public class NamedRateLimitPolicyTests
         settings.Renderer.Should().Be(new RateLimitWindow(1000, 60, 10));
         settings.SiteShare.Should().Be(new RateLimitWindow(10, 60, 0));
         RateLimitSetup.Logout.Should().Be(new RateLimitWindow(30, 60, 0));
+        RateLimitSetup.TlsAsk.Should().Be(new RateLimitWindow(60, 60, 0));
 
         settings.Delivery.Should().BeNull("delivery has no limit of its own until one is set");
         settings.ApiKey.Should().BeNull("an API key has no quota until one is set");
@@ -196,6 +197,7 @@ public class NamedRateLimitPolicyTests
     [InlineData("Policies:Telemetry:PermitLimit", "50", "RateLimiting:Batch")]
     [InlineData("Policies:delivery:PermitLimit", "50", "RateLimiting:Delivery")]
     [InlineData("Policies:logout:PermitLimit", "50", "RateLimiting:Policies:logout")]
+    [InlineData("Policies:tls-ask:PermitLimit", "50", "RateLimiting:Policies:tls-ask")]
     [InlineData("Policies:two words:PermitLimit", "5", "RateLimiting:Policies")]
     [InlineData("Delivery:WindowSeconds", "30", "RateLimiting:Delivery:PermitLimit")]
     [InlineData("Delivery:PermitLimit", "0", "RateLimiting:Delivery:PermitLimit")]
@@ -468,6 +470,7 @@ public class NamedRateLimitPolicyTests
         [
             Naming("/api/auth/login", RateLimitSetup.AuthPolicy),
             Naming("/api/auth/logout", RateLimitSetup.LogoutPolicy),
+            Naming("/api/tenants/tls-ask", RateLimitSetup.TlsAskPolicy),
             Naming("/api/client-errors", RateLimitSetup.BatchPolicy),
             Naming("/api/auth/register", RateLimitSetup.RegistrationPolicy),
             Naming("/api/public/site/share-links/redeem", RateLimitSetup.SiteSharePolicy),
