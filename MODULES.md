@@ -367,6 +367,29 @@ once your seed returns.
   seeders still run and their committed work stays intact. Once every module has had its turn,
   failures are thrown together as an `AggregateException`, failing startup unless the host catches it.
 - **Seeds must be idempotent.** They run on every start.
+- **Declare who starts with your capabilities once, by seeded role id.** Hold a
+  `CapabilityDefaults` beside your capability names and grant from it:
+
+  ```csharp
+  internal static readonly CapabilityDefaults Defaults =
+      CapabilityDefaults.For(ReadNotes).GrantedTo(SystemRoles.Admin);
+
+  public Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) =>
+      Defaults.GrantAsync(session, ct);
+  ```
+
+  `SystemRoles.Admin` is the seeded Admin role: its fixed id, with its seeded name beside it. The
+  grant finds the role by id, so a renamed Admin keeps your defaults, and falls back to the name
+  where no role holds the id. A role that does not exist is skipped, never created. It only adds:
+  a capability an operator gave a role stays, and one they took off a seeded role comes back on
+  the next start. For a role your own module seeds, pass `new SeededRole(id, name)`. A gate that
+  still honours role names under `Auth:LegacyRoleFallback` takes them from the same declaration:
+  `Definition.RequireCapability(ReadNotes, Defaults.LegacyRoles)`. `ModuleCapabilities.GrantAsync`,
+  which takes role names, still works and is obsolete.
+- **A capability your handler checks itself needs declaring.** `GET /api/capabilities` and the
+  role write check read the vocabulary off the routing table. A name no route requires outright
+  (BarakoCMS.Files asks for `manage_all_files` only when the file is somebody else's) is put there
+  with `Definition.ChecksCapability(name)`, which gates nothing.
 
 Modules previously shared one session committed once at the end, so one failure discarded every
 module's work and any module could read another's uncommitted data.
@@ -521,10 +544,45 @@ the same module order, at the position described under [Middleware](#middleware)
 Default services (e.g. the mock `IEmailService`) are registered with `TryAdd`, so a module can
 substitute a real implementation.
 
-`IFileStore` is how the core, or a module that must not reference BarakoCMS.Files, reads a public
-file by id in the scope's tenant. BarakoCMS.Files implements it. It hands out public files only: a
-private file reads as absent, and a read of any file would be a separate member with its own access
-rule. With no such module the default throws on every call, naming the module to enable.
+`IFileStore` is how the core, or a module that must not reference BarakoCMS.Files, stores, reads
+and deletes a file in the scope's tenant. BarakoCMS.Files implements it. No member takes a tenant:
+the scope decides it.
+
+- `FindPublicAsync`, `OpenPublicAsync` and `PublicUrlAsync` take no caller and hand out public
+  files only. A private file reads as absent. These are the members for work with no user, such as
+  a workflow.
+- `FindAsync` and `OpenAsync` take the signed-in user as a `ClaimsPrincipal` and give that user
+  what the two download routes would: any public file, and a private one only to the user it
+  belongs to or to a user holding `manage_all_files` (Admin and SuperAdmin by default), read from
+  that user's stored roles in the scope's tenant. A principal that is not signed in,
+  comes from an API key, or carries a `tenant` claim for another tenant gets public files only.
+  Pass the principal of the current request. The store does not check again that its token is
+  still valid, that its tenant is still active, or device trust; the request pipeline did.
+- `SaveAsync` stores a file after the checks an upload gets (allowed type, content matching the
+  type, 10 MB, and the virus scan when one is configured) and answers with the file or the reason
+  it was refused. It checks nobody's right to store: the module calling it gates its own route.
+  `Owner` is the user the file belongs to, and may be left empty. `SuppliedBy` is the user who
+  sent the file, named as the actor in the audit entry a scanner refusal leaves; leave it null
+  for a file a job produced.
+- `DeleteAsync` deletes for a caller who could delete through `DELETE /api/files/{id}`: one
+  holding `upload_files` who is the file's owner or holds `manage_all_files`. It answers `InUse` while an
+  entry names the file, unless forced.
+
+`SaveAsync` and `DeleteAsync` commit through the scope's session, which the storage shares. Call
+them before staging anything else on that session: with work already staged they throw
+`InvalidOperationException` and do nothing, so a refused or failed save never commits a caller's
+rows. A save stores the bytes and then the record, in two commits, so a crash between them leaves
+bytes no record names, as on upload.
+
+Inside a content batch (`IContentBatchRunner`) the session writes into the batch's transaction and
+does not commit it. With the Postgres storage a file saved or deleted there is committed or rolled
+back with the batch. With an object store the bytes are written or removed at once: a batch that
+rolls back after a save leaves bytes no record names, and one that rolls back after a delete
+leaves a record whose bytes are gone. Do not delete through the seam inside a batch on an object
+store.
+
+With no module that stores files the default throws on every call, naming the module to enable. Every member except `FindPublicAsync` and `OpenPublicAsync` has a
+default that throws `NotSupportedException`, so a store written against those two still compiles.
 
 ### Durable work
 
@@ -705,7 +763,7 @@ template ships a placeholder.
 | [BarakoCMS.Pages](BarakoCMS.Pages) | Page tree over a content type: parent loop, depth and reserved slug rules, public navigation and path resolution, and an authenticated tree |
 | [BarakoCMS.Files.S3](BarakoCMS.Files.S3) | S3-compatible storage for the Files module (AWS S3, Cloudflare R2, SeaweedFS); public files get a direct URL, private files are proxied |
 | [BarakoCMS.DeviceTrust](BarakoCMS.DeviceTrust) | Records the device behind each sign-in, binds sessions to devices, and can require OTP approval for a new device |
-| [BarakoCMS.ExternalAuth](BarakoCMS.ExternalAuth) | Sign-in with Google, GitHub, Facebook or LinkedIn over OAuth, matched to a user by verified email |
+| [BarakoCMS.ExternalAuth](BarakoCMS.ExternalAuth) | Sign-in with Google, GitHub, Facebook or LinkedIn over OAuth, matched to a user by verified email, and with any OpenID Connect provider configured by issuer URL |
 | [BarakoCMS.FeatureFlags](BarakoCMS.FeatureFlags) | Feature flags, toggled and targeted by tenant, user or percentage, evaluated server side |
 | [BarakoCMS.Portability](BarakoCMS.Portability) | Export and import content types and their entries as a JSON bundle |
 | [BarakoCMS.Diagnostics](BarakoCMS.Diagnostics) | Client error log: browser errors posted to `/api/client-errors`, deduplicated by fingerprint |

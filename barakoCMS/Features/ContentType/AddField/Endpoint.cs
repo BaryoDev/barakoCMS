@@ -33,6 +33,15 @@ internal sealed class Request
     /// <summary>For a money field with a currency, the decimal places an amount may carry. Defaults to the currency's own.</summary>
     public int? Scale { get; set; }
 
+    /// <summary>The editor a console should open: one of <c>fieldEditors</c> in <c>GET /api/meta/describe</c>.</summary>
+    public string? Editor { get; set; }
+
+    /// <summary>The group the field sits in on a generated edit screen.</summary>
+    public string? Section { get; set; }
+
+    /// <summary>What the field is to the entry: one of <c>fieldRoles</c> in <c>GET /api/meta/describe</c>.</summary>
+    public string? Role { get; set; }
+
     public bool IsRequired { get; set; }
     public object? DefaultValue { get; set; }
     public Dictionary<string, object>? ValidationRules { get; set; }
@@ -154,12 +163,16 @@ internal sealed class Endpoint(
             Multiple = req.Multiple,
             Currency = req.Currency,
             Scale = req.Scale,
+            Editor = req.Editor,
+            Section = req.Section,
+            Role = req.Role,
             IsRequired = req.IsRequired,
             DefaultValue = req.DefaultValue,
             ValidationRules = req.ValidationRules ?? new Dictionary<string, object>(),
             Sensitivity = req.Sensitivity,
             VisibleToRoles = req.VisibleToRoles ?? new List<string>(),
         };
+        await barakoCMS.Core.RoleReferences.ToIdsAsync(session, [field], ct);
 
         // Validate the type as it would be, not the field on its own, so every rule create applies
         // applies here too.
@@ -191,6 +204,9 @@ internal sealed class Endpoint(
         definition.UpdatedAt = DateTime.UtcNow;
         session.Store(definition);
 
+        // The field stores role ids. The entry holds each id with the name it has now.
+        var roles = await RoleAudit.RoleListsAsync(session, [field.VisibleToRoles], [], ct);
+
         var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
         await AuditLog.RecordAsync(session, tenant.Slug, "contenttype.field_added", actorId,
             User.FindFirst("Username")?.Value,
@@ -200,6 +216,9 @@ internal sealed class Endpoint(
                 ["field"] = field.Name,
                 ["type"] = field.Type,
                 ["required"] = field.IsRequired,
+                ["sensitivity"] = field.Sensitivity.ToString(),
+                ["visibleToRoleIds"] = roles[0].Ids,
+                ["visibleToRoles"] = roles[0].Names,
             }, ct: ct);
 
         await session.SaveChangesAsync(ct);

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using barakoCMS.Core.Validation;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
@@ -14,8 +15,11 @@ namespace barakoCMS.Features.Public;
 /// route. Anonymous and cacheable.
 ///
 /// Item links point at the caller's frontend (the CMS is headless, so it can't know the URL): set
-/// <c>Feeds:SiteUrl</c> and, per type, <c>Feeds:Paths:{type}</c> (a template like <c>/blog/{slug}</c>;
-/// defaults to <c>/{type}/{slug}</c>). With neither <c>Feeds:SiteUrl</c> nor <c>App:BaseUrl</c> set,
+/// <c>Feeds:SiteUrl</c> and, per type, the type's route template or <c>Feeds:Paths:{type}</c> (a
+/// template like <c>/blog/{slug}</c>; defaults to <c>/{type}/{slug}</c>). An item's title,
+/// description and date come from the fields the type gives the title, summary and date roles,
+/// and from the field names guessed before roles existed when it gives none or the field is empty.
+/// With neither <c>Feeds:SiteUrl</c> nor <c>App:BaseUrl</c> set,
 /// the feed answers 503 unless <c>AllowedHosts</c> makes the request host trustworthy, because a feed
 /// is fetched by aggregators and its links must not come from a header the caller wrote (#147).
 /// </summary>
@@ -55,7 +59,7 @@ internal class FeedEndpoint(IQuerySession session, IConfiguration config) : Endp
             throw new barakoCMS.Infrastructure.Security.BaseUrlNotConfiguredException("Feeds:SiteUrl");
         }
 
-        var pathTemplate = config[$"Feeds:Paths:{type}"] ?? $"/{type}/{{slug}}";
+        var pathTemplate = PublicDelivery.PathTemplate(def!, config);
         var channelTitle = config[$"Feeds:Titles:{type}"] ?? type;
 
         var sb = new StringBuilder();
@@ -72,10 +76,13 @@ internal class FeedEndpoint(IQuerySession session, IConfiguration config) : Endp
             if (pub is null) continue; // fail-closed, same rules as the rest of delivery
 
             var slug = pub.Slug ?? string.Empty;
-            var title = Field(pub.Data, "Title", "Name");
-            var description = Field(pub.Data, "Excerpt", "Summary", "Description", "Body");
+            var title = Field(pub.Data, FieldPresentation.Candidates(
+                def, FieldPresentation.TitleRole, "Title", "Name"));
+            var description = Field(pub.Data, FieldPresentation.Candidates(
+                def, FieldPresentation.SummaryRole, "Excerpt", "Summary", "Description", "Body"));
             var link = siteUrl + pathTemplate.Replace("{slug}", Uri.EscapeDataString(slug));
-            var date = ItemDate(pub.Data, pub.CreatedAt);
+            var date = ItemDate(pub.Data, pub.CreatedAt, FieldPresentation.Candidates(
+                def, FieldPresentation.DateRole, "Date", "PublishedAt"));
 
             sb.Append("    <item>\n");
             if (title.Length > 0) sb.Append($"      <title>{Esc(title)}</title>\n");
@@ -112,9 +119,10 @@ internal class FeedEndpoint(IQuerySession session, IConfiguration config) : Endp
         return string.Empty;
     }
 
-    private static DateTimeOffset ItemDate(IReadOnlyDictionary<string, object> data, DateTimeOffset fallback)
+    private static DateTimeOffset ItemDate(
+        IReadOnlyDictionary<string, object> data, DateTimeOffset fallback, params string[] names)
     {
-        var raw = Field(data, "Date", "PublishedAt");
+        var raw = Field(data, names);
         return DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var d) ? d : fallback;
     }
 

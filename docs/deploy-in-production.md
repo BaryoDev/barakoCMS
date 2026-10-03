@@ -319,7 +319,8 @@ without it.
 The key is compared in constant time and never logged. Keep it in `.env` like the JWT key, and set the
 same value in barakoPress (`CMS_RENDERER_KEY`).
 
-Share link redemption (`POST /api/public/site/share-links/redeem`) is limited per tenant and per
+Share link redemption (`POST /api/public/site/share-links/redeem`, and `.../open` for a link to one
+entry or page, which shares the same budget) is limited per tenant and per
 visitor by `RateLimiting__SiteShare__*` (10 a minute by default). barakoPress redeems server side,
 so every visitor arrives from its IP. A redeem carrying the renderer key may also send
 `X-Barako-Visitor-IP` with the visitor's address, and that address is then the visitor. The header

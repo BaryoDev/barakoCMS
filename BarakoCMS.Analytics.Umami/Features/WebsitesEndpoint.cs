@@ -30,7 +30,7 @@ public sealed class WebsitesEndpoint(
     {
         Get("/api/analytics/websites");
         Definition.RequireCapability(
-            AnalyticsCapabilities.ViewAnalytics, AnalyticsCapabilities.LegacyRoles);
+            AnalyticsCapabilities.ViewAnalytics, AnalyticsCapabilities.Defaults.LegacyRoles);
     }
 
     public override async Task HandleAsync(CancellationToken ct)

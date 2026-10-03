@@ -1,6 +1,7 @@
 using FastEndpoints;
 using barakoCMS.Infrastructure.Auth;
 using Marten;
+using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Models;
 
 namespace barakoCMS.Features.Roles.Update;
@@ -10,7 +11,8 @@ internal class Endpoint(
     barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
     CapabilityVocabulary vocabulary,
     IConfiguration configuration,
-    ILogger<Endpoint> logger) : Endpoint<Request, Response>
+    ILogger<Endpoint> logger,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<Request, Response>
 {
     public override void Configure()
     {
@@ -26,9 +28,15 @@ internal class Endpoint(
             foreach (var name in unknown)
                 AddError(r => r.SystemCapabilities, CapabilityVocabulary.UnknownMessage(name));
         }
-        ThrowIfAnyErrors();
 
         var role = await session.LoadAsync<Role>(req.Id, ct);
+
+        // Here and not in a validator: a condition the stored role already holds is passed over,
+        // and that takes the stored role.
+        foreach (var error in await ReferenceConditionRules.CheckAsync(session, req.Permissions, role?.Permissions, ct))
+            AddError(r => r.Permissions, error);
+
+        ThrowIfAnyErrors();
 
         if (role == null)
         {
@@ -44,12 +52,19 @@ internal class Endpoint(
             ThrowIfAnyErrors();
         }
 
+        var before = RoleAudit.Of(role);
+
         role.Name = req.Name;
         role.Description = req.Description;
         role.Permissions = req.Permissions;
         role.SystemCapabilities = req.SystemCapabilities;
 
         session.Store(role);
+
+        Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
+        await AuditLog.RecordAsync(session, tenant.Slug, "role.updated", actorId, User.FindFirst("Username")?.Value,
+            targetType: "Role", targetId: role.Id.ToString(),
+            metadata: RoleAudit.Changed(before, RoleAudit.Of(role)), ct: ct);
         await session.SaveChangesAsync(ct);
 
         // Permissions changed, so evict cached decisions and the new rules take effect immediately.

@@ -23,12 +23,18 @@ key on the header, but it is not a CDN setting on its own: see the caching secti
 `docs/deploy-in-production.md` for what the CDN itself has to be configured to do.
 
 **Preview tokens are minted through the API, not the admin.** `POST /api/preview` returns a token
-bound to a tenant, a content type and a slug. It is authenticated, and the caller also needs `read`
+for one entry in the resolved tenant. It is authenticated, and the caller also needs `read`
 on the entry being previewed, so minting a token is not a way around the permissions that guard
 reading it normally. There is no button for it in barakoCMS itself, so a front end that wants preview
 links calls that endpoint from its own code with a token that satisfies both. Deferred deliberately
 rather than overlooked (#306), and recorded here so nobody goes looking for a screen that does not
 exist.
+
+The route is deprecated and its 200 says so in a `Deprecation` header. The token is the key of an
+entry share link that lasts 30 minutes: stored hashed, capped at 20 live per entry, deleted with
+its entry. A link made with `POST /api/contents/{id}/share-links` replaces it; that one is
+listed, audited and revocable, and its key is posted in a body rather than put in a URL. See
+"Links to one entry or one page" and "Preview tokens" in [site-settings.md](site-settings.md).
 
 ## Routes
 
@@ -40,6 +46,12 @@ exist.
 | GET | `/api/public/{type}/feed.xml` | RSS |
 | GET | `/api/public/sitemap.xml` | sitemap |
 | GET | `/api/public/events` | a server-sent event stream of changes (off by default, see below) |
+
+The feed takes an item's title, description and date from the fields the type gives the `title`,
+`summary` and `date` roles, and the feed and the sitemap build each link from the type's
+`routeTemplate`. A type that declares neither is read by field name and linked at
+`Feeds:Paths:{type}` or `/{type}/{slug}`, as before. See
+[field-hints-and-roles.md](field-hints-and-roles.md).
 
 `/{type}/{slug}` needs the type to have a slug field: a field of type `slug`, or failing that a
 field named `slug`. Without one the route is 404.
@@ -166,7 +178,8 @@ The operators, the five filter cap and the 256 character cap are the same. What 
 asking:
 
 - A filter is accepted on a declared field the caller reads unmasked: a `Public` field, or a
-  `Sensitive` or `Hidden` one their role may see. Any other field returns 400, in the same words as
+  `Sensitive` or `Hidden` one their stored roles may see (by `view_sensitive`, `view_hidden`, or
+  the field's own role list; see [access-control.md](access-control.md)). Any other field returns 400, in the same words as
   a field that does not exist, and the answer does not list the type's fields.
 - A filtered list leaves out an entry whose document sensitivity withholds its data from the
   caller. Unfiltered, that entry comes back blanked; matched by a filter, it would say what the

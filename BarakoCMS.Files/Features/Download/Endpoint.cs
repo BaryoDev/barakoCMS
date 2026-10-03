@@ -1,5 +1,9 @@
+using barakoCMS.Infrastructure.Auth;
+using barakoCMS.Infrastructure.Multitenancy;
+using barakoCMS.Infrastructure.Services;
 using FastEndpoints;
 using Marten;
+using Microsoft.Extensions.Configuration;
 
 namespace BarakoCMS.Files.Features.Download;
 
@@ -17,13 +21,23 @@ public class Request
 /// a public URL, redirects there; otherwise streams the bytes from the configured storage.
 /// Add <c>?w=400</c> for a narrower copy of an image; see <c>docs/image-variants.md</c>.
 /// </summary>
-public class Endpoint(IQuerySession session, IFileStorage storage, ImageVariants variants) : Endpoint<Request>
+public class Endpoint(
+    IQuerySession session,
+    IFileStorage storage,
+    ImageVariants variants,
+    IPermissionResolver permissions,
+    IConfiguration configuration,
+    TenantContext tenant) : Endpoint<Request>
 {
     public override void Configure()
     {
         Get("/api/files/{id}");
         /* Requires authentication (no AllowAnonymous). Callers fetch with a Bearer token, and the
            handler then decides whether this caller may have this file. */
+
+        // No gate: the uploader needs no capability to read their own file. The name is declared so
+        // GET /api/capabilities lists it and a role write knows it.
+        Definition.ChecksCapability(FileCapabilities.ManageAllFiles);
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
@@ -41,11 +55,11 @@ public class Endpoint(IQuerySession session, IFileStorage storage, ImageVariants
         // scan, which lowers the severity without making the check optional.
         //
         // Until content can reference a file (#141) there is no richer answer than "the person who
-        // uploaded it, or someone administering the tenant". Note that IsPublic is deliberately NOT
+        // uploaded it, or a caller holding manage_all_files". Note that IsPublic is deliberately NOT
         // sufficient here: PublicDownload is the route for public files, it sets its own caching and
         // headers, and honouring the flag on this route too would mean two paths to the same bytes
         // with different rules.
-        if (!FileOwnership.CanAccess(User, file))
+        if (!await FileAccessRule.MayAccessAsync(User, file, tenant.Slug, permissions, configuration, ct))
         {
             // 404, not 403, matching PublicDownload: a 403 confirms the id exists, which turns a
             // leaked id into a probe for what else is there.

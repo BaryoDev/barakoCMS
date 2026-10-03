@@ -196,6 +196,24 @@ public class MigrationLedgerTests
         lines[1].Should().StartWith("applied");
     }
 
+    /// <summary>
+    /// <c>tenant-profile-to-site.sql</c> narrows itself to one tenant when <c>barako.only_tenant</c> is
+    /// set on the session. A run has to reach every tenant, so the connection the ledger runs files
+    /// on must not carry it. A guard: nothing in this change sets it.
+    /// </summary>
+    [Fact]
+    public async Task A_file_sees_no_barako_session_setting_so_a_tenant_scoped_file_runs_for_every_tenant()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var database = await MigrationScratchDatabase.CreateAsync(_factory);
+        var probe = ShippedMigrations.Parse(ShippedMigrations.CoreOwner, "4.6.0/probe.sql",
+            "insert into public.runs (name) values (coalesce(nullif(current_setting('barako.only_tenant', true), ''), 'every tenant'));");
+
+        await database.Ledger().ApplyAsync([probe], Quiet, ct);
+
+        (await database.RunsAsync()).Should().Equal("every tenant");
+    }
+
     [Fact]
     public async Task A_file_marked_no_transaction_runs_outside_one()
     {

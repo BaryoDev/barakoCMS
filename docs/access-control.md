@@ -112,6 +112,104 @@ What a rule author needs to know:
 - A user whose roles come only from `User.RoleIds`, with no membership row in the tenant, has no
   profile. Add them as a member of the tenant to give them one.
 
+### Something about the entry a row points at
+
+An enrollment names a class, and only the class names its instructor. A condition key written
+`Reference.Field` follows the row's reference field to the entry it points at and compares a field
+of that entry, so an instructor reads the enrollments of the classes they teach without the
+instructor's id being copied onto every enrollment:
+
+```json
+{ "Read": { "Enabled": true, "Conditions": { "Class.InstructorUser": { "_eq": "$CURRENT_USER" } } } }
+```
+
+`Class` is a field of the enrollment type declared as `reference`, and `InstructorUser` is a field
+of the type it points at. The same key works on a Read, an Update and a transition rule, with
+`_eq`, `_ne`, `_in` and `_nin`, and beside conditions on the row itself.
+
+It denies unless all of this holds, whatever the operator is:
+
+- The first name is a field the row's type declares as a `reference`, spelled as declared. If the
+  field's type is changed later, the condition stops granting.
+- The row holds an id there, as text in the hyphenated form and no other: eight, four, four,
+  four and twelve hexadecimal digits. Upper or lower case both read.
+- The id is an entry in this tenant, of the type the reference declares, whose document sensitivity
+  is Public. An erased entry and one in another tenant are both not there.
+- The caller may read that entry under their own Read rules for its type. The instructor's role
+  needs a Read rule on classes that covers the class.
+- The second name is a field the referenced type declares with Public sensitivity, and the entry
+  holds it.
+- The comparison is on text: `_eq` and `_ne` against a text value (`$CURRENT_USER` and
+  `$CURRENT_USER.<name>` included), `_in` and `_nin` against a list of text holding at least one.
+  A number or a true/false written into the rule denies here, where on a field of the row itself
+  it is compared as text.
+
+One reference is followed, not two. `Class.Teacher.Email` is refused when the role is saved, and
+if the Read rule on classes itself follows a reference, that rule grants nothing to a condition
+arriving through an enrollment (the class can still be read directly under it).
+
+A key holding a dot is never looked up in the row's own data. An entry write keeps keys its type
+does not declare, so before this a rule naming `Class.InstructorUser` matched a row carrying a key
+spelled exactly that. It no longer does.
+
+`POST /api/roles` and `PUT /api/roles/{id}` check such a condition and answer 400 for a key that is
+not two names around one dot, a first name that is not a reference field of the rule's content type,
+a second name that is not a Public field of the referenced type, an operator outside the four, a
+comparison that is not on text, a content type the tenant does not define, and a condition on a
+Create rule (Create has no stored entry and does not evaluate conditions). One write checks such
+conditions on at most 50 content types.
+
+The check is against the content types of the tenant the request is made in. Roles are stored once
+for all tenants, so in another tenant the same condition resolves against that tenant's types and
+denies where they do not declare it. An update passes over a condition the stored role already
+holds unchanged (same content type, same rule, same key, same operators and values), so a role
+holding a condition written for another tenant's types, or one stored before this check existed,
+can still be renamed or given another permission from here. A condition the update adds, edits or
+moves is checked.
+
+A role stored with a key the check would refuse still reads back, and the condition denies. At
+start the API logs one warning naming the roles, by name and id, that hold a dotted condition
+following a reference in no tenant, so the roles an upgrade changed can be found.
+
+What it costs, and where it stops:
+
+- A check on one entry (get, update, status change, transition, preview) loads the entry each of
+  its references points at: one read for each. The same holds for the first ten rows a request
+  asks about, which covers the candidates of a get by slug and a push of up to ten entries. A row
+  holding two references into one type is one row.
+- A pass over more rows than that resolves the condition once, to the ids of the referenced
+  entries that satisfy it and that the caller may read, and tests each row's reference against
+  that set. That is one query per condition, whoever else's rows the pass walks over.
+  `GET /api/contents` with a `contentType` builds its query from the same ids, so it filters,
+  pages and counts in the database.
+- The set holds at most 1,000 ids: referenced entries that satisfy the condition and that the
+  caller may read. A condition keyed on the caller (`_eq $CURRENT_USER`) rarely reaches that. One
+  that is not, such as `Class.Visibility _eq public` or any `_ne` or `_nin`, reaches it as the
+  tenant grows. What happens then depends on the pass:
+  - `GET /api/contents` with a `contentType` keeps working when the database can answer the whole
+    condition, which is when the caller's Read rules for the referenced type compile to SQL. The
+    list is filtered by a subquery in place of the ids, with no bound on how many entries it
+    selects, and the rows of each page load the entries they point at.
+  - A check on up to ten rows keeps working, as above.
+  - Every other pass over many rows is refused with a 403 whose reason names the condition and
+    the bound: `GET /api/contents` with no `contentType`, the export, the page tree, a push of
+    more than ten existing entries, and a list of a named type when the caller's Read rules for
+    the referenced type do not compile (a `$status` rule, for one). It is refused at the
+    eleventh row, or before the list loads anything, and one warning is logged. It is not
+    answered with the rows it reached, because nothing in such a list would say it was short.
+    The cure is on the role: narrow the condition.
+- When the caller's Read rules for the referenced type do not compile, the matches are read as
+  whole entries, 500 to a statement, each starting after the last id the one before it read, and
+  each match is asked the read rules in memory. So the 1,000 counts what the caller may read. At
+  most 2,000 matches are read this way, in four statements, and more than 2,000 matches leaves
+  the condition with no set however few of them the caller may read. Nothing is kept between
+  requests, so every page of a named list and every pass over more than ten rows pays this
+  again, and a request that is then refused has paid it first. A Read rule on the referenced
+  type that compiles costs one query for ids.
+- What a request has read this way is dropped when its session commits, so a write followed by a
+  check in the same request reads again.
+- A refusal by id is still 403, as it is for every other condition.
+
 ## Layer 3: Field + document sensitivity
 
 This is the "Employee has SIN + birthday sensitive, rest viewable" ask, plus the
@@ -270,6 +368,75 @@ anonymously, with nothing to tell the caller when it stopped being.
 
 Still no admin UI for it: the endpoint is called directly.
 
+## Update (2026-10-02): who may see a value is a capability and a role id
+
+Until 4.6.0 two role names decided it, read back from the token: `HR` saw a
+Sensitive field that listed no roles of its own, `SuperAdmin` saw everything,
+and a field's `visibleToRoles` held role names. A clinic's Nurse role could be
+granted nothing that opened a Sensitive field, and renaming a role changed who
+could read the fields that listed it (#883).
+
+What decides it now, in order:
+
+1. The holder of the seeded SuperAdmin role, by its id, sees everything.
+2. A field with a `visibleToRoles` list is seen by the holders of those roles and
+   nobody else. The list replaces the default, it does not add to it.
+3. A field with no list is seen by a role holding `view_sensitive` when the field
+   is Sensitive, and `view_hidden` when it is Hidden. The two are separate:
+   holding one does not give the other. `*` satisfies both.
+4. An entry whose own level is Sensitive or Hidden follows rule 3.
+
+The same rules decide who may set a field: a caller who may not see it may not
+write it.
+
+The caller's roles are read from the store on each request, the roles they hold
+in the current tenant, not from the token's role claims. Taking a capability off
+a role, or a role off a user, applies on the next request rather than when the
+token expires. A read or a write costs up to three small queries, once per
+request, when the entry or its type is restricted, and none for a Public entry
+of a type with no restricted field.
+
+The rule has one home, `ISensitivityService.MaySeeFieldAsync` and
+`MaySeeDocumentAsync`. The scrub, the write guard and the entries list's field
+filters all ask those two, so what a caller may filter on, what they are shown
+and what they may set cannot drift apart.
+
+`visibleToRoles` is stored as role ids and is still names on the wire. The
+content type endpoints, a blueprint and the import accept names and store the id
+of the role that carries each one. `GET /api/content-types`, the sensitivity endpoint's
+answer and an export give the names back, as the roles are called now, so a
+client reads and sends what it always did and a rename shows up without changing
+who can read the field. A name no role carries is stored as it is and matches a
+role of exactly that name on read, which is also how a definition stored before
+4.6.0 keeps working until it is migrated.
+
+**Upgrading.** `migrations/4.6.0/sensitivity-by-capability.sql` gives the seeded
+HR role (id `00000000-0000-0000-0000-000000000003`, while it is still named
+`HR`) the `view_sensitive` capability and rewrites the names in every stored
+`visibleToRoles` to ids. The seeder grants the same capability to the same role
+on every start, so a host that runs the seeder keeps that role's access even
+where the file was skipped. A role named `HR` under any other id is left alone
+by both, since from 4.6.0 that can be a role an operator made, and the file
+names it in a notice. Stop the API before running the file and start 4.6.0
+after: an earlier release serving a migrated database masks every listed field
+for the roles on its list until 4.6.0 is up. Nobody else gains anything: Admin
+never read a Sensitive value and does not start to.
+
+**Who may hand the capabilities out.** A role carrying `view_hidden` is assigned
+only by a SuperAdmin, on `/api/users/{id}/roles` and on `/api/tenants/members`,
+the rule a role carrying `manage_roles` already follows. Only SuperAdmin read a
+Hidden value before, and no role an Admin could assign opened one. A role
+carrying `view_sensitive` is assigned like any other, as HR was.
+
+Only SuperAdmin, Admin and User are seeded now. HR comes with the demo content
+(`Seed:DemoContent`), and `HR` is no longer a reserved role name (#884). A
+database that already holds the HR role keeps it, and it still cannot be deleted.
+
+Proven by `SensitivityByCapabilityTests`, `HiddenCapabilityGrantTests`,
+`BlueprintRoleReferenceTests`, `SensitivityIntegrationTests`,
+`RoleReferencePortabilityTests`, `SeededRolesTests` and
+`SensitivityByCapabilityMigrationTests`.
+
 ## Tested (2026-07-16): the bug this replaced
 
 Ran as real HTTP integration tests (Testcontainers Postgres, role tokens,
@@ -309,9 +476,10 @@ real and testable, and these red tests go green.
 
 ## How to verify what works today
 
-The seeder creates an `AttendanceRecord` content type (fields incl. `SSN`,
-`BirthDay`), three records marked `Sensitivity = Sensitive`, and roles
-`SuperAdmin` + `HR`. Sign in as each and `GET /api/contents/{id}`:
+With `Seed:DemoContent` on, the seeder creates an `AttendanceRecord` content type
+(fields incl. `SSN`, `BirthDay`), three records marked `Sensitivity = Sensitive`,
+and an `HR` role holding `view_sensitive` beside `SuperAdmin`. Sign in as each
+and `GET /api/contents/{id}`:
 
 - **SuperAdmin** sees `SSN` and `BirthDay`.
 - **HR** sees `BirthDay`, not `SSN`.
@@ -438,13 +606,17 @@ same registries the API checks requests against, so a client does not keep its o
     { "name": "int", "aliases": ["integer", "number"], "editorHint": "number", "ruleNames": ["min", "max", "requiredWhen"] }
   ],
   "rules": [ { "name": "pattern", "aliases": ["regex"] } ],
+  "fieldEditors": [ { "name": "blocks", "fieldTypes": ["json", "array"] } ],
+  "fieldRoles": [ { "name": "title", "fieldTypes": ["string", "text"] } ],
   "capabilities": [ { "name": "manage_roles", "source": "core", "note": null } ],
   "workflowActions": [ { "type": "Webhook", "requiredParameters": ["Url"], "optionalParameters": ["Secret"], "secretParameters": ["Secret"] } ],
   "modules": [ { "name": "Pages", "httpContractVersion": 1 } ]
 }
 ```
 
-`fieldTypes` and `rules` go to every signed-in caller. The other three repeat what an endpoint with
+`fieldTypes`, `rules`, `fieldEditors` and `fieldRoles` go to every signed-in caller. The last two
+are the values a field's `editor` and `role` may hold, see
+[field-hints-and-roles.md](field-hints-and-roles.md). The other three repeat what an endpoint with
 a gate of its own already lists, so each is `null` for a caller that endpoint would refuse, and a
 list, possibly empty, for one it would serve. So `null` means withheld, and an empty list means none:
 
@@ -508,7 +680,14 @@ Two things keep an existing deployment working:
   The cost of that, plainly: a default you have deliberately removed from a seeded system
   role comes back on the next restart, because nothing records that the removal was
   deliberate. If you need one gone for good, do not run the seeder. A role you created is
-  untouched, since the defaults are keyed on the names the seeder creates.
+  untouched, since the defaults are keyed on the roles the seeder creates.
+
+  The seeder finds each system role by its fixed id, and by its name only where no role holds
+  the id. A seeded role you renamed keeps its new name, its permissions and its defaults. Before
+  4.6.0 the seeder looked by name, found nothing after a rename, and stored a new role under the
+  same id on the next start, which put the old name back and emptied the role's permissions. A
+  renamed role's holders reach what its capabilities open; a gate's legacy role fallback and any
+  check of the role name in a token see the new name.
 - The gate can also honour the role names it replaced, which is what makes access survive
   on a host that never calls the seeder. From 4.0 that is off unless you ask for it.
 
@@ -537,7 +716,7 @@ says.
 | `Features/Audit/*` | `view_audit_log` | `GET /api/audit` | SuperAdmin, Admin |
 | `Features/Settings/*` | `manage_settings` | `/api/settings`, `GET /api/settings/email` | SuperAdmin, Admin |
 | `Features/Settings/Email/*` | `manage_email_settings` | `PUT /api/settings/email`, `POST /api/settings/email/test` | SuperAdmin |
-| `Features/ContentType/*` | `manage_content_types` | `/api/content-types` (and its `/api/schemas` alias), `POST /api/content-types/{name}/rebuild`, `POST /api/content-types/{name}/seo-fields` | SuperAdmin, Admin |
+| `Features/ContentType/*` | `manage_content_types` | `/api/content-types` (and its `/api/schemas` alias), `POST /api/content-types/{name}/rebuild`, `POST /api/content-types/{name}/seo-fields`, `PUT /api/content-types/{name}/fields/{field}/presentation`, `PUT /api/content-types/{name}/route-template` | SuperAdmin, Admin |
 | `Features/Modules/*` | `view_modules` | `GET /api/modules` | SuperAdmin, Admin |
 | `Features/ContentType/*` | `manage_public_delivery` | `PUT /api/content-types/{name}/public-delivery`, `PUT /api/content-types/{name}/fields/{field}/sensitivity` | SuperAdmin, Admin |
 | `Features/Monitoring/*` | `view_monitoring` | `GET /api/monitoring/health`, `/k8s`, `/metrics` | SuperAdmin, Admin |
@@ -554,6 +733,8 @@ says.
 | `Features/Content/Erase/*` | `erase_content` | `DELETE /api/contents/{id}/erase` | SuperAdmin |
 | `Features/Jobs/*` | `view_jobs` | `GET /api/jobs` | SuperAdmin, Admin |
 | `Features/Collections/Endpoints.cs` | `manage_collection_syncs` | `/api/collection-syncs`, `/api/collection-syncs/{slug}`, `POST /api/collection-syncs/{slug}/run` | SuperAdmin, Admin |
+| `Infrastructure/Services/SensitivityService.cs` | `view_sensitive` | No route. Sensitive fields that list no roles, and Sensitive entries, wherever content is read or written | SuperAdmin, and HR where it is seeded |
+| `Infrastructure/Services/SensitivityService.cs` | `view_hidden` | No route. Hidden fields that list no roles, and Hidden entries, wherever content is read or written | SuperAdmin |
 
 Users is two capabilities because its old gates were two: listing accounts and resetting
 someone's password were `Roles("SuperAdmin")`, while changing a user's roles and groups
@@ -657,6 +838,7 @@ it on the routing table, which is where `GET /api/capabilities` and the role wri
 | Email (Resend) | `view_email_events` | `GET /api/email-events` |
 | Feature flags | `manage_feature_flags` | everything under `/api/feature-flags/admin` |
 | Files | `upload_files` | `POST /api/files`, `GET /api/files`, `GET /api/files/{id}/meta`, `PATCH /api/files/{id}`, `GET /api/files/{id}/usage`, `DELETE /api/files/{id}` |
+| Files | `manage_all_files` | no route of its own: `GET /api/files/{id}` and `DELETE /api/files/{id}` for a private file somebody else uploaded |
 | Forms | `manage_forms` | `GET /api/forms`, `PUT /api/forms/{contentType}` |
 | Import | `analyze_spreadsheets` | `POST /api/import/analyze` |
 | Portability | `export_content` | `GET /api/portability/export` |
@@ -688,21 +870,45 @@ A global role rather than SuperAdmin alone, because a single-tenant deployment's
 role globally and can resolve to any tenant slug, a subdomain nobody registered included. The rule
 lives in `PlatformScope` (`barakoCMS/Infrastructure/Auth`).
 
-Files is one grant, not a split, but it is not uniform either. `upload_files` opens list, describe
+Files is two names, and the first is not uniform. `upload_files` opens list, describe
 and edit for every file in the tenant, and delete and download for a file this account uploaded,
 because none of list, describe or edit exposes bytes or destroys anything the caller could not
 already see through those same routes. Delete and download are the two that leave the caller with
 something they did not have (the bytes) or take something away for good, so both also need the
-uploader, or an account holding Admin or SuperAdmin; `upload_files` on its own is not enough. Until
+uploader, or a caller holding `manage_all_files`; `upload_files` on its own is not enough. Until
 content can reference a file (#141) there is no richer answer than that. Before issue #547 the two
 gates disagreed: download already asked for the uploader or an admin, delete asked only for
-`upload_files`, so a media editor could delete a file they could not read.
+`upload_files`, so a media editor could delete a file they could not read. A module that reads or
+deletes a file through `IFileStore` names the signed-in user, and the store applies these same two
+rules to that user; see `MODULES.md`.
 
-A module grants its own capabilities at seed time, to the roles its old `Roles(...)` gate listed,
-using `ModuleCapabilities.GrantAsync`. Additive, idempotent, and it skips a role the host never
-seeded rather than inventing one. SuperAdmin is not granted anything: it holds `*`, which satisfies a
-capability from a module core has never heard of. A module you do not install grants nothing, because
-its seeder never runs.
+`manage_all_files` is what the role names Admin and SuperAdmin used to decide here (#886). The
+seeded Admin role holds it by default and SuperAdmin satisfies it through `*`, so both read and
+delete what they did before. A role of any name can be given it: a Site Manager role holding
+`manage_all_files` downloads another user's private file, and with `upload_files` as well deletes
+one. Like every capability it is answered from the caller's stored roles in the current tenant on
+each request, not from the role names in the token, so an account whose token says Admin and
+whose roles do not carry the capability is refused. Admin holds it only once the Files module's
+seed has run: a host that never calls `RunBarakoModuleSeedersAsync`, the Suite started with
+`SKIP_SEEDER=true`, and a Suite start where the Files seeder threw (logged, and the host carries
+on) all leave Admin without it. The names open it again only where
+`Auth:LegacyRoleFallback` is on. The Files module's `HttpContractVersion` is 2 from this change. The check also refuses an API key, a caller who is not signed in
+and a token issued for another tenant, before it looks at the file. Proven by
+`FileOwnershipCapabilityTests` and `FileStoreSeamTests`.
+
+A module declares its defaults once, as a `CapabilityDefaults`: the capabilities, and the seeded
+roles that start with them, each named by the id it is seeded under (`SystemRoles.Admin` for the
+Admin role). The seed grants from that declaration with its `GrantAsync`, and the
+module's gates take their legacy role list from it, so no module lists role names. The roles are
+the ones its old `Roles(...)` gate listed. The grant finds a role by its seeded id, so a seeded
+role that was renamed is still granted; where no role holds the id it falls back to the role
+carrying the seeded name, which is how grants were keyed before. Where neither exists it skips the
+role rather than inventing one. It only ever adds, so a capability you gave a role stays, and it
+runs on every start, so a default you took off a seeded role comes back on the next one, as core's
+own defaults do. SuperAdmin is not granted anything: it holds `*`, which satisfies a capability
+from a module core has never heard of. A module you do not install grants nothing, because its
+seeder never runs. Proven by `ModuleCapabilityDefaultsTests`.
+
 Content types split for the audit-log reason rather than the users reason: both gates were the same
 role pair, so one name would have covered them and no seeded role would have noticed. They are split
 because designing a schema and deciding what an anonymous caller can read are different jobs. Field
@@ -721,3 +927,128 @@ asks for `manage_content_types`, since adding fields to a content type is exactl
 is. Admin holds both by default, matching what it reached before.
 
 Third-party modules calling `Roles(...)` are unaffected and compile unchanged.
+
+## What the audit log records about grants
+
+The requests in the table below each write one row to `GET /api/audit`. For those requests the row is
+staged on the same session as the change and the endpoint saves once, so a failed save leaves
+neither. That holds for the routes listed and for nothing else: the paths under "Grants that write no
+row" change what somebody can do and record nothing. A row holds who did it, what it was done to and
+names or ids for before and after. It never holds a field value, an API key, a key's hash or its
+display prefix.
+
+| Change | Action | Metadata |
+|---|---|---|
+| Role created | `role.created` | `name`, `capabilities`, `permissions` |
+| Role changed | `role.updated` | `name`, `nameBefore`, `capabilitiesBefore`, `capabilitiesAfter`, `permissionsBefore`, `permissionsAfter`, `conditionsChanged`; `capabilitiesAdded` and `capabilitiesRemoved` when the lists differ; `conditionsChangedIn` when a condition changed |
+| Role deleted | `role.deleted` | `name`, `capabilities`, `permissions` |
+| Global role given to a user | `user.role.assigned` | `roleId`, `roleName` |
+| Global role taken from a user | `user.role.removed` | `roleId`, `roleName` |
+| Tenant created | `tenant.member.added` in the new tenant's log | `invited` (false), `roleIds`, `roleNames`, `tenantCreated` |
+| Tenant switched off or on | `tenant.deactivated`, `tenant.activated` in that tenant's log | none |
+| Member added, or added again | `tenant.member.added` | `invited`, `roleIds`, `roleNames`; `previousStatus`, `previousRoleIds`, `previousRoleNames` when the membership already existed |
+| Member's roles or status changed (suspending is this) | `tenant.member.updated` | `status`, `roleIds`, `roleNames`, `previousStatus`, `previousRoleIds`, `previousRoleNames` |
+| Member removed | `tenant.member.removed` | `previousStatus`, `previousRoleIds`, `previousRoleNames` |
+| API key created | `apikey.created` | `name`, `scopes`, `contentTypes`, `actsAsUserId`, `expiresAt` when set |
+| API key revoked | `apikey.revoked` | `name`, `actsAsUserId` |
+| Field added | `contenttype.field_added` | `field`, `type`, `required`, `sensitivity`, `visibleToRoleIds`, `visibleToRoles` |
+| Field's level, role list or mask changed | `contenttype.field.sensitivity.changed` or `.lowered` | `from`, `to`, `visibleToRoleIdsFrom`, `visibleToRolesFrom`, `visibleToRoleIdsTo`, `visibleToRolesTo`, `maskFrom`, `maskTo` |
+
+The three member rows also carry `profileAdded`, `profileRemoved` and `profileChanged` when a
+profile changed: the attribute names, never their values.
+
+### Where a membership is written
+
+A membership has three writers, `Members.AddAsync`, `ChangeAsync` and `RemoveAsync`, and each stages
+its row beside the write. The member routes and tenant creation all go through them. The patch they
+share, `QueueWrite`, is private to `Members`, so no other file can queue a membership write with no
+row.
+
+`MembershipWriterTests` reads the source for a write anywhere else. Outside the member endpoints
+file and outside comment lines it fails on `new Membership` as a whole word, on `Membership x = new(`,
+on a session call typed on the document (`Patch<Membership>`, `Store<Membership>`, and the insert,
+update and delete spellings), and on any file that loads or queries memberships and also calls
+`.Store(`, `.Insert(` or `.Update(`. It does not catch a membership handed to another file that
+stores it, or a write through raw SQL.
+
+### Ids and names
+
+A role is referred to by id wherever a row had one already: `roleId` on the `user.role.*` rows,
+`roleIds` and `previousRoleIds` on the member rows. The id is the reference, since it survives a
+rename. Beside it is the name the role had when the change was made (`roleName`, `roleNames`,
+`previousRoleNames`, in the same order as the ids), read in the same request. A row is never
+rewritten, so the two cannot come apart inside it; after a rename the row still says what the role
+was called at the time. A role that no longer exists has an empty name beside its id.
+
+The field rows follow the same rule. A field stores its role list as ids, so `visibleToRoleIds`,
+`visibleToRoleIdsFrom` and `visibleToRoleIdsTo` hold those ids, and `visibleToRoles`,
+`visibleToRolesFrom` and `visibleToRolesTo` hold the names beside them in the same order, resolved
+through `RoleReferences.ToNamesAsync` when the change is made. A stored id whose role is gone has an
+empty name. Text the request sent that matched no role is stored on the field as sent; in the row it
+has an empty id and the text as its name. Each of these lists is the same capped object a role row
+uses: the first 50 `items`, the full `count`, `truncated`, and a name cut at 200 characters, since
+nothing limits the list a request sends.
+
+### The shape of a role row
+
+A list on a role row is an object: `items` holds the first 50 entries, `count` the full number and
+`truncated` whether any were left out. A name longer than 200 characters is cut to 200. A role
+document has no limit of its own, so this is what bounds the row.
+
+Each entry of `permissions` is an object, so nothing a request sent is joined into a sentence:
+
+```json
+{
+  "contentType": "invoice",
+  "actions": ["read", "update"],
+  "transitions": { "items": ["approve"], "count": 1, "truncated": false },
+  "conditions": {
+    "items": [{ "rule": "update", "field": "department", "operators": ["_in"] }],
+    "count": 1,
+    "truncated": false
+  }
+}
+```
+
+A condition is recorded as the field it tests and the operators it uses, never the value it compares
+against. A value can change with the field and operators staying the same, so `conditionsChanged`
+says whether any stored condition differs from the one it replaced, values included, and
+`conditionsChangedIn` names the content types where it does.
+
+### Who reads what
+
+The stored row is complete. `GET /api/audit` returns no more of it than the caller could read from
+the route that owns the data:
+
+- A `role.*` row is returned with only `name` and `nameBefore` in its metadata unless the caller
+  passes the gate on `GET /api/roles` (`manage_roles`).
+- An `apikey.*` row is returned with only `name` unless the caller passes the gate on
+  `GET /api/api-keys` (`manage_api_keys`).
+
+The action, actor, target and time are always returned. This matters because roles are global
+documents and a role row goes to the log of the tenant the request resolved to: without it, a
+platform administrator editing a role while resolved to one tenant would show that tenant's
+administrators the capabilities of platform roles and the content types other tenants' permissions
+name. A tenant admin reads their own tenant's rows; a SuperAdmin reads across tenants with `?tenant=`.
+
+### Before values are a read, not a lock
+
+The "before" in a row is what the endpoint loaded at the start of the request. Two edits of the same
+role, membership or user arriving together can both load the same state and both record it as their
+"before", and two revocations of one key can both write a row. The last save wins on the document,
+as it did before these rows existed.
+
+### Grants that write no row
+
+- The seeder, at startup: creating the system roles and the first users, giving a seeded role the
+  default capabilities it is missing, and, with demo content on, creating the HR role and giving it
+  `view_sensitive`.
+- A module's seeder: `ModuleCapabilities.GrantAsync` adding the module's capabilities to seeded
+  roles, and `AccountingModule.SeedAsync` creating the `Accountant` role.
+- Self-registration giving a new account the `User` role.
+- A content type created with Sensitive or Hidden fields, by `POST /api/content-types` or by applying
+  a blueprint. The blueprint row names the types only.
+- A portability import adding a new Sensitive or Hidden field to an existing type. Its row holds
+  counts only. An import cannot change the level, role list or mask of a field that already exists.
+- An entry's own sensitivity level changing. That is on the entry's event stream.
+- Reads of Sensitive and Hidden fields.

@@ -34,7 +34,7 @@ public sealed class EmailEventsEndpoint(
     {
         Get("/api/email-events");
         Definition.RequireCapability(
-            ResendEmailCapabilities.ViewEmailEvents, ResendEmailCapabilities.LegacyRoles);
+            ResendEmailCapabilities.ViewEmailEvents, ResendEmailCapabilities.Defaults.LegacyRoles);
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
@@ -45,7 +45,7 @@ public sealed class EmailEventsEndpoint(
             q = q.Where(e => e.Type == req.Type);
 
         if (!await PlatformScope.HoldsGloballyAsync(session, User, configuration,
-                ResendEmailCapabilities.ViewEmailEvents, ResendEmailCapabilities.LegacyRoles, ct))
+                ResendEmailCapabilities.ViewEmailEvents, ResendEmailCapabilities.Defaults.LegacyRoles, ct))
         {
             var slug = tenant.Slug;
             q = q.Where(e => e.Tenant == slug);

@@ -62,14 +62,28 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.2.0
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/4.2.0/stored-files-parent-index.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.2.0/forms-public-forms.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/email-sent-emails.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/external-auth-identities.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/forms-email-verification.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0/collection-syncs.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0/marten-9-37-event-store-columns.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.4.0/marten-9-38-quick-append-events.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/refresh-token-hash-index.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/event-correlation-metadata.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/sensitivity-by-capability.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/tenant-profile-to-site.sql
 ```
 
 The two Marten files bring the event store up to the Marten version the release you are deploying
 runs. Each explains itself in its header. Skip a file whose directory is newer than that release.
+
+The event correlation file (4.6.0) adds two nullable columns to `mt_events` and replaces the
+function that appends events, so each event can record the request that wrote it
+([tracing.md](tracing.md)). It runs after the `4.4.0` file, which replaces the same function.
+Coming from 4.5 it can be applied while 4.5 is still serving, then deploy, like the two Marten
+files: 4.5 writes an event with an INSERT that names its own columns, so the two new nullable
+columns do not stop it, and it does not call the function. CI applies the file under a running
+4.1 and writes through it. An old instance that restarts after the file fails its own start-up
+schema assertion, so do not leave long between the file and the deploy.
 
 With a 4.6.0 or later image, `db-migrate` applies these files in place of the `psql` lines above.
 See [migrations.md](migrations.md), and run `db-migrate --status` first: CI proves the `psql` route
@@ -97,6 +111,15 @@ the policy as outstanding. Add it with `db-apply`, described under
 [Schema changes after 4.0](#schema-changes-after-40);
 [tenancy-at-the-database.md](tenancy-at-the-database.md) has the queries that show it is there.
 
+The tenant profile file changes data and no schema, so `db-assert` passes with or without it. It
+moves each tenant's logo, about text, location, social handle, email and contact link from the
+tenant document into that tenant's published `site` entry, and prints a `NOTICE` for every tenant
+and value it leaves where it was, with the reason. The API answers from the site entry where the
+site type declares the field and from the tenant document where it does not, so a tenant the file
+left alone still answers. [multi-tenancy.md](multi-tenancy.md#the-tenant-profile) has the rules,
+how to remove a value left behind, and the query that lists what is still on tenant documents. It is
+safe to run twice, and worth running again after a tenant it left alone publishes its site entry.
+
 Run every file with the API stopped. A running API keeps a transaction open for as long as it
 runs, and an index built `CONCURRENTLY` waits for every transaction older than itself, so against
 a live API it never finishes.
@@ -104,10 +127,25 @@ a live API it never finishes.
 The Files file builds its index `CONCURRENTLY`, which is why it runs on its own, without
 `--single-transaction`. The refresh token file is a plain build inside a transaction: with the API
 stopped the table takes moments, and an invalid index left by an earlier `CONCURRENTLY` attempt is
-dropped and built again. The Forms file creates one empty table. All of them are safe to run twice.
+dropped and built again. The Forms file creates one empty table, and the 4.6.0 Forms file creates
+the two empty tables a form uses to verify an email field. All of them are safe to run twice.
 
 The Email file creates the empty table Email.Resend uses to record which tenant sent each email,
 so a later bounce can be put back on that tenant. It is safe to run twice.
+
+The ExternalAuth file creates the empty table that ties an OpenID Connect provider account, by
+issuer and subject, to a user. Nothing writes to it until a provider is configured under
+`Oidc:Providers`. It is safe to run twice.
+
+The sensitivity file (4.6.0) changes data, not schema. It gives the seeded HR role the
+`view_sensitive` capability, which is what its name used to grant, and rewrites the role names in
+every field's `visibleToRoles` to role ids. Stop the API, run it, then start 4.6.0. The order
+matters here more than for an index: 4.5 and earlier match those lists against the role names in
+the token, so an earlier release serving a migrated database masks every listed field for every
+role on its list, and only SuperAdmin reads them, until 4.6.0 is running. Nothing is disclosed in
+that state and no value is changed. 4.6.0 on a database the file has not reached is safe to serve,
+since it still matches names. A role named HR under any id but the seeded one is not granted, and
+the file says so in a notice that names the id. It is safe to run twice.
 
 Then confirm the schema matches what 4.0 expects, without starting the server. The command is an
 argument to the 4.0 image, which hands it to the host instead of booting the web app. With compose,
@@ -182,6 +220,11 @@ statements from the file by hand rather than re-running the whole thing.
 Stop 4.0, then:
 
 ```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/rollback-forms-email-verification.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/rollback-external-auth-identities.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/rollback-sensitivity-by-capability.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/rollback-tenant-profile-to-site.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/rollback-event-correlation-metadata.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/rollback-email-sent-emails.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/rollback-refresh-token-hash-index.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql
@@ -204,6 +247,15 @@ release built, not because the release needs it. One is left behind on a rollbac
 `mt_doc_public_forms`, whose only drop is in `rollback-to-3.x.sql`. It is harmless there, and CI
 boots 4.1.0 beside it.
 
+The tenant profile file copies each tenant's profile from its published site entry back onto the
+tenant document, where a release before 4.6.0 reads it. It fills blanks only and removes nothing
+from the site entry, so nothing is lost. For a value the forward file moved, the earlier release
+then serves what the site entry holds now, an edit made on 4.6.0 included. A value still on the
+tenant document is not overwritten: for a tenant the forward file left alone or was never run for,
+and for a field where the two sides differed, the earlier release serves the tenant document's
+value, as it did before the upgrade, even where 4.6.0 was answering with a different one from the
+site entry.
+
 The collection syncs file drops `mt_doc_collection_syncs`. That loses the sync schedules and field
 mappings, which nothing else records; the entries those syncs wrote are ordinary content and are
 untouched.
@@ -224,6 +276,11 @@ The user file puts the username and email unique indexes back on the stored valu
 The Email file drops `mt_doc_sent_emails`, which an earlier release does not declare. It loses only
 which tenant sent each email; a bounce reported after the rollback is recorded
 without a tenant, as it was before.
+
+The ExternalAuth file drops `mt_doc_external_identities`, which an earlier release does not declare.
+It loses which OpenID Connect provider account belongs to which user. The users stay. After
+upgrading again, each person is linked again by email the next time they sign in through the
+provider, which needs the provider to vouch for the address.
 
 That restores the two `mt_streams` columns as NULL, which is what they were, and removes `bdata`.
 It also drops the Files `ParentFileId` index, which the 3.x Suite refuses to start alongside.

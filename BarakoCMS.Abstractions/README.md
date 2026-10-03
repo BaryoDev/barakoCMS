@@ -18,10 +18,10 @@ is not contract is a compile error rather than a note in a pull request.
 
 | Namespace | What it holds |
 |---|---|
-| `barakoCMS.Modules` | `IBarakoModule`, `IModuleSchema`, `ModuleCapabilities`, `ModuleContract` |
+| `barakoCMS.Modules` | `IBarakoModule`, `IModuleSchema`, `ModuleCapabilities`, `CapabilityDefaults`, `ModuleContract` |
 | `barakoCMS.Models` | The documents: content, content types, users, roles, permissions, workflows, jobs |
 | `barakoCMS.Events` | The content event stream |
-| `barakoCMS.Core.Interfaces` | `IEmailService`, `IOtpService`, `ISmsService`, `IContentWriter`, `ISensitivityService`, `IFileStore` and the rest of the service seams, and the durable work seams: `IDurableOutbox`, `IDurableRuns`, `IDurableMessageHandler<T>` |
+| `barakoCMS.Core.Interfaces` | `IEmailService`, `IOtpService`, `ISmsService`, `IContentWriter`, `IContentTransitioner`, `ISensitivityService`, `IFileStore` and the rest of the service seams, and the durable work seams: `IDurableOutbox`, `IDurableRuns`, `IDurableMessageHandler<T>` |
 | `barakoCMS.Features.Workflows` | `IWorkflowAction`, `IWorkflowEngine`, `WorkflowActionResult` |
 
 Namespaces are unchanged from when these types shipped inside `BarakoCMS`, so a module moving to

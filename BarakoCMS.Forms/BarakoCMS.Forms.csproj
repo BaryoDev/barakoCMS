@@ -6,7 +6,7 @@
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.Forms</PackageId>
     <Version>4.4.0</Version>
-    <Description>Public forms for barakoCMS: a content type marked as a form accepts anonymous submissions at POST /api/public/forms/{slug}, validated against its own schema and stored as a Sensitive entry that delivery never serves, with a per-client rate limit, a honeypot and optional Cloudflare Turnstile.</Description>
+    <Description>Public forms for barakoCMS: a content type marked as a form accepts anonymous submissions at POST /api/public/forms/{slug}, validated against its own schema and stored as a Sensitive entry that delivery never serves, with a per-client rate limit, a honeypot, optional Cloudflare Turnstile and optional verification of an email field by a one-time code.</Description>
   </PropertyGroup>
 
   <ItemGroup>
@@ -33,8 +33,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- This module's migration, shipped in its own assembly so db-migrate records it under the
+    <!-- This module's migrations, shipped in its own assembly so db-migrate records it under the
          module and runs it only where the module is enabled. See MODULES.md, "Migrations". -->
     <EmbeddedResource Include="..\migrations\4.2.0\forms-public-forms.sql" LogicalName="barako-migrations/4.2.0/forms-public-forms.sql" />
+    <EmbeddedResource Include="..\migrations\4.6.0\forms-email-verification.sql" LogicalName="barako-migrations/4.6.0/forms-email-verification.sql" />
   </ItemGroup>
 </Project>

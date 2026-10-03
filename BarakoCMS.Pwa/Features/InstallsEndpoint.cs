@@ -33,7 +33,7 @@ public sealed class InstallsEndpoint(
     {
         Get("/api/pwa/installs");
         Definition.RequireCapability(
-            PwaCapabilities.ViewPwaInstalls, PwaCapabilities.LegacyRoles);
+            PwaCapabilities.ViewPwaInstalls, PwaCapabilities.Defaults.LegacyRoles);
     }
 
     public override async Task HandleAsync(barakoCMS.Models.ListRequest req, CancellationToken ct)
@@ -45,7 +45,7 @@ public sealed class InstallsEndpoint(
         // One global table with the reporting tenant kept as data. Holding the capability through a
         // global role sees every device, and anyone else sees the current tenant's.
         if (!await PlatformScope.HoldsGloballyAsync(session, User, configuration,
-                PwaCapabilities.ViewPwaInstalls, PwaCapabilities.LegacyRoles, ct))
+                PwaCapabilities.ViewPwaInstalls, PwaCapabilities.Defaults.LegacyRoles, ct))
         {
             var slug = tenant.Slug;
             query = query.Where(p => p.Tenant == slug);

@@ -11,7 +11,7 @@ internal sealed class ListEndpoint(IQuerySession session) : Endpoint<ListRequest
     public override void Configure()
     {
         Get("/api/forms");
-        Definition.RequireCapability(FormsCapabilities.ManageForms, FormsCapabilities.LegacyRoles);
+        Definition.RequireCapability(FormsCapabilities.ManageForms, FormsCapabilities.Defaults.LegacyRoles);
     }
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
@@ -27,6 +27,7 @@ internal sealed class ListEndpoint(IQuerySession session) : Endpoint<ListRequest
                 ContentType = f.ContentType,
                 Enabled = true,
                 EnabledAt = f.EnabledAt,
+                VerifyEmailField = f.VerifyEmailField,
             }).ToList(),
             Page = page.Page,
             PageSize = page.PageSize,

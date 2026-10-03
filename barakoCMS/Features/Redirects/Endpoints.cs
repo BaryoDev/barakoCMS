@@ -16,7 +16,7 @@ namespace barakoCMS.Features.Redirects;
 /// </remarks>
 internal static class RedirectGate
 {
-    public static readonly string[] LegacyRoles = ["SuperAdmin", "Admin"];
+    public static readonly IReadOnlyList<string> LegacyRoles = CapabilityGate.AdminLegacyRoles;
 }
 
 internal sealed class RedirectResponse

@@ -40,6 +40,23 @@ public class WorkflowRun
     /// </remarks>
     public long TriggeringEventSequence { get; set; }
 
+    /// <summary>
+    /// The correlation id of the request that caused this run: the one on the event that triggered
+    /// it, which is the one the request answered with in <c>X-Correlation-ID</c>.
+    /// </summary>
+    /// <remarks>
+    /// Null when no request caused it, such as a scheduled publish, and on a run stored before this
+    /// was kept. Events an action of this run writes carry the same id, so the chain from a request
+    /// to everything it set off shares one value.
+    /// </remarks>
+    public string? CorrelationId { get; set; }
+
+    /// <summary>
+    /// The W3C <c>traceparent</c> of the span that wrote the triggering event, which the runner
+    /// starts each action's span under. Null when there was none.
+    /// </summary>
+    public string? TraceParent { get; set; }
+
     public RunStatus Status { get; set; } = RunStatus.Pending;
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;

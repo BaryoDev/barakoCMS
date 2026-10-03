@@ -156,6 +156,9 @@ A file is one object:
 }
 ```
 
+A field may carry `editor`, `section` and `role`, and a type `routeTemplate`; see
+[field-hints-and-roles.md](field-hints-and-roles.md).
+
 The entries under `contentTypes` are the same shape the Portability import accepts, so a file can be
 assembled from `GET /api/portability/export` by keeping the types and dropping the contents.
 

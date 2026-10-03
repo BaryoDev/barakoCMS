@@ -46,11 +46,24 @@ public class ContentTypeDefinition
     /// runs during a restore or a migration, where dropping rows that the bundle holds loses content
     /// at the worst possible moment. A bundle carrying two entries of a singleton type lands both.
     ///
-    /// The tenant profile is not a substitute. Its shape is fixed and <c>Branding</c> is not writable
-    /// through the API, so a client's emergency number has nowhere to go. <c>SystemSetting</c> is
-    /// deployment level with fixed categories, neither per tenant nor public.
+    /// <c>SystemSetting</c> is not a substitute: it is deployment level with fixed categories,
+    /// neither per tenant nor public.
     /// </remarks>
     public bool IsSingleton { get; set; }
+
+    /// <summary>
+    /// Where an entry of this type lives on the site, as a path holding <c>{slug}</c>, for example
+    /// <c>/blog/{slug}</c>.
+    /// </summary>
+    /// <remarks>
+    /// Null, the default, is every type stored before this existed: the feed and the sitemap then
+    /// read <c>Feeds:Paths:{type}</c> from configuration and fall back to <c>/{type}/{slug}</c>, as
+    /// they always did. Set, it is read ahead of both, so the path is the editor's to change and
+    /// not the operator's. A path only: it starts with <c>/</c>, has no empty segment and no
+    /// <c>.</c> or <c>..</c> segment, and is joined to the site URL the deployment configures, so
+    /// it cannot name another host.
+    /// </remarks>
+    public string? RouteTemplate { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
@@ -179,14 +192,53 @@ public class FieldDefinition
     /// </remarks>
     public int? Scale { get; set; }
 
+    /// <summary>
+    /// The editor a console should open for this field: <c>blocks</c>, <c>menu</c>, <c>links</c> or
+    /// <c>image</c>.
+    /// </summary>
+    /// <remarks>
+    /// Null, the default, is every field stored before this existed, and a console then picks an
+    /// editor the way it did before, from the field's type and name. A hint, and nothing the API
+    /// enforces on an entry: the field's type still decides what a value may be. Lower case, one of
+    /// the names <c>GET /api/meta/describe</c> lists under <c>fieldEditors</c>, and only on a field
+    /// type that editor can hold.
+    /// </remarks>
+    public string? Editor { get; set; }
+
+    /// <summary>The group this field sits in on a generated edit screen, for example "Branding".</summary>
+    /// <remarks>
+    /// Null is a field in no section. Sections are compared exactly, case included, and appear in
+    /// the order of the first field that names each. Fields keep the type's own order inside one.
+    /// </remarks>
+    public string? Section { get; set; }
+
+    /// <summary>
+    /// What this field is to the entry: <c>title</c>, <c>summary</c> or <c>date</c>.
+    /// </summary>
+    /// <remarks>
+    /// Null, the default, leaves the feed and the SEO block finding these by field name, as they did
+    /// before roles existed. Set, the field is read ahead of those names, which stay the fallback
+    /// when it holds nothing. One field per role in a type.
+    /// </remarks>
+    public string? Role { get; set; }
+
     public bool IsRequired { get; set; }
     public object? DefaultValue { get; set; }
     public Dictionary<string, object> ValidationRules { get; set; } = new(); // min, max, regex, etc.
 
     // Field-level sensitivity. When not Public, the field is masked for callers who are not
-    // SuperAdmin and not in VisibleToRoles (falling back to a default role policy when that list
-    // is empty). See SensitivityService.
+    // SuperAdmin and hold none of the roles in VisibleToRoles. When that list is empty the field
+    // is open to a role holding view_sensitive or view_hidden, whichever its level asks for.
+    // See SensitivityService.
     public SensitivityLevel Sensitivity { get; set; } = SensitivityLevel.Public;
+
+    /// <summary>
+    /// The roles that may see the field while it is not Public, as role ids written as text.
+    /// </summary>
+    /// <remarks>
+    /// An entry that is not an id is a role name: what a definition stored before ids were holds,
+    /// and what a write keeps for a name no role carries. It matches a role of exactly that name.
+    /// </remarks>
     public List<string> VisibleToRoles { get; set; } = new();
     public FieldMask Mask { get; set; } = FieldMask.Default;
 }

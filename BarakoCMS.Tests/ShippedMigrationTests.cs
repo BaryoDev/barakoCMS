@@ -19,6 +19,8 @@ public class ShippedMigrationTests
         "4.2.0/stored-files-parent-index",
         "4.2.0/forms-public-forms",
         "4.5.0/email-sent-emails",
+        "4.6.0/external-auth-identities",
+        "4.6.0/forms-email-verification",
     ];
 
     /// <summary>
@@ -45,7 +47,12 @@ public class ShippedMigrationTests
 
     private static IReadOnlyList<ShippedMigration> FirstParty() =>
         ShippedMigrations.Discover(
-            [new BarakoCMS.Forms.FormsModule(), new BarakoCMS.Files.FilesModule(), new BarakoCMS.Email.Resend.ResendEmailModule()]);
+        [
+            new BarakoCMS.Forms.FormsModule(),
+            new BarakoCMS.Files.FilesModule(),
+            new BarakoCMS.Email.Resend.ResendEmailModule(),
+            new BarakoCMS.ExternalAuth.ExternalAuthModule(),
+        ]);
 
     private sealed class SecondOwnerOfTheFilesAssembly : IBarakoModule
     {
@@ -91,6 +98,7 @@ public class ShippedMigrationTests
             new BarakoCMS.Forms.FormsModule(),
             new BarakoCMS.Files.FilesModule(),
             new BarakoCMS.Email.Resend.ResendEmailModule(),
+            new BarakoCMS.ExternalAuth.ExternalAuthModule(),
         ];
 
         var all = ShippedMigrations.Discover(modules);
@@ -99,10 +107,12 @@ public class ShippedMigrationTests
         var owned = all.Where(m => m.Owner != ShippedMigrations.CoreOwner).Select(m => m.Key).ToList();
         owned.Should().Equal(
             "Email.Resend/4.5.0/email-sent-emails",
+            "ExternalAuth/4.6.0/external-auth-identities",
             "Files/4.2.0/stored-files-parent-index",
-            "Forms/4.2.0/forms-public-forms");
+            "Forms/4.2.0/forms-public-forms",
+            "Forms/4.6.0/forms-email-verification");
         coreOnly.Count.Should().BeGreaterThanOrEqualTo(7, "seven core files were released before the ledger");
-        coreOnly.Should().HaveCount(all.Count - 3, "a module that is not enabled contributes nothing");
+        coreOnly.Should().HaveCount(all.Count - 5, "a module that is not enabled contributes nothing");
         coreOnly.Should().OnlyContain(m => m.Owner == ShippedMigrations.CoreOwner);
         coreOnly.Select(m => m.Id).Should().NotIntersectWith(ModuleOwned, "core must not also ship a module's file");
     }

@@ -197,6 +197,19 @@ internal static class PublicDelivery
     /// <summary>One batched load per request regardless, but a cap keeps the response bounded.</summary>
     public const int MaxIncludes = 5;
 
+    /// <summary>
+    /// The frontend path of an entry of this type, holding <c>{slug}</c>: the type's own route
+    /// template, else <c>Feeds:Paths:{type}</c>, else <c>/{type}/{slug}</c>.
+    /// </summary>
+    /// <remarks>
+    /// One answer for the feed and the sitemap, which link to the same pages. A stored template
+    /// that a save would refuse is passed over, so the link stays a path on the configured host.
+    /// </remarks>
+    public static string PathTemplate(ContentTypeDefinition def, IConfiguration config) =>
+        barakoCMS.Core.Validation.FieldPresentation.IsRouteTemplate(def.RouteTemplate)
+            ? def.RouteTemplate!
+            : config[$"Feeds:Paths:{def.Name}"] ?? $"/{def.Name}/{{slug}}";
+
     public static string? SlugValue(ContentDoc c, string? slugField) =>
         slugField is not null && c.Data.TryGetValue(slugField, out var v) ? v?.ToString() : null;
 
@@ -260,7 +273,7 @@ internal static class PublicDelivery
         // Resolved off the projected data, not the document, so a field the type marked non-Public
         // cannot reach a frontend through this block after being scrubbed out of Data.
         var seo = barakoCMS.Features.Seo.SeoFields.IsOptedIn(def)
-            ? barakoCMS.Features.Seo.SeoFields.Resolve(data)
+            ? barakoCMS.Features.Seo.SeoFields.Resolve(data, def)
             : null;
 
         return new PublicContentResponse(
@@ -541,9 +554,32 @@ internal class GetBySlugEndpoint(
          * the Published gate. Binding to the id (not just the slug) means a duplicate-slug draft can't be
          * substituted for the one the token was minted for. */
         var previewToken = Query<string>(barakoCMS.Infrastructure.Preview.PreviewToken.QueryParam, isRequired: false);
-        var previewId = string.IsNullOrEmpty(previewToken)
-            ? null
-            : barakoCMS.Infrastructure.Preview.PreviewToken.ValidatedEntryId(config, previewToken!, tenant.Slug, type, slug);
+
+        /* What POST /api/preview hands out is the key of an entry share link, looked up in this
+         * tenant, so the preview ends when the row does. Only a link that route issued is
+         * taken from the query: a key an editor made can last 90 days, and a query string is logged.
+         * A JWT from before the route issued links is still verified until it runs out, 30 minutes
+         * at most; a share key holds no dot, which is how the two are told apart.
+         *
+         * A link names an entry, not a slug. At any other slug it is no token at all and the read
+         * is the ordinary published one, which is what a JWT for another slug always got. */
+        Guid? previewId = null;
+        barakoCMS.Models.SiteShareLink? previewLink = null;
+        var previewNow = DateTimeOffset.UtcNow;
+        if (!string.IsNullOrEmpty(previewToken) && previewToken.Contains('.'))
+        {
+            previewId = barakoCMS.Infrastructure.Preview.PreviewToken.ValidatedEntryId(config, previewToken, tenant.Slug, type, slug);
+        }
+        else if (!string.IsNullOrEmpty(previewToken)
+                 && await barakoCMS.Features.Site.ShareLinks.ShareLinkKeys.FindActiveEntryAsync(session, previewToken, previewNow, ct)
+                     is { Preview: true, EntryId: { } linkedId } found
+                 && await session.LoadAsync<ContentDoc>(linkedId, ct) is { } linked
+                 && linked.ContentType == type
+                 && string.Equals(PublicDelivery.SlugValue(linked, slugField), slug, StringComparison.OrdinalIgnoreCase))
+        {
+            previewLink = found;
+            previewId = linkedId;
+        }
 
         ContentDoc? match;
         if (previewId is Guid id)
@@ -581,6 +617,23 @@ internal class GetBySlugEndpoint(
 
         var projected = match is null ? null : PublicDelivery.ToPublic(match, def, slugField, allowUnpublished: previewId is not null);
         if (projected is null) { await Send.NotFoundAsync(ct); return; }
+
+        if (previewLink is not null)
+        {
+            // Best effort. The draft is already read, and a failed timestamp is no reason to
+            // answer 500 for it. The type alone is logged: the message can quote the statement.
+            try
+            {
+                var write = Resolve<IDocumentSession>();
+                barakoCMS.Features.Site.ShareLinks.ShareLinkKeys.RecordUse(write, previewLink, previewNow);
+                await write.SaveChangesAsync(ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Resolve<ILogger<GetBySlugEndpoint>>().LogWarning(
+                    "Recording the use of a preview token failed with {ExceptionType}", ex.GetType().Name);
+            }
+        }
 
         if (previewId is not null)
             HttpContext.Response.Headers.CacheControl = "no-store"; /* never cache a draft */

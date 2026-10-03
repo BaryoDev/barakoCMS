@@ -389,8 +389,10 @@ public class MemberProfileApiTests
         (await RowAsync(member, slug)).Profile.Should().BeEmpty();
 
         // The first one's write, which is what both member routes queue for a request with no profile.
-        global::barakoCMS.Features.Tenants.Members.Members.QueueWrite(
-            session, read, [SystemRoles.HRRoleId], MembershipStatus.Active, profile: null);
+        await global::barakoCMS.Features.Tenants.Members.Members.ChangeAsync(
+            session, new System.Security.Claims.ClaimsPrincipal(), "tenant.member.updated", read,
+            [SystemRoles.HRRoleId], MembershipStatus.Active, profile: null,
+            new Dictionary<string, object>(), CancellationToken.None);
         await session.SaveChangesAsync();
 
         var row = await RowAsync(member, slug);

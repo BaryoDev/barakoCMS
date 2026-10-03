@@ -20,10 +20,13 @@ namespace BarakoCMS.Tests;
 /// rule SystemRoles already stated for deletion. That is fixed by keying on the seeded id.
 ///
 /// The id is not reachable everywhere. TokenIssuer puts role *names* into the JWT as role claims,
-/// and SensitivityService reads one back with <c>IsInRole("SuperAdmin")</c> to skip scrubbing. A
-/// claim carries no id, so that path cannot be fixed the same way: the name itself has to be
+/// and a capability gate's legacy role fallback reads one back with <c>IsInRole</c>. A claim
+/// carries no id, so that path cannot be fixed the same way: the name itself has to be
 /// unavailable. Hence the reserved-name rule on both write paths, which is the only point both
 /// the resolver path and the claims path pass through.
+///
+/// SensitivityService used to be the other reader of the claim. It reads the caller's stored roles
+/// now, so "HR", which only it named, is no longer reserved.
 /// </remarks>
 public class SuperAdminNameBypassTests
 {
@@ -57,10 +60,26 @@ public class SuperAdminNameBypassTests
     [Theory]
     [InlineData("SuperAdmin")]
     [InlineData("Admin")]
-    [InlineData("HR")]
     [InlineData("User")]
     public void Seeded_names_are_reserved(string name)
         => SystemRoles.IsReservedName(name).Should().BeTrue();
+
+    [Fact]
+    public void HR_is_not_reserved_because_no_gate_reads_that_name()
+        => SystemRoles.IsReservedName("HR").Should().BeFalse(
+            "the Sensitive default is the view_sensitive capability, so a site may call a role of its own HR");
+
+    [Fact]
+    public void SensitivityService_does_not_read_a_role_name_from_the_token()
+    {
+        var path = Path.Combine(RepoRoot(), "barakoCMS", "Infrastructure", "Services", "SensitivityService.cs");
+        File.Exists(path).Should().BeTrue("the service is the file this regression lives in");
+
+        File.ReadAllText(path).Should().NotContain(
+            ".IsInRole(",
+            "a role claim carries a name and no id, so reading it back is what made the names "
+            + "\"HR\" and \"SuperAdmin\" decide who saw a Sensitive or Hidden value");
+    }
 
     [Theory]
     [InlineData("superadmin")]

@@ -26,5 +26,5 @@ public sealed class PortabilityModule : IBarakoModule
     /// Admin. Additive and idempotent, and it skips a role the host never seeded.
     /// </remarks>
     public Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) =>
-        ModuleCapabilities.GrantAsync(session, PortabilityCapabilities.SeededRoles, PortabilityCapabilities.All, ct);
+        PortabilityCapabilities.Defaults.GrantAsync(session, ct);
 }

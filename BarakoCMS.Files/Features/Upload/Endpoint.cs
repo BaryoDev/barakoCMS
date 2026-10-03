@@ -29,7 +29,7 @@ public class Endpoint(
     IFileScanner scanner,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : EndpointWithoutRequest<Response>
 {
-    private const long MaxBytes = 10L * 1024 * 1024;
+    private const long MaxBytes = UploadTypes.MaxBytes;
 
     private static IReadOnlyCollection<string> Allowed => UploadTypes.Names;
 
@@ -41,7 +41,7 @@ public class Endpoint(
         // readable URL on the deployment's own domain. Gated to match the rest of the write
         // surface. A per-user quota is the separate question (#138 covers scanning).
         Definition.RequireCapability(
-            FileCapabilities.UploadFiles, FileCapabilities.LegacyRoles);
+            FileCapabilities.UploadFiles, FileCapabilities.Defaults.LegacyRoles);
         AllowFileUploads();
     }
 

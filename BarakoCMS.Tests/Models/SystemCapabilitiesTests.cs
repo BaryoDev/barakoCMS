@@ -154,6 +154,10 @@ public class SystemCapabilitiesTests
             // #607: a new, narrower carve-out of ViewWorkflowRuns, not a preserved gate, so Admin does
             // not pick it up automatically.
             SystemCapabilities.ViewWebhookResponseBodies,
+            // #883: Admin never read a Sensitive or a Hidden value. The default named HR for the
+            // first and nobody but SuperAdmin for the second.
+            SystemCapabilities.ViewSensitive,
+            SystemCapabilities.ViewHidden,
         ];
 
         var admin = SystemCapabilities.DefaultsFor("Admin");

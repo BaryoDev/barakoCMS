@@ -33,7 +33,7 @@ internal class Endpoint(
         {
             await Send.ResponseAsync(new Response
             {
-                Message = "Cannot delete system roles (SuperAdmin, Admin, HR, User)."
+                Message = "Cannot delete a system role: SuperAdmin, Admin, User, or the HR role the seeder created."
             }, 403, ct);
             return;
         }
@@ -79,7 +79,8 @@ internal class Endpoint(
         session.Delete(role);
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
         await AuditLog.RecordAsync(session, tenant.Slug, "role.deleted", actorId, User.FindFirst("Username")?.Value,
-            targetType: "Role", targetId: role.Id.ToString(), metadata: new() { ["name"] = role.Name }, ct: ct);
+            targetType: "Role", targetId: role.Id.ToString(),
+            metadata: RoleAudit.Describe(RoleAudit.Of(role)), ct: ct);
         await session.SaveChangesAsync(ct);
 
         // A deleted role changes effective permissions for its holders — evict cached decisions.

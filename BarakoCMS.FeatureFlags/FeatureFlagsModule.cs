@@ -39,5 +39,5 @@ public sealed class FeatureFlagsModule : IBarakoModule
     /// Admin. Additive and idempotent, and it skips a role the host never seeded.
     /// </remarks>
     public Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) =>
-        ModuleCapabilities.GrantAsync(session, FeatureFlagCapabilities.SeededRoles, FeatureFlagCapabilities.All, ct);
+        FeatureFlagCapabilities.Defaults.GrantAsync(session, ct);
 }

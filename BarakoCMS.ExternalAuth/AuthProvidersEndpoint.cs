@@ -19,6 +19,9 @@ public class AuthProvidersEndpoint(IConfiguration config) : EndpointWithoutReque
             google = ExternalAuthSupport.ProviderEnabled(config, "Google", "ClientId"),
             linkedin = ExternalAuthSupport.ProviderEnabled(config, "LinkedIn", "ClientId"),
             github = ExternalAuthSupport.ProviderEnabled(config, "GitHub", "ClientId"),
+            oidc = OidcProviders.Enabled(config)
+                .Select(provider => new { name = provider.Name, displayName = provider.DisplayName })
+                .ToArray(),
         }, ct);
     }
 }
