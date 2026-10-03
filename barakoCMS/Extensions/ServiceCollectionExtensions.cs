@@ -1988,9 +1988,13 @@ public static class ServiceCollectionExtensions
         // time it looks.
         await barakoCMS.Infrastructure.Services.SchemaApplyLock.RunAsync(store, async () =>
         {
+            // Before the schema exists, so a new database gets its ledger rows first. See
+            // MigrationLedger.BaselineIfFreshAsync for why that order survives a crash.
+            var pendingMigrations = await host.Services.ReconcileMigrationLedgerAsync(store);
+
             // Before the apply, so a module that wants a change CreateOnly will not make is refused by
             // name here rather than by Marten a line later.
-            await host.Services.PreflightModuleSchemaAsync();
+            await host.Services.PreflightModuleSchemaAsync(pendingMigrations: pendingMigrations);
 
             await store.Storage.ApplyAllConfiguredChangesToDatabaseAsync();
 
@@ -2012,7 +2016,10 @@ public static class ServiceCollectionExtensions
     /// migration anyway. See <see cref="ModuleSchemaPreflight"/>.
     /// </remarks>
     /// <exception cref="InvalidOperationException">A module wants a change the store refuses.</exception>
-    internal static async Task PreflightModuleSchemaAsync(this IServiceProvider services, CancellationToken ct = default)
+    internal static async Task PreflightModuleSchemaAsync(
+        this IServiceProvider services,
+        CancellationToken ct = default,
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? pendingMigrations = null)
     {
         var store = services.GetRequiredService<Marten.IDocumentStore>();
         var configuration = services.GetRequiredService<IConfiguration>();
@@ -2047,7 +2054,7 @@ public static class ServiceCollectionExtensions
                 finding.Changes.Count, string.Join(", ", finding.Changes.Select(c => c.Name)));
         }
 
-        ModuleSchemaPreflight.AssertAllowed(findings, autoCreate);
+        ModuleSchemaPreflight.AssertAllowed(findings, autoCreate, pendingMigrations);
     }
 
     /// <summary>

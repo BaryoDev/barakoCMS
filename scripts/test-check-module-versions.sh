@@ -386,6 +386,34 @@ run_env=(GIT_LITERAL_PATHSPECS=1)
 run; check "the same with GIT_LITERAL_PATHSPECS=1" pass
 run_env=()
 
+echo "== a migration the module embeds from migrations/ =="
+# The file is outside the module's directory and the only line inside it is in the .csproj, which
+# does not count. The module still ships it, so a change to it after the release needs a bump.
+linked='<EmbeddedResource Include="..\migrations\4.6.0\demo-things.sql" LogicalName="barako-migrations/4.6.0/demo-things.sql" />'
+migration() { # $1 = file name, $2 = text
+  mkdir -p "$repo/migrations/4.6.0"
+  echo "$2" >> "$repo/migrations/4.6.0/$1"
+}
+new_repo
+set_version 4.3.0 "$module" "$linked"; touch_module "first"; migration demo-things.sql "create table things ();"
+migration core-only.sql "select 1;"; commit "module at 4.3.0 with a migration"; tag v4.3.0
+on_nuget 4.3.0
+run; check "a module with a linked migration, nothing since the release" pass
+migration core-only.sql "select 2;"; commit "a migration the module does not link"
+run; check "a change to a migration the module does not link" pass
+migration demo-things.sql "alter table things add column n int;"; commit "the module's own migration changes"
+run; check "a change to the migration the module links" fail "1 commit(s)" "since v4.3.0"
+run_env=(GIT_LITERAL_PATHSPECS=1)
+run; check "the same with GIT_LITERAL_PATHSPECS=1" fail "1 commit(s)" "since v4.3.0"
+run_env=()
+
+new_repo
+set_version 4.3.0; touch_module "first"; commit "module at 4.3.0, no migration yet"; tag v4.3.0
+on_nuget 4.3.0
+set_version 4.3.0 "$module" "$linked"; migration demo-things.sql "create table things ();"
+commit "the module's first migration: a csproj line and a file under migrations/"
+run; check "a first migration added with only a csproj line inside the module" fail "1 commit(s)" "since v4.3.0"
+
 echo "== a branch cut before the release that published the version =="
 new_repo
 set_version 4.3.0; touch_module "first"; commit "module at 4.3.0"; tag v4.3.0

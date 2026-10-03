@@ -25,6 +25,7 @@
 -- Safe to run twice. The function is Marten 9.40's own text for a store with these two columns
 -- on: the body is compared as text, so an edited comment inside it is a difference the start-up
 -- assertion refuses. EventCorrelationMigrationTests compares it with the one Marten creates.
+-- barako:rerunnable
 
 ALTER TABLE public.mt_events
     ADD COLUMN IF NOT EXISTS correlation_id varchar NULL;

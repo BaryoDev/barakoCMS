@@ -25,6 +25,9 @@
 -- not trust what this writes: at every start, UserIdentityBackfill recomputes both fields in .NET,
 -- rewrites the ones that differ, and refuses to start, naming both accounts, when that collides.
 
+-- For db-migrate (docs/migrations.md). It records this file without running it when both normalised indexes are there.
+-- barako:skip-when: select to_regclass('public.mt_doc_users_uidx_normalized_username') is not null and to_regclass('public.mt_doc_users_uidx_normalized_email') is not null
+
 DO $$
 DECLARE
     collisions text;

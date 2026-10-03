@@ -27,6 +27,9 @@
 -- a no-op. Types and defaults are Marten's, verbatim: a column of the right name and the wrong type
 -- is a column the start-up assertion asks to change, which CreateOnly then refuses.
 
+-- For db-migrate (docs/migrations.md). It records this file without running it when the first and the last column this file adds are there.
+-- barako:skip-when: select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'mt_streams' and column_name = 'compacted_version') and exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'mt_event_progression' and column_name = 'failure_event_tenant_id')
+
 ALTER TABLE public.mt_streams
     ADD COLUMN IF NOT EXISTS compacted_version bigint NOT NULL DEFAULT 0;
 

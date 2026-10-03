@@ -81,6 +81,9 @@
 --
 -- Rollback is migrations/4.0.0/rollback-to-3.x.sql, which must be applied while 4.0 is stopped.
 
+-- For db-migrate (docs/migrations.md). It records this file without running it when mt_events.bdata is there: no 3.x database has that column, and every database 4.0 or later created or migrated does.
+-- barako:skip-when: select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'mt_events' and column_name = 'bdata')
+
 DROP FUNCTION IF EXISTS public.mt_safe_unaccent(use_unaccent boolean, word text) cascade;
 CREATE
 OR REPLACE FUNCTION public.mt_safe_unaccent(use_unaccent BOOLEAN, word TEXT)

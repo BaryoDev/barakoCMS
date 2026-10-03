@@ -47,6 +47,16 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Core's SQL migrations, for db-migrate (docs/migrations.md). A glob, so a file added under
+         migrations/<version>/ ships without an edit here. Left out: rollback files, which db-migrate
+         never runs, the tenancy role script, which is a superuser's one-off, and the files a
+         module ships from its own assembly so the ledger carries them under that module. -->
+    <EmbeddedResource Include="..\migrations\**\*.sql"
+                      Exclude="..\migrations\tenancy\**;..\migrations\**\rollback-*.sql;..\migrations\4.2.0\stored-files-parent-index.sql;..\migrations\4.2.0\forms-public-forms.sql;..\migrations\4.5.0\email-sent-emails.sql;..\migrations\4.6.0\external-auth-identities.sql;..\migrations\4.6.0\forms-email-verification.sql"
+                      LogicalName="barako-migrations/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="AspNetCore.HealthChecks.Npgsql" />
     <PackageReference Include="AspNetCore.HealthChecks.System" />
     <PackageReference Include="AspNetCore.HealthChecks.UI" />

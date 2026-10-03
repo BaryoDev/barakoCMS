@@ -23,4 +23,10 @@
   <ItemGroup>
     <InternalsVisibleTo Include="BarakoCMS.Tests" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- This module's migration, shipped in its own assembly so db-migrate records it under the
+         module and runs it only where the module is enabled. See MODULES.md, "Migrations". -->
+    <EmbeddedResource Include="..\migrations\4.5.0\email-sent-emails.sql" LogicalName="barako-migrations/4.5.0/email-sent-emails.sql" />
+  </ItemGroup>
 </Project>

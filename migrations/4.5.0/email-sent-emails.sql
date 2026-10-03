@@ -17,6 +17,9 @@
 --
 -- Safe to run twice.
 
+-- For db-migrate (docs/migrations.md). It records this file without running it when the table is there.
+-- barako:skip-when: select to_regclass('public.mt_doc_sent_emails') is not null
+
 CREATE TABLE IF NOT EXISTS public.mt_doc_sent_emails (
     id                  varchar                     NOT NULL,
     data                jsonb                       NOT NULL,

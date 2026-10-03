@@ -47,7 +47,7 @@ try
 
     app.UseBarakoCMS();
 
-    // A bare first argument names a JasperFx command (db-assert, db-patch, db-apply, help), the same
+    // A bare first argument names a command (db-migrate, or JasperFx's db-assert, db-patch, db-apply, help), the same
     // rule the core host uses. This is the host the published image runs, so the upgrade doc and the
     // schema refusal can only name those commands if this host dispatches them (#662). A command must
     // not apply the schema first: db-assert and db-patch exist to inspect a database the apply below
@@ -84,7 +84,7 @@ try
 
     // Runs the host exactly as app.Run() did when no command was named. A failed command comes back as
     // a return value, not an exception, and has to reach the exit code or db-assert cannot fail a deploy.
-    Environment.ExitCode = await app.RunJasperFxCommands(args);
+    Environment.ExitCode = await app.RunBarakoCommandsAsync(args);
 }
 catch (Exception ex)
 {

@@ -20,6 +20,9 @@
 --
 -- Safe to run twice.
 
+-- For db-migrate (docs/migrations.md). It records this file without running it when the table is there.
+-- barako:skip-when: select to_regclass('public.mt_doc_collection_syncs') is not null
+
 CREATE TABLE IF NOT EXISTS public.mt_doc_collection_syncs (
     tenant_id           varchar                     NOT NULL DEFAULT '*DEFAULT*',
     id                  uuid                        NOT NULL,

@@ -106,8 +106,17 @@ internal static class ModuleSchemaPreflight
     /// Refuses when a module wants something the store's policy will not apply. Core's own deltas
     /// are left to Marten, whose message docs/upgrading-to-4.0.md already documents.
     /// </summary>
+    /// <param name="findings">What <see cref="ComputeAsync"/> returned.</param>
+    /// <param name="autoCreate">The store's policy.</param>
+    /// <param name="pendingMigrations">
+    /// Shipped migration ids the ledger has no row for, by owner. When a refused module has some, the
+    /// refusal names them and the command that applies them.
+    /// </param>
     /// <exception cref="InvalidOperationException">At least one module wants a refused change.</exception>
-    public static void AssertAllowed(IReadOnlyDictionary<string, ModuleSchemaFinding> findings, AutoCreate autoCreate)
+    public static void AssertAllowed(
+        IReadOnlyDictionary<string, ModuleSchemaFinding> findings,
+        AutoCreate autoCreate,
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? pendingMigrations = null)
     {
         ArgumentNullException.ThrowIfNull(findings);
 
@@ -124,10 +133,21 @@ internal static class ModuleSchemaPreflight
         var lines = refused.Select(f =>
             $"{f.Owner}: {string.Join(", ", f.Objects.Select(o => o.ReachedThroughConfigureMarten ? $"{o.Name} (owned by core, reached through ConfigureMarten)" : o.Name))}");
 
+        var pending = refused
+            .Select(f => (f.Owner, Ids: pendingMigrations?.GetValueOrDefault(f.Owner)))
+            .Where(p => p.Ids is { Count: > 0 })
+            .Select(p => $"{p.Owner}: {string.Join(", ", p.Ids!)}")
+            .ToList();
+        var migrate = pending.Count == 0
+            ? string.Empty
+            : $"Pending migrations these modules ship, which this database has not had: {string.Join("; ", pending)}. "
+              + "Run the same image with db-migrate as its argument in place of a normal start to apply them "
+              + "(see docs/migrations.md). What follows is the route for a change no shipped file covers. ";
+
         throw new InvalidOperationException(
             $"Schema preflight refused to start. This store runs AutoCreate.{autoCreate}, which "
             + "creates a missing object and never alters one that exists, and these modules want a "
-            + $"change to an existing database object: {string.Join("; ", lines)}. Apply the change "
+            + $"change to an existing database object: {string.Join("; ", lines)}. {migrate}Apply the change "
             + "first: run the same image with db-patch as its argument in place of a normal start, "
             + "docker run --rm <your environment> -v \"$PWD:/out\" <image> db-patch /out/upgrade.sql "
             + "(see docs/upgrading-to-4.0.md), or run the store "

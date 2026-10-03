@@ -16,6 +16,7 @@
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/external-auth-identities.sql
 --
 -- Safe to run twice.
+-- barako:rerunnable
 
 CREATE TABLE IF NOT EXISTS public.mt_doc_external_identities (
     id                  varchar                     NOT NULL,

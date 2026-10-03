@@ -18,6 +18,9 @@
 -- Safe to run twice. The statements are what db-patch emits for this upgrade, verbatim: the body
 -- is compared as text, so an edited comment inside it is a difference the assertion refuses.
 
+-- For db-migrate (docs/migrations.md). It records this file without running it when the function already has the 9.38 body, which is the first to declare is_new_stream.
+-- barako:skip-when: select exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'mt_quick_append_events' and p.prosrc like '%is_new_stream%')
+
 DROP FUNCTION IF EXISTS public.mt_quick_append_events(stream uuid, stream_type character varying, tenantid character varying, event_ids uuid[], event_types character varying[], dotnet_types character varying[], bodies jsonb[], bdatas bytea[], expected_version integer) cascade;
 
 CREATE OR REPLACE FUNCTION public.mt_quick_append_events(stream uuid, stream_type varchar, tenantid varchar, event_ids uuid[], event_types varchar[], dotnet_types varchar[], bodies jsonb[], bdatas bytea[], expected_version integer DEFAULT NULL::integer) RETURNS int[] AS $$

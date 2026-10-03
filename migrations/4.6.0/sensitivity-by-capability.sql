@@ -43,6 +43,7 @@
 --
 -- Safe to run twice: a role that holds the capability is skipped, a role named HR under another
 -- id is never granted, and an entry that is already an id matches no role name.
+-- barako:rerunnable
 
 DO $$
 BEGIN

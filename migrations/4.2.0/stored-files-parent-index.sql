@@ -18,5 +18,9 @@
 -- The expression is Marten's, verbatim, including the cast to uuid. A plain text expression would
 -- be a different index wearing the right name, and every start-up schema assertion would ask to drop
 -- and recreate it. StoredFilesIndexMigrationTests compares this file to the index Marten builds.
+-- For db-migrate (docs/migrations.md). It records this file without running it when the index is there and valid, or the table is not, in which case the first start creates both.
+-- barako:skip-when: select to_regclass('public.mt_doc_stored_files') is null or exists (select 1 from pg_index x join pg_class c on c.oid = x.indexrelid join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relname = 'mt_doc_stored_files_idx_parent_file_id' and x.indisvalid)
+-- barako:no-transaction
+
 CREATE INDEX CONCURRENTLY IF NOT EXISTS mt_doc_stored_files_idx_parent_file_id
     ON public.mt_doc_stored_files USING btree ((((data ->> 'ParentFileId'::text))::uuid));

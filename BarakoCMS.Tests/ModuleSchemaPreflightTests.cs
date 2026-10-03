@@ -13,6 +13,7 @@ using Serilog;
 using Serilog.Context;
 using Serilog.Core;
 using Serilog.Events;
+using Weasel.Core;
 using Xunit;
 
 namespace BarakoCMS.Tests;
@@ -133,6 +134,37 @@ public class ModuleSchemaPreflightTests
         var refusal = (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Message;
         refusal.Should().Contain("<image> db-patch /out/upgrade.sql", "the command is handed to the image's own entrypoint");
         refusal.Should().NotContain("barakoCMS.dll", "that assembly is not the published image's entrypoint");
+    }
+
+    /// <summary>
+    /// The ledger knows which shipped migrations a database has not had (#901). A refusal that only
+    /// says "needs a migration" leaves the operator to work out which file; this names it, and only
+    /// for the module that is refused.
+    /// </summary>
+    [Fact]
+    public void The_refusal_names_the_pending_migrations_of_the_module_it_refuses()
+    {
+        var findings = new Dictionary<string, ModuleSchemaFinding>
+        {
+            ["Files"] = new("Files", [], [new ModuleSchemaChange("public.mt_doc_stored_files", SchemaPatchDifference.Update, false)]),
+            ["Forms"] = new("Forms", ["public.mt_doc_public_forms"], []),
+        };
+        var pending = new Dictionary<string, IReadOnlyList<string>>
+        {
+            ["Files"] = ["4.2.0/stored-files-parent-index"],
+            ["Forms"] = ["4.2.0/forms-public-forms"],
+        };
+
+        var withLedger = () => ModuleSchemaPreflight.AssertAllowed(findings, AutoCreate.CreateOnly, pending);
+        var withoutLedger = () => ModuleSchemaPreflight.AssertAllowed(findings, AutoCreate.CreateOnly);
+
+        var refusal = withLedger.Should().Throw<InvalidOperationException>().Which.Message;
+        refusal.Should().Contain("Files: 4.2.0/stored-files-parent-index", "the operator needs the id, not only the object");
+        refusal.Should().Contain("db-migrate", "and the command that applies it");
+        refusal.Should().Contain("<image> db-patch /out/upgrade.sql", "the route for a change no shipped file covers stays");
+        refusal.Should().NotContain("forms-public-forms", "Forms only wants a new table, so it is not refused and not named");
+        withoutLedger.Should().Throw<InvalidOperationException>()
+            .Which.Message.Should().NotContain("db-migrate", "with nothing pending there is no file to point at");
     }
 
     [Fact]

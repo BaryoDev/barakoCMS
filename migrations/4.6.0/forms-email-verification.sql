@@ -22,6 +22,7 @@
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/forms-email-verification.sql
 --
 -- Safe to run twice.
+-- barako:skip-when: select to_regclass('public.mt_doc_form_email_verifications') is not null and to_regclass('public.mt_doc_form_email_budgets') is not null
 
 CREATE TABLE IF NOT EXISTS public.mt_doc_form_email_verifications (
     tenant_id           varchar                     NOT NULL DEFAULT '*DEFAULT*',

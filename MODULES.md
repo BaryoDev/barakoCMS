@@ -111,7 +111,9 @@ migration it would apply and attributes every object in it to a module by the as
 type ships in (the module's own, plus `SchemaAssemblies`), or to core. It logs one line per module
 saying which objects are new and which existing ones would change. When the store is `CreateOnly`
 and a module wants a change to an existing object, startup stops with a message naming the module,
-the object, the policy that refuses it and the two ways out: apply the change first with `db-patch`
+the object, the policy that refuses it, the ids of any migration that module ships and this
+database has not had (with `db-migrate`, the command that applies them), and the two other ways
+out: apply the change first with `db-patch`
 (see [docs/upgrading-to-4.0.md](docs/upgrading-to-4.0.md)), or run the store with
 `AutoCreate.CreateOrUpdate`, which this host uses when `ASPNETCORE_ENVIRONMENT` is `Development`.
 Core's own deltas are logged and then left to Marten, whose message that document already covers.
@@ -301,6 +303,55 @@ Migrating is two edits:
 +     schema.For<MyDocument>().Index(x => x.SomeField);
   }
 ```
+
+### Migrations
+
+`CreateOnly` creates your tables on a database that does not have them and never alters them
+afterwards. When a later version of your module adds an index or a column to a table it already
+shipped, or has to rewrite stored documents, ship a SQL file for it. The host's `db-migrate`
+command runs it once per database and records it in a ledger under your module's `Name`.
+[docs/migrations.md](docs/migrations.md) is the operator's side of this.
+
+Embed the files in your module's assembly under the name `barako-migrations/<version>/<name>.sql`:
+
+```xml
+<ItemGroup>
+  <EmbeddedResource Include="Migrations\**\*.sql"
+                    LogicalName="barako-migrations/%(RecursiveDir)%(Filename)%(Extension)" />
+</ItemGroup>
+```
+
+with the files at `Migrations/<major.minor.patch>/<name>.sql` in your project. Nothing is
+registered in code: the host reads the resources of each enabled module's own assembly and of its
+`SchemaAssemblies`. The version is a folder for ordering your own files, by version and then by
+name. Core's files always run before any module's.
+
+Rules the host holds you to:
+
+- The owner is your module's `Name`, taken from the assembly the file is in. A module named `core`
+  cannot ship migrations, and two enabled modules cannot ship them from the same assembly; both
+  stop the command with a message.
+- A file that has been released is not edited. The ledger stores its checksum, and a run refuses to
+  do anything while a recorded file differs from the shipped one.
+- A file runs in a transaction with its ledger row. Write plain SQL, with no `BEGIN` or `COMMIT`.
+- Say what happens where the change is already in place: either the skip query below, or a
+  `-- barako:rerunnable` line if running the file twice changes nothing.
+- Add `-- barako:skip-when: <query returning one boolean>` when the file must not run where its
+  change is already in place. The query is asked again after the file has run and has to answer
+  true then, or the file is failed and not recorded. Your table does not exist yet on a database your module is new to,
+  and the first start creates it current, so a file that alters the table should skip when the
+  table is missing as well:
+
+  ```sql
+  -- barako:skip-when: select to_regclass('public.mt_doc_things') is null or to_regclass('public.mt_doc_things_idx_label') is not null
+  ```
+
+- Add `-- barako:no-transaction` to a file that builds an index `CONCURRENTLY`. Keep it to one
+  statement. It needs a skip query or a `rerunnable` line too, and is refused without one.
+- Do not put a rollback in that folder. `db-migrate` runs every embedded file as a forward
+  migration. Ship rollbacks outside the embedded set.
+
+The module is trusted code and so are its files: they run with the application's database role.
 
 ### Seeding
 
