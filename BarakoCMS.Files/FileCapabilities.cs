@@ -1,3 +1,6 @@
+using barakoCMS.Models;
+using barakoCMS.Modules;
+
 namespace BarakoCMS.Files;
 
 /// <summary>
@@ -14,16 +17,32 @@ public static class FileCapabilities
     public const string UploadFiles = "upload_files";
 
     /// <summary>
-    /// The roles that reached these endpoints before the migration, which is what the old
-    /// <c>Roles(...)</c> gate listed.
+    /// Download a private file somebody else uploaded, and, with <see cref="UploadFiles"/>, delete
+    /// one.
+    /// </summary>
+    /// <remarks>
+    /// What the role names Admin and SuperAdmin used to decide for these two routes. Its own name
+    /// rather than part of <see cref="UploadFiles"/>, which a media editor holds without reading or
+    /// destroying a stranger's upload. It gates no route: the download route asks for it in its
+    /// handler when the file is not the caller's, and the delete route still asks for
+    /// <see cref="UploadFiles"/> first.
+    /// </remarks>
+    public const string ManageAllFiles = "manage_all_files";
+
+    internal static readonly string[] All = [UploadFiles, ManageAllFiles];
+
+    /// <summary>
+    /// Who starts with these: the seeded Admin role, by its id, which is the role the old
+    /// <c>Roles(...)</c> gate and the old ownership check let in.
     /// </summary>
     /// <remarks>
     /// SuperAdmin holds <c>*</c>, which satisfies a capability from a module core has never heard
-    /// of, so it is listed as a legacy fallback and deliberately not granted anything at seed.
+    /// of, so it is on the legacy list and deliberately not granted anything at seed.
     /// </remarks>
-    public static readonly string[] LegacyRoles = ["Admin", "SuperAdmin"];
+    internal static readonly CapabilityDefaults Defaults = CapabilityDefaults.For(All).GrantedTo(SystemRoles.Admin);
 
-    internal static readonly string[] SeededRoles = ["Admin"];
-
-    internal static readonly string[] All = [UploadFiles];
+    /// <summary>The role names the gates honour while <c>Auth:LegacyRoleFallback</c> is on.</summary>
+    [Obsolete("The gates take their legacy list from the module's own capability defaults, so nothing "
+            + "outside the module needs this. Removal planned for barakoCMS 6.0.")]
+    public static readonly string[] LegacyRoles = [.. Defaults.LegacyRoles];
 }

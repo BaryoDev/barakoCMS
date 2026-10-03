@@ -49,7 +49,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
     {
         Post("/api/portability/import");
         Definition.RequireCapability(
-            PortabilityCapabilities.ImportContent, PortabilityCapabilities.LegacyRoles);
+            PortabilityCapabilities.ImportContent, PortabilityCapabilities.Defaults.LegacyRoles);
         Claims("UserId");
     }
 

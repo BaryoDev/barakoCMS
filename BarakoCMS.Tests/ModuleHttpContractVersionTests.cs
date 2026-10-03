@@ -75,10 +75,11 @@ public class ModuleHttpContractVersionTests
 
     /// <summary>
     /// The three modules whose routes a renderer or a site calls today. Zero would leave a reader
-    /// unable to tell "serves nothing" from "not versioned".
+    /// unable to tell "serves nothing" from "not versioned". Files is at 2 since a private file
+    /// another user uploaded opens to a capability rather than to a role name (#886).
     /// </summary>
     [Fact]
-    public void Forms_Files_and_AI_each_state_version_one()
+    public void Forms_Files_and_AI_each_state_their_version()
     {
         IBarakoModule[] modules =
         [
@@ -88,6 +89,6 @@ public class ModuleHttpContractVersionTests
         ];
 
         modules.Should().HaveCount(3);
-        modules.Select(m => (m.Name, m.HttpContractVersion)).Should().Equal([("Forms", 1), ("Files", 1), ("AI", 1)]);
+        modules.Select(m => (m.Name, m.HttpContractVersion)).Should().Equal([("Forms", 1), ("Files", 2), ("AI", 1)]);
     }
 }

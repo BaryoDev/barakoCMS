@@ -280,11 +280,12 @@ internal sealed class ContentTransitioner(
             }
 
             // An actor who may not see a field may not change it. Reverts any such field to what is
-            // stored, before the required check reads it.
+            // stored, before the required check reads it. Judged on this entry, so a field the
+            // rules granting it show is one the actor may send.
             if (!skipPermissionChecks)
             {
-                await services.GetRequiredService<ISensitivityService>().ApplyWriteAsync(
-                    content.ContentType, data, stored, ownRequest ?? RequestNaming(user!), ct);
+                await services.GetRequiredService<ISensitivityService>().ApplyTransitionWriteAsync(
+                    current, data, ownRequest ?? RequestNaming(user!), ct);
             }
         }
 

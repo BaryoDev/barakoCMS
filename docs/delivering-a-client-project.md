@@ -136,26 +136,23 @@ curl -s -X POST "$API/api/tenants" \
   -d '{
         "handle": "acme",
         "name": "Acme Corporation",
-        "logoUrl": "https://acme.example.com/logo.png",
-        "about": "We make everything.",
-        "location": "Koronadal",
-        "locationUrl": "https://maps.example.com/acme",
-        "socialHandle": "@acme",
-        "email": "hello@acme.example.com",
-        "contactUrl": "https://facebook.com/acme",
         "isActive": true
       }'
 ```
 
-The handle is 3 to 40 characters of `a-z`, `0-9` and hyphens, and some are reserved. `contactUrl`
-and `locationUrl` must be full `http(s)` URLs or the request is rejected.
+The handle is 3 to 40 characters of `a-z`, `0-9` and hyphens, and some are reserved. A tenant is
+its handle, name, domains and whether it is active. Its logo, about text, location, social handle,
+email and contact link are fields of its `site` entry ([site-settings.md](site-settings.md)), and a
+request that sets one of them here is refused with a 400 that names the site field.
 
 Creating the tenant provisions **you** as an active `Admin` member of it in the same transaction.
 Without that, the tenant would exist with no memberships and the token issuer would refuse a token
 for it to everyone including its creator.
 
-The profile fields are what `GET /api/tenants/{handle}/public` serves anonymously, which is what a
-client's sign-in page or landing page reads. That endpoint needs no token.
+`GET /api/tenants/{handle}/public` serves the tenant's name and that profile anonymously, read
+from the published site entry, which is what a client's sign-in page or landing page reads. That
+endpoint needs no token. A renderer reads the same values, and the rest of the site, from
+`GET /api/public/site`.
 
 ### Getting into the tenant
 
@@ -218,8 +215,12 @@ request, because every tenant write clears the cached domain map.
 A renderer that serves several sites finds the tenant for a host with
 `GET /api/tenants/by-host/{host}`, which is anonymous and answers only the handle.
 
-`Branding` is still not writable through the API. A site's identity and theme belong in the `site`
-blueprint instead (#793).
+With `CORS:AllowTenantDomains` on and Caddy's on-demand TLS asking the API, that `PUT` is the whole
+change: the domain passes CORS and gets a certificate on its first request, with no config edit and
+no restart. See [A client's own domain, with no config edit](deploy-in-production.md#a-clients-own-domain-with-no-config-edit).
+
+`Branding` is not writable through the API and is on its way out. A site's identity, profile and
+theme belong in the `site` entry (#793, #885).
 
 `Multitenancy:RefuseUnknownHosts` turns a host that matches no tenant into a 404 instead of quietly
 serving the default tenant. It is off by default because a single-tenant deployment legitimately
@@ -475,8 +476,9 @@ Three limits to plan around before you promise the client an image workflow:
   `application/pdf`. SVG is deliberately not on the list, because a public SVG opened directly would
   run script on the API's origin. Vector art has to be an external URL.
 - **Uploading is the `upload_files` capability**, not a content permission. Grant it to the custom
-  role from step 5 and the client's editor can upload, describe and remove files; without it they
-  cannot upload anything.
+  role from step 5 and the client's editor can upload and describe files, and download and remove
+  their own; without it they cannot upload anything. Add `manage_all_files` for a role that should
+  also download and remove what other people uploaded, as Admin does.
 - **The API has a media library; the console does not yet.** `GET /api/files?q=&contentType=image/`
   lists and searches uploads, `PATCH /api/files/{id}` sets alt text and a caption, and
   `GET /api/public/files/{id}/meta` hands them to the frontend for a public file. Before deleting,

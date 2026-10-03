@@ -107,7 +107,7 @@ internal class Endpoint(
         var sensitivity = Resolve<barakoCMS.Core.Interfaces.ISensitivityService>();
         foreach (var version in versions.Where(v => v.Data != null))
         {
-            await sensitivity.ApplyAsync(content.ContentType, content.Sensitivity, version.Data!, HttpContext, ct);
+            await sensitivity.ApplyAsync(content, version.Data!, HttpContext, ct);
         }
 
         await Send.ResponseAsync(versions.ToPagedResponse(req));

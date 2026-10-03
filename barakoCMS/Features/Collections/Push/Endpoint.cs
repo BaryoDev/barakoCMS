@@ -119,7 +119,10 @@ internal sealed class Endpoint(
                 return;
             }
 
-            await sensitivity.ApplyWriteAsync(req.Type, data, existing?.Data, HttpContext, ct);
+            if (existing is null)
+                await sensitivity.ApplyWriteAsync(req.Type, data, existing: null, HttpContext, ct);
+            else
+                await sensitivity.ApplyWriteAsync(existing, data, HttpContext, ct);
 
             var (valid, messages) = await validator.ValidateAsync(req.Type, data, existing);
             if (valid)

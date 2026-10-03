@@ -387,6 +387,7 @@ the one that builds.
 - [Talaan](https://github.com/BaryoDev/Talaan) 0.1.0, our own `.xlsx`/CSV reader, used by the Import module.
 - [Serilog](https://serilog.net/) (Serilog.AspNetCore 10.0.0) for logging.
 - [prometheus-net](https://github.com/prometheus-net/prometheus-net) 8.2.1 for metrics.
+- [OpenTelemetry](https://opentelemetry.io/docs/languages/dotnet/) 1.19.1 (the hosting package and the OTLP exporter, with the ASP.NET Core and HttpClient instrumentation at 1.19.0) for tracing, registered only when an endpoint is configured.
 - [Testcontainers](https://dotnet.testcontainers.org/) 4.15.0 (PostgreSql, plus a generic container running SeaweedFS for the S3 tests) for the integration tests.
 
 Two things run next to the app rather than inside it, so they do not appear in any manifest here:
@@ -423,6 +424,8 @@ open time entry per teacher),
 Cloud Run), [approval by configuration](docs/approval-by-configuration.md) (an invoice through Submit and
 Approve, one curl per step),
 [backup and restore](docs/backup-and-restore.md),
+[tracing and the correlation id](docs/tracing.md) (OpenTelemetry spans to an OTLP collector, off
+until configured, and the id stored on every event),
 [compliance posture](docs/compliance-posture.md), and
 [reporting which modules an instance runs](docs/module-inventory.md).
 

@@ -12,7 +12,7 @@ internal class Endpoint(
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
     IConfiguration configuration) : Endpoint<Request, Response>
 {
-    private static readonly string[] LegacyRoles = ["SuperAdmin", "Admin"];
+    private static readonly IReadOnlyList<string> LegacyRoles = CapabilityGate.AdminLegacyRoles;
 
     public override void Configure()
     {
@@ -62,7 +62,8 @@ internal class Endpoint(
             session.Store(user);
             Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
             await AuditLog.RecordAsync(session, tenant.Slug, "user.role.assigned", actorId, User.FindFirst("Username")?.Value,
-                targetType: "User", targetId: req.UserId.ToString(), metadata: new() { ["roleId"] = req.RoleId.ToString() }, ct: ct);
+                targetType: "User", targetId: req.UserId.ToString(),
+                metadata: new() { ["roleId"] = req.RoleId.ToString(), ["roleName"] = role.Name }, ct: ct);
             await session.SaveChangesAsync(ct);
 
             // This user's effective permissions changed — evict their cached decisions.

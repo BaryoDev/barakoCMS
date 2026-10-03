@@ -33,5 +33,5 @@ public sealed class PwaModule : IBarakoModule
     /// Admin. Additive and idempotent, and it skips a role the host never seeded.
     /// </remarks>
     public Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) =>
-        ModuleCapabilities.GrantAsync(session, PwaCapabilities.SeededRoles, PwaCapabilities.All, ct);
+        PwaCapabilities.Defaults.GrantAsync(session, ct);
 }

@@ -145,14 +145,23 @@ public class FileStoreSeamTests
         return await StoreUserAsync(barakoCMS.Data.DataSeeder.SuperAdminRoleId);
     }
 
+    /// <summary>
+    /// A stored user holding the seeded Admin role, which the Files module's seed gave
+    /// <c>upload_files</c> and <c>manage_all_files</c>.
+    /// </summary>
+    private Task<Guid> AdminAsync() => StoreUserAsync(SystemRoles.AdminRoleId);
+
     /// <summary>A stored user whose one role holds <c>upload_files</c> and nothing else, and that role's name.</summary>
-    private async Task<(Guid UserId, string Role)> MediaEditorAsync()
+    private Task<(Guid UserId, string Role)> MediaEditorAsync() => HolderAsync(FileCapabilities.UploadFiles);
+
+    /// <summary>A stored user whose one role is new and holds exactly these capabilities, and that role's name.</summary>
+    private async Task<(Guid UserId, string Role)> HolderAsync(params string[] capabilities)
     {
         var role = new Role
         {
             Id = Guid.NewGuid(),
             Name = $"Seam Editor {Guid.NewGuid():N}",
-            SystemCapabilities = new() { FileCapabilities.UploadFiles },
+            SystemCapabilities = capabilities.ToList(),
         };
 
         using (var scope = _factory.Services.CreateScope())
@@ -372,8 +381,12 @@ public class FileStoreSeamTests
 
         (await FindAsync(id, Caller(owner, "User")))!.Id.Should().Be(id);
         (await ReadAsync(id, Caller(owner, "User"))).Should().Equal(bytes);
-        (await ReadAsync(id, Caller(Guid.NewGuid(), "Admin"))).Should().Equal(bytes);
-        (await ReadAsync(id, Caller(Guid.NewGuid(), "SuperAdmin"))).Should().Equal(bytes);
+        (await ReadAsync(id, Caller(await AdminAsync(), "Admin"))).Should().Equal(bytes);
+        (await ReadAsync(id, Caller(await SuperAdminAsync(), "SuperAdmin"))).Should().Equal(bytes);
+
+        // An administrator's role name on an account the store has never seen opens nothing.
+        (await ReadAsync(id, Caller(Guid.NewGuid(), "Admin"))).Should().BeNull();
+        (await ReadAsync(id, Caller(Guid.NewGuid(), "SuperAdmin"))).Should().BeNull();
 
         var stranger = Caller(Guid.NewGuid(), "User");
         (await FindAsync(id, stranger)).Should().BeNull();
@@ -396,7 +409,7 @@ public class FileStoreSeamTests
         var id = await StoredAsync(bytes);
 
         (await RecordAsync(id))!.UploadedBy.Should().Be(Guid.Empty);
-        (await ReadAsync(id, Caller(Guid.NewGuid(), "Admin"))).Should().Equal(bytes);
+        (await ReadAsync(id, Caller(await AdminAsync(), "Admin"))).Should().Equal(bytes);
 
         // A principal whose UserId is the empty id is not the owner of a file nobody owns.
         (await ReadAsync(id, Caller(Guid.Empty, "User"))).Should().BeNull();
@@ -404,8 +417,8 @@ public class FileStoreSeamTests
     }
 
     /// <summary>
-    /// Each of these principals carries what <c>FileOwnership</c> looks at, the owner's id or an
-    /// administrator's role, and is still not a caller the file routes would have let in.
+    /// Each of these principals carries the owner's id and an administrator's role name, and is
+    /// still not a caller the file routes would have let in.
     /// </summary>
     [Fact]
     public async Task A_caller_the_file_routes_would_not_let_in_reads_no_private_file()
@@ -608,7 +621,7 @@ public class FileStoreSeamTests
         kept.File.Should().NotBeNull(kept.Refused ?? string.Empty);
         kept.File!.Size.Should().Be(limit);
 
-        var read = await ReadAsync(kept.File.Id, Caller(Guid.NewGuid(), "Admin"));
+        var read = await ReadAsync(kept.File.Id, Caller(await AdminAsync(), "Admin"));
         read.Should().NotBeNull();
         read!.Length.Should().Be(limit);
         read[^1].Should().Be(7, "the last byte is the file's and not a spare byte of the buffer it was read into");
@@ -821,6 +834,35 @@ public class FileStoreSeamTests
         (await DeleteAsync(owned, Caller(superAdmin, "SuperAdmin"))).Should().Be(FileDeleteResult.Deleted);
         (await RecordAsync(owned)).Should().BeNull();
         (await DeleteAsync(owned, Caller(superAdmin, "SuperAdmin"))).Should().Be(FileDeleteResult.NotFound, "it is gone");
+    }
+
+    /// <summary>
+    /// The override on another user's file is the <c>manage_all_files</c> capability, on a role of
+    /// any name, as on the routes. Reading needs it alone and deleting needs <c>upload_files</c> too.
+    /// </summary>
+    [Fact]
+    public async Task A_role_of_any_name_holding_manage_all_files_reads_and_deletes_another_users_file()
+    {
+        var owner = Guid.NewGuid();
+        var bytes = PdfBytes();
+        var id = await StoredAsync(bytes, owner: owner);
+
+        var (reader, readerRole) = await HolderAsync(FileCapabilities.ManageAllFiles);
+        var (manager, managerRole) = await HolderAsync(FileCapabilities.UploadFiles, FileCapabilities.ManageAllFiles);
+
+        (await FindAsync(id, Caller(reader, readerRole)))!.Id.Should().Be(id);
+        (await ReadAsync(id, Caller(reader, readerRole))).Should().Equal(bytes);
+
+        // Held through an API key or a token for another tenant, it opens nothing.
+        (await ReadAsync(id, Caller(reader, readerRole, ("auth_method", "apikey")))).Should().BeNull();
+        (await ReadAsync(id, Caller(reader, readerRole, ("tenant", "seam-some-other-tenant")))).Should().BeNull();
+
+        // Without upload_files the delete is refused, as the route's gate refuses it.
+        (await DeleteAsync(id, Caller(reader, readerRole), force: true)).Should().Be(FileDeleteResult.NotFound);
+        (await RecordAsync(id)).Should().NotBeNull();
+
+        (await DeleteAsync(id, Caller(manager, managerRole))).Should().Be(FileDeleteResult.Deleted);
+        (await RecordAsync(id)).Should().BeNull();
     }
 
     [Fact]

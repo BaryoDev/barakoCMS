@@ -45,7 +45,7 @@ Each row is a control that is implemented and checkable, not a plan.
 | API keys | Scoped, with the scopes enforced by a processor rather than merely issued |
 | Multi-tenant isolation | Marten conjoined tenancy: every document and event stream is tagged and auto-filtered by tenant |
 | Field-level sensitivity | Per-field allowlist on public delivery, applied on both read and write |
-| Cross-origin requests | No browser origin is allowed unless `CORS:AllowedOrigins` names it; since 4.3.0 there is no localhost fallback outside Development |
+| Cross-origin requests | No browser origin is allowed unless `CORS:AllowedOrigins` names it; since 4.3.0 there is no localhost fallback outside Development. With `CORS:AllowTenantDomains` on (off by default), the `https` origin of an active tenant's domain is allowed too, never with credentials |
 | Static analysis | CodeQL on every pull request that touches code (docs-only changes skip it) |
 | Dependency vulnerabilities | Dependabot, plus a `dotnet list package --vulnerable` gate that fails the build on High or Critical |
 | Secret scanning | Gitleaks on every pull request |

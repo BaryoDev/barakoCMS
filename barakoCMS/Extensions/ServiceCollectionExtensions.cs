@@ -53,6 +53,9 @@ public static class ServiceCollectionExtensions
 
         AddHealthProbes(services, configuration);
 
+        // Registers nothing unless Tracing:Otlp:Endpoint is set.
+        barakoCMS.Infrastructure.Tracing.TracingSetup.Add(services, configuration);
+
         AddJwtAndApiKeyAuth(services, configuration);
 
         AddHstsAndCors(services, configuration);
@@ -482,7 +485,7 @@ public static class ServiceCollectionExtensions
             // Retry-After is deliberately not here. The one place it is set is the SSE stream, and a
             // browser EventSource does not surface response headers to script at all, so exposing it
             // would buy nothing.
-            options.AddPolicy("SecurePolicy", builder =>
+            options.AddPolicy(barakoCMS.Infrastructure.Security.TenantDomainCorsPolicyProvider.PolicyName, builder =>
             {
                 // CORS__AllowedOrigins as an environment variable, CORS:AllowedOrigins in
                 // appsettings.json; configuration binding treats them as the same key.
@@ -504,6 +507,9 @@ public static class ServiceCollectionExtensions
                 }
             });
         });
+
+        // Adds a tenant's registered domains to the policy above when CORS:AllowTenantDomains is on.
+        barakoCMS.Infrastructure.Security.TenantDomainCorsPolicyProvider.Register(services);
     }
 
     private static void AddPermissionResolution(IServiceCollection services)
@@ -882,6 +888,14 @@ public static class ServiceCollectionExtensions
             options.Policies.AllDocumentsAreMultiTenanted();
             options.Events.TenancyStyle = JasperFx.MultiTenancy.TenancyStyle.Conjoined;
 
+            // Each event keeps the correlation id of the request that wrote it and the traceparent
+            // of the span that did. Two columns on mt_events and two more arguments on the declared
+            // mt_quick_append_events, so a database that already exists takes
+            // migrations/4.6.0/event-correlation-metadata.sql before this build starts. An event
+            // stored before the columns existed reads back with both null.
+            options.Events.MetadataConfig.CorrelationIdEnabled = true;
+            options.Events.MetadataConfig.CausationIdEnabled = true;
+
             // Postgres enforces the tenant filter too, when a deployment has been set up for it.
             // Off by default, because turning it on is not a setting change: it needs the app to
             // connect as a role that is not the table owner's superuser, and that is a connection
@@ -909,6 +923,11 @@ public static class ServiceCollectionExtensions
             options.Listeners.Add(new barakoCMS.Features.Public.Events.ContentChangeListener(
                 sp.GetRequiredService<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>(),
                 sp.GetRequiredService<ILogger<barakoCMS.Features.Public.Events.ContentChangeListener>>()));
+
+            // What goes in the correlation and causation columns is decided here, for every session
+            // of the store and not only the scoped one: Marten's own default is the raw parent id of
+            // the current span, which is the caller's header as sent.
+            options.Listeners.Add(new barakoCMS.Infrastructure.Tracing.EventOriginListener());
 
             // Each module registers its own document types through a surface that only accepts
             // types it ships. ConfigureMarten still runs for modules that predate ConfigureSchema,
@@ -1667,7 +1686,12 @@ public static class ServiceCollectionExtensions
         app.UseMiddleware<barakoCMS.Infrastructure.Multitenancy.TenantResolutionMiddleware>();
 
         // CORS (Must be before Authentication/Authorization)
-        app.UseCors("SecurePolicy");
+        app.Use(async (context, next) =>
+        {
+            barakoCMS.Infrastructure.Security.TenantDomainCorsPolicyProvider.VaryByOrigin(context);
+            await next();
+        });
+        app.UseCors(barakoCMS.Infrastructure.Security.TenantDomainCorsPolicyProvider.PolicyName);
 
         app.UseAuthentication();
         
