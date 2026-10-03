@@ -633,6 +633,8 @@ public class PermissionFieldSetTests
         {
             ContentTypeSlug = type,
             Read = new PermissionRule { Enabled = true, ReadableFields = ["Name"] },
+            // An Update set without Notes: a transition is not an update, so it must not apply.
+            Update = new PermissionRule { Enabled = true, WritableFields = ["Name"] },
             Transitions = new(StringComparer.OrdinalIgnoreCase) { ["Close"] = new PermissionRule { Enabled = true } },
         };
         var own = new ContentTypePermission
@@ -653,8 +655,10 @@ public class PermissionFieldSetTests
 
         var mine = await CreateAsync(admin, type, new() { ["Name"] = userId.ToString(), ["Notes"] = "old" });
         var theirs = await CreateAsync(admin, type, new() { ["Name"] = "someone else", ["Notes"] = "old" });
+        var withheld = await CreateAsync(
+            admin, type, new() { ["Name"] = userId.ToString(), ["Notes"] = "old" }, SensitivityLevel.Sensitive);
 
-        foreach (var id in new[] { mine, theirs })
+        foreach (var id in new[] { mine, theirs, withheld })
         {
             var res = await student.PutAsJsonAsync($"/api/contents/{id}/status", new
             {
@@ -669,5 +673,75 @@ public class PermissionFieldSetTests
             "the own-record rule shows Notes on this entry, so the caller may send it");
         (await DataAsync(admin, theirs)).GetProperty("Notes").GetString().Should().Be("old",
             "on another entry Notes is not shown, so it is put back");
+        (await DataAsync(admin, withheld)).GetProperty("Notes").GetString().Should().Be("new",
+            "an entry whose level the caller may not see is not compared, and a declared field of an "
+          + "authorised transition is its own set");
+    }
+
+    [Theory]
+    [InlineData(Unread.NoReadRule)]
+    [InlineData(Unread.NoReadRuleGrantsIt)]
+    public async Task A_rollback_by_a_caller_who_may_not_read_the_entry_answers_with_no_data(Unread why)
+    {
+        var type = await TypeAsync();
+        var admin = await SuperAdminAsync();
+
+        var read = why == Unread.NoReadRule
+            ? new PermissionRule()
+            : new PermissionRule { Enabled = true, Conditions = OwnRecord, ReadableFields = ["Name", "Grade"] };
+        List<ContentTypePermission> permissions =
+        [
+            new()
+            {
+                ContentTypeSlug = type,
+                Read = read,
+                Update = new PermissionRule { Enabled = true, WritableFields = ["Attendance"] },
+            },
+        ];
+        var (restorer, _) = await CallerHoldingAsync([SystemCapabilities.RollbackContent], permissions);
+        var id = await CreateAsync(admin, type, Record("ned"));
+
+        (await restorer.GetAsync($"/api/contents/{id}")).StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "the caller may not read this entry, which is the case under test");
+
+        var versions = await admin.GetAsync($"/api/contents/{id}/history");
+        using var listed = JsonDocument.Parse(await versions.Content.ReadAsStringAsync());
+        listed.RootElement.GetProperty("items").GetArrayLength().Should().BeGreaterThan(0);
+        var versionId = listed.RootElement.GetProperty("items")[0].GetProperty("versionId").GetGuid();
+
+        var res = await restorer.PostAsync($"/api/contents/{id}/rollback/{versionId}", null);
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+
+        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+        doc.RootElement.GetProperty("id").GetGuid().Should().Be(id, "the rollback answered for this entry");
+        doc.RootElement.GetProperty("data").EnumerateObject().Count().Should().Be(0,
+            "a caller no Read rule grants this entry is shown none of it");
+    }
+
+    [Fact]
+    public async Task An_update_rule_with_no_set_writes_blind_on_an_entry_the_caller_may_not_read()
+    {
+        var type = await TypeAsync();
+        var admin = await SuperAdminAsync();
+
+        List<ContentTypePermission> permissions =
+        [
+            new()
+            {
+                ContentTypeSlug = type,
+                Read = new PermissionRule { Enabled = true, Conditions = OwnRecord, ReadableFields = ["Name", "Grade"] },
+                Update = new PermissionRule { Enabled = true },
+            },
+        ];
+        var (caller, _) = await CallerAsync(permissions);
+        var id = await CreateAsync(admin, type, Record("ola"));
+
+        var sent = Record("ola");
+        sent["Attendance"] = "absent";
+        var res = await PutAsync(caller, id, sent);
+        res.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", res.StatusCode, await res.Content.ReadAsStringAsync());
+
+        (await DataAsync(admin, id)).GetProperty("Attendance").GetString().Should().Be("absent",
+            "an Update rule with no set lets every field be set, read or not, and nothing is compared");
     }
 }

@@ -265,9 +265,11 @@ public class SensitivityService : ISensitivityService
     /// Updating a stored entry the caller may read, a field the Read rules granting it do not show is
     /// put back, and one they show and the Update rule does not let the caller set is refused when
     /// the request changes it and put back when it does not. On an entry the caller may not read (no
-    /// Read rule grants it, or its own level withholds its data), nothing is compared: a field a
-    /// writable set names is written and every other one is put back. Comparing there would answer
-    /// a guess at a value the caller cannot read, 403 for wrong and 200 for right.
+    /// Read rule grants it, or its own level withholds its data), nothing is compared: a field the
+    /// rule granting the write lets the caller set (every field, when it holds no set) is written
+    /// blind, as an Update rule without a Read rule always could, and every other one is put back.
+    /// Comparing there would answer a guess at a value the caller cannot read, 403 for wrong and
+    /// 200 for right. Sensitivity has already put back what the caller may not see.
     ///
     /// A transition carrying values (<paramref name="updating"/> false, with the entry) is judged the
     /// same way for reading and refuses nothing: a transition is not an update, and the fields its
@@ -342,7 +344,7 @@ public class SensitivityService : ISensitivityService
 
                 if (!entryRead)
                 {
-                    if (!writable.IsAll && settable)
+                    if (settable)
                         continue;
 
                     PutBack(incoming, existing, key);

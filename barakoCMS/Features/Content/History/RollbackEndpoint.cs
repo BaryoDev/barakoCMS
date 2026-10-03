@@ -177,11 +177,16 @@ internal class RollbackEndpoint(
         await session.SaveChangesAsync(ct);
 
         // 8. Return the new state, through the read rules a GET applies: the caller is shown what
-        // they may read of it and nothing more.
+        // they may read of it and nothing more. Rollback asks for update, not read, so a caller no
+        // Read rule grants this entry gets it back with no data, as a GET would refuse them.
         var response = RollbackResponse.From(content);
-        response.Data = new Dictionary<string, object>(content.Data);
-        if (await Resolve<barakoCMS.Core.Interfaces.ISensitivityService>().ApplyAsync(content, response.Data, HttpContext, ct))
-            response.ContentType = "HIDDEN";
+        response.Data = new Dictionary<string, object>();
+        if (await permissionResolver.CanPerformActionAsync(actor, content.ContentType, "read", content, ct))
+        {
+            response.Data = new Dictionary<string, object>(content.Data);
+            if (await Resolve<barakoCMS.Core.Interfaces.ISensitivityService>().ApplyAsync(content, response.Data, HttpContext, ct))
+                response.ContentType = "HIDDEN";
+        }
 
         await Send.ResponseAsync(response, cancellation: ct);
     }

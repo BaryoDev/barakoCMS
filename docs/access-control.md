@@ -495,8 +495,12 @@ same rule, reading the sets once for the entry. The write rule has one home too,
   (`JsonElement.DeepEquals`), not as text.
 - **Update of an entry the caller may not read.** No Read rule grants it, or its own level is
   Sensitive or Hidden and the caller may not see that level. Nothing is compared, since a 403 for a
-  wrong value and a 200 for the right one would tell the caller what the entry holds. A field an
-  Update rule's `writableFields` names is written, and every other field is put back.
+  wrong value and a 200 for the right one would tell the caller what the entry holds. A field the
+  rule granting the write lets the caller set is written blind, as an Update rule without a Read
+  rule always could: the fields its `writableFields` names, or every field when it holds no set.
+  Every other field is put back. Sensitivity still puts back what the caller may not see. A
+  transition carrying values on such an entry writes the fields its type declares for it, which are
+  its own set.
 - **Create.** A field outside every Create rule's set that the request gives a value other than
   `null` is refused with 403.
 - The 403 names the fields by their declared spelling and counts keys the type does not declare.
@@ -517,8 +521,8 @@ same rule, reading the sets once for the entry. The write rule has one home too,
 | `PUT /api/contents/{id}` | unreadable fields put back | 403 on a change |
 | `POST /api/contents`, bulk create, Portability import | | 403 on a value outside the Create set |
 | `POST /api/collections/{type}/push` | unreadable fields put back on an existing entry | 403 on a change, or on create |
-| `POST /api/contents/{id}/rollback/{versionId}` | unreadable fields put back; the response shows what a GET would | 403 on a change |
-| A transition carrying data | per entry: unreadable fields put back | none: its declared fields are its set |
+| `POST /api/contents/{id}/rollback/{versionId}` | unreadable fields put back; the response carries the read rules' fields when a Read rule grants the entry, and no data when none does | 403 on a change |
+| A transition carrying data | per entry: unreadable fields put back; on an entry the caller may not read, the declared fields are written | none: its declared fields are its set |
 | Pages tree, file usage, export | every entry of the type | |
 | A condition `Reference.Field` | the referenced field must be shown on every entry of its type, or the condition denies | |
 | Public delivery | none: an anonymous caller holds no rule | |
