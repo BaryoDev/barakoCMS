@@ -29,15 +29,19 @@ public class MigrationSkipQueryTests
     /// <summary>What the database looked like before each file, and what shows the file did its work.</summary>
     private static readonly Dictionary<string, (string Before, string Proof)> Cases = new(StringComparer.Ordinal)
     {
-        // A 3.x event store and the two document tables the file touches, with one draft entry.
+        // A 3.x event store and the two document tables the file touches, with two drafts. The file
+        // moves a draft that carries a publish time to Scheduled (3) and leaves a plain draft at 0.
         ["core/4.0.0/3.x-to-4.0"] = (
             "create table public.mt_streams (id uuid primary key, snapshot jsonb, snapshot_version integer);"
             + "create table public.mt_events (seq_id bigint primary key, data jsonb);"
             + "create table public.mt_doc_contenttypedefinition (tenant_id varchar not null default '*DEFAULT*', id uuid not null, data jsonb not null);"
             + "create table public.mt_doc_contents (id uuid primary key, data jsonb not null);"
-            + "insert into public.mt_doc_contents (id, data) values (gen_random_uuid(), '{\"Status\": 0}');"
+            + "insert into public.mt_doc_contents (id, data) values "
+            + "('00000000-0000-0000-0000-000000000001', '{\"Status\": 0, \"ScheduledPublishAt\": \"2030-01-01T00:00:00Z\"}'), "
+            + "('00000000-0000-0000-0000-000000000002', '{\"Status\": 0, \"ScheduledPublishAt\": null}');"
             + ImmutableTimestamp + ImmutableTimestampTz,
-            "select (select data ->> 'Status' from public.mt_doc_contents) = '3' "
+            "select (select data ->> 'Status' from public.mt_doc_contents where id = '00000000-0000-0000-0000-000000000001') = '3' "
+            + "and (select data ->> 'Status' from public.mt_doc_contents where id = '00000000-0000-0000-0000-000000000002') = '0' "
             + "and to_regclass('public.mt_doc_workflow_runs') is not null"),
 
         ["core/4.2.0/site-share-links"] = (
