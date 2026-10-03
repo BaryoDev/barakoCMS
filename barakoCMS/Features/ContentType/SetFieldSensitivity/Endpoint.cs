@@ -131,6 +131,19 @@ internal class Endpoint(
             return;
         }
 
+        // A uniqueness refusal tells the caller that some entry holds the value they sent. For a
+        // field they may not read that is a way to test what it holds, so a field a rule names
+        // stays Public. Lowering is never refused here.
+        if (to != SensitivityLevel.Public
+            && barakoCMS.Core.Validation.UniquenessRules.NamedBy(def, field.Name) is { Count: > 0 } rules)
+        {
+            AddError(
+                $"'{field.Name}' is compared by the uniqueness rule {string.Join(", ", rules.Select(r => $"'{r}'"))}, "
+                + $"so it has to stay Public. Take it out of the rule with PUT /api/content-types/{def.Name}/uniqueness first.");
+            await Send.ErrorsAsync(400, ct);
+            return;
+        }
+
         if (lowering && !req.AcknowledgeDisclosure)
         {
             var affected = await session.Query<ContentDoc>().CountAsync(c => c.ContentType == def.Name, ct);

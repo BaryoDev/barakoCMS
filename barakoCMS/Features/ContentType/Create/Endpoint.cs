@@ -35,6 +35,12 @@ internal class Request
     public string? RouteTemplate { get; set; }
 
     /// <summary>
+    /// Values only one entry of this type may hold at a time, such as one open time entry per
+    /// teacher. Null or empty, the default, is a type with none.
+    /// </summary>
+    public List<UniquenessRule>? Uniqueness { get; set; }
+
+    /// <summary>
     /// Make the event stream the source of truth for entries of this type. Permanent.
     /// </summary>
     /// <remarks>
@@ -97,6 +103,13 @@ internal class Endpoint(
         {
             isValid = false;
             errors.AddRange(routeErrors);
+        }
+
+        var (uniquenessValid, uniquenessErrors) = validator.ValidateUniqueness(req.Uniqueness, req.Fields, req.Lifecycle);
+        if (!uniquenessValid)
+        {
+            isValid = false;
+            errors.AddRange(uniquenessErrors);
         }
 
         if (!isValid)
@@ -230,6 +243,7 @@ internal class Endpoint(
             IsPubliclyDeliverable = req.IsPubliclyDeliverable,
             IsSingleton = req.IsSingleton,
             RouteTemplate = req.RouteTemplate,
+            Uniqueness = req.Uniqueness is { Count: > 0 } ? req.Uniqueness : null,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow
         };

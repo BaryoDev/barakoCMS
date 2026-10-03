@@ -254,6 +254,12 @@ internal sealed class BlueprintCatalog(
                 errors.AddRange(routeErrors.Select(e => $"Type '{label}': {e}"));
             }
 
+            var (uniquenessValid, uniquenessErrors) = validator.ValidateUniqueness(type.Uniqueness, type.Fields, type.Lifecycle);
+            if (!uniquenessValid)
+            {
+                errors.AddRange(uniquenessErrors.Select(e => $"Type '{label}': {e}"));
+            }
+
             // A reference has to point at a type in the same blueprint. Applying is meant to produce
             // a schema that works on an empty tenant, and a target that only exists on some tenants
             // is a picker that sometimes has nothing to pick from.
