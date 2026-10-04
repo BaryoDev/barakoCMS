@@ -41,5 +41,5 @@ public sealed class ModuleNameModule : IBarakoModule
     /// skipped rather than created.
     /// </summary>
     public Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) =>
-        ModuleCapabilities.GrantAsync(session, ModuleNameCapabilities.SeededRoles, ModuleNameCapabilities.All, ct);
+        ModuleNameCapabilities.Defaults.GrantAsync(session, ct);
 }

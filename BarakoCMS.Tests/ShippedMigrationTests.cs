@@ -43,6 +43,11 @@ public class ShippedMigrationTests
         ["core/4.4.0/marten-9-38-quick-append-events"] = "4ad71cedf652c705f6603a0f7de7fb6a7b4d8660b6e55a50d3b5c8156f20dae9",
         ["Email.Resend/4.5.0/email-sent-emails"] = "c0e606da0fefdde0bc1b9bd644e8e63fb55deba306b547399063946762cdf996",
         ["core/4.5.0/refresh-token-hash-index"] = "3ee5a9d53d0cdc0a85907dcb10a546a467deb3718f48376d07f5aa7040b40c3e",
+        ["core/4.6.0/event-correlation-metadata"] = "0a14352be55a4384536624ffcf789daa8044096ffd5de88193b0f884a4e3530e",
+        ["core/4.6.0/sensitivity-by-capability"] = "6d3a18f101477fcd92164695340f1e3f243ab6e00a0a8afbd2aa6b275af7b068",
+        ["core/4.6.0/tenant-profile-to-site"] = "5dbaa5114defc5fd920d4fd05864bd454cb72080b75019f950a1ad6f53e1e277",
+        ["ExternalAuth/4.6.0/external-auth-identities"] = "b8d8179181f7263374edc337f97e00b92fcd988f25524f148d90c55efda6dc08",
+        ["Forms/4.6.0/forms-email-verification"] = "44e209551d9b71301fd29ef8e99cb56f64842cc18f31c724048399924bf1c4c0",
     };
 
     private static IReadOnlyList<ShippedMigration> FirstParty() =>
