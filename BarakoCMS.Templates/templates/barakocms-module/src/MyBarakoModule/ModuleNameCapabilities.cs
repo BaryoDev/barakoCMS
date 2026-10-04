@@ -1,3 +1,6 @@
+using barakoCMS.Models;
+using barakoCMS.Modules;
+
 namespace MyBarakoModule;
 
 /// <summary>
@@ -10,11 +13,12 @@ public static class ModuleNameCapabilities
     /// <summary>List the module's notes.</summary>
     public const string ReadNotes = "read_modulename_notes";
 
-    /// <summary>
-    /// The roles the seeder grants everything to. Admin only: SuperAdmin holds the wildcard and
-    /// satisfies any capability without being named.
-    /// </summary>
-    internal static readonly string[] SeededRoles = ["Admin"];
-
     internal static readonly string[] All = [ReadNotes];
+
+    /// <summary>
+    /// Who starts with these, said once: the seeded Admin role, found by its id so a rename does
+    /// not lose it. Admin only: SuperAdmin holds the wildcard and satisfies any capability without
+    /// being named.
+    /// </summary>
+    internal static readonly CapabilityDefaults Defaults = CapabilityDefaults.For(All).GrantedTo(SystemRoles.Admin);
 }
