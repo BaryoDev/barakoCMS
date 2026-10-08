@@ -178,6 +178,12 @@ The delivery API (`docs/delivery-api.md`) marks its responses `Cache-Control: pu
 which is an invitation to put a CDN in front of it. Whether that is safe depends on how tenants are
 routed (`docs/multi-tenancy.md`), because the response is cacheable per tenant, not globally.
 
+Each read also carries a weak ETag for revalidation and `Surrogate-Key` and `Cache-Tag` headers
+whose tags all start with the tenant, so a CDN that purges by tag can drop exactly what an entry
+appears in. Most CDNs strip both tag headers before the browser. The tag headers stay under 1024
+bytes each, inside a default nginx `proxy_buffer_size`. See "Cache classes, validators and tags" in
+`docs/delivery-api.md`.
+
 This section is about that cacheable majority. `GET /api/public/events`, the change stream, is not
 part of it: it sends `no-store` and must never be cached, for reasons that have nothing to do with
 tenancy. See the "Change events" section of `docs/delivery-api.md` for what a proxy in front of it

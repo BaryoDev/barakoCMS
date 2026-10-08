@@ -464,6 +464,10 @@ public static class ServiceCollectionExtensions
             barakoCMS.Features.Monitoring.Meta.ApiContract.HeaderName,
             barakoCMS.Features.Monitoring.Meta.ApiContract.DeliveryHeaderName,
             Microsoft.Net.Http.Headers.HeaderNames.RetryAfter,
+            barakoCMS.Infrastructure.Caching.DeliveryCache.ClassHeader,
+            barakoCMS.Infrastructure.Caching.DeliveryCache.SurrogateKeyHeader,
+            barakoCMS.Infrastructure.Caching.DeliveryCache.CacheTagHeader,
+            barakoCMS.Infrastructure.Caching.DeliveryCache.TagsDroppedHeader,
         ];
 
         services.AddCors(options =>
@@ -485,6 +489,11 @@ public static class ServiceCollectionExtensions
             //
             //   Retry-After              A 429 from the rate limiter and a 409 from a busy collection
             //                            sync say when to come back. The console shows that wait.
+            //
+            //   X-Barako-Cache-Class, Surrogate-Key, Cache-Tag, X-Barako-Cache-Tags-Dropped
+            //                            How long a delivery read may be kept and what it was built
+            //                            from (#973), for a renderer that reads delivery in a browser.
+            //                            Last-Modified needs no entry: it is safelisted.
             options.AddPolicy(barakoCMS.Infrastructure.Security.TenantDomainCorsPolicyProvider.PolicyName, builder =>
             {
                 // CORS__AllowedOrigins as an environment variable, CORS:AllowedOrigins in
@@ -1774,6 +1783,10 @@ public static class ServiceCollectionExtensions
 
         // Lets IdempotencyFilter hash a keyed write's body after FastEndpoints has bound it.
         app.UseMiddleware<barakoCMS.Infrastructure.Filters.IdempotencyRequestBuffering>();
+
+        // Inside the output cache, so a cached delivery read is stored with its ETag, and next to the
+        // endpoints, so the body it hashes is the one the endpoint wrote.
+        app.UseMiddleware<barakoCMS.Infrastructure.Caching.DeliveryValidatorsMiddleware>();
 
         app.UseFastEndpoints(c =>
         {

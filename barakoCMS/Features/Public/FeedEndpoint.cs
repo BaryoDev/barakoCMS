@@ -31,7 +31,9 @@ internal class FeedEndpoint(IQuerySession session, IConfiguration config) : Endp
     {
         Get("/api/public/{type}/feed.xml");
         AllowAnonymous();
-        Options(x => x.RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy));
+        Options(x => x
+            .RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy)
+            .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators));
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -109,7 +111,7 @@ internal class FeedEndpoint(IQuerySession session, IConfiguration config) : Endp
 
         sb.Append("  </channel>\n</rss>\n");
 
-        PublicDelivery.SetCache(HttpContext);
+        PublicDelivery.SetCache(HttpContext, PublicDelivery.Scopes(type, delivered));
         await Send.StringAsync(sb.ToString(), 200, "application/rss+xml; charset=utf-8", ct);
     }
 

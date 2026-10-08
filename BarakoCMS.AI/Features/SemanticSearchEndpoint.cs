@@ -1,7 +1,9 @@
 using barakoCMS.Core.Interfaces;
+using barakoCMS.Infrastructure.Caching;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Options;
 
 namespace BarakoCMS.AI.Features;
@@ -35,6 +37,7 @@ public class SemanticSearchEndpoint(
     {
         Get("/api/public/{type}/semantic");
         AllowAnonymous();
+        Options(x => x.WithMetadata(DeliveryCache.Validators));
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -90,7 +93,7 @@ public class SemanticSearchEndpoint(
 
             if (matching.Count == 0)
             {
-                SetCache();
+                SetCache(type, []);
                 await Send.OkAsync(empty, ct);
                 return;
             }
@@ -120,6 +123,7 @@ public class SemanticSearchEndpoint(
             : (await session.LoadManyAsync<Content>(ct, ranked.Select(x => x.e.Id).ToArray())).ToDictionary(c => c.Id);
 
         var results = new List<SemanticHit>();
+        var hitIds = new List<Guid>();
         foreach (var (e, score) in ranked)
         {
             if (!current.TryGetValue(e.Id, out var c)
@@ -128,18 +132,25 @@ public class SemanticSearchEndpoint(
             // Slug and title are read off the entry as it is now, under the type's current rules,
             // not the copies stored at indexing: a field marked non-Public since then is not served.
             results.Add(new SemanticHit(type, PublicText.SlugValue(c, def), PublicText.TitleOf(c, def), Math.Round(score, 4)));
+            hitIds.Add(c.Id);
             if (results.Count >= limit) break;
         }
 
-        SetCache();
+        SetCache(type, hitIds);
         await Send.OkAsync(new SemanticResponse(results, results.Count, q) { Truncated = truncated }, ct);
     }
 
     // The answer is built from the resolved tenant, and the X-Tenant header is read before the
     // host, so a shared cache keyed on the URL alone would serve one tenant's results to another.
-    private void SetCache()
+    // A hit's entry id is tagged, not shown: each one is Published and Public, and delivery serves
+    // its id on every other route.
+    private void SetCache(string type, IEnumerable<Guid> hitIds)
     {
         HttpContext.Response.Headers.CacheControl = "public, max-age=60";
         HttpContext.Response.Headers.Vary = barakoCMS.Infrastructure.Multitenancy.TenantResolutionMiddleware.TenantHeader;
+        DeliveryCache.Shared(
+            HttpContext,
+            DeliveryCacheClass.Short,
+            hitIds.Select(CacheScope.Entry).Prepend(CacheScope.Type(type)));
     }
 }

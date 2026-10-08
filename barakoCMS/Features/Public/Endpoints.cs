@@ -2,6 +2,7 @@ using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
 using Marten.Linq.MatchesSql;
+using barakoCMS.Infrastructure.Caching;
 using ContentDoc = barakoCMS.Models.Content; /* distinct alias; avoids the Features.Content namespace clash */
 
 namespace barakoCMS.Features.Public;
@@ -401,11 +402,36 @@ internal static class PublicDelivery
      * fronting a header- or path-routed deployment (the front end sets X-Tenant from the URL handle;
      * see docs/multi-tenancy.md), would serve one tenant's response to another. A conforming cache
      * only has to honour Vary if it is configured to: see docs/deploy-in-production.md.
+     *
+     * The class, tags and Last-Modified come from DeliveryCache (#973). Cache-Control stays the
+     * 60 second hint it always was, so a deployment that sets nothing caches exactly as long as before.
      */
-    public static void SetCache(HttpContext http)
+    public static void SetCache(HttpContext http, IEnumerable<CacheScope> scopes, DateTimeOffset? lastModified = null)
     {
         http.Response.Headers.CacheControl = "public, max-age=60";
         http.Response.Headers.Vary = barakoCMS.Infrastructure.Multitenancy.TenantResolutionMiddleware.TenantHeader;
+        DeliveryCache.Shared(http, DeliveryCacheClass.Short, scopes, lastModified);
+    }
+
+    /// <summary>
+    /// The type, then every entry the response was built from, included ones too, so publishing any
+    /// of them can purge it. The bounds in <see cref="DeliveryCache"/> keep the type tag first.
+    /// </summary>
+    public static IEnumerable<CacheScope> Scopes(string type, IEnumerable<PublicContentResponse> items)
+    {
+        yield return CacheScope.Type(type);
+        foreach (var item in items)
+        {
+            yield return CacheScope.Entry(item.Id);
+            foreach (var value in item.Data.Values)
+            {
+                if (value is PublicContentResponse included)
+                    yield return CacheScope.Entry(included.Id);
+                else if (value is IEnumerable<PublicContentResponse> list)
+                    foreach (var listed in list)
+                        yield return CacheScope.Entry(listed.Id);
+            }
+        }
     }
 }
 
@@ -420,7 +446,9 @@ internal class ListPublishedEndpoint(
     {
         Get("/api/public/{type}");
         AllowAnonymous();
-        Options(x => x.RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy));
+        Options(x => x
+            .RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy)
+            .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators));
     }
 
     public override async Task HandleAsync(PublicListRequest req, CancellationToken ct)
@@ -525,7 +553,7 @@ internal class ListPublishedEndpoint(
         items = await PublicReferenceFields.FilterAsync(items, def!, session, ct);
         items = await PublicDelivery.ResolveIncludesAsync(items, includes, def, session, ct, files);
 
-        PublicDelivery.SetCache(HttpContext);
+        PublicDelivery.SetCache(HttpContext, PublicDelivery.Scopes(type, items));
         await Send.ResponseAsync(new PaginatedResponse<PublicContentResponse>
         {
             Items = items,
@@ -566,7 +594,9 @@ internal class PublicSearchEndpoint(IQuerySession session, IConfiguration config
     {
         Get("/api/public/{type}/search");
         AllowAnonymous();
-        Options(x => x.RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy));
+        Options(x => x
+            .RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy)
+            .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators));
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -602,7 +632,7 @@ internal class PublicSearchEndpoint(IQuerySession session, IConfiguration config
         {
             // Otherwise this 200 went out with no cache header at all, the same gap #546 closed
             // for the stream: nothing here says whether or how an intermediary may store it.
-            PublicDelivery.SetCache(HttpContext);
+            PublicDelivery.SetCache(HttpContext, [CacheScope.Type(type)]);
             await Send.OkAsync(new PublicSearchResponse(Array.Empty<PublicContentResponse>(), 0, q), ct);
             return;
         }
@@ -636,7 +666,7 @@ internal class PublicSearchEndpoint(IQuerySession session, IConfiguration config
             results, def!, Resolve<barakoCMS.Core.Interfaces.IFileStore>(), ct);
         results = await PublicReferenceFields.FilterAsync(results, def!, session, ct);
 
-        PublicDelivery.SetCache(HttpContext);
+        PublicDelivery.SetCache(HttpContext, PublicDelivery.Scopes(type, results));
         await Send.OkAsync(new PublicSearchResponse(results, results.Count, q), ct);
     }
 
@@ -671,7 +701,9 @@ internal class GetBySlugEndpoint(
     {
         Get("/api/public/{type}/{slug}");
         AllowAnonymous();
-        Options(x => x.RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy));
+        Options(x => x
+            .RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy)
+            .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators));
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -773,10 +805,16 @@ internal class GetBySlugEndpoint(
             }
         }
 
+        // Never cache a draft, and give a shared cache nothing to file it under. A published entry
+        // is last modified when it or its type was, whichever is later: a field made non-Public
+        // changes what is delivered without touching the entry.
         if (previewId is not null)
-            HttpContext.Response.Headers.CacheControl = "no-store"; /* never cache a draft */
+            DeliveryCache.NoStore(HttpContext);
         else
-            PublicDelivery.SetCache(HttpContext);
+            PublicDelivery.SetCache(
+                HttpContext,
+                PublicDelivery.Scopes(type, [projected]),
+                projected.UpdatedAt > def!.UpdatedAt ? projected.UpdatedAt : def.UpdatedAt);
         await Send.OkAsync(projected, ct);
     }
 }
