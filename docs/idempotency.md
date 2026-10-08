@@ -26,9 +26,9 @@ constant is a bad key: the second unrelated write that uses it is refused as a d
 
 The key is scoped to the caller: it is namespaced internally by tenant and by caller. The caller is
 the API key when the request authenticated with one, otherwise the user, otherwise an anonymous
-bucket for an unauthenticated POST. So two users, a user and an API key acting for that user, or the
-same user in two tenants, can use the identical raw key without colliding, and a stored response is
-never replayed to anyone but the caller that made the first request. There is no length limit or
+bucket shared by every unauthenticated caller. So two users, a user and an API key acting for that
+user, or the same user in two tenants, can use the identical raw key without colliding, and a stored
+response is never replayed to anyone but the caller that made the first request. There is no length limit or
 format check: any non-empty header value is accepted and treated as a key. A missing header, or one
 that is empty or whitespace, is not an error either; the request just runs without idempotency
 protection, every time.
@@ -39,9 +39,11 @@ What a request with a key already in use gets depends on the first request:
 
 | First request | The retry gets |
 | --- | --- |
-| Succeeded (2xx), same method, path and body | The first response replayed |
-| Succeeded, but a different method, path or body | `422` |
+| Succeeded (2xx), same method, path, query string and body | The first response replayed |
+| Succeeded, but a different method, path, query string or body | `422` |
 | Succeeded, response over the size limit | `409` |
+| Succeeded, on a route that returns a credential | `409` |
+| Succeeded, from an unauthenticated caller | `409` |
 | Still running | `409` |
 | Failed (any status outside 2xx) | Runs as a new request |
 
@@ -56,9 +58,9 @@ Idempotent-Replayed: true
 {"id":"9a1f...","version":1}
 ```
 
-The handler does not run again, so nothing is written twice and no workflow fires twice. The body is
-compared by its SHA-256, taken over the exact bytes sent, so a retry has to send the same bytes, not
-just equivalent JSON. The path is compared without its query string.
+The handler does not run again, so nothing is written twice and no workflow fires twice. The query
+string and body are compared by a SHA-256 taken over the exact bytes sent, so a retry has to send
+the same bytes, not just equivalent JSON.
 
 A retry that matches the key but not the request is refused with:
 
@@ -79,6 +81,39 @@ Request with this Idempotency-Key already processed. Its response was too large 
 
 Set it to `0` to keep no response bodies at all, which makes every completed retry a 409.
 
+## Routes that never replay
+
+A route whose response carries a credential never stores its response, so a retry is answered with
+the 409 below and nothing is replayed. Those secrets are kept only as hashes everywhere else, and a
+stored response would be a second copy. The routes are:
+
+- `POST /api/auth/login`, `POST /api/auth/refresh`, `POST /api/auth/otp/verify`,
+  `POST /api/auth/mfa/verify` and `POST /api/me/switch` (access and refresh tokens)
+- `POST /api/auth/mfa/setup` (the TOTP secret) and `POST /api/auth/mfa/enable` (recovery codes)
+- `POST /api/api-keys` (the raw key)
+- `POST /api/preview` (a preview token)
+- `POST /api/site/share-links` and `POST /api/contents/{id}/share-links` (the link key)
+
+```
+HTTP/1.1 409 Conflict
+
+Request with this Idempotency-Key already processed.
+```
+
+The key still stops the request running twice: a retried `POST /api/api-keys` does not mint a
+second key. A module endpoint opts in the same way, with `[NoIdempotentReplay]` on its class.
+`IdempotencyReplayRulesTests` fails when an endpoint answers with a token, key, secret or recovery
+codes without it.
+
+## Unauthenticated callers
+
+Every unauthenticated caller shares one key bucket, so a stored response there could reach a
+stranger who sent the same key. They get deduplication only: the first request runs, a retry with
+the same key is the 409 above, and nothing about the request or its response is stored. A key that
+failed is released for them the same as for anyone else.
+
+## Keys from before 4.7.0
+
 A key that completed before 4.7.0 has no stored response, and a retry of it is answered 409 with
 `Request with this Idempotency-Key already processed.` until it expires.
 
@@ -87,7 +122,9 @@ A key that completed before 4.7.0 has no stored response, and a retry of it is a
 A key is honoured for `Idempotency:KeyHours` hours (default 24, between 1 and 720), counted from when
 the request claimed it. After that the key is free: the same key runs as a new request, whether or
 not its record has been deleted yet. A sweep runs every hour, starting two minutes after startup,
-and deletes expired records in batches of 500, so the table holds about one window of keyed writes.
+and deletes expired records in batches of 500 for up to 30 seconds, so the table holds about one
+window of keyed writes. When it runs out of time with expired records left, it logs a warning with
+the count and runs again a minute later instead of an hour.
 A value outside 1 to 720 stops the API at startup with a message naming the setting.
 
 A key claimed by a request that then failed (validation error, thrown exception, or any response
@@ -111,10 +148,18 @@ key wins; the database's unique constraint on the key rejects the second insert,
 gets the "still in progress" 409 above. Neither request is queued behind the other or made to wait
 for the first to finish. Retry after the first one answers and the retry gets its response.
 
+Two retries that both find an expired or orphaned record race the same way. Replacing the old record
+deletes it only while it is still expired or orphaned, in the same transaction as the new claim, so
+the second retry finds the first one's fresh claim and gets the 409. The sweep deletes a record only
+while it is still past the window, so it never removes a claim made after it listed the key.
+
 ## What is stored
 
-Each record holds the scoped key, when it was claimed, the method, the path, the SHA-256 of the
-body, and on success the status code, `Content-Type`, `Location` and response body. The response is
+Each record holds the scoped key and when it was claimed. For an authenticated caller it also holds
+the method, the path and the SHA-256 of the query string and body, and on a 2xx from a route that
+replays, the status code, `Content-Type`, `Location` and response body. The body is encrypted with
+the same key that protects other stored secrets (`Secrets:Key`, falling back to `JWT:Key`); after
+that key is rotated an old body cannot be read, and a retry of it gets the 409 above. The response is
 one the caller was already sent, and only that caller can have it replayed. Request and response
 bodies are never logged. Records live in `mt_doc_idempotency_records` and are removed by the sweep
 above.

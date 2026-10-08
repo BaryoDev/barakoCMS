@@ -1,4 +1,6 @@
 using System.Security.Cryptography;
+using System.Text;
+using barakoCMS.Infrastructure.Security;
 using FastEndpoints;
 using Marten;
 using Microsoft.Extensions.Logging;
@@ -11,8 +13,9 @@ namespace barakoCMS.Infrastructure.Filters;
 ///
 /// <para>
 /// The key is stored as "in progress". A request that does not answer 2xx has its claim deleted by
-/// the finalizer, so a legitimate retry runs. A request that does keeps the key along with its
-/// response, and a retry of the same request from the same caller gets that response back.
+/// the finalizer, so a legitimate retry runs. A request that does keeps the key, and, when the caller
+/// is authenticated and the route does not return a credential, its response, so a retry of the
+/// same request from the same caller gets that response back.
 /// </para>
 /// </summary>
 public class IdempotencyFilter : IGlobalPreProcessor
@@ -39,7 +42,7 @@ public class IdempotencyFilter : IGlobalPreProcessor
     // An "in progress" record older than this is treated as orphaned (the process died between
     // claiming the key and finalizing it) and may be reclaimed by a retry. Comfortably longer than
     // any real request, short enough that a retry after a crash eventually succeeds.
-    private static readonly TimeSpan StaleAfter = TimeSpan.FromMinutes(10);
+    internal static readonly TimeSpan StaleAfter = TimeSpan.FromMinutes(10);
 
     internal static bool IsKeyedWrite(HttpRequest request) =>
         (HttpMethods.IsPost(request.Method) || HttpMethods.IsPut(request.Method) || HttpMethods.IsPatch(request.Method))
@@ -50,20 +53,30 @@ public class IdempotencyFilter : IGlobalPreProcessor
     {
         var http = context.HttpContext;
         if (!IsKeyedWrite(http.Request))
+        {
             return;
+        }
 
         var store = http.RequestServices.GetService<IDocumentStore>();
         if (store is null)
+        {
             return; // Marten not available, so treat as no-op rather than blocking the request.
+        }
 
         var options = http.RequestServices.GetService<IdempotencyOptions>() ?? new IdempotencyOptions();
         var now = (http.RequestServices.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow().UtcDateTime;
         var logger = http.RequestServices.GetService<ILogger<IdempotencyFilter>>();
         var scopedKey = IdempotencyKeyScope.Build(http, http.Request.Headers["Idempotency-Key"].ToString());
 
+        // Every unauthenticated caller shares one key bucket, so a stored response there could be
+        // replayed to a stranger who guessed or saw the key. Those callers keep dedupe only: a retry
+        // is a 409, and nothing about the request or its response is stored.
+        var anonymous = IdempotencyKeyScope.Caller(http) is null;
+        var replayable = !anonymous && !NeverReplays(http);
+
         var method = http.Request.Method;
         var path = http.Request.Path.Value ?? "";
-        var bodyHash = await HashBodyAsync(http.Request, ct);
+        var requestHash = await HashRequestAsync(http.Request, ct);
 
         // A dedicated session, decoupled from the handler's transaction, so committing the claim
         // here and releasing it in the finalizer never entangles with the handler's own writes (or
@@ -79,31 +92,23 @@ public class IdempotencyFilter : IGlobalPreProcessor
 
             if (!expired && !orphaned)
             {
-                await AnswerExistingAsync(http, existing, method, path, bodyHash, logger, scopedKey, ct);
+                await AnswerExistingAsync(http, existing, anonymous, method, path, requestHash, logger, scopedKey, ct);
                 return;
             }
-
-            // An expired key is free again, and an orphaned claim was left by a crashed request.
-            session.Delete(existing);
-            await session.SaveChangesAsync(ct);
         }
 
-        try
+        var claim = new Models.IdempotencyRecord
         {
-            // The unique identity insert is the concurrency guard: two simultaneous requests with the
-            // same key race here, and exactly one wins.
-            session.Insert(new Models.IdempotencyRecord
-            {
-                Key = scopedKey,
-                Completed = false,
-                CreatedAt = now,
-                Method = method,
-                Path = path,
-                BodyHash = bodyHash,
-            });
-            await session.SaveChangesAsync(ct);
-        }
-        catch (Exception ex) when (IsUniqueViolation(ex))
+            Key = scopedKey,
+            Completed = false,
+            CreatedAt = now,
+            Method = anonymous ? null : method,
+            Path = anonymous ? null : path,
+            RequestHash = anonymous ? null : requestHash,
+            Replayable = replayable,
+        };
+
+        if (!await TryClaimAsync(session, claim, replacing: existing is not null, options.KeyLifetime, ct))
         {
             logger?.LogWarning("Concurrent duplicate idempotency key: {Key}", scopedKey);
             await WriteTextAsync(http, 409, InProgressMessage, ct);
@@ -111,19 +116,78 @@ public class IdempotencyFilter : IGlobalPreProcessor
         }
 
         // Hand the claim to the finalizer, which completes it on success or deletes it on failure,
-        // and copy the response as it is written so a retry can be answered with it.
+        // and copy the response as it is written when a retry may be answered with it.
         http.Items[ScopedKeyItem] = scopedKey;
-        var capture = new IdempotencyResponseCapture(http.Response.Body, options.MaxStoredResponseBytes);
-        http.Response.Body = capture;
-        http.Items[CaptureItem] = capture;
+        if (replayable)
+        {
+            var capture = new IdempotencyResponseCapture(http.Response.Body, options.MaxStoredResponseBytes);
+            http.Response.Body = capture;
+            http.Items[CaptureItem] = capture;
+        }
+    }
+
+    /// <summary>
+    /// Inserts the claim, first removing an expired or orphaned record under the same key when
+    /// <paramref name="replacing"/>, in one transaction.
+    /// </summary>
+    /// <returns>False when another request holds the key, so this one must not run.</returns>
+    /// <remarks>
+    /// The delete repeats the expiry test in its WHERE rather than deleting by id. Two retries that
+    /// both found the same expired record race here: the first replaces it with a fresh claim, and
+    /// the second's delete then matches nothing, so its insert hits the unique key and it backs off.
+    /// A plain delete by id would remove the first one's fresh claim and let both handlers run.
+    /// </remarks>
+    internal static async Task<bool> TryClaimAsync(
+        IDocumentSession session, Models.IdempotencyRecord claim, bool replacing, TimeSpan keyLifetime, CancellationToken ct)
+    {
+        if (replacing)
+        {
+            var key = claim.Key;
+            var expiredBefore = claim.CreatedAt - keyLifetime;
+            var staleBefore = claim.CreatedAt - StaleAfter;
+            session.DeleteWhere<Models.IdempotencyRecord>(r =>
+                r.Key == key
+                && (r.CreatedAt <= expiredBefore || (!r.Completed && r.CreatedAt < staleBefore)));
+        }
+
+        try
+        {
+            // The unique identity insert is the concurrency guard: two simultaneous requests with the
+            // same key race here, and exactly one wins.
+            session.Insert(claim);
+            await session.SaveChangesAsync(ct);
+            return true;
+        }
+        catch (Exception ex) when (IsUniqueViolation(ex))
+        {
+            return false;
+        }
+    }
+
+    private static bool NeverReplays(HttpContext http)
+    {
+        var endpoint = http.GetEndpoint();
+        if (endpoint is null)
+        {
+            return false;
+        }
+
+        if (endpoint.Metadata.GetMetadata<NoIdempotentReplayAttribute>() is not null)
+        {
+            return true;
+        }
+
+        var definition = endpoint.Metadata.GetMetadata<EndpointDefinition>();
+        return definition?.EndpointType.IsDefined(typeof(NoIdempotentReplayAttribute), inherit: true) == true;
     }
 
     private static async Task AnswerExistingAsync(
         HttpContext http,
         Models.IdempotencyRecord existing,
+        bool anonymous,
         string method,
         string path,
-        string? bodyHash,
+        string requestHash,
         ILogger? logger,
         string scopedKey,
         CancellationToken ct)
@@ -135,57 +199,97 @@ public class IdempotencyFilter : IGlobalPreProcessor
             return;
         }
 
-        if (existing.Method is null)
+        // Completed before responses were kept, or an anonymous caller's key: nothing to compare and
+        // nothing to replay.
+        if (anonymous || existing.Method is null)
         {
-            // Completed before responses were kept, so there is nothing to replay.
             await WriteTextAsync(http, 409, AlreadyProcessedMessage, ct);
             return;
         }
 
         if (!string.Equals(existing.Method, method, StringComparison.OrdinalIgnoreCase)
             || !string.Equals(existing.Path, path, StringComparison.Ordinal)
-            || !string.Equals(existing.BodyHash, bodyHash, StringComparison.Ordinal))
+            || !string.Equals(existing.RequestHash, requestHash, StringComparison.Ordinal))
         {
             logger?.LogWarning("Idempotency key reused for a different request: {Key}", scopedKey);
             await WriteTextAsync(http, 422, DifferentRequestMessage, ct);
             return;
         }
 
-        if (existing.ResponseTooLarge || existing.StatusCode is null)
+        if (existing.ResponseTooLarge)
         {
             await WriteTextAsync(http, 409, TooLargeMessage, ct);
             return;
         }
 
+        var body = existing.Replayable && existing.StatusCode is not null && existing.ProtectedResponseBody is not null
+            ? Unprotect(http, existing.ProtectedResponseBody)
+            : null;
+        if (body is null)
+        {
+            // A route that never replays, or a body the current key cannot decrypt (it was rotated).
+            await WriteTextAsync(http, 409, AlreadyProcessedMessage, ct);
+            return;
+        }
+
         logger?.LogInformation("Replaying the stored response for idempotency key: {Key}", scopedKey);
 
-        var body = existing.ResponseBody ?? [];
-        http.Response.StatusCode = existing.StatusCode.Value;
-        if (existing.ContentType is not null) http.Response.ContentType = existing.ContentType;
-        if (existing.Location is not null) http.Response.Headers.Location = existing.Location;
+        http.Response.StatusCode = existing.StatusCode!.Value;
+        if (existing.ContentType is not null)
+        {
+            http.Response.ContentType = existing.ContentType;
+        }
+        if (existing.Location is not null)
+        {
+            http.Response.Headers.Location = existing.Location;
+        }
         http.Response.Headers[ReplayedHeader] = "true";
         http.Response.ContentLength = body.Length;
 
         // Starting the response is what makes FastEndpoints skip the handler. Setting the status
         // alone does not short-circuit, and an empty body would not start it either.
         await http.Response.StartAsync(ct);
-        if (body.Length > 0) await http.Response.Body.WriteAsync(body, ct);
+        if (body.Length > 0)
+        {
+            await http.Response.Body.WriteAsync(body, ct);
+        }
     }
 
-    /// <summary>Hex SHA-256 of the request body, or null when the body cannot be rewound to read.</summary>
-    /// <remarks>
-    /// <see cref="IdempotencyRequestBuffering"/> makes it rewindable. A host that composes its own
-    /// pipeline without it still gets deduplication and replay, only not the different-body check.
-    /// </remarks>
-    private static async Task<string?> HashBodyAsync(HttpRequest request, CancellationToken ct)
-    {
-        if (!request.Body.CanSeek) return null;
+    internal static string? Protect(HttpContext http, byte[] body) =>
+        http.RequestServices.GetService<ISecretProtector>()?.Protect(Convert.ToBase64String(body));
 
-        var position = request.Body.Position;
-        request.Body.Position = 0;
-        var hash = await SHA256.HashDataAsync(request.Body, ct);
-        request.Body.Position = position;
-        return Convert.ToHexString(hash);
+    private static byte[]? Unprotect(HttpContext http, string protectedBody)
+    {
+        var plain = http.RequestServices.GetService<ISecretProtector>()?.Unprotect(protectedBody);
+        return plain is null ? null : Convert.FromBase64String(plain);
+    }
+
+    /// <summary>Hex SHA-256 over the query string and the body.</summary>
+    /// <remarks>
+    /// <see cref="IdempotencyRequestBuffering"/> makes the body rewindable. A host that composes its
+    /// own pipeline without it still gets deduplication and replay, with only the query string
+    /// compared.
+    /// </remarks>
+    private static async Task<string> HashRequestAsync(HttpRequest request, CancellationToken ct)
+    {
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData(Encoding.UTF8.GetBytes(request.QueryString.Value ?? ""));
+        hash.AppendData([0]);
+
+        if (request.Body.CanSeek)
+        {
+            var position = request.Body.Position;
+            request.Body.Position = 0;
+            var buffer = new byte[81920];
+            int read;
+            while ((read = await request.Body.ReadAsync(buffer, ct)) > 0)
+            {
+                hash.AppendData(buffer, 0, read);
+            }
+            request.Body.Position = position;
+        }
+
+        return Convert.ToHexString(hash.GetHashAndReset());
     }
 
     private static async Task WriteTextAsync(HttpContext http, int status, string message, CancellationToken ct)

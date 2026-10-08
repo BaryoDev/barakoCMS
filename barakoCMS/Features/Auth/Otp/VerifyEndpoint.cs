@@ -33,6 +33,7 @@ internal class OtpVerifyResponse
 /// POST /api/auth/otp/verify — exchange a valid email code for the same JWT + refresh token that
 /// password login issues. Single-use, expiry-checked, with a per-code attempt cap.
 /// </summary>
+[barakoCMS.Infrastructure.Filters.NoIdempotentReplay]
 internal class VerifyEndpoint(
     IDocumentSession session,
     IConfiguration config,

@@ -34,9 +34,7 @@ public class IdempotencyFinalizer : IGlobalPostProcessor
             return;
 
         var status = http.Response.StatusCode;
-        var succeeded = !context.HasExceptionOccurred
-                        && !context.HasValidationFailures
-                        && status is >= 200 and < 300;
+        var succeeded = Succeeded(status, context.HasExceptionOccurred, context.HasValidationFailures);
 
         var logger = http.RequestServices.GetService<ILogger<IdempotencyFinalizer>>();
         await using var session = store.LightweightSession();
@@ -55,20 +53,27 @@ public class IdempotencyFinalizer : IGlobalPostProcessor
             if (record is not null)
             {
                 record.Completed = true;
-                record.StatusCode = status;
-                record.ContentType = http.Response.ContentType;
-                record.Location = http.Response.Headers.Location.Count > 0
-                    ? http.Response.Headers.Location.ToString()
-                    : null;
 
-                if (capture is null || capture.Overflowed)
+                // Only a replayable claim had its response copied. Anonymous callers and routes that
+                // return a credential keep the key and nothing else.
+                if (record.Replayable && capture is not null)
                 {
-                    record.ResponseTooLarge = true;
-                    record.ResponseBody = null;
-                }
-                else
-                {
-                    record.ResponseBody = capture.Captured;
+                    record.StatusCode = status;
+                    record.ContentType = http.Response.ContentType;
+                    record.Location = http.Response.Headers.Location.Count > 0
+                        ? http.Response.Headers.Location.ToString()
+                        : null;
+
+                    if (capture.Overflowed)
+                    {
+                        record.ResponseTooLarge = true;
+                    }
+                    else
+                    {
+                        // Encrypted with the stored-secret key, never kept as plain text. Without a
+                        // protector nothing is stored, and a retry gets the 409 it got before.
+                        record.ProtectedResponseBody = IdempotencyFilter.Protect(http, capture.Captured);
+                    }
                 }
 
                 session.Store(record);
@@ -85,4 +90,11 @@ public class IdempotencyFinalizer : IGlobalPostProcessor
             logger?.LogDebug("Released idempotency key after a failed request: {Key}", scopedKey);
         }
     }
+
+    /// <summary>
+    /// Whether the claim is kept. Only a 2xx is: a 3xx, like a 4xx or 5xx, releases the key so the
+    /// client can retry.
+    /// </summary>
+    internal static bool Succeeded(int status, bool exceptionOccurred, bool validationFailed) =>
+        !exceptionOccurred && !validationFailed && status is >= 200 and < 300;
 }

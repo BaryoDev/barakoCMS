@@ -32,15 +32,24 @@ public class IdempotencyRecord
 
     /// <summary>
     /// The method of the request that claimed the key. Null on a record written before replay
-    /// existed, which is answered 409 because it holds no response.
+    /// existed, and on an anonymous caller's record, both of which are answered 409 on a retry.
     /// </summary>
     public string? Method { get; set; }
 
     /// <summary>The path of the request that claimed the key, without its query string.</summary>
     public string? Path { get; set; }
 
-    /// <summary>Hex SHA-256 of the request body, so a different body under the same key is refused.</summary>
-    public string? BodyHash { get; set; }
+    /// <summary>
+    /// Hex SHA-256 over the query string and the body, so a different request under the same key is
+    /// refused.
+    /// </summary>
+    public string? RequestHash { get; set; }
+
+    /// <summary>
+    /// False when the route never replays (it returns a credential), so a retry is answered 409 and
+    /// no response is stored.
+    /// </summary>
+    public bool Replayable { get; set; }
 
     public int? StatusCode { get; set; }
 
@@ -49,9 +58,10 @@ public class IdempotencyRecord
     public string? Location { get; set; }
 
     /// <summary>
-    /// The response body, which the caller that owns the key was already sent. Never logged.
+    /// The response body, encrypted with the stored-secret key. It is one the caller that owns the
+    /// key was already sent. Never logged.
     /// </summary>
-    public byte[]? ResponseBody { get; set; }
+    public string? ProtectedResponseBody { get; set; }
 
     /// <summary>True when the response was over the stored size limit, so it cannot be replayed.</summary>
     public bool ResponseTooLarge { get; set; }
