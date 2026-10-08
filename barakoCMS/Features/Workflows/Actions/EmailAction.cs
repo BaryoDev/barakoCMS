@@ -123,8 +123,9 @@ internal class EmailAction : IWorkflowAction
         // Retried inside the attempt only on EmailNotSentException, which a provider throws only when
         // the message cannot have left. Any other failure may be a message the relay took, and there
         // is no idempotency key to make a second send safe, so it is sent once. No breaker: nothing
-        // counts against it. The send timeout covers every try and the waits between them, so the
-        // slowest send is still the one OutboundResilienceOptions checks against the lease.
+        // counts against it. How many tries fit is EmailRetries: with a send timeout, that timeout
+        // covers every try and the waits between them; without one, the provider's own bound on a
+        // not-sent try decides, and a provider with no bound is sent once.
         var sendTimeout = _resilience.Options.EmailSendTimeout;
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         if (sendTimeout is { } limit) deadline.CancelAfter(limit);
@@ -136,7 +137,7 @@ internal class EmailAction : IWorkflowAction
                 "email",
                 _tenant?.Slug ?? "",
                 _emailService.GetType().Name,
-                _resilience.Options.Retries,
+                _resilience.Options.EmailRetries(_emailService.MaxNotSentDuration),
                 System.Threading.Timeout.InfiniteTimeSpan,
                 async (_, token) =>
                 {

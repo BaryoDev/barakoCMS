@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using barakoCMS.Core.Interfaces;
 using BarakoCMS.Email.Resend;
 using BarakoCMS.Email.Smtp;
+using MailKit.Net.Smtp;
 using FluentAssertions;
 using Microsoft.Extensions.Options;
 using Xunit;
@@ -84,6 +85,54 @@ public class EmailNotSentTests
         relay.Messages.Should().ContainSingle();
     }
 
+    /// <summary>
+    /// A relay that accepts the connection and never greets. MailKit's own limit was 120 s per read,
+    /// so three tries of this ran past the workflow lease.
+    /// </summary>
+    [Fact]
+    public async Task An_smtp_relay_that_never_answers_is_not_sent_within_the_timeout()
+    {
+        var silent = new TcpListener(IPAddress.Loopback, 0);
+        silent.Start();
+        try
+        {
+            var port = ((IPEndPoint)silent.LocalEndpoint).Port;
+            using var caller = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+            caller.CancelAfter(TimeSpan.FromSeconds(10));
+
+            var send = () => Smtp(port, timeoutSeconds: 1).SendEmailAsync("someone@example.com", "s", "<p>b</p>", caller.Token);
+
+            var failure = (await send.Should().ThrowAsync<EmailNotSentException>()).Which;
+            failure.Message.Should().Contain("TimeoutException");
+        }
+        finally
+        {
+            silent.Stop();
+        }
+    }
+
+    [Fact]
+    public void The_smtp_bound_on_a_not_sent_send_is_three_timeouts()
+    {
+        Smtp(25, timeoutSeconds: 7).MaxNotSentDuration.Should().Be(TimeSpan.FromSeconds(21));
+        ((IEmailService)Smtp(25)).MaxNotSentDuration.Should().Be(TimeSpan.FromSeconds(90));
+    }
+
+    /// <summary>
+    /// The relay answered 250 to the message, so it was sent. A failure closing the connection after
+    /// that must not fail the send, or the durable queue sends a second copy.
+    /// </summary>
+    [Fact]
+    public async Task An_smtp_message_the_relay_accepted_succeeds_when_closing_the_connection_fails()
+    {
+        using var relay = new FakeSmtpServer();
+
+        await Smtp(relay.Port, newClient: () => new DisconnectFailsClient())
+            .SendEmailAsync("someone@example.com", "s", "<p>b</p>", Ct);
+
+        relay.Messages.Should().ContainSingle();
+    }
+
     [Fact]
     public async Task A_resend_connection_that_was_never_made_is_not_sent()
     {
@@ -150,6 +199,16 @@ public class EmailNotSentTests
         handler.Calls.Should().Be(1, "the request went out, which is what makes this unknown rather than not sent");
     }
 
+    [Fact]
+    public void The_resend_bound_on_a_not_sent_send_is_the_client_timeout()
+    {
+        var handler = new StepHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)));
+
+        ((IEmailService)Resend(handler)).MaxNotSentDuration.Should().Be(TimeSpan.FromSeconds(100));
+        new ResendEmailService(new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan }, new Settings(ApiKey))
+            .MaxNotSentDuration.Should().BeNull();
+    }
+
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private static int ClosedPort()
@@ -161,7 +220,7 @@ public class EmailNotSentTests
         return port;
     }
 
-    private static SmtpEmailService Smtp(int port) =>
+    private static SmtpEmailService Smtp(int port, double timeoutSeconds = SmtpOptions.DefaultTimeoutSeconds, Func<SmtpClient>? newClient = null) =>
         new(new Snapshot(new SmtpOptions
         {
             Host = "127.0.0.1",
@@ -170,7 +229,14 @@ public class EmailNotSentTests
             Password = Password,
             From = "BarakoCMS <no-reply@example.com>",
             Security = SmtpSecurity.None,
-        }), new Settings(null));
+            TimeoutSeconds = timeoutSeconds,
+        }), new Settings(null), null, newClient ?? (() => new SmtpClient()));
+
+    private sealed class DisconnectFailsClient : SmtpClient
+    {
+        public override Task DisconnectAsync(bool quit, CancellationToken cancellationToken = default) =>
+            throw new IOException("The connection was reset while closing.");
+    }
 
     private static ResendEmailService Resend(HttpMessageHandler handler) =>
         new(new HttpClient(handler), new Settings(ApiKey));
