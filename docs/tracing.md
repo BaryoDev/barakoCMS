@@ -6,8 +6,9 @@ Every request has one correlation id. It is on the response, on the request's lo
 every event the request stores, with nothing configured.
 
 With an OTLP endpoint configured, barakoCMS also exports OpenTelemetry spans: the request, each
-outbound HTTP call, and each workflow action. A caller that sent `traceparent` sees this API as
-part of its own trace.
+outbound HTTP call and its tries, each database command made under one of those, each workflow
+action, each job the queue runs, and each tick of the scheduler and of collection syncs. A caller
+that sent `traceparent` sees this API as part of its own trace.
 
 ## The correlation id
 
@@ -122,17 +123,66 @@ The span of an outbound HTTP call (a webhook, a connector request, an email prov
 `barako.workflow.action`, `barako.workflow.action_ordinal`, `barako.workflow.attempt`,
 `barako.workflow.outcome`, `barako.correlation_id`.
 
-That is the whole list. `SpanScrubber` removes every other attribute from the first two before
-export, along with the status description. The request path and query string are not exported,
+The span of a database command, started by Npgsql:
+
+`db.system`, `db.name`, `db.operation`, `db.statement`, `net.transport`, `net.peer.name`,
+`net.peer.port`.
+
+The statement is the command text with `$1` or `@name` where a value goes, cut to 2,000
+characters. Parameter values are sent to Postgres apart from it and are never on a span. The
+connection string, the database user and the connection id are removed.
+
+The rest come from the source named `BarakoCMS`. Every one carries ids, counts, fixed words and
+names an administrator or the code chose, and nothing else:
+
+| Span | Attributes |
+|---|---|
+| `job.claim`, a queue poll that found due jobs | `barako.job.queue`, `barako.job.claimed` |
+| `job.run`, one job from its claim to its outcome | `barako.tenant`, `barako.job.id`, `barako.job.command`, `barako.job.attempt`, `barako.job.outcome` |
+| `job.finish`, the write that records the outcome | `barako.tenant`, `barako.job.id` |
+| `scheduler.sweep`, one tick of scheduled publishing | `barako.sweep.held` |
+| `scheduler.tenant`, that tick in one tenant | `barako.tenant`, `barako.scheduler.transitions` |
+| `collection_sync.sweep`, one tick of collection syncs | `barako.sweep.held` |
+| `collection_sync.run`, one sync | `barako.tenant`, `barako.collection_sync.id`, `barako.collection_sync.outcome`, and the `created`, `updated`, `unchanged` and `skipped` counts under the same prefix |
+| `outbound.call`, one call through the retry and the breaker | `barako.outbound.scope`, `barako.outbound.destination` (the host), `barako.tenant`, `barako.outbound.tries`, `barako.outbound.outcome` |
+| `outbound.try`, one try of that call | `barako.outbound.try`, `barako.outbound.outcome` |
+
+`barako.job.outcome` is `succeeded`, `retried` or `dead_lettered`, or `gone` (the record was
+deleted), `changed` (another node moved it), `error` (the write failed), `abandoned` (no outcome
+within twice the lease) or `reclaimed` (its lease ran out and it was claimed again).
+`barako.sweep.held` says whether this instance held the sweep's lock; one that did not did
+nothing else. `barako.outbound.outcome` is `ok`, `failed`, `timeout` or `breaker_open`.
+
+Each `outbound.call` has a `retry` event for every retry Carom decided to make, with
+`barako.outbound.try` (the try about to run), `barako.outbound.delay_ms` (the wait before it) and
+`exception.type` (the type of what failed, or `result`). The HTTP span of each try is a child of
+its `outbound.try`, so a call that took three tries shows three of each.
+
+A job's span never holds the command, which is what the request queued, and never the error a
+failure stored. A queue poll that found nothing starts no span.
+
+That is the whole list. `SpanScrubber` removes every other attribute from the request, outbound
+call and database spans before export, along with the status description. The request path and query string are not exported,
 because a path here can hold a share link or a preview token. The host a request was sent to is
 not exported either: it is the caller's Host header. The URL of an outbound call is not exported,
 only its host and port, because a webhook URL is often the credential. Exceptions are not recorded
 on spans. No header, body, token, email address or action parameter is on any span.
 
-The two lists apply by span kind as well as by source: every Server span is cut to the first list
-and every Client span to the second, whatever started it. So a host that gives ASP.NET Core a
-source of its own does not get the path back, and a Client span from a source you add yourself,
-a database driver for one, is cut to the second list too.
+The lists apply by span kind as well as by source: every Server span is cut to the request list
+and every Client span other than Npgsql's to the outbound call list, whatever started it. So a
+host that gives ASP.NET Core a source of its own does not get the path back, and a Client span
+from a source you add yourself is cut to the outbound call list too.
+
+Two kinds of span are not exported at all:
+
+- A database command with no parent span. That is the projection daemon and the other background
+  polls, which would be most of what a collector receives and say little.
+- A cut-down span holding an event with attributes. Npgsql records a failed command as an event
+  carrying the server's message, which can quote the values a row held, and an event cannot be
+  edited once added. The span is dropped; its parent, a request or a job, still shows the error.
+
+Spans from the `Carom` source are kept with their name and timing only. Carom 2.0.1 starts none
+itself, so that matters only for a module that starts its own through Carom's telemetry package.
 
 The health probes under `/health` and the `/metrics` scrape are not traced.
 
@@ -147,10 +197,10 @@ A run with no stored `traceparent` starts a trace of its own.
 
 ### Not covered
 
-- Database spans. Npgsql's spans carry the statement text, the database user and the connection
-  string, so they are left out until they can be cut down the same way.
-- The job queue, the scheduler and collection syncs start no spans of their own. An outbound call
-  they make is exported as a trace with no parent.
+- A job handler's own work. The queue runs the handler on its own worker, outside anything this
+  code starts, so an outbound call a handler makes is exported as a trace with no parent rather
+  than under `job.run`.
+- Marten's own spans. Its source is not listened to; the Npgsql span of each command is.
 - Metrics and logs are not exported over OTLP. Metrics stay on `/metrics`.
 
 ### In your own host
@@ -163,5 +213,15 @@ builder.Services.AddOpenTelemetry().WithTracing(t => t.AddSource("BarakoCMS"));
 ```
 
 Leave `Tracing:Otlp:Endpoint` unset in that case. `SpanScrubber` is only registered with the
-built-in exporter, so the request and outbound call spans your own setup exports carry what the
-instrumentation puts on them.
+built-in exporter, so the request, outbound call and database spans your own setup exports carry
+what the instrumentation puts on them. Do not add the `Npgsql` source to your own setup without a
+processor of your own that removes what is listed above.
+
+### Carom
+
+The retries are Carom's. barakoCMS subscribes to Carom's retry hook (`CaromHooks.OnRetry`, in the
+Carom package it already uses) and writes the `retry` events itself. It does not reference
+`Carom.Telemetry.OpenTelemetry`: that package's floor of OpenTelemetry.Api 1.15.3 resolves fine
+against the 1.19 packages here, but in 2.0.1 it starts no spans, its `Subscribe` feeds meters
+only, which are not exported here, and those meters tag each breaker by its key, which holds the
+tenant and host. Subscribing to the hook gives the same signal with no new dependency.

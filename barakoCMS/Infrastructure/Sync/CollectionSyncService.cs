@@ -1,4 +1,5 @@
 using barakoCMS.Infrastructure.Multitenancy;
+using barakoCMS.Infrastructure.Tracing;
 using barakoCMS.Models;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
@@ -110,6 +111,7 @@ internal sealed class CollectionSyncService(
     {
         // The connection object, not a new one built from its ConnectionString: Npgsql redacts the
         // password out of ConnectionString unless Persist Security Info is set.
+        using var span = BarakoTracing.StartSweep(BarakoTracing.CollectionSyncSweepSpan);
         await using var lockConnection = store.Storage.Database.CreateConnection();
         await lockConnection.OpenAsync(ct);
 
@@ -118,6 +120,7 @@ internal sealed class CollectionSyncService(
             acquire.CommandText = "select pg_try_advisory_lock(@key)";
             acquire.Parameters.AddWithValue("key", SweepLockKey);
             var acquired = (bool?)await acquire.ExecuteScalarAsync(ct) ?? false;
+            span?.SetTag(BarakoTracing.SweepHeldTag, acquired);
             if (!acquired)
             {
                 logger.LogDebug("Another instance is running collection syncs; skipping this tick.");
@@ -196,6 +199,10 @@ internal sealed class CollectionSyncService(
 
             ct.ThrowIfCancellationRequested();
 
+            using var span = BarakoTracing.StartTenantWork(BarakoTracing.CollectionSyncRunSpan, session.TenantId);
+            span?.SetTag(BarakoTracing.CollectionSyncIdTag, sync.Id.ToString());
+            span?.SetTag(BarakoTracing.CollectionSyncOutcomeTag, "left");
+
             try
             {
                 // Inside the try with the run: a lock that cannot be taken, a pool with no
@@ -230,6 +237,11 @@ internal sealed class CollectionSyncService(
 
                 var outcome = await runner.RunAsync(current, ct);
                 run++;
+                span?.SetTag(BarakoTracing.CollectionSyncOutcomeTag, "ran");
+                span?.SetTag(BarakoTracing.CollectionSyncCreatedTag, outcome.Created);
+                span?.SetTag(BarakoTracing.CollectionSyncUpdatedTag, outcome.Updated);
+                span?.SetTag(BarakoTracing.CollectionSyncUnchangedTag, outcome.Unchanged);
+                span?.SetTag(BarakoTracing.CollectionSyncSkippedTag, outcome.Skipped);
 
                 logger.LogInformation(
                     "Collection sync {Slug} for tenant {Tenant}: {Created} created, {Updated} updated, "
@@ -247,6 +259,8 @@ internal sealed class CollectionSyncService(
                 // already records an expected failure on the sync itself; reaching here means a
                 // defect rather than a provider being down, so it is logged with the exception.
                 logger.LogError(ex, "Collection sync {Slug} threw", sync.Slug);
+                span?.SetTag(BarakoTracing.CollectionSyncOutcomeTag, "threw");
+                span?.SetStatus(System.Diagnostics.ActivityStatusCode.Error);
 
                 // Nothing of this sync's is left staged, or the next one's save would carry it.
                 session.EjectAllPendingChanges();
