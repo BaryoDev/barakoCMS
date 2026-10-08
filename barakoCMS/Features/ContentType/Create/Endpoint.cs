@@ -35,6 +35,12 @@ internal class Request
     public string? RouteTemplate { get; set; }
 
     /// <summary>
+    /// The schema.org type a single delivered entry is described as, such as <c>Article</c>. Null,
+    /// the default, emits no structured data.
+    /// </summary>
+    public string? StructuredDataType { get; set; }
+
+    /// <summary>
     /// Values only one entry of this type may hold at a time, such as one open time entry per
     /// teacher. Null or empty, the default, is a type with none.
     /// </summary>
@@ -103,6 +109,13 @@ internal class Endpoint(
         {
             isValid = false;
             errors.AddRange(routeErrors);
+        }
+
+        var (structuredValid, structuredErrors) = validator.ValidateStructuredDataType(req.StructuredDataType);
+        if (!structuredValid)
+        {
+            isValid = false;
+            errors.AddRange(structuredErrors);
         }
 
         var (uniquenessValid, uniquenessErrors) = validator.ValidateUniqueness(req.Uniqueness, req.Fields, req.Lifecycle);
@@ -243,6 +256,7 @@ internal class Endpoint(
             IsPubliclyDeliverable = req.IsPubliclyDeliverable,
             IsSingleton = req.IsSingleton,
             RouteTemplate = req.RouteTemplate,
+            StructuredDataType = req.StructuredDataType,
             Uniqueness = req.Uniqueness is { Count: > 0 } ? req.Uniqueness : null,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow

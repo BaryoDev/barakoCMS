@@ -19,6 +19,9 @@ internal sealed class DescribeResponse
     /// <summary>Every value a field's <c>role</c> may hold, and the field types each is for.</summary>
     public IReadOnlyList<DescribedFieldHint> FieldRoles { get; set; } = [];
 
+    /// <summary>Every value a content type's <c>structuredDataType</c> may hold, spelled exactly.</summary>
+    public IReadOnlyList<string> StructuredDataTypes { get; set; } = [];
+
     /// <summary>
     /// The words that make a setting key or a workflow action parameter read as a credential when
     /// its name contains one, ignoring case: a workflow parameter under such a name is not

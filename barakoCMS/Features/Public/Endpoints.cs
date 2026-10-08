@@ -53,7 +53,18 @@ internal sealed record PublicContentResponse(
     /// than for null.
     /// </remarks>
     [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
-    double? DistanceKm = null);
+    double? DistanceKm = null,
+
+    /// <summary>
+    /// The entry as schema.org JSON-LD, on a single entry read by slug, when its type declares a
+    /// structured data type. Absent otherwise.
+    /// </summary>
+    /// <remarks>
+    /// Built by <see cref="PublicStructuredData"/> from the delivered values only. An object, not
+    /// text: a renderer serializes it into its own script element and escapes it there.
+    /// </remarks>
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    Dictionary<string, object>? StructuredData = null);
 
 internal static class PublicDelivery
 {
@@ -787,6 +798,9 @@ internal class GetBySlugEndpoint(
         projected = (await PublicFileFields.ResolveAsync(
             [projected], def!, Resolve<barakoCMS.Core.Interfaces.IFileStore>(), ct))[0];
         projected = (await PublicReferenceFields.FilterAsync([projected], def!, session, ct))[0];
+
+        // Last, off what this response sends, so a value the steps above left out is not in it.
+        projected = PublicStructuredData.Attach(projected, def!);
 
         if (previewLink is not null)
         {
