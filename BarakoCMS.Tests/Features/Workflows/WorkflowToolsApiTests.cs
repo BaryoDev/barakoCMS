@@ -361,7 +361,7 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         result.SystemVariables.Should().Contain(v => v.Name == "{{links.console}}");
         result.SystemVariables.Should().Contain(v => v.Name == "{{createdBy.email}}");
         result.SystemVariables.Should().Contain(v => v.Name == "{{transition.by.name}}");
-        result.Formats.Should().HaveCount(6);
+        result.Formats.Should().HaveCount(10);
         result.Formats.Should().Contain(v => v.Name == "{{hours createdAt updatedAt}}");
     }
 
