@@ -278,6 +278,7 @@ internal sealed class CreateShareLinkResponse
 }
 
 /// <summary>POST /api/site/share-links: create a link and return its key once.</summary>
+[barakoCMS.Infrastructure.Filters.NoIdempotentReplay]
 internal sealed class CreateShareLinkEndpoint(
     IDocumentSession session,
     IPermissionResolver permissions,

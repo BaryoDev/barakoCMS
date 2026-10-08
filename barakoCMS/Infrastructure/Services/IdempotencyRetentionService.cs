@@ -26,9 +26,14 @@ internal sealed class IdempotencyRetentionService(
     private const long SweepLockKey = 8_242_026_612L;
 
     public const int BatchSize = 500;
-    public const int MaxBatchesPerSweep = 20;
+
+    /// <summary>How long one tick keeps deleting before it lets the connection go.</summary>
+    public static readonly TimeSpan SweepBudget = TimeSpan.FromSeconds(30);
 
     private static readonly TimeSpan SweepInterval = TimeSpan.FromHours(1);
+
+    /// <summary>The wait before the next tick when the last one ran out of budget with rows left.</summary>
+    private static readonly TimeSpan CatchUpInterval = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan StartupDelay = TimeSpan.FromMinutes(2);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -44,9 +49,10 @@ internal sealed class IdempotencyRetentionService(
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            var behind = false;
             try
             {
-                await TrySweepAsync(DateTime.UtcNow, stoppingToken);
+                behind = (await TrySweepAsync(DateTime.UtcNow, stoppingToken))?.Behind == true;
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -59,7 +65,7 @@ internal sealed class IdempotencyRetentionService(
 
             try
             {
-                await Task.Delay(SweepInterval, stoppingToken);
+                await Task.Delay(behind ? CatchUpInterval : SweepInterval, stoppingToken);
             }
             catch (OperationCanceledException)
             {
@@ -69,8 +75,8 @@ internal sealed class IdempotencyRetentionService(
     }
 
     /// <summary>One sweep, if no other instance is already running one.</summary>
-    /// <returns>The records removed, or null when another instance held the lock.</returns>
-    public async Task<int?> TrySweepAsync(DateTime nowUtc, CancellationToken ct)
+    /// <returns>What it removed and whether rows were left, or null when another instance held the lock.</returns>
+    public async Task<IdempotencySweepResult?> TrySweepAsync(DateTime nowUtc, CancellationToken ct)
     {
         await using var lockConnection = store.Storage.Database.CreateConnection();
         await lockConnection.OpenAsync(ct);
@@ -90,12 +96,22 @@ internal sealed class IdempotencyRetentionService(
         try
         {
             await using var session = store.LightweightSession();
-            var removed = await SweepAsync(session, nowUtc, options.KeyLifetime, ct);
-            if (removed > 0)
+            var cutoff = nowUtc - options.KeyLifetime;
+            var result = await SweepAsync(session, nowUtc, options.KeyLifetime, BatchSize, SweepBudget, ct);
+
+            if (result.Behind)
             {
-                logger.LogInformation("Idempotency key retention removed {Count} record(s)", removed);
+                var left = await session.Query<IdempotencyRecord>().CountAsync(r => r.CreatedAt <= cutoff, ct);
+                logger.LogWarning(
+                    "Idempotency key retention removed {Count} record(s) and ran out of time with {Left} expired record(s) left; the next sweep runs in {Wait}",
+                    result.Removed, left, CatchUpInterval);
             }
-            return removed;
+            else if (result.Removed > 0)
+            {
+                logger.LogInformation("Idempotency key retention removed {Count} record(s)", result.Removed);
+            }
+
+            return result;
         }
         finally
         {
@@ -106,35 +122,60 @@ internal sealed class IdempotencyRetentionService(
         }
     }
 
-    /// <summary>Deletes the records past the window, in batches. Pure over the session, so a test drives it.</summary>
-    public static async Task<int> SweepAsync(
-        IDocumentSession session, DateTime nowUtc, TimeSpan lifetime, CancellationToken ct)
+    /// <summary>
+    /// Deletes the records past the window in batches until none are left or the budget is spent.
+    /// Pure over the session, so a test drives it.
+    /// </summary>
+    /// <remarks>At least one batch runs whatever the budget, so a tick always makes progress.</remarks>
+    public static async Task<IdempotencySweepResult> SweepAsync(
+        IDocumentSession session, DateTime nowUtc, TimeSpan lifetime, int batchSize, TimeSpan budget, CancellationToken ct)
     {
         var cutoff = nowUtc - lifetime;
         var removed = 0;
+        var clock = System.Diagnostics.Stopwatch.StartNew();
 
-        for (var batch = 0; batch < MaxBatchesPerSweep; batch++)
+        while (true)
         {
             var due = await session.Query<IdempotencyRecord>()
                 .Where(r => r.CreatedAt <= cutoff)
                 .OrderBy(r => r.CreatedAt)
                 .Select(r => r.Key)
-                .Take(BatchSize)
+                .Take(batchSize)
                 .ToListAsync(ct);
 
-            if (due.Count == 0) break;
-
-            foreach (var key in due)
+            if (due.Count == 0)
             {
-                session.Delete<IdempotencyRecord>(key);
+                return new IdempotencySweepResult(removed, Behind: false);
             }
 
-            await session.SaveChangesAsync(ct);
+            await DeleteDueAsync(session, due, cutoff, ct);
             removed += due.Count;
 
-            if (due.Count < BatchSize) break;
-        }
+            if (due.Count < batchSize)
+            {
+                return new IdempotencySweepResult(removed, Behind: false);
+            }
 
-        return removed;
+            if (clock.Elapsed >= budget)
+            {
+                return new IdempotencySweepResult(removed, Behind: true);
+            }
+        }
+    }
+
+    /// <summary>Deletes the listed keys that are still past the cutoff.</summary>
+    /// <remarks>
+    /// The cutoff is repeated in the WHERE because a key can be reclaimed between the query that
+    /// listed it and this delete. A delete by key alone would remove that fresh claim.
+    /// </remarks>
+    internal static async Task DeleteDueAsync(
+        IDocumentSession session, IReadOnlyList<string> keys, DateTime cutoff, CancellationToken ct)
+    {
+        var list = keys.ToList();
+        session.DeleteWhere<IdempotencyRecord>(r => list.Contains(r.Key) && r.CreatedAt <= cutoff);
+        await session.SaveChangesAsync(ct);
     }
 }
+
+/// <summary>What one sweep removed, and whether it stopped with expired rows still left.</summary>
+internal sealed record IdempotencySweepResult(int Removed, bool Behind);

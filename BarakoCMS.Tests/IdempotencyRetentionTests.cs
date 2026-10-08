@@ -49,9 +49,10 @@ public class IdempotencyRetentionTests
 
         await using (var session = _factory.Services.GetRequiredService<IDocumentStore>().LightweightSession())
         {
-            var removed = await IdempotencyRetentionService.SweepAsync(
-                session, now, TimeSpan.FromHours(24), TestContext.Current.CancellationToken);
-            removed.Should().BeGreaterThanOrEqualTo(2);
+            var result = await IdempotencyRetentionService.SweepAsync(
+                session, now, TimeSpan.FromHours(24), IdempotencyRetentionService.BatchSize,
+                IdempotencyRetentionService.SweepBudget, TestContext.Current.CancellationToken);
+            result.Removed.Should().BeGreaterThanOrEqualTo(2);
         }
 
         var surviving = await SurvivingAsync(prefix);
@@ -79,5 +80,47 @@ public class IdempotencyRetentionTests
         var surviving = await SurvivingAsync(prefix);
         surviving.Should().HaveCount(1);
         surviving.Should().BeEquivalentTo([prefix + "now"]);
+    }
+
+    /// <summary>
+    /// The sweep lists due keys and deletes them in a second statement. A key reclaimed in between
+    /// holds a fresh claim, and the delete must leave it alone.
+    /// </summary>
+    [Fact]
+    public async Task The_delete_leaves_a_key_that_was_reclaimed_after_it_was_listed()
+    {
+        var prefix = $"race-{Guid.NewGuid():N}-";
+        var now = DateTime.UtcNow;
+        await SeedAsync(new IdempotencyRecord { Key = prefix + "reclaimed", Completed = false, CreatedAt = now });
+
+        await using (var session = _factory.Services.GetRequiredService<IDocumentStore>().LightweightSession())
+        {
+            await IdempotencyRetentionService.DeleteDueAsync(
+                session, [prefix + "reclaimed"], now.AddHours(-24), TestContext.Current.CancellationToken);
+        }
+
+        var surviving = await SurvivingAsync(prefix);
+        surviving.Should().HaveCount(1);
+        surviving.Should().BeEquivalentTo([prefix + "reclaimed"]);
+    }
+
+    [Fact]
+    public async Task A_sweep_out_of_budget_with_rows_left_says_it_is_behind()
+    {
+        var prefix = $"behind-{Guid.NewGuid():N}-";
+        var now = DateTime.UtcNow;
+        await SeedAsync(
+            new IdempotencyRecord { Key = prefix + "a", Completed = true, CreatedAt = now.AddDays(-30) },
+            new IdempotencyRecord { Key = prefix + "b", Completed = true, CreatedAt = now.AddDays(-30) },
+            new IdempotencyRecord { Key = prefix + "c", Completed = true, CreatedAt = now.AddDays(-30) });
+
+        await using var session = _factory.Services.GetRequiredService<IDocumentStore>().LightweightSession();
+
+        // One row per batch and no time at all: exactly one batch runs, and rows are left.
+        var result = await IdempotencyRetentionService.SweepAsync(
+            session, now, TimeSpan.FromHours(24), batchSize: 1, budget: TimeSpan.Zero, TestContext.Current.CancellationToken);
+
+        result.Removed.Should().Be(1);
+        result.Behind.Should().BeTrue();
     }
 }

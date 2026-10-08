@@ -20,19 +20,27 @@ internal static class IdempotencyKeyScope
     public static string Build(HttpContext http, string rawKey)
     {
         var tenant = http.RequestServices.GetService<TenantContext>()?.Slug ?? Models.Tenant.DefaultSlug;
+        return string.Join(Sep, tenant, Caller(http) ?? "anon", rawKey);
+    }
 
-        // An API key is its own caller, apart from the user it acts for, so a key and that user's
-        // own session never answer each other's replays. Otherwise the stable user id, then the
-        // username, then "anon" for an unauthenticated POST (rare, but the header is still honoured).
+    /// <summary>Who the key belongs to, or null for an unauthenticated caller.</summary>
+    /// <remarks>
+    /// An API key is its own caller, apart from the user it acts for, so a key and that user's own
+    /// session never answer each other's replays. Otherwise the stable user id, then the username.
+    /// Every unauthenticated caller shares one bucket, which is why <see cref="IdempotencyFilter"/>
+    /// never replays a stored response into it.
+    /// </remarks>
+    public static string? Caller(HttpContext http)
+    {
         var user = http.User;
         var apiKeyId = user?.FindFirst("apikey_id")?.Value;
-        var caller = apiKeyId is not null
-            ? "apikey:" + apiKeyId
-            : user?.FindFirst("UserId")?.Value
-              ?? user?.FindFirst(ClaimTypes.NameIdentifier)?.Value
-              ?? user?.FindFirst("Username")?.Value
-              ?? "anon";
+        if (apiKeyId is not null)
+        {
+            return "apikey:" + apiKeyId;
+        }
 
-        return string.Join(Sep, tenant, caller, rawKey);
+        return user?.FindFirst("UserId")?.Value
+               ?? user?.FindFirst(ClaimTypes.NameIdentifier)?.Value
+               ?? user?.FindFirst("Username")?.Value;
     }
 }

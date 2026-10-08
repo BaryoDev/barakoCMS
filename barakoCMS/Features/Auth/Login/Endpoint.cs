@@ -9,6 +9,7 @@ using System.IdentityModel.Tokens.Jwt;
 
 namespace barakoCMS.Features.Auth.Login;
 
+[barakoCMS.Infrastructure.Filters.NoIdempotentReplay]
 internal class Endpoint : Endpoint<Request, Response>
 {
     private readonly barakoCMS.Repository.IUserRepository _repo;

@@ -116,6 +116,7 @@ internal sealed class CreateEntryShareLinkResponse
 /// With <c>path</c> it is a page link, without it an entry link. Both open the same thing, this
 /// entry; the path is only carried to whoever opens the link.
 /// </remarks>
+[barakoCMS.Infrastructure.Filters.NoIdempotentReplay]
 internal sealed class CreateEntryShareLinkEndpoint(
     IDocumentSession session,
     IPermissionResolver permissions,
