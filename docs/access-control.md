@@ -882,6 +882,7 @@ says.
 | `Features/Connectors/*` | `view_connectors` | `GET /api/connectors`, `GET /api/connectors/{slug}` | SuperAdmin, Admin |
 | `Features/Connectors/*` | `manage_connectors` | `POST /api/connectors`, `PUT` and `DELETE /api/connectors/{slug}`, `POST /api/connectors/{slug}/test` | SuperAdmin, Admin |
 | `Features/Workflows/*` | `manage_workflows` | `/api/workflows`, `/api/workflows/actions`, `/variables`, `/validate`, `/dry-run`, `PUT /api/workflows/{id}/enabled`, `DELETE /api/workflows/{id}`, `POST /api/workflow-runs/{id}/cancel` | SuperAdmin, Admin |
+| `Features/EmailTemplates/*` | `manage_workflows` | `POST /api/email-templates/{id}/preview`, which also needs read on the template and the entry ([email-templates.md](email-templates.md#preview)) | SuperAdmin, Admin |
 | `Features/WorkflowRuns/*` | `view_workflow_runs` | `GET /api/workflow-runs`, `GET /api/workflow-runs/{id}`, `GET /api/workflows/{id}/debug`, `GET /api/webhook-deliveries`, `GET /api/connector-deliveries` | SuperAdmin, Admin |
 | `Features/WorkflowRuns/*` | `retry_workflow_actions` | `POST /api/workflow-runs/{id}/actions/{ordinal}/retry` | SuperAdmin, Admin |
 | `Features/WebhookDeliveries/*`, `Features/ConnectorDeliveries/*` | `view_webhook_response_bodies` | The `responseBody` field on `GET /api/webhook-deliveries`, and the `responseBody` and `requestHeaders` fields on `GET /api/connector-deliveries`, nothing else on the row | SuperAdmin |

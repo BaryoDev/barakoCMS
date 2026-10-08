@@ -552,7 +552,8 @@ was staged; do not reuse it.
 ## Placeholders
 
 A `{{...}}` in a workflow action parameter holds one of the shapes below. Anything else between
-the braces is sent as written.
+the braces is sent as written. An email template stored as content resolves the same way
+([email-templates.md](email-templates.md)).
 
 | Written as | Gives |
 | :--- | :--- |
