@@ -210,6 +210,62 @@ public class EmailTemplatePreviewTests
             new Warning("actions[0].parameters.Template", $"In the template's Body: {expected[0]}"));
     }
 
+    /// <summary>
+    /// Red before the layout was read as the caller: its header showed in the preview to a caller
+    /// with no read on layouts.
+    /// </summary>
+    [Fact]
+    public async Task A_layout_the_caller_cannot_read_comes_back_as_a_problem_and_one_they_can_read_renders()
+    {
+        var (type, entry, _) = await ArrangeAsync("s", "b");
+        var layout = EmailTemplateData.Layout("Layout header 4410", "#123456");
+        var template = EmailTemplateData.Template("Hi", "Body", layout: layout.Id);
+        await using (var session = Store.LightweightSession())
+        {
+            session.Store(layout, template);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var refused = await ReadAsync(await PreviewAsync(
+            await AuthorAsync([type, EmailTemplateRenderer.TemplateType]), template.Id.ToString(), entry.Id));
+        var shown = await ReadAsync(await PreviewAsync(
+            await AuthorAsync([type, EmailTemplateRenderer.TemplateType, EmailTemplateRenderer.LayoutType]), template.Id.ToString(), entry.Id));
+
+        refused.Html.Should().BeEmpty();
+        refused.Sendable.Should().BeFalse();
+        refused.Problem.Should().Be("The layout the email template names is not one you can read.");
+
+        shown.Problem.Should().BeNull();
+        shown.Html.Should().Contain("<p>Layout header 4410</p>");
+    }
+
+    [Fact]
+    public async Task Saving_a_workflow_naming_more_templates_than_are_checked_says_so()
+    {
+        var client = await SuperAdminAsync();
+        var count = WorkflowSchemaValidator.MaxTemplatesChecked + 1;
+
+        var response = await client.PostAsJsonAsync("/api/workflows/validate", new
+        {
+            name = "many templates",
+            triggerContentType = "pvmany",
+            triggerEvent = "Created",
+            actions = Enumerable.Range(0, count).Select(i => new
+            {
+                type = "Email",
+                parameters = new Dictionary<string, string> { ["To"] = "a@example.com", ["Template"] = $"missing-{i}" },
+            }).ToArray(),
+        }, Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+        var result = (await response.Content.ReadFromJsonAsync<ValidationResult>(Json, Ct))!;
+
+        result.Warnings.Should().HaveCount(count);
+        result.Warnings.Take(count - 1).Should().OnlyContain(w => w.Message.StartsWith("No email template"));
+        result.Warnings[^1].Should().Be(new Warning("actions",
+            $"More than {WorkflowSchemaValidator.MaxTemplatesChecked} email templates are named. Only the first {WorkflowSchemaValidator.MaxTemplatesChecked} were checked"));
+    }
+
     [Fact]
     public async Task Saving_a_workflow_naming_a_template_that_does_not_exist_warns_and_does_not_refuse()
     {

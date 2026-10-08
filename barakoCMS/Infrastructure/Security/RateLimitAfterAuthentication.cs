@@ -22,7 +22,8 @@ namespace barakoCMS.Infrastructure.Security;
 /// any other request stays on the limits it already had.
 /// </para>
 /// <para>
-/// With neither configured this holds no limiter and passes every request through.
+/// It also counts the built-in policies partitioned by user, which exist whatever is configured:
+/// the email template preview (<see cref="RateLimitSetup.EmailPreviewPolicy"/>).
 /// </para>
 /// </remarks>
 internal sealed class RateLimitAfterAuthentication
@@ -33,7 +34,7 @@ internal sealed class RateLimitAfterAuthentication
     private readonly RequestDelegate _next;
     private readonly RateLimitWindow? _apiKeyQuota;
     private readonly Dictionary<string, NamedRateLimit> _policies;
-    private readonly PartitionedRateLimiter<Bucket>? _limiter;
+    private readonly PartitionedRateLimiter<Bucket> _limiter;
 
     public RateLimitAfterAuthentication(RequestDelegate next, IConfiguration configuration, IHostApplicationLifetime lifetime)
     {
@@ -45,10 +46,9 @@ internal sealed class RateLimitAfterAuthentication
             .Where(policy => policy.PartitionBy != RateLimitPartitionBy.Ip)
             .ToDictionary(policy => policy.Name, StringComparer.Ordinal);
 
-        if (_apiKeyQuota is null && _policies.Count == 0)
-        {
-            return;
-        }
+        // A configured policy cannot take a built-in name, so this replaces nothing.
+        _policies[RateLimitSetup.EmailPreviewPolicy] = new NamedRateLimit(
+            RateLimitSetup.EmailPreviewPolicy, RateLimitSetup.EmailPreview, RateLimitPartitionBy.User);
 
         var limiter = PartitionedRateLimiter.Create<Bucket, string>(bucket =>
             RateLimitPartition.GetFixedWindowLimiter(bucket.Key, _ => RateLimitSetup.Options(bucket.Window)));
@@ -59,8 +59,7 @@ internal sealed class RateLimitAfterAuthentication
         lifetime.ApplicationStopped.Register(limiter.Dispose);
     }
 
-    public Task InvokeAsync(HttpContext context) =>
-        _limiter is null ? _next(context) : Limited(context, _limiter);
+    public Task InvokeAsync(HttpContext context) => Limited(context, _limiter);
 
     private async Task Limited(HttpContext context, PartitionedRateLimiter<Bucket> limiter)
     {

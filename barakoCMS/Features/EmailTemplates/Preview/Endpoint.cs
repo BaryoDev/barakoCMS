@@ -1,5 +1,4 @@
 using barakoCMS.Core.Interfaces;
-using barakoCMS.Features.Workflows;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Security;
 using barakoCMS.Infrastructure.Services;
@@ -74,7 +73,15 @@ internal sealed class Endpoint(
 
         var (entryShown, withheld, _) = await AsShownAsync(entry, ct);
 
-        var (rendered, problem) = await EmailTemplateRenderer.RenderAsync(session, templateShown, ct);
+        // The layout is content too: its header and footer are shown only as the caller reads them.
+        var (rendered, problem) = await EmailTemplateRenderer.RenderAsync(session, templateShown, ct,
+            async (layout, token) =>
+            {
+                if (!await permissions.CanPerformActionAsync(user, layout.ContentType, "read", layout, token)) return null;
+
+                var (shown, _, hidden) = await AsShownAsync(layout, token);
+                return hidden ? null : shown;
+            });
         if (rendered is null)
         {
             Response = new Response { Status = template.Status.ToString(), Sendable = false, Problem = problem };
@@ -83,9 +90,8 @@ internal sealed class Endpoint(
 
         var sendable = template.Status == ContentStatus.Published;
 
-        var texts = new Dictionary<string, string> { ["Subject"] = rendered.Subject, ["Body"] = rendered.Html };
-        await extractor.PreparePreviewAsync(entryShown, user.Id, texts.Values, ct);
-        var resolved = ActionParameters.Resolve(extractor, "Email", texts, entryShown);
+        await extractor.PreparePreviewAsync(entryShown, user.Id, [rendered.Subject, rendered.Html], ct);
+        var (subject, html) = EmailTemplateRenderer.Resolve(rendered, entryShown, extractor);
 
         // A preview cannot know which workflow will send it, so a transition placeholder is not
         // warned about here. The workflow's own save says so when its trigger is not a transition.
@@ -102,8 +108,8 @@ internal sealed class Endpoint(
 
         Response = new Response
         {
-            Subject = resolved["Subject"],
-            Html = EmailTemplateRenderer.Finish(resolved["Body"]),
+            Subject = subject,
+            Html = html,
             Status = template.Status.ToString(),
             Sendable = sendable,
             Problem = sendable ? null : $"The template is {template.Status}. Only a published template is sent.",

@@ -267,6 +267,30 @@ public class EmailTemplateActionTests
         recorder.Messages.Should().BeEmpty();
     }
 
+    /// <summary>
+    /// Red before the wrapped length was checked: a body under the cap grew past it as HTML in its
+    /// layout, and the resolver then sent it with every placeholder as written.
+    /// </summary>
+    [Fact]
+    public async Task A_body_under_the_cap_that_is_past_it_in_its_layout_fails_permanently()
+    {
+        var body = new string('a', TemplateExpression.MaxTemplateLength - 20) + " {{data.Name}}";
+        body.Length.Should().BeLessThanOrEqualTo(TemplateExpression.MaxTemplateLength);
+        var template = EmailTemplateData.Template("s", body);
+        await using var session = Store.LightweightSession();
+        session.Store(template);
+        await session.SaveChangesAsync(Ct);
+
+        var recorder = new RecordingEmailService();
+        var result = await ActionFor(recorder, session).RunAsync(
+            new() { ["To"] = "a@example.com", ["Template"] = template.Id.ToString() }, Entry(), Ct);
+
+        result.Succeeded.Should().BeFalse();
+        result.Retryable.Should().BeFalse();
+        result.Error.Should().Contain("body in its layout").And.Contain($"at most {TemplateExpression.MaxTemplateLength}");
+        recorder.Messages.Should().BeEmpty();
+    }
+
     /// <summary>The issue's third check: given the store and the extractor, an inline email is sent exactly as written.</summary>
     [Fact]
     public async Task An_email_with_an_inline_subject_and_body_sends_exactly_as_before()
