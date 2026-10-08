@@ -8,9 +8,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging.Abstractions;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats.Png;
-using SixLabors.ImageSharp.PixelFormats;
 using barakoCMS.Models;
 using Xunit;
 
@@ -60,29 +57,9 @@ public class ImageVariantTests
     /// A real PNG, because the whole feature is a decoder and an encoder. Noise rather than a flat
     /// fill so the encoded bytes are not so small that a resize and an original could coincide.
     /// </summary>
-    private static byte[] Png(int width, int height)
-    {
-        using var image = new Image<Rgba32>(width, height);
-        var random = new Random(width * 31 + height);
+    private static byte[] Png(int width, int height) => FileSamples.Noise(width, height);
 
-        image.ProcessPixelRows(accessor =>
-        {
-            for (var y = 0; y < accessor.Height; y++)
-            {
-                var row = accessor.GetRowSpan(y);
-                for (var x = 0; x < row.Length; x++)
-                {
-                    row[x] = new Rgba32((byte)random.Next(256), (byte)random.Next(256), (byte)random.Next(256), 255);
-                }
-            }
-        });
-
-        using var output = new MemoryStream();
-        image.Save(output, new PngEncoder());
-        return output.ToArray();
-    }
-
-    private static int WidthOf(byte[] bytes) => Image.Identify(bytes).Width;
+    private static int WidthOf(byte[] bytes) => FileSamples.WidthOf(bytes);
 
     /// <summary>Records the public flag every Put was given, and answers reads from what it kept.</summary>
     private sealed class CapturingStorage : IFileStorage
@@ -145,7 +122,7 @@ public class ImageVariantTests
         var variants = new ImageVariants(
             scope.ServiceProvider.GetRequiredService<IDocumentSession>(),
             storage,
-            new ImageSharpResizer(new ConfigurationBuilder().Build(), NullLogger<ImageSharpResizer>.Instance),
+            new SkiaImageResizer(new ConfigurationBuilder().Build(), NullLogger<SkiaImageResizer>.Instance),
             new ConfigurationBuilder().Build());
 
         var resolved = await variants.ResolveAsync(original, 320, TestContext.Current.CancellationToken);
@@ -181,20 +158,20 @@ public class ImageVariantTests
     {
         var image = Png(400, 400);
 
-        var strict = new ImageSharpResizer(
+        var strict = new SkiaImageResizer(
             new ConfigurationBuilder()
                 .AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     [$"{ImageVariantOptions.Section}:MaxSourcePixels"] = "1",
                 })
                 .Build(),
-            NullLogger<ImageSharpResizer>.Instance);
+            NullLogger<SkiaImageResizer>.Instance);
 
         var refused = await strict.ResizeAsync(image, 100, TestContext.Current.CancellationToken);
         refused.Should().BeNull("160000 pixels is over a limit of one");
 
-        var permissive = new ImageSharpResizer(
-            new ConfigurationBuilder().Build(), NullLogger<ImageSharpResizer>.Instance);
+        var permissive = new SkiaImageResizer(
+            new ConfigurationBuilder().Build(), NullLogger<SkiaImageResizer>.Instance);
 
         var resized = await permissive.ResizeAsync(image, 100, TestContext.Current.CancellationToken);
         resized.Should().NotBeNull("the same image at the default limit still resizes");
@@ -299,8 +276,8 @@ public class ImageVariantTests
     /// </summary>
     private (HttpClient Client, CountingResizer Counter) HostWithCountingResizer()
     {
-        var counter = new CountingResizer(new ImageSharpResizer(
-            new ConfigurationBuilder().Build(), NullLogger<ImageSharpResizer>.Instance));
+        var counter = new CountingResizer(new SkiaImageResizer(
+            new ConfigurationBuilder().Build(), NullLogger<SkiaImageResizer>.Instance));
 
         var derived = _factory.WithWebHostBuilder(builder =>
             builder.ConfigureServices(services =>

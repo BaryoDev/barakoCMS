@@ -44,7 +44,7 @@ public sealed class ImageVariants
         _session = session;
         _storage = storage;
         _resizer = resizer;
-        _options = ImageSharpResizer.Read(configuration);
+        _options = SkiaImageResizer.Read(configuration);
     }
 
     public async Task<VariantResult> ResolveAsync(StoredFile original, int? requested, CancellationToken ct)

@@ -7,9 +7,6 @@ using Marten;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats.Png;
-using SixLabors.ImageSharp.PixelFormats;
 using barakoCMS.Models;
 using Xunit;
 
@@ -193,7 +190,7 @@ public class FileKeyLayoutTests
         var variants = new ImageVariants(
             session,
             storage,
-            new ImageSharpResizer(new ConfigurationBuilder().Build(), NullLogger<ImageSharpResizer>.Instance),
+            new SkiaImageResizer(new ConfigurationBuilder().Build(), NullLogger<SkiaImageResizer>.Instance),
             new ConfigurationBuilder().Build());
 
         var resolved = await variants.ResolveAsync(original, 320, TestContext.Current.CancellationToken);
@@ -238,29 +235,9 @@ public class FileKeyLayoutTests
         }
     }
 
-    private static byte[] Png(int width, int height)
-    {
-        using var image = new Image<Rgba32>(width, height);
-        var random = new Random(width * 31 + height);
+    private static byte[] Png(int width, int height) => FileSamples.Noise(width, height);
 
-        image.ProcessPixelRows(accessor =>
-        {
-            for (var y = 0; y < accessor.Height; y++)
-            {
-                var row = accessor.GetRowSpan(y);
-                for (var x = 0; x < row.Length; x++)
-                {
-                    row[x] = new Rgba32((byte)random.Next(256), (byte)random.Next(256), (byte)random.Next(256), 255);
-                }
-            }
-        });
-
-        using var output = new MemoryStream();
-        image.Save(output, new PngEncoder());
-        return output.ToArray();
-    }
-
-    private static int WidthOf(byte[] bytes) => Image.Identify(bytes).Width;
+    private static int WidthOf(byte[] bytes) => FileSamples.WidthOf(bytes);
 
     private async Task<string> AdminTokenAsync()
     {

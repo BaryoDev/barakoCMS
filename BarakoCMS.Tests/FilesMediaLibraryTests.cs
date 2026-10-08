@@ -6,9 +6,6 @@ using barakoCMS.Models;
 using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats.Png;
-using SixLabors.ImageSharp.PixelFormats;
 using Xunit;
 
 namespace BarakoCMS.Tests;
@@ -589,27 +586,7 @@ public class FilesMediaLibraryTests
     }
 
     /// <summary>A real PNG, as in ImageVariantTests: the resizer decodes it, so bytes will not do.</summary>
-    private static byte[] Png(int width, int height)
-    {
-        using var image = new Image<Rgba32>(width, height);
-        var random = new Random(width * 31 + height);
-
-        image.ProcessPixelRows(accessor =>
-        {
-            for (var y = 0; y < accessor.Height; y++)
-            {
-                var row = accessor.GetRowSpan(y);
-                for (var x = 0; x < row.Length; x++)
-                {
-                    row[x] = new Rgba32((byte)random.Next(256), (byte)random.Next(256), (byte)random.Next(256), 255);
-                }
-            }
-        });
-
-        using var output = new MemoryStream();
-        image.Save(output, new PngEncoder());
-        return output.ToArray();
-    }
+    private static byte[] Png(int width, int height) => FileSamples.Noise(width, height);
 
     /// <summary>A type with a string field and a url field, which is all a file reference is today.</summary>
     private async Task<string> SeedTypeAsync()

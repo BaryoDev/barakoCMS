@@ -15,7 +15,7 @@
     <PackageReference Include="NSubstitute" />
     <!-- The variant tests make real PNGs and read the width back off the response, so the
          assertion is about pixels rather than about "the bytes changed". -->
-    <PackageReference Include="SixLabors.ImageSharp" />
+    <PackageReference Include="SkiaSharp" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
     <PackageReference Include="Testcontainers.PostgreSql" />
     <PackageReference Include="xunit.v3" />
