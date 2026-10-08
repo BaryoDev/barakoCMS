@@ -62,9 +62,23 @@ that appends the parameter to every asset URL does not break on the one that is 
 
 GIF is left out because resizing an animated one resamples every frame, which makes the cost of a
 request a property of the file rather than of the requested width, on an anonymous route. AVIF is
-left out because ImageSharp has no AVIF decoder. Both are served at full size.
+left out because the bundled decoder has none. Both are served at full size. An animated WebP is
+served at full size for the same reason as a GIF.
+
+A variant keeps its original's format: a PNG stays a PNG, a JPEG a JPEG, a WebP a WebP. JPEG and
+WebP variants are written at quality 75. A variant carries no EXIF, so camera details and location
+do not follow the image into its copies; a photo stored sideways with an orientation tag is turned
+upright in the variant's pixels instead, so it shows the way the original does.
 
 Bytes that do not decode are served unchanged too. A download does not fail because a resize did.
+
+## The library
+
+Resizing uses SkiaSharp (MIT) over Skia (BSD-3-Clause), with no licence key. The Files module
+brings Skia's Linux build that needs nothing beyond libc and libstdc++, so the stock .NET runtime
+image runs it on x64 and arm64 without extra packages. `Dockerfile.suite` keeps only the native
+library for the architecture it is building, because a portable publish copies the one for every
+platform Skia supports.
 
 ## Access rules
 
