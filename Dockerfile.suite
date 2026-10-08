@@ -19,6 +19,15 @@ RUN case "$(uname -m)" in \
     && test -f "/app/publish/runtimes/$keep/native/libSkiaSharp.so" \
     && find /app/publish/runtimes -mindepth 2 -maxdepth 2 -type d -name native ! -path "*/runtimes/$keep/native" -exec rm -rf {} + \
     && find /app/publish/runtimes -mindepth 1 -maxdepth 1 -type d -empty -delete
+# The native Skia library bundles code under several licences (BSD, Apache-2.0, IJG, zlib, FreeType and
+# others), and their notices have to travel with the binary. They ship in the image under
+# /app/licenses. The package folder is globbed rather than versioned, and exactly one has to match,
+# so a version bump cannot silently copy nothing.
+RUN set -- /root/.nuget/packages/skiasharp.nativeassets.linux.nodependencies/*/THIRD-PARTY-NOTICES.txt \
+    && test "$#" -eq 1 && test -f "$1" \
+    && mkdir -p /app/publish/licenses \
+    && cp "$1" /app/publish/licenses/SkiaSharp-THIRD-PARTY-NOTICES.txt \
+    && cp "$(dirname "$1")/LICENSE.txt" /app/publish/licenses/SkiaSharp-LICENSE.txt
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app

@@ -89,34 +89,39 @@ public sealed class SkiaImageResizer : IImageResizer
     {
         try
         {
-            using var data = SKData.CreateCopy(source);
+            // Only bytes that carry a PNG, JPEG or WebP signature reach Skia. A row stored before
+            // uploads were checked can hold anything, and Skia would otherwise try every decoder it
+            // has on it, GIF, BMP, ICO and WBMP among them.
+            if (!HasResizableSignature(source))
+            {
+                _logger.LogWarning("Not resizing to {Width}px: the bytes are not PNG, JPEG or WebP", width);
+                return null;
+            }
 
-            // The header only. Creating a codec does not decode pixels, which is the point: it is
-            // what lets a pixel bomb be turned away before it costs anything to look at.
-            using var codec = SKCodec.Create(data);
-            if (codec is null)
+            // The header only, and released before waiting for a decode slot, so a queue of
+            // requests holds their byte arrays and nothing native.
+            if (ReadHeader(source) is not { } header)
             {
                 _logger.LogWarning("Could not read an image header to resize to {Width}px; serving the original", width);
                 return null;
             }
 
-            var info = codec.Info;
-            if ((long)info.Width * info.Height > _options.MaxSourcePixels)
+            if ((long)header.Width * header.Height > _options.MaxSourcePixels)
             {
                 _logger.LogWarning(
                     "Not resizing a {Width}x{Height} image: over the {Max} pixel limit",
-                    info.Width, info.Height, _options.MaxSourcePixels);
+                    header.Width, header.Height, _options.MaxSourcePixels);
                 return null;
             }
 
             // Never upscale. A 200px logo asked for at 640 is served as the 200px logo rather than
             // as a blurrier copy of itself that also costs a row and a blob to keep.
-            if (info.Width <= width)
+            if (header.Width <= width)
             {
                 return null;
             }
 
-            if (Output(codec.EncodedFormat, source) is not { } output)
+            if (Output(header.Format, source) is not { } output)
             {
                 return null;
             }
@@ -124,7 +129,7 @@ public sealed class SkiaImageResizer : IImageResizer
             // Skia decodes only the first frame, so a resized animated WebP would come back as a
             // still. The original keeps its animation, so serve that. The pixel limit above has
             // already run on it, and serving the original decodes nothing.
-            if (codec.FrameCount > 1)
+            if (header.Frames > 1)
             {
                 return null;
             }
@@ -140,6 +145,14 @@ public sealed class SkiaImageResizer : IImageResizer
             try
             {
                 ct.ThrowIfCancellationRequested();
+
+                using var data = SKData.CreateCopy(source);
+                using var codec = SKCodec.Create(data);
+                var info = codec?.Info ?? default;
+                if (codec is null || info.Width != header.Width || info.Height != header.Height)
+                {
+                    return null;
+                }
 
                 var decodeInfo = new SKImageInfo(
                     info.Width,
@@ -195,6 +208,31 @@ public sealed class SkiaImageResizer : IImageResizer
             _logger.LogWarning(ex, "Could not resize an image to {Width}px; serving the original", width);
             return null;
         }
+    }
+
+    private static bool HasResizableSignature(byte[] source)
+    {
+        var head = source.AsSpan(0, Math.Min(source.Length, UploadTypes.HeadLength));
+        foreach (var type in Resizable)
+        {
+            if (UploadTypes.Matches(type, head))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private readonly record struct Header(int Width, int Height, SKEncodedImageFormat Format, int Frames);
+
+    private static Header? ReadHeader(byte[] source)
+    {
+        using var data = SKData.CreateCopy(source);
+        using var codec = SKCodec.Create(data);
+        return codec is null
+            ? null
+            : new Header(codec.Info.Width, codec.Info.Height, codec.EncodedFormat, codec.FrameCount);
     }
 
     private enum Variant

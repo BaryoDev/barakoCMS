@@ -82,6 +82,8 @@ a 4032x3024 photo tagged as turned a quarter, asked for at 640, is stored 640x48
 480x640, which is how it showed before.
 
 Bytes that do not decode are served unchanged too. A download does not fail because a resize did.
+So are bytes that do not carry the signature of the type the file was stored as, which only a row
+stored before uploads were checked can have: they never reach a decoder.
 
 ## The library
 
@@ -89,7 +91,8 @@ Resizing uses SkiaSharp (MIT) over Skia (BSD-3-Clause), with no licence key. The
 brings Skia's Linux build that needs nothing beyond libc and libstdc++, so the stock .NET runtime
 image runs it on x64 and arm64 without extra packages. `Dockerfile.suite` keeps only the native
 library for the architecture it is building, because a portable publish copies the one for every
-platform Skia supports. A host that references BarakoCMS.Files from NuGet and publishes without a
+platform Skia supports. The native library bundles code under several licences; their notices are
+in the suite image under `/app/licenses`. A host that references BarakoCMS.Files from NuGet and publishes without a
 runtime identifier gets those copies too; publish with `-r linux-x64` (or the target it runs on), or
 prune `runtimes/*/native` the same way.
 

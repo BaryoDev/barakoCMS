@@ -84,6 +84,15 @@ public sealed class ImageVariants
             return new VariantResult(original, null);
         }
 
+        // The bytes have to be what the row says they are. A row stored before uploads were checked
+        // can name one type and hold another, and a variant would then be stored and served under
+        // a type its bytes are not.
+        if (UploadTypes.Allowed(original.ContentType) is not { } declared
+            || !UploadTypes.Matches(declared, source.AsSpan(0, Math.Min(source.Length, UploadTypes.HeadLength))))
+        {
+            return new VariantResult(original, null);
+        }
+
         var resized = await _resizer.ResizeAsync(source, width.Value, ct);
         if (resized is null)
         {

@@ -8,6 +8,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging.Abstractions;
+using SkiaSharp;
 using barakoCMS.Models;
 using Xunit;
 
@@ -176,6 +177,38 @@ public class ImageVariantTests
         var resized = await permissive.ResizeAsync(image, 100, TestContext.Current.CancellationToken);
         resized.Should().NotBeNull("the same image at the default limit still resizes");
         WidthOf(resized!).Should().Be(100);
+    }
+
+    /// <summary>
+    /// A row stored before uploads were checked can say PNG and hold a JPEG. Its bytes never reach
+    /// the resizer, paired with a real PNG through the same path so a resizer that is never called
+    /// at all does not pass on its own.
+    /// </summary>
+    [Fact]
+    public async Task Bytes_that_are_not_the_declared_type_are_served_unresized()
+    {
+        var storage = new CapturingStorage();
+        var counter = new CountingResizer(new SkiaImageResizer(
+            new ConfigurationBuilder().Build(), NullLogger<SkiaImageResizer>.Instance));
+
+        using var scope = _factory.Services.CreateScope();
+        var variants = new ImageVariants(
+            scope.ServiceProvider.GetRequiredService<IDocumentSession>(),
+            storage,
+            counter,
+            new ConfigurationBuilder().Build());
+
+        var mislabelled = await SeedDirectAsync(storage, isPublic: true, FileSamples.Noise(1200, 800, SKEncodedImageFormat.Jpeg));
+        var served = await variants.ResolveAsync(mislabelled, 320, TestContext.Current.CancellationToken);
+
+        served.File.Id.Should().Be(mislabelled.Id, "the original is served when its bytes are not a PNG");
+        counter.Resizes.Should().Be(0, "the bytes never reach the decoder");
+
+        var png = await SeedDirectAsync(storage, isPublic: true, Png(1200, 800));
+        var resized = await variants.ResolveAsync(png, 320, TestContext.Current.CancellationToken);
+
+        resized.File.Id.Should().NotBe(png.Id);
+        counter.Resizes.Should().Be(1);
     }
 
     /// <summary>Stores a file directly, so a test can hand ImageVariants a parent without HTTP.</summary>

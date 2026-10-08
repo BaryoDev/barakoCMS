@@ -13,6 +13,8 @@
 
   `ImageSharpResizer` still compiles and now delegates to `SkiaImageResizer`; it is marked obsolete
   for removal in BarakoCMS.Files 5.0. The suite image keeps only the Skia native library for its own
-  architecture. A host that takes BarakoCMS.Files from NuGet and publishes without a runtime
+  architecture. That library bundles code under several licences, and their notices ship in the
+  suite image under `/app/licenses`. Resizing also declines bytes that are not the stored file's
+  declared type, or not PNG, JPEG or WebP, before any decoder sees them. A host that takes BarakoCMS.Files from NuGet and publishes without a runtime
   identifier gets Skia's native library for every platform it supports, several hundred megabytes
   with the Windows debug symbols; publish with `-r linux-x64` (or your target) to keep one.
