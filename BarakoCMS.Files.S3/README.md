@@ -47,9 +47,7 @@ the repository.
       "ServiceUrl": null,
       "ForcePathStyle": false,
       "PublicBaseUrl": null,
-      "UsePublicReadAcl": false,
-      "MaxErrorRetry": 2,
-      "TimeoutSeconds": 45
+      "UsePublicReadAcl": false
     }
   }
 }
@@ -65,8 +63,8 @@ bucket" rather than as an error.
 | `ForcePathStyle` | Usually `true` for self-hosted stores |
 | `PublicBaseUrl` | Serve public files from your CDN domain. The key is appended, so a public file's URL is `{PublicBaseUrl}/public/{name}` |
 | `UsePublicReadAcl` | Defaults to `true`. Set it to `false` on buckets that block public ACLs, and grant read on `public/*` as below, not on the bucket |
-| `MaxErrorRetry` | Defaults to `2`. Tries after the first the SDK makes for one call, 0 to 10. The SDK's own default is 4 |
-| `TimeoutSeconds` | Defaults to `45`. How long one try may take, a body upload included |
+| `MaxErrorRetry` | Unset is `2`, or fewer on a short lease. Tries after the first the SDK makes for one call, 0 to 10. The SDK's own default is 4 |
+| `TimeoutSeconds` | Unset is `45`, or less on a short lease. How long one try may take, a body upload included |
 
 Keys belong in environment variables or a secret store, never in a checked-in `appsettings.json`.
 
@@ -75,10 +73,12 @@ Keys belong in environment variables or a secret store, never in a checked-in `a
 A file read or write inside a background job or a workflow action has to finish inside its lease,
 or another node runs the work again. The longest one call can take is every try running to
 `TimeoutSeconds` plus a wait of up to 30 seconds between tries (the SDK's legacy retry mode caps a
-wait at 30 seconds, its standard mode at 20): 195 seconds with the defaults. The host refuses to
-start when that is more than 80% of the shorter of the workflow runner's 5 minute lease and
-`Jobs:LeaseSeconds`, the same check `Workflows:Outbound` gets. `MaxErrorRetry` set here wins over
-`AWS_MAX_ATTEMPTS`.
+wait at 30 seconds, its standard mode at 20): 195 seconds with the defaults. The limit is 80% of
+the shorter of the workflow runner's 5 minute lease and `Jobs:LeaseSeconds`. An unset value gives
+way to fit it: first fewer retries, then a shorter timeout. Values set by hand are used as they are,
+and the host refuses to start when they cannot fit. `MaxErrorRetry` is always set on the client, so
+`AWS_MAX_ATTEMPTS` no longer changes it. `AWS_RETRY_MODE=adaptive` can also wait for the SDK's own
+rate limiter, which this bound does not count.
 
 ## Key layout and public access
 
