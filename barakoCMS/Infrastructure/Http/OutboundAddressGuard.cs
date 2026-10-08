@@ -56,7 +56,7 @@ internal sealed class OutboundAddressGuard
         foreach (var address in addresses)
         {
             if (_isBlocked(address))
-                throw new HttpRequestException($"Host '{host}' resolves to a blocked address.");
+                throw new BlockedAddressException($"Host '{host}' resolves to a blocked address.");
         }
 
         return addresses[0];
@@ -145,6 +145,12 @@ internal sealed class OutboundAddressGuard
         }
     }
 }
+
+/// <summary>
+/// The guard's refusal of an address. A retry would be refused the same way, so the outbound
+/// resilience handler never retries one, and it does not count against the host's breaker.
+/// </summary>
+internal sealed class BlockedAddressException(string message) : HttpRequestException(message);
 
 /// <summary>
 /// The primary handler for outbound calls a workflow can aim: no redirects, and every connection

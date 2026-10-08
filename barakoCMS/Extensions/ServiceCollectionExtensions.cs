@@ -997,11 +997,18 @@ public static class ServiceCollectionExtensions
         // because a system proxy can arrive from an environment variable nobody chose.
         var allowWebhookProxy = configuration.GetValue("Webhooks:AllowProxy", false);
 
+        // The retry inside one attempt, checked here against the leases so a host whose settings
+        // could outlast them never starts. See OutboundResilienceOptions.
+        var outbound = barakoCMS.Infrastructure.Http.OutboundResilienceOptions.FromConfiguration(configuration);
+        outbound.Validate(barakoCMS.Infrastructure.Jobs.JobOptions.FromConfiguration(configuration).LeaseSeconds);
+        services.AddSingleton(new barakoCMS.Infrastructure.Http.OutboundResilience(outbound));
+
         services.AddHttpClient("ExternalApi")
                 .ConfigurePrimaryHttpMessageHandler(sp => barakoCMS.Infrastructure.Http.OutboundHttpHandler.Create(
                     sp.GetRequiredService<barakoCMS.Infrastructure.Http.OutboundAddressGuard>(),
                     allowWebhookProxy))
-                .AddStandardResilienceHandler();
+                .AddHttpMessageHandler(sp => new barakoCMS.Infrastructure.Http.OutboundResilienceHandler(
+                    sp.GetRequiredService<barakoCMS.Infrastructure.Http.OutboundResilience>()));
     }
 
     private static void AddContentServices(IServiceCollection services)
