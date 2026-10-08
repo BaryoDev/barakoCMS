@@ -72,8 +72,15 @@ internal static class PublicReferenceFields
         return items.Select(pair => Filter(pair.Item, fieldsOf[pair.Definition], deliverable)).ToList();
     }
 
+    /// <summary>
+    /// The entry with no reference id left in it, for when the targets cannot be read: a single
+    /// reference is left out and a list is empty.
+    /// </summary>
+    public static PublicContentResponse LeaveOut(PublicContentResponse item, ContentTypeDefinition definition) =>
+        Filter(item, Names(definition), []);
+
     /// <summary>The ids among these that name an entry anonymous delivery serves.</summary>
-    private static async Task<HashSet<Guid>> DeliverableAsync(IQuerySession session, HashSet<Guid> ids, CancellationToken ct)
+    internal static async Task<HashSet<Guid>> DeliverableAsync(IQuerySession session, HashSet<Guid> ids, CancellationToken ct)
     {
         if (ids.Count == 0)
             return [];

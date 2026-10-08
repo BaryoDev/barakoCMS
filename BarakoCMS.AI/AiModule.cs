@@ -61,17 +61,25 @@ internal static class PublicText
             .Select(f => f.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// The core delivery rule: a field of type slug, else a Public text field named slug, and in
+    /// either case only when the type marks it Public. Null otherwise, so nothing is returned as a
+    /// slug that the type does not serve.
+    /// </summary>
+    /// <remarks>
+    /// The same answer as <c>IPublicContentProjector.SlugField</c>, which
+    /// <c>AiSemanticTests.The_module_slug_rule_agrees_with_the_core_delivery_rule</c> holds it to.
+    /// Kept as a copy because the callers here are static and run without a scope.
+    /// </remarks>
     public static string? SlugField(ContentTypeDefinition def)
     {
-        var byType = def.Fields.FirstOrDefault(f => string.Equals(f.Type, "slug", StringComparison.OrdinalIgnoreCase));
-        if (byType is not null) return byType.Name;
-        // The core delivery rule: a field picked by its name alone is a slug only when the type
-        // serves it, so a Hidden field or a token named Slug is never embedded or returned.
-        return def.Fields.FirstOrDefault(f =>
-            string.Equals(f.Name, "slug", StringComparison.OrdinalIgnoreCase)
-            && f.Sensitivity == SensitivityLevel.Public
-            && (string.Equals(f.Type, "string", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(f.Type, "text", StringComparison.OrdinalIgnoreCase)))?.Name;
+        var field = def.Fields.FirstOrDefault(f => string.Equals(f.Type, "slug", StringComparison.OrdinalIgnoreCase))
+            ?? def.Fields.FirstOrDefault(f =>
+                string.Equals(f.Name, "slug", StringComparison.OrdinalIgnoreCase)
+                && (string.Equals(f.Type, "string", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(f.Type, "text", StringComparison.OrdinalIgnoreCase))
+                && f.Sensitivity == SensitivityLevel.Public);
+        return field is { Sensitivity: SensitivityLevel.Public } ? field.Name : null;
     }
 
     public static string? SlugValue(Content c, ContentTypeDefinition def)

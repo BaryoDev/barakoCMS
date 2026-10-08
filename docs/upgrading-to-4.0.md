@@ -73,6 +73,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/tenant-profile-to-site.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.7.0/membership-unique-user-tenant.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.7.0/tenant-policy-restore.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.7.0/forms-tenant-policy-restore.sql
 ```
 
 The two Marten files bring the event store up to the Marten version the release you are deploying
@@ -154,12 +155,13 @@ holds one membership per tenant. If two rows already share a user and a tenant i
 nothing, and says how many pairs there are; its header has the query that lists them. It does not
 pick which row to keep. It is safe to run twice.
 
-The tenant policy file (4.7.0) matters only with `Tenancy:DatabaseEnforcement` on. The share links,
+The two tenant policy files (4.7.0, one for core's tables and one for the Forms tables) matter
+only with `Tenancy:DatabaseEnforcement` on. The share links,
 Forms and collection syncs files, and the `4.0.0` file, end by taking the tenant policy off the
 table they create, and run again by hand on an enforced database they take it off a table that had
-it. This file reads whether the database enforces tenancy from its other tables, and where it does,
-puts the same policy back on any of those tables that lacks it. With enforcement off it changes
-nothing. It is safe to run twice.
+it. Each file reads whether the database enforces tenancy from its other tables, and where it
+does, puts the same policy back on any of its tables that lacks it. Run the Forms one after the
+Forms files. With enforcement off they change nothing. Both are safe to run twice.
 
 Then confirm the schema matches what 4.0 expects, without starting the server. The command is an
 argument to the 4.0 image, which hands it to the host instead of booting the web app. With compose,
@@ -234,6 +236,7 @@ statements from the file by hand rather than re-running the whole thing.
 Stop 4.0, then:
 
 ```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.7.0/rollback-forms-tenant-policy-restore.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.7.0/rollback-tenant-policy-restore.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.7.0/rollback-membership-unique-user-tenant.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/rollback-forms-email-verification.sql

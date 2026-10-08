@@ -21,6 +21,7 @@ public class ShippedMigrationTests
         "4.5.0/email-sent-emails",
         "4.6.0/external-auth-identities",
         "4.6.0/forms-email-verification",
+        "4.7.0/forms-tenant-policy-restore",
     ];
 
     /// <summary>
@@ -115,9 +116,10 @@ public class ShippedMigrationTests
             "ExternalAuth/4.6.0/external-auth-identities",
             "Files/4.2.0/stored-files-parent-index",
             "Forms/4.2.0/forms-public-forms",
-            "Forms/4.6.0/forms-email-verification");
+            "Forms/4.6.0/forms-email-verification",
+            "Forms/4.7.0/forms-tenant-policy-restore");
         coreOnly.Count.Should().BeGreaterThanOrEqualTo(7, "seven core files were released before the ledger");
-        coreOnly.Should().HaveCount(all.Count - 5, "a module that is not enabled contributes nothing");
+        coreOnly.Should().HaveCount(all.Count - 6, "a module that is not enabled contributes nothing");
         coreOnly.Should().OnlyContain(m => m.Owner == ShippedMigrations.CoreOwner);
         coreOnly.Select(m => m.Id).Should().NotIntersectWith(ModuleOwned, "core must not also ship a module's file");
     }

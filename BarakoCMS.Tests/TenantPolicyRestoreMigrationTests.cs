@@ -110,6 +110,42 @@ public class TenantPolicyRestoreMigrationTests
         }
     }
 
+    /// <summary>
+    /// db-migrate on an enforced database the Forms tables are new to: core's files run first, then
+    /// the module's, so the restore that covers the Forms tables has to come after the Forms files
+    /// that create them and drop the policy.
+    /// </summary>
+    [Fact]
+    public async Task In_run_order_on_an_enforced_database_every_Forms_table_ends_with_the_policy()
+    {
+        await using var database = await MigrationScratchDatabase.CreateAsync(_factory);
+        await database.ExecuteAsync(
+            "CREATE TABLE public.mt_doc_contents (tenant_id varchar NOT NULL DEFAULT '*DEFAULT*', id uuid NOT NULL, data jsonb NOT NULL, PRIMARY KEY (tenant_id, id)); "
+          + $"CREATE POLICY marten_tenant_isolation ON public.mt_doc_contents USING ({Policy}) WITH CHECK ({Policy}); "
+          + "ALTER TABLE public.mt_doc_contents ENABLE ROW LEVEL SECURITY; "
+          + "ALTER TABLE public.mt_doc_contents FORCE ROW LEVEL SECURITY;");
+
+        var shipped = barakoCMS.Infrastructure.Migrations.ShippedMigrations.Discover([new BarakoCMS.Forms.FormsModule()])
+            .Where(m => m.Owner == "Forms" || m.Key == "core/4.7.0/tenant-policy-restore")
+            .ToList();
+        shipped.Select(m => m.Key).Should().Contain("core/4.7.0/tenant-policy-restore")
+            .And.Contain("Forms/4.2.0/forms-public-forms")
+            .And.Contain("Forms/4.6.0/forms-email-verification");
+
+        var result = await database.Ledger().ApplyAsync(shipped, _ => { }, Ct);
+
+        result.Outcome.Should().Be(barakoCMS.Infrastructure.Migrations.MigrationRunOutcome.Completed, result.Error ?? string.Empty);
+        string[] formsTables = ["mt_doc_public_forms", "mt_doc_form_email_verifications", "mt_doc_form_email_budgets"];
+        formsTables.Should().HaveCount(3);
+        await using var connection = new NpgsqlConnection(database.ConnectionString);
+        await connection.OpenAsync(Ct);
+        foreach (var table in formsTables)
+        {
+            (await StateAsync(connection, "public", table)).Should().Be("enabled=true forced=true policies=1",
+                "{0} was created by a Forms file on an enforced database, and isolation has to end up on it", table);
+        }
+    }
+
     private static string Scratch() => "tenant_policy_check_" + Guid.NewGuid().ToString("N")[..8];
 
     /// <summary>A conjoined table carrying the policy a host with database enforcement on gives it.</summary>

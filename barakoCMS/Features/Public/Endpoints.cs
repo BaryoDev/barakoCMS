@@ -451,6 +451,9 @@ internal class ListPublishedEndpoint(
             return;
         }
 
+        // A reference filter answers against what delivery shows, not the stored ids.
+        query = await query.WithDeliverableReferencesAsync(session, ct);
+
         var (includes, includeError) = PublicDelivery.ParseIncludes(
             HttpContext.Request.Query["include"].FirstOrDefault(), def);
         if (includeError is not null)
@@ -592,6 +595,8 @@ internal class PublicSearchEndpoint(IQuerySession session, IConfiguration config
             await Send.ErrorsAsync(400, ct);
             return;
         }
+
+        filters = await filters.WithDeliverableReferencesAsync(session, ct);
 
         if (q.Length < 2)
         {

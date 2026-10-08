@@ -288,11 +288,14 @@ With `Tenancy:DatabaseEnforcement` on, the app connects as a role that is not a 
   This is the same gap the hand route had, written up in the header of
   `migrations/4.2.0/site-share-links.sql`. [tenancy-at-the-database.md](tenancy-at-the-database.md)
   has the queries that show the policy is there.
-- `core/4.7.0/tenant-policy-restore` puts that policy back on those tables, and on
-  `mt_doc_content_type_sourcing_policies`, wherever one lacks it and another table in `public`
-  carries it, copying the policy from that table. It covers a table one of those files created
-  before the app added the policy, and one a hand run of a file took it off again. With no table
-  carrying the policy, which is enforcement off, it changes nothing.
+- `core/4.7.0/tenant-policy-restore` (core's tables, and
+  `mt_doc_content_type_sourcing_policies`) and `Forms/4.7.0/forms-tenant-policy-restore` (the three
+  Forms tables) put that policy back wherever a table lacks it and another table in `public`
+  carries it, copying the policy from that table. They cover a table one of those files created
+  before the app added the policy, and one a hand run of a file took it off again. The Forms file
+  ships from the module, so it runs after the Forms files that create its tables, including on a
+  database the module is enabled on later. With no table carrying the policy, which is enforcement
+  off, they change nothing.
 
 ## What a start does with the ledger
 
@@ -317,9 +320,9 @@ MODULES.md has the project file lines.
   alters one of them needs a skip query that is also true when the table is missing (the first
   start creates the table current). `Files/4.2.0/stored-files-parent-index` is the example.
 
-Five files under `migrations/` belong to modules and ship from them:
-`4.2.0/stored-files-parent-index.sql` (Files), `4.2.0/forms-public-forms.sql` and
-`4.6.0/forms-email-verification.sql` (Forms), `4.5.0/email-sent-emails.sql` (Email.Resend) and
+Six files under `migrations/` belong to modules and ship from them:
+`4.2.0/stored-files-parent-index.sql` (Files), `4.2.0/forms-public-forms.sql`,
+`4.6.0/forms-email-verification.sql` and `4.7.0/forms-tenant-policy-restore.sql` (Forms), `4.5.0/email-sent-emails.sql` (Email.Resend) and
 `4.6.0/external-auth-identities.sql` (ExternalAuth). Every other file under `migrations/<version>/` ships
 from core, including files added later, with no list to update. `scripts/check-module-versions.sh`
 counts a change to a file a module links from `migrations/` as a change to that module, so the

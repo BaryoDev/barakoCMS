@@ -1,23 +1,20 @@
--- Puts the tenant policy back on core's tables that earlier upgrade files could take it off, on a
--- database that enforces tenancy with row level security.
+-- Puts the tenant policy back on the Forms module's tables, on a database that enforces tenancy
+-- with row level security. The same file as migrations/4.7.0/tenant-policy-restore.sql, for the
+-- module's three tables, and shipped from the module.
 --
--- Three of core's tables were created by an upgrade file that ends by dropping the
--- marten_tenant_isolation policy and turning row level security off, so the table matches what a
--- host with Tenancy:DatabaseEnforcement off declares:
+-- These tables are created by an upgrade file that ends by dropping the marten_tenant_isolation
+-- policy and turning row level security off, so the table matches what a host with
+-- Tenancy:DatabaseEnforcement off declares:
 --
---   mt_doc_content_type_sourcing_policies, mt_doc_site_share_links   migrations/4.0.0/3.x-to-4.0.sql
---   mt_doc_collection_syncs                                          migrations/4.3.0/collection-syncs.sql
+--   mt_doc_public_forms                                              migrations/4.2.0/forms-public-forms.sql
+--   mt_doc_form_email_verifications, mt_doc_form_email_budgets       migrations/4.6.0/forms-email-verification.sql
 --
--- The Forms module's three tables have the same gap, and its own file,
--- migrations/4.7.0/forms-tenant-policy-restore.sql, covers them. It ships from the Forms module so
--- that db-migrate runs it after the Forms files that create those tables: core's files all run
--- before any module's.
---
--- db-migrate runs those files only where their table is missing, so it never strips a policy from a
--- table that has one. Run again by hand, as their headers allow, they do: on a database with
--- enforcement on, where the app has since put the policy on the table, the table is left with no
--- tenant policy at all. And a table one of them created on such a database never had the policy
--- until someone ran db-apply.
+-- db-migrate runs those files where a table is missing: on a database the module is new to, and the
+-- 4.6.0 file whenever one of its two tables is missing, which then strips the other. On a database
+-- with enforcement on that leaves the table with no tenant policy. Run again by hand, as their
+-- headers allow, they also take the policy off a table that had it. This file runs after them,
+-- since the ledger runs one module's files in version order, and since it ships from the module it
+-- runs on a database the module is enabled on later too.
 --
 -- What this file does. Enforcement on is read off the database itself: another table in public
 -- carries marten_tenant_isolation. When none does, enforcement is off, the tables are as they
@@ -32,7 +29,7 @@
 -- Run it as the role that owns the tables, which is the role the app connects as, or a superuser.
 -- Run it with the API stopped, like every upgrade file:
 --
---   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.7.0/tenant-policy-restore.sql
+--   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.7.0/forms-tenant-policy-restore.sql
 --
 -- Safe to run twice: a table that has the policy is skipped.
 -- barako:rerunnable
@@ -40,9 +37,9 @@
 DO $restore$
 DECLARE
     tables constant text[] := ARRAY[
-        'mt_doc_content_type_sourcing_policies',
-        'mt_doc_site_share_links',
-        'mt_doc_collection_syncs'
+        'mt_doc_public_forms',
+        'mt_doc_form_email_verifications',
+        'mt_doc_form_email_budgets'
     ];
     donor      record;
     target      text;
