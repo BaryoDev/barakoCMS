@@ -44,6 +44,21 @@ internal sealed class JobRunSpans
     /// <summary>The open run span of <paramref name="trackingId"/>, removed, or null when there is none.</summary>
     public Activity? Take(Guid trackingId) => _open.TryRemove(trackingId, out var span) ? span : null;
 
+    /// <summary>Puts back a span <see cref="Take"/> handed out, when the write it was taken for failed.</summary>
+    /// <remarks>
+    /// If the job was claimed again in between, the new run is the one that stays open, and the
+    /// span put back is ended as <see cref="BarakoTracing.JobReclaimed"/>.
+    /// </remarks>
+    public void Restore(Guid trackingId, Activity? span)
+    {
+        if (span is null) return;
+
+        if (!_open.TryAdd(trackingId, span))
+        {
+            BarakoTracing.EndJobRun(span, BarakoTracing.JobReclaimed);
+        }
+    }
+
     public void EndStartedBefore(DateTime cutoffUtc)
     {
         foreach (var (id, span) in _open)

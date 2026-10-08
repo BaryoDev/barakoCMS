@@ -190,36 +190,47 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
             claim = BarakoTracing.StartJobClaim(p.QueueID);
         }
 
-        foreach (var candidate in candidates)
+        try
         {
-            await using var session = _store.LightweightSession(candidate.TenantId);
-            var fresh = await session.LoadAsync<JobRecord>(candidate.TrackingID, ct);
-            if (fresh is null || !stillMatches(fresh)
-                || fresh.State is JobState.Completed or JobState.DeadLettered)
+            foreach (var candidate in candidates)
             {
-                continue;
+                await using var session = _store.LightweightSession(candidate.TenantId);
+                var fresh = await session.LoadAsync<JobRecord>(candidate.TrackingID, ct);
+                if (fresh is null || !stillMatches(fresh)
+                    || fresh.State is JobState.Completed or JobState.DeadLettered)
+                {
+                    continue;
+                }
+
+                fresh.State = JobState.Running;
+                fresh.DequeueAfter = DateTime.UtcNow + lease;
+                session.Store(fresh);
+
+                try
+                {
+                    await session.SaveChangesAsync(ct);
+                }
+                catch (Exception ex) when (IsConcurrency(ex))
+                {
+                    // Another instance claimed it between the read and the save. Theirs.
+                    continue;
+                }
+
+                claimed.Add(fresh);
+                if (claim is not null) RunSpans.Started(fresh, claim.Context);
             }
 
-            fresh.State = JobState.Running;
-            fresh.DequeueAfter = DateTime.UtcNow + lease;
-            session.Store(fresh);
-
-            try
-            {
-                await session.SaveChangesAsync(ct);
-            }
-            catch (Exception ex) when (IsConcurrency(ex))
-            {
-                // Another instance claimed it between the read and the save. Theirs.
-                continue;
-            }
-
-            claimed.Add(fresh);
-            if (claim is not null) RunSpans.Started(fresh, claim.Context);
+            BarakoTracing.RecordClaimed(claim, claimed.Count);
         }
-
-        BarakoTracing.RecordClaimed(claim, claimed.Count);
-        claim?.Dispose();
+        catch
+        {
+            claim?.SetStatus(ActivityStatusCode.Error);
+            throw;
+        }
+        finally
+        {
+            claim?.Dispose();
+        }
 
         StartMeasureWhenDue(ct);
 
@@ -353,22 +364,33 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
 
     /// <summary>
     /// Runs the write that records how a job went under a span of its own, then ends the job's run
-    /// span with the outcome. A write that throws ends it as <see cref="BarakoTracing.JobError"/>.
+    /// span with the outcome.
     /// </summary>
+    /// <remarks>
+    /// A write that throws leaves the run open: FastEndpoints calls again every few seconds until
+    /// one goes through, and that one decides the outcome. Only the failed write's own span says
+    /// it failed.
+    /// </remarks>
     private async Task FinishAsync(JobRecord r, Func<Task<string>> record)
     {
         var run = RunSpans.Take(r.TrackingID);
-        var outcome = BarakoTracing.JobError;
+        var finish = BarakoTracing.StartJobFinish(run);
+        string outcome;
 
         try
         {
-            using var finish = BarakoTracing.StartJobFinish(run);
             outcome = await record();
         }
-        finally
+        catch
         {
-            BarakoTracing.EndJobRun(run, outcome);
+            finish?.SetStatus(ActivityStatusCode.Error);
+            finish?.Dispose();
+            RunSpans.Restore(r.TrackingID, run);
+            throw;
         }
+
+        finish?.Dispose();
+        BarakoTracing.EndJobRun(run, outcome);
     }
 
     private async Task<string> CompleteAsync(JobRecord r, CancellationToken ct)

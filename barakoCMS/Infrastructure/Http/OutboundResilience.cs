@@ -21,7 +21,8 @@ namespace barakoCMS.Infrastructure.Http;
 internal sealed class OutboundResilience(OutboundResilienceOptions options)
 {
     // Carom raises this for every retry in the process. The handler only acts inside a call this
-    // class started, so a module's own Carom use is not touched.
+    // class started, so a module's own Carom use is not touched. The hook is a settable property,
+    // not an event, so code that assigns it instead of adding to it removes this handler.
     static OutboundResilience() => CaromHooks.OnRetry += BarakoTracing.RecordRetry;
 
     public static readonly OutboundResilience Default = new(new OutboundResilienceOptions());

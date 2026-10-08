@@ -113,6 +113,40 @@ public class JobRunSpanTests
         run[0].TagObjects.Select(t => t.Value?.ToString() ?? "").Should().NotContain(v => v.Contains(Payload));
     }
 
+    /// <remarks>
+    /// FastEndpoints calls the finishing method again until it returns without throwing, so a write
+    /// that fails is not the end of the run. A token already cancelled is the failing write here.
+    /// </remarks>
+    [Fact]
+    public async Task A_finishing_write_that_fails_leaves_the_run_open_for_the_one_that_succeeds()
+    {
+        using var capture = new SpanCapture(BarakoTracing.SourceName);
+        var provider = Provider();
+        var queue = $"spans-{Guid.NewGuid():N}";
+        var job = await StoreAsync(queue, tenant: null);
+
+        var claimed = await provider.GetNextBatchAsync(Claim(queue));
+        claimed.Should().ContainSingle();
+
+        var cancelled = new CancellationToken(canceled: true);
+        var failing = () => provider.MarkJobAsCompleteAsync(claimed.Single(), cancelled);
+        await failing.Should().ThrowAsync<OperationCanceledException>();
+
+        await provider.MarkJobAsCompleteAsync(claimed.Single(), Ct);
+
+        var id = job.TrackingID.ToString();
+        var run = capture.Exported.Where(s => s.OperationName == BarakoTracing.JobRunSpan
+            && (string?)s.GetTagItem(BarakoTracing.JobIdTag) == id).ToList();
+        var finishes = capture.Exported.Where(s => s.OperationName == BarakoTracing.JobFinishSpan
+            && (string?)s.GetTagItem(BarakoTracing.JobIdTag) == id).ToList();
+
+        run.Should().HaveCount(1, "the failed write did not end the run");
+        run[0].GetTagItem(BarakoTracing.JobOutcomeTag).Should().Be(JobMetrics.Succeeded);
+        finishes.Should().HaveCount(2);
+        finishes.Select(s => s.Status).Should().BeEquivalentTo(new[] { ActivityStatusCode.Error, ActivityStatusCode.Unset });
+        finishes.Should().AllSatisfy(s => s.ParentSpanId.Should().Be(run[0].SpanId));
+    }
+
     private MartenJobStorageProvider Provider()
     {
         var gate = new JobStorageGate();

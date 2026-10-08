@@ -67,7 +67,6 @@ internal static class BarakoTracing
     /// <summary>How a job run ended, beside the outcomes <c>JobMetrics</c> counts.</summary>
     public const string JobGone = "gone";
     public const string JobChanged = "changed";
-    public const string JobError = "error";
     public const string JobAbandoned = "abandoned";
     public const string JobReclaimed = "reclaimed";
 

@@ -6,8 +6,9 @@ Every request has one correlation id. It is on the response, on the request's lo
 every event the request stores, with nothing configured.
 
 With an OTLP endpoint configured, barakoCMS also exports OpenTelemetry spans: the request, each
-outbound HTTP call and its tries, each database command made under one of those, each workflow
-action, each job the queue runs, and each tick of the scheduler and of collection syncs. A caller
+outbound HTTP call and its tries, each workflow action, each job the queue claims and finishes,
+each tick of the scheduler and of collection syncs, and the database commands made inside any of
+those. A caller
 that sent `traceparent` sees this API as part of its own trace.
 
 ## The correlation id
@@ -148,8 +149,11 @@ names an administrator or the code chose, and nothing else:
 | `outbound.try`, one try of that call | `barako.outbound.try`, `barako.outbound.outcome` |
 
 `barako.job.outcome` is `succeeded`, `retried` or `dead_lettered`, or `gone` (the record was
-deleted), `changed` (another node moved it), `error` (the write failed), `abandoned` (no outcome
-within twice the lease) or `reclaimed` (its lease ran out and it was claimed again).
+deleted), `changed` (another node moved it), `abandoned` (no outcome within twice the lease) or
+`reclaimed` (its lease ran out and it was claimed again). A write of the outcome that fails ends
+its own `job.finish` span as an error and leaves `job.run` open: the queue tries the write again,
+and the one that goes through sets the outcome. A claim that fails partway still exports its
+`job.claim` span, marked as an error.
 `barako.sweep.held` says whether this instance held the sweep's lock; one that did not did
 nothing else. `barako.outbound.outcome` is `ok`, `failed`, `timeout` or `breaker_open`.
 
@@ -175,11 +179,22 @@ from a source you add yourself is cut to the outbound call list too.
 
 Two kinds of span are not exported at all:
 
-- A database command with no parent span. That is the projection daemon and the other background
-  polls, which would be most of what a collector receives and say little.
+- A database command with no parent span. That is the projection daemon, the other background
+  polls and a job handler's own commands (see below), which would be most of what a collector
+  receives and say little.
 - A cut-down span holding an event with attributes. Npgsql records a failed command as an event
   carrying the server's message, which can quote the values a row held, and an event cannot be
-  edited once added. The span is dropped; its parent, a request or a job, still shows the error.
+  edited once added. The span is dropped; its parent still shows the error.
+
+Both are counted. `SpanScrubber` adds one to the counter `barako.tracing.spans_dropped`, on the
+.NET meter named `BarakoCMS`, for each span it drops, with the tag `reason` set to `parentless` or
+`event`. A rise in `event` means database commands are failing under traced work; `parentless`
+is the background traffic that was not exported.
+
+A parentless command still costs Npgsql a span object before it is dropped. Npgsql can skip it at
+the source with a command filter, but that filter is set per data source, and Marten builds its
+own data sources from the connection string, one per database when database tenancy is on, so
+there is no single place to set it.
 
 Spans from the `Carom` source are kept with their name and timing only. Carom 2.0.1 starts none
 itself, so that matters only for a module that starts its own through Carom's telemetry package.
@@ -199,7 +214,9 @@ A run with no stored `traceparent` starts a trace of its own.
 
 - A job handler's own work. The queue runs the handler on its own worker, outside anything this
   code starts, so an outbound call a handler makes is exported as a trace with no parent rather
-  than under `job.run`.
+  than under `job.run`, and a database command a handler makes has no parent and is not exported
+  at all. The claim's and the finish's own commands are exported, under `job.claim` and
+  `job.finish`.
 - Marten's own spans. Its source is not listened to; the Npgsql span of each command is.
 - Metrics and logs are not exported over OTLP. Metrics stay on `/metrics`.
 
@@ -225,3 +242,8 @@ Carom package it already uses) and writes the `retry` events itself. It does not
 against the 1.19 packages here, but in 2.0.1 it starts no spans, its `Subscribe` feeds meters
 only, which are not exported here, and those meters tag each breaker by its key, which holds the
 tenant and host. Subscribing to the hook gives the same signal with no new dependency.
+
+`CaromHooks.OnRetry` is a settable static property in Carom 2.0.1, not an event, so nothing stops
+code from replacing it. A host or module that wants Carom's retries must add its handler with
+`+=` and never assign the property: `CaromHooks.OnRetry = handler` removes barakoCMS's handler for
+the whole process, and the `retry` events stop with nothing logged.
