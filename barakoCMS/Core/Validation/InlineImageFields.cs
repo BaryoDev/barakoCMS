@@ -77,19 +77,8 @@ internal static class InlineImageFields
     /// before the field became an inline image field, or under a rule since tightened, does not
     /// block saving the rest of the entry.
     /// </summary>
-    public static bool IsUnchanged(FieldDefinition field, object value, Models.Content? existing)
-    {
-        if (existing?.Data is not { } stored)
-            return false;
-
-        foreach (var (key, held) in stored)
-        {
-            if (string.Equals(key, field.Name, StringComparison.OrdinalIgnoreCase) && held is not null)
-                return JsonNode.DeepEquals(JsonSerializer.SerializeToNode(held), JsonSerializer.SerializeToNode(value));
-        }
-
-        return false;
-    }
+    public static bool IsUnchanged(FieldDefinition field, object value, Models.Content? existing) =>
+        StoredValues.IsUnchanged(field.Name, value, existing);
 
     /// <summary>
     /// Removes an inline image field whose stored value is not an allowed data URI, before an entry
