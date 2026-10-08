@@ -94,6 +94,7 @@ internal sealed class OidcIdTokenGrantEndpoint(
     IConfiguration config,
     OidcBackchannel backchannel,
     OidcUsedNonces nonces,
+    OidcGrantSignIn signIn,
     barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
     barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer,
     ILogger<OidcIdTokenGrantEndpoint> logger) : Endpoint<OidcIdTokenGrantRequest, OidcIdTokenGrantResponse>
@@ -147,26 +148,26 @@ internal sealed class OidcIdTokenGrantEndpoint(
             RefuseReplay(provider);
         }
 
-        // Queued on the request's session, so the nonce is spent in the same commit as the user, the
-        // link and the refresh token, and a sign-in that fails before that commit leaves it unspent.
-        // The insert is also the replay check: two grants racing with one token both get here, and
-        // the primary key lets one commit.
-        nonces.QueueUse(session, nonceKey, expiresAt + OidcIdToken.ClockSkew);
-
         var club = (req.Club ?? string.Empty).Trim().ToLowerInvariant();
         var mfa = Resolve<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>();
         SocialSignIn.Tokens tokens;
         bool emailNotVerified;
         try
         {
-            (tokens, emailNotVerified) = await SocialSignIn.IssueForIdentityAsync(
-                session, config, deviceGate, tokenIssuer, mfa, HttpContext, identity, provider.Name, club, ct);
+            // The nonce is queued just before the commit that records the outcome (the tokens, the
+            // MFA challenge or the refusal), so it is spent with that and with nothing earlier, and a
+            // sign-in that fails before it leaves the token usable. The insert is also the replay
+            // check: two grants racing with one token both get here, and the primary key lets one
+            // commit.
+            (tokens, emailNotVerified) = await signIn.IssueAsync(
+                session, config, deviceGate, tokenIssuer, mfa, HttpContext, identity, provider.Name, club, ct,
+                beforeFinalCommit: s => nonces.QueueUse(s, nonceKey, expiresAt + OidcIdToken.ClockSkew));
         }
         catch (Exception ex) when (OidcSupport.IsUniqueViolation(ex))
         {
-            // The commit failed whole, so nothing of this attempt is stored. Either another grant
-            // spent the nonce first, or two first sign-ins for one address raced on the user's unique
-            // email; the loser of that retries with the same token and finds the account.
+            // A commit failed, and with it the nonce. Either another grant spent the nonce first, or
+            // two first sign-ins for one address raced on the user's unique email; the loser of that
+            // retries with the same token and finds the account.
             if (await nonces.IsLiveAsync(store, nonceKey, ct))
             {
                 RefuseReplay(provider);
@@ -201,6 +202,28 @@ internal sealed class OidcIdTokenGrantEndpoint(
         logger.LogWarning("OIDC provider {Provider}: an id token grant reused a nonce", provider.Name);
         ThrowError("This nonce was already used. Sign in with the provider again.", 401);
     }
+}
+
+/// <summary>
+/// The sign-in step of the id token grant. One instance per process; a test replaces it to make a
+/// commit fail the way a lost race does, which a real race cannot be relied on to do.
+/// </summary>
+internal class OidcGrantSignIn
+{
+    public virtual Task<(SocialSignIn.Tokens Tokens, bool EmailNotVerified)> IssueAsync(
+        IDocumentSession session,
+        IConfiguration config,
+        barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
+        barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer,
+        barakoCMS.Infrastructure.Auth.Mfa.IMfaService mfa,
+        Microsoft.AspNetCore.Http.HttpContext http,
+        OidcIdentity identity,
+        string provider,
+        string club,
+        CancellationToken ct,
+        Action<IDocumentSession> beforeFinalCommit) =>
+        SocialSignIn.IssueForIdentityAsync(
+            session, config, deviceGate, tokenIssuer, mfa, http, identity, provider, club, ct, beforeFinalCommit);
 }
 
 /// <summary>The nonces the id token grant has spent: the replay check and the cleanup.</summary>

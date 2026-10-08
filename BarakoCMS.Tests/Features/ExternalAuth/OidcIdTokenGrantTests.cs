@@ -6,6 +6,7 @@ using BarakoCMS.ExternalAuth;
 using FluentAssertions;
 using Marten;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -46,7 +47,11 @@ public class OidcIdTokenGrantTests
                 _host = fixture.WithWebHostBuilder(b =>
                 {
                     b.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(Settings()));
-                    b.ConfigureServices(s => s.AddSingleton<IHttpClientFactory>(clients));
+                    b.ConfigureServices(s =>
+                    {
+                        s.AddSingleton<IHttpClientFactory>(clients);
+                        s.AddSingleton<OidcGrantSignIn>(SignIn);
+                    });
                 });
                 _stub = stub;
             }
@@ -54,6 +59,8 @@ public class OidcIdTokenGrantTests
 
         _client = ClientOf(_host);
     }
+
+    private static FailingSignIn SignIn { get; } = new();
 
     private static OidcStubProvider Stub => _stub!;
 
@@ -361,44 +368,100 @@ public class OidcIdTokenGrantTests
     }
 
     /// <summary>
-    /// Two first sign-ins for one address race on the user's unique email, and the loser is told to
-    /// try again. Its own token has to still work then: its nonce was not spent by the failed commit.
+    /// A sign-in whose final commit fails the way a lost first sign-in race does (a unique
+    /// violation) is told to try again, and its own token has to work then: the nonce went down with
+    /// the failed commit. With a device id the DeviceTrust module commits the user and link earlier,
+    /// which must not spend the nonce either.
     /// </summary>
     /// <remarks>
-    /// The race is not forced, so each round starts several at once and the test needs at least one
-    /// round where somebody lost. The window between looking the address up and committing the new
-    /// user is the whole sign-in, so a round of four rarely all serialize.
+    /// The failure is made, not waited for. A real race between two first sign-ins happens only when
+    /// the timing allows, so a test that needed one would pass or fail on the scheduler.
     /// </remarks>
-    [Fact]
-    public async Task The_loser_of_a_first_sign_in_race_signs_in_on_retry_with_its_own_token()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_sign_in_whose_commit_loses_a_race_is_answered_409_and_its_token_works_on_retry(bool withDevice)
     {
-        var losers = 0;
-        for (var round = 0; round < 5 && losers == 0; round++)
+        var bystander = new barakoCMS.Models.User
         {
-            var email = NewEmail();
-            var attempts = Enumerable.Range(0, 4)
-                .Select(_ => (Nonce: NewNonce(), Client: ClientOf(_host!)))
-                .Select(a => (a.Nonce, a.Client, Token: Token(a.Nonce, NewSubject(), email)))
-                .ToList();
-
-            var responses = await Task.WhenAll(attempts.Select(a => GrantAsync(a.Token, a.Nonce, client: a.Client)));
-
-            responses.Should().HaveCount(4);
-            responses.Should().OnlyContain(r => r.StatusCode == HttpStatusCode.OK || r.StatusCode == HttpStatusCode.Conflict);
-            for (var i = 0; i < responses.Length; i++)
-            {
-                if (responses[i].StatusCode != HttpStatusCode.Conflict)
-                {
-                    continue;
-                }
-
-                losers++;
-                var retry = await GrantAsync(attempts[i].Token, attempts[i].Nonce, client: attempts[i].Client);
-                await ShouldBeSignedInAsAsync(retry, await UserByEmailAsync(email));
-            }
+            Id = Guid.NewGuid(),
+            Email = NewEmail(),
+            Username = $"grant-{Guid.NewGuid():n}",
+            PasswordHash = "",
+        };
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(bystander);
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
-        losers.Should().BeGreaterThan(0, "the test proves nothing unless a sign-in lost the race");
+        var client = ClientOf(_host!);
+        if (withDevice)
+        {
+            client.DefaultRequestHeaders.Add(
+                barakoCMS.Infrastructure.DeviceContext.DeviceIdHeader, "device-" + Guid.NewGuid().ToString("N"));
+        }
+
+        var email = NewEmail();
+        var nonce = NewNonce();
+        var token = Token(nonce, NewSubject(), email);
+        SignIn.FailNextFinalCommitWith(bystander);
+
+        var lost = await GrantAsync(token, nonce, client: client);
+
+        lost.StatusCode.Should().Be(HttpStatusCode.Conflict, "the final commit failed on a unique violation that was not the nonce");
+        SignIn.Armed.Should().BeFalse("the failure was made on this grant's final commit");
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            (await scope.ServiceProvider.GetRequiredService<IQuerySession>()
+                .LoadAsync<OidcUsedNonce>(OidcUsedNonce.KeyOf(OidcStubProvider.Authority, nonce), TestContext.Current.CancellationToken))
+                .Should().BeNull("the nonce is spent only with the outcome");
+        }
+
+        await ShouldBeSignedInAsAsync(await GrantAsync(token, nonce, client: client), await UserByEmailAsync(email));
+        (await GrantAsync(token, nonce, client: client)).StatusCode.Should().Be(HttpStatusCode.Unauthorized,
+            "once it has signed in, the token is spent");
+    }
+
+    /// <summary>
+    /// The real sign-in, except that when armed it adds to the next final commit an insert of a user
+    /// that is already stored, so that commit fails on a unique violation the way a lost race does.
+    /// </summary>
+    internal sealed class FailingSignIn : OidcGrantSignIn
+    {
+        private barakoCMS.Models.User? _conflict;
+
+        public bool Armed => Volatile.Read(ref _conflict) is not null;
+
+        public void FailNextFinalCommitWith(barakoCMS.Models.User existing) => Volatile.Write(ref _conflict, existing);
+
+        public override Task<(SocialSignIn.Tokens Tokens, bool EmailNotVerified)> IssueAsync(
+            IDocumentSession session,
+            IConfiguration config,
+            barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
+            barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer,
+            barakoCMS.Infrastructure.Auth.Mfa.IMfaService mfa,
+            Microsoft.AspNetCore.Http.HttpContext http,
+            OidcIdentity identity,
+            string provider,
+            string club,
+            CancellationToken ct,
+            Action<IDocumentSession> beforeFinalCommit) =>
+            base.IssueAsync(session, config, deviceGate, tokenIssuer, mfa, http, identity, provider, club, ct, s =>
+            {
+                beforeFinalCommit(s);
+                if (Interlocked.Exchange(ref _conflict, null) is { } existing)
+                {
+                    s.Insert(new barakoCMS.Models.User
+                    {
+                        Id = existing.Id,
+                        Email = existing.Email,
+                        Username = existing.Username,
+                        PasswordHash = "",
+                    });
+                }
+            });
     }
 
     [Theory]
