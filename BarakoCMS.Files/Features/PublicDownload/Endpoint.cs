@@ -87,7 +87,13 @@ public class Endpoint(IQuerySession session, IFileStorage storage, ImageVariants
         }
 
         var bytes = await storage.GetAsync(served.StorageKey, ct);
-        if (bytes is null) { await Send.NotFoundAsync(ct); return; }
+        if (bytes is null)
+        {
+            // A missing object is not the file, so nothing may keep this 404 for a day under its tag.
+            DeliveryCache.Withdraw(HttpContext);
+            await Send.NotFoundAsync(ct);
+            return;
+        }
 
         await Send.BytesAsync(
             bytes, served.FileName, checkedType ? served.ContentType : "application/octet-stream", cancellation: ct);

@@ -156,7 +156,7 @@ public class DeliveryCacheClassTests(IntegrationTestFixture fixture)
     }
 
     [Fact]
-    public async Task A_slug_read_sends_last_modified_and_answers_if_modified_since_only_without_if_none_match()
+    public async Task A_slug_read_sends_no_last_modified_so_if_modified_since_alone_never_answers_304()
     {
         var tenant = await _host.TenantAsync();
         var type = await _host.TypeAsync(tenant);
@@ -164,19 +164,25 @@ public class DeliveryCacheClassTests(IntegrationTestFixture fixture)
 
         var first = await GetAsync(tenant, $"/api/public/{type}/dated");
         first.StatusCode.Should().Be(HttpStatusCode.OK);
-        var lastModified = first.Content.Headers.LastModified;
-        lastModified.Should().NotBeNull();
+        first.Content.Headers.LastModified.Should().BeNull(
+            "a referenced entry or a file can change the body without moving the entry's timestamp");
 
-        (await GetAsync(tenant, $"/api/public/{type}/dated", ifModifiedSince: lastModified)).StatusCode
+        var later = DateTimeOffset.UtcNow.AddDays(1);
+        (await GetAsync(tenant, $"/api/public/{type}/dated", ifModifiedSince: later)).StatusCode
+            .Should().Be(HttpStatusCode.OK, "with no Last-Modified sent, If-Modified-Since is ignored");
+        (await GetAsync(tenant, $"/api/public/{type}", ifModifiedSince: later)).StatusCode
+            .Should().Be(HttpStatusCode.OK, "a list has no Last-Modified either");
+
+        var description = await GetAsync(tenant, $"/api/public/types/{type}/description");
+        description.StatusCode.Should().Be(HttpStatusCode.OK);
+        var lastModified = description.Content.Headers.LastModified;
+        lastModified.Should().NotBeNull("the type's own timestamp covers everything the description sends");
+        (await GetAsync(tenant, $"/api/public/types/{type}/description", ifModifiedSince: lastModified)).StatusCode
             .Should().Be(HttpStatusCode.NotModified);
-        (await GetAsync(tenant, $"/api/public/{type}/dated", ifModifiedSince: lastModified!.Value.AddDays(-1))).StatusCode
-            .Should().Be(HttpStatusCode.OK, "the entry changed after that date");
-        (await GetAsync(tenant, $"/api/public/{type}/dated", ifNoneMatch: "W/\"stale\"", ifModifiedSince: lastModified)).StatusCode
+        (await GetAsync(tenant, $"/api/public/types/{type}/description", ifModifiedSince: lastModified!.Value.AddDays(-1))).StatusCode
+            .Should().Be(HttpStatusCode.OK, "the type changed after that date");
+        (await GetAsync(tenant, $"/api/public/types/{type}/description", ifNoneMatch: "W/\"stale\"", ifModifiedSince: lastModified)).StatusCode
             .Should().Be(HttpStatusCode.OK, "If-None-Match decides when both are sent");
-
-        var list = await GetAsync(tenant, $"/api/public/{type}");
-        list.Content.Headers.LastModified.Should().BeNull(
-            "a list loses an entry without any timestamp moving, so it has no Last-Modified to be wrong about");
     }
 
     [Fact]

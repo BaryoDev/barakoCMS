@@ -414,23 +414,45 @@ internal static class PublicDelivery
     }
 
     /// <summary>
-    /// The type, then every entry the response was built from, included ones too, so publishing any
-    /// of them can purge it. The bounds in <see cref="DeliveryCache"/> keep the type tag first.
+    /// The type, then every type the response refers to or includes, then every entry it was built
+    /// from, included ones too, so publishing any of them can purge it.
     /// </summary>
-    public static IEnumerable<CacheScope> Scopes(string type, IEnumerable<PublicContentResponse> items)
+    /// <remarks>
+    /// Type tags come before entry tags because the bounds in <see cref="DeliveryCache"/> drop from
+    /// the end. A page of twenty with includes loses entry tags, and a publish of an included author
+    /// still reaches the list through the author type's tag.
+    /// </remarks>
+    public static IEnumerable<CacheScope> Scopes(
+        string type, IEnumerable<PublicContentResponse> items, ContentTypeDefinition? def = null)
     {
+        var list = items.ToList();
+        var included = list.SelectMany(Included).ToList();
+
         yield return CacheScope.Type(type);
-        foreach (var item in items)
-        {
+
+        var referenced = def?.Fields
+            .Where(f => string.Equals(f.Type, "reference", StringComparison.OrdinalIgnoreCase)
+                        && f.Sensitivity == SensitivityLevel.Public
+                        && !string.IsNullOrEmpty(f.ReferenceType))
+            .Select(f => f.ReferenceType!) ?? [];
+        foreach (var name in referenced.Concat(included.Select(i => i.ContentType)).Distinct(StringComparer.Ordinal))
+            yield return CacheScope.Type(name);
+
+        foreach (var item in list)
             yield return CacheScope.Entry(item.Id);
-            foreach (var value in item.Data.Values)
-            {
-                if (value is PublicContentResponse included)
-                    yield return CacheScope.Entry(included.Id);
-                else if (value is IEnumerable<PublicContentResponse> list)
-                    foreach (var listed in list)
-                        yield return CacheScope.Entry(listed.Id);
-            }
+        foreach (var item in included)
+            yield return CacheScope.Entry(item.Id);
+    }
+
+    private static IEnumerable<PublicContentResponse> Included(PublicContentResponse item)
+    {
+        foreach (var value in item.Data.Values)
+        {
+            if (value is PublicContentResponse one)
+                yield return one;
+            else if (value is IEnumerable<PublicContentResponse> many)
+                foreach (var listed in many)
+                    yield return listed;
         }
     }
 }
@@ -553,7 +575,7 @@ internal class ListPublishedEndpoint(
         items = await PublicReferenceFields.FilterAsync(items, def!, session, ct);
         items = await PublicDelivery.ResolveIncludesAsync(items, includes, def, session, ct, files);
 
-        PublicDelivery.SetCache(HttpContext, PublicDelivery.Scopes(type, items));
+        PublicDelivery.SetCache(HttpContext, PublicDelivery.Scopes(type, items, def));
         await Send.ResponseAsync(new PaginatedResponse<PublicContentResponse>
         {
             Items = items,
@@ -666,7 +688,7 @@ internal class PublicSearchEndpoint(IQuerySession session, IConfiguration config
             results, def!, Resolve<barakoCMS.Core.Interfaces.IFileStore>(), ct);
         results = await PublicReferenceFields.FilterAsync(results, def!, session, ct);
 
-        PublicDelivery.SetCache(HttpContext, PublicDelivery.Scopes(type, results));
+        PublicDelivery.SetCache(HttpContext, PublicDelivery.Scopes(type, results, def));
         await Send.OkAsync(new PublicSearchResponse(results, results.Count, q), ct);
     }
 
@@ -805,16 +827,13 @@ internal class GetBySlugEndpoint(
             }
         }
 
-        // Never cache a draft, and give a shared cache nothing to file it under. A published entry
-        // is last modified when it or its type was, whichever is later: a field made non-Public
-        // changes what is delivered without touching the entry.
+        // Never cache a draft, and give a shared cache nothing to file it under. No Last-Modified on
+        // a published read: a referenced entry or a file can change what is sent without moving any
+        // timestamp here, so only the ETag, which hashes the body, can say whether it changed.
         if (previewId is not null)
             DeliveryCache.NoStore(HttpContext);
         else
-            PublicDelivery.SetCache(
-                HttpContext,
-                PublicDelivery.Scopes(type, [projected]),
-                projected.UpdatedAt > def!.UpdatedAt ? projected.UpdatedAt : def.UpdatedAt);
+            PublicDelivery.SetCache(HttpContext, PublicDelivery.Scopes(type, [projected], def));
         await Send.OkAsync(projected, ct);
     }
 }
