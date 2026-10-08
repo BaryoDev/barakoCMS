@@ -28,12 +28,15 @@ namespace BarakoCMS.Pages;
 public sealed class PageTreeHook : IContentLifecycleHook
 {
     private readonly PagesOptions _options;
-    private readonly IPublicContentProjector _projector;
 
+    /// <remarks>
+    /// <paramref name="projector"/> is no longer read: the slug check on write uses the authoring
+    /// rule. It stays so this public constructor keeps its signature.
+    /// </remarks>
     public PageTreeHook(IOptions<PagesOptions> options, IPublicContentProjector projector)
     {
         _options = options.Value;
-        _projector = projector;
+        _ = projector;
     }
 
     public string ContentType => _options.ContentType;
@@ -80,7 +83,7 @@ public sealed class PageTreeHook : IContentLifecycleHook
         var definition = await context.Session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct);
 
-        if (_projector.SlugField(definition) is not { } slugField
+        if (AuthoringSlugField(definition) is not { } slugField
             || PageData.String(context.Data, slugField) is not { Length: > 0 } slug)
         {
             return null;
@@ -89,5 +92,34 @@ public sealed class PageTreeHook : IContentLifecycleHook
         return _options.ReservedSlugs.Any(r => string.Equals(r?.Trim(), slug.Trim(), StringComparison.OrdinalIgnoreCase))
             ? slug
             : null;
+    }
+
+    /// <summary>
+    /// The field a write treats as the slug: a field of type slug whatever its sensitivity, else a
+    /// Public text field named slug. The rule core's authoring checks use.
+    /// </summary>
+    /// <remarks>
+    /// Not <c>IPublicContentProjector.SlugField</c>, which answers null for a slug field that is not
+    /// Public. A reserved slug is refused on write whether or not delivery serves the field today,
+    /// so making the field Public later cannot put a page on a reserved path.
+    /// </remarks>
+    private static string? AuthoringSlugField(ContentTypeDefinition? definition)
+    {
+        if (definition is null)
+        {
+            return null;
+        }
+
+        var byType = definition.Fields.FirstOrDefault(f => string.Equals(f.Type, "slug", StringComparison.OrdinalIgnoreCase));
+        if (byType is not null)
+        {
+            return byType.Name;
+        }
+
+        return definition.Fields.FirstOrDefault(f =>
+            string.Equals(f.Name, "slug", StringComparison.OrdinalIgnoreCase)
+            && f.Sensitivity == SensitivityLevel.Public
+            && (string.Equals(f.Type, "string", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(f.Type, "text", StringComparison.OrdinalIgnoreCase)))?.Name;
     }
 }
