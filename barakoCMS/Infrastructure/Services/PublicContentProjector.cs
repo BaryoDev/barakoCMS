@@ -13,9 +13,12 @@ namespace barakoCMS.Infrastructure.Services;
 /// resolution all already go through, and this adds a module-facing name for it rather than a second
 /// copy. The only work done here is renaming the result into a type a module can reference, since the
 /// response records under <c>Features/</c> stay internal (CLAUDE.md section 6). File fields go
-/// through <c>PublicFileFields</c>, the same code those routes use.
+/// through <c>PublicFileFields</c>, the same code those routes use, and in
+/// <see cref="ProjectAsync"/> a reference to an entry delivery would not serve is left out through
+/// <c>PublicReferenceFields</c>, given the scope's session. The synchronous member reads nothing, so
+/// it leaves references as stored.
 /// </remarks>
-internal sealed class PublicContentProjector(IFileStore? files = null) : IPublicContentProjector
+internal sealed class PublicContentProjector(IFileStore? files = null, Marten.IQuerySession? session = null) : IPublicContentProjector
 {
     public bool IsDeliverable(ContentTypeDefinition? definition) =>
         PublicDelivery.IsDeliverable(definition);
@@ -37,6 +40,11 @@ internal sealed class PublicContentProjector(IFileStore? files = null) : IPublic
         }
 
         var resolved = await PublicFileFields.ResolveAsync([projected], definition!, files, cancellationToken);
+        if (session is not null)
+        {
+            resolved = await PublicReferenceFields.FilterAsync(resolved, definition!, session, cancellationToken);
+        }
+
         return Map(resolved[0]);
     }
 

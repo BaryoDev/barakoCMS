@@ -87,7 +87,7 @@ internal class Endpoint(
         var def = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
         if (def is null) return [];
 
-        var slugField = PublicDelivery.SlugField(def);
+        var slugField = PublicDelivery.SlugFieldForAuthoring(def);
         if (slugField is null) return [];
 
         var (sql, parameters) = DeliveryQuery.FieldEqualsIgnoreCaseSql(slugField, slug);

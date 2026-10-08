@@ -222,7 +222,7 @@ public sealed class ContentCreator(
 
     private static string? SlugOf(ContentTypeDefinition schema, Dictionary<string, object> data)
     {
-        var slugField = Features.Public.PublicDelivery.SlugField(schema);
+        var slugField = Features.Public.PublicDelivery.SlugFieldForAuthoring(schema);
         if (slugField is null)
             return null;
 

@@ -106,7 +106,11 @@ internal static class TenantProfiles
             return null;
 
         var delivered = PublicDelivery.ToPublic(entry, definition, slugField: null);
-        return delivered is null ? null : new PublishedSite(delivered.Data, definition.Fields);
+        if (delivered is null)
+            return null;
+
+        delivered = (await PublicReferenceFields.FilterAsync([delivered], definition, session, ct))[0];
+        return new PublishedSite(delivered.Data, definition.Fields);
     }
 
     private static string? Pick(PublishedSite? site, string field, string? onTheTenant, bool link = false)

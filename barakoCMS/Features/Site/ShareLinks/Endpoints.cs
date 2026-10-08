@@ -133,10 +133,10 @@ internal static class ShareLinkKeys
     /// <remarks>
     /// The link lifts the Published gate for this one entry and nothing else. The projection is the
     /// one every anonymous read goes through, so a type that is not publicly deliverable, an entry
-    /// that is not Public and every field that is not Public stay closed. References are left as
-    /// the ids they are stored as: resolving one would need a rule for a draft on the other end,
-    /// and a frontend can read a published target through the ordinary routes. A file field
-    /// resolves as it does on the delivery routes, to a public file or to nothing.
+    /// that is not Public and every field that is not Public stay closed. A reference is left as
+    /// its id when the target is one delivery serves, and left out otherwise, as on the delivery
+    /// routes: the link opens this entry, not the drafts it points at. A file field resolves as it
+    /// does on the delivery routes, to a public file or to nothing.
     /// </remarks>
     public static async Task<barakoCMS.Features.Public.PublicContentResponse?> OpenEntryAsync(
         IQuerySession session,
@@ -168,7 +168,8 @@ internal static class ShareLinkKeys
             return projected;
         }
 
-        return (await barakoCMS.Features.Public.PublicFileFields.ResolveAsync([projected], definition, files, ct))[0];
+        var resolved = await barakoCMS.Features.Public.PublicFileFields.ResolveAsync([projected], definition, files, ct);
+        return (await barakoCMS.Features.Public.PublicReferenceFields.FilterAsync(resolved, definition, session, ct))[0];
     }
 
     /// <summary>Records a redemption by patching LastUsedAt alone.</summary>
