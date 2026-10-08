@@ -9,6 +9,7 @@ namespace barakoCMS.Core.Interfaces;
 /// One implementation, called explicitly by every read endpoint (Get, List, History) so the
 /// masking always reaches the wire.
 /// </summary>
+/// <remarks>A module cannot replace this. Core's registration wins, and a module that registers one is named in a startup warning.</remarks>
 public interface ISensitivityService
 {
     /// <summary>

@@ -8,6 +8,8 @@ namespace barakoCMS.Core.Interfaces;
 /// This lives in the core because a module may depend on the core and never the other way round, and
 /// the settings it resolves are stored by the core. A provider module asks this rather than reading
 /// <c>IConfiguration</c> directly, which is what made email a deployment-time decision.
+///
+/// A module may replace this: core registers it with TryAdd, and module services are registered first.
 /// </remarks>
 public interface IEmailSettingsProvider
 {
