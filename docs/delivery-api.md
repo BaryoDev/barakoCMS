@@ -585,14 +585,15 @@ non-Public. Two tenants with the same body get different tags.
 A file's tag is a hash of the stored record and how it is served, since its bytes never change,
 and is answered before the bytes are read.
 
-`Last-Modified` is sent where the data has a timestamp: a slug read (the later of the entry's and
-its type's `UpdatedAt`), a type description (the type's `UpdatedAt`) and a file (its upload time).
-Lists, search, the feed and the sitemap have none, because an entry leaving them moves no timestamp.
+`Last-Modified` is sent only where one timestamp covers everything in the body: a type description
+(the type's `UpdatedAt`) and a file (its upload time). Lists, search, the feed and the sitemap have
+none, because an entry leaving them moves no timestamp. A slug read has none either: a referenced
+entry or a file can change what it sends without moving the entry's `UpdatedAt`.
 
 `If-None-Match` matching the ETag (weak comparison, `*` matches anything) answers `304 Not Modified`
-with no body. `If-Modified-Since` is used only when `If-None-Match` is absent, as RFC 9110 says. A
-slug read whose only change is in a referenced entry keeps its `Last-Modified`; the ETag still
-changes, so a client that sends `If-None-Match` sees it.
+with no body. `If-Modified-Since` is used only when `If-None-Match` is absent, as RFC 9110 says,
+and only on a read that sent `Last-Modified`; anywhere else it is ignored and the read answers in
+full.
 
 ### Tags
 
@@ -602,7 +603,7 @@ tag starts with the tenant, so a purge by tag cannot cross tenants:
 | Tag                          | On |
 |------------------------------|----|
 | `t:<tenant>`                 | every tagged read |
-| `t:<tenant>:type:<type>`     | reads of that type, the sitemap for each type it lists |
+| `t:<tenant>:type:<type>`     | reads of that type, and of any type it refers to or includes; the sitemap for each type it lists, best effort |
 | `t:<tenant>:entry:<id>`      | every entry in the response, included references too |
 | `t:<tenant>:file:<id>`       | a public file and its metadata (a resized copy is tagged by its original) |
 | `t:<tenant>:sitemap`         | the sitemap |
@@ -614,9 +615,15 @@ pose as another tag. A `no-store` read carries no tag and no ETag.
 
 A response carries at most 32 tags and 1024 bytes per header, which keeps both headers inside the 4
 KB header buffer of a default nginx proxy. Past either bound the remaining tags are dropped in
-order, after the tenant and type tags, and `X-Barako-Cache-Tags-Dropped` says how many. A list
-that lost entry tags is still purged by its type tag, so purge the type tag on any publish of that
-type to refresh lists. The sitemap is tagged by type only, since it holds up to 50,000 entries.
+order, and `X-Barako-Cache-Tags-Dropped` says how many. The order is the tenant, the type read,
+each type it refers to or includes, then the entries, so entry tags are what falls off. That gives
+the purge rule: when an entry of type X is published, purge `t:<tenant>:entry:<id>` and
+`t:<tenant>:type:X`. The type tag reaches every list and search of X, and every read of another
+type that refers to or includes X, whether or not its entry tags survived.
+
+The sitemap is the exception, because a tenant can have more types than the bound holds. Purge
+`t:<tenant>:sitemap` on every publish; its type tags are best effort and fall off past about thirty
+types. It carries no entry tags, since it holds up to 50,000 entries.
 
 These headers are exposed to browsers through CORS. Nothing purges a CDN yet; that is #561.
 

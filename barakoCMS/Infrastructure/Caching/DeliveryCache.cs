@@ -129,6 +129,16 @@ public static class DeliveryCache
         headers.Remove(HeaderNames.LastModified);
     }
 
+    /// <summary>
+    /// Takes back what <see cref="Shared"/> set, for a route that decides to answer an error after
+    /// all: <c>no-store</c>, and no class, tag or validator.
+    /// </summary>
+    public static void Withdraw(HttpContext http)
+    {
+        NoStore(http);
+        http.Response.Headers.Remove(ClassHeader);
+    }
+
     /// <summary>True when the response says a shared cache may keep it.</summary>
     public static bool IsShared(HttpResponse response)
     {

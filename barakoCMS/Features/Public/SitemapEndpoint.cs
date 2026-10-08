@@ -100,8 +100,9 @@ internal class SitemapEndpoint(IQuerySession session, IConfiguration config) : E
 
         sb.Append("</urlset>\n");
 
-        // The types it lists, not its entries: a sitemap holds up to 50,000 of them, and any
-        // publish of a listed type is purged through the type tag.
+        // The sitemap tag is what a purge relies on: every publish purges t:<tenant>:sitemap. The
+        // type tags after it are best effort and fall off past the bound on a tenant with many
+        // types. No entry tags: a sitemap holds up to 50,000 entries.
         PublicDelivery.SetCache(
             HttpContext,
             deliverableTypes.Select(barakoCMS.Infrastructure.Caching.CacheScope.Type)

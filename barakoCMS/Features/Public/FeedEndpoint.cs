@@ -111,7 +111,7 @@ internal class FeedEndpoint(IQuerySession session, IConfiguration config) : Endp
 
         sb.Append("  </channel>\n</rss>\n");
 
-        PublicDelivery.SetCache(HttpContext, PublicDelivery.Scopes(type, delivered));
+        PublicDelivery.SetCache(HttpContext, PublicDelivery.Scopes(type, delivered, def));
         await Send.StringAsync(sb.ToString(), 200, "application/rss+xml; charset=utf-8", ct);
     }
 
