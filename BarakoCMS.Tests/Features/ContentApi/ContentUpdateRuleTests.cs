@@ -181,6 +181,85 @@ public class ContentUpdateRuleTests
         refused.StatusCode.Should().Be(HttpStatusCode.BadRequest, await refused.Content.ReadAsStringAsync(Ct));
     }
 
+    // ---- one field sent under two spellings ----------------------------------------------------
+
+    private async Task<string> StoreSpellingTypeAsync() => await StoreTypeAsync(
+        new FieldDefinition { Name = "slug", DisplayName = "Slug", Type = "slug" },
+        new FieldDefinition { Name = "Email", DisplayName = "Email", Type = "email" },
+        new FieldDefinition
+        {
+            Name = "Tier", DisplayName = "Tier", Type = "choice",
+            Options = [new() { Value = "GOLD", Label = "Gold" }, new() { Value = "SILVER", Label = "Silver" }],
+        });
+
+    /// <summary>A good value under one spelling first, then a bad one under another.</summary>
+    private static Dictionary<string, object> TwoSpellings(string field, string good, string bad, string slug = "one") =>
+        field == "Email"
+            ? new() { ["slug"] = slug, ["Title"] = "t", ["eMAIL"] = good, ["Email"] = bad }
+            : new() { ["slug"] = slug, ["Title"] = "t", ["tier"] = good, ["Tier"] = bad };
+
+    [Theory]
+    [InlineData("Email", "ok@example.com", "Ana <ana@example.com>")]
+    [InlineData("Tier", "GOLD", "PLATINUM")]
+    public async Task A_field_sent_under_two_spellings_is_refused_on_create(string field, string good, string bad)
+    {
+        var type = await StoreSpellingTypeAsync();
+        var admin = await SuperAdminAsync();
+
+        var res = await admin.PostAsJsonAsync("/api/contents",
+            new { contentType = type, data = TwoSpellings(field, good, bad) }, Ct);
+        var body = await res.Content.ReadAsStringAsync(Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, body);
+        body.Should().Contain("more than once");
+    }
+
+    [Theory]
+    [InlineData("Email", "ok@example.com", "Ana <ana@example.com>")]
+    [InlineData("Tier", "GOLD", "PLATINUM")]
+    public async Task A_field_sent_under_two_spellings_is_refused_on_update(string field, string good, string bad)
+    {
+        var type = await StoreSpellingTypeAsync();
+        var admin = await SuperAdminAsync();
+        var id = await CreateAsync(admin, type, new() { ["slug"] = "one", ["Title"] = "t" });
+
+        var res = await UpdateAsync(admin, id, TwoSpellings(field, good, bad));
+        var body = await res.Content.ReadAsStringAsync(Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, body);
+        body.Should().Contain("more than once");
+        (await LoadAsync(id)).Data.Keys.Should().NotContain(k => k.Equals(field, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task A_field_sent_under_two_spellings_is_refused_in_a_push_and_an_import()
+    {
+        var type = await StoreSpellingTypeAsync();
+        var admin = await SuperAdminAsync();
+
+        var pushed = await admin.PostAsJsonAsync($"/api/collections/{type}/push",
+            new { entries = new[] { TwoSpellings("Email", "ok@example.com", "Ana <ana@example.com>") } }, Ct);
+        var pushBody = await pushed.Content.ReadAsStringAsync(Ct);
+        pushed.StatusCode.Should().Be(HttpStatusCode.BadRequest, pushBody);
+        pushBody.Should().Contain("more than once");
+
+        var imported = await admin.PostAsJsonAsync("/api/import/content", new
+        {
+            contentType = type,
+            continueOnError = true,
+            records = new[] { TwoSpellings("Tier", "GOLD", "PLATINUM", slug: "two") },
+        }, Ct);
+        var importBody = await imported.Content.ReadAsStringAsync(Ct);
+        importBody.Should().Contain("more than once");
+        using (var doc = JsonDocument.Parse(importBody))
+            doc.RootElement.GetProperty("created").GetInt32().Should().Be(0);
+
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        (await session.Query<Content>().Where(c => c.ContentType == type).ToListAsync(Ct))
+            .Should().BeEmpty("nothing sent under two spellings was stored");
+    }
+
     // ---- a row rule holds before and after the write -------------------------------------------
 
     [Fact]

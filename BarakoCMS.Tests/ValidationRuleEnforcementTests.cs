@@ -314,7 +314,7 @@ public class ValidationRuleEnforcementTests
     }
 
     [Fact]
-    public async Task Two_keys_for_one_field_in_different_case_are_read_the_way_the_validator_reads_them()
+    public async Task Two_keys_for_one_field_in_different_case_are_refused_in_either_order()
     {
         var kind = Field("Kind", "string");
         var taxNumber = RequiredWhen("TaxNumber", "Kind", "_eq", "Company");
@@ -322,12 +322,14 @@ public class ValidationRuleEnforcementTests
         var (companyFirst, errors) = await WriteAsync(
             new() { ["kind"] = "Company", ["Kind"] = "Person" }, kind, taxNumber);
 
-        companyFirst.Should().BeFalse("the validator reads the first key, and so must the condition");
-        errors.Should().HaveCount(1);
-        errors[0].Should().Contain("TaxNumber");
+        companyFirst.Should().BeFalse();
+        errors.Should().Contain(e => e.Contains("Kind") && e.Contains("more than once"));
 
-        (await WriteAsync(new() { ["Kind"] = "Person", ["kind"] = "Company" }, kind, taxNumber))
-            .IsValid.Should().BeTrue();
+        var (personFirst, personErrors) = await WriteAsync(
+            new() { ["Kind"] = "Person", ["kind"] = "Company" }, kind, taxNumber);
+
+        personFirst.Should().BeFalse("which key comes first must not decide what is checked");
+        personErrors.Should().Contain(e => e.Contains("Kind") && e.Contains("more than once"));
     }
 
     [Fact]
