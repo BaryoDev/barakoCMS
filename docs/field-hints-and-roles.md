@@ -65,6 +65,8 @@ field being called `Title`.
 | `title` | `string`, `text` | the feed item's title, and the SEO title when `MetaTitle` is empty |
 | `summary` | `string`, `text`, `markdown`, `richtext` | the feed item's description |
 | `date` | `date`, `datetime` | the feed item's publication date |
+| `image` | `url`, `file` | the image of the [structured data](structured-data.md) block |
+| `author` | `string`, `text` | the author of an article's [structured data](structured-data.md) block |
 
 - One field of a type holds a role. A type in which two fields declare the same role is a 400.
 - The field holding a role is read first. When the entry holds nothing in it, the names that were
@@ -133,7 +135,8 @@ changes nothing records nothing.
 ```json
 {
   "fieldEditors": [ { "name": "blocks", "fieldTypes": ["json", "array"] } ],
-  "fieldRoles": [ { "name": "title", "fieldTypes": ["string", "text"] } ]
+  "fieldRoles": [ { "name": "title", "fieldTypes": ["string", "text"] } ],
+  "structuredDataTypes": ["Article", "NewsArticle", "BlogPosting", "Event", "Product", "WebPage"]
 }
 ```
 

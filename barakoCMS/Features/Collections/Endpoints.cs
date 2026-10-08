@@ -203,13 +203,13 @@ internal static class CollectionSyncRules
             return $"'{field}' is a {type} field, and contains writes true or false, so it needs a bool field.";
         }
 
-        if (rule.Ratio is not null && !(type.Equals("int", StringComparison.OrdinalIgnoreCase)
+        if (rule.Ratio is not null && !(barakoCMS.Core.Validation.FieldTypeRegistry.IsIntegerType(type)
                                         || type.Equals("decimal", StringComparison.OrdinalIgnoreCase)))
         {
             return $"'{field}' is a {type} field, and a ratio writes a whole-number percent, so it needs an int or decimal field.";
         }
 
-        if (rule.Sum is not null && !(type.Equals("int", StringComparison.OrdinalIgnoreCase)
+        if (rule.Sum is not null && !(barakoCMS.Core.Validation.FieldTypeRegistry.IsIntegerType(type)
                                       || type.Equals("decimal", StringComparison.OrdinalIgnoreCase)))
         {
             return $"'{field}' is a {type} field, and a sum writes a number, so it needs an int or decimal field.";
@@ -225,7 +225,7 @@ internal static class CollectionSyncRules
     }
 
     private static bool IsNumeric(string fieldType) =>
-        fieldType.ToLowerInvariant() is "int" or "decimal" or "money";
+        barakoCMS.Core.Validation.FieldTypeRegistry.IsNumericType(fieldType);
 
     /// <summary>Copies a validated request onto the document.</summary>
     internal static void Apply(CollectionSync sync, SaveCollectionSyncRequest req)

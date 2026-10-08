@@ -760,6 +760,7 @@ same registries the API checks requests against, so a client does not keep its o
   "rules": [ { "name": "pattern", "aliases": ["regex"] } ],
   "fieldEditors": [ { "name": "blocks", "fieldTypes": ["json", "array"] } ],
   "fieldRoles": [ { "name": "title", "fieldTypes": ["string", "text"] } ],
+  "structuredDataTypes": ["Article", "NewsArticle", "BlogPosting", "Event", "Product", "WebPage"],
   "credentialNameParts": ["secret", "password", "token"],
   "capabilities": [ { "name": "manage_roles", "source": "core", "note": null } ],
   "workflowActions": [ { "type": "Webhook", "requiredParameters": ["Url"], "optionalParameters": ["Secret"], "secretParameters": ["Secret"] } ],
@@ -767,8 +768,8 @@ same registries the API checks requests against, so a client does not keep its o
 }
 ```
 
-`fieldTypes`, `rules`, `fieldEditors`, `fieldRoles` and `credentialNameParts` go to every signed-in
-caller. `fieldEditors` and `fieldRoles` are the values a field's `editor` and `role` may hold, see
+`fieldTypes`, `rules`, `fieldEditors`, `fieldRoles`, `structuredDataTypes` and `credentialNameParts`
+go to every signed-in caller. `fieldEditors` and `fieldRoles` are the values a field's `editor` and `role` may hold, see
 [field-hints-and-roles.md](field-hints-and-roles.md). `credentialNameParts` is the whole list of
 words that make a setting key or a workflow action parameter read as a credential when its name
 contains one, ignoring case (the example above is shortened). It is read from the list the API

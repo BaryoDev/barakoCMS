@@ -57,6 +57,9 @@ The feed takes an item's title, description and date from the fields the type gi
 `Feeds:Paths:{type}` or `/{type}/{slug}`, as before. See
 [field-hints-and-roles.md](field-hints-and-roles.md).
 
+A read by slug of a type that declares a `structuredDataType` also carries `structuredData`, the
+entry as schema.org JSON-LD built from its field roles. See [structured-data.md](structured-data.md).
+
 A [file field](file-fields.md) is answered as the public file it names: its `id`, `url`,
 `fileName`, `contentType`, `size`, `alt` and `caption`. A field naming any other file, or a file
 that is gone, is left out of the entry, and the entry is still delivered.
