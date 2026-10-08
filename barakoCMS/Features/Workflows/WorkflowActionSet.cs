@@ -8,11 +8,19 @@ namespace barakoCMS.Features.Workflows;
 /// building them all together fails.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Holds the service collection and reads it on first use, after the host is built, so an action a
-/// module or the host registers after the core is included. A singleton built on its own is kept
-/// here, so it is built once and keeps its state, as the container would have done.
+/// module or the host registers after the core is included.
+/// </para>
+/// <para>
+/// A singleton built on its own is built from <paramref name="root"/>, never from a scope, and kept
+/// here, so it is built once and keeps its state. Built from a scope it would hold that scope's
+/// session after the scope was disposed. The container offers no way to ask for one registration's
+/// instance, so this is a second instance beside any the container made; with one action that cannot
+/// be built, the container's resolution of the list fails as a whole and its instances go unused.
+/// </para>
 /// </remarks>
-internal sealed class WorkflowActionRegistrations(IServiceCollection services)
+internal sealed class WorkflowActionRegistrations(IServiceCollection services, IServiceProvider root)
 {
     private readonly Lazy<ServiceDescriptor[]> _descriptors = new(() =>
         services.Where(d => d.ServiceType == typeof(IWorkflowAction) && !d.IsKeyedService).ToArray());
@@ -21,10 +29,13 @@ internal sealed class WorkflowActionRegistrations(IServiceCollection services)
 
     public IReadOnlyList<ServiceDescriptor> Descriptors => _descriptors.Value;
 
-    /// <summary>The one instance of a singleton registration. A build that throws is not kept, so the next call tries again.</summary>
-    public IWorkflowAction Singleton(ServiceDescriptor descriptor, Func<IWorkflowAction> build)
+    /// <summary>
+    /// The one instance of a singleton registration, built from the root provider. A build that
+    /// throws is not kept, so the next call tries again.
+    /// </summary>
+    public IWorkflowAction Singleton(ServiceDescriptor descriptor, Func<IServiceProvider, IWorkflowAction> build)
     {
-        var lazy = _singletons.GetOrAdd(descriptor, _ => new Lazy<IWorkflowAction>(build, LazyThreadSafetyMode.ExecutionAndPublication));
+        var lazy = _singletons.GetOrAdd(descriptor, _ => new Lazy<IWorkflowAction>(() => build(root), LazyThreadSafetyMode.ExecutionAndPublication));
         try
         {
             return lazy.Value;
@@ -123,7 +134,7 @@ internal sealed class WorkflowActionSet : IAsyncDisposable, IDisposable
                 }
                 else if (descriptor.Lifetime == ServiceLifetime.Singleton)
                 {
-                    built.Add(registrations.Singleton(descriptor, () => Construct(provider, descriptor)));
+                    built.Add(registrations.Singleton(descriptor, root => Construct(root, descriptor)));
                 }
                 else
                 {

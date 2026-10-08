@@ -1165,7 +1165,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.UpdateFieldAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.RequestAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.ConditionalAction>();
-        services.AddSingleton(new barakoCMS.Features.Workflows.WorkflowActionRegistrations(services));
+        services.AddSingleton(sp => new barakoCMS.Features.Workflows.WorkflowActionRegistrations(services, sp));
 
         // The actions a scope can build, with one that throws left out (#1111). The engine and the
         // registry take them from here rather than from IEnumerable<IWorkflowAction>, which fails
