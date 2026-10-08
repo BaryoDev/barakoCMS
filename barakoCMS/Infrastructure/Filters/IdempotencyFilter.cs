@@ -307,6 +307,11 @@ public class IdempotencyFilter : IGlobalPreProcessor
     }
 
     internal static bool IsUniqueViolation(Exception ex) =>
+        // Marten reports a second insert of one id as its own exception, not as the 23505 under it.
+        ex is JasperFx.DocumentAlreadyExistsException ||
+        ex.InnerException is JasperFx.DocumentAlreadyExistsException ||
+        ex is Npgsql.PostgresException { SqlState: "23505" } ||
+        ex.InnerException is Npgsql.PostgresException { SqlState: "23505" } ||
         ex.Message.Contains("duplicate", StringComparison.OrdinalIgnoreCase) ||
         ex.Message.Contains("unique", StringComparison.OrdinalIgnoreCase) ||
         ex.Message.Contains("23505") ||
