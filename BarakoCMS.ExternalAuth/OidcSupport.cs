@@ -60,27 +60,46 @@ internal static partial class OidcSupport
     /// Expires a <c>__Host-</c> cookie. The removal has to carry Secure and Path=/ like the cookie it
     /// removes, or the browser discards the removal and keeps the cookie.
     /// </summary>
-    public static void Expire(HttpResponse response, string name) =>
+    public static void Expire(HttpResponse response, OidcProvider provider, string name) =>
         response.Cookies.Delete(name, new CookieOptions
         {
             HttpOnly = true,
             Secure = true,
-            SameSite = SameSiteMode.Lax,
+            SameSite = SameSite(provider),
             Path = "/",
         });
+
+    /// <summary>The state and club cookies the start endpoint leaves for the callback.</summary>
+    /// <remarks>
+    /// Lax for a provider that redirects back, which is a top-level GET and carries a Lax cookie. A
+    /// form post from the provider's own site is a cross-site POST, which a Lax cookie is not sent
+    /// on, so for those the cookies are SameSite=None. That loses nothing the flow relies on: what
+    /// ties the callback to this browser is the random state in the cookie matching the one in the
+    /// request, which a third site cannot read or choose, and each state works once.
+    /// </remarks>
+    public static CookieOptions FlowCookie(OidcProvider provider)
+    {
+        var options = ExternalAuthSupport.ShortCookie();
+        options.SameSite = SameSite(provider);
+        return options;
+    }
+
+    private static SameSiteMode SameSite(OidcProvider provider) =>
+        provider.FormPost ? SameSiteMode.None : SameSiteMode.Lax;
 
     public static bool FixedTimeEquals(string left, string right) =>
         CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(left), Encoding.UTF8.GetBytes(right));
 
     /// <summary>
-    /// Is this a Postgres unique-constraint violation (SQLSTATE 23505), at any depth? Marten wraps
-    /// the Npgsql exception at a depth that varies by command, so the chain is walked.
+    /// Is this a second insert of one id or unique value, at any depth? Marten reports a document id
+    /// that is already there as its own exception, and wraps the Npgsql one (SQLSTATE 23505) at a
+    /// depth that varies by command, so the chain is walked.
     /// </summary>
     public static bool IsUniqueViolation(Exception? ex)
     {
         for (var current = ex; current is not null; current = current.InnerException)
         {
-            if (current is Npgsql.PostgresException { SqlState: "23505" })
+            if (current is JasperFx.DocumentAlreadyExistsException or Npgsql.PostgresException { SqlState: "23505" })
             {
                 return true;
             }
