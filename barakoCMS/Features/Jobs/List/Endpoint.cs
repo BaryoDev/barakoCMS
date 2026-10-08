@@ -44,7 +44,8 @@ internal sealed class JobResponse
         MaxAttempts = r.MaxAttempts,
         NextAttemptAt = r.NextAttemptAt,
         CompletedAt = r.CompletedAt,
-        LastError = r.LastError,
+        // Redacted again on the way out, for a record stored before the error was redacted.
+        LastError = r.LastError is null ? null : barakoCMS.Infrastructure.Security.UrlRedaction.InText(r.LastError),
     };
 }
 

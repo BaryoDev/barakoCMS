@@ -1,7 +1,10 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.Cors.Infrastructure;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Net.Http.Headers;
 
 namespace barakoCMS.Infrastructure.Security;
 
@@ -234,13 +237,51 @@ internal static class RateLimitSetup
             RateLimitPartition.GetFixedWindowLimiter(SiteSharePartitionKey(context, rendererKeyHash), _ => Options(settings.SiteShare)));
 
         options.OnRejected = async (context, cancellationToken) =>
-            await Reject(context.HttpContext, cancellationToken);
+        {
+            await WithCorsHeaders(context.HttpContext);
+            await Reject(context.HttpContext, context.Lease, cancellationToken);
+        };
     }
 
-    internal static async Task Reject(HttpContext context, CancellationToken cancellationToken)
+    internal static async Task Reject(HttpContext context, RateLimitLease lease, CancellationToken cancellationToken)
     {
         context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+        if (lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
+        {
+            context.Response.Headers.RetryAfter =
+                ((long)Math.Ceiling(retryAfter.TotalSeconds)).ToString(CultureInfo.InvariantCulture);
+        }
+
         await context.Response.WriteAsync("Too many requests. Please try again later.", cancellationToken);
+    }
+
+    /// <summary>
+    /// Puts the CORS headers the request's origin is allowed on a response this limiter refuses.
+    /// </summary>
+    /// <remarks>
+    /// The limiter runs before the CORS middleware, so a refused request never reaches it, and a
+    /// browser on another origin would read the 429 as a network error. Moving CORS ahead of the
+    /// limiter would let a preflight be answered without being counted, so the same policy is
+    /// applied here instead, through the same provider: a tenant domain origin still gets no
+    /// credentials, and an origin nobody allowed still gets no allow header.
+    /// <see cref="RateLimitAfterAuthentication"/> runs after the CORS middleware and needs none of this.
+    /// </remarks>
+    internal static async Task WithCorsHeaders(HttpContext context)
+    {
+        var services = context.RequestServices;
+        if (services.GetService<ICorsPolicyProvider>() is not { } provider || services.GetService<ICorsService>() is not { } cors)
+            return;
+
+        TenantDomainCorsPolicyProvider.VaryByOrigin(context);
+
+        if (!context.Request.Headers.ContainsKey(HeaderNames.Origin))
+            return;
+
+        var policy = await provider.GetPolicyAsync(context, TenantDomainCorsPolicyProvider.PolicyName);
+        if (policy is null)
+            return;
+
+        cors.ApplyResult(cors.EvaluatePolicy(context, policy), context.Response);
     }
 
     /// <summary>

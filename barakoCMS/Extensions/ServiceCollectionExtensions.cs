@@ -463,6 +463,7 @@ public static class ServiceCollectionExtensions
             "ETag",
             barakoCMS.Features.Monitoring.Meta.ApiContract.HeaderName,
             barakoCMS.Features.Monitoring.Meta.ApiContract.DeliveryHeaderName,
+            Microsoft.Net.Http.Headers.HeaderNames.RetryAfter,
         ];
 
         services.AddCors(options =>
@@ -482,9 +483,8 @@ public static class ServiceCollectionExtensions
             //                            decide whether it can drive this API at all.
             //   X-Delivery-Contract-Version   The same for a site that reads delivery from a browser.
             //
-            // Retry-After is deliberately not here. The one place it is set is the SSE stream, and a
-            // browser EventSource does not surface response headers to script at all, so exposing it
-            // would buy nothing.
+            //   Retry-After              A 429 from the rate limiter and a 409 from a busy collection
+            //                            sync say when to come back. The console shows that wait.
             options.AddPolicy(barakoCMS.Infrastructure.Security.TenantDomainCorsPolicyProvider.PolicyName, builder =>
             {
                 // CORS__AllowedOrigins as an environment variable, CORS:AllowedOrigins in
@@ -1117,6 +1117,7 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<barakoCMS.Infrastructure.Services.StoredReferenceConditionsNotice>();
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowExecutionLogRedactionService>();
         services.AddHostedService<barakoCMS.Features.WebhookDeliveries.WebhookDeliveryRetentionService>();
+        services.AddHostedService<barakoCMS.Infrastructure.Jobs.JobDeadLetterRetentionService>();
     }
 
     private static void AddMfaAndDeviceTrust(IServiceCollection services)
@@ -1156,6 +1157,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.UpdateFieldAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.RequestAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.ConditionalAction>();
+        services.AddSingleton(new barakoCMS.Features.Workflows.WorkflowActionRegistrations(services));
 
 
         services.AddScoped<barakoCMS.Features.Workflows.WorkflowEngine>();

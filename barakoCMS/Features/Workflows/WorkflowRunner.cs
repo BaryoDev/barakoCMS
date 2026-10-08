@@ -819,8 +819,15 @@ internal sealed class WorkflowRunner(
         IDocumentStore store, WorkflowRun run, WorkflowActionAttempt attempt, string tenantId, CancellationToken ct)
     {
         using var scope = services.CreateScopeForTenant(tenantId);
-        var handlers = scope.ServiceProvider.GetServices<IWorkflowAction>();
-        var handler = handlers.FirstOrDefault(h => h.Type == attempt.ActionType);
+        await using var handlers = WorkflowActionSet.Build(scope.ServiceProvider, logger);
+        var handler = handlers.Find(attempt.ActionType);
+
+        if (handler is null && handlers.NotBuiltError(attempt.ActionType) is { } notBuilt)
+        {
+            // Retryable, so the normal attempt limit ends it: the action that could not be built may
+            // be this one, and a constructor that failed on a setting can succeed once it is fixed.
+            return new Outcome(AttemptStatus.Failed, notBuilt, 0, Retryable: true, Registered: false);
+        }
 
         if (handler is null)
         {
@@ -830,7 +837,7 @@ internal sealed class WorkflowRunner(
 
         // Resolved from the scope, not a separately opened store.LightweightSession(tenantId), and
         // not disposed here: an IWorkflowAction is constructed from this same scope (the handler
-        // lookup above already built one, for every registered action type) and receives this exact
+        // lookup above already built one, for every registered action type that could be built) and receives this exact
         // instance through DI, since Marten registers IDocumentSession scoped and a scope caches the
         // first resolution. Content now carries real optimistic concurrency (#565 / D16), and a
         // handler that stores the triggering content back (UpdateFieldAction, when no TargetId is
