@@ -93,6 +93,13 @@ public interface ITemplateVariableExtractor
     Task PrepareSampleAsync(
         Content content, string? triggerEvent, IEnumerable<string> templates, CancellationToken ct = default) =>
         Task.CompletedTask;
+
+    /// <summary>
+    /// What the resolves since the last prepare left out on purpose, for the run to record: a loop
+    /// that stopped at its cap, with how many references the field held.
+    /// </summary>
+    /// <remarks>The default has nothing to say, for an implementation written before this existed.</remarks>
+    IReadOnlyList<string> Notes => [];
 }
 
 /// <summary>How a substituted value is written into the text a template produces.</summary>
@@ -111,8 +118,24 @@ public enum TemplateValueEncoding
 /// <summary>
 /// Extracts and documents available template variables for workflows.
 /// </summary>
-public class TemplateVariableExtractor(IDocumentSession session) : ITemplateVariableExtractor
+/// <remarks>
+/// Built with only a session, it follows no reference and builds no link, and those placeholders
+/// are left as written.
+/// </remarks>
+public class TemplateVariableExtractor(
+    IDocumentSession session,
+    IPermissionResolver? permissions,
+    barakoCMS.Core.Interfaces.ISensitivityService? sensitivity,
+    Microsoft.Extensions.Configuration.IConfiguration? configuration) : ITemplateVariableExtractor
 {
+    public TemplateVariableExtractor(IDocumentSession session)
+        : this(session, null, null, null)
+    {
+    }
+
+    /// <summary>The setting that holds the console's URL, which <c>links.console</c> is built on.</summary>
+    public const string ConsoleUrlKey = "App:ConsoleUrl";
+
     public async Task<TemplateVariableCollection> GetVariablesAsync(string contentType, CancellationToken ct = default)
     {
         var collection = new TemplateVariableCollection
@@ -134,8 +157,6 @@ public class TemplateVariableExtractor(IDocumentSession session) : ITemplateVari
 
         return collection;
     }
-
-    private static readonly Regex TemplateToken = TemplateExpression.Token;
 
     private Guid _preparedFor;
     private TemplateContext _prepared = TemplateContext.Unprepared;
@@ -159,42 +180,82 @@ public class TemplateVariableExtractor(IDocumentSession session) : ITemplateVari
     {
         ArgumentNullException.ThrowIfNull(content, nameof(content));
 
-        var needs = TemplateExpression.Needs(templates);
-        var (zone, currency) = needs.Site ? await SiteSettingsAsync(ct) : NoSiteSettings;
+        var list = templates as IReadOnlyCollection<string> ?? templates.ToList();
+        var needs = TemplateExpression.Needs(list);
+        var (zone, currency, siteUrl) = needs.Site ? await SiteSettingsAsync(ct) : NoSiteSettings;
+        _fired = null;
 
         _prepared = new TemplateContext(
             zone,
             currency,
             needs.Author ? await PersonAsync(content.CreatedBy, ct) : null,
-            needs.Transition ? await TransitionAsync(content, triggerEvent, eventSequence, ct) : null);
+            needs.Transition ? await TransitionAsync(content, triggerEvent, eventSequence, ct) : null,
+            LinksWith(siteUrl),
+            await ReferencesAsync(content, triggerEvent, eventSequence, TemplateExpression.FollowedFields(list), ct),
+            []);
         _preparedFor = content.Id;
     }
 
+    /// <remarks>A simulation follows no reference: it has no user to read them as.</remarks>
     public async Task PrepareSampleAsync(
         Content content, string? triggerEvent, IEnumerable<string> templates, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(content, nameof(content));
 
-        var (zone, currency) = TemplateExpression.Needs(templates).Site ? await SiteSettingsAsync(ct) : NoSiteSettings;
+        var (zone, currency, siteUrl) = TemplateExpression.Needs(templates).Site ? await SiteSettingsAsync(ct) : NoSiteSettings;
         var transition = triggerEvent is null ? null : WorkflowEvents.TransitionName(triggerEvent);
 
         _prepared = new TemplateContext(
             zone,
             currency,
             TemplatePerson.Sample,
-            transition is { Length: > 0 } ? new TemplateTransition(transition, content.UpdatedAt, TemplatePerson.Sample) : null);
+            transition is { Length: > 0 } ? new TemplateTransition(transition, content.UpdatedAt, TemplatePerson.Sample) : null,
+            LinksWith(siteUrl),
+            References: null,
+            []);
         _preparedFor = content.Id;
     }
 
-    private static readonly (TimeZoneInfo? Zone, string? Currency) NoSiteSettings = (TimeZoneInfo.Utc, null);
+    public IReadOnlyList<string> Notes => _prepared.Notes ?? [];
 
-    /// <summary>The time zone and currency of the tenant's published <c>site</c> entry.</summary>
+    private static readonly (TimeZoneInfo? Zone, string? Currency, string? Url) NoSiteSettings = (TimeZoneInfo.Utc, null, null);
+
+    /// <summary>The bases links are built on, or null when this extractor was given no configuration.</summary>
+    private TemplateLinks? LinksWith(string? siteUrl) =>
+        configuration is null
+            ? null
+            : new TemplateLinks(
+                AbsoluteBase(configuration[barakoCMS.Infrastructure.Security.CanonicalHost.BaseUrlKey]),
+                AbsoluteBase(configuration[ConsoleUrlKey]),
+                AbsoluteBase(siteUrl));
+
+    /// <summary>An absolute http or https URL with no trailing slash, or null for anything else.</summary>
+    /// <remarks>
+    /// Null and not an error: a link that cannot be built is left out of the message, and a setting
+    /// that is not a URL must not stop the message going.
+    /// </remarks>
+    private static string? AbsoluteBase(string? value)
+    {
+        var text = value?.Trim();
+        if (string.IsNullOrEmpty(text)
+            || !Uri.TryCreate(text, UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+            || !string.IsNullOrEmpty(uri.Query)
+            || !string.IsNullOrEmpty(uri.Fragment))
+        {
+            return null;
+        }
+
+        return text.TrimEnd('/');
+    }
+
+    /// <summary>The time zone, currency and URL of the tenant's published <c>site</c> entry.</summary>
     /// <remarks>
     /// No entry, or no <c>TimeZone</c> on it, is UTC. A <c>TimeZone</c> this server does not know is
     /// null, which leaves every date format as written: a typing mistake in the setting should show
     /// in the first message sent, and UTC in its place would be hours wrong and look right.
     /// </remarks>
-    private async Task<(TimeZoneInfo? Zone, string? Currency)> SiteSettingsAsync(CancellationToken ct)
+    private async Task<(TimeZoneInfo? Zone, string? Currency, string? Url)> SiteSettingsAsync(CancellationToken ct)
     {
         var site = await session.Query<Content>()
             .Where(c => c.ContentType == barakoCMS.Features.Site.ShareLinks.ShareLinkKeys.SiteType
@@ -206,7 +267,8 @@ public class TemplateVariableExtractor(IDocumentSession session) : ITemplateVari
         var zone = Setting(site, "TimeZone");
 
         return (zone is null ? TimeZoneInfo.Utc : TemplateExpression.Zone(zone),
-            TemplateExpression.CurrencyCode(Setting(site, "Currency")));
+            TemplateExpression.CurrencyCode(Setting(site, "Currency")),
+            Setting(site, "Url"));
     }
 
     private static string? Setting(Content? site, string name)
@@ -283,9 +345,7 @@ public class TemplateVariableExtractor(IDocumentSession session) : ITemplateVari
 
         if (eventSequence > 0)
         {
-            var fired = await session.Events.QueryAllRawEvents()
-                .Where(e => e.Sequence == eventSequence)
-                .FirstOrDefaultAsync(ct);
+            var fired = await FiredAsync(eventSequence, ct);
 
             if (fired is null || fired.StreamId != content.Id || fired.Data is not barakoCMS.Events.ContentTransitioned at)
             {
@@ -313,6 +373,185 @@ public class TemplateVariableExtractor(IDocumentSession session) : ITemplateVari
             await PersonAsync(latest.UpdatedBy, ct));
     }
 
+    private (long Sequence, JasperFx.Events.IEvent? Event)? _fired;
+
+    /// <summary>The event of a sequence, read once for one prepare however many placeholders ask.</summary>
+    private async Task<JasperFx.Events.IEvent?> FiredAsync(long sequence, CancellationToken ct)
+    {
+        if (_fired is { } read && read.Sequence == sequence) return read.Event;
+
+        var fired = await session.Events.QueryAllRawEvents()
+            .Where(e => e.Sequence == sequence)
+            .FirstOrDefaultAsync(ct);
+
+        _fired = (sequence, fired);
+        return fired;
+    }
+
+    /// <summary>
+    /// The user whose action fired the workflow, whose read permission decides what a followed
+    /// reference renders. Empty when there is none, and then every reference renders empty.
+    /// </summary>
+    /// <remarks>
+    /// With a sequence it is the user on that event, so a later edit by somebody else does not
+    /// change whose permission is asked. An event on another entry's stream, or one that carries no
+    /// user, is nobody. Without a sequence, which is the engine called in line with the change, it
+    /// is the entry's author for a create and its last editor for anything else.
+    /// </remarks>
+    private async Task<Guid> ActorAsync(Content content, string? triggerEvent, long eventSequence, CancellationToken ct)
+    {
+        if (eventSequence <= 0)
+        {
+            return triggerEvent == WorkflowEvents.Created ? content.CreatedBy : content.LastModifiedBy;
+        }
+
+        var fired = await FiredAsync(eventSequence, ct);
+        if (fired is null || fired.StreamId != content.Id) return Guid.Empty;
+
+        return fired.Data switch
+        {
+            barakoCMS.Events.ContentCreated e => e.CreatedBy,
+            barakoCMS.Events.ContentUpdated e => e.UpdatedBy,
+            barakoCMS.Events.ContentStatusChanged e => e.UpdatedBy,
+            barakoCMS.Events.ContentTransitioned e => e.UpdatedBy,
+            barakoCMS.Events.ContentScheduled e => e.UpdatedBy,
+            barakoCMS.Events.ContentSensitivityScheduled e => e.UpdatedBy,
+            barakoCMS.Events.ContentSensitivityChanged e => e.UpdatedBy,
+            _ => Guid.Empty,
+        };
+    }
+
+    /// <summary>
+    /// The reference fields the templates follow, each with the entries it points at as the
+    /// triggering user may read them. Null when the templates follow none, or when this extractor
+    /// was given nothing to check a read with.
+    /// </summary>
+    /// <remarks>
+    /// One level deep: a loop item's own references are not followed. The reads are bounded and do
+    /// not grow with the number of placeholders: the entry's type, the user, and one query for every
+    /// id the named fields hold, at most <see cref="TemplateExpression.MaxLoopItems"/> of a list.
+    /// Each entry is then checked with the permission and sensitivity services the API reads with,
+    /// which cache the user's roles and each type's schema for the scope.
+    ///
+    /// An entry the user may not read is left out, the same as one that does not exist, and a field
+    /// of a readable entry is kept only when the read would show it unchanged: a masked value, even
+    /// one showing its last four characters, is not a value this user sees.
+    /// </remarks>
+    private async Task<IReadOnlyDictionary<string, TemplateFollowed>?> ReferencesAsync(
+        Content content, string? triggerEvent, long eventSequence, HashSet<string> named, CancellationToken ct)
+    {
+        if (named.Count == 0 || permissions is null || sensitivity is null || content.Data is null) return null;
+
+        var followed = new Dictionary<string, TemplateFollowed>(StringComparer.Ordinal);
+        if (content is barakoCMS.Features.Workflows.ErasedContent) return followed;
+
+        var type = content.ContentType;
+        var definition = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
+
+        var fields = definition?.Fields
+            .Where(f => f is not null
+                        && named.Contains(f.Name)
+                        && string.Equals(f.Type, "reference", StringComparison.OrdinalIgnoreCase))
+            .ToList() ?? [];
+
+        if (fields.Count == 0) return null;
+
+        var idsOf = new Dictionary<string, (List<Guid> Ids, int Total)>(StringComparer.Ordinal);
+        foreach (var field in fields)
+        {
+            idsOf[field.Name] = IdsIn(content.Data.TryGetValue(field.Name, out var value) ? value : null, field.Multiple);
+        }
+
+        var readable = await ReadableAsync(
+            idsOf.Values.SelectMany(v => v.Ids).Distinct().ToArray(),
+            await ActorAsync(content, triggerEvent, eventSequence, ct),
+            ct);
+
+        foreach (var field in fields)
+        {
+            var (ids, total) = idsOf[field.Name];
+            var items = ids
+                .Select(id => readable.TryGetValue(id, out var item) ? item : null)
+                .Where(item => item is not null
+                               && (string.IsNullOrEmpty(field.ReferenceType)
+                                   || string.Equals(item.ContentType, field.ReferenceType, StringComparison.OrdinalIgnoreCase)))
+                .Select(item => item!)
+                .ToList();
+
+            followed[field.Name] = new TemplateFollowed(field.Multiple, total, items);
+        }
+
+        return followed;
+    }
+
+    /// <summary>The ids a reference value holds, the first <see cref="TemplateExpression.MaxLoopItems"/> of a list, and how many it holds.</summary>
+    private static (List<Guid> Ids, int Total) IdsIn(object? value, bool multiple)
+    {
+        if (value is null) return ([], 0);
+
+        if (multiple)
+        {
+            if (!barakoCMS.Core.Validation.ReferenceFields.TryReadList(value, out var texts)) return ([], 0);
+
+            var ids = texts.Select(t => Guid.TryParse(t, out var id) ? id : Guid.Empty).ToList();
+            return (ids.Take(TemplateExpression.MaxLoopItems).Where(id => id != Guid.Empty).ToList(), ids.Count);
+        }
+
+        var text = value is System.Text.Json.JsonElement { ValueKind: System.Text.Json.JsonValueKind.String } element
+            ? element.GetString()
+            : value.ToString();
+
+        return Guid.TryParse(text, out var single) ? ([single], 1) : ([], 0);
+    }
+
+    /// <summary>
+    /// The entries among <paramref name="ids"/> the user may read, each holding only the fields the
+    /// user is shown. One query for the entries.
+    /// </summary>
+    private async Task<Dictionary<Guid, Content>> ReadableAsync(Guid[] ids, Guid actor, CancellationToken ct)
+    {
+        var readable = new Dictionary<Guid, Content>();
+        if (ids.Length == 0 || actor == Guid.Empty) return readable;
+
+        var user = await session.LoadAsync<User>(actor, ct);
+        if (user is null) return readable;
+
+        var entries = await session.Query<Content>().Where(c => c.Id.In(ids)).ToListAsync(ct);
+
+        var request = new Microsoft.AspNetCore.Http.DefaultHttpContext
+        {
+            User = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(
+                [new System.Security.Claims.Claim("UserId", user.Id.ToString())], nameof(TemplateVariableExtractor))),
+        };
+
+        foreach (var entry in entries)
+        {
+            if (!await permissions!.CanPerformActionAsync(user, entry.ContentType, "read", entry, ct)) continue;
+
+            var shown = new Dictionary<string, object>(entry.Data);
+            await sensitivity!.ApplyAsync(entry, shown, request, ct);
+
+            var data = new Dictionary<string, object>(StringComparer.Ordinal);
+            foreach (var (key, value) in shown)
+            {
+                if (entry.Data.TryGetValue(key, out var stored) && ReferenceEquals(stored, value)) data[key] = value;
+            }
+
+            readable[entry.Id] = new Content
+            {
+                Id = entry.Id,
+                ContentType = entry.ContentType,
+                Status = entry.Status,
+                Sensitivity = entry.Sensitivity,
+                CreatedAt = entry.CreatedAt,
+                UpdatedAt = entry.UpdatedAt,
+                Data = data,
+            };
+        }
+
+        return readable;
+    }
+
     /// <summary>
     /// The resolution itself, which needs no database. Static so a caller holding no extractor, such
     /// as a conditional resolving its children, gets exactly the same rules.
@@ -334,12 +573,32 @@ public class TemplateVariableExtractor(IDocumentSession session) : ITemplateVari
         // Single pass over the ORIGINAL template. Because each {{...}} token is resolved exactly
         // once and substituted values are NOT re-scanned, a content field whose value itself
         // contains "{{data.Other}}" cannot inject/leak another field (second-order injection).
-        // A formatted value, a name and a duration go through Encode like any other value.
-        return TemplateToken.Replace(template, match =>
+        // A formatted value, a name, a duration, a link and a referenced entry's value go through
+        // Encode like any other value. A loop's body is template text, resolved once per item.
+        return TemplateExpression.Block.Replace(template, match =>
         {
-            var value = TemplateExpression.Evaluate(match.Groups[1].Value, content, context);
+            if (match.Groups["field"].Success)
+            {
+                return Loop(match.Groups["field"].Value, match.Groups["body"].Value, encoding, context) ?? match.Value;
+            }
+
+            var value = TemplateExpression.Evaluate(match.Groups["hole"].Value, content, context);
             return value is null ? match.Value : Encode(value, encoding);
         });
+    }
+
+    private static string? Loop(string field, string body, TemplateValueEncoding encoding, TemplateContext context)
+    {
+        if (TemplateExpression.LoopItems(field, body, context) is not { } items) return null;
+
+        var itemContext = context.ForItem();
+        var rendered = new System.Text.StringBuilder();
+        foreach (var item in items)
+        {
+            rendered.Append(Resolve(body, item, encoding, itemContext));
+        }
+
+        return rendered.ToString();
     }
 
     private static readonly Regex LineBreaks = new(@"[\r\n\u0085\u2028\u2029]+", RegexOptions.Compiled);
@@ -431,6 +690,34 @@ public class TemplateVariableExtractor(IDocumentSession session) : ITemplateVari
                 Description = "Email address of whoever made the transition. Transition triggers only",
                 Example = "maria@example.com",
                 Type = "string"
+            },
+            new()
+            {
+                Name = "{{links.console}}",
+                Description = "The entry in the console, from App:ConsoleUrl. Empty when that is not set",
+                Example = "https://console.example.com/content/3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                Type = "string"
+            },
+            new()
+            {
+                Name = "{{links.edit}}",
+                Description = "The same as links.console: the console's page for the entry, where it is edited",
+                Example = "https://console.example.com/content/3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                Type = "string"
+            },
+            new()
+            {
+                Name = "{{links.entry}}",
+                Description = "The entry in this API, from App:BaseUrl. Empty when that is not set",
+                Example = "https://api.example.com/api/contents/3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                Type = "string"
+            },
+            new()
+            {
+                Name = "{{links.site}}",
+                Description = "The Url of the site settings. Empty when there is none",
+                Example = "https://example.com",
+                Type = "string"
             }
         };
     }
@@ -478,6 +765,34 @@ public class TemplateVariableExtractor(IDocumentSession session) : ITemplateVari
             Description = "The time between two dates, in hours to one decimal",
             Example = "8.5",
             Type = "number"
+        },
+        new()
+        {
+            Name = "{{links.site \"/approvals/\"}}",
+            Description = "A page of the site: the Url of the site settings followed by the path, which starts with one /",
+            Example = "https://example.com/approvals/",
+            Type = "string"
+        },
+        new()
+        {
+            Name = "{{links.transition \"Approve\"}}",
+            Description = "The entry in the console with the transition named ready to confirm. The approver signs in, and the transition's own permission decides",
+            Example = "https://console.example.com/content/3fa85f64-5717-4562-b3fc-2c963f66afa6?transition=Approve",
+            Type = "string"
+        },
+        new()
+        {
+            Name = "{{data.Reference.Field}}",
+            Description = "A field of the entry a reference field points at, when the user who fired the workflow may read it. Empty when they may not",
+            Example = "text",
+            Type = "string"
+        },
+        new()
+        {
+            Name = "{{#each data.References}}{{data.Field}} {{/each}}",
+            Description = $"The text between the markers once for each entry a reference field points at that the user who fired the workflow may read, at most {TemplateExpression.MaxLoopItems}",
+            Example = "text text ",
+            Type = "string"
         },
     ];
 
