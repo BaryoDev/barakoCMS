@@ -143,6 +143,18 @@ internal sealed class Endpoint(
                 continue;
             }
 
+            // A new entry is checked as it will be stored, after the hooks, as POST /api/contents
+            // checks it.
+            if (existing is null
+                && !await permissions.AllowsCreatedEntryAsync(
+                    user,
+                    new ContentCreateRequest { ContentType = req.Type, Data = data, Status = req.Status },
+                    ct))
+            {
+                await Send.ForbiddenAsync(ct);
+                return;
+            }
+
             plans.Add(new Plan(i, data, existing));
         }
 

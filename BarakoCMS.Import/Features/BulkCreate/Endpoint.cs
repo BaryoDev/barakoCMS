@@ -156,6 +156,28 @@ public class Endpoint(
                     continue;
                 }
 
+                // The check before the batch asks only whether a Create rule exists. This asks
+                // whether one holds for the row as it will be stored, the caller as its creator.
+                var asStored = new Content
+                {
+                    Id = Guid.NewGuid(),
+                    ContentType = req.ContentType,
+                    Data = new Dictionary<string, object>(record, record.Comparer),
+                    Status = req.Status,
+                    CreatedBy = userId,
+                    LastModifiedBy = userId,
+                };
+                if (!await permissions.CanPerformActionAsync(user, req.ContentType, "create", asStored, token))
+                {
+                    rowErrors.Add(new Response.RowError
+                    {
+                        Row = i,
+                        Messages = ["Your create permission on this content type does not cover this row."],
+                    });
+                    batchSession.EjectAllPendingChanges();
+                    continue;
+                }
+
                 try
                 {
                     await creator.StageAsync(request, userId, batch, token);
