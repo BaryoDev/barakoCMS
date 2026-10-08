@@ -619,13 +619,22 @@ What renders is decided by the read permission of the user who fired the workflo
 checks are the ones `GET /api/contents/{id}` makes. An entry that user may not read renders empty,
 exactly as one that does not exist, and a loop leaves it out. A field of a readable entry renders
 only when that user's read would show it unchanged, so a Sensitive or Hidden field they are not
-allowed to see renders empty, and so does a field whose mask would show its last four characters.
-A change with no user behind it (a scheduled publish, an import) reads no reference, and every one
+allowed to see renders empty, and so does a field whose mask would show its last four characters
+or that their Read rule's field list leaves out. On a referenced entry, a `data.` field it does not
+hold renders empty too, never as written, since that is also what a withheld field looks like. A
+document that user's read answers as hidden gives `HIDDEN` for `{{contentType}}` in a loop and
+no data, as `GET /api/contents/{id}` does. A change with no user behind it (a scheduled publish, an import) reads no reference, and every one
 renders empty.
 
 References are followed one level deep. A loop item's own references are not followed, and a loop
 inside a loop is sent as written. A field literally named with a dot, such as `Supplier.Email`, is
 still read first, as it always was.
+
+**A parameter holds at most 262,144 characters.** Saving a workflow with a longer one answers 400
+naming the parameter, such as `actions[0].parameters.Body`, and `POST /api/workflows/validate`
+lists the same error. A Conditional's branch is one parameter, so its children count toward
+it. Resolving a template is linear in its length: an opening `{{#each}}` is paired with the first
+`{{/each}}` after it, and one with no closing marker is sent as written.
 
 **A loop stops at 50 entries.** A many-valued reference holds at most 100 ids, and a loop renders
 the entries among the first 50 and stops there. The run records it: the attempt's `error` (on a

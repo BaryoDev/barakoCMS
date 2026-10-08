@@ -100,6 +100,175 @@ public class TemplateReferenceAndLinkTests
         (await ResolvedAsync(scope, byCleared, template)).Should().Be("Acme|0917 555 0101|0917 555 0101");
     }
 
+    /// <summary>
+    /// Red before the review fix: the loop rendered the real content type of a document the API
+    /// answers as hidden.
+    /// </summary>
+    [Fact]
+    public async Task A_hidden_document_reached_through_a_reference_shows_as_HIDDEN_with_no_data()
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var (order, supplier) = await TypesAsync(session);
+        var plain = await UserAsync(session, [Reads(order), Reads(supplier)]);
+        var cleared = await UserAsync(session, [Reads(order), Reads(supplier)], SystemCapabilities.ViewHidden);
+
+        var acme = await EntryAsync(session, supplier, new() { ["Name"] = "Acme" }, sensitivity: SensitivityLevel.Hidden);
+        var byPlain = await EntryAsync(session, order, new() { ["Supplier"] = acme.Id.ToString() }, plain.Id);
+        var byCleared = await EntryAsync(session, order, new() { ["Supplier"] = acme.Id.ToString() }, cleared.Id);
+
+        const string template = "[{{#each data.Supplier}}{{contentType}}:{{data.Name}}{{/each}}][{{data.Supplier.Name}}]";
+
+        var shown = await ResolvedAsync(scope, byPlain, template);
+        shown.Should().Be("[HIDDEN:][]");
+        shown.Should().NotContain(supplier);
+
+        (await ResolvedAsync(scope, byCleared, template)).Should().Be($"[{supplier}:Acme][Acme]");
+    }
+
+    /// <summary>
+    /// The loop half is red before the review fix: a field a Read rule's field set leaves out was
+    /// missing on the item, and the placeholder was sent as written.
+    /// </summary>
+    [Fact]
+    public async Task A_field_a_read_rule_does_not_show_renders_empty_in_a_follow_and_in_a_loop()
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var (order, supplier) = await TypesAsync(session);
+        var narrowed = Reads(supplier);
+        narrowed.Read.ReadableFields = ["Name"];
+        var user = await UserAsync(session, [Reads(order), narrowed]);
+
+        var acme = await EntryAsync(session, supplier, new() { ["Name"] = "Acme", ["Email"] = "orders@acme.example" });
+        var entry = await EntryAsync(session, order, new() { ["Supplier"] = acme.Id.ToString() }, user.Id);
+
+        const string template = "{{data.Supplier.Name}}|{{data.Supplier.Email}}|{{#each data.Supplier}}{{data.Name}}/{{data.Email}}{{/each}}";
+
+        var shown = await ResolvedAsync(scope, entry, template);
+        shown.Should().Be("Acme||Acme/");
+        shown.Should().NotContain("acme.example");
+    }
+
+    /// <summary>
+    /// The queued path. The run names the event a reader made; a later edit by a user who may not
+    /// read the runners is the entry's last change. Red if the actor were read from the entry: the
+    /// loop would render nothing. The note lands on the succeeded attempt.
+    /// </summary>
+    [Fact]
+    public async Task A_queued_run_reads_as_the_user_on_its_event_and_records_the_loop_note_on_the_attempt()
+    {
+        var runner = NewTypeName();
+        var batch = NewTypeName();
+        var to = $"batch-{Guid.NewGuid():N}@example.com";
+        User reader;
+        User other;
+        long sequence;
+        var runId = Guid.NewGuid();
+
+        await using (var session = _store.LightweightSession())
+        {
+            await TypeAsync(session, runner, new FieldDefinition { Name = "FirstName", DisplayName = "First name", Type = "string" });
+            await TypeAsync(session, batch, new FieldDefinition
+            {
+                Name = "Runners", DisplayName = "Runners", Type = "reference", ReferenceType = runner, Multiple = true,
+            });
+            reader = await UserAsync(session, [Reads(batch), Reads(runner)]);
+            other = await UserAsync(session, [Reads(batch)]);
+
+            var ids = new List<string>();
+            for (var i = 0; i < 51; i++)
+            {
+                ids.Add((await EntryAsync(session, runner, new() { ["FirstName"] = $"R{i:00}" })).Id.ToString());
+            }
+
+            var id = Guid.NewGuid();
+            var data = new Dictionary<string, object> { ["Runners"] = ids };
+            var at = DateTime.UtcNow;
+            session.Events.StartStream<Content>(
+                id,
+                new barakoCMS.Events.ContentCreated(id, batch, data, ContentStatus.Published, other.Id, null, SensitivityLevel.Public, at),
+                new barakoCMS.Events.ContentUpdated(id, data, reader.Id, null, at.AddMinutes(1)),
+                new barakoCMS.Events.ContentUpdated(id, data, other.Id, null, at.AddMinutes(2)));
+            session.Store(new Content
+            {
+                Id = id,
+                ContentType = batch,
+                Status = ContentStatus.Published,
+                Data = data,
+                CreatedBy = other.Id,
+                LastModifiedBy = other.Id,
+            });
+            await session.SaveChangesAsync(Ct);
+
+            var stream = await session.Events.FetchStreamAsync(id, token: Ct);
+            stream.Should().HaveCount(3);
+            sequence = stream.First(e => e.Data is barakoCMS.Events.ContentUpdated u && u.UpdatedBy == reader.Id).Sequence;
+
+            var run = new WorkflowRun
+            {
+                Id = runId,
+                WorkflowDefinitionId = Guid.NewGuid(),
+                WorkflowName = "batch summary through the runner",
+                CreatedAt = DateTimeOffset.UnixEpoch,
+                ContentId = id,
+                ContentType = batch,
+                TriggerEvent = WorkflowEvents.Updated,
+                TriggeringEventSequence = sequence,
+                Actions =
+                [
+                    new WorkflowActionAttempt
+                    {
+                        Ordinal = 0,
+                        ActionType = "Email",
+                        IdempotencyKey = $"{Guid.NewGuid():N}",
+                        Parameters = new()
+                        {
+                            ["To"] = to,
+                            ["Subject"] = "Batch",
+                            ["Body"] = "{{#each data.Runners}}{{data.FirstName}},{{/each}}",
+                        },
+                    },
+                ],
+            };
+            run.Recompute();
+            session.Store(run);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var workflowRunner = new WorkflowRunner(
+            _fixture.Services,
+            _fixture.Services.GetRequiredService<Microsoft.Extensions.Logging.ILogger<WorkflowRunner>>(),
+            _fixture.Services.GetRequiredService<IConfiguration>());
+
+        List<RecordingEmailService.Sent> sent = [];
+        for (var i = 0; i < 100 && sent.Count == 0; i++)
+        {
+            await workflowRunner.RunOnceAsync(Ct);
+            sent = _fixture.Email.Messages.Where(m => m.To == to).ToList();
+            if (sent.Count == 0) await Task.Delay(100, Ct);
+        }
+
+        sent.Should().HaveCount(1);
+        var names = sent[0].Body.Split(',', StringSplitOptions.RemoveEmptyEntries);
+        names.Should().HaveCount(TemplateExpression.MaxLoopItems);
+        names.Should().Equal(Enumerable.Range(0, 50).Select(i => $"R{i:00}"));
+
+        WorkflowRun? stored = null;
+        for (var i = 0; i < 50 && stored?.Actions.FirstOrDefault()?.Status != AttemptStatus.Succeeded; i++)
+        {
+            await using var query = _store.QuerySession();
+            stored = await query.LoadAsync<WorkflowRun>(runId, Ct);
+            if (stored?.Actions.FirstOrDefault()?.Status != AttemptStatus.Succeeded) await Task.Delay(100, Ct);
+        }
+
+        stored.Should().NotBeNull();
+        stored!.Actions.Should().HaveCount(1);
+        stored.Actions[0].Status.Should().Be(AttemptStatus.Succeeded);
+        stored.Actions[0].Error.Should().Be(
+            "The loop over data.Runners rendered from the first 50 of its 51 references and stopped there.");
+    }
+
     [Fact]
     public async Task A_loop_renders_each_entry_and_stops_at_fifty_with_a_note_in_the_run_log()
     {
@@ -320,13 +489,15 @@ public class TemplateReferenceAndLinkTests
     }
 
     private static async Task<Content> EntryAsync(
-        IDocumentSession session, string type, Dictionary<string, object> data, Guid? editor = null)
+        IDocumentSession session, string type, Dictionary<string, object> data, Guid? editor = null,
+        SensitivityLevel sensitivity = SensitivityLevel.Public)
     {
         var entry = new Content
         {
             Id = Guid.NewGuid(),
             ContentType = type,
             Status = ContentStatus.Published,
+            Sensitivity = sensitivity,
             Data = data,
             LastModifiedBy = editor ?? Guid.Empty,
         };

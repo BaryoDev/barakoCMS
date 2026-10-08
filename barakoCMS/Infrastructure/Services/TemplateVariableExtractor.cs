@@ -470,13 +470,16 @@ public class TemplateVariableExtractor(
         foreach (var field in fields)
         {
             var (ids, total) = idsOf[field.Name];
-            var items = ids
-                .Select(id => readable.TryGetValue(id, out var item) ? item : null)
-                .Where(item => item is not null
-                               && (string.IsNullOrEmpty(field.ReferenceType)
-                                   || string.Equals(item.ContentType, field.ReferenceType, StringComparison.OrdinalIgnoreCase)))
-                .Select(item => item!)
-                .ToList();
+            var items = new List<Content>(ids.Count);
+            foreach (var id in ids)
+            {
+                if (readable.TryGetValue(id, out var item)
+                    && (string.IsNullOrEmpty(field.ReferenceType)
+                        || string.Equals(item.Type, field.ReferenceType, StringComparison.OrdinalIgnoreCase)))
+                {
+                    items.Add(item.Shown);
+                }
+            }
 
             followed[field.Name] = new TemplateFollowed(field.Multiple, total, items);
         }
@@ -506,11 +509,16 @@ public class TemplateVariableExtractor(
 
     /// <summary>
     /// The entries among <paramref name="ids"/> the user may read, each holding only the fields the
-    /// user is shown. One query for the entries.
+    /// user is shown, by id with the entry's stored type. One query for the entries.
     /// </summary>
-    private async Task<Dictionary<Guid, Content>> ReadableAsync(Guid[] ids, Guid actor, CancellationToken ct)
+    /// <remarks>
+    /// A document the read answers as hidden is shown as <c>GET /api/contents/{id}</c> shows it:
+    /// no data, and <c>HIDDEN</c> as its content type. Its stored type is kept beside it only to
+    /// check it is the type the reference field points at.
+    /// </remarks>
+    private async Task<Dictionary<Guid, (string Type, FollowedContent Shown)>> ReadableAsync(Guid[] ids, Guid actor, CancellationToken ct)
     {
-        var readable = new Dictionary<Guid, Content>();
+        var readable = new Dictionary<Guid, (string Type, FollowedContent Shown)>();
         if (ids.Length == 0 || actor == Guid.Empty) return readable;
 
         var user = await session.LoadAsync<User>(actor, ct);
@@ -529,24 +537,24 @@ public class TemplateVariableExtractor(
             if (!await permissions!.CanPerformActionAsync(user, entry.ContentType, "read", entry, ct)) continue;
 
             var shown = new Dictionary<string, object>(entry.Data);
-            await sensitivity!.ApplyAsync(entry, shown, request, ct);
+            var hidden = await sensitivity!.ApplyAsync(entry, shown, request, ct);
 
             var data = new Dictionary<string, object>(StringComparer.Ordinal);
             foreach (var (key, value) in shown)
             {
-                if (entry.Data.TryGetValue(key, out var stored) && ReferenceEquals(stored, value)) data[key] = value;
+                if (!hidden && entry.Data.TryGetValue(key, out var stored) && ReferenceEquals(stored, value)) data[key] = value;
             }
 
-            readable[entry.Id] = new Content
+            readable[entry.Id] = (entry.ContentType, new FollowedContent
             {
                 Id = entry.Id,
-                ContentType = entry.ContentType,
+                ContentType = hidden ? "HIDDEN" : entry.ContentType,
                 Status = entry.Status,
                 Sensitivity = entry.Sensitivity,
                 CreatedAt = entry.CreatedAt,
                 UpdatedAt = entry.UpdatedAt,
                 Data = data,
-            };
+            });
         }
 
         return readable;
@@ -575,27 +583,29 @@ public class TemplateVariableExtractor(
         // contains "{{data.Other}}" cannot inject/leak another field (second-order injection).
         // A formatted value, a name, a duration, a link and a referenced entry's value go through
         // Encode like any other value. A loop's body is template text, resolved once per item.
-        return TemplateExpression.Block.Replace(template, match =>
+        var rendered = new System.Text.StringBuilder(template.Length);
+        foreach (var piece in TemplateExpression.Pieces(template))
         {
-            if (match.Groups["field"].Success)
+            switch (piece.Kind)
             {
-                return Loop(match.Groups["field"].Value, match.Groups["body"].Value, encoding, context) ?? match.Value;
+                case TemplateExpression.PieceKind.Hole:
+                    var value = TemplateExpression.Evaluate(piece.Hole!.Groups[1].Value, content, context);
+                    rendered.Append(value is null ? piece.Hole.Value : Encode(value, encoding));
+                    break;
+
+                case TemplateExpression.PieceKind.Loop when TemplateExpression.LoopItems(piece, context) is { } items:
+                    var itemContext = context.ForItem();
+                    foreach (var item in items)
+                    {
+                        rendered.Append(Resolve(piece.Body!, item, encoding, itemContext));
+                    }
+
+                    break;
+
+                default:
+                    rendered.Append(template, piece.Start, piece.Length);
+                    break;
             }
-
-            var value = TemplateExpression.Evaluate(match.Groups["hole"].Value, content, context);
-            return value is null ? match.Value : Encode(value, encoding);
-        });
-    }
-
-    private static string? Loop(string field, string body, TemplateValueEncoding encoding, TemplateContext context)
-    {
-        if (TemplateExpression.LoopItems(field, body, context) is not { } items) return null;
-
-        var itemContext = context.ForItem();
-        var rendered = new System.Text.StringBuilder();
-        foreach (var item in items)
-        {
-            rendered.Append(Resolve(body, item, encoding, itemContext));
         }
 
         return rendered.ToString();

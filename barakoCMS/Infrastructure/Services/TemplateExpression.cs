@@ -36,6 +36,12 @@ internal sealed record TemplateLinks(string? Api, string? Console, string? Site)
 /// </param>
 internal sealed record TemplateFollowed(bool Multiple, int Total, IReadOnlyList<Content> Items);
 
+/// <summary>
+/// An entry reached through a reference, holding only what the triggering user is shown. A
+/// <c>data.</c> field it does not hold resolves to empty, never to the placeholder as written.
+/// </summary>
+internal sealed class FollowedContent : Content;
+
 /// <summary>What a template may read beyond the entry itself.</summary>
 /// <param name="TimeZone">The zone a date is shown in. Null when the site names one this server does not know.</param>
 /// <param name="Currency">The site's three-letter currency code, or null.</param>
@@ -86,6 +92,14 @@ internal sealed record TemplateContext(
 /// </remarks>
 internal static class TemplateExpression
 {
+    /// <summary>
+    /// A backstop for the patterns that scan a whole template. Each of them is linear, and a
+    /// template is capped at <see cref="MaxTemplateLength"/> when it is saved, so this is only met
+    /// by a pattern that turns out not to be. Declared first, since the patterns read it as they
+    /// are built.
+    /// </summary>
+    public static readonly TimeSpan ScanTimeout = TimeSpan.FromSeconds(2);
+
     /// <summary>Past this, a hole with a format or a duration is left as written.</summary>
     public const int MaxLength = 256;
 
@@ -111,28 +125,17 @@ internal static class TemplateExpression
     /// so what used to resolve is found where it was. What is new is found too, and left as written
     /// unless it is one of the three shapes.
     /// </remarks>
-    public static readonly Regex Token = new(@"\{\{([^{}]*)\}\}", RegexOptions.Compiled);
+    public static readonly Regex Token = new(@"\{\{([^{}]*)\}\}", RegexOptions.Compiled, ScanTimeout);
 
-    /// <summary>
-    /// A loop, or else one <see cref="Token"/>. A resolve is one pass of this, so a loop's body is
-    /// template text and a value substituted into it is never read again.
-    /// </summary>
-    /// <remarks>
-    /// The second alternative is <see cref="Token"/> itself, so a template with no loop is matched
-    /// exactly as before.
-    /// </remarks>
-    public static readonly Regex Block = new(
-        @"\{\{\s*\#each\s+data\.(?<field>[A-Za-z0-9_]+)\s*\}\}(?<body>.*?)\{\{\s*/each\s*\}\}|\{\{(?<hole>[^{}]*)\}\}",
-        RegexOptions.Compiled | RegexOptions.Singleline);
+    /// <summary>The longest parameter value a workflow is saved with, in characters.</summary>
+    public const int MaxTemplateLength = 262_144;
 
-    private static readonly Regex LoopOpen = new(@"\A\s*\#each\s+data\.[A-Za-z0-9_]+\s*\z", RegexOptions.Compiled);
+    private static readonly Regex LoopOpen = new(@"\A\s*\#each\s+data\.(?<field>[A-Za-z0-9_]+)\s*\z", RegexOptions.Compiled);
 
     private static readonly Regex LoopClose = new(@"\A\s*/each\s*\z", RegexOptions.Compiled);
 
-    private static readonly Regex NestedLoop = new(@"\{\{\s*\#each\b", RegexOptions.Compiled);
-
     private static readonly Regex Follows = new(
-        @"\#each\s+data\.(?<name>[A-Za-z0-9_]+)|data\.(?<name>[A-Za-z0-9_]+)\.[A-Za-z0-9_]", RegexOptions.Compiled);
+        @"\#each\s+data\.(?<name>[A-Za-z0-9_]+)|data\.(?<name>[A-Za-z0-9_]+)\.[A-Za-z0-9_]", RegexOptions.Compiled, ScanTimeout);
 
     private static readonly Regex Link = new(
         @"\A\s*(?<name>links\.(?:site|transition))\s+""(?<argument>[^""\r\n]*)""\s*\z", RegexOptions.Compiled);
@@ -154,7 +157,7 @@ internal static class TemplateExpression
         @"\A[A-Za-z][A-Za-z0-9_+\-]*(?:/[A-Za-z0-9_+\-]+){0,2}\z", RegexOptions.Compiled);
 
     private static readonly Regex SiteFormat = new(
-        @"(?:\||\\u007[cC])(?:\s|\\+[ntr])*(?:date|money)\b|links\.site\b", RegexOptions.Compiled);
+        @"(?:\||\\u007[cC])(?:\s|\\+[ntr])*(?:date|money)\b|links\.site\b", RegexOptions.Compiled, ScanTimeout);
 
     private static readonly string[] DateFormats =
     [
@@ -229,14 +232,16 @@ internal static class TemplateExpression
     /// Past <see cref="MaxLoopItems"/> ids the loop renders the entries among the first ones and
     /// stops, and the context is given a note saying how many the field held.
     /// </remarks>
-    public static IReadOnlyList<Content>? LoopItems(string field, string body, TemplateContext context)
+    public static IReadOnlyList<Content>? LoopItems(Piece loop, TemplateContext context)
     {
-        if (context.References is null
-            || !context.References.TryGetValue(field, out var followed)
-            || NestedLoop.IsMatch(body))
+        if (loop.Nested
+            || context.References is null
+            || !context.References.TryGetValue(loop.Field!, out var followed))
         {
             return null;
         }
+
+        var field = loop.Field;
 
         if (followed.Total > MaxLoopItems)
         {
@@ -289,13 +294,95 @@ internal static class TemplateExpression
             yield return $"'{shown}' {problem}, so it is sent as written.";
         }
 
-        foreach (Match match in Block.Matches(template))
+        foreach (var piece in Pieces(template))
         {
-            if (match.Groups["field"].Success && NestedLoop.IsMatch(match.Groups["body"].Value))
+            if (piece.Kind == PieceKind.Loop && piece.Nested)
             {
-                yield return $"The loop over 'data.{match.Groups["field"].Value}' holds another loop, and loops do not nest, so it is sent as written.";
+                yield return $"The loop over 'data.{piece.Field}' holds another loop, and loops do not nest, so it is sent as written.";
             }
         }
+    }
+
+    public enum PieceKind { Text, Hole, Loop }
+
+    /// <summary>One part of a template: text as written, one hole, or a loop from its opening marker to its closing one.</summary>
+    /// <param name="Kind">Which of the three it is.</param>
+    /// <param name="Start">Where the part starts in the template.</param>
+    /// <param name="Length">How long it is, markers included.</param>
+    /// <param name="Hole">The <see cref="Token"/> match of a hole.</param>
+    /// <param name="Field">The reference field a loop is over.</param>
+    /// <param name="Body">The template text between a loop's markers.</param>
+    /// <param name="Nested">Whether another opening marker sits between a loop's markers.</param>
+    public readonly record struct Piece(
+        PieceKind Kind, int Start, int Length, Match? Hole = null, string? Field = null, string? Body = null, bool Nested = false);
+
+    /// <summary>A template cut into text, holes and loops, in order.</summary>
+    /// <remarks>
+    /// Linear in the template. The holes are the matches of <see cref="Token"/>, so a template with
+    /// no loop is cut exactly where it always was. An opening marker is paired with the first
+    /// closing one after it, found from a table built in one pass from the end, and a second
+    /// opening marker before that close makes the loop nested. An opening marker with no close
+    /// after it is an ordinary hole, left as written. Pairing by a pattern with a lazy body instead
+    /// rescanned the rest of the template from every unclosed marker.
+    /// </remarks>
+    public static List<Piece> Pieces(string template)
+    {
+        var matches = Token.Matches(template);
+        var count = matches.Count;
+        var pieces = new List<Piece>(count * 2 + 1);
+
+        var fields = new string?[count];
+        var closes = new bool[count];
+        for (var i = 0; i < count; i++)
+        {
+            var body = matches[i].Groups[1].Value;
+            var open = LoopOpen.Match(body);
+            fields[i] = open.Success ? open.Groups["field"].Value : null;
+            closes[i] = !open.Success && LoopClose.IsMatch(body);
+        }
+
+        var nextClose = new int[count + 1];
+        var nextOpen = new int[count + 1];
+        nextClose[count] = count;
+        nextOpen[count] = count;
+        for (var i = count - 1; i >= 0; i--)
+        {
+            nextClose[i] = closes[i] ? i : nextClose[i + 1];
+            nextOpen[i] = fields[i] is not null ? i : nextOpen[i + 1];
+        }
+
+        var position = 0;
+        var index = 0;
+        while (index < count)
+        {
+            var match = matches[index];
+            if (match.Index > position) pieces.Add(new Piece(PieceKind.Text, position, match.Index - position));
+
+            var close = fields[index] is null ? count : nextClose[index + 1];
+            if (close < count)
+            {
+                var end = matches[close].Index + matches[close].Length;
+                var bodyStart = match.Index + match.Length;
+
+                pieces.Add(new Piece(
+                    PieceKind.Loop, match.Index, end - match.Index,
+                    Field: fields[index],
+                    Body: template[bodyStart..matches[close].Index],
+                    Nested: nextOpen[index + 1] < close));
+
+                position = end;
+                index = close + 1;
+                continue;
+            }
+
+            pieces.Add(new Piece(PieceKind.Hole, match.Index, match.Length, Hole: match));
+            position = match.Index + match.Length;
+            index++;
+        }
+
+        if (position < template.Length) pieces.Add(new Piece(PieceKind.Text, position, template.Length - position));
+
+        return pieces;
     }
 
     /// <summary>Whether a template holds a placeholder that resolves to a user's email address.</summary>
@@ -527,7 +614,11 @@ internal static class TemplateExpression
         if (key.StartsWith("data.", StringComparison.Ordinal) && content.Data != null)
         {
             var name = key.Substring("data.".Length);
-            return content.Data.TryGetValue(name, out value) || TryFollow(name, context, out value);
+            // On an entry reached through a reference, a field that is not there is one the user
+            // is not shown as often as one the entry lacks, so both are empty.
+            return content.Data.TryGetValue(name, out value)
+                || TryFollow(name, context, out value)
+                || content is FollowedContent;
         }
 
         return false;
