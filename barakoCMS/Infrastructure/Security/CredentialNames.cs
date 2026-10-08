@@ -23,9 +23,9 @@ namespace barakoCMS.Infrastructure.Security;
 /// clear.
 /// </para>
 /// <para>
-/// The console cannot call this and keeps a copy of the words to mask its inputs:
-/// <c>SENSITIVE_NAME_PARTS</c> in <c>src/lib/workflow-parameters.ts</c> of the barakoBrew
-/// repository. A word added here must be added there too.
+/// The console cannot call this, so <c>GET /api/meta/describe</c> publishes <see cref="Words"/> as
+/// <c>credentialNameParts</c> and the console masks its inputs by those. A word added here reaches
+/// it with no change on that side.
 /// </para>
 /// </remarks>
 internal static class CredentialNames
@@ -47,4 +47,7 @@ internal static class CredentialNames
 
         return false;
     }
+
+    /// <summary>The words a name is matched against, in the order they are checked.</summary>
+    public static IReadOnlyList<string> Words { get; } = Array.AsReadOnly(Parts);
 }

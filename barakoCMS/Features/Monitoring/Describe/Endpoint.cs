@@ -48,6 +48,7 @@ internal sealed class Endpoint(
             Rules = DescribeDocument.Rules(FieldRules.Names),
             FieldEditors = DescribeDocument.FieldHints(FieldPresentation.Editors),
             FieldRoles = DescribeDocument.FieldHints(FieldPresentation.Roles),
+            CredentialNameParts = barakoCMS.Infrastructure.Security.CredentialNames.Words,
         };
 
         if (await CapabilityGateProcessor.HoldsAsync(HttpContext, DescribeDocument.CapabilitiesGate, ct))

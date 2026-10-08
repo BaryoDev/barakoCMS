@@ -369,6 +369,39 @@ public class MetaDescribeTests
     }
 
     /// <summary>
+    /// Issue #1113: the credential name words are the list the API checks names with, read from it
+    /// and not copied, so a word added there reaches a console with no change here.
+    /// </summary>
+    [Fact]
+    public async Task A_caller_holding_nothing_gets_exactly_the_credential_name_words_the_API_checks_with()
+    {
+        var document = await DescribeAsync(await CallerHolding());
+
+        var words = barakoCMS.Infrastructure.Security.CredentialNames.Words;
+        words.Should().NotBeEmpty("an empty list would make the comparison below vacuous");
+
+        var described = Strings(document, "credentialNameParts");
+        described.Should().HaveCount(words.Count);
+        described.Should().Equal(words, "every word, in the order the check reads them");
+
+        foreach (var word in described)
+        {
+            barakoCMS.Infrastructure.Security.CredentialNames.IsCredential($"Webhook{word}").Should().BeTrue(
+                "{0} is listed, so a name holding it is treated as a credential", word);
+        }
+    }
+
+    [Fact]
+    public async Task The_OpenAPI_document_lists_the_credential_name_words()
+    {
+        using var doc = await OpenApiTagTests.FetchDocumentAsync(_factory);
+
+        var response = OpenApiSchemaReader.OkResponse(doc, OpenApiSchemaReader.Operation(doc, Route, "get"));
+
+        OpenApiSchemaReader.PropertyNames(response).Should().Contain("credentialNameParts");
+    }
+
+    /// <summary>
     /// The field names are what a console on its own release schedule reads, so they are pinned.
     /// </summary>
     [Fact]
@@ -383,7 +416,7 @@ public class MetaDescribeTests
         document.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(
         [
             "apiContractVersion", "fieldTypes", "rules", "fieldEditors", "fieldRoles", "uniqueness",
-            "capabilities", "workflowActions", "modules",
+            "credentialNameParts", "capabilities", "workflowActions", "modules",
         ]);
 
         document.GetProperty("uniqueness").EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(
