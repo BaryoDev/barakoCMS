@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace barakoCMS.Features.Workflows;
@@ -8,14 +9,32 @@ namespace barakoCMS.Features.Workflows;
 /// </summary>
 /// <remarks>
 /// Holds the service collection and reads it on first use, after the host is built, so an action a
-/// module or the host registers after the core is included.
+/// module or the host registers after the core is included. A singleton built on its own is kept
+/// here, so it is built once and keeps its state, as the container would have done.
 /// </remarks>
 internal sealed class WorkflowActionRegistrations(IServiceCollection services)
 {
     private readonly Lazy<ServiceDescriptor[]> _descriptors = new(() =>
         services.Where(d => d.ServiceType == typeof(IWorkflowAction) && !d.IsKeyedService).ToArray());
 
+    private readonly ConcurrentDictionary<ServiceDescriptor, Lazy<IWorkflowAction>> _singletons = new();
+
     public IReadOnlyList<ServiceDescriptor> Descriptors => _descriptors.Value;
+
+    /// <summary>The one instance of a singleton registration. A build that throws is not kept, so the next call tries again.</summary>
+    public IWorkflowAction Singleton(ServiceDescriptor descriptor, Func<IWorkflowAction> build)
+    {
+        var lazy = _singletons.GetOrAdd(descriptor, _ => new Lazy<IWorkflowAction>(build, LazyThreadSafetyMode.ExecutionAndPublication));
+        try
+        {
+            return lazy.Value;
+        }
+        catch
+        {
+            _singletons.TryRemove(new KeyValuePair<ServiceDescriptor, Lazy<IWorkflowAction>>(descriptor, lazy));
+            throw;
+        }
+    }
 }
 
 /// <summary>
@@ -25,17 +44,22 @@ internal sealed class WorkflowActionRegistrations(IServiceCollection services)
 /// <remarks>
 /// <para>
 /// Resolving <c>IEnumerable&lt;IWorkflowAction&gt;</c> builds every registered action, and one that
-/// throws fails the whole resolution, so every step of every run failed with it. The container is
-/// asked first, as before, so a healthy host gets the scope's own instances and their disposal.
-/// Only when that throws is each registration built on its own, and the ones that throw are left out
-/// and named in <see cref="BuildFailures"/>.
+/// throws fails the whole resolution, so every step of every run failed with it, and so did saving,
+/// validating and listing workflows. The container is asked first, as before, so a healthy host gets
+/// the scope's own instances and their disposal. Only when that throws is each registration built on
+/// its own, and the ones that throw are left out and named in <see cref="BuildFailures"/>.
+/// </para>
+/// <para>
+/// Built that way, a scoped or transient action belongs to this set and is disposed with it. A
+/// singleton is built once and kept on <see cref="WorkflowActionRegistrations"/>, and neither it nor
+/// a registered instance is disposed here.
 /// </para>
 /// <para>
 /// Only the exception's type is logged, never its message, which is whatever a module's constructor
 /// put there and can be a setting or a connection detail. The describe endpoint logs it the same way.
 /// </para>
 /// </remarks>
-internal sealed class WorkflowActionSet : IAsyncDisposable
+internal sealed class WorkflowActionSet : IAsyncDisposable, IDisposable
 {
     private readonly List<object> _owned;
 
@@ -63,6 +87,10 @@ internal sealed class WorkflowActionSet : IAsyncDisposable
             ? null
             : $"No action of type '{type}' could be found, and {BuildFailures.Count} registered action(s) could not be built: "
             + string.Join(", ", BuildFailures) + ".";
+
+    /// <summary>The set for a scope, as a container registration. The scope disposes it.</summary>
+    public static WorkflowActionSet ForScope(IServiceProvider provider) =>
+        Build(provider, provider.GetRequiredService<ILogger<WorkflowActionSet>>());
 
     public static WorkflowActionSet Build(IServiceProvider provider, ILogger logger)
     {
@@ -92,14 +120,17 @@ internal sealed class WorkflowActionSet : IAsyncDisposable
                 if (descriptor.ImplementationInstance is IWorkflowAction instance)
                 {
                     built.Add(instance);
-                    continue;
                 }
-
-                var action = (IWorkflowAction)(descriptor.ImplementationFactory is { } factory
-                    ? factory(provider)
-                    : ActivatorUtilities.CreateInstance(provider, descriptor.ImplementationType!));
-                owned.Add(action);
-                built.Add(action);
+                else if (descriptor.Lifetime == ServiceLifetime.Singleton)
+                {
+                    built.Add(registrations.Singleton(descriptor, () => Construct(provider, descriptor)));
+                }
+                else
+                {
+                    var action = Construct(provider, descriptor);
+                    owned.Add(action);
+                    built.Add(action);
+                }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -115,6 +146,11 @@ internal sealed class WorkflowActionSet : IAsyncDisposable
         return new WorkflowActionSet(built, failures, owned);
     }
 
+    private static IWorkflowAction Construct(IServiceProvider provider, ServiceDescriptor descriptor) =>
+        (IWorkflowAction)(descriptor.ImplementationFactory is { } factory
+            ? factory(provider)
+            : ActivatorUtilities.CreateInstance(provider, descriptor.ImplementationType!));
+
     public async ValueTask DisposeAsync()
     {
         foreach (var item in _owned)
@@ -124,5 +160,20 @@ internal sealed class WorkflowActionSet : IAsyncDisposable
             else if (item is IDisposable disposable)
                 disposable.Dispose();
         }
+
+        _owned.Clear();
+    }
+
+    public void Dispose()
+    {
+        foreach (var item in _owned)
+        {
+            if (item is IDisposable disposable)
+                disposable.Dispose();
+            else if (item is IAsyncDisposable asyncDisposable)
+                asyncDisposable.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
+
+        _owned.Clear();
     }
 }

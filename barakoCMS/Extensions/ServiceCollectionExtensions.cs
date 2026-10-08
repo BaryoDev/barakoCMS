@@ -1159,14 +1159,20 @@ public static class ServiceCollectionExtensions
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.ConditionalAction>();
         services.AddSingleton(new barakoCMS.Features.Workflows.WorkflowActionRegistrations(services));
 
+        // The actions a scope can build, with one that throws left out (#1111). The engine and the
+        // registry take them from here rather than from IEnumerable<IWorkflowAction>, which fails
+        // as a whole when one action cannot be built.
+        services.AddScoped(barakoCMS.Features.Workflows.WorkflowActionSet.ForScope);
 
-        services.AddScoped<barakoCMS.Features.Workflows.WorkflowEngine>();
+        services.AddScoped(sp => ActivatorUtilities.CreateInstance<barakoCMS.Features.Workflows.WorkflowEngine>(
+            sp, (IEnumerable<barakoCMS.Features.Workflows.IWorkflowAction>)(sp.GetRequiredService<barakoCMS.Features.Workflows.WorkflowActionSet>().Actions ?? [])));
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowEngine>(sp => sp.GetRequiredService<barakoCMS.Features.Workflows.WorkflowEngine>());
     }
 
     private static void AddWorkflowTooling(IServiceCollection services)
     {
-        services.AddScoped<IWorkflowPluginRegistry, WorkflowPluginRegistry>();
+        services.AddScoped<IWorkflowPluginRegistry>(sp => new WorkflowPluginRegistry(
+            sp.GetRequiredService<barakoCMS.Features.Workflows.WorkflowActionSet>().Actions ?? []));
         services.AddScoped<IWorkflowSchemaValidator, WorkflowSchemaValidator>();
         services.AddScoped<ITemplateVariableExtractor, TemplateVariableExtractor>();
         services.AddScoped<IWorkflowDebugger, WorkflowDebugger>();
