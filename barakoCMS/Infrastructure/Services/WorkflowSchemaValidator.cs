@@ -511,6 +511,21 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
 
         RefuseChildPolicies(action, fieldPrefix, result);
 
+        // A parameter is a template the engine scans on every run. A Conditional's branch holds its
+        // children's parameters, so the cap bounds them too.
+        foreach (var (name, value) in action.Parameters ?? [])
+        {
+            if (value is { Length: > TemplateExpression.MaxTemplateLength })
+            {
+                result.Errors.Add(new ValidationError
+                {
+                    Field = $"{fieldPrefix}.parameters.{name}",
+                    Message = $"Parameter '{name}' is {value.Length} characters long, and a parameter holds at most {TemplateExpression.MaxTemplateLength}."
+                });
+                result.IsValid = false;
+            }
+        }
+
         // Validate required parameters
         var metadata = _pluginRegistry.GetActionMetadata(action.Type);
         if (metadata != null && metadata.RequiredParameters.Any())
