@@ -32,10 +32,28 @@ internal static class SealedCoreServices
         typeof(ITemplateVariableExtractor),
     ];
 
-    /// <summary>Logs one warning for each sealed service among what <paramref name="module"/> registered.</summary>
-    public static void WarnAbout(IBarakoModule module, IEnumerable<ServiceDescriptor> registered)
+    /// <summary>The descriptors registered so far, by reference, to tell later what a module added.</summary>
+    public static IReadOnlySet<ServiceDescriptor> Snapshot(IServiceCollection services) =>
+        new HashSet<ServiceDescriptor>(services, ReferenceEqualityComparer.Instance);
+
+    /// <summary>
+    /// Logs one warning for each sealed service <paramref name="module"/> registered: each
+    /// descriptor in <paramref name="services"/> that is not in <paramref name="before"/>.
+    /// </summary>
+    /// <remarks>
+    /// By reference and not by count, so a module that inserts at the front, or removes one entry
+    /// and adds another, is still seen. A keyed registration is left alone: core resolves these
+    /// without a key, so a keyed one replaces nothing and is the module's own business.
+    /// </remarks>
+    public static void WarnAbout(IBarakoModule module, IServiceCollection services, IReadOnlySet<ServiceDescriptor> before)
     {
-        foreach (var type in registered.Select(d => d.ServiceType).Where(Types.Contains).Distinct())
+        var added = services
+            .Where(d => !d.IsKeyedService && !before.Contains(d))
+            .Select(d => d.ServiceType)
+            .Where(Types.Contains)
+            .Distinct();
+
+        foreach (var type in added)
         {
             Log.Warning(Warning, module.Name, type.FullName);
         }
