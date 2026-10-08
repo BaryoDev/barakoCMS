@@ -171,7 +171,8 @@ public class ChoiceFieldTests : IAsyncLifetime
         var wrong = await CreateEntryAsync(type, new() { ["Title"] = "a", ["EntryType"] = "fun" });
         wrong.StatusCode.Should().Be(HttpStatusCode.BadRequest,
             "values are matched exactly, so a lower-case typo is the drift the type exists to stop");
-        (await wrong.Content.ReadAsStringAsync()).Should().Contain("FUN, COMPETE").And.Contain("'fun'");
+        (await wrong.Content.ReadAsStringAsync()).Should().Contain("FUN, COMPETE").And.NotContain("'fun'",
+            "the message names the accepted values, never the one received");
 
         var right = await CreateEntryAsync(type, new() { ["Title"] = "b", ["EntryType"] = "FUN" });
         right.IsSuccessStatusCode.Should().BeTrue(await right.Content.ReadAsStringAsync());
@@ -190,7 +191,7 @@ public class ChoiceFieldTests : IAsyncLifetime
 
         var unknown = await CreateEntryAsync(type, new() { ["Title"] = "b", ["Sizes"] = new[] { "S", "XL" } });
         unknown.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await unknown.Content.ReadAsStringAsync()).Should().Contain("'XL'");
+        (await unknown.Content.ReadAsStringAsync()).Should().Contain("S, M, L").And.NotContain("XL");
 
         var single = await CreateEntryAsync(type, new() { ["Title"] = "c", ["Sizes"] = "S" });
         single.StatusCode.Should().Be(HttpStatusCode.BadRequest, "a multiple choice takes a list, even of one");

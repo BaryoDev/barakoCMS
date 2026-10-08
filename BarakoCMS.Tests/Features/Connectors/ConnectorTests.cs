@@ -321,6 +321,60 @@ public class ConnectorTests
         mine.Should().Be(1, "each tenant sees its own, and neither blocked the other");
     }
 
+    private static object WithSettings(string slug, Dictionary<string, string> settings) => new
+    {
+        name = "Company Jira",
+        slug,
+        baseUrl = "https://example.com",
+        auth = "None",
+        settings,
+        enabled = true,
+        probePath = "/",
+    };
+
+    [Theory]
+    [InlineData("ApiToken")]
+    [InlineData("password")]
+    [InlineData("Authorization")]
+    public async Task A_credential_named_setting_is_refused_on_create_and_update_and_points_at_secrets(string key)
+    {
+        var client = await AdminClient();
+        var ct = TestContext.Current.CancellationToken;
+        var slug = NewSlug();
+
+        var created = await client.PostAsJsonAsync("/api/connectors",
+            WithSettings(slug, new() { [key] = Token }), ct);
+        var createdBody = await created.Content.ReadAsStringAsync(ct);
+        created.StatusCode.Should().Be(HttpStatusCode.BadRequest, createdBody);
+        createdBody.Should().Contain("secrets").And.NotContain(Token);
+
+        var existing = await CreateAsync(client);
+        var updated = await client.PutAsJsonAsync($"/api/connectors/{existing}",
+            WithSettings(existing, new() { [key] = Token }), ct);
+        var updatedBody = await updated.Content.ReadAsStringAsync(ct);
+        updated.StatusCode.Should().Be(HttpStatusCode.BadRequest, updatedBody);
+        updatedBody.Should().Contain("secrets").And.NotContain(Token);
+
+        (await Body(client, $"/api/connectors/{existing}")).Should().NotContain(Token, "a refused update stores nothing");
+    }
+
+    [Fact]
+    public async Task The_settings_the_auth_modes_read_are_still_accepted()
+    {
+        var client = await AdminClient();
+        var slug = NewSlug();
+
+        var res = await client.PostAsJsonAsync("/api/connectors", WithSettings(slug, new()
+        {
+            [ConnectorSettingKeys.TokenUrl] = "https://id.example.com/oauth/token",
+            [ConnectorSettingKeys.ClientId] = "barako",
+            [ConnectorSettingKeys.HeaderName] = "X-Api-Key",
+        }), TestContext.Current.CancellationToken);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK,
+            await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+    }
+
     private async Task<HttpClient> AdminClient()
     {
         var client = _factory.CreateClient();

@@ -1,6 +1,7 @@
 using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Connectors;
+using barakoCMS.Infrastructure.Security;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
@@ -492,6 +493,30 @@ internal static class ConnectorRules
             return "ProbePath must be a path on the base URL that starts with a single '/', such as /health.";
         }
 
+        // Settings are stored and returned as they are, so a credential does not belong in them.
+        // Refused rather than moved into the secrets: the sender reads only the secret names
+        // ConnectorSecretKeys lists, so a moved value would be stored where nothing reads it, and
+        // the setting would disappear from the answer without the caller being told why.
+        var credential = req.Settings?.Keys.FirstOrDefault(
+            key => CredentialNames.IsCredential(key) && !KnownSettings.Contains(key));
+        if (credential is not null)
+        {
+            return $"The setting '{credential}' reads as a credential, and settings are stored and returned as "
+                 + $"plain text. Send it in secrets instead ({string.Join(", ", ConnectorSecretKeys.All)}), "
+                 + "which are encrypted and never returned.";
+        }
+
         return null;
     }
+
+    /// <summary>
+    /// The settings the auth modes read. <c>TokenUrl</c> holds the word "token" and is an address,
+    /// not a credential.
+    /// </summary>
+    private static readonly HashSet<string> KnownSettings = new(StringComparer.Ordinal)
+    {
+        ConnectorSettingKeys.Username, ConnectorSettingKeys.HeaderName, ConnectorSettingKeys.TokenUrl,
+        ConnectorSettingKeys.ClientId, ConnectorSettingKeys.Scope, ConnectorSettingKeys.Audience,
+        ConnectorSettingKeys.ClientAuth, ConnectorSettingKeys.IdempotencyHeader,
+    };
 }

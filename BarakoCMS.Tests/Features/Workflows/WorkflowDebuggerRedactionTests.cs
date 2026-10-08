@@ -41,7 +41,7 @@ public class WorkflowDebuggerRedactionTests : IAsyncLifetime
     private static Dictionary<string, string> Parameters() => new()
     {
         // A credential under a name the sensitive-name rule does not recognise.
-        ["Authorization"] = Credential,
+        ["X-Signature"] = Credential,
         ["To"] = Recipient,
         ["Status"] = "Draft",
     };

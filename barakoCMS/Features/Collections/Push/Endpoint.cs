@@ -124,6 +124,13 @@ internal sealed class Endpoint(
             else
                 await sensitivity.ApplyWriteAsync(existing, data, HttpContext, ct);
 
+            if (existing is not null
+                && !await permissions.AllowsWrittenEntryAsync(user, existing, "update", data, ct))
+            {
+                await Send.ForbiddenAsync(ct);
+                return;
+            }
+
             var (valid, messages) = await validator.ValidateAsync(req.Type, data, existing, User);
             if (valid)
             {
