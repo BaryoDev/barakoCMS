@@ -81,7 +81,8 @@ internal sealed class OidcIdTokenGrantValidator : Validator<OidcIdTokenGrantRequ
 /// The nonce is required, and is what makes a token usable once. Nothing ties the token to this
 /// caller the way the state cookie ties a redirect to a browser, so a token that leaks from the app
 /// could otherwise be exchanged by whoever has it for as long as it lives. A nonce is recorded when
-/// it is accepted and refused again until the token it came in has expired. The record is a unique
+/// it is accepted and refused again until the token it came in has expired. The record commits with
+/// the sign-in, so a sign-in that fails leaves the token usable for a retry, and it is a unique
 /// insert, so two requests racing with one token get one sign-in. A token whose expiry is more than
 /// <see cref="MaxTokenLifetime"/> away is refused, which bounds how long a record is kept.
 /// </para>
@@ -92,6 +93,7 @@ internal sealed class OidcIdTokenGrantEndpoint(
     IDocumentStore store,
     IConfiguration config,
     OidcBackchannel backchannel,
+    OidcUsedNonces nonces,
     barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
     barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer,
     ILogger<OidcIdTokenGrantEndpoint> logger) : Endpoint<OidcIdTokenGrantRequest, OidcIdTokenGrantResponse>
@@ -137,11 +139,19 @@ internal sealed class OidcIdTokenGrantEndpoint(
             ThrowError($"The {provider.DisplayName} id token could not be verified.", 401);
         }
 
-        if (!await TryUseNonceAsync(identity.Issuer, req.Nonce, expiresAt + OidcIdToken.ClockSkew, ct))
+        await nonces.PurgeIfDueAsync(store, ct);
+
+        var nonceKey = OidcUsedNonce.KeyOf(identity.Issuer, req.Nonce);
+        if (await nonces.IsLiveAsync(store, nonceKey, ct))
         {
-            logger.LogWarning("OIDC provider {Provider}: an id token grant reused a nonce", provider.Name);
-            ThrowError("This nonce was already used. Sign in with the provider again.", 401);
+            RefuseReplay(provider);
         }
+
+        // Queued on the request's session, so the nonce is spent in the same commit as the user, the
+        // link and the refresh token, and a sign-in that fails before that commit leaves it unspent.
+        // The insert is also the replay check: two grants racing with one token both get here, and
+        // the primary key lets one commit.
+        nonces.QueueUse(session, nonceKey, expiresAt + OidcIdToken.ClockSkew);
 
         var club = (req.Club ?? string.Empty).Trim().ToLowerInvariant();
         var mfa = Resolve<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>();
@@ -154,7 +164,14 @@ internal sealed class OidcIdTokenGrantEndpoint(
         }
         catch (Exception ex) when (OidcSupport.IsUniqueViolation(ex))
         {
-            // Two first sign-ins for one address at once. The loser tries again and finds the account.
+            // The commit failed whole, so nothing of this attempt is stored. Either another grant
+            // spent the nonce first, or two first sign-ins for one address raced on the user's unique
+            // email; the loser of that retries with the same token and finds the account.
+            if (await nonces.IsLiveAsync(store, nonceKey, ct))
+            {
+                RefuseReplay(provider);
+            }
+
             ThrowError("Another sign-in for this account is in progress. Please try again.", 409);
             return;
         }
@@ -178,25 +195,105 @@ internal sealed class OidcIdTokenGrantEndpoint(
         await Send.OkAsync(new OidcIdTokenGrantResponse { Token = tokens.Token, RefreshToken = tokens.Refresh }, ct);
     }
 
-    /// <summary>
-    /// Records the nonce, or says it is already recorded and live. Expired records go in the same
-    /// commit, so one whose token has expired no longer blocks its nonce, and the table holds only
-    /// what is live.
-    /// </summary>
-    private async Task<bool> TryUseNonceAsync(string issuer, string nonce, DateTime until, CancellationToken ct)
+    [System.Diagnostics.CodeAnalysis.DoesNotReturn]
+    private void RefuseReplay(OidcProvider provider)
     {
-        var now = DateTime.UtcNow;
-        await using var claim = store.LightweightSession();
-        claim.DeleteWhere<OidcUsedNonce>(n => n.ExpiresAt <= now);
-        claim.Insert(new OidcUsedNonce { Id = OidcUsedNonce.KeyOf(issuer, nonce), ExpiresAt = until });
+        logger.LogWarning("OIDC provider {Provider}: an id token grant reused a nonce", provider.Name);
+        ThrowError("This nonce was already used. Sign in with the provider again.", 401);
+    }
+}
+
+/// <summary>The nonces the id token grant has spent: the replay check and the cleanup.</summary>
+/// <remarks>
+/// A record is live until its <see cref="OidcUsedNonce.ExpiresAt"/>. An expired one no longer blocks
+/// its nonce: the use that finds it deletes it in the same commit as its own insert. Expired records
+/// are otherwise removed by <see cref="PurgeIfDueAsync"/>, at most once per
+/// <see cref="PurgeInterval"/> and at most <see cref="PurgeBatches"/> batches of
+/// <see cref="PurgeBatchSize"/> each time, through the index on <c>ExpiresAt</c>. What a purge leaves
+/// behind is logged and taken by the next one.
+/// </remarks>
+internal sealed class OidcUsedNonces(ILogger<OidcUsedNonces> logger)
+{
+    internal static readonly TimeSpan PurgeInterval = TimeSpan.FromMinutes(5);
+    internal const int PurgeBatchSize = 500;
+    internal const int PurgeBatches = 10;
+
+    private long _nextPurgeTicks;
+
+    /// <summary>Replaced by tests that need records to expire without waiting.</summary>
+    internal Func<DateTime> Now { get; set; } = () => DateTime.UtcNow;
+
+    /// <summary>
+    /// Read through a session of its own, so the request's session tracks nothing for this id, and
+    /// so it can still be asked after the request's session failed to commit.
+    /// </summary>
+    public async Task<bool> IsLiveAsync(IDocumentStore store, string key, CancellationToken ct)
+    {
+        await using var query = store.QuerySession();
+        return await query.LoadAsync<OidcUsedNonce>(key, ct) is { } used && used.ExpiresAt > Now();
+    }
+
+    public void QueueUse(IDocumentSession session, string key, DateTime until)
+    {
+        var now = Now();
+        session.DeleteWhere<OidcUsedNonce>(n => n.Id == key && n.ExpiresAt <= now);
+        session.Insert(new OidcUsedNonce { Id = key, ExpiresAt = until });
+    }
+
+    /// <summary>Runs <see cref="PurgeAsync"/> when the interval has passed, on one request at a time.</summary>
+    public async Task PurgeIfDueAsync(IDocumentStore store, CancellationToken ct)
+    {
+        var now = Now();
+        var due = Interlocked.Read(ref _nextPurgeTicks);
+        if (now.Ticks < due
+            || Interlocked.CompareExchange(ref _nextPurgeTicks, (now + PurgeInterval).Ticks, due) != due)
+        {
+            return;
+        }
+
         try
         {
-            await claim.SaveChangesAsync(ct);
-            return true;
+            await PurgeAsync(store, ct);
         }
-        catch (Exception ex) when (OidcSupport.IsUniqueViolation(ex))
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return false;
+            // A sign-in does not fail because the cleanup did. The next interval tries again.
+            logger.LogWarning(ex, "Expired OIDC grant nonces could not be purged");
         }
+    }
+
+    /// <summary>Deletes expired records, a bounded number at a time. Returns how many went.</summary>
+    internal async Task<int> PurgeAsync(IDocumentStore store, CancellationToken ct)
+    {
+        var now = Now();
+        var removed = 0;
+        for (var batch = 0; batch < PurgeBatches; batch++)
+        {
+            await using var session = store.LightweightSession();
+            var expired = await session.Query<OidcUsedNonce>()
+                .Where(n => n.ExpiresAt <= now)
+                .Select(n => n.Id)
+                .Take(PurgeBatchSize)
+                .ToListAsync(ct);
+            if (expired.Count == 0)
+            {
+                return removed;
+            }
+
+            // A List, whose own Contains the LINQ provider translates; an array's would bind to a span.
+            var ids = expired.ToList();
+            session.DeleteWhere<OidcUsedNonce>(n => ids.Contains(n.Id));
+            await session.SaveChangesAsync(ct);
+            removed += expired.Count;
+            if (expired.Count < PurgeBatchSize)
+            {
+                return removed;
+            }
+        }
+
+        logger.LogWarning(
+            "Purged {Removed} expired OIDC grant nonces and stopped at the batch limit; the next purge takes the rest",
+            removed);
+        return removed;
     }
 }

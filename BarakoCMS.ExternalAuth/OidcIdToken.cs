@@ -61,9 +61,9 @@ internal static class OidcIdToken
         OidcProvider provider,
         IReadOnlyList<JsonWebKey> keys,
         string nonce,
-        IReadOnlyList<string>? audiences = null)
+        IReadOnlyList<string>? grantAudiences = null)
     {
-        audiences ??= [provider.ClientId];
+        IReadOnlyList<string> audiences = grantAudiences ?? [provider.ClientId];
         if (audiences.Count == 0)
         {
             return (null, OidcRefusal.Audience);
@@ -153,6 +153,16 @@ internal static class OidcIdToken
             && audience.ValueKind == JsonValueKind.Array && audience.GetArrayLength() > 1;
         if ((severalAudiences || payload.TryGetProperty("azp", out _))
             && !(Text(payload, "azp") is { } party && audiences.Contains(party, StringComparer.Ordinal)))
+        {
+            return (null, OidcRefusal.Audience);
+        }
+
+        // The grant may list the web client, because a native Google token names it as aud. A token
+        // the browser flow was issued names it as aud too, with azp the web client or absent. So for
+        // the grant, a token addressed to the web client has to name a listed native app as azp.
+        if (grantAudiences is not null
+            && Audiences(payload).Contains(provider.ClientId, StringComparer.Ordinal)
+            && !(Text(payload, "azp") is { } app && app != provider.ClientId && grantAudiences.Contains(app, StringComparer.Ordinal)))
         {
             return (null, OidcRefusal.Audience);
         }
@@ -254,6 +264,24 @@ internal static class OidcIdToken
         var keyIssuer = Convert.ToString(raw, System.Globalization.CultureInfo.InvariantCulture);
         return !string.IsNullOrEmpty(keyIssuer)
             && string.Equals(ExpectedIssuer(keyIssuer, payload), issuer, StringComparison.Ordinal);
+    }
+
+    /// <summary>The token's <c>aud</c>, which may be one string or an array of them.</summary>
+    private static List<string> Audiences(JsonElement payload)
+    {
+        if (!payload.TryGetProperty("aud", out var aud))
+        {
+            return [];
+        }
+
+        if (aud.ValueKind == JsonValueKind.String)
+        {
+            return [aud.GetString()!];
+        }
+
+        return aud.ValueKind == JsonValueKind.Array
+            ? aud.EnumerateArray().Where(a => a.ValueKind == JsonValueKind.String).Select(a => a.GetString()!).ToList()
+            : [];
     }
 
     /// <summary>The <c>kid</c> in a token's header, read without checking anything, to pick the key set.</summary>

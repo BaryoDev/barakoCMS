@@ -247,16 +247,28 @@ the callback issues, or an MFA challenge to finish at `/api/auth/mfa/verify`.
 
 The grant is off for a provider until `IdTokenAudiences` lists the client ids its tokens may be
 issued to. A native app's client id differs from the web one, so the list replaces `ClientId` here
-rather than adding to it. Google's native tokens name the server's client as `aud` and the app's as
-`azp`, so list both. With several audiences in a token, `azp` has to be in the list too.
+rather than adding to it. With several audiences in a token, `azp` has to be in the list too.
+
+Google's native tokens name the server's (web) client as `aud` and the app's client as `azp`, so for
+Google list both the web client id and each app's. A token the web sign-in was issued also has the
+web client as `aud`, with `azp` the web client or absent, and must not be exchanged here. So when a
+token's `aud` is the provider's `ClientId`, the grant also needs `azp` to be a listed client that is
+not the `ClientId`.
 
 The token is checked as the callback checks it: issuer, signature against the issuer's keys,
 audience, expiry, `email_verified`. The `nonce` is required: the app makes a random one, gives it
 to the SDK, and sends the same value here, which has to equal the token's `nonce` claim exactly. If
 the SDK takes a hash of the nonce (Apple's iOS SDK does), send what the token carries. Each nonce
-works once. It is recorded (`mt_doc_oidc_used_nonces`) when a grant accepts it and refused until
-the token it came in has expired, so a token that leaks from the app cannot be exchanged again. A
-token that expires more than a day ahead is refused, which bounds how long a record is kept.
+works once. It is recorded (`mt_doc_oidc_used_nonces`) in the same commit as the sign-in and
+refused until the token it came in has expired, so a token that leaks from the app cannot be
+exchanged again, while a sign-in that fails (a 409, a transient error) leaves the token usable for
+a retry. A 403 or an MFA challenge does spend it. A token that expires more than a day ahead is
+refused, which bounds how long a record is kept. Expired records are deleted at most every five
+minutes, up to 5,000 at a time.
+
+One case spends the nonce early: with the DeviceTrust module on and a device id in the request,
+trusting the device commits the request's work so far, the nonce included, before the token is
+issued. A failure after that point needs a fresh token.
 
 | Answer | When |
 | --- | --- |
