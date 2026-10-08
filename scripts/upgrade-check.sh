@@ -20,7 +20,9 @@
 #      migrations/4.5.0/refresh-token-hash-index.sql,
 #      migrations/4.6.0/event-correlation-metadata.sql,
 #      migrations/4.6.0/sensitivity-by-capability.sql, after which the HR role FROM_VERSION seeded
-#      holds view_sensitive, and migrations/4.6.0/tenant-profile-to-site.sql
+#      holds view_sensitive, migrations/4.6.0/tenant-profile-to-site.sql,
+#      migrations/4.7.0/membership-unique-user-tenant.sql and
+#      migrations/4.7.0/tenant-policy-restore.sql
 #   4. db-assert must PASS on the core host, so those files are exactly what core needs
 #   5. apply the module migrations, migrations/4.2.0/stored-files-parent-index.sql,
 #      migrations/4.2.0/forms-public-forms.sql, migrations/4.5.0/email-sent-emails.sql,
@@ -32,6 +34,8 @@
 #      stored before the upgrade keep none, and the projection daemon resumes from its stored
 #      progression rather than restarting from zero
 #   9. the new build stops, and the rollback files are applied newest first:
+#      migrations/4.7.0/rollback-tenant-policy-restore.sql,
+#      migrations/4.7.0/rollback-membership-unique-user-tenant.sql,
 #      migrations/4.6.0/rollback-forms-email-verification.sql,
 #      migrations/4.6.0/rollback-external-auth-identities.sql,
 #      migrations/4.6.0/rollback-sensitivity-by-capability.sql,
@@ -367,6 +371,18 @@ step "applying migrations/4.6.0/tenant-profile-to-site.sql"
 docker cp migrations/4.6.0/tenant-profile-to-site.sql "$PG:/tmp/tenant-profile.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/tenant-profile.sql >/dev/null
 
+# The unique index on a membership's user and tenant. FROM_VERSION wrote one membership per pair,
+# so the file builds the index rather than refusing, and core db-assert below needs it.
+step "applying migrations/4.7.0/membership-unique-user-tenant.sql"
+docker cp migrations/4.7.0/membership-unique-user-tenant.sql "$PG:/tmp/membership-unique.sql"
+docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/membership-unique.sql >/dev/null
+
+# Tenancy is not enforced at the database here, so this changes nothing. It runs so the file is
+# executed against a database an earlier release wrote.
+step "applying migrations/4.7.0/tenant-policy-restore.sql"
+docker cp migrations/4.7.0/tenant-policy-restore.sql "$PG:/tmp/tenant-policy.sql"
+docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/tenant-policy.sql >/dev/null
+
 step "the migration left the daemon's progression alone"
 PROGRESSION_MIGRATED=$(psql_q "select coalesce(max(last_seq_id), 0) from mt_event_progression where name like '%WorkflowProjection%';")
 [ "$PROGRESSION_MIGRATED" = "$PROGRESSION_BEFORE" ] \
@@ -480,6 +496,12 @@ HOST_PID=""
 # mt_doc_public_forms still there, since only rollback-to-3.x.sql drops that one. The two 4.3.0
 # files touch different objects, so their order between themselves does not matter; both have to
 # run before the older rollbacks.
+step "applying migrations/4.7.0/rollback-tenant-policy-restore.sql"
+docker cp migrations/4.7.0/rollback-tenant-policy-restore.sql "$PG:/tmp/tenant-policy-down.sql"
+docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/tenant-policy-down.sql >/dev/null
+step "applying migrations/4.7.0/rollback-membership-unique-user-tenant.sql"
+docker cp migrations/4.7.0/rollback-membership-unique-user-tenant.sql "$PG:/tmp/membership-unique-down.sql"
+docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/membership-unique-down.sql >/dev/null
 step "applying migrations/4.6.0/rollback-forms-email-verification.sql"
 docker cp migrations/4.6.0/rollback-forms-email-verification.sql "$PG:/tmp/forms-email-verification-down.sql"
 docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/forms-email-verification-down.sql >/dev/null

@@ -69,7 +69,7 @@ internal sealed class Endpoint(
             return;
         }
 
-        var slugField = PublicDelivery.SlugField(definition);
+        var slugField = PublicDelivery.SlugFieldForAuthoring(definition);
         if (slugField is null)
         {
             ThrowError($"'{req.Type}' has no slug field, so a push has nothing to key its entries on.");

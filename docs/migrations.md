@@ -288,6 +288,11 @@ With `Tenancy:DatabaseEnforcement` on, the app connects as a role that is not a 
   This is the same gap the hand route had, written up in the header of
   `migrations/4.2.0/site-share-links.sql`. [tenancy-at-the-database.md](tenancy-at-the-database.md)
   has the queries that show the policy is there.
+- `core/4.7.0/tenant-policy-restore` puts that policy back on those tables, and on
+  `mt_doc_content_type_sourcing_policies`, wherever one lacks it and another table in `public`
+  carries it, copying the policy from that table. It covers a table one of those files created
+  before the app added the policy, and one a hand run of a file took it off again. With no table
+  carrying the policy, which is enforcement off, it changes nothing.
 
 ## What a start does with the ledger
 

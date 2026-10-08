@@ -341,7 +341,7 @@ public class ContentValidatorService(
         Dictionary<string, object> data,
         Guid? entryId)
     {
-        var slugField = barakoCMS.Features.Public.PublicDelivery.SlugField(schema);
+        var slugField = barakoCMS.Features.Public.PublicDelivery.SlugFieldForAuthoring(schema);
         if (slugField is null)
             return null;
 
