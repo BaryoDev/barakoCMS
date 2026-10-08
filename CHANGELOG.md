@@ -28,7 +28,7 @@ policy restore rollbacks change nothing on purpose.
 
 ### Breaking
 
-- **The contracts move to 7, and Pages to 2.** The admin contract (`X-Api-Contract-Version`) and the delivery contract (`X-Delivery-Contract-Version`) move from 6 to 7, and the Pages body `contract` moves from 1 to 2. On the admin side, writes now refuse what they used to accept: an email that is not a bare address, a field sent under two spellings, two content type fields whose names differ only in case, a connector setting whose name looks like a credential, and an update, push, rollback, transition or create that the caller's rule would not grant for the entry as it will be stored. On the delivery side, a slug field that is not Public no longer addresses entries, and a reference to an entry delivery would not serve (a draft, an entry that is not Public, or one that no longer exists) is left out of `data` (a single reference loses its key, a list keeps only the ids that are served). Pages resolve follows the same reference rule. A console or renderer that checks the range needs a release that accepts 7 (and Pages 2) before this API is deployed.
+- **The contracts move to 7, and Pages to 2.** The admin contract (`X-Api-Contract-Version`) and the delivery contract (`X-Delivery-Contract-Version`) move from 6 to 7, and the Pages body `contract` moves from 1 to 2. On the admin side, a retry with a used Idempotency-Key gets the first response back (or a 422 for a different request) instead of a 409, and writes now refuse what they used to accept: an email that is not a bare address, a field sent under two spellings, two content type fields whose names differ only in case, a connector setting whose name looks like a credential, and an update, push, rollback, transition or create that the caller's rule would not grant for the entry as it will be stored. On the delivery side, a slug field that is not Public no longer addresses entries, and a reference to an entry delivery would not serve (a draft, an entry that is not Public, or one that no longer exists) is left out of `data` (a single reference loses its key, a list keeps only the ids that are served). Pages resolve follows the same reference rule. A console or renderer that checks the range needs a release that accepts 7 (and Pages 2) before this API is deployed.
 
 ### Added
 
@@ -62,6 +62,45 @@ policy restore rollbacks change nothing on purpose.
   default, 0 for off). See docs/background-jobs.md.
 
 ### Changed
+
+- **A retry with a used `Idempotency-Key` got a 409 instead of the response it missed.** A client
+  whose connection dropped after the write committed learned that it had succeeded and never learned
+  the id it created. The same request from the same authenticated caller now gets the first
+  response replayed: its status code, `Content-Type`, `Location` and body, plus
+  `Idempotent-Replayed: true`, and the handler does not run again. The same key with a different
+  method, path, query string or body is answered 422. A key whose first request is still running
+  stays a 409. A response over `Idempotency:MaxStoredResponseBytes` (default 65536) is not kept, and
+  a retry of it stays a 409 saying so. Routes that answer with a credential (sign-in, refresh, OTP and
+  MFA verify, tenant switch, MFA setup and enable, API key, preview token and share link create),
+  routes that take a password (register, password change, password set) and share link opening
+  never store or replay a response, store no request hash, and keep the 409; an endpoint opts in
+  with `[NoIdempotentReplay]`. Unauthenticated callers keep deduplication only: the same request
+  again is a 409, a different one under the key is a 422, and no response is stored. Requests are
+  compared by an HMAC, and stored bodies are sealed for their own record, both under keys derived
+  for this use from the stored-secret key material. Only
+  a 2xx is kept; any other status releases the key, which now includes 3xx. An API key is now its own
+  caller, so it no longer shares keys with the user it acts for. This is a status change on every
+  `POST`, `PUT` and `PATCH`, covered by `ApiContract.Version` 7. Keys are honoured for
+  `Idempotency:KeyHours` (default 24, 1 to 720) and are free again after that, checked on the
+  request rather than waiting for the hourly sweep that used to be the only expiry. A deployment
+  that relies on keys lasting longer sets `Idempotency:KeyHours`, up to 720 (30 days). Expired
+  records are deleted by their own hourly sweep, which runs again after a minute and logs a warning
+  when it could not finish. See `docs/idempotency.md`.
+- **A reset socket or one 503 cost a workflow a whole durable attempt.** Outbound calls from the
+  `Webhook` and `Request` actions, and the rest of the outbound HTTP client's calls, are now tried
+  again inside the attempt when the failure is transient (a connection that did not open, 408, 429
+  with its `Retry-After`, 502, 503, 504), with a timeout on each try and a breaker per tenant and
+  host, using Carom. A call that may have reached the server is resent only when the receiver can
+  recognise it (an idempotent method, an `Idempotency-Key`, or a webhook's delivery id). A 429 never
+  counts toward a breaker, so one tenant's quota on a shared host does not refuse calls for the
+  others. An open breaker fails the attempt as retryable and names only the host. Email is not
+  retried inside the attempt; an optional `EmailSendTimeoutSeconds`, off by default, records a send
+  that runs past it as unknown rather than retrying it. Settings are under `Workflows:Outbound`, and
+  the host refuses to start when they let the slowest action take more than 80% of the shortest
+  lease. The outbound client's own timeout is now the retry budget plus 30 seconds, 74 seconds by
+  default, down from 100. This replaces the standard .NET resilience handler on that client, which
+  also retried a 500 and a POST after a timeout, so `Microsoft.Extensions.Http.Resilience` is no
+  longer a dependency. (#703)
 
 - **The upgrade file list is read from `migrations/`.** `scripts/upgrade-check.sh --list` prints a
   `psql` line for each file, core files first, then module files, then the rollback newest first,
