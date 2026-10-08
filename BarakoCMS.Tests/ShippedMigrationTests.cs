@@ -49,6 +49,9 @@ public class ShippedMigrationTests
         ["core/4.6.0/tenant-profile-to-site"] = "5dbaa5114defc5fd920d4fd05864bd454cb72080b75019f950a1ad6f53e1e277",
         ["ExternalAuth/4.6.0/external-auth-identities"] = "b8d8179181f7263374edc337f97e00b92fcd988f25524f148d90c55efda6dc08",
         ["Forms/4.6.0/forms-email-verification"] = "44e209551d9b71301fd29ef8e99cb56f64842cc18f31c724048399924bf1c4c0",
+        ["core/4.7.0/membership-unique-user-tenant"] = "80f9d4e5fab5ab7b8053c47634fde7a3caabf6ed594f466949b4d2bb49e86303",
+        ["core/4.7.0/tenant-policy-restore"] = "79195b3f5af298a2dc7fd457462f220da290046fdd15cb1dcc0988014d8d0758",
+        ["Forms/4.7.0/forms-tenant-policy-restore"] = "fed503d62bd158382f74db7dea413a15f1ccb4ee3df25a9efec469a450e0dae3",
     };
 
     private static IReadOnlyList<ShippedMigration> FirstParty() =>

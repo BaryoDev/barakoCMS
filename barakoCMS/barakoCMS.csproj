@@ -3,7 +3,7 @@
   <PropertyGroup>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageId>BarakoCMS</PackageId>
-    <Version>4.6.0</Version>
+    <Version>4.7.0</Version>
 
     <Description>Headless CMS for .NET 10 on FastEndpoints and Marten over PostgreSQL: content types defined at runtime, event-sourced content, role and capability access control with field sensitivity, multi-tenancy, a public delivery API, blueprints, collection syncs and push, and workflows with 7 built-in actions. Optional modules ship as separate packages.</Description>
     <IsPackable>true</IsPackable>
