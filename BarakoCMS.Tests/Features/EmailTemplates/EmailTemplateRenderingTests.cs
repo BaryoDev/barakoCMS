@@ -75,11 +75,43 @@ public class EmailTemplateRenderingTests
         var html = EmailTemplateRenderer.Markdown("Hello **{{data.Name}}**, see [the site](https://x.example).");
         var entry = new Content { Id = Guid.NewGuid(), ContentType = "signup", Data = new() { ["Name"] = "<script>alert(1)</script>" } };
 
-        var resolved = ActionParameters.Resolve("Email", new Dictionary<string, string> { ["Body"] = html }, entry);
-        var finished = EmailTemplateRenderer.Finish(resolved["Body"]);
+        var (_, finished) = EmailTemplateRenderer.Resolve(new RenderedTemplate("s", html, []), entry, extractor: null);
 
         finished.Should().Be(
             "<p>Hello <strong>&lt;script&gt;alert(1)&lt;/script&gt;</strong>, see <a href=\"https://x.example\">the site</a>.</p>\n");
+    }
+
+    /// <summary>
+    /// Red with values encoded as an inline body encodes them: a form value of <c>{{</c> and a later
+    /// one of <c>}}</c> paired into one placeholder-like run, and the finish encoded the markup
+    /// between them, link and all.
+    /// </summary>
+    [Fact]
+    public void Braces_in_two_values_cannot_pair_up_and_swallow_the_markup_between_them()
+    {
+        var html = EmailTemplateRenderer.Markdown("**{{data.Name}}** wrote [here](https://x.example): {{data.Message}}");
+        var entry = new Content
+        {
+            Id = Guid.NewGuid(),
+            ContentType = "signup",
+            Data = new() { ["Name"] = "{{", ["Message"] = "}}" },
+        };
+
+        var (_, finished) = EmailTemplateRenderer.Resolve(new RenderedTemplate("s", html, []), entry, extractor: null);
+
+        finished.Should().Be(
+            "<p><strong>&#123;&#123;</strong> wrote <a href=\"https://x.example\">here</a>: &#125;&#125;</p>\n");
+    }
+
+    /// <summary>The subject is a header, so its values keep their braces, as an inline subject's do.</summary>
+    [Fact]
+    public void A_subject_value_keeps_its_braces()
+    {
+        var entry = new Content { Id = Guid.NewGuid(), ContentType = "signup", Data = new() { ["Name"] = "{x}" } };
+
+        var (subject, _) = EmailTemplateRenderer.Resolve(new RenderedTemplate("Hi {{data.Name}}", "b", []), entry, extractor: null);
+
+        subject.Should().Be("Hi {x}");
     }
 
     [Fact]

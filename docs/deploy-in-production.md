@@ -446,8 +446,9 @@ exactly as in configuration, case included. A name with a dash or a dot cannot b
 environment variable from a POSIX shell, so keep to letters, digits and underscores if that is how
 you set it.
 
-The core's own names are reserved: `auth`, `telemetry`, `registration`, `site-share`, `logout` and,
-new in this release, `delivery`. They cannot be defined under `Policies`; the sections above set
+The core's own names are reserved: `auth`, `telemetry`, `registration`, `site-share`, `logout`,
+`tls-ask`, `delivery` and `email-preview` (30 email template previews a minute per signed-in user,
+fixed). They cannot be defined under `Policies`; the sections above set
 them. A host or a module that registers its own policy named `delivery` in code stops at startup
 with a message saying to rename it. A name under `Policies` that a module already registers in code
 (`forms`, with the Forms module on) stops the host the same way, naming the setting. Any route

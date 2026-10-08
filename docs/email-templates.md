@@ -46,7 +46,8 @@ Saving the workflow (and `POST /api/workflows/validate`) reads the template and 
 with the field they are in, such as `In the template's Body:`, and a warning when the template does
 not exist or is not published. These are warnings, not refusals, because the template can be
 written or published after the workflow is saved. Only the workflow's own actions are read, not the
-children of a Conditional, and at most 20 distinct templates per save.
+children of a Conditional, and at most 20 distinct templates per save; past that one warning on
+`actions` says the rest were not checked.
 
 ## When a template is sent
 
@@ -56,7 +57,10 @@ not retried, with a message saying why, when:
 - no template of that id or slug exists in the tenant, including one that was erased;
 - the template is a draft, archived or scheduled (`Email template 'welcome' is Draft. Only a published template is sent.`);
 - it names a layout that is missing or not published;
-- its subject or body is empty, or a text is past the 262,144 character cap.
+- its subject or body is empty, or a text is past the 262,144 character cap;
+- the body as HTML in its layout is past that cap. The resolver leaves a text past the cap as
+  written, so this is refused rather than sent with no placeholder filled. The save and the preview
+  report it the same way.
 
 A slug held by more than one template (uniqueness is checked on write, not enforced) names the
 oldest published one.
@@ -67,8 +71,9 @@ oldest published one.
    tag is shown as text. The only markup is what markdown makes and the fixed layout around it.
 2. Every placeholder is kept exactly as written while the markdown renders, so
    `[Open]({{links.site "/bookings"}})` and `_{{data.first_name}}_` work.
-3. The result is resolved by the same engine and with the same encoding as an inline body: every
-   value is HTML encoded, the subject loses its line breaks. References, loops, links and formats
+3. The result is resolved by the same engine as an inline body. Every value in the body is HTML
+   encoded, braces included (`&#123;` and `&#125;`), so two values cannot pair into something that
+   reads as a placeholder. The subject is encoded as an inline subject is: it loses its line breaks. References, loops, links and formats
    all work (see [approval-by-configuration.md](approval-by-configuration.md#placeholders)), and what
    a template names beyond the action's own parameters (an author, a reference) is read too.
 4. A placeholder the engine leaves as written cannot add markup: its quotes and angle brackets are
@@ -124,6 +129,10 @@ nothing. It answers:
   against the whole entry, so a preview can show less than the email, never more.
 - A draft renders, so it can be checked before it is published; `sendable` says whether a workflow
   would send it now. A missing layout or an empty body comes back as `problem` with no `html`.
-- It has its own rate limit, `email-preview`: 30 requests a minute per IP.
+- The layout is read as the caller reads it too. A layout they cannot read comes back as
+  `problem` (`The layout the email template names is not one you can read.`), and its Sensitive
+  fields render empty.
+- It has its own rate limit, `email-preview`: 30 requests a minute per signed-in user, counted
+  after authentication.
 
 There is no test send. A preview never sends.

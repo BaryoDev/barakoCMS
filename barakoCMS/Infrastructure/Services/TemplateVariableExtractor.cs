@@ -134,6 +134,13 @@ public enum TemplateValueEncoding
 
     /// <summary>Line breaks replaced by a space, for a value landing in a header such as a subject.</summary>
     SingleLine,
+
+    /// <summary>
+    /// HTML-encoded with its braces as well, for an email template's body. A value then can never
+    /// pair with another value's braces into something that reads as a placeholder, so whatever
+    /// reads as one afterwards is the author's own text.
+    /// </summary>
+    HtmlAndBraces,
 }
 
 /// <summary>
@@ -687,6 +694,9 @@ public class TemplateVariableExtractor(
     private static string Encode(string value, TemplateValueEncoding encoding) => encoding switch
     {
         TemplateValueEncoding.Html => System.Net.WebUtility.HtmlEncode(value),
+        TemplateValueEncoding.HtmlAndBraces => System.Net.WebUtility.HtmlEncode(value)
+            .Replace("{", "&#123;", StringComparison.Ordinal)
+            .Replace("}", "&#125;", StringComparison.Ordinal),
         TemplateValueEncoding.SingleLine => LineBreaks.Replace(value, " "),
         _ => value,
     };

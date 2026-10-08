@@ -121,8 +121,16 @@ internal static class EmailTemplateRenderer
     /// looks without anybody being told. With no layout named, the tenant's published site entry
     /// gives the name, logo and colours.
     /// </remarks>
+    /// <param name="session">The tenant's session.</param>
+    /// <param name="template">The template, as the caller may read it.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <param name="shownLayout">
+    /// For a caller who is a person: the layout as they may read it, or null when they may not read
+    /// it. Without it the layout is used as stored, which is what a workflow run does.
+    /// </param>
     public static async Task<(RenderedTemplate? Rendered, string? Error)> RenderAsync(
-        IQuerySession session, ContentDoc template, CancellationToken ct)
+        IQuerySession session, ContentDoc template, CancellationToken ct,
+        Func<ContentDoc, CancellationToken, Task<ContentDoc?>>? shownLayout = null)
     {
         var subject = Text(template, "Subject") ?? string.Empty;
         var body = Text(template, "Body") ?? string.Empty;
@@ -146,6 +154,16 @@ internal static class EmailTemplateRenderer
                 || layout.Status != ContentStatus.Published)
             {
                 return (null, "The layout the email template names is missing or not published.");
+            }
+
+            if (shownLayout is not null)
+            {
+                if (await shownLayout(layout, ct) is not { } shown)
+                {
+                    return (null, "The layout the email template names is not one you can read.");
+                }
+
+                layout = shown;
             }
 
             header = Text(layout, "Header");
@@ -187,6 +205,14 @@ internal static class EmailTemplateRenderer
         }
 
         var html = shell.Wrap(Markdown(header), Markdown(body), Markdown(footer));
+
+        // The resolver leaves a text past the cap as written, so a body under the cap that grows
+        // past it as HTML in its layout would go out with no placeholder filled. Refused here.
+        if (html.Length > TemplateExpression.MaxTemplateLength)
+        {
+            return (null, $"The email template's body in its layout is {html.Length} characters long as HTML, and it holds at most {TemplateExpression.MaxTemplateLength}.");
+        }
+
         return (new RenderedTemplate(subject, html, sources), null);
     }
 
@@ -221,13 +247,38 @@ internal static class EmailTemplateRenderer
     }
 
     /// <summary>
+    /// The subject and body a template sends for an entry: the subject resolved as an inline one
+    /// is, the body with its values HTML-encoded, braces included, and then finished.
+    /// </summary>
+    /// <remarks>
+    /// Braces are encoded in the body's values because <see cref="Finish"/> reads every
+    /// <c>{{...}}</c> left in the HTML as the author's text. A value of <c>{{</c> in one field and
+    /// <c>}}</c> in a later one would otherwise pair across the markup between them. Without an
+    /// extractor the placeholders resolve as an unprepared template does.
+    /// </remarks>
+    public static (string Subject, string Body) Resolve(
+        RenderedTemplate rendered, ContentDoc content, ITemplateVariableExtractor? extractor)
+    {
+        var subjectEncoding = barakoCMS.Features.Workflows.ActionParameters.EncodingFor("Email", "Subject");
+
+        var subject = extractor is null
+            ? TemplateVariableExtractor.Resolve(rendered.Subject, content, subjectEncoding)
+            : extractor.ResolveVariables(rendered.Subject, content, subjectEncoding);
+        var body = extractor is null
+            ? TemplateVariableExtractor.Resolve(rendered.Html, content, TemplateValueEncoding.HtmlAndBraces)
+            : extractor.ResolveVariables(rendered.Html, content, TemplateValueEncoding.HtmlAndBraces);
+
+        return (subject, Finish(body));
+    }
+
+    /// <summary>
     /// What a resolved template body is sent as: a placeholder left as written cannot add markup,
     /// and a link or an image points only at http, https or (for a link) mailto.
     /// </summary>
     /// <remarks>
-    /// A value is HTML-encoded when it is substituted, so after the resolve a quote or an angle
-    /// bracket inside <c>{{...}}</c> can only be the author's own text from a placeholder the engine
-    /// left as written. Those are encoded here, which keeps a placeholder in an attribute inside
+    /// A value is HTML-encoded with its braces when it is substituted (<see cref="Resolve"/>), so
+    /// after the resolve every <c>{{...}}</c> is the author's own text from a placeholder the engine
+    /// left as written. Its quotes and angle brackets are encoded here, which keeps a placeholder in an attribute inside
     /// that attribute. An attribute naming any other scheme, or no scheme, is dropped, so the link
     /// shows as its text.
     /// </remarks>

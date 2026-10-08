@@ -256,19 +256,13 @@ internal class EmailAction : IWorkflowAction
             return (string.Empty, string.Empty, error);
         }
 
-        var texts = new Dictionary<string, string> { ["Subject"] = rendered.Subject, ["Body"] = rendered.Html };
-        Dictionary<string, string> resolved;
-        if (_extractor is null)
+        if (_extractor is not null)
         {
-            resolved = ActionParameters.Resolve(Type, texts, content);
-        }
-        else
-        {
-            await _extractor.PrepareMoreAsync(content, texts.Values, ct);
-            resolved = ActionParameters.Resolve(_extractor, Type, texts, content);
+            await _extractor.PrepareMoreAsync(content, [rendered.Subject, rendered.Html], ct);
         }
 
-        return (resolved["Subject"], barakoCMS.Features.EmailTemplates.EmailTemplateRenderer.Finish(resolved["Body"]), null);
+        var (subject, body) = barakoCMS.Features.EmailTemplates.EmailTemplateRenderer.Resolve(rendered, content, _extractor);
+        return (subject, body, null);
     }
 
     // On the tenant's behalf: the run's scope carries the tenant whose workflow this is.

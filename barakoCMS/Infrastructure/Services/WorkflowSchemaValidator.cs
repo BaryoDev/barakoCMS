@@ -376,7 +376,15 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
 
             if (!read.TryGetValue(name.Trim(), out var found))
             {
-                if (read.Count == MaxTemplatesChecked) return;
+                if (read.Count == MaxTemplatesChecked)
+                {
+                    result.Warnings.Add(new ValidationError
+                    {
+                        Field = "actions",
+                        Message = $"More than {MaxTemplatesChecked} email templates are named. Only the first {MaxTemplatesChecked} were checked"
+                    });
+                    return;
+                }
 
                 found = await EmailTemplateRenderer.ForSendingAsync(_session, name, ct);
                 read[name.Trim()] = found;

@@ -142,8 +142,9 @@ internal static class RateLimitSetup
     public static readonly RateLimitWindow TlsAsk = new(60, 60, 0);
 
     /// <summary>
-    /// Fixed, per IP. A preview renders markdown and reads the entry, the template, its layout and
-    /// what the placeholders follow, so it is held under the global limit. It sends nothing.
+    /// Fixed, per signed-in user. A preview renders markdown and reads the entry, the template, its
+    /// layout and what the placeholders follow, so it is held under the global limit. The route is
+    /// authenticated, so the user is the caller, and one office behind one address is not one bucket.
     /// </summary>
     public static readonly RateLimitWindow EmailPreview = new(30, 60, 0);
 
@@ -219,8 +220,8 @@ internal static class RateLimitSetup
         options.AddPolicy(LogoutPolicy, context =>
             RateLimitPartition.GetFixedWindowLimiter($"logout-{ClientIp(context)}", _ => Options(Logout)));
 
-        options.AddPolicy(EmailPreviewPolicy, context =>
-            RateLimitPartition.GetFixedWindowLimiter($"email-preview-{ClientIp(context)}", _ => Options(EmailPreview)));
+        // Counted per user, after authentication, by RateLimitAfterAuthentication.
+        options.AddPolicy(EmailPreviewPolicy, _ => RateLimitPartition.GetNoLimiter(NotCountedHere));
 
         options.AddPolicy(DeliveryPolicy, context => DeliveryPartition(context, settings.Delivery, rendererKeyHash));
 
