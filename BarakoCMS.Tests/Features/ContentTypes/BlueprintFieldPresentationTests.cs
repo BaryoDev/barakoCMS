@@ -238,7 +238,7 @@ public class BlueprintFieldPresentationTests : IDisposable
     {
         var builtIn = (await ListAsync(await AdminInAsync(await TenantAsync()))).Items.Where(i => i.BuiltIn).ToList();
 
-        builtIn.Should().HaveCount(6);
+        builtIn.Should().HaveCount(7);
         builtIn.Should().OnlyContain(i => i.Errors.Count == 0);
 
         using var scope = _factory.Services.CreateScope();

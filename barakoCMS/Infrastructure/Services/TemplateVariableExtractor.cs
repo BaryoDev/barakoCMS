@@ -96,6 +96,26 @@ public interface ITemplateVariableExtractor
         Task.CompletedTask;
 
     /// <summary>
+    /// Reads what more templates name for the entry last prepared, the way that prepare read, so an
+    /// action that finds its text only when it runs (an email naming a stored template) resolves it
+    /// like a parameter. What the earlier resolves noted is kept.
+    /// </summary>
+    /// <remarks>
+    /// Does nothing when the last prepare was for another entry, or when nothing was prepared. The
+    /// default does nothing, for an implementation written before this existed.
+    /// </remarks>
+    Task PrepareMoreAsync(Content content, IEnumerable<string> templates, CancellationToken ct = default) =>
+        Task.CompletedTask;
+
+    /// <summary>
+    /// The same for a preview a signed-in user asked for: references are followed as that user may
+    /// read them, and the author and the transition are sample values, since a preview has no event.
+    /// </summary>
+    /// <remarks>The default prepares a simulation, which follows no reference.</remarks>
+    Task PreparePreviewAsync(Content content, Guid viewer, IEnumerable<string> templates, CancellationToken ct = default) =>
+        PrepareSampleAsync(content, null, templates, ct);
+
+    /// <summary>
     /// What the resolves since the last prepare left out on purpose, for the run to record: a loop
     /// that stopped at its cap, with how many references the field held.
     /// </summary>
@@ -192,9 +212,48 @@ public class TemplateVariableExtractor(
             needs.Author ? await PersonAsync(content.CreatedBy, ct) : null,
             needs.Transition ? await TransitionAsync(content, triggerEvent, eventSequence, ct) : null,
             LinksWith(siteUrl),
-            await ReferencesAsync(content, triggerEvent, eventSequence, TemplateExpression.FollowedFields(list), ct),
+            await ReferencesAsync(
+                content, token => ActorAsync(content, triggerEvent, eventSequence, token), TemplateExpression.FollowedFields(list), ct),
             []);
         _preparedFor = content.Id;
+        Remember(list, (more, token) => PrepareAsync(content, triggerEvent, eventSequence, more, token));
+    }
+
+    private IReadOnlyCollection<string> _preparedTemplates = [];
+    private Func<IReadOnlyCollection<string>, CancellationToken, Task>? _prepareAgain;
+
+    private void Remember(IReadOnlyCollection<string> templates, Func<IReadOnlyCollection<string>, CancellationToken, Task> again)
+    {
+        _preparedTemplates = [.. templates];
+        _prepareAgain = again;
+    }
+
+    public async Task PrepareMoreAsync(Content content, IEnumerable<string> templates, CancellationToken ct = default)
+    {
+        if (_prepareAgain is not { } again || content is null || content.Id != _preparedFor) return;
+
+        var notes = _prepared.Notes;
+        await again([.. _preparedTemplates, .. templates], ct);
+        if (notes is not null) _prepared = _prepared with { Notes = notes };
+    }
+
+    public async Task PreparePreviewAsync(Content content, Guid viewer, IEnumerable<string> templates, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(content, nameof(content));
+
+        var list = templates as IReadOnlyCollection<string> ?? templates.ToList();
+        var (zone, currency, siteUrl) = TemplateExpression.Needs(list).Site ? await SiteSettingsAsync(ct) : NoSiteSettings;
+
+        _prepared = new TemplateContext(
+            zone,
+            currency,
+            TemplatePerson.Sample,
+            null,
+            LinksWith(siteUrl),
+            await ReferencesAsync(content, _ => Task.FromResult(viewer), TemplateExpression.FollowedFields(list), ct),
+            []);
+        _preparedFor = content.Id;
+        Remember(list, (more, token) => PreparePreviewAsync(content, viewer, more, token));
     }
 
     /// <remarks>A simulation follows no reference: it has no user to read them as.</remarks>
@@ -203,7 +262,8 @@ public class TemplateVariableExtractor(
     {
         ArgumentNullException.ThrowIfNull(content, nameof(content));
 
-        var (zone, currency, siteUrl) = TemplateExpression.Needs(templates).Site ? await SiteSettingsAsync(ct) : NoSiteSettings;
+        var list = templates as IReadOnlyCollection<string> ?? templates.ToList();
+        var (zone, currency, siteUrl) = TemplateExpression.Needs(list).Site ? await SiteSettingsAsync(ct) : NoSiteSettings;
         var transition = triggerEvent is null ? null : WorkflowEvents.TransitionName(triggerEvent);
 
         _prepared = new TemplateContext(
@@ -215,6 +275,7 @@ public class TemplateVariableExtractor(
             References: null,
             []);
         _preparedFor = content.Id;
+        Remember(list, (more, token) => PrepareSampleAsync(content, triggerEvent, more, token));
     }
 
     public IReadOnlyList<string> Notes => _prepared.Notes ?? [];
@@ -439,7 +500,7 @@ public class TemplateVariableExtractor(
     /// one showing its last four characters, is not a value this user sees.
     /// </remarks>
     private async Task<IReadOnlyDictionary<string, TemplateFollowed>?> ReferencesAsync(
-        Content content, string? triggerEvent, long eventSequence, HashSet<string> named, CancellationToken ct)
+        Content content, Func<CancellationToken, Task<Guid>> actor, HashSet<string> named, CancellationToken ct)
     {
         if (named.Count == 0 || permissions is null || sensitivity is null || content.Data is null) return null;
 
@@ -465,7 +526,7 @@ public class TemplateVariableExtractor(
 
         var readable = await ReadableAsync(
             idsOf.Values.SelectMany(v => v.Ids).Distinct().ToArray(),
-            await ActorAsync(content, triggerEvent, eventSequence, ct),
+            await actor(ct),
             ct);
 
         foreach (var field in fields)

@@ -1,0 +1,36 @@
+{
+  "name": "email",
+  "description": "Email templates and layouts as content, so a workflow's Email action can name a template and an editor can reword it without opening the workflow. See docs/email-templates.md.",
+  "contentTypes": [
+    {
+      "name": "email-template",
+      "displayName": "Email template",
+      "description": "A subject and a markdown body with placeholders. A workflow sends it only while it is published.",
+      "isPubliclyDeliverable": false,
+      "fields": [
+        { "name": "Name", "displayName": "Name", "type": "string", "isRequired": true },
+        { "name": "Slug", "displayName": "Slug", "type": "slug", "isRequired": true },
+        { "name": "Subject", "displayName": "Subject", "type": "string", "isRequired": true, "validationRules": { "maxLength": 262144 } },
+        { "name": "Body", "displayName": "Body", "type": "markdown", "isRequired": true, "validationRules": { "maxLength": 262144 } },
+        { "name": "Layout", "displayName": "Layout", "type": "reference", "referenceType": "email-layout" },
+        { "name": "Locale", "displayName": "Locale", "type": "string" }
+      ]
+    },
+    {
+      "name": "email-layout",
+      "displayName": "Email layout",
+      "description": "The header, footer, logo and colours wrapped around a template's body.",
+      "isPubliclyDeliverable": false,
+      "fields": [
+        { "name": "Name", "displayName": "Name", "type": "string", "isRequired": true },
+        { "name": "Header", "displayName": "Header", "type": "markdown", "validationRules": { "maxLength": 262144 } },
+        { "name": "Footer", "displayName": "Footer", "type": "markdown", "validationRules": { "maxLength": 262144 } },
+        { "name": "Logo", "displayName": "Logo", "type": "url" },
+        { "name": "LogoAlt", "displayName": "Logo alt text", "type": "string" },
+        { "name": "Background", "displayName": "Background colour", "type": "string" },
+        { "name": "Text", "displayName": "Text colour", "type": "string" },
+        { "name": "Accent", "displayName": "Link colour", "type": "string" }
+      ]
+    }
+  ]
+}

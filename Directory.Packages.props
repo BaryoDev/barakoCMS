@@ -73,6 +73,9 @@
     <!-- MailKit rather than System.Net.Mail.SmtpClient, which Microsoft's own docs tell you not to
          use for new code. Brings MimeKit with it. -->
     <PackageVersion Include="MailKit" Version="4.18.1" />
+    <!-- Email template bodies are markdown. Markdig is BSD-2-Clause with no dependencies on
+         net10.0, and the pipeline it is used with turns raw HTML off. -->
+    <PackageVersion Include="Markdig" Version="1.4.0" />
   </ItemGroup>
 
   <ItemGroup Label="Infrastructure">
