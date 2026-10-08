@@ -5,9 +5,9 @@ namespace barakoCMS.Infrastructure.Services;
 
 /// <summary>
 /// Background service that periodically cleans up expired tokens.
-/// Removes expired RefreshTokens, RevokedTokens, OtpCodes, unconfirmed PendingRegistrations and old
-/// IdempotencyRecords to prevent
-/// unbounded database growth.
+/// Removes expired RefreshTokens, RevokedTokens, OtpCodes and unconfirmed PendingRegistrations to
+/// prevent unbounded database growth. Idempotency records have their own window and their own
+/// sweep, <see cref="IdempotencyRetentionService"/>.
 /// </summary>
 public class TokenCleanupService(
     IServiceProvider serviceProvider,
@@ -58,11 +58,9 @@ public class TokenCleanupService(
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
 
         var now = DateTime.UtcNow;
-        var idempotencyCutoff = now.AddHours(-24);
 
         session.DeleteWhere<RefreshToken>(t => t.ExpiresAt < now);
         session.DeleteWhere<RevokedToken>(t => t.ExpiresAt < now);
-        session.DeleteWhere<IdempotencyRecord>(r => r.CreatedAt < idempotencyCutoff);
 
         // Expired sign-in codes were never deleted by anything. OtpService only marks outstanding
         // codes Consumed when a new one is issued, so every OTP request left a permanent row and the
@@ -77,6 +75,6 @@ public class TokenCleanupService(
 
         await session.SaveChangesAsync(ct);
 
-        logger.LogInformation("Token cleanup swept expired refresh tokens, revoked tokens, OTP codes, unconfirmed registrations and idempotency records older than {Cutoff}", idempotencyCutoff);
+        logger.LogInformation("Token cleanup swept expired refresh tokens, revoked tokens, OTP codes, and unconfirmed registrations");
     }
 }

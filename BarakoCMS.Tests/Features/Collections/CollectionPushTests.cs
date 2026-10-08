@@ -339,24 +339,32 @@ public class CollectionPushTests
     }
 
     [Fact]
-    public async Task A_repeated_idempotency_key_is_answered_409()
+    public async Task A_repeated_idempotency_key_replays_the_first_answer()
     {
         var type = await ArrangeTypeAsync();
         var client = await AdminAsync();
         var key = Guid.NewGuid().ToString("n");
 
-        async Task<HttpStatusCode> SendAsync()
+        async Task<HttpResponseMessage> SendAsync()
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/collections/{type}/push")
             {
                 Content = JsonContent.Create(new { entries = new[] { Entry("a", "A") } }),
             };
             request.Headers.Add("Idempotency-Key", key);
-            return (await client.SendAsync(request, TestContext.Current.CancellationToken)).StatusCode;
+            return await client.SendAsync(request, TestContext.Current.CancellationToken);
         }
 
-        (await SendAsync()).Should().Be(HttpStatusCode.OK);
-        (await SendAsync()).Should().Be(HttpStatusCode.Conflict);
+        var first = await SendAsync();
+        first.StatusCode.Should().Be(HttpStatusCode.OK);
+        var firstBody = await first.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+
+        var replay = await SendAsync();
+        replay.StatusCode.Should().Be(HttpStatusCode.OK);
+        replay.Headers.TryGetValues("Idempotent-Replayed", out var replayed).Should().BeTrue();
+        replayed.Should().ContainSingle().Which.Should().Be("true");
+        (await replay.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).Should().Be(firstBody);
+
         (await EntriesAsync(type)).Should().ContainSingle();
     }
 

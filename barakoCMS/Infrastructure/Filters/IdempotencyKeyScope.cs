@@ -7,7 +7,7 @@ namespace barakoCMS.Infrastructure.Filters;
 /// <summary>
 /// Builds the stored key for an idempotent request from the client's raw Idempotency-Key.
 ///
-/// The raw key is namespaced by tenant and user so it is unique <em>to the caller</em>, not
+/// The raw key is namespaced by tenant and caller so it is unique <em>to the caller</em>, not
 /// globally. Without this, tenant B reusing a key tenant A already used gets a spurious 409, and one
 /// user could probe another's key space.
 /// </summary>
@@ -21,14 +21,18 @@ internal static class IdempotencyKeyScope
     {
         var tenant = http.RequestServices.GetService<TenantContext>()?.Slug ?? Models.Tenant.DefaultSlug;
 
-        // Prefer the stable user id; fall back to the username, then to "anon" for unauthenticated
-        // POSTs (rare, but the header is still honoured).
+        // An API key is its own caller, apart from the user it acts for, so a key and that user's
+        // own session never answer each other's replays. Otherwise the stable user id, then the
+        // username, then "anon" for an unauthenticated POST (rare, but the header is still honoured).
         var user = http.User;
-        var userId = user?.FindFirst("UserId")?.Value
-                     ?? user?.FindFirst(ClaimTypes.NameIdentifier)?.Value
-                     ?? user?.FindFirst("Username")?.Value
-                     ?? "anon";
+        var apiKeyId = user?.FindFirst("apikey_id")?.Value;
+        var caller = apiKeyId is not null
+            ? "apikey:" + apiKeyId
+            : user?.FindFirst("UserId")?.Value
+              ?? user?.FindFirst(ClaimTypes.NameIdentifier)?.Value
+              ?? user?.FindFirst("Username")?.Value
+              ?? "anon";
 
-        return string.Join(Sep, tenant, userId, rawKey);
+        return string.Join(Sep, tenant, caller, rawKey);
     }
 }

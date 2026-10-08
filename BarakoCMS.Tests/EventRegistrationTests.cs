@@ -129,10 +129,12 @@ public class EventRegistrationTests
         idempResp1.EnsureSuccessStatusCode();
         _output.WriteLine("[TEST] Idempotency 1 Success");
 
-        // Second request with same idempotency key should be rejected with 409 Conflict
+        // The same request with the same key is answered with the first response, not run again.
         var idempResp2 = await _client.PostAsJsonAsync("/api/contents", registerReq);
-        idempResp2.StatusCode.Should().Be(HttpStatusCode.Conflict);
-        _output.WriteLine("[TEST] Idempotency 2 Correctly Rejected (409 Conflict)");
+        idempResp2.StatusCode.Should().Be(idempResp1.StatusCode);
+        idempResp2.Headers.Contains("Idempotent-Replayed").Should().BeTrue();
+        (await idempResp2.Content.ReadAsStringAsync()).Should().Be(await idempResp1.Content.ReadAsStringAsync());
+        _output.WriteLine("[TEST] Idempotency 2 Replayed");
 
         _client.DefaultRequestHeaders.Remove("Idempotency-Key");
 
