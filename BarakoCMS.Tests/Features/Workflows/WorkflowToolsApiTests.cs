@@ -108,7 +108,7 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         byType["UpdateField"].OptionalParameters.Should().Equal("TargetId");
         byType["Conditional"].OptionalParameters.Should().Equal("ElseActions");
 
-        byType["Email"].OptionalParameters.Should().Equal("Attachments");
+        byType["Email"].OptionalParameters.Should().Equal("Attachments", "Template");
 
         foreach (var type in new[] { "SMS", "Request" })
         {
@@ -354,10 +354,11 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         response.IsSuccessStatusCode.Should().BeTrue();
         var result = await response.Content.ReadFromJsonAsync<TemplateVariableCollection>();
         result.Should().NotBeNull();
-        result!.SystemVariables.Should().HaveCount(11);
+        result!.SystemVariables.Should().HaveCount(15);
         result.SystemVariables.Should().Contain(v => v.Name == "{{id}}");
         result.SystemVariables.Should().Contain(v => v.Name == "{{contentType}}");
         result.SystemVariables.Should().Contain(v => v.Name == "{{status}}");
+        result.SystemVariables.Should().Contain(v => v.Name == "{{links.console}}");
         result.SystemVariables.Should().Contain(v => v.Name == "{{createdBy.email}}");
         result.SystemVariables.Should().Contain(v => v.Name == "{{transition.by.name}}");
         result.Formats.Should().HaveCount(6);
