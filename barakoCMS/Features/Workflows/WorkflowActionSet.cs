@@ -1,0 +1,128 @@
+using Microsoft.Extensions.DependencyInjection;
+
+namespace barakoCMS.Features.Workflows;
+
+/// <summary>
+/// The <see cref="IWorkflowAction"/> registrations, kept so an action can be built on its own when
+/// building them all together fails.
+/// </summary>
+/// <remarks>
+/// Holds the service collection and reads it on first use, after the host is built, so an action a
+/// module or the host registers after the core is included.
+/// </remarks>
+internal sealed class WorkflowActionRegistrations(IServiceCollection services)
+{
+    private readonly Lazy<ServiceDescriptor[]> _descriptors = new(() =>
+        services.Where(d => d.ServiceType == typeof(IWorkflowAction) && !d.IsKeyedService).ToArray());
+
+    public IReadOnlyList<ServiceDescriptor> Descriptors => _descriptors.Value;
+}
+
+/// <summary>
+/// The workflow actions one scope can run, built so that one action whose constructor throws costs
+/// only the steps that use it (#1111).
+/// </summary>
+/// <remarks>
+/// <para>
+/// Resolving <c>IEnumerable&lt;IWorkflowAction&gt;</c> builds every registered action, and one that
+/// throws fails the whole resolution, so every step of every run failed with it. The container is
+/// asked first, as before, so a healthy host gets the scope's own instances and their disposal.
+/// Only when that throws is each registration built on its own, and the ones that throw are left out
+/// and named in <see cref="BuildFailures"/>.
+/// </para>
+/// <para>
+/// Only the exception's type is logged, never its message, which is whatever a module's constructor
+/// put there and can be a setting or a connection detail. The describe endpoint logs it the same way.
+/// </para>
+/// </remarks>
+internal sealed class WorkflowActionSet : IAsyncDisposable
+{
+    private readonly List<object> _owned;
+
+    private WorkflowActionSet(IReadOnlyList<IWorkflowAction>? actions, IReadOnlyList<string> buildFailures, List<object> owned)
+    {
+        Actions = actions;
+        BuildFailures = buildFailures;
+        _owned = owned;
+    }
+
+    /// <summary>The actions that could be built, or null when none are registered at all.</summary>
+    public IReadOnlyList<IWorkflowAction>? Actions { get; }
+
+    /// <summary>Each registration that could not be built, as its class and the exception type.</summary>
+    public IReadOnlyList<string> BuildFailures { get; }
+
+    public IWorkflowAction? Find(string type) => Actions?.FirstOrDefault(a => a.Type == type);
+
+    /// <summary>
+    /// The error for a step whose action type is not among the built actions while some could not be
+    /// built, since the missing one may be among them. Null when every action was built.
+    /// </summary>
+    public string? NotBuiltError(string type) =>
+        BuildFailures.Count == 0
+            ? null
+            : $"No action of type '{type}' could be found, and {BuildFailures.Count} registered action(s) could not be built: "
+            + string.Join(", ", BuildFailures) + ".";
+
+    public static WorkflowActionSet Build(IServiceProvider provider, ILogger logger)
+    {
+        try
+        {
+            var all = provider.GetService<IEnumerable<IWorkflowAction>>();
+            return new WorkflowActionSet(all?.ToList(), [], []);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(
+                "Building the workflow actions together failed with {ExceptionType}, so each is built on its own",
+                ex.GetType().Name);
+        }
+
+        if (provider.GetService<WorkflowActionRegistrations>() is not { } registrations)
+            return new WorkflowActionSet([], ["the action registry (not available)"], []);
+
+        var built = new List<IWorkflowAction>();
+        var failures = new List<string>();
+        var owned = new List<object>();
+
+        foreach (var descriptor in registrations.Descriptors)
+        {
+            try
+            {
+                if (descriptor.ImplementationInstance is IWorkflowAction instance)
+                {
+                    built.Add(instance);
+                    continue;
+                }
+
+                var action = (IWorkflowAction)(descriptor.ImplementationFactory is { } factory
+                    ? factory(provider)
+                    : ActivatorUtilities.CreateInstance(provider, descriptor.ImplementationType!));
+                owned.Add(action);
+                built.Add(action);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                var name = descriptor.ImplementationType?.Name ?? "a factory registration";
+                var cause = (ex as System.Reflection.TargetInvocationException)?.InnerException ?? ex;
+                logger.LogError(
+                    "Workflow action {Implementation} could not be built: {ExceptionType}. Steps that use it fail until it can be.",
+                    name, cause.GetType().Name);
+                failures.Add($"{name} ({cause.GetType().Name})");
+            }
+        }
+
+        return new WorkflowActionSet(built, failures, owned);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        foreach (var item in _owned)
+        {
+            if (item is IAsyncDisposable asyncDisposable)
+                await asyncDisposable.DisposeAsync();
+            else if (item is IDisposable disposable)
+                disposable.Dispose();
+        }
+    }
+}
