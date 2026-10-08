@@ -34,6 +34,10 @@ internal static class CredentialNames
     [
         "secret", "password", "passwd", "pwd", "token", "apikey", "api_key",
         "credential", "privatekey", "private_key", "accesskey", "access_key",
+
+        // What an HTTP header carrying a credential is called, and the scheme it is sent under.
+        // Not "auth" alone, which would also match "author".
+        "authorization", "bearer",
     ];
 
     public static bool IsCredential(string? name)
