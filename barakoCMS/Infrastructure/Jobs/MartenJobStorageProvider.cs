@@ -55,6 +55,7 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
     internal JobMetrics Metrics { get; init; } = JobMetrics.Default;
 
     private long _measuredAt;
+    private int _measuring;
 
     public MartenJobStorageProvider(
         IDocumentStore store, IHttpContextAccessor http, JobOptions options,
@@ -202,16 +203,22 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
             claimed.Add(fresh);
         }
 
-        await MeasureWhenDueAsync(ct);
+        StartMeasureWhenDue(ct);
 
         return claimed;
     }
 
     /// <summary>
-    /// Counts the queue for the gauges, at most once every <see cref="JobOptions.MetricsIntervalSeconds"/>
-    /// across every queue's poll on this node, and never from a scrape.
+    /// Starts a count of the queue for the gauges, at most once every
+    /// <see cref="JobOptions.MetricsIntervalSeconds"/> across every queue's poll on this node, and
+    /// never from a scrape.
     /// </summary>
-    private async Task MeasureWhenDueAsync(CancellationToken ct)
+    /// <remarks>
+    /// Not awaited. The jobs just claimed are leased from now, so the count must not hold them back,
+    /// and it can take up to <see cref="MeasureBudget"/>. One count runs at a time; the token is the
+    /// poll's, so a stopping worker ends it.
+    /// </remarks>
+    private void StartMeasureWhenDue(CancellationToken ct)
     {
         if (_options.MetricsIntervalSeconds <= 0) return;
 
@@ -220,8 +227,19 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
         if (last != 0 && System.Diagnostics.Stopwatch.GetElapsedTime(last, now) < TimeSpan.FromSeconds(_options.MetricsIntervalSeconds))
             return;
         if (Interlocked.CompareExchange(ref _measuredAt, now, last) != last) return;
+        if (Interlocked.Exchange(ref _measuring, 1) == 1) return;
 
-        await MeasureAsync(ct);
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await MeasureAsync(ct);
+            }
+            finally
+            {
+                Volatile.Write(ref _measuring, 0);
+            }
+        }, CancellationToken.None);
     }
 
     /// <summary>

@@ -18,7 +18,9 @@ public sealed class JobOptions
     public const int DefaultBackoffMaxSeconds = 3600;
     public const int DefaultStorageProbeSeconds = 60;
     public const int DefaultLeaseSeconds = 600;
-    public const int DefaultDeadLetterRetentionDays = 90;
+    public const int DefaultDeadLetterRetentionDays = 0;
+    public const int RecommendedDeadLetterRetentionDays = 90;
+    public const int MaxDeadLetterRetentionDays = 3650;
     public const int DefaultMetricsIntervalSeconds = 30;
     public const int MaxMetricsIntervalSeconds = 3600;
 
@@ -50,13 +52,13 @@ public sealed class JobOptions
     public int LeaseSeconds { get; init; } = DefaultLeaseSeconds;
 
     /// <summary>
-    /// How long a dead-lettered or cancelled job is kept after it gave up. Zero or less keeps it
-    /// forever, which is what happened before the setting existed.
+    /// How long a dead-lettered or cancelled job is kept after it gave up. Zero or less, the default,
+    /// keeps it forever, which is what happened before the setting existed.
     /// </summary>
     /// <remarks>
-    /// Ninety days, the window a failed workflow run is kept for. A dead letter is there for an
-    /// operator to read, and a quarter is long enough to notice one and act on it, while the table no
-    /// longer grows without bound once email and webhooks are jobs.
+    /// Off by default so no deployment loses rows it kept before. <see cref="RecommendedDeadLetterRetentionDays"/>
+    /// is the window a failed workflow run is kept for: a quarter is long enough to notice a dead
+    /// letter and act on it, and the table stops growing without bound once email and webhooks are jobs.
     /// </remarks>
     public int DeadLetterRetentionDays { get; init; } = DefaultDeadLetterRetentionDays;
 
@@ -89,6 +91,9 @@ public sealed class JobOptions
             throw new InvalidOperationException($"{StorageProbeSecondsKey} must be at least 1.");
         if (LeaseSeconds < 1)
             throw new InvalidOperationException($"{LeaseSecondsKey} must be at least 1.");
+        if (DeadLetterRetentionDays > MaxDeadLetterRetentionDays)
+            throw new InvalidOperationException(
+                $"{DeadLetterRetentionDaysKey} must be at most {MaxDeadLetterRetentionDays}; 0 or less keeps dead letters forever.");
         if (MetricsIntervalSeconds is < 0 or > MaxMetricsIntervalSeconds)
             throw new InvalidOperationException(
                 $"{MetricsIntervalSecondsKey} must be between 0 and {MaxMetricsIntervalSeconds}; 0 switches the queue count off.");
