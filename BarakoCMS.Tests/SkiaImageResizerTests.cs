@@ -44,6 +44,29 @@ public class SkiaImageResizerTests
         resized.Should().BeNull("the original is served instead of a copy at the same or a larger size");
     }
 
+    [Theory]
+    [InlineData(SKWebpEncoderCompression.Lossless, true)]
+    [InlineData(SKWebpEncoderCompression.Lossy, false)]
+    public async Task A_webp_variant_keeps_the_compression_of_its_original(SKWebpEncoderCompression compression, bool lossless)
+    {
+        var original = WebpOf(FileSamples.Noise(400, 300), compression);
+        SkiaImageResizer.IsLosslessWebp(original).Should().Be(lossless, "the fixture has to be what the test says it is");
+
+        var resized = await Resizer().ResizeAsync(original, 100, TestContext.Current.CancellationToken);
+
+        resized.Should().NotBeNull();
+        FileSamples.Identify(resized!).Should().Be((100, 75, SKEncodedImageFormat.Webp));
+        SkiaImageResizer.IsLosslessWebp(resized!).Should().Be(lossless);
+    }
+
+    [Fact]
+    public void A_webp_whose_chunk_sizes_run_past_the_end_reads_as_lossy()
+    {
+        byte[] truncated = [.. "RIFF"u8, 0xFF, 0xFF, 0xFF, 0xFF, .. "WEBP"u8, .. "VP8X"u8, 0xFF, 0xFF, 0xFF, 0x7F, 0x00];
+
+        SkiaImageResizer.IsLosslessWebp(truncated).Should().BeFalse();
+    }
+
     [Fact]
     public async Task A_large_reduction_still_produces_the_requested_width()
     {
@@ -89,6 +112,15 @@ public class SkiaImageResizerTests
         var resized = await Resizer().ResizeAsync(FileSamples.Png(1, 2, 3, 4), 100, TestContext.Current.CancellationToken);
 
         resized.Should().BeNull();
+    }
+
+    private static byte[] WebpOf(byte[] png, SKWebpEncoderCompression compression)
+    {
+        using var bitmap = SKBitmap.Decode(png);
+        using var pixmap = bitmap.PeekPixels();
+        using var data = pixmap.Encode(new SKWebpEncoderOptions(compression, 75))
+            ?? throw new InvalidOperationException("Skia could not encode WebP");
+        return data.ToArray();
     }
 
     private static SKEncodedOrigin OriginOf(byte[] bytes)

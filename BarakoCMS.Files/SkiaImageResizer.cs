@@ -28,6 +28,14 @@ public sealed class SkiaImageResizer : IImageResizer
     /// </remarks>
     private static readonly string[] Resizable = ["image/png", "image/jpeg", "image/webp"];
 
+    /// <summary>
+    /// The quality JPEG and lossy WebP variants are written at.
+    /// </summary>
+    /// <remarks>
+    /// Fixed rather than read from the source. Estimating a JPEG's quality means parsing its
+    /// quantisation tables and matching them against the IJG scale, which is guesswork for any
+    /// encoder that did not use those tables, and a variant is a smaller copy for display.
+    /// </remarks>
     private const int LossyQuality = 75;
 
     private readonly ImageVariantOptions _options;
@@ -108,13 +116,14 @@ public sealed class SkiaImageResizer : IImageResizer
                 return null;
             }
 
-            if (Output(codec.EncodedFormat) is not { } output)
+            if (Output(codec.EncodedFormat, source) is not { } output)
             {
                 return null;
             }
 
             // Skia decodes only the first frame, so a resized animated WebP would come back as a
-            // still. The original keeps its animation, so serve that.
+            // still. The original keeps its animation, so serve that. The pixel limit above has
+            // already run on it, and serving the original decodes nothing.
             if (codec.FrameCount > 1)
             {
                 return null;
@@ -156,8 +165,15 @@ public sealed class SkiaImageResizer : IImageResizer
                 }
 
                 using var oriented = Orient(resized, codec.EncodedOrigin);
-                using var image = SKImage.FromBitmap(oriented ?? resized);
-                using var encoded = image.Encode(output.Format, output.Quality);
+                using var pixmap = (oriented ?? resized).PeekPixels();
+                using var encoded = output switch
+                {
+                    Variant.Png => pixmap.Encode(SKPngEncoderOptions.Default),
+                    Variant.Jpeg => pixmap.Encode(new SKJpegEncoderOptions(LossyQuality)),
+                    Variant.LossyWebp => pixmap.Encode(new SKWebpEncoderOptions(SKWebpEncoderCompression.Lossy, LossyQuality)),
+                    Variant.LosslessWebp => pixmap.Encode(new SKWebpEncoderOptions(SKWebpEncoderCompression.Lossless, LossyQuality)),
+                    _ => null,
+                };
 
                 return encoded?.ToArray();
             }
@@ -181,14 +197,61 @@ public sealed class SkiaImageResizer : IImageResizer
         }
     }
 
-    /// <summary>The variant is written in the format the original was, so a PNG stays a PNG.</summary>
-    private static (SKEncodedImageFormat Format, int Quality)? Output(SKEncodedImageFormat decoded) => decoded switch
+    private enum Variant
     {
-        SKEncodedImageFormat.Png => (SKEncodedImageFormat.Png, 100),
-        SKEncodedImageFormat.Jpeg => (SKEncodedImageFormat.Jpeg, LossyQuality),
-        SKEncodedImageFormat.Webp => (SKEncodedImageFormat.Webp, LossyQuality),
+        Png,
+        Jpeg,
+        LossyWebp,
+        LosslessWebp,
+    }
+
+    /// <summary>
+    /// The variant is written the way the original was: a PNG stays a PNG, and a lossless WebP stays
+    /// lossless rather than picking up compression artefacts its owner chose to avoid.
+    /// </summary>
+    private static Variant? Output(SKEncodedImageFormat decoded, byte[] source) => decoded switch
+    {
+        SKEncodedImageFormat.Png => Variant.Png,
+        SKEncodedImageFormat.Jpeg => Variant.Jpeg,
+        SKEncodedImageFormat.Webp => IsLosslessWebp(source) ? Variant.LosslessWebp : Variant.LossyWebp,
         _ => null,
     };
+
+    /// <summary>
+    /// Whether the first image chunk in a WebP file is <c>VP8L</c> (lossless) rather than <c>VP8 </c>.
+    /// </summary>
+    /// <remarks>
+    /// Walks the RIFF chunks from the header, skipping <c>VP8X</c>, <c>ICCP</c>, <c>ANIM</c> and the
+    /// rest by their declared size, and stops at the end of the buffer, so a lying size ends the walk
+    /// rather than reading past it. Anything it cannot read is treated as lossy, the encoder's default.
+    /// </remarks>
+    internal static bool IsLosslessWebp(ReadOnlySpan<byte> file)
+    {
+        if (file.Length < 12 || !file[..4].SequenceEqual("RIFF"u8) || !file[8..12].SequenceEqual("WEBP"u8))
+        {
+            return false;
+        }
+
+        var at = 12L;
+        while (at + 8 <= file.Length)
+        {
+            var fourCc = file.Slice((int)at, 4);
+            if (fourCc.SequenceEqual("VP8L"u8))
+            {
+                return true;
+            }
+
+            if (fourCc.SequenceEqual("VP8 "u8))
+            {
+                return false;
+            }
+
+            var size = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(file.Slice((int)at + 4, 4));
+            at += 8 + size + (size & 1);
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// Halves with a linear filter while the image is at least twice the target, then finishes with
