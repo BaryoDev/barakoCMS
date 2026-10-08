@@ -828,7 +828,15 @@ public static class ServiceCollectionExtensions
             .SingleTenanted() // maps global users to tenants — necessarily cross-tenant
             .DocumentAlias("memberships")
             .Index(x => x.UserId)
-            .Index(x => x.TenantSlug);
+            .Index(x => x.TenantSlug)
+            // One row per person per tenant. Two rows made the roles a member holds depend on which
+            // one a read found first. migrations/4.7.0/membership-unique-user-tenant.sql adds it to
+            // an existing database, under this name.
+            .Index(x => new { x.UserId, x.TenantSlug }, idx =>
+            {
+                idx.IsUnique = true;
+                idx.Name = MembershipUniqueIndex;
+            });
     }
 
     private static void AddMartenStore(
@@ -2114,6 +2122,9 @@ public static class ServiceCollectionExtensions
 
     /// <summary>Root key under which every module's own settings live.</summary>
     internal const string ModulesConfigurationSection = "Modules";
+
+    /// <summary>The unique index on a membership's user and tenant, named as the 4.7.0 migration creates it.</summary>
+    internal const string MembershipUniqueIndex = "mt_doc_memberships_uidx_user_id_tenant_slug";
 
     /// <summary>
     /// Whether a module actually implements the deprecated hook, rather than inheriting the

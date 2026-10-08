@@ -430,10 +430,36 @@ internal sealed class AddMemberEndpoint(
                 req.Profile is not null || returning ? Members.CopyOf(req.Profile) : null, details, ct);
         }
 
-        await session.SaveChangesAsync(ct);
+        try
+        {
+            await session.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (IsUniqueViolation(ex))
+        {
+            // Two requests adding the same person at once both read no membership, and the unique
+            // index on user and tenant refused the second. The same goes for two invites of one new
+            // address and the unique email. Nothing from this request was stored.
+            ThrowError(ConcurrentAdd, 409);
+        }
+
         permissions.InvalidateUserPermissions(user.Id);
 
         await Send.OkAsync(Members.ToResponse(membership, user), ct);
+    }
+
+    internal const string ConcurrentAdd =
+        "Another request added this person to the tenant at the same time. Read the member list and try again if needed.";
+
+    /// <summary>A Postgres unique violation (SQLSTATE 23505), at whatever depth Marten wrapped it.</summary>
+    private static bool IsUniqueViolation(Exception? ex)
+    {
+        for (var current = ex; current is not null; current = current.InnerException)
+        {
+            if (current is Npgsql.PostgresException { SqlState: "23505" })
+                return true;
+        }
+
+        return false;
     }
 
     /// <summary>
