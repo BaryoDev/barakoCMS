@@ -78,6 +78,15 @@ status code each one answers.
 { "Read": { "Enabled": true, "Conditions": { "memberId": { "_eq": "$CURRENT_USER" } } } }
 ```
 
+A write is checked against the entry before and after it. An update, a collection push, a
+rollback and a transition carrying values need the granting rule to hold for the stored entry and
+for the entry as it will be stored. A create needs a Create rule to hold for the entry as it will
+be stored, with the caller as its creator, after sensitivity, validation and lifecycle hooks have
+run. So a rule limited to `Branch` `A` cannot create an entry in `B`, or move one there. A rule
+with no conditions grants every entry, as before. A public form submission and a portability
+import are not asked the Create rule: the form's own settings and the import capability decide
+those.
+
 ### Something about the caller other than their id
 
 `$CURRENT_USER` is the caller's user id. `$CURRENT_USER.<name>` is a value from the caller's member
@@ -160,7 +169,7 @@ not two names around one dot, a first name that is not a reference field of the 
 (a reference with `multiple` counts as not one, with the same message),
 a second name that is not a Public field of the referenced type, an operator outside the four, a
 comparison that is not on text, a content type the tenant does not define, and a condition on a
-Create rule (Create has no stored entry and does not evaluate conditions). One write checks such
+Create rule (Create has no stored entry to follow a reference from). One write checks such
 conditions on at most 50 content types.
 
 The check is against the content types of the tenant the request is made in. Roles are stored once

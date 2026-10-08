@@ -152,7 +152,7 @@ internal static class ReferenceConditionRules
         if (held.IsCreate)
         {
             return $"The condition '{held.Key}' is on a Create rule. Creating has no stored entry to follow a "
-                 + "reference from, and a Create rule's conditions are not evaluated.";
+                 + "reference from, so a Create rule's conditions name the entry's own fields only.";
         }
 
         var names = ReferenceConditions.OperatorNames(held.Operators);

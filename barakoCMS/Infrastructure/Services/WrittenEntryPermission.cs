@@ -27,6 +27,30 @@ internal static class WrittenEntryPermission
         CancellationToken ct)
         => permissions.CanPerformActionAsync(user, existing.ContentType, action, AsWritten(existing, data), ct);
 
+    /// <summary>
+    /// Whether the caller's Create rule holds for the entry a create is about to store, the caller
+    /// as its creator.
+    /// </summary>
+    /// <remarks>
+    /// Asked after the create's own checks, so the data is what will be stored, including anything
+    /// a lifecycle hook added. A rule with no conditions grants as before.
+    /// </remarks>
+    public static Task<bool> AllowsCreatedEntryAsync(
+        this IPermissionResolver permissions,
+        User user,
+        ContentCreateRequest request,
+        CancellationToken ct)
+        => permissions.CanPerformActionAsync(user, request.ContentType, "create", new Models.Content
+        {
+            Id = request.Id ?? Guid.NewGuid(),
+            ContentType = request.ContentType,
+            Data = new(request.Data, request.Data.Comparer),
+            Status = request.Status,
+            Sensitivity = request.Sensitivity,
+            CreatedBy = user.Id,
+            LastModifiedBy = user.Id,
+        }, ct);
+
     /// <summary>A copy of the stored entry holding the data the write is about to store.</summary>
     private static Models.Content AsWritten(Models.Content existing, IDictionary<string, object> data) => new()
     {

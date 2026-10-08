@@ -65,8 +65,8 @@ public interface IPermissionResolver
     /// and a granting rule with no set allows every field. With no entry, or an entry no rule
     /// grants, the answer is the fields allowed on every entry the rules could grant: the joined
     /// sets of the rules with no condition when there are any, otherwise only what every
-    /// conditional rule's set names. Create rules are not asked their conditions, so for create
-    /// the sets of every enabled Create rule are joined.
+    /// conditional rule's set names. For create the sets of every enabled Create rule are joined,
+    /// whatever their conditions: the create route asks the conditions separately.
     ///
     /// Every field when no rule holds a set, which is every role stored before field sets existed.
     /// The default answers that for a resolver that does not implement it, so a module with its own
