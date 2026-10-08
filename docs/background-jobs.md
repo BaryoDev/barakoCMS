@@ -40,7 +40,9 @@ construction. A command carries what its handler needs, including the tenant.
     "BackoffBaseSeconds": 30,
     "BackoffMaxSeconds": 3600,
     "StorageProbeSeconds": 60,
-    "LeaseSeconds": 600
+    "LeaseSeconds": 600,
+    "DeadLetterRetentionDays": 90,
+    "MetricsIntervalSeconds": 30
   }
 }
 ```
@@ -59,7 +61,17 @@ that came due, or a job another instance queued. A committed enqueue wakes the w
 this is the latency of retries and of cross-instance pickup, not of an ordinary enqueue.
 
 The stored error is the exception's type and message, cut at a thousand characters. Never a stack
-trace, and never a response body, because a body is where a credential turns up.
+trace, and never a response body, because a body is where a credential turns up. A URL in the
+message is cut to its scheme and host, the way a workflow run's error shows a webhook URL, because
+some webhook URLs carry a token in the path or the query. `GET /api/jobs` applies the same cut to a
+record stored before this was done.
+
+## Dead letters are kept for 90 days
+
+A dead-lettered or cancelled job is deleted once it has been given up on for longer than
+`DeadLetterRetentionDays`, by a sweep that runs hourly. The time it gave up is its `completedAt`.
+A dead letter stored before that was set is aged by when it was queued instead. Zero or less keeps
+dead letters forever, which is what happened before the setting existed.
 
 ## States
 
@@ -68,7 +80,7 @@ trace, and never a response body, because a body is where a credential turns up.
 | `Pending` | Stored and waiting for `ExecuteAfter`, or waiting for its next attempt |
 | `Running` | Claimed by a worker. The lease is `DequeueAfter`, `LeaseSeconds` long; a crash frees the job when it passes |
 | `Completed` | The handler returned. Deleted by the hourly purge |
-| `DeadLettered` | Failed `MaxAttempts` times, expired before it ran, or was cancelled. Kept |
+| `DeadLettered` | Failed `MaxAttempts` times, expired before it ran, or was cancelled. Kept for `DeadLetterRetentionDays` |
 
 ## Reading the queue
 
@@ -85,3 +97,17 @@ concurrency, so two instances polling the same table cannot both run one job. Th
 expires has its token cancelled and the attempt counts as a failure, so the job is retried rather
 than run by two instances at once. A handler that ignores its token can still overrun. A job belongs
 to the tenant of the request that queued it, and a worker serves every tenant.
+
+## Metrics
+
+| Metric | Type | Labels | Meaning |
+| --- | --- | --- | --- |
+| `barakocms_jobs_attempts_total` | counter | `outcome` | Attempts whose outcome this node recorded: `succeeded`, `retried`, or `dead_lettered` for a failure that was the last allowed. |
+| `barakocms_jobs_due` | gauge | none | Jobs a worker could claim now. |
+| `barakocms_jobs_oldest_due_age_seconds` | gauge | none | Seconds the oldest due job has waited past the time it was due. 0 when none is due. |
+| `barakocms_jobs_dead_lettered` | gauge | none | Dead-lettered and cancelled jobs still stored. |
+
+The three gauges are two counts and one read of one timestamp, taken while a worker polls, at most
+once every `MetricsIntervalSeconds` on a node, never from a scrape. A count that fails or takes more
+than ten seconds publishes nothing, so the gauges keep their last numbers. `0` switches the count
+off.

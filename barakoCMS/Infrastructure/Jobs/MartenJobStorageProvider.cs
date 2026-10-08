@@ -48,6 +48,14 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
 
     public const int PurgeBatchSize = 500;
 
+    /// <summary>How long one count for the queue gauges may take before it is given up.</summary>
+    internal static readonly TimeSpan MeasureBudget = TimeSpan.FromSeconds(10);
+
+    /// <summary>Where this provider counts what it does. A test gives it a registry of its own.</summary>
+    internal JobMetrics Metrics { get; init; } = JobMetrics.Default;
+
+    private long _measuredAt;
+
     public MartenJobStorageProvider(
         IDocumentStore store, IHttpContextAccessor http, JobOptions options,
         ILogger<MartenJobStorageProvider> logger, JobStorageGate gate, IConfiguration configuration)
@@ -194,7 +202,114 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
             claimed.Add(fresh);
         }
 
+        await MeasureWhenDueAsync(ct);
+
         return claimed;
+    }
+
+    /// <summary>
+    /// Counts the queue for the gauges, at most once every <see cref="JobOptions.MetricsIntervalSeconds"/>
+    /// across every queue's poll on this node, and never from a scrape.
+    /// </summary>
+    private async Task MeasureWhenDueAsync(CancellationToken ct)
+    {
+        if (_options.MetricsIntervalSeconds <= 0) return;
+
+        var now = System.Diagnostics.Stopwatch.GetTimestamp();
+        var last = Interlocked.Read(ref _measuredAt);
+        if (last != 0 && System.Diagnostics.Stopwatch.GetElapsedTime(last, now) < TimeSpan.FromSeconds(_options.MetricsIntervalSeconds))
+            return;
+        if (Interlocked.CompareExchange(ref _measuredAt, now, last) != last) return;
+
+        await MeasureAsync(ct);
+    }
+
+    /// <summary>
+    /// Counts the due jobs, finds the one due longest, and counts the dead letters, then publishes
+    /// all three. Never throws.
+    /// </summary>
+    /// <remarks>
+    /// Two counts and one read of one timestamp, per partition when Postgres enforces the tenant
+    /// filter and once otherwise. Nothing is loaded into memory. Given up after
+    /// <see cref="MeasureBudget"/>, and then nothing is published: part of a count would read as a
+    /// queue that shrank, so the gauges keep their last numbers.
+    /// </remarks>
+    /// <returns>Whether new numbers were published.</returns>
+    internal async Task<bool> MeasureAsync(CancellationToken ct)
+    {
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        budget.CancelAfter(MeasureBudget);
+
+        try
+        {
+            var now = DateTime.UtcNow;
+            var due = 0;
+            var deadLettered = 0;
+            DateTime? oldest = null;
+
+            if (TenantPartitions.Enforced(_configuration))
+            {
+                foreach (var tenantId in await TenantPartitions.FromRegistryAsync(_store, budget.Token))
+                {
+                    await using var query = _store.QuerySession(tenantId);
+                    var jobs = query.Query<JobRecord>();
+
+                    deadLettered += await jobs.CountAsync(r => r.State == JobState.DeadLettered, budget.Token);
+
+                    var waiting = await jobs.CountAsync(r => (r.State == JobState.Pending || r.State == JobState.Running)
+                        && r.ExecuteAfter <= now && r.DequeueAfter <= now, budget.Token);
+                    if (waiting == 0) continue;
+
+                    due += waiting;
+                    var first = await jobs
+                        .Where(r => (r.State == JobState.Pending || r.State == JobState.Running)
+                            && r.ExecuteAfter <= now && r.DequeueAfter <= now)
+                        .OrderBy(r => r.ExecuteAfter)
+                        .Select(r => r.ExecuteAfter)
+                        .Take(1)
+                        .ToListAsync(budget.Token);
+                    if (first.Count > 0 && (oldest is null || first[0] < oldest)) oldest = first[0];
+                }
+            }
+            else
+            {
+                await using var query = _store.QuerySession();
+                var jobs = query.Query<JobRecord>();
+
+                deadLettered = await jobs.CountAsync(r => r.AnyTenant() && r.State == JobState.DeadLettered, budget.Token);
+                due = await jobs.CountAsync(r => r.AnyTenant()
+                    && (r.State == JobState.Pending || r.State == JobState.Running)
+                    && r.ExecuteAfter <= now && r.DequeueAfter <= now, budget.Token);
+
+                if (due > 0)
+                {
+                    var first = await jobs
+                        .Where(r => r.AnyTenant()
+                            && (r.State == JobState.Pending || r.State == JobState.Running)
+                            && r.ExecuteAfter <= now && r.DequeueAfter <= now)
+                        .OrderBy(r => r.ExecuteAfter)
+                        .Select(r => r.ExecuteAfter)
+                        .Take(1)
+                        .ToListAsync(budget.Token);
+                    if (first.Count > 0) oldest = first[0];
+                }
+            }
+
+            Metrics.Queue(due, oldest is { } dueAt ? now - dueAt : TimeSpan.Zero, deadLettered);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            if (!ct.IsCancellationRequested)
+            {
+                // The type only: a message can quote what the database was asked.
+                _logger.LogWarning(
+                    "The job queue could not be counted for its gauges ({Reason}); they keep their last numbers",
+                    budget.IsCancellationRequested ? $"it took longer than {MeasureBudget.TotalSeconds:0} seconds" : ex.GetType().Name);
+            }
+
+            return false;
+        }
     }
 
     public async Task MarkJobAsCompleteAsync(JobRecord r, CancellationToken ct)
@@ -209,6 +324,8 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
         fresh.NextAttemptAt = null;
         session.Store(fresh);
         await session.SaveChangesAsync(ct);
+
+        Metrics.Recorded(JobMetrics.Succeeded);
     }
 
     public async Task CancelJobAsync(Guid trackingId, CancellationToken ct)
@@ -259,10 +376,13 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
         fresh.AttemptCount++;
         fresh.LastError = Describe(exception);
 
-        if (fresh.AttemptCount >= fresh.MaxAttempts)
+        var deadLettered = fresh.AttemptCount >= fresh.MaxAttempts;
+        if (deadLettered)
         {
+            // When it gave up, which is what Jobs:DeadLetterRetentionDays counts from.
             fresh.State = JobState.DeadLettered;
             fresh.NextAttemptAt = null;
+            fresh.CompletedAt = now;
             _logger.LogError(
                 "Job {TrackingId} ({CommandType}) dead-lettered after {Attempts} attempt(s): {Error}",
                 fresh.TrackingID, fresh.CommandType, fresh.AttemptCount, fresh.LastError);
@@ -292,7 +412,10 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
         catch (Exception ex) when (IsConcurrency(ex))
         {
             _logger.LogWarning(ex, "Job {TrackingId} changed while its failure was being recorded; leaving it as is.", r.TrackingID);
+            return;
         }
+
+        Metrics.Recorded(deadLettered ? JobMetrics.DeadLettered : JobMetrics.Retried);
     }
 
     /// <summary>
@@ -338,6 +461,7 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
                     record.State = JobState.DeadLettered;
                     record.LastError = "Expired before it ran.";
                     record.NextAttemptAt = null;
+                    record.CompletedAt = DateTime.UtcNow;
                     session.Store(record);
                 }
             }
@@ -378,9 +502,13 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
     private static bool IsConcurrency(Exception ex) =>
         ex is JasperFx.ConcurrencyException || ex.GetType().Name.Contains("Concurrency");
 
-    /// <summary>Type and message only. A stack trace is noise here and a response body can hold a credential.</summary>
-    private static string Describe(Exception ex) =>
-        LogSafe.Text($"{ex.GetType().Name}: {ex.Message}", maxLength: 1000);
+    /// <summary>
+    /// Type and message only. A stack trace is noise here and a response body can hold a credential.
+    /// A URL in the message is cut to its scheme and host, since some webhook URLs carry a token.
+    /// </summary>
+    /// <remarks>Cut to length first, so a URL the cut runs through is still redacted.</remarks>
+    internal static string Describe(Exception ex) =>
+        UrlRedaction.InText(LogSafe.Text($"{ex.GetType().Name}: {ex.Message}", maxLength: 1000));
 
     /// <summary>Wakes the command's queue once the session the job was staged in has committed.</summary>
     private sealed class TriggerJobAfterCommit(ICommandBase command) : DocumentSessionListenerBase

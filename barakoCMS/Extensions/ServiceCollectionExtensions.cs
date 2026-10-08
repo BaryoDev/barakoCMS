@@ -1117,6 +1117,7 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<barakoCMS.Infrastructure.Services.StoredReferenceConditionsNotice>();
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowExecutionLogRedactionService>();
         services.AddHostedService<barakoCMS.Features.WebhookDeliveries.WebhookDeliveryRetentionService>();
+        services.AddHostedService<barakoCMS.Infrastructure.Jobs.JobDeadLetterRetentionService>();
     }
 
     private static void AddMfaAndDeviceTrust(IServiceCollection services)

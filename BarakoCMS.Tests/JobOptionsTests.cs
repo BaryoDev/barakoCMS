@@ -70,4 +70,26 @@ public class JobOptionsTests
         options.Invoking(o => o.Validate()).Should().Throw<InvalidOperationException>()
             .WithMessage($"*{JobOptions.BackoffMaxSecondsKey}*");
     }
+
+    [Fact]
+    public void Dead_letters_are_kept_ninety_days_by_default_and_zero_keeps_them_forever()
+    {
+        JobOptions.FromConfiguration(Config()).DeadLetterRetentionDays.Should().Be(90);
+        JobOptions.FromConfiguration(Config()).MetricsIntervalSeconds.Should().Be(30);
+
+        var off = JobOptions.FromConfiguration(Config((JobOptions.DeadLetterRetentionDaysKey, "0")));
+        off.DeadLetterRetentionDays.Should().Be(0);
+        off.Invoking(o => o.Validate()).Should().NotThrow();
+    }
+
+    [Theory]
+    [InlineData("-1")]
+    [InlineData("3601")]
+    public void A_metrics_interval_out_of_range_is_refused(string value)
+    {
+        var options = JobOptions.FromConfiguration(Config((JobOptions.MetricsIntervalSecondsKey, value)));
+
+        options.Invoking(o => o.Validate()).Should().Throw<InvalidOperationException>()
+            .WithMessage($"*{JobOptions.MetricsIntervalSecondsKey}*");
+    }
 }
