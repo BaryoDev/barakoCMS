@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using OpenTelemetry;
 
 namespace barakoCMS.Infrastructure.Tracing;
@@ -59,6 +60,20 @@ internal sealed class SpanScrubber : BaseProcessor<Activity>
 
     private const string StatementTag = "db.statement";
 
+    public const string MeterName = "BarakoCMS";
+    public const string DroppedCounterName = "barako.tracing.spans_dropped";
+    public const string Parentless = "parentless";
+    public const string WithEvent = "event";
+
+    private static readonly Meter Meter = new(MeterName);
+
+    /// <summary>
+    /// Spans not exported, by why: <see cref="Parentless"/> or <see cref="WithEvent"/>. The only
+    /// way to see how much a deployment drops, since a dropped span leaves nothing in the trace.
+    /// </summary>
+    internal static readonly Counter<long> Dropped = Meter.CreateCounter<long>(
+        DroppedCounterName, unit: "{span}", description: "Spans the scrubber kept from export, by reason.");
+
     /// <remarks>
     /// No <c>db.connection_string</c>, <c>db.user</c> or <c>db.connection_id</c>. The statement is
     /// the command text as written, with <c>$1</c> or <c>@name</c> where a value goes; the values
@@ -108,10 +123,11 @@ internal sealed class SpanScrubber : BaseProcessor<Activity>
     {
         if (AllowedFor(data.Source.Name, data.Kind) is not { } allowed) return;
 
-        if (ShouldDrop(data))
+        if (DropReason(data) is { } reason)
         {
             // The exporters skip a span that is not recorded, and they run after this.
             data.ActivityTraceFlags &= ~ActivityTraceFlags.Recorded;
+            Dropped.Add(1, new KeyValuePair<string, object?>("reason", reason));
             return;
         }
 
@@ -123,17 +139,20 @@ internal sealed class SpanScrubber : BaseProcessor<Activity>
         }
     }
 
-    /// <summary>A database span with no parent, or a cut-down span holding an event with attributes.</summary>
-    internal static bool ShouldDrop(Activity span)
+    /// <summary>
+    /// <see cref="Parentless"/> for a database span with no parent, <see cref="WithEvent"/> for a
+    /// cut-down span holding an event with attributes, otherwise null.
+    /// </summary>
+    internal static string? DropReason(Activity span)
     {
-        if (span.Source.Name == DatabaseSource && span.ParentSpanId == default) return true;
+        if (span.Source.Name == DatabaseSource && span.ParentSpanId == default) return Parentless;
 
         foreach (var @event in span.Events)
         {
-            if (@event.Tags.Any()) return true;
+            if (@event.Tags.Any()) return WithEvent;
         }
 
-        return false;
+        return null;
     }
 
     /// <summary>The attributes a span of that source and kind may keep, or null for all of them.</summary>

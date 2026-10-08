@@ -125,6 +125,45 @@ public class ModuleServiceReplacementTests
         warnings[0].Properties["Service"].Should().Be(new ScalarValue(sealedType.FullName));
     }
 
+    /// <remarks>
+    /// The service count goes up by one, but the new entry is not at the end, so a check that
+    /// looked only past the old count would read the last core entry and miss it.
+    /// </remarks>
+    [Fact]
+    public void A_module_that_inserts_a_sealed_service_at_the_front_is_still_warned()
+    {
+        var warnings = SealedWarnings(s =>
+            s.Insert(0, ServiceDescriptor.Scoped<IContentWriter>(_ => Substitute.For<IContentWriter>())));
+
+        warnings.Should().HaveCount(1);
+        warnings[0].Properties["Service"].Should().Be(new ScalarValue(typeof(IContentWriter).FullName));
+    }
+
+    [Fact]
+    public void A_keyed_registration_of_a_sealed_service_is_not_warned()
+    {
+        var registered = false;
+        var warnings = SealedWarnings(s =>
+        {
+            s.AddKeyedScoped<IContentWriter>("the-module's-own", (_, _) => Substitute.For<IContentWriter>());
+            registered = true;
+        });
+
+        registered.Should().BeTrue("the module's ConfigureServices ran");
+        warnings.Should().BeEmpty("core resolves the writer without a key, so a keyed one replaces nothing");
+    }
+
+    private static List<LogEvent> SealedWarnings(Action<IServiceCollection> register)
+    {
+        var sink = new CollectingSink();
+        using (sink.Installed())
+        {
+            Build(new Replacing(register));
+        }
+
+        return sink.Events.Where(e => e.MessageTemplate.Text == SealedCoreServices.Warning).ToList();
+    }
+
     [Fact]
     public void Core_lists_the_four_sealed_services()
     {

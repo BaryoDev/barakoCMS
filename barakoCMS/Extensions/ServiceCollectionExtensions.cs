@@ -181,9 +181,9 @@ public static class ServiceCollectionExtensions
         {
             // Keep the instance discoverable at runtime (used by the seed runner).
             services.AddSingleton<IBarakoModule>(module);
-            var before = services.Count;
+            var before = SealedCoreServices.Snapshot(services);
             module.ConfigureServices(services, ModuleConfiguration(configuration, module));
-            SealedCoreServices.WarnAbout(module, services.Skip(before));
+            SealedCoreServices.WarnAbout(module, services, before);
         }
 
         return (seen, enabled, modules, moduleBuilder.Skipped);
