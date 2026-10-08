@@ -146,6 +146,9 @@ public class CorsTests
         exposed.Should().Contain(
             "X-Delivery-Contract-Version",
             "a site calling delivery from a browser reads its own surface's number the same way");
+        exposed.Should().Contain(
+            new[] { "X-Barako-Cache-Class", "Surrogate-Key", "Cache-Tag", "X-Barako-Cache-Tags-Dropped" },
+            "a renderer reading delivery in a browser reads how long it may keep a read and what it was built from");
     }
 
     /// <summary>

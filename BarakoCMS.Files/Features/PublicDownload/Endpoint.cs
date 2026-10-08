@@ -1,5 +1,7 @@
+using barakoCMS.Infrastructure.Caching;
 using FastEndpoints;
 using Marten;
+using Microsoft.AspNetCore.Http;
 
 namespace BarakoCMS.Files.Features.PublicDownload;
 
@@ -49,16 +51,35 @@ public class Endpoint(IQuerySession session, IFileStorage storage, ImageVariants
 
         var served = resolved.File;
 
+        // Only a type the upload check would accept goes to the store, which serves it without
+        // these headers. Anything else is an old row, streamed from here as a plain download.
+        var checkedType = UploadTypes.IsExactly(served.ContentType);
+
         HttpContext.Response.Headers.CacheControl = "public, max-age=86400"; /* images are long-lived */
+
+        // The bytes of one stored record never change, so the record and how it is served are the
+        // version. Hashed, so the id of a resized copy, which is never addressable, is not shown.
+        // Answered before the bytes are read, so a revalidation costs no storage read.
+        var lastModified = served.CreatedAt.Kind == DateTimeKind.Local
+            ? new DateTimeOffset(served.CreatedAt.ToUniversalTime())
+            : new DateTimeOffset(DateTime.SpecifyKind(served.CreatedAt, DateTimeKind.Utc));
+        var etag = DeliveryCache.WeakETag(
+            DeliveryCache.TenantOf(HttpContext),
+            $"{served.Id:N}|{served.Size}|{served.ContentType}|{checkedType}|{served.PublicUrl}");
+        DeliveryCache.Shared(
+            HttpContext, DeliveryCacheClass.Long, [new CacheScope("file", file.Id.ToString("D"))], lastModified);
+        HttpContext.Response.Headers.ETag = etag;
+        if (DeliveryCache.IsNotModified(HttpContext.Request, etag, lastModified))
+        {
+            await Send.ResultAsync(Results.StatusCode(StatusCodes.Status304NotModified));
+            return;
+        }
 
         /* Defense in depth for the proxied bytes: never sniff a different type, and sandbox the
          * response so a document opened directly (a stray SVG/HTML) can't execute script on our origin. */
         HttpContext.Response.Headers["X-Content-Type-Options"] = "nosniff";
         HttpContext.Response.Headers.ContentSecurityPolicy = "default-src 'none'; sandbox";
 
-        // Only a type the upload check would accept goes to the store, which serves it without
-        // these headers. Anything else is an old row, streamed from here as a plain download.
-        var checkedType = UploadTypes.IsExactly(served.ContentType);
         if (checkedType && !string.IsNullOrEmpty(served.PublicUrl))
         {
             await Send.RedirectAsync(served.PublicUrl, isPermanent: false, allowRemoteRedirects: true);

@@ -12,7 +12,9 @@ internal class SitemapEndpoint(IQuerySession session, IConfiguration config) : E
     {
         Get("/api/public/sitemap.xml");
         AllowAnonymous();
-        Options(x => x.RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy));
+        Options(x => x
+            .RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy)
+            .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators));
     }
     public override async Task HandleAsync(CancellationToken ct)
     {
@@ -98,7 +100,12 @@ internal class SitemapEndpoint(IQuerySession session, IConfiguration config) : E
 
         sb.Append("</urlset>\n");
 
-        PublicDelivery.SetCache(HttpContext);
+        // The types it lists, not its entries: a sitemap holds up to 50,000 of them, and any
+        // publish of a listed type is purged through the type tag.
+        PublicDelivery.SetCache(
+            HttpContext,
+            deliverableTypes.Select(barakoCMS.Infrastructure.Caching.CacheScope.Type)
+                .Prepend(barakoCMS.Infrastructure.Caching.CacheScope.Named("sitemap")));
         await Send.StringAsync(
             sb.ToString(),
             200,

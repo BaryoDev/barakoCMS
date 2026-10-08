@@ -51,7 +51,9 @@ internal sealed class TypeDescriptionEndpoint(IQuerySession session) : EndpointW
     {
         Get("/api/public/types/{type}/description");
         AllowAnonymous();
-        Options(x => x.RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy));
+        Options(x => x
+            .RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy)
+            .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators));
         Description(b => b
             .Produces<PublicTypeDescription>(200)
             .Produces(404));
@@ -72,7 +74,7 @@ internal sealed class TypeDescriptionEndpoint(IQuerySession session) : EndpointW
             ? def.RouteTemplate
             : null;
 
-        PublicDelivery.SetCache(HttpContext);
+        PublicDelivery.SetCache(HttpContext, [barakoCMS.Infrastructure.Caching.CacheScope.Type(def.Name)], def.UpdatedAt);
         await Send.OkAsync(new PublicTypeDescription(def.Name, template, fields), ct);
     }
 }
