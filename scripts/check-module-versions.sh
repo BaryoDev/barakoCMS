@@ -202,6 +202,24 @@ fi
 
 failed=0
 
+# BarakoCMS.Testing runs a real core inside the module author's tests, so a Testing package is only
+# right for the core it was built with. It carries the core's version for that reason. It sat at
+# 4.3.0 through two core releases with nothing comparing the two (#1112).
+core_csproj=barakoCMS/barakoCMS.csproj
+testing_csproj=BarakoCMS.Testing/BarakoCMS.Testing.csproj
+if [ -f "$testing_csproj" ]; then
+  core_version=""
+  [ -f "$core_csproj" ] && core_version=$(read_version < "$core_csproj")
+  testing_version=$(read_version < "$testing_csproj")
+  if [ -z "$core_version" ] || [ -z "$testing_version" ]; then
+    failed=1
+    echo "::error::Could not read <Version> from $core_csproj and $testing_csproj, so BarakoCMS.Testing cannot be shown to match the core."
+  elif [ "$core_version" != "$testing_version" ]; then
+    failed=1
+    echo "::error::BarakoCMS.Testing is at $testing_version and the core is at $core_version. Testing is versioned with the core: set <Version> in $testing_csproj to $core_version, and TestingVersion in the module template's template.json with it."
+  fi
+fi
+
 for csproj in "${csprojs[@]}"; do
   module=$(dirname "$csproj")
 

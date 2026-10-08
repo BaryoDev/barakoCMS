@@ -13,44 +13,18 @@
 #      FROM_VERSION, which must then still write an event: that file is documented as one that
 #      goes in ahead of the deploy
 #   2. db-assert must FAIL on both hosts, because 4.0's schema does not match a 3.x database
-#   3. apply the reviewed core migrations, migrations/4.0.0/3.x-to-4.0.sql,
-#      migrations/4.2.0/user-normalized-identity.sql, migrations/4.2.0/site-share-links.sql,
-#      migrations/4.3.0/collection-syncs.sql, migrations/4.3.0/marten-9-37-event-store-columns.sql,
-#      migrations/4.4.0/marten-9-38-quick-append-events.sql,
-#      migrations/4.5.0/refresh-token-hash-index.sql,
-#      migrations/4.6.0/event-correlation-metadata.sql,
-#      migrations/4.6.0/sensitivity-by-capability.sql, after which the HR role FROM_VERSION seeded
-#      holds view_sensitive, migrations/4.6.0/tenant-profile-to-site.sql,
-#      migrations/4.7.0/membership-unique-user-tenant.sql and
-#      migrations/4.7.0/tenant-policy-restore.sql
+#   3. apply the core files under migrations/, in the order --list prints them. After
+#      migrations/4.6.0/sensitivity-by-capability.sql the HR role FROM_VERSION seeded must hold
+#      view_sensitive
 #   4. db-assert must PASS on the core host, so those files are exactly what core needs
-#   5. apply the module migrations, migrations/4.2.0/stored-files-parent-index.sql,
-#      migrations/4.2.0/forms-public-forms.sql, migrations/4.5.0/email-sent-emails.sql,
-#      migrations/4.6.0/external-auth-identities.sql,
-#      migrations/4.6.0/forms-email-verification.sql and
-#      migrations/4.7.0/forms-tenant-policy-restore.sql
+#   5. apply the module files, the ones a module's .csproj embeds, in the order --list prints them
 #   6. db-assert must PASS on the Suite host, so nothing any module registers is left outstanding
 #   7. the Suite boots in Production mode, module schema preflight included, and serves
 #   8. an event appends to a stream that already existed and carries a correlation id, the events
 #      stored before the upgrade keep none, and the projection daemon resumes from its stored
 #      progression rather than restarting from zero
-#   9. the new build stops, and the rollback files are applied newest first:
-#      migrations/4.7.0/rollback-forms-tenant-policy-restore.sql,
-#      migrations/4.7.0/rollback-tenant-policy-restore.sql,
-#      migrations/4.7.0/rollback-membership-unique-user-tenant.sql,
-#      migrations/4.6.0/rollback-forms-email-verification.sql,
-#      migrations/4.6.0/rollback-external-auth-identities.sql,
-#      migrations/4.6.0/rollback-sensitivity-by-capability.sql,
-#      migrations/4.6.0/rollback-tenant-profile-to-site.sql,
-#      migrations/4.6.0/rollback-event-correlation-metadata.sql,
-#      migrations/4.5.0/rollback-email-sent-emails.sql,
-#      migrations/4.5.0/rollback-refresh-token-hash-index.sql,
-#      migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql,
-#      migrations/4.3.0/rollback-collection-syncs.sql,
-#      migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql,
-#      migrations/4.2.0/rollback-site-share-links.sql,
-#      migrations/4.2.0/rollback-user-normalized-identity.sql and
-#      migrations/4.0.0/rollback-to-3.x.sql
+#   9. the new build stops, and the rollback files are applied newest first, in the order --list
+#      prints them
 #  10. FROM_VERSION boots again against the rolled-back database and still serves the record the
 #      new build wrote to, with every event still on its stream
 #
@@ -73,15 +47,34 @@
 # starting from 3.x, stayed green (#1007). Its rollback stops at FROM_VERSION and boots that image
 # again.
 #
+# Which files run, and in what order, is read from migrations/ by scripts/lib-migrations.sh, which
+# says the rules. A new migration needs no edit here. --list prints the plan as psql lines and
+# exits without building or starting anything; docs/upgrading-to-4.0.md sends operators to it, and
+# it takes any x.y.z FROM_VERSION, not only the starts the full check knows.
+#
 # Usage: scripts/upgrade-check.sh                       (FROM_VERSION defaults to the last 3.x release)
 #        FROM_VERSION=4.1.0 scripts/upgrade-check.sh    (a database 4.0 or 4.1 created)
+#        FROM_VERSION=4.5.0 scripts/upgrade-check.sh --list
 
 set -euo pipefail
 
 . "$(dirname "$0")/lib-ports.sh"
 . "$(dirname "$0")/lib-upgrade-data.sh"
+. "$(dirname "$0")/lib-migrations.sh"
 
 FROM_VERSION="${FROM_VERSION:-3.21.0}"
+
+step() { printf '\n=== %s\n' "$1"; }
+fail() { printf '\nFAILED: %s\n' "$1" >&2; exit 1; }
+
+case "${1:-}" in
+    "") ;;
+    --list)
+        [[ "$FROM_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "FROM_VERSION=${FROM_VERSION} is not a version like 4.5.0"
+        migration_plan_psql "$FROM_VERSION" || fail "the upgrade plan could not be read from migrations/"
+        exit 0 ;;
+    *) fail "unknown argument '$1'. The only one is --list." ;;
+esac
 IMAGE="${IMAGE:-ghcr.io/baryodev/barako-cms:${FROM_VERSION}}"
 NETWORK="${NETWORK:-barako-upgrade-check}"
 PG="${PG:-upgrade-check-pg}"
@@ -106,9 +99,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-step() { printf '\n=== %s\n' "$1"; }
-fail() { printf '\nFAILED: %s\n' "$1" >&2; exit 1; }
-
 # Which files a database still needs depends on what created it. 4.0 and 4.1 declare the same
 # objects, so a database either one booted takes the same files. Anything else stops here rather
 # than guessing: a 4.2 or later start would have to leave out its own release's files.
@@ -117,6 +107,61 @@ case "$FROM_VERSION" in
     4.0.*|4.1.*) FROM_3X=0 ;;
     *) fail "FROM_VERSION=${FROM_VERSION} is not a start this script knows. Use a 3.x, 4.0.x or 4.1.x release." ;;
 esac
+
+PLAN=$(migration_plan "$FROM_VERSION") || fail "the upgrade plan could not be read from migrations/"
+CORE_FILES=$(awk '$1 == "core" { print $2 }' <<< "$PLAN")
+MODULE_FILES=$(awk '$1 == "module" { print $2 }' <<< "$PLAN")
+ROLLBACK_FILES=$(awk '$1 == "rollback" { print $2 }' <<< "$PLAN")
+[ -n "$CORE_FILES" ] && [ -n "$ROLLBACK_FILES" ] \
+    || fail "the upgrade plan from ${FROM_VERSION} has no core or no rollback files, so this run would prove nothing"
+
+# Checks tied to one file, made around it as it runs. A file with none needs nothing here.
+before_file() {
+    case "$1" in
+        # The share links table (#841, #1007). The 4.0.0 file creates it too, so on a 3.x start
+        # this is the second run of the same statements and shows the file is harmless there. On a
+        # 4.x start it is the only thing that creates the table: a 4.x database that already has it
+        # means this file has stopped doing anything and someone should find out.
+        migrations/4.2.0/site-share-links.sql)
+            if [ "$FROM_3X" = 0 ]; then
+                [ "$(psql_q "select to_regclass('public.mt_doc_site_share_links') is null;")" = "t" ] \
+                    || fail "a ${FROM_VERSION} database already has mt_doc_site_share_links, so $1 proves nothing on this start"
+            fi ;;
+        # Data, not schema (#883). FROM_VERSION seeded a role named HR under the fixed id, and the
+        # file grants it view_sensitive. The count is checked before the new build boots, because
+        # its seeder grants the same capability and would hide a file that does nothing. The checks
+        # are in lib-upgrade-data.sh.
+        migrations/4.6.0/sensitivity-by-capability.sql) require_seeded_hr ;;
+    esac
+}
+
+after_file() {
+    case "$1" in
+        migrations/4.6.0/sensitivity-by-capability.sql) require_seeded_hr_granted; echo "HR holds view_sensitive" ;;
+        migrations/4.6.0/rollback-sensitivity-by-capability.sql) require_seeded_hr_not_granted ;;
+    esac
+}
+
+apply_file() { # $1 = path under migrations/
+    local single=(--single-transaction)
+    migration_is_transactional "$1" || single=()
+    step "applying $1"
+    before_file "$1"
+    docker cp "$1" "$PG:/tmp/migration.sql"
+    docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 ${single[@]+"${single[@]}"} -f /tmp/migration.sql >/dev/null
+    after_file "$1"
+}
+
+apply_files() { # $1 = paths, one per line
+    local files file
+    mapfile -t files <<< "$1"
+    for file in "${files[@]}"; do
+        if [ -n "$file" ]; then apply_file "$file"; fi
+    done
+}
+
+# "a, b and c", for the summary at the end.
+joined() { awk 'NF { a[++n] = $0 } END { for (i = 1; i <= n; i++) printf "%s%s", a[i], (i == n ? "" : (i == n - 1 ? " and " : ", ")) }' <<< "$1"; }
 
 # $1 is the host dll, core or Suite; the rest are its arguments.
 run_host() {
@@ -302,88 +347,12 @@ if run_suite db-assert >"$WORK/assert-before-suite.log" 2>&1; then
 fi
 echo "refused, as it must"
 
-if [ "$FROM_3X" = 1 ]; then
-    step "applying migrations/4.0.0/3.x-to-4.0.sql"
-    docker cp migrations/4.0.0/3.x-to-4.0.sql "$PG:/tmp/up.sql"
-    docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/up.sql >/dev/null
-fi
-
-step "applying migrations/4.2.0/user-normalized-identity.sql"
-docker cp migrations/4.2.0/user-normalized-identity.sql "$PG:/tmp/users.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/users.sql >/dev/null
-
-# The share links table (#841, #1007). The 4.0.0 file creates it too, so on a 3.x start this is the
-# second run of the same statements and shows the file is harmless there. On a 4.x start it is the
-# only thing that creates the table, and the check says so: a 4.x database that already has it means
-# this file has stopped doing anything and someone should find out.
-if [ "$FROM_3X" = 0 ]; then
-    [ "$(psql_q "select to_regclass('public.mt_doc_site_share_links') is null;")" = "t" ] \
-        || fail "a ${FROM_VERSION} database already has mt_doc_site_share_links, so migrations/4.2.0/site-share-links.sql proves nothing on this start"
-fi
-step "applying migrations/4.2.0/site-share-links.sql"
-docker cp migrations/4.2.0/site-share-links.sql "$PG:/tmp/share-links.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/share-links.sql >/dev/null
-
-# The collection sync table (#794). Core, not a module, so it has to land before core's assert
-# below. CreateOnly would create it on first boot; the file exists so the deploy gate passes
-# before the container is replaced rather than reporting the table as outstanding.
-step "applying migrations/4.3.0/collection-syncs.sql"
-docker cp migrations/4.3.0/collection-syncs.sql "$PG:/tmp/collection-syncs.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/collection-syncs.sql >/dev/null
-
-# Marten 9.37's event store columns. Core, not a module: these are mt_streams and
-# mt_event_progression, so they have to land before core's assert below.
-step "applying migrations/4.3.0/marten-9-37-event-store-columns.sql"
-docker cp migrations/4.3.0/marten-9-37-event-store-columns.sql "$PG:/tmp/marten937.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/marten937.sql >/dev/null
-
-step "applying migrations/4.4.0/marten-9-38-quick-append-events.sql"
-docker cp migrations/4.4.0/marten-9-38-quick-append-events.sql "$PG:/tmp/marten938.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/marten938.sql >/dev/null
-
-step "applying migrations/4.5.0/refresh-token-hash-index.sql"
-docker cp migrations/4.5.0/refresh-token-hash-index.sql "$PG:/tmp/refresh-hash.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/refresh-hash.sql >/dev/null
-
-# The correlation and causation columns on mt_events, and the declared append function with the
-# two matching arguments (#691). After the 4.4.0 file, which replaces the function this one
-# replaces again: run the other way round, the 4.4.0 file would add back a second function under
-# the old argument list. On a 4.x start this is the file's second run, the first being under the
-# running FROM_VERSION above.
-step "applying migrations/4.6.0/event-correlation-metadata.sql"
-docker cp migrations/4.6.0/event-correlation-metadata.sql "$PG:/tmp/event-correlation.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/event-correlation.sql >/dev/null
-
-# Data, not schema (#883). FROM_VERSION seeded a role named HR under the fixed id, whose holders read
-# Sensitive fields by that name, and the working tree decides the same thing by capability. The
-# file grants to that role and to no other role named HR. The count is checked before the new build
-# boots, because its seeder grants the same capability and would hide a file that does nothing. The
-# three checks are in lib-upgrade-data.sh.
-step "applying migrations/4.6.0/sensitivity-by-capability.sql"
-require_seeded_hr
-docker cp migrations/4.6.0/sensitivity-by-capability.sql "$PG:/tmp/sensitivity.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/sensitivity.sql >/dev/null
-require_seeded_hr_granted
-echo "HR holds view_sensitive"
-
-# Data only (#885): tenant profile values move into each tenant's site entry. It changes no schema,
-# so the asserts below answer the same with or without it. It runs here so the file is executed
-# against a database an earlier release wrote, and its rollback further down.
-step "applying migrations/4.6.0/tenant-profile-to-site.sql"
-docker cp migrations/4.6.0/tenant-profile-to-site.sql "$PG:/tmp/tenant-profile.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/tenant-profile.sql >/dev/null
-
-# The unique index on a membership's user and tenant. FROM_VERSION wrote one membership per pair,
-# so the file builds the index rather than refusing, and core db-assert below needs it.
-step "applying migrations/4.7.0/membership-unique-user-tenant.sql"
-docker cp migrations/4.7.0/membership-unique-user-tenant.sql "$PG:/tmp/membership-unique.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/membership-unique.sql >/dev/null
-
-# Tenancy is not enforced at the database here, so this changes nothing. It runs so the file is
-# executed against a database an earlier release wrote.
-step "applying migrations/4.7.0/tenant-policy-restore.sql"
-docker cp migrations/4.7.0/tenant-policy-restore.sql "$PG:/tmp/tenant-policy.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/tenant-policy.sql >/dev/null
+# Core's files, oldest folder first. On a 4.x start the plan leaves out the 4.0.0 folder: such a
+# database is already past it. The 4.6.0 event correlation file runs after the 4.4.0 one, which
+# replaces the same function: the other way round, the 4.4.0 file would add back a second function
+# under the old argument list. On a 4.x start this is that file's second run, the first being under
+# the running FROM_VERSION above.
+apply_files "$CORE_FILES"
 
 step "the migration left the daemon's progression alone"
 PROGRESSION_MIGRATED=$(psql_q "select coalesce(max(last_seq_id), 0) from mt_event_progression where name like '%WorkflowProjection%';")
@@ -398,28 +367,9 @@ run_core db-assert >"$WORK/assert-after-core.log" 2>&1 || {
 }
 echo "core schema matches"
 
-# CONCURRENTLY, so this file cannot run inside a transaction, and it says so itself.
-step "applying migrations/4.2.0/stored-files-parent-index.sql"
-docker cp migrations/4.2.0/stored-files-parent-index.sql "$PG:/tmp/modules.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 -f /tmp/modules.sql >/dev/null
-
-step "applying migrations/4.2.0/forms-public-forms.sql"
-docker cp migrations/4.2.0/forms-public-forms.sql "$PG:/tmp/forms.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/forms.sql >/dev/null
-
-step "applying migrations/4.5.0/email-sent-emails.sql"
-docker cp migrations/4.5.0/email-sent-emails.sql "$PG:/tmp/sent-emails.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/sent-emails.sql >/dev/null
-
-step "applying migrations/4.6.0/external-auth-identities.sql"
-docker cp migrations/4.6.0/external-auth-identities.sql "$PG:/tmp/external-identities.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/external-identities.sql >/dev/null
-step "applying migrations/4.6.0/forms-email-verification.sql"
-docker cp migrations/4.6.0/forms-email-verification.sql "$PG:/tmp/forms-email-verification.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/forms-email-verification.sql >/dev/null
-step "applying migrations/4.7.0/forms-tenant-policy-restore.sql"
-docker cp migrations/4.7.0/forms-tenant-policy-restore.sql "$PG:/tmp/forms-tenant-policy.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/forms-tenant-policy.sql >/dev/null
+# A file marked "-- barako:no-transaction", stored-files-parent-index.sql with its CONCURRENTLY
+# index, is applied without --single-transaction.
+apply_files "$MODULE_FILES"
 
 step "Suite db-assert must now pass, every module included"
 run_suite db-assert >"$WORK/assert-after-suite.log" 2>&1 || {
@@ -501,63 +451,7 @@ HOST_PID=""
 # mt_doc_public_forms still there, since only rollback-to-3.x.sql drops that one. The two 4.3.0
 # files touch different objects, so their order between themselves does not matter; both have to
 # run before the older rollbacks.
-step "applying migrations/4.7.0/rollback-forms-tenant-policy-restore.sql"
-docker cp migrations/4.7.0/rollback-forms-tenant-policy-restore.sql "$PG:/tmp/forms-tenant-policy-down.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/forms-tenant-policy-down.sql >/dev/null
-step "applying migrations/4.7.0/rollback-tenant-policy-restore.sql"
-docker cp migrations/4.7.0/rollback-tenant-policy-restore.sql "$PG:/tmp/tenant-policy-down.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/tenant-policy-down.sql >/dev/null
-step "applying migrations/4.7.0/rollback-membership-unique-user-tenant.sql"
-docker cp migrations/4.7.0/rollback-membership-unique-user-tenant.sql "$PG:/tmp/membership-unique-down.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/membership-unique-down.sql >/dev/null
-step "applying migrations/4.6.0/rollback-forms-email-verification.sql"
-docker cp migrations/4.6.0/rollback-forms-email-verification.sql "$PG:/tmp/forms-email-verification-down.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/forms-email-verification-down.sql >/dev/null
-step "applying migrations/4.6.0/rollback-external-auth-identities.sql"
-docker cp migrations/4.6.0/rollback-external-auth-identities.sql "$PG:/tmp/external-identities-down.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/external-identities-down.sql >/dev/null
-step "applying migrations/4.6.0/rollback-sensitivity-by-capability.sql"
-docker cp migrations/4.6.0/rollback-sensitivity-by-capability.sql "$PG:/tmp/sensitivity-down.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/sensitivity-down.sql >/dev/null
-require_seeded_hr_not_granted
-step "applying migrations/4.6.0/rollback-tenant-profile-to-site.sql"
-docker cp migrations/4.6.0/rollback-tenant-profile-to-site.sql "$PG:/tmp/tenant-profile-down.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/tenant-profile-down.sql >/dev/null
-step "applying migrations/4.6.0/rollback-event-correlation-metadata.sql"
-docker cp migrations/4.6.0/rollback-event-correlation-metadata.sql "$PG:/tmp/event-correlation-down.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/event-correlation-down.sql >/dev/null
-step "applying migrations/4.5.0/rollback-email-sent-emails.sql"
-docker cp migrations/4.5.0/rollback-email-sent-emails.sql "$PG:/tmp/sent-emails-down.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/sent-emails-down.sql >/dev/null
-step "applying migrations/4.5.0/rollback-refresh-token-hash-index.sql"
-docker cp migrations/4.5.0/rollback-refresh-token-hash-index.sql "$PG:/tmp/refresh-hash-down.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/refresh-hash-down.sql >/dev/null
-
-step "applying migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql"
-docker cp migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql "$PG:/tmp/marten938-down.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/marten938-down.sql >/dev/null
-
-step "applying migrations/4.3.0/rollback-collection-syncs.sql"
-docker cp migrations/4.3.0/rollback-collection-syncs.sql "$PG:/tmp/collection-syncs-down.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/collection-syncs-down.sql >/dev/null
-
-step "applying migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql"
-docker cp migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql "$PG:/tmp/marten937-down.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/marten937-down.sql >/dev/null
-
-step "applying migrations/4.2.0/rollback-site-share-links.sql"
-docker cp migrations/4.2.0/rollback-site-share-links.sql "$PG:/tmp/share-links-down.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/share-links-down.sql >/dev/null
-
-step "applying migrations/4.2.0/rollback-user-normalized-identity.sql"
-docker cp migrations/4.2.0/rollback-user-normalized-identity.sql "$PG:/tmp/users-down.sql"
-docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/users-down.sql >/dev/null
-
-if [ "$FROM_3X" = 1 ]; then
-    step "applying migrations/4.0.0/rollback-to-3.x.sql"
-    docker cp migrations/4.0.0/rollback-to-3.x.sql "$PG:/tmp/down.sql"
-    docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 --single-transaction -f /tmp/down.sql >/dev/null
-fi
+apply_files "$ROLLBACK_FILES"
 
 step "booting ${FROM_VERSION} again against the rolled-back database"
 docker start "$OLD" >/dev/null
@@ -598,12 +492,6 @@ EVENTS_ROLLED_BACK=$(psql_q "select count(*) from mt_events where stream_id = '$
     || fail "expected $EVENTS_AFTER events on stream $CONTENT_ID after rollback, found $EVENTS_ROLLED_BACK. A rollback must not lose events."
 echo "${FROM_VERSION} reads it back: FirstName $ROLLBACK_FIRST_NAME, Status $ROLLBACK_STATUS, $EVENTS_ROLLED_BACK events on the stream"
 
-if [ "$FROM_3X" = 1 ]; then
-    UP_FIRST="migrations/4.0.0/3.x-to-4.0.sql, "
-    DOWN_LAST="migrations/4.2.0/rollback-site-share-links.sql, migrations/4.2.0/rollback-user-normalized-identity.sql and migrations/4.0.0/rollback-to-3.x.sql"
-else
-    UP_FIRST=""
-    DOWN_LAST="migrations/4.2.0/rollback-site-share-links.sql and migrations/4.2.0/rollback-user-normalized-identity.sql"
-fi
-
-printf '\nThe upgrade from %s to the working tree works on the Suite host, with %smigrations/4.2.0/user-normalized-identity.sql, migrations/4.2.0/site-share-links.sql, migrations/4.3.0/collection-syncs.sql, migrations/4.3.0/marten-9-37-event-store-columns.sql, migrations/4.4.0/marten-9-38-quick-append-events.sql, migrations/4.5.0/refresh-token-hash-index.sql, migrations/4.6.0/event-correlation-metadata.sql, migrations/4.6.0/sensitivity-by-capability.sql, migrations/4.6.0/tenant-profile-to-site.sql, migrations/4.2.0/stored-files-parent-index.sql, migrations/4.2.0/forms-public-forms.sql, migrations/4.5.0/email-sent-emails.sql, migrations/4.6.0/external-auth-identities.sql and migrations/4.6.0/forms-email-verification.sql applied first, and rolls back cleanly with migrations/4.6.0/rollback-forms-email-verification.sql, migrations/4.6.0/rollback-external-auth-identities.sql, migrations/4.6.0/rollback-sensitivity-by-capability.sql, migrations/4.6.0/rollback-tenant-profile-to-site.sql, migrations/4.6.0/rollback-event-correlation-metadata.sql, migrations/4.5.0/rollback-email-sent-emails.sql, migrations/4.5.0/rollback-refresh-token-hash-index.sql, migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql, migrations/4.3.0/rollback-collection-syncs.sql, migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql, %s.\n' "$FROM_VERSION" "$UP_FIRST" "$DOWN_LAST"
+printf '\nThe upgrade from %s to the working tree works on the Suite host, with %s applied first, and rolls back cleanly with %s.\n' \
+    "$FROM_VERSION" "$(joined "$CORE_FILES
+$MODULE_FILES")" "$(joined "$ROLLBACK_FILES")"

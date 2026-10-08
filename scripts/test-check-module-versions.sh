@@ -496,6 +496,19 @@ set_version 4.0.0; touch_module "first"; commit "module at 4.0.0"
 on_nuget 4.0.0
 run; check "one commit in the whole history, version published" fail "since the first commit, which set 4.0.0"
 
+echo "== BarakoCMS.Testing carries the core's version (#1112) =="
+new_repo
+set_version 4.6.0 barakoCMS
+set_version 4.3.0 BarakoCMS.Testing
+set_version 4.0.0; touch_module "first"; commit "core 4.6.0, Testing 4.3.0"
+run; check "Testing behind the core" fail "BarakoCMS.Testing is at 4.3.0 and the core is at 4.6.0"
+
+set_version 4.6.0 BarakoCMS.Testing; commit "Testing to 4.6.0"
+run; check "Testing at the core's version" pass
+
+set_version 4.7.0 barakoCMS; commit "core to 4.7.0 alone"
+run; check "the core bumped without Testing" fail "set <Version> in BarakoCMS.Testing/BarakoCMS.Testing.csproj to 4.7.0"
+
 echo "== git variables inherited from a hook =="
 # The whole script again, the way a hook would start it, with a bystander repository named by
 # GIT_DIR. It must come through with nothing moved, added or tagged.

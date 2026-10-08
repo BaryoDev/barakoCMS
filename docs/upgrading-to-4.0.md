@@ -53,28 +53,20 @@ Run it with `--single-transaction`, as below, and a refusal leaves the database 
 
 ## The upgrade
 
-Stop the 4.0 deploy from starting yet, and with 3.x stopped:
+Stop the 4.0 deploy from starting yet, and with 3.x stopped, run the `psql` lines this prints,
+from a checkout of the release you are deploying:
 
 ```bash
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.0.0/3.x-to-4.0.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.2.0/user-normalized-identity.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.2.0/site-share-links.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/4.2.0/stored-files-parent-index.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.2.0/forms-public-forms.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/email-sent-emails.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/external-auth-identities.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/forms-email-verification.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0/collection-syncs.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0/marten-9-37-event-store-columns.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.4.0/marten-9-38-quick-append-events.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/refresh-token-hash-index.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/event-correlation-metadata.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/sensitivity-by-capability.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/tenant-profile-to-site.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.7.0/membership-unique-user-tenant.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.7.0/tenant-policy-restore.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.7.0/forms-tenant-policy-restore.sql
+scripts/upgrade-check.sh --list                       # coming from 3.x
+FROM_VERSION=4.1.0 scripts/upgrade-check.sh --list    # coming from 4.0 or 4.1
 ```
+
+`--list` builds nothing and starts nothing. It reads the files under `migrations/` and prints one
+`psql` line for each, in the order CI applies them: core's files oldest folder first, then the
+module files (the ones a module's project embeds), then the rollback. A folder no newer than
+`FROM_VERSION` is left out, so coming from 4.0 or 4.1 the `4.0.0` file is not listed. Run the core
+and module lines now and keep the rollback lines for later. The stored files index is the one line
+without `--single-transaction`: its header says why.
 
 The two Marten files bring the event store up to the Marten version the release you are deploying
 runs. Each explains itself in its header. Skip a file whose directory is newer than that release.
@@ -88,7 +80,7 @@ columns do not stop it, and it does not call the function. CI applies the file u
 4.1 and writes through it. An old instance that restarts after the file fails its own start-up
 schema assertion, so do not leave long between the file and the deploy.
 
-With a 4.6.0 or later image, `db-migrate` applies these files in place of the `psql` lines above.
+With a 4.6.0 or later image, `db-migrate` applies these files in place of the `psql` lines.
 See [migrations.md](migrations.md), and run `db-migrate --status` first: CI proves the `psql` route
 from 3.x and does not yet run `db-migrate` against a 3.x database.
 
@@ -155,13 +147,12 @@ holds one membership per tenant. If two rows already share a user and a tenant i
 nothing, and says how many pairs there are; its header has the query that lists them. It does not
 pick which row to keep. It is safe to run twice.
 
-The two tenant policy files (4.7.0, one for core's tables and one for the Forms tables) matter
-only with `Tenancy:DatabaseEnforcement` on. The share links,
+The tenant policy file (4.7.0) matters only with `Tenancy:DatabaseEnforcement` on. The share links,
 Forms and collection syncs files, and the `4.0.0` file, end by taking the tenant policy off the
 table they create, and run again by hand on an enforced database they take it off a table that had
-it. Each file reads whether the database enforces tenancy from its other tables, and where it
-does, puts the same policy back on any of its tables that lacks it. Run the Forms one after the
-Forms files. With enforcement off they change nothing. Both are safe to run twice.
+it. This file reads whether the database enforces tenancy from its other tables, and where it does,
+puts the same policy back on any of those tables that lacks it. With enforcement off it changes
+nothing. It is safe to run twice.
 
 Then confirm the schema matches what 4.0 expects, without starting the server. The command is an
 argument to the 4.0 image, which hands it to the host instead of booting the web app. With compose,
@@ -233,30 +224,12 @@ statements from the file by hand rather than re-running the whole thing.
 > rewritten back to Draft, so anything waiting to publish will need rescheduling. Twelve tables are
 > dropped in total; the file lists them with a comment on each.
 
-Stop 4.0, then:
+Stop 4.0, then run the rollback lines `scripts/upgrade-check.sh --list` prints, newest first,
+with `FROM_VERSION` set to the release you are going back to.
 
-```bash
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.7.0/rollback-forms-tenant-policy-restore.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.7.0/rollback-tenant-policy-restore.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.7.0/rollback-membership-unique-user-tenant.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/rollback-forms-email-verification.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/rollback-external-auth-identities.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/rollback-sensitivity-by-capability.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/rollback-tenant-profile-to-site.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/rollback-event-correlation-metadata.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/rollback-email-sent-emails.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.5.0/rollback-refresh-token-hash-index.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0/rollback-collection-syncs.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.3.0/rollback-marten-9-37-event-store-columns.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.2.0/rollback-site-share-links.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.2.0/rollback-user-normalized-identity.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.0.0/rollback-to-3.x.sql
-```
-
-Stop before the files of the release you are going back to. The list above goes all the way to
-3.x. Going back to 4.2 or later, leave both `4.2.0` files out: 4.2 declares the share links table,
-and running that rollback there drops every link for nothing.
+The list stops at the release you name, and from the default `FROM_VERSION` it goes all the way
+to 3.x. Going back to 4.2 or later it leaves both `4.2.0` files out, as it must: 4.2 declares the
+share links table, and running that rollback there drops every link for nothing.
 
 Newest first. An earlier release asserts its own schema at startup. What it reports, and refuses
 to boot over, is an index or column it does not declare on a table it does declare, which is why

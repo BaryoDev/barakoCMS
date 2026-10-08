@@ -48,6 +48,8 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
 
     private int _hostsBuilt;
 
+    private readonly System.Collections.Concurrent.ConcurrentQueue<IServiceProvider> _startedHosts = new();
+
     public string ConnectionString => _postgresContainer.GetConnectionString().Replace("localhost", "127.0.0.1").Replace("Host=", "Server=") + ";Pooling=false";
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -309,6 +311,10 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             // the opposite: a test has to be able to read a token that only exists in an email.
             services.RemoveAll<barakoCMS.Core.Interfaces.IEmailService>();
             services.AddSingleton<RecordingEmailService>();
+
+            // Every host this fixture or a test derived from it starts, so teardown can stop each
+            // one's projection coordinator before the host's own stop reaches it (#1063).
+            services.AddHostedService(sp => new StartedHostTracker(_startedHosts, sp));
             services.AddSingleton<barakoCMS.Core.Interfaces.IEmailService>(
                 sp => sp.GetRequiredService<RecordingEmailService>());
 
@@ -480,11 +486,85 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
 
     public new async ValueTask DisposeAsync()
     {
+        await StopProjectionCoordinatorsAsync();
+
         // The host first. Stopping it stops the projection daemon and the workflow runner, and with
         // the database already gone those fail their passes and Marten's coordinator threw
         // ObjectDisposedException out of StopAsync, failing every test in the collection.
         await base.DisposeAsync();
         await _postgresContainer.DisposeAsync();
+    }
+
+    /// <summary>
+    /// Stops the projection coordinator of every host that started, before any host stops (#1063).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// JasperFx.Events 2.75.2, <c>ProjectionCoordinatorBase.stopRunnerAsync</c>: line 151 returns when
+    /// there is no loop, line 155 cancels the loop's token source, and lines 160 and 161 dispose it and
+    /// clear the field, with no lock around any of it. A disposed source at line 155 can only be one
+    /// another stop of the same coordinator disposed while this one was already past line 151, so the
+    /// throw on 2 October, out of the host's own stop inside <c>WebApplicationFactory.DisposeAsync</c>,
+    /// was two stops of one coordinator overlapping.
+    /// </para>
+    /// <para>
+    /// Stopping each coordinator here, once and awaited, while every host and the database are still
+    /// up, leaves the field cleared before the host's stop, anything that stop sets off, or the
+    /// container's disposal of the coordinator calls it again. Each of those then returns at line 151
+    /// and touches no token source. Nothing in barakoCMS starts a coordinator again after that: nothing
+    /// calls <c>ResumeAsync</c>.
+    /// </para>
+    /// <para>
+    /// Only one throw is caught: an <see cref="ObjectDisposedException"/> from a coordinator's stop is
+    /// written to stderr and teardown carries on. Anything else, a timeout included, still fails the
+    /// collection.
+    /// </para>
+    /// </remarks>
+    private async Task StopProjectionCoordinatorsAsync()
+    {
+        foreach (var services in _startedHosts.Reverse())
+        {
+            Marten.Events.Daemon.Coordination.IProjectionCoordinator? coordinator;
+            try
+            {
+                coordinator = services.GetService<Marten.Events.Daemon.Coordination.IProjectionCoordinator>();
+            }
+            catch (ObjectDisposedException)
+            {
+                // A host a test disposed itself, which stopped its coordinator on the way.
+                continue;
+            }
+
+            if (coordinator is null)
+            {
+                continue;
+            }
+
+            try
+            {
+                await coordinator.StopAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(30));
+            }
+            catch (ObjectDisposedException e)
+            {
+                await Console.Error.WriteLineAsync(
+                    "IntegrationTestFixture: a projection coordinator threw ObjectDisposedException while stopping "
+                    + $"at teardown (#1063). Teardown carries on; no test failed because of it.{Environment.NewLine}{e}");
+            }
+        }
+    }
+
+    /// <summary>Records the provider of a host once it has started, for teardown.</summary>
+    private sealed class StartedHostTracker(
+        System.Collections.Concurrent.ConcurrentQueue<IServiceProvider> started,
+        IServiceProvider services) : Microsoft.Extensions.Hosting.IHostedService
+    {
+        public Task StartAsync(CancellationToken cancellationToken)
+        {
+            started.Enqueue(services);
+            return Task.CompletedTask;
+        }
+
+        public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
     /// <summary>
