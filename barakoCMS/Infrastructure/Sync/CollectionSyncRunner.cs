@@ -481,9 +481,10 @@ internal sealed class CollectionSyncRunner(
 
     private static bool TryConvert(string text, string fieldType, out object? value)
     {
-        // integer and number are the same type as int, so they convert the same way.
-        var type = barakoCMS.Core.Validation.FieldTypeRegistry.IsIntegerType(fieldType) ? "int" : fieldType.ToLowerInvariant();
-        switch (type)
+        // Only the spelling "int" converts. A field declared "integer" or "number" keeps the cell
+        // text, as it always has: converting it would skip items that sync today and turn stored
+        // text into numbers, which fires an update on every entry (#706).
+        switch (fieldType.ToLowerInvariant())
         {
             case "int":
                 if (long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var whole))

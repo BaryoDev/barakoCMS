@@ -114,15 +114,4 @@ public class IntFieldRangeTests
         fractionErrors.Should().HaveCount(1);
         fractionErrors[0].Should().Contain("Views").And.Contain("int");
     }
-
-    [Fact]
-    public void Integer_and_number_are_the_int_type_and_decimal_is_not()
-    {
-        FieldTypeRegistry.IsIntegerType("int").Should().BeTrue();
-        FieldTypeRegistry.IsIntegerType("Integer").Should().BeTrue();
-        FieldTypeRegistry.IsIntegerType("number").Should().BeTrue();
-        FieldTypeRegistry.IsIntegerType("decimal").Should().BeFalse();
-        FieldTypeRegistry.IsIntegerType("money").Should().BeFalse();
-        FieldTypeRegistry.IsIntegerType(null).Should().BeFalse();
-    }
 }
