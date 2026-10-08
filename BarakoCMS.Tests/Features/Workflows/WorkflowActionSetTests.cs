@@ -54,8 +54,51 @@ public class WorkflowActionSetTests
         services.AddScoped<IWorkflowAction, ScopedAction>();
         services.AddScoped<IWorkflowAction, BrokenConstructorAction>();
         services.AddSingleton<IWorkflowAction>(instance);
-        services.AddSingleton(new WorkflowActionRegistrations(services));
+        services.AddSingleton(sp => new WorkflowActionRegistrations(services, sp));
         return services.BuildServiceProvider();
+    }
+
+    private sealed class ScopedDependency : IDisposable
+    {
+        public bool Disposed { get; private set; }
+
+        public void Dispose() => Disposed = true;
+    }
+
+    private sealed class SingletonWithScopedDependency(ScopedDependency dependency) : DisposableActionBase("SingletonWithDependency")
+    {
+        public ScopedDependency Dependency => dependency;
+    }
+
+    /// <summary>
+    /// Validation of scopes is off in Production, so nothing stops a singleton taking a scoped
+    /// service. Built from the first scope it would keep that scope's instance after it was disposed.
+    /// </summary>
+    [Fact]
+    public async Task A_singleton_is_built_from_the_root_so_it_does_not_keep_a_disposed_scoped_service()
+    {
+        var services = new ServiceCollection();
+        services.AddScoped<ScopedDependency>();
+        services.AddSingleton<IWorkflowAction, SingletonWithScopedDependency>();
+        services.AddScoped<IWorkflowAction, BrokenConstructorAction>();
+        services.AddSingleton(sp => new WorkflowActionRegistrations(services, sp));
+        using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = false });
+
+        SingletonWithScopedDependency first;
+        using (var scope = provider.CreateScope())
+        {
+            await using var set = Build(scope);
+            first = (SingletonWithScopedDependency)set.Find("SingletonWithDependency")!;
+            first.Should().NotBeNull();
+        }
+
+        using (var scope = provider.CreateScope())
+        {
+            await using var set = Build(scope);
+            set.Find("SingletonWithDependency").Should().BeSameAs(first);
+        }
+
+        first.Dependency.Disposed.Should().BeFalse("the dependency did not come from a scope that has since been disposed");
     }
 
     private static WorkflowActionSet Build(IServiceScope scope) =>
