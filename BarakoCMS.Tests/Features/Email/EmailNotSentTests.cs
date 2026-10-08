@@ -39,7 +39,7 @@ public class EmailNotSentTests
         var send = () => Smtp(relay.Port).SendEmailAsync("someone@example.com", "s", "<p>b</p>", Ct);
 
         var failure = (await send.Should().ThrowAsync<EmailNotSentException>()).Which;
-        failure.Message.Should().Contain("450");
+        failure.Message.Should().Contain("Mailbox busy", "the relay's refusal is named");
         relay.Messages.Should().BeEmpty("the relay refused the recipient before DATA");
     }
 
