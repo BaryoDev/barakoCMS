@@ -14,7 +14,7 @@ internal sealed record TreeItem(
     string? Path,
     ContentStatus Status,
     bool ShowInNavigation,
-    int? Order,
+    long? Order,
     IReadOnlyList<TreeItem> Children);
 
 /// <summary>The configured type and field names, so the console writes the fields this site's type has.</summary>
@@ -119,7 +119,7 @@ internal sealed class Endpoint : EndpointWithoutRequest<TreeResponse>
                 hidden ? null : PageData.String(data, _options.TitleField),
                 PageData.Guid(doc.Data, _options.ParentField),
                 PageData.Bool(data, _options.ShowInNavigationField),
-                PageData.Int(data, _options.OrderField)));
+                PageData.Long(data, _options.OrderField)));
             statuses[doc.Id] = doc.Status;
         }
 
