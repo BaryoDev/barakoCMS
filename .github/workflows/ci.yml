@@ -47,6 +47,12 @@ jobs:
           CHECK_MODULE_VERSIONS_NUGET_DIR: ""
         run: bash scripts/check-module-versions.sh
 
+      # The upgrade plan is read from migrations/, so a new file needs no edit in upgrade-check.sh or
+      # the upgrade guide. This holds the order CI proved for the shipped files and shows a new one
+      # joins the plan. No containers, no build.
+      - name: Prove the upgrade plan lists every migration in order
+        run: bash scripts/test-upgrade-plan.sh
+
       # Markdown and YAML are where a botched merge hides: nothing compiles them, so a CHANGELOG
       # full of conflict markers passed every other gate and reached master.
       - name: Check for conflict markers

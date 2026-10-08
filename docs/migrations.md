@@ -317,13 +317,11 @@ MODULES.md has the project file lines.
   alters one of them needs a skip query that is also true when the table is missing (the first
   start creates the table current). `Files/4.2.0/stored-files-parent-index` is the example.
 
-Five files under `migrations/` belong to modules and ship from them:
-`4.2.0/stored-files-parent-index.sql` (Files), `4.2.0/forms-public-forms.sql` and
-`4.6.0/forms-email-verification.sql` (Forms), `4.5.0/email-sent-emails.sql` (Email.Resend) and
-`4.6.0/external-auth-identities.sql` (ExternalAuth). Every other file under `migrations/<version>/` ships
-from core, including files added later, with no list to update. `scripts/check-module-versions.sh`
-counts a change to a file a module links from `migrations/` as a change to that module, so the
-module's version has to move with it.
+A file under `migrations/` belongs to a module when that module's project embeds it, and ships
+from that module. `scripts/upgrade-check.sh --list` prints those files under their own heading.
+Every other file under `migrations/<version>/` ships from core, including files added later, with
+no list to update. `scripts/check-module-versions.sh` counts a change to a file a module links
+from `migrations/` as a change to that module, so the module's version has to move with it.
 
 ## Writing a migration file
 
