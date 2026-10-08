@@ -1,6 +1,7 @@
 using barakoCMS.Core.Interfaces;
 using FastEndpoints;
 using Marten;
+using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using System.Security.Claims;
 
@@ -57,6 +58,13 @@ internal class Endpoint(
         // field the Update rule granting this entry does not let the caller set.
         await Resolve<barakoCMS.Core.Interfaces.ISensitivityService>()
             .ApplyWriteAsync(existingContent, req.Data, HttpContext, ct);
+
+        // After the put-back above, so what is judged is the data that will be stored.
+        if (!await permissionResolver.AllowsWrittenEntryAsync(user, existingContent, "update", req.Data, ct))
+        {
+            await Send.ForbiddenAsync(ct);
+            return;
+        }
 
         // DYNAMIC VALIDATION - Validate data against ContentType schema
         var validationResult = await validator.ValidateAsync(
