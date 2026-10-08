@@ -1,6 +1,8 @@
 using barakoCMS.Core.Interfaces;
 using MailKit.Net.Smtp;
 using MailKit.Security;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MimeKit;
 
@@ -22,12 +24,38 @@ public sealed class SmtpEmailService : IEmailService
 {
     private readonly IOptionsSnapshot<SmtpOptions> _options;
     private readonly IEmailSettingsProvider _settings;
+    private readonly ILogger<SmtpEmailService>? _logger;
+    private readonly Func<SmtpClient> _newClient;
 
     public SmtpEmailService(IOptionsSnapshot<SmtpOptions> options, IEmailSettingsProvider settings)
+        : this(options, settings, null)
+    {
+    }
+
+    [ActivatorUtilitiesConstructor]
+    public SmtpEmailService(IOptionsSnapshot<SmtpOptions> options, IEmailSettingsProvider settings, ILogger<SmtpEmailService>? logger)
+        : this(options, settings, logger, () => new SmtpClient())
+    {
+    }
+
+    /// <summary>For tests that need a client which fails at a chosen step.</summary>
+    internal SmtpEmailService(
+        IOptionsSnapshot<SmtpOptions> options,
+        IEmailSettingsProvider settings,
+        ILogger<SmtpEmailService>? logger,
+        Func<SmtpClient> newClient)
     {
         _options = options;
         _settings = settings;
+        _logger = logger;
+        _newClient = newClient;
     }
+
+    /// <summary>
+    /// Three timeouts: the connect and login together, then MAIL FROM and RCPT TO, each one MailKit
+    /// operation. A send that throws <see cref="EmailNotSentException"/> has ended by then.
+    /// </summary>
+    public TimeSpan? MaxNotSentDuration => _options.Value.Timeout * 3;
 
     public Task SendEmailAsync(string to, string subject, string body, CancellationToken cancellationToken = default) =>
         SendEmailAsync(to, subject, body, Array.Empty<EmailAttachment>(), cancellationToken);
@@ -56,19 +84,32 @@ public sealed class SmtpEmailService : IEmailService
 
         message.Body = builder.ToMessageBody();
 
-        using var client = new SmtpClient();
+        using var client = _newClient();
+        client.Timeout = (int)options.Timeout.TotalMilliseconds;
         var sending = false;
 
         try
         {
-            await client.ConnectAsync(options.Host, options.Port, SecurityFor(options), cancellationToken);
+            // One limit over the connect and the login together, since each is several reads and
+            // MailKit's timeout is per read. Nothing has been sent when it fires.
+            using (var handshake = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+            {
+                handshake.CancelAfter(options.Timeout);
+                try
+                {
+                    await client.ConnectAsync(options.Host, options.Port, SecurityFor(options), handshake.Token);
 
-            if (!string.IsNullOrWhiteSpace(options.User))
-                await client.AuthenticateAsync(options.User, options.Password ?? string.Empty, cancellationToken);
+                    if (!string.IsNullOrWhiteSpace(options.User))
+                        await client.AuthenticateAsync(options.User, options.Password ?? string.Empty, handshake.Token);
+                }
+                catch (OperationCanceledException) when (handshake.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                {
+                    throw new TimeoutException($"No answer within {options.Timeout.TotalSeconds:0.#} s.");
+                }
+            }
 
             sending = true;
             await client.SendAsync(message, cancellationToken);
-            await client.DisconnectAsync(true, cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -87,6 +128,17 @@ public sealed class SmtpEmailService : IEmailService
             var text = Redact($"SMTP send via {options.Host}:{options.Port} failed ({ex.GetType().Name}): {ex.Message}",
                 options.Password);
             throw NothingSent(ex, sending) ? new EmailNotSentException(text) : new InvalidOperationException(text);
+        }
+
+        try
+        {
+            await client.DisconnectAsync(true, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // The relay accepted the message, so this send succeeded. Failing it here would have the
+            // durable queue send a second copy.
+            _logger?.LogWarning("Closing the SMTP connection after a sent message failed ({Exception}).", ex.GetType().Name);
         }
     }
 

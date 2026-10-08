@@ -29,11 +29,14 @@ public class S3ClientBoundsTests
     [Fact]
     public void The_default_worst_case_fits_in_the_shortest_lease()
     {
-        var defaults = new S3StorageOptions();
+        var (retries, timeout, problem) = new S3StorageOptions().Resolve(JobOptions.DefaultLeaseSeconds);
 
-        defaults.MaxCallDuration.Should().Be(TimeSpan.FromSeconds(195), "three tries of 45 s and two waits of up to 30 s");
-        defaults.MaxCallDuration.Should().BeLessThanOrEqualTo(WorkflowRetryPolicy.LeaseDuration * OutboundResilienceOptions.LeaseShare);
-        defaults.Problem(JobOptions.DefaultLeaseSeconds).Should().BeNull();
+        problem.Should().BeNull();
+        retries.Should().Be(2);
+        timeout.Should().Be(TimeSpan.FromSeconds(45));
+        S3StorageOptions.MaxCallDuration(retries, timeout).Should().Be(TimeSpan.FromSeconds(195), "three tries of 45 s and two waits of up to 30 s");
+        S3StorageOptions.MaxCallDuration(retries, timeout)
+            .Should().BeLessThanOrEqualTo(WorkflowRetryPolicy.LeaseDuration * OutboundResilienceOptions.LeaseShare);
     }
 
     /// <summary>
@@ -42,7 +45,8 @@ public class S3ClientBoundsTests
     [Fact]
     public void The_default_worst_case_is_no_longer_than_the_slowest_outbound_action()
     {
-        new S3StorageOptions().MaxCallDuration.Should().BeLessThanOrEqualTo(new OutboundResilienceOptions().MaxActionDuration);
+        S3StorageOptions.MaxCallDuration(S3StorageOptions.DefaultMaxErrorRetry, TimeSpan.FromSeconds(S3StorageOptions.DefaultTimeoutSeconds))
+            .Should().BeLessThanOrEqualTo(new OutboundResilienceOptions().MaxActionDuration);
     }
 
     [Fact]
@@ -76,17 +80,56 @@ public class S3ClientBoundsTests
             start.Should().NotThrow("the defaults fit, so the refusals below are about the values");
         }
 
-        using (var longTries = Build(new() { ["Modules:Files.S3:TimeoutSeconds"] = "120" }))
+        using (var longTries = Build(new() { ["Modules:Files.S3:TimeoutSeconds"] = "120", ["Modules:Files.S3:MaxErrorRetry"] = "2" }))
         {
             var start = () => longTries.GetRequiredService<IStartupValidator>().Validate();
             start.Should().Throw<OptionsValidationException>().WithMessage("*Modules:Files.S3*shortest lease (300 s*");
         }
 
-        using (var shortLease = Build(new() { [JobOptions.LeaseSecondsKey] = "120" }))
+        using (var shortLease = Build(new() { [JobOptions.LeaseSecondsKey] = "120", ["Modules:Files.S3:MaxErrorRetry"] = "2", ["Modules:Files.S3:TimeoutSeconds"] = "45" }))
         {
             var start = () => shortLease.GetRequiredService<IStartupValidator>().Validate();
-            start.Should().Throw<OptionsValidationException>().WithMessage("*shortest lease (120 s*");
+            start.Should().Throw<OptionsValidationException>().WithMessage("*shortest lease (120 s*",
+                "both set by hand, and three tries of 45 s cannot fit in 96 s");
         }
+    }
+
+    /// <summary>
+    /// A host that starts today with a short lease and no S3 bounds set must keep starting: the unset
+    /// values give way to the lease instead of refusing it.
+    /// </summary>
+    [Fact]
+    public void Unset_bounds_shrink_to_fit_a_short_lease_rather_than_stop_the_host()
+    {
+        using var provider = Build(new() { [JobOptions.LeaseSecondsKey] = "200" });
+
+        var start = () => provider.GetRequiredService<IStartupValidator>().Validate();
+        start.Should().NotThrow();
+
+        var config = ((AmazonS3Client)provider.GetRequiredService<IAmazonS3>()).Config;
+        config.MaxErrorRetry.Should().Be(1, "two tries of 45 s and one wait of 30 s is 120 s, inside the 160 s; three is 195 s");
+        config.Timeout.Should().Be(TimeSpan.FromSeconds(45));
+        S3StorageOptions.MaxCallDuration(config.MaxErrorRetry, config.Timeout!.Value)
+            .Should().BeLessThanOrEqualTo(TimeSpan.FromSeconds(160));
+    }
+
+    [Fact]
+    public void An_unset_timeout_shrinks_when_no_retries_still_do_not_fit()
+    {
+        var (retries, timeout, problem) = new S3StorageOptions { MaxErrorRetry = 0 }.Resolve(jobLeaseSeconds: 30);
+
+        problem.Should().BeNull();
+        retries.Should().Be(0);
+        timeout.Should().Be(TimeSpan.FromSeconds(24), "80% of a 30 s lease");
+    }
+
+    [Fact]
+    public void An_unset_retry_count_gives_way_to_a_set_timeout()
+    {
+        var (retries, _, problem) = new S3StorageOptions { TimeoutSeconds = 100 }.Resolve(JobOptions.DefaultLeaseSeconds);
+
+        problem.Should().BeNull();
+        retries.Should().Be(1, "two tries of 100 s and a wait of 30 s is 230 s of the 240 s");
     }
 
     [Theory]

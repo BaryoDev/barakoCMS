@@ -77,6 +77,7 @@ Keep the password in user-secrets, an environment variable or a mounted secret, 
 | `User`, `Password` | Omit both for a relay that does not authenticate. |
 | `From` | Sender. A from address stored in the admin at Settings, Email wins over this. |
 | `Security` | `StartTls`, `SslOnConnect` or `None`. Unset picks by port. |
+| `TimeoutSeconds` | Default `30`. How long one exchange with the relay may take, and the connect and login together. MailKit's own default was 120 per exchange. |
 
 ### It is inert until you configure it
 
@@ -110,6 +111,11 @@ the attempt on that exception. Anything later, a refused DATA, a dropped connect
 during the send, throws `InvalidOperationException` and is not resent, since the relay may have
 queued the message. Both carry the relay's answer with the password redacted, and neither carries
 the relay's own exception.
+
+A send that ends in `EmailNotSentException` takes at most three `TimeoutSeconds` (the connect and
+login, MAIL FROM, RCPT TO), and the workflow email action uses that to fit its tries inside the
+lease. A failure closing the connection after the relay accepted the message is logged, and the
+send counts as sent.
 
 ## What this module does not get from the admin
 

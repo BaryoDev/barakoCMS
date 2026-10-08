@@ -52,6 +52,12 @@ public class ResendEmailService : IEmailService
         this.logger = logger;
     }
 
+    /// <summary>
+    /// The client's own timeout, which covers the whole request. Null when it has none.
+    /// </summary>
+    public TimeSpan? MaxNotSentDuration =>
+        http.Timeout == System.Threading.Timeout.InfiniteTimeSpan ? null : http.Timeout;
+
     /// <summary>Resend's shared testing sender, which works without a verified domain.</summary>
     private const string DefaultFrom = "BarakoCMS <onboarding@resend.dev>";
 

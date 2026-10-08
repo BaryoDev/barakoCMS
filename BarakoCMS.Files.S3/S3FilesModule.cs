@@ -48,11 +48,12 @@ public sealed class S3FilesModule : IBarakoModule
         services.AddSingleton<IAmazonS3>(sp =>
         {
             var o = sp.GetRequiredService<IOptions<S3StorageOptions>>().Value;
+            var bounds = o.Resolve(S3StorageOptionsValidator.JobLeaseSeconds(sp.GetService<IConfiguration>()));
             var cfg = new AmazonS3Config
             {
                 ForcePathStyle = o.ForcePathStyle,
-                MaxErrorRetry = o.MaxErrorRetry,
-                Timeout = o.Timeout,
+                MaxErrorRetry = bounds.MaxErrorRetry,
+                Timeout = bounds.Timeout,
             };
             if (!string.IsNullOrEmpty(o.ServiceUrl))
                 cfg.ServiceURL = o.ServiceUrl;                      /* R2 / self-hosted */
@@ -76,10 +77,12 @@ internal sealed class S3StorageOptionsValidator(IConfiguration? configuration = 
 {
     public ValidateOptionsResult Validate(string? name, S3StorageOptions options)
     {
-        var jobLease = configuration?.GetValue(S3StorageOptions.JobLeaseSecondsKey, S3StorageOptions.DefaultJobLeaseSeconds)
-            ?? S3StorageOptions.DefaultJobLeaseSeconds;
-        return options.Problem(jobLease) is { } problem
+        return options.Resolve(JobLeaseSeconds(configuration)).Problem is { } problem
             ? ValidateOptionsResult.Fail(problem)
             : ValidateOptionsResult.Success;
     }
+
+    internal static int JobLeaseSeconds(IConfiguration? configuration) =>
+        configuration?.GetValue(S3StorageOptions.JobLeaseSecondsKey, S3StorageOptions.DefaultJobLeaseSeconds)
+        ?? S3StorageOptions.DefaultJobLeaseSeconds;
 }

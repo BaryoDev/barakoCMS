@@ -41,6 +41,16 @@ public interface IEmailService
         attachments.Count == 0
             ? SendForTenantAsync(tenant, to, subject, body, cancellationToken)
             : SendEmailAsync(to, subject, body, attachments, cancellationToken);
+
+    /// <summary>
+    /// The longest a send can take before it throws <see cref="EmailNotSentException"/>, or null when
+    /// the provider does not bound it.
+    /// </summary>
+    /// <remarks>
+    /// A caller that tries again on <see cref="EmailNotSentException"/> needs this to keep its tries
+    /// inside a lease. The default is null, so a provider written before it existed is sent once.
+    /// </remarks>
+    TimeSpan? MaxNotSentDuration => null;
 }
 
 /// <summary>

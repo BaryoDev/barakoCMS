@@ -339,6 +339,62 @@ public class OutboundResilienceTests
     }
 
     [Fact]
+    public async Task An_email_provider_that_gives_no_bound_is_sent_once_even_when_not_sent()
+    {
+        var provider = new ScriptedEmail(_ => throw new EmailNotSentException("Relay refused the connection."))
+        {
+            MaxNotSentDuration = null,
+        };
+        var action = new EmailAction(provider, NullLogger<EmailAction>.Instance, resilience: new OutboundResilience(Fast()));
+
+        var result = await action.RunAsync(Email(), new Content { Id = Guid.NewGuid() }, Ct);
+
+        result.Retryable.Should().BeTrue();
+        provider.Calls.Should().Be(1, "nothing says how long its tries take, so they cannot be fitted to the lease");
+    }
+
+    /// <summary>
+    /// A one second job lease leaves 0.8 s. Three tries of up to 0.5 s do not fit and one does; three
+    /// of up to 0.2 s do.
+    /// </summary>
+    [Theory]
+    [InlineData(500, 1)]
+    [InlineData(200, 3)]
+    public async Task Email_tries_that_would_outlast_the_lease_are_cut_to_fit(int boundMilliseconds, int expectedCalls)
+    {
+        var provider = new ScriptedEmail(async token =>
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(100), token);
+            throw new EmailNotSentException("Relay did not answer.");
+        })
+        {
+            MaxNotSentDuration = TimeSpan.FromMilliseconds(boundMilliseconds),
+        };
+        var action = new EmailAction(provider, NullLogger<EmailAction>.Instance,
+            resilience: new OutboundResilience(Fast() with { JobLeaseSeconds = 1 }));
+
+        var result = await action.RunAsync(Email(), new Content { Id = Guid.NewGuid() }, Ct);
+
+        result.Succeeded.Should().BeFalse();
+        provider.Calls.Should().Be(expectedCalls);
+    }
+
+    [Fact]
+    public void The_default_email_retries_fit_the_default_lease_for_the_shipped_providers()
+    {
+        var defaults = new OutboundResilienceOptions();
+
+        defaults.EmailRetries(TimeSpan.FromSeconds(90)).Should().Be(1, "SMTP's three 30 s timeouts: two tries take 182 s of the 240 s, three would take 274 s");
+        defaults.EmailRetries(TimeSpan.FromSeconds(100)).Should().Be(1, "Resend's 100 s client timeout");
+        defaults.EmailRetries(null).Should().Be(0);
+        (defaults with { EmailSendTimeout = TimeSpan.FromSeconds(60) }).EmailRetries(null)
+            .Should().Be(defaults.Retries, "the send timeout covers every try");
+        OutboundResilienceOptions.FromConfiguration(new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?> { [JobOptions.LeaseSecondsKey] = "60" }).Build())
+            .JobLeaseSeconds.Should().Be(60);
+    }
+
+    [Fact]
     public void An_email_send_has_no_timeout_by_default()
     {
         new OutboundResilienceOptions().EmailSendTimeout.Should().BeNull();
@@ -488,6 +544,8 @@ public class OutboundResilienceTests
     private sealed class ScriptedEmail(params Func<CancellationToken, Task>[] steps) : IEmailService
     {
         public int Calls { get; private set; }
+
+        public TimeSpan? MaxNotSentDuration { get; init; } = TimeSpan.FromSeconds(1);
 
         public Task SendEmailAsync(string to, string subject, string body, CancellationToken cancellationToken = default) =>
             steps[Math.Min(++Calls, steps.Length) - 1](cancellationToken);

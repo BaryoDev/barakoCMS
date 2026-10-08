@@ -132,7 +132,13 @@ dropped, and a dropped pair starts again with a closed breaker.
 Email is retried inside the attempt only when the provider throws `EmailNotSentException`, which
 it does only when the message cannot have left. There is no idempotency key to make a second send
 safe, so every other failure is sent once and left to the durable queue, and email has no breaker.
-`Retries` sets how many more tries a send that was not taken gets.
+`Retries` sets how many more tries a send that was not taken gets, cut to fit the lease: each
+provider says how long a not-sent try can take (`MaxNotSentDuration`), and every try running that
+long, plus the waits between them, must stay within 80% of the shorter of the runner's 5 minute
+lease and `Jobs:LeaseSeconds`. SMTP's bound is three `TimeoutSeconds` (90 s by default), and
+Resend's is its client timeout (100 s), so with the defaults each gets one more try. A provider that
+gives no bound is sent once. With `EmailSendTimeoutSeconds` set, that limit covers every try and all
+of `Retries` is used.
 
 | Provider | Not sent, so tried again | Everything else, sent once |
 | --- | --- | --- |
