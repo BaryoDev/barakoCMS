@@ -57,6 +57,7 @@ public sealed class SmtpEmailService : IEmailService
         message.Body = builder.ToMessageBody();
 
         using var client = new SmtpClient();
+        var sending = false;
 
         try
         {
@@ -65,6 +66,7 @@ public sealed class SmtpEmailService : IEmailService
             if (!string.IsNullOrWhiteSpace(options.User))
                 await client.AuthenticateAsync(options.User, options.Password ?? string.Empty, cancellationToken);
 
+            sending = true;
             await client.SendAsync(message, cancellationToken);
             await client.DisconnectAsync(true, cancellationToken);
         }
@@ -82,11 +84,32 @@ public sealed class SmtpEmailService : IEmailService
             // {Exception}, which is ToString(), which concatenates the inner. The password went to
             // stdout on every failed send, and to disk wherever file logging is on. Keeping the
             // stack would mean keeping the leak, so the type name carries the diagnostic instead.
-            throw new InvalidOperationException(
-                Redact($"SMTP send via {options.Host}:{options.Port} failed ({ex.GetType().Name}): {ex.Message}",
-                    options.Password));
+            var text = Redact($"SMTP send via {options.Host}:{options.Port} failed ({ex.GetType().Name}): {ex.Message}",
+                options.Password);
+            throw NothingSent(ex, sending) ? new EmailNotSentException(text) : new InvalidOperationException(text);
         }
     }
+
+    /// <summary>
+    /// Whether the relay cannot have the message, so sending it again cannot deliver it twice.
+    /// </summary>
+    /// <remarks>
+    /// Anything <c>ConnectAsync</c> or <c>AuthenticateAsync</c> throws: a DNS failure or refused
+    /// connection (<see cref="System.Net.Sockets.SocketException"/>), a failed TLS handshake
+    /// (<see cref="SslHandshakeException"/>), a relay that does not offer STARTTLS
+    /// (<see cref="NotSupportedException"/>), a refused login (<see cref="AuthenticationException"/>)
+    /// or a broken greeting (<see cref="SmtpProtocolException"/>). No MAIL FROM has been sent yet.
+    ///
+    /// From <c>SendAsync</c>, only a 4xx or 5xx answer to MAIL FROM or RCPT TO, which MailKit raises as
+    /// <see cref="SmtpCommandException"/> with <see cref="SmtpErrorCode.SenderNotAccepted"/> or
+    /// <see cref="SmtpErrorCode.RecipientNotAccepted"/>. <see cref="SmtpErrorCode.MessageNotAccepted"/>
+    /// is not on the list: MailKit raises it both for a refused DATA command and for a refusal after
+    /// the whole message went over, and the two cannot be told apart. A dropped connection or a
+    /// timeout during the send is not on it either, since the relay may have queued the message.
+    /// </remarks>
+    internal static bool NothingSent(Exception ex, bool sending) =>
+        !sending
+        || ex is SmtpCommandException { ErrorCode: SmtpErrorCode.SenderNotAccepted or SmtpErrorCode.RecipientNotAccepted };
 
     private static ContentType MimeTypeOf(EmailAttachment attachment) =>
         ContentType.TryParse(attachment.ContentType, out var parsed)

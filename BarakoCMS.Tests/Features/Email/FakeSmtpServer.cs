@@ -22,6 +22,8 @@ internal sealed class FakeSmtpServer : IDisposable
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _accepting;
     private readonly string? _authFailure;
+    private readonly string? _recipientFailure;
+    private readonly AfterData _afterData;
     private readonly List<string> _messages = [];
     private readonly Lock _gate = new();
 
@@ -29,9 +31,13 @@ internal sealed class FakeSmtpServer : IDisposable
     /// The line to answer AUTH with instead of accepting it, e.g. a 535 that quotes the credentials
     /// back. Null accepts any login.
     /// </param>
-    public FakeSmtpServer(string? authFailure = null)
+    /// <param name="recipientFailure">The line to answer RCPT TO with instead of accepting it. Null accepts it.</param>
+    /// <param name="afterData">What the relay does once the whole message has arrived.</param>
+    public FakeSmtpServer(string? authFailure = null, string? recipientFailure = null, AfterData afterData = AfterData.Accept)
     {
         _authFailure = authFailure;
+        _recipientFailure = recipientFailure;
+        _afterData = afterData;
         _listener = new TcpListener(IPAddress.Loopback, 0);
         _listener.Start();
         Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
@@ -90,6 +96,10 @@ internal sealed class FakeSmtpServer : IDisposable
                         await writer.WriteLineAsync(_authFailure ?? "235 2.7.0 Authentication successful");
                         break;
 
+                    case "RCPT" when _recipientFailure is not null:
+                        await writer.WriteLineAsync(_recipientFailure);
+                        break;
+
                     case "MAIL":
                     case "RCPT":
                     case "RSET":
@@ -104,6 +114,16 @@ internal sealed class FakeSmtpServer : IDisposable
                         while ((data = await reader.ReadLineAsync()) is not null && data != ".")
                             body.AppendLine(data);
                         lock (_gate) _messages.Add(body.ToString());
+                        if (_afterData == AfterData.Drop)
+                        {
+                            return;
+                        }
+
+                        if (_afterData == AfterData.Hang)
+                        {
+                            break;
+                        }
+
                         await writer.WriteLineAsync("250 2.0.0 Ok: queued as fake");
                         break;
 
@@ -126,4 +146,17 @@ internal sealed class FakeSmtpServer : IDisposable
         try { _accepting.Wait(TimeSpan.FromSeconds(2)); } catch { /* shutting down */ }
         _cts.Dispose();
     }
+}
+
+/// <summary>What <see cref="FakeSmtpServer"/> does once a whole message has arrived.</summary>
+internal enum AfterData
+{
+    /// <summary>Answers 250, queued.</summary>
+    Accept,
+
+    /// <summary>Closes the connection without answering, so the relay has the message and the client does not know.</summary>
+    Drop,
+
+    /// <summary>Never answers, so the client only stops when it gives up.</summary>
+    Hang,
 }

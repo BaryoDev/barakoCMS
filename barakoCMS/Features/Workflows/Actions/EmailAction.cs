@@ -24,14 +24,15 @@ internal class EmailAction : IWorkflowAction
     private readonly TenantContext? _tenant;
     private readonly IFileStore? _files;
     private readonly EmailAttachmentLimits _limits;
-    private readonly TimeSpan? _sendTimeout;
+    private readonly OutboundResilience _resilience;
 
     internal const string AttachmentsParameter = "Attachments";
 
     /// <summary>
     /// Creates a new EmailAction. Without a <paramref name="tenant"/> the email is sent as belonging
     /// to no tenant, and without <paramref name="files"/> an email that names an attachment fails.
-    /// <paramref name="resilience"/> carries the optional send timeout; without it a send has none.
+    /// <paramref name="resilience"/> carries the optional send timeout and the retries; without it a
+    /// send has no timeout and the default retries.
     /// </summary>
     public EmailAction(
         IEmailService emailService,
@@ -41,7 +42,7 @@ internal class EmailAction : IWorkflowAction
         IConfiguration? configuration = null,
         OutboundResilience? resilience = null)
     {
-        _sendTimeout = (resilience ?? OutboundResilience.Default).Options.EmailSendTimeout;
+        _resilience = resilience ?? OutboundResilience.Default;
         _emailService = emailService;
         _logger = logger;
         _tenant = tenant;
@@ -119,26 +120,58 @@ internal class EmailAction : IWorkflowAction
             attachments = resolution.Files;
         }
 
-        // Not retried inside the attempt, and no breaker. The shipped providers wrap every failure in
-        // one InvalidOperationException with the cause dropped on purpose (it can carry the SMTP
-        // password), so a send that never left cannot be told from one the relay may have taken, and
-        // there is no idempotency key to make a second send safe.
+        // Retried inside the attempt only on EmailNotSentException, which a provider throws only when
+        // the message cannot have left. Any other failure may be a message the relay took, and there
+        // is no idempotency key to make a second send safe, so it is sent once. No breaker: nothing
+        // counts against it. The send timeout covers every try and the waits between them, so the
+        // slowest send is still the one OutboundResilienceOptions checks against the lease.
+        var sendTimeout = _resilience.Options.EmailSendTimeout;
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        if (_sendTimeout is { } limit) deadline.CancelAfter(limit);
+        if (sendTimeout is { } limit) deadline.CancelAfter(limit);
 
+        var lastNotSent = false;
         try
         {
-            await SendAsync(to, subject, body, attachments, deadline.Token);
+            await _resilience.RunAsync(
+                "email",
+                _tenant?.Slug ?? "",
+                _emailService.GetType().Name,
+                _resilience.Options.Retries,
+                System.Threading.Timeout.InfiniteTimeSpan,
+                async (_, token) =>
+                {
+                    lastNotSent = false;
+                    try
+                    {
+                        await SendAsync(to, subject, body, attachments, token);
+                    }
+                    catch (EmailNotSentException)
+                    {
+                        lastNotSent = true;
+                        throw;
+                    }
+
+                    return true;
+                },
+                ex => ex is EmailNotSentException,
+                _ => false,
+                deadline.Token);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             throw;
         }
+        catch (OperationCanceledException) when (deadline.IsCancellationRequested && lastNotSent)
+        {
+            // The limit ran out between tries, and the last one did not leave.
+            _logger.LogWarning("Email send ran out of time between tries, and nothing was sent.");
+            return WorkflowActionResult.Failure("The email provider did not take the email before the send timeout.");
+        }
         catch (OperationCanceledException) when (deadline.IsCancellationRequested)
         {
             // Thrown on, not returned as a failure: the runner records a timeout as unknown and does
             // not retry it, because the message may already have gone and a retry is a second email.
-            var seconds = _sendTimeout?.TotalSeconds ?? 0;
+            var seconds = sendTimeout?.TotalSeconds ?? 0;
             _logger.LogWarning("Email send did not finish within {Seconds} s.", seconds);
             throw new OperationCanceledException(
                 $"The email provider did not finish within {seconds:0.#} s, so it is not known whether the email was sent.");

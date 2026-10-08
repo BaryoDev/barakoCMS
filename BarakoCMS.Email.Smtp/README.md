@@ -101,6 +101,16 @@ by name, `"Security": "None"`, for a relay on a network you already trust.
 There is no setting that turns off certificate validation. If your relay's certificate does not
 validate, fix the certificate or trust the CA on the host.
 
+### A failed send says whether the message left
+
+A failure throws `EmailNotSentException` when the relay cannot have the message: anything that goes
+wrong while connecting or logging in (DNS, a refused connection, the TLS handshake, no STARTTLS, a
+refused login), or a 4xx or 5xx answer to MAIL FROM or RCPT TO. A workflow email tries again inside
+the attempt on that exception. Anything later, a refused DATA, a dropped connection or a timeout
+during the send, throws `InvalidOperationException` and is not resent, since the relay may have
+queued the message. Both carry the relay's answer with the password redacted, and neither carries
+the relay's own exception.
+
 ## What this module does not get from the admin
 
 barakoCMS has an email settings screen at **Settings, Email**, and it holds an API key and a from
