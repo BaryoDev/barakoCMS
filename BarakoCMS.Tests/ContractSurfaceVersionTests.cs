@@ -51,11 +51,11 @@ public class ContractSurfaceVersionTests
 
         response.Headers.TryGetValues(AdminHeader, out var admin).Should().BeTrue(
             "the header a released console reads keeps its name");
-        admin!.Should().ContainSingle().Which.Should().Be("6");
+        admin!.Should().ContainSingle().Which.Should().Be("7");
 
         response.Headers.TryGetValues(DeliveryHeader, out var delivery).Should().BeTrue(
             "a site reads the delivery number from whatever answer it gets first, as a console reads the admin one");
-        delivery!.Should().ContainSingle().Which.Should().Be("6");
+        delivery!.Should().ContainSingle().Which.Should().Be("7");
     }
 
     [Fact]
@@ -65,11 +65,11 @@ public class ContractSurfaceVersionTests
 
         var admin = meta.RootElement.GetProperty("apiContractVersion");
         admin.ValueKind.Should().Be(JsonValueKind.Number, "a released console reads it as a number");
-        admin.GetInt32().Should().Be(6);
+        admin.GetInt32().Should().Be(7);
 
         var delivery = meta.RootElement.GetProperty("deliveryContractVersion");
         delivery.ValueKind.Should().Be(JsonValueKind.Number);
-        delivery.GetInt32().Should().Be(6);
+        delivery.GetInt32().Should().Be(7);
 
         meta.RootElement.GetProperty("version").ValueKind.Should().Be(JsonValueKind.String);
         meta.RootElement.GetProperty("swaggerEnabled").ValueKind.Should().BeOneOf(JsonValueKind.True, JsonValueKind.False);

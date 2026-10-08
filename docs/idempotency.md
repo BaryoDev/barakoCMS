@@ -175,7 +175,8 @@ from an authenticated caller on a route that replays it holds the status code, `
 this use alone from `Secrets:Key` (falling back to `JWT:Key`), so neither is the key any other
 secret uses, and the body is sealed with the record's scoped key as associated data: a value copied
 in from another record or another secret does not open, and the retry gets the 409 above. After the
-key material is rotated an old body cannot be read either, with the same answer. The response is
+key material is rotated, a retry within the window no longer matches its stored hash, so it gets the
+422 for a different request rather than a replay, and nothing runs twice. The response is
 one the caller was already sent, and only that caller can have it replayed. Request and response
 bodies are never logged. Records live in `mt_doc_idempotency_records` and are removed by the sweep
 above.
