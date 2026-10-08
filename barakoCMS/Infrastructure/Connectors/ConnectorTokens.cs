@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using barakoCMS.Infrastructure.Http;
 
 namespace barakoCMS.Infrastructure.Connectors;
 
@@ -130,8 +131,9 @@ internal sealed class ConnectorTokenCache(TimeProvider clock)
     }
 }
 
+/// <param name="Tenant">The tenant asking, which keys the outbound breaker for the token host.</param>
 internal sealed record ClientCredentials(
-    Uri TokenUrl, string ClientId, string ClientSecret, string? Scope, string? Audience, bool InBody);
+    Uri TokenUrl, string ClientId, string ClientSecret, string? Scope, string? Audience, bool InBody, string? Tenant = null);
 
 /// <summary>A token, or the sentence that says why there is none. Never the response body.</summary>
 internal sealed record TokenGrant(string? AccessToken, long? ExpiresIn, string? Error);
@@ -163,6 +165,7 @@ internal static class ClientCredentialsGrant
         if (!string.IsNullOrWhiteSpace(credentials.Audience)) form.Add(new("audience", credentials.Audience.Trim()));
 
         using var request = new HttpRequestMessage(HttpMethod.Post, credentials.TokenUrl);
+        if (credentials.Tenant is not null) OutboundResilienceHandler.SetTenant(request, credentials.Tenant);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         if (credentials.InBody)
