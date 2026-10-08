@@ -81,17 +81,17 @@ type is not publicly deliverable, and both are cacheable for 60 seconds with `Va
 A menu page whose parent is not in the menu sits under its nearest ancestor that is, and keeps its
 real path. The home page has path `/`; `/home` does not resolve to it.
 
-Every body carries `contract`, currently `1`. It moves only on a breaking change to these bodies. A
+Every body carries `contract`, currently `2`. It moves only on a breaking change to these bodies. A
 renderer that does not know the number should show no menu rather than stop.
 
 ```json
-{ "contract": 1, "truncated": false, "items": [
+{ "contract": 2, "truncated": false, "items": [
   { "id": "...", "title": "About", "slug": "about", "path": "/about", "order": 1, "children": [
     { "id": "...", "title": "Team", "slug": "team", "path": "/about/team", "order": null, "children": [] } ] } ] }
 ```
 
 ```json
-{ "contract": 1, "path": "/about/team",
+{ "contract": 2, "path": "/about/team",
   "entry": { "id": "...", "contentType": "page", "slug": "team", "data": { "Title": "Team" }, "createdAt": "...", "updatedAt": "..." },
   "breadcrumbs": [
     { "id": "...", "title": "About", "slug": "about", "path": "/about" },
@@ -106,7 +106,7 @@ sees it.
 `entry` is the same shape `GET /api/public/{type}/{slug}` returns.
 
 ```json
-{ "contract": 1, "truncated": false,
+{ "contract": 2, "truncated": false,
   "options": { "contentType": "page", "parentField": "ParentPage", "showInNavigationField": "ShowInNavigation",
     "orderField": "NavigationOrder", "titleField": "Title", "maxDepth": 8, "reservedSlugs": [], "homeSlug": "home" },
   "items": [

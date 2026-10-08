@@ -38,7 +38,7 @@ internal static class ApiContract
     /// a status code, or tightening request validation so a request the API used to accept is now
     /// rejected. Adding an optional field, to a request or a response, does not.
     /// </summary>
-    public const int Version = 6;
+    public const int Version = 7;
 
     /// <summary>
     /// The header every response carries the version on, so a caller can read it without a token.
@@ -65,7 +65,7 @@ internal static class ApiContract
     /// <see cref="HeaderName"/> as the delivery number, which is what that number meant then.
     /// </para>
     /// </remarks>
-    public const int DeliveryVersion = 6;
+    public const int DeliveryVersion = 7;
 
     /// <summary>The header every response carries <see cref="DeliveryVersion"/> on.</summary>
     public const string DeliveryHeaderName = "X-Delivery-Contract-Version";

@@ -33,8 +33,8 @@ public class ContractSurfaceVersionTests
     {
         // Both literals in one place. Moving one constant without the other turns exactly one of
         // these red, which is how a reviewer sees which surface a change claimed to break.
-        ApiContract.Version.Should().Be(6, "the admin surface, the number a console compares itself against");
-        ApiContract.DeliveryVersion.Should().Be(6, "the delivery surface, which an admin-only change leaves alone");
+        ApiContract.Version.Should().Be(7, "the admin surface, the number a console compares itself against");
+        ApiContract.DeliveryVersion.Should().Be(7, "the delivery surface, which an admin-only change leaves alone");
         ApiContract.HeaderName.Should().Be(AdminHeader, "a released console reads this name");
         ApiContract.DeliveryHeaderName.Should().Be(DeliveryHeader);
     }
