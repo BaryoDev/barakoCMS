@@ -1008,7 +1008,11 @@ public static class ServiceCollectionExtensions
                     sp.GetRequiredService<barakoCMS.Infrastructure.Http.OutboundAddressGuard>(),
                     allowWebhookProxy))
                 .AddHttpMessageHandler(sp => new barakoCMS.Infrastructure.Http.OutboundResilienceHandler(
-                    sp.GetRequiredService<barakoCMS.Infrastructure.Http.OutboundResilience>()));
+                    sp.GetRequiredService<barakoCMS.Infrastructure.Http.OutboundResilience>(),
+                    sp.GetService<Microsoft.AspNetCore.Http.IHttpContextAccessor>()))
+                // Above the retry budget, so the client's own timeout never cuts the tries short; it
+                // still bounds a buffered body read after the headers.
+                .ConfigureHttpClient(client => client.Timeout = outbound.ClientTimeout);
     }
 
     private static void AddContentServices(IServiceCollection services)

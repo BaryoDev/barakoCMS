@@ -1,4 +1,7 @@
 using System.Net;
+using barakoCMS.Infrastructure.Multitenancy;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace barakoCMS.Infrastructure.Http;
 
@@ -22,9 +25,21 @@ namespace barakoCMS.Infrastructure.Http;
 /// Never retried: any other status, an address the guard refused, a TLS failure, or a body that
 /// cannot be sent twice. The last answer is returned as it came, so a caller reading the status
 /// still sees the 503 after the tries are spent.
+///
+/// The breaker is per tenant and host. A 429, and an answer asking to wait longer than
+/// <see cref="OutboundResilienceOptions.MaxRetryAfter"/>, never count toward it: they are usually
+/// one account's quota on a host that is fine for everyone else.
 /// </remarks>
-internal sealed class OutboundResilienceHandler(OutboundResilience resilience) : DelegatingHandler
+internal sealed class OutboundResilienceHandler(OutboundResilience resilience, IHttpContextAccessor? http = null) : DelegatingHandler
 {
+    /// <summary>
+    /// The tenant a request is made for, which keys its breaker. Without it the tenant of the HTTP
+    /// request being served is used, and with neither the call shares one breaker per host.
+    /// </summary>
+    public static readonly HttpRequestOptionsKey<string> Tenant = new("barako.outbound.tenant");
+
+    public static void SetTenant(HttpRequestMessage request, string tenant) => request.Options.Set(Tenant, tenant);
+
     /// <summary>
     /// Set by a caller whose receiver can recognise a resend, as a webhook can by its
     /// <c>X-Barako-Delivery</c> id, which is the same on every try.
@@ -52,6 +67,7 @@ internal sealed class OutboundResilienceHandler(OutboundResilience resilience) :
         {
             return await resilience.RunAsync(
                 Scope,
+                TenantOf(request),
                 uri.IdnHost.ToLowerInvariant(),
                 retries,
                 options.AttemptTimeout,
@@ -65,22 +81,22 @@ internal sealed class OutboundResilienceHandler(OutboundResilience resilience) :
 
                     held = response;
                     var retry = replayable || WasNotProcessed(response.StatusCode);
+                    var counts = response.StatusCode != HttpStatusCode.TooManyRequests;
+                    var wait = RetryAfter(response);
 
-                    if (retry && number <= retries && RetryAfter(response) is { } wait)
+                    if (wait > options.MaxRetryAfter)
                     {
-                        if (wait > options.MaxRetryAfter)
-                        {
-                            retry = false;
-                        }
-                        else
-                        {
-                            // The outer token, not the try's: the wait is the provider's request,
-                            // not part of the try, and the budget counts it separately.
-                            await Task.Delay(wait, cancellationToken);
-                        }
+                        retry = false;
+                        counts = false;
+                    }
+                    else if (retry && number <= retries && wait is { } asked)
+                    {
+                        // The outer token, not the try's: the wait is the provider's request, not
+                        // part of the try, and the budget counts it separately.
+                        await Task.Delay(asked, cancellationToken);
                     }
 
-                    throw new TransientResponseException(response, retry);
+                    throw new TransientResponseException(response, retry, counts);
                 },
                 ex => ShouldRetry(ex, replayable),
                 CountsAgainstHost,
@@ -132,7 +148,8 @@ internal sealed class OutboundResilienceHandler(OutboundResilience resilience) :
 
     private static bool CountsAgainstHost(Exception ex) => ex switch
     {
-        TransientResponseException or TimeoutException => true,
+        TransientResponseException transient => transient.Counts,
+        TimeoutException => true,
         HttpRequestException refused => !IsBlocked(refused),
         _ => false,
     };
@@ -173,11 +190,21 @@ internal sealed class OutboundResilienceHandler(OutboundResilience resilience) :
     }
 
     /// <summary>A transient answer, carried out of a try so Carom can decide whether to make another.</summary>
-    private sealed class TransientResponseException(HttpResponseMessage response, bool retry)
+    private sealed class TransientResponseException(HttpResponseMessage response, bool retry, bool counts)
         : Exception($"Transient answer {(int)response.StatusCode}.")
     {
         public HttpResponseMessage Response { get; } = response;
 
         public bool Retry { get; } = retry;
+
+        /// <summary>Whether it counts toward the host's breaker.</summary>
+        public bool Counts { get; } = counts;
+    }
+
+    private string TenantOf(HttpRequestMessage request)
+    {
+        if (request.Options.TryGetValue(Tenant, out var tenant) && !string.IsNullOrEmpty(tenant)) return tenant;
+
+        return http?.HttpContext?.RequestServices.GetService<TenantContext>()?.Slug ?? string.Empty;
     }
 }

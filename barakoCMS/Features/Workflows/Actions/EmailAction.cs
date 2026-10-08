@@ -1,5 +1,3 @@
-using System.Net;
-using System.Net.Sockets;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Infrastructure.Attributes;
 using barakoCMS.Features.Settings.Email;
@@ -26,14 +24,14 @@ internal class EmailAction : IWorkflowAction
     private readonly TenantContext? _tenant;
     private readonly IFileStore? _files;
     private readonly EmailAttachmentLimits _limits;
-    private readonly OutboundResilience _resilience;
+    private readonly TimeSpan? _sendTimeout;
 
     internal const string AttachmentsParameter = "Attachments";
 
     /// <summary>
     /// Creates a new EmailAction. Without a <paramref name="tenant"/> the email is sent as belonging
     /// to no tenant, and without <paramref name="files"/> an email that names an attachment fails.
-    /// Without <paramref name="resilience"/> the default retry and breaker settings apply.
+    /// <paramref name="resilience"/> carries the optional send timeout; without it a send has none.
     /// </summary>
     public EmailAction(
         IEmailService emailService,
@@ -43,7 +41,7 @@ internal class EmailAction : IWorkflowAction
         IConfiguration? configuration = null,
         OutboundResilience? resilience = null)
     {
-        _resilience = resilience ?? OutboundResilience.Default;
+        _sendTimeout = (resilience ?? OutboundResilience.Default).Options.EmailSendTimeout;
         _emailService = emailService;
         _logger = logger;
         _tenant = tenant;
@@ -121,33 +119,29 @@ internal class EmailAction : IWorkflowAction
             attachments = resolution.Files;
         }
 
+        // Not retried inside the attempt, and no breaker. The shipped providers wrap every failure in
+        // one InvalidOperationException with the cause dropped on purpose (it can carry the SMTP
+        // password), so a send that never left cannot be told from one the relay may have taken, and
+        // there is no idempotency key to make a second send safe.
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        if (_sendTimeout is { } limit) deadline.CancelAfter(limit);
+
         try
         {
-            await _resilience.RunAsync(
-                EmailScope,
-                _emailService.GetType().FullName ?? _emailService.GetType().Name,
-                _resilience.Options.Retries,
-                _resilience.Options.EmailAttemptTimeout,
-                async (_, token) =>
-                {
-                    await SendAsync(to, subject, body, attachments, token);
-                    return true;
-                },
-                WasNotSent,
-                CountsAgainstProvider,
-                ct);
+            await SendAsync(to, subject, body, attachments, deadline.Token);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             throw;
         }
-        catch (OutboundCircuitOpenException)
+        catch (OperationCanceledException) when (deadline.IsCancellationRequested)
         {
-            // Retryable: the durable queue tries again after its backoff, by which time the breaker
-            // has let a probe through. The provider is not named; the operator configured one.
-            _logger.LogWarning("Email not sent: the provider's breaker is open.");
-            return WorkflowActionResult.Failure(
-                "The email provider is paused after repeated failures, so nothing was sent. The next attempt tries again.");
+            // Thrown on, not returned as a failure: the runner records a timeout as unknown and does
+            // not retry it, because the message may already have gone and a retry is a second email.
+            var seconds = _sendTimeout?.TotalSeconds ?? 0;
+            _logger.LogWarning("Email send did not finish within {Seconds} s.", seconds);
+            throw new OperationCanceledException(
+                $"The email provider did not finish within {seconds:0.#} s, so it is not known whether the email was sent.");
         }
         catch (AttachmentsNotSupportedException)
         {
@@ -171,8 +165,6 @@ internal class EmailAction : IWorkflowAction
         return WorkflowActionResult.Success();
     }
 
-    private const string EmailScope = "email";
-
     // On the tenant's behalf: the run's scope carries the tenant whose workflow this is.
     private Task SendAsync(string to, string subject, string body, IReadOnlyList<EmailAttachment> attachments, CancellationToken ct) =>
         (attachments.Count, _tenant) switch
@@ -182,24 +174,6 @@ internal class EmailAction : IWorkflowAction
             (_, null) => _emailService.SendEmailAsync(to, subject, body, attachments, ct),
             (_, { } tenant) => _emailService.SendForTenantAsync(tenant.Slug, to, subject, body, attachments, ct),
         };
-
-    /// <summary>
-    /// A failure that happened before the provider could have accepted the message: the connection
-    /// was never opened, or the provider answered that it did not take it. Only these are tried again
-    /// inside the attempt. There is no idempotency key on a send, so a timeout or a connection lost
-    /// mid-send may already have delivered the message, and resending it is a second email.
-    /// </summary>
-    internal static bool WasNotSent(Exception ex) => ex switch
-    {
-        HttpRequestException { HttpRequestError: HttpRequestError.ConnectionError or HttpRequestError.NameResolutionError } => true,
-        HttpRequestException { StatusCode: HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable } => true,
-        SocketException { SocketErrorCode: SocketError.ConnectionRefused or SocketError.HostNotFound or SocketError.TryAgain
-            or SocketError.HostUnreachable or SocketError.NetworkUnreachable } => true,
-        _ => false,
-    };
-
-    private static bool CountsAgainstProvider(Exception ex) =>
-        WasNotSent(ex) || ex is TimeoutException or HttpRequestException or SocketException;
 
     /// <summary>
     /// One address and nothing else. <c>To</c> is often filled from an entry field, and a field a

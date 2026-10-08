@@ -233,6 +233,7 @@ internal class WebhookAction : IWorkflowAction
             // X-Barako-Delivery id, and the Idempotency-Key when the runner supplied one, so a
             // receiver that already took the first one can tell the second is the same delivery.
             request.Options.Set(OutboundResilienceHandler.Replayable, true);
+            OutboundResilienceHandler.SetTenant(request, tenant);
 
             // Headers only. The default completion option holds the whole body in memory before
             // returning, so the 4 KB cut below would apply after a receiver's 100 MB answer had

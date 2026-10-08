@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Sockets;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Extensions;
 using barakoCMS.Features.Workflows;
@@ -223,47 +222,110 @@ public class OutboundResilienceTests
     }
 
     [Fact]
-    public async Task An_email_that_could_not_connect_is_sent_on_the_third_try()
+    public async Task The_breaker_for_a_shared_host_is_per_tenant()
     {
-        var provider = new ScriptedEmail(
-            _ => throw new SocketException((int)SocketError.ConnectionRefused),
-            _ => throw new SocketException((int)SocketError.ConnectionRefused),
-            _ => Task.CompletedTask);
-        var action = new EmailAction(provider, NullLogger<EmailAction>.Instance, resilience: new OutboundResilience(Fast()));
+        var host = $"{Guid.NewGuid():N}.example";
+        var stub = new ScriptedHandler((request, _) => Task.FromResult(Status(
+            TenantOf(request) == "a" ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.OK)));
+        using var client = Client(stub, Fast(retries: 0, breakerFailures: 2));
 
-        var result = await action.RunAsync(Email(), new Content { Id = Guid.NewGuid() }, Ct);
+        for (var i = 0; i < 2; i++)
+        {
+            using var failed = await client.SendAsync(ForTenant("a", host), Ct);
+            failed.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        }
 
-        result.Succeeded.Should().BeTrue();
-        provider.Calls.Should().Be(3);
+        var paused = async () => await client.SendAsync(ForTenant("a", host), Ct);
+        await paused.Should().ThrowAsync<OutboundCircuitOpenException>("tenant a's breaker is open");
+
+        using var other = await client.SendAsync(ForTenant("b", host), Ct);
+        other.StatusCode.Should().Be(HttpStatusCode.OK, "tenant a's failures are not tenant b's");
+        stub.Calls.Should().Be(3);
     }
 
     [Fact]
-    public async Task An_email_send_that_timed_out_is_not_sent_again()
+    public async Task A_429_or_a_long_Retry_After_never_opens_the_breaker()
     {
-        var provider = new ScriptedEmail(token => Task.Delay(TimeSpan.FromSeconds(30), token), _ => Task.CompletedTask);
-        var action = new EmailAction(provider, NullLogger<EmailAction>.Instance,
-            resilience: new OutboundResilience(Fast() with { EmailAttemptTimeout = TimeSpan.FromMilliseconds(200) }));
+        var host = $"{Guid.NewGuid():N}.example";
+        var answers = new Queue<HttpResponseMessage>([
+            Status(HttpStatusCode.TooManyRequests),
+            Status(HttpStatusCode.TooManyRequests),
+            Status(HttpStatusCode.ServiceUnavailable, retryAfter: TimeSpan.FromMinutes(5)),
+            Status(HttpStatusCode.ServiceUnavailable, retryAfter: TimeSpan.FromMinutes(5)),
+            Status(HttpStatusCode.OK),
+        ]);
+        var stub = new ScriptedHandler((_, _) => Task.FromResult(answers.Dequeue()));
+        using var client = Client(stub, Fast(retries: 0, breakerFailures: 2));
+
+        for (var i = 0; i < 5; i++)
+        {
+            using var answer = await client.SendAsync(ForTenant("a", host), Ct);
+        }
+
+        stub.Calls.Should().Be(5, "a quota answer is one account's limit, not the host failing, so every call went out");
+        answers.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_failed_email_is_sent_once_and_left_to_the_durable_queue()
+    {
+        var provider = new ScriptedEmail(_ => throw new InvalidOperationException("SMTP send failed"), _ => Task.CompletedTask);
+        var action = new EmailAction(provider, NullLogger<EmailAction>.Instance, resilience: new OutboundResilience(Fast()));
 
         var result = await action.RunAsync(Email(), new Content { Id = Guid.NewGuid() }, Ct);
 
         result.Succeeded.Should().BeFalse();
         result.Retryable.Should().BeTrue();
+        provider.Calls.Should().Be(1, "nothing tells a send that never left from one the relay may have taken");
+    }
+
+    [Fact]
+    public void An_email_send_has_no_timeout_by_default()
+    {
+        new OutboundResilienceOptions().EmailSendTimeout.Should().BeNull();
+        OutboundResilienceOptions.FromConfiguration(new ConfigurationBuilder().Build()).EmailSendTimeout.Should().BeNull(
+            "a large attachment over a slow relay used to send, and a default limit would stop it");
+    }
+
+    [Fact]
+    public async Task An_email_send_past_its_timeout_is_unknown_rather_than_a_retryable_failure()
+    {
+        var provider = new ScriptedEmail(token => Task.Delay(TimeSpan.FromSeconds(30), token), _ => Task.CompletedTask);
+        var action = new EmailAction(provider, NullLogger<EmailAction>.Instance,
+            resilience: new OutboundResilience(Fast() with { EmailSendTimeout = TimeSpan.FromMilliseconds(200) }));
+
+        var send = () => action.RunAsync(Email(), new Content { Id = Guid.NewGuid() }, Ct);
+
+        // The runner records an OperationCanceledException that is not its own as Unknown and does
+        // not retry it (WorkflowRunner, the catch after RunAsync).
+        await send.Should().ThrowAsync<OperationCanceledException>().WithMessage("*not known whether the email was sent*");
         provider.Calls.Should().Be(1, "a send that timed out may have gone out, and a second one is a second email");
     }
 
     [Fact]
-    public void The_longest_inner_call_with_the_defaults_is_under_half_the_shortest_lease()
+    public void The_slowest_action_with_the_defaults_fits_in_the_shortest_lease()
     {
         var defaults = new OutboundResilienceOptions();
         var lease = OutboundResilienceOptions.ShortestLease(JobOptions.DefaultLeaseSeconds);
 
         lease.Should().Be(WorkflowRetryPolicy.LeaseDuration, "the runner's 5 minutes is shorter than the job queue's 10");
-        defaults.MaxHttpDuration.Should().Be(TimeSpan.FromSeconds(54));
-        defaults.MaxEmailDuration.Should().Be(TimeSpan.FromSeconds(94));
-        (defaults.MaxInnerDuration * 2).Should().BeLessThanOrEqualTo(lease);
+        defaults.MaxHttpDuration.Should().Be(TimeSpan.FromSeconds(44));
+        defaults.ClientTimeout.Should().Be(TimeSpan.FromSeconds(74));
+        defaults.MaxActionDuration.Should().Be(TimeSpan.FromSeconds(208),
+            "a connector request is two grants capped at 30 s and two sends capped by the client timeout");
+        defaults.MaxActionDuration.Should().BeLessThanOrEqualTo(lease * OutboundResilienceOptions.LeaseShare);
 
         var act = () => defaults.Validate(JobOptions.DefaultLeaseSeconds);
         act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void An_email_timeout_longer_than_the_lease_is_refused()
+    {
+        var act = () => new OutboundResilienceOptions { EmailSendTimeout = TimeSpan.FromMinutes(5) }
+            .Validate(JobOptions.DefaultLeaseSeconds);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*shortest lease*");
     }
 
     [Fact]
@@ -305,7 +367,6 @@ public class OutboundResilienceTests
         BaseDelay = TimeSpan.FromMilliseconds(1),
         MaxDelay = TimeSpan.FromMilliseconds(5),
         AttemptTimeout = TimeSpan.FromSeconds(5),
-        EmailAttemptTimeout = TimeSpan.FromSeconds(5),
         MaxRetryAfter = TimeSpan.FromSeconds(2),
         BreakerFailures = breakerFailures,
         BreakerWindow = Math.Max(breakerFailures, 1),
@@ -322,6 +383,16 @@ public class OutboundResilienceTests
         if (retryAfter is { } wait) response.Headers.RetryAfter = new RetryConditionHeaderValue(wait);
         return response;
     }
+
+    private static HttpRequestMessage ForTenant(string tenant, string host)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, $"https://{host}/");
+        OutboundResilienceHandler.SetTenant(request, tenant);
+        return request;
+    }
+
+    private static string? TenantOf(HttpRequestMessage request) =>
+        request.Options.TryGetValue(OutboundResilienceHandler.Tenant, out var tenant) ? tenant : null;
 
     private static Step Answer(HttpStatusCode status, TimeSpan? retryAfter = null) =>
         (_, _) => Task.FromResult(Status(status, retryAfter));

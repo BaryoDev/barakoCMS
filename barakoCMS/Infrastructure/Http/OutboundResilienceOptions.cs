@@ -1,10 +1,11 @@
 using barakoCMS.Features.Workflows;
+using barakoCMS.Infrastructure.Connectors;
 using Microsoft.Extensions.Configuration;
 
 namespace barakoCMS.Infrastructure.Http;
 
 /// <summary>
-/// The retry, timeout and breaker settings for one outbound call inside one workflow attempt, read
+/// The retry, timeout and breaker settings for outbound calls inside one workflow attempt, read
 /// once at startup from <c>Workflows:Outbound</c>.
 /// </summary>
 /// <remarks>
@@ -22,7 +23,7 @@ internal sealed record OutboundResilienceOptions
     public const string Section = "Workflows:Outbound";
     public const string RetriesKey = Section + ":Retries";
     public const string AttemptTimeoutSecondsKey = Section + ":AttemptTimeoutSeconds";
-    public const string EmailAttemptTimeoutSecondsKey = Section + ":EmailAttemptTimeoutSeconds";
+    public const string EmailSendTimeoutSecondsKey = Section + ":EmailSendTimeoutSeconds";
     public const string BaseDelayMillisecondsKey = Section + ":BaseDelayMilliseconds";
     public const string MaxDelaySecondsKey = Section + ":MaxDelaySeconds";
     public const string MaxRetryAfterSecondsKey = Section + ":MaxRetryAfterSeconds";
@@ -33,6 +34,15 @@ internal sealed record OutboundResilienceOptions
 
     public const int MaxRetries = 5;
 
+    /// <summary>
+    /// How long a buffered response body may take after the headers. The client's own timeout is
+    /// the retry budget plus this, so it is never the thing that cuts the tries short.
+    /// </summary>
+    public static readonly TimeSpan ResponseBodyAllowance = TimeSpan.FromSeconds(30);
+
+    /// <summary>The share of the shortest lease the slowest action may use. The rest is for the runner's own writes.</summary>
+    public const double LeaseShare = 0.8;
+
     /// <summary>Tries after the first. Zero sends once.</summary>
     public int Retries { get; init; } = 2;
 
@@ -40,10 +50,11 @@ internal sealed record OutboundResilienceOptions
     public TimeSpan AttemptTimeout { get; init; } = TimeSpan.FromSeconds(10);
 
     /// <summary>
-    /// How long one email send may take. Longer than an HTTP try, because a send carries attachments
-    /// and an SMTP session has several round trips.
+    /// How long one email send may take, or null for no limit, which is the default and what a send
+    /// has always had. When it fires the outcome is unknown rather than failed, since the message
+    /// may already have gone.
     /// </summary>
-    public TimeSpan EmailAttemptTimeout { get; init; } = TimeSpan.FromSeconds(30);
+    public TimeSpan? EmailSendTimeout { get; init; }
 
     /// <summary>The floor of the decorrelated jitter between tries.</summary>
     public TimeSpan BaseDelay { get; init; } = TimeSpan.FromMilliseconds(200);
@@ -55,7 +66,7 @@ internal sealed record OutboundResilienceOptions
     /// The longest <c>Retry-After</c> waited for. A provider asking for longer is not tried again
     /// inside this attempt; the durable queue's backoff is the right place for a long wait.
     /// </summary>
-    public TimeSpan MaxRetryAfter { get; init; } = TimeSpan.FromSeconds(10);
+    public TimeSpan MaxRetryAfter { get; init; } = TimeSpan.FromSeconds(5);
 
     /// <summary>Failed calls to one destination that open its breaker. Zero turns the breaker off.</summary>
     public int BreakerFailures { get; init; } = 5;
@@ -76,11 +87,23 @@ internal sealed record OutboundResilienceOptions
     public TimeSpan MaxHttpDuration =>
         AttemptTimeout * (Retries + 1) + (MaxDelay + MaxRetryAfter) * Retries;
 
-    /// <summary>The same for an email send, which has no Retry-After to honour.</summary>
-    public TimeSpan MaxEmailDuration =>
-        EmailAttemptTimeout * (Retries + 1) + MaxDelay * Retries;
+    /// <summary>The <c>ExternalApi</c> client's own timeout, which also bounds a buffered body.</summary>
+    public TimeSpan ClientTimeout => MaxHttpDuration + ResponseBodyAllowance;
 
-    public TimeSpan MaxInnerDuration => MaxHttpDuration > MaxEmailDuration ? MaxHttpDuration : MaxEmailDuration;
+    /// <summary>
+    /// The slowest one action can be. A connector request makes up to four calls: a token grant,
+    /// the send, a second grant after a 401, and the resend. Each grant is also capped by the
+    /// connector's own grant deadline. A webhook makes one call, and an email one send.
+    /// </summary>
+    public TimeSpan MaxActionDuration
+    {
+        get
+        {
+            var grant = ConnectorSender.DefaultGrantTimeout < ClientTimeout ? ConnectorSender.DefaultGrantTimeout : ClientTimeout;
+            var connector = grant * 2 + ClientTimeout * 2;
+            return EmailSendTimeout is { } email && email > connector ? email : connector;
+        }
+    }
 
     /// <summary>
     /// The shorter of the workflow runner's lease and the job queue's. A handler that runs past its
@@ -96,11 +119,12 @@ internal sealed record OutboundResilienceOptions
     public static OutboundResilienceOptions FromConfiguration(IConfiguration configuration)
     {
         var defaults = new OutboundResilienceOptions();
+        var emailSeconds = configuration.GetValue(EmailSendTimeoutSecondsKey, 0d);
         return new OutboundResilienceOptions
         {
             Retries = configuration.GetValue(RetriesKey, defaults.Retries),
             AttemptTimeout = Seconds(configuration, AttemptTimeoutSecondsKey, defaults.AttemptTimeout),
-            EmailAttemptTimeout = Seconds(configuration, EmailAttemptTimeoutSecondsKey, defaults.EmailAttemptTimeout),
+            EmailSendTimeout = emailSeconds == 0 ? null : TimeSpan.FromSeconds(emailSeconds),
             BaseDelay = TimeSpan.FromMilliseconds(configuration.GetValue(BaseDelayMillisecondsKey, defaults.BaseDelay.TotalMilliseconds)),
             MaxDelay = Seconds(configuration, MaxDelaySecondsKey, defaults.MaxDelay),
             MaxRetryAfter = Seconds(configuration, MaxRetryAfterSecondsKey, defaults.MaxRetryAfter),
@@ -112,8 +136,8 @@ internal sealed record OutboundResilienceOptions
     }
 
     /// <summary>
-    /// Refuses a setting out of range, and a budget that is not well under the shortest lease: at most
-    /// half of it, so the call, the delivery row and the runner's own writes all finish in time.
+    /// Refuses a setting out of range, and settings that let the slowest action use more than
+    /// <see cref="LeaseShare"/> of the shortest lease.
     /// </summary>
     /// <param name="jobLeaseSeconds">
     /// <c>Jobs:LeaseSeconds</c>. Below one it is left to <c>JobOptions.Validate</c>, which names it.
@@ -124,8 +148,8 @@ internal sealed record OutboundResilienceOptions
             throw new InvalidOperationException($"{RetriesKey} must be between 0 and {MaxRetries}.");
         if (AttemptTimeout <= TimeSpan.Zero)
             throw new InvalidOperationException($"{AttemptTimeoutSecondsKey} must be positive.");
-        if (EmailAttemptTimeout <= TimeSpan.Zero)
-            throw new InvalidOperationException($"{EmailAttemptTimeoutSecondsKey} must be positive.");
+        if (EmailSendTimeout < TimeSpan.Zero)
+            throw new InvalidOperationException($"{EmailSendTimeoutSecondsKey} cannot be negative; 0 means no limit.");
         if (MaxDelay <= TimeSpan.Zero)
             throw new InvalidOperationException($"{MaxDelaySecondsKey} must be positive.");
         if (BaseDelay < TimeSpan.Zero || BaseDelay > MaxDelay)
@@ -142,12 +166,12 @@ internal sealed record OutboundResilienceOptions
         if (jobLeaseSeconds < 1) return;
 
         var lease = ShortestLease(jobLeaseSeconds);
-        if (MaxInnerDuration * 2 > lease)
+        if (MaxActionDuration > lease * LeaseShare)
         {
             throw new InvalidOperationException(
-                $"The {Section} settings allow one outbound call to take up to {MaxInnerDuration.TotalSeconds:0.#} s, "
-                + $"which is more than half of the shortest lease ({lease.TotalSeconds:0.#} s, the lower of the workflow "
-                + "runner's 300 s and Jobs:LeaseSeconds). A call past its lease is run again by another node. "
+                $"The {Section} settings allow one workflow action to take up to {MaxActionDuration.TotalSeconds:0.#} s, "
+                + $"which is more than {LeaseShare:P0} of the shortest lease ({lease.TotalSeconds:0.#} s, the lower of the "
+                + "workflow runner's 300 s and Jobs:LeaseSeconds). An action past its lease is run again by another node. "
                 + "Lower the retries or the timeouts, or raise Jobs:LeaseSeconds.");
         }
     }
