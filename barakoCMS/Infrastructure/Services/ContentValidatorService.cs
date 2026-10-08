@@ -205,11 +205,10 @@ public class ContentValidatorService(
 
             var keyDetails = data.FirstOrDefault(k => k.Key.Equals(field.Name, StringComparison.OrdinalIgnoreCase));
 
-            // Only the first of two keys differing in case is read below, and delivery resolves
-            // both, so a file field sent twice is refused before anything else, a null first one
-            // included.
-            if (FileFields.IsFileField(field)
-                && data.Keys.Count(k => k.Equals(field.Name, StringComparison.OrdinalIgnoreCase)) > 1)
+            // Only the first of two keys differing in case is checked below, and both are stored,
+            // so a reader that takes the other one would get a value nothing checked. A field sent
+            // twice is refused before anything else, a null first one included.
+            if (data.Keys.Count(k => k.Equals(field.Name, StringComparison.OrdinalIgnoreCase)) > 1)
             {
                 errors.Add($"Field '{field.DisplayName}' ({field.Name}) was sent more than once, ignoring case.");
                 continue;
