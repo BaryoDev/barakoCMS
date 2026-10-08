@@ -579,6 +579,15 @@ public class TemplateVariableExtractor(
         if (string.IsNullOrEmpty(template))
             return template;
 
+        // A backstop: resolving is linear, and this bounds what one parameter costs on every run.
+        if (template.Length > TemplateExpression.MaxTemplateLength)
+        {
+            context.Note(string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"A parameter of {template.Length} characters is past the {TemplateExpression.MaxTemplateLength} character cap, so its placeholders were not resolved and it was sent as written."));
+            return template;
+        }
+
         // Single pass over the ORIGINAL template. Because each {{...}} token is resolved exactly
         // once and substituted values are NOT re-scanned, a content field whose value itself
         // contains "{{data.Other}}" cannot inject/leak another field (second-order injection).
