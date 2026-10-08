@@ -190,4 +190,34 @@ public class ContentCreateRuleTests
         entries.Should().HaveCount(1);
         Branch(entries[0]).Should().Be("A");
     }
+
+    [Fact]
+    public async Task An_import_row_the_create_rule_refuses_does_not_claim_its_slug_from_a_later_row()
+    {
+        var type = await StoreTypeAsync(withSlug: true);
+        var member = await MemberAsync(type, BranchA());
+
+        var res = await member.PostAsJsonAsync("/api/import/content", new
+        {
+            contentType = type,
+            continueOnError = true,
+            records = new[]
+            {
+                new Dictionary<string, object> { ["slug"] = "shared", ["Title"] = "b", ["Branch"] = "B" },
+                new Dictionary<string, object> { ["slug"] = "shared", ["Title"] = "a", ["Branch"] = "A" },
+            },
+        }, Ct);
+
+        var body = await res.Content.ReadAsStringAsync(Ct);
+        res.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", res.StatusCode, body);
+        using var doc = JsonDocument.Parse(body);
+        doc.RootElement.GetProperty("created").GetInt32().Should().Be(1, body);
+        var errors = doc.RootElement.GetProperty("errors").EnumerateArray().ToList();
+        errors.Should().ContainSingle();
+        errors[0].GetProperty("row").GetInt32().Should().Be(0, "only the row outside the rule is refused");
+
+        var entries = await EntriesAsync(type);
+        entries.Should().HaveCount(1);
+        Branch(entries[0]).Should().Be("A");
+    }
 }

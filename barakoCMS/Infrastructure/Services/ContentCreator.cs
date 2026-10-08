@@ -47,6 +47,13 @@ public sealed class ContentCreateBatch
     /// </summary>
     public bool CapSingletons { get; init; } = true;
 
+    /// <summary>
+    /// Asked of each entry once its checks and hooks have passed and before the batch counts it,
+    /// with the data as it will be stored. A message refuses the entry with that message, and the
+    /// entry then claims no slug and no singleton place. Null by default, which admits every entry.
+    /// </summary>
+    public Func<ContentCreateRequest, CancellationToken, Task<string?>>? Admit { get; init; }
+
     /// <summary>Checks entries of <paramref name="definition"/>'s name against it rather than the store.</summary>
     public void UseSchema(ContentTypeDefinition definition) => _schemas[definition.Name] = definition;
 
@@ -162,6 +169,9 @@ public sealed class ContentCreator(
             request.ContentType, entryId: null, request.Data, existing: null, userId, ct);
         if (hookErrors.Count > 0)
             return hookErrors;
+
+        if (batch?.Admit is { } admit && await admit(request, ct) is { } refusal)
+            return [refusal];
 
         batch?.Accept(request.ContentType, slug);
         return [];
