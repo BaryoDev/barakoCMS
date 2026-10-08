@@ -520,6 +520,7 @@ public class DeliveryRateLimitWiringTests
     [InlineData("/api/public/{0}/some-entry")]
     [InlineData("/api/public/{0}/feed.xml")]
     [InlineData("/api/public/sitemap.xml")]
+    [InlineData("/api/public/types/{0}")]
     public async Task A_configured_delivery_limit_refuses_the_third_read_from_one_address(string route)
     {
         // One host for the class: every host a test builds stays alive for the rest of the run.
