@@ -9,8 +9,9 @@ using Xunit;
 namespace BarakoCMS.Tests.Features.Public;
 
 /// <summary>
-/// <c>GET /api/public/types/{type}</c> tells an anonymous renderer a deliverable type's route
-/// template and the role of each Public field, and names nothing delivery would not return (#1108).
+/// <c>GET /api/public/types/{type}/description</c> tells an anonymous renderer a deliverable type's
+/// route template and the role of each Public field, and names nothing delivery would not return
+/// (#1108). It takes no route a content type is read on, whatever the type is called.
 /// </summary>
 [Collection("Sequential")]
 public class PublicTypeDescriptionTests
@@ -26,7 +27,7 @@ public class PublicTypeDescriptionTests
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private static string Route(string type) => $"/api/public/types/{type}";
+    private static string Route(string type) => $"/api/public/types/{type}/description";
 
     private async Task<string> SeedTypeAsync(bool deliverable, string? routeTemplate, params FieldDefinition[] fields)
     {
@@ -150,12 +151,76 @@ public class PublicTypeDescriptionTests
         response.Headers.Vary.Should().Contain("X-Tenant");
     }
 
+    /// <summary>
+    /// A type named <c>types</c> holding an entry whose slug is another type's name: the slug read
+    /// returns the entry, and the description sits one segment deeper.
+    /// </summary>
+    [Fact]
+    public async Task A_type_named_types_is_still_read_by_slug_where_its_slug_names_another_type()
+    {
+        var tenant = $"ptd-{Guid.NewGuid():N}"[..14];
+        var other = $"blog{Guid.NewGuid():N}"[..12];
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var registry = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            registry.Store(new Tenant { Id = Guid.NewGuid(), Slug = tenant, Name = tenant, IsActive = true });
+            await registry.SaveChangesAsync(Ct);
+        }
+
+        await using (var session = _factory.Services.GetRequiredService<IDocumentStore>().LightweightSession(tenant))
+        {
+            FieldDefinition[] fields =
+            [
+                new() { Name = "Title", DisplayName = "Title", Type = "string", Role = "title" },
+                new() { Name = "Slug", DisplayName = "Slug", Type = "slug" },
+            ];
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(), Name = "types", DisplayName = "Types", IsPubliclyDeliverable = true, Fields = fields.ToList(),
+            });
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(), Name = other, DisplayName = "Blog", IsPubliclyDeliverable = true, Fields = fields.ToList(),
+            });
+            session.Store(new Content
+            {
+                Id = Guid.NewGuid(),
+                ContentType = "types",
+                Status = ContentStatus.Published,
+                Sensitivity = SensitivityLevel.Public,
+                Data = new Dictionary<string, object> { ["Title"] = "An entry of types", ["Slug"] = other },
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        async Task<JsonElement> GetAsync(string url)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("X-Tenant", tenant);
+            var response = await _anon.SendAsync(request, Ct);
+            var body = await response.Content.ReadAsStringAsync(Ct);
+            response.StatusCode.Should().Be(HttpStatusCode.OK, body);
+            using var parsed = JsonDocument.Parse(body);
+            return parsed.RootElement.Clone();
+        }
+
+        var entry = await GetAsync($"/api/public/types/{other}");
+        entry.GetProperty("contentType").GetString().Should().Be("types",
+            "the slug route still answers for a type named types");
+        entry.GetProperty("slug").GetString().Should().Be(other);
+
+        var described = await GetAsync(Route(other));
+        described.GetProperty("name").GetString().Should().Be(other, "the description is one segment deeper");
+    }
+
     [Fact]
     public async Task The_OpenAPI_document_lists_the_route()
     {
         using var doc = await OpenApiTagTests.FetchDocumentAsync(_factory);
 
-        doc.RootElement.GetProperty("paths").TryGetProperty("/api/public/types/{type}", out _)
+        doc.RootElement.GetProperty("paths").TryGetProperty("/api/public/types/{type}/description", out _)
             .Should().BeTrue();
     }
 }

@@ -141,7 +141,7 @@ A console can read these lists instead of keeping its own copy. A value this API
 one it would refuse.
 
 A renderer reads a publicly deliverable type's own declaration anonymously, from
-`GET /api/public/types/{type}`:
+`GET /api/public/types/{type}/description`:
 
 ```json
 {

@@ -22,9 +22,9 @@ internal sealed record PublicTypeDescription(
     IReadOnlyList<PublicFieldDescription> Fields);
 
 /// <summary>
-/// GET /api/public/types/{type}, what a renderer needs to build titles, links, a sitemap and a feed
-/// from a publicly deliverable type's own declaration: its route template, and the name, type,
-/// role and editor hint of each Public field.
+/// GET /api/public/types/{type}/description, what a renderer needs to build titles, links, a
+/// sitemap and a feed from a publicly deliverable type's own declaration: its route template, and
+/// the name, type, role and editor hint of each Public field.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -35,15 +35,21 @@ internal sealed record PublicTypeDescription(
 /// </para>
 /// <para>
 /// A type that is not publicly deliverable answers 404, the same as an unknown one, so the route
-/// cannot confirm which types exist. The literal <c>types</c> segment wins over
-/// <c>/api/public/{type}/{slug}</c>, so a content type named <c>types</c> is not reachable by slug.
+/// cannot confirm which types exist.
+/// </para>
+/// <para>
+/// Three segments under <c>/api/public/</c> on purpose. A content type name may be any text, so a
+/// literal in the first or second segment would be a type name too: <c>/api/public/types/{type}</c>
+/// takes <c>/api/public/types/{slug}</c> from a type named <c>types</c>. Every route a content type
+/// is read on, <c>{type}</c>, <c>{type}/search</c>, <c>{type}/semantic</c>, <c>{type}/feed.xml</c>
+/// and <c>{type}/{slug}</c>, is at most two, so this route shadows none of them.
 /// </para>
 /// </remarks>
 internal sealed class TypeDescriptionEndpoint(IQuerySession session) : EndpointWithoutRequest<PublicTypeDescription>
 {
     public override void Configure()
     {
-        Get("/api/public/types/{type}");
+        Get("/api/public/types/{type}/description");
         AllowAnonymous();
         Options(x => x.RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy));
         Description(b => b
