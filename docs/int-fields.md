@@ -15,6 +15,12 @@ Every input path takes the same range:
 
 A fraction (`1.5`, `1.0`) and a number past Int64 are refused with a 400 that names the field.
 
+A [collection sync](collection-syncs.md) is the one exception, and it is kept on purpose. A sync
+converts a cell to a whole number only for a field declared `int`. A field declared `integer` or
+`number` stores the cell text as it always has, so `3.5` and `n/a` still sync as text and stored
+values are not turned into numbers on the next run. Declare the field `int` to have a sync store a
+number.
+
 Delivery filters and sorts an int field as a number, at any size in the range:
 `filter[Views][gt]=2147483647` and `sort=-Views` work on values past Int32. `min` and `max` rules
 compare at the same range. A value stored before this, which is always inside Int32, reads as it

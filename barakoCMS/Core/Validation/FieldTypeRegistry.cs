@@ -184,12 +184,6 @@ public static class FieldTypeRegistry
     private static readonly HashSet<string> NumericCanonical =
         new(StringComparer.OrdinalIgnoreCase) { "int", "decimal", "money" };
 
-    /// <summary>Is this the <c>int</c> type, under its own name or an alias? Unknown types are not.</summary>
-    internal static bool IsIntegerType(string? type) =>
-        type is not null
-        && Lookup.TryGetValue(type, out var spec)
-        && string.Equals(spec.Name, "int", StringComparison.Ordinal);
-
     /// <summary>Is a value of this type stored as a JSON number? Unknown types are not.</summary>
     public static bool IsNumericType(string? type) =>
         type is not null

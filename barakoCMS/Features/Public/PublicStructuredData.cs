@@ -32,10 +32,18 @@ internal static class PublicStructuredData
     public const string Context = "https://schema.org";
 
     /// <summary>The entry with its block attached, or as it was when the type declares none.</summary>
-    public static PublicContentResponse Attach(PublicContentResponse item, ContentTypeDefinition definition) =>
-        Build(item, definition) is { } block ? item with { StructuredData = block } : item;
+    /// <param name="item">The entry as the response sends it.</param>
+    /// <param name="definition">Its content type.</param>
+    /// <param name="baseUrl">
+    /// This deployment's absolute address, which a site-relative image such as
+    /// <c>/api/public/files/{id}</c> is joined to. Null leaves such an image out.
+    /// </param>
+    public static PublicContentResponse Attach(
+        PublicContentResponse item, ContentTypeDefinition definition, string? baseUrl = null) =>
+        Build(item, definition, baseUrl) is { } block ? item with { StructuredData = block } : item;
 
-    public static Dictionary<string, object>? Build(PublicContentResponse item, ContentTypeDefinition definition)
+    public static Dictionary<string, object>? Build(
+        PublicContentResponse item, ContentTypeDefinition definition, string? baseUrl = null)
     {
         var type = definition.StructuredDataType;
         if (!StructuredDataTypes.IsKnown(type))
@@ -64,7 +72,7 @@ internal static class PublicStructuredData
         if (article || type == StructuredDataTypes.WebPage)
             block["dateModified"] = item.UpdatedAt.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
 
-        if (Image(item.Data, definition) is { } image)
+        if (Image(item.Data, definition, baseUrl) is { } image)
             block["image"] = image;
 
         if (article && Text(item.Data, definition, FieldPresentation.AuthorRole) is { } author)
@@ -111,14 +119,19 @@ internal static class PublicStructuredData
         };
 
     // A url field holds the address. A file field has already been replaced by the public file it
-    // names, or left out when that file is not one a reader may fetch.
-    private static string? Image(IReadOnlyDictionary<string, object> data, ContentTypeDefinition definition)
+    // names, or left out when that file is not one a reader may fetch. A file kept in the database,
+    // or on S3 with no public base URL, is served by this API at a site-relative path, so that path
+    // is joined to the deployment's address. "//host/x" names another host, so it is not joined.
+    private static string? Image(IReadOnlyDictionary<string, object> data, ContentTypeDefinition definition, string? baseUrl)
     {
         var url = Value(data, definition, FieldPresentation.ImageRole) switch
         {
             ResolvedFile file => file.Url,
             _ => Text(data, definition, FieldPresentation.ImageRole),
         };
+
+        if (url is not null && baseUrl is not null && url.StartsWith('/') && !url.StartsWith("//", StringComparison.Ordinal))
+            url = baseUrl.TrimEnd('/') + url;
 
         return url is not null && IsWebAddress(url) ? url : null;
     }

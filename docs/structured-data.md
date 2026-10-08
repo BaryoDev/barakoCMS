@@ -55,7 +55,7 @@ PUT /api/content-types/{name}/structured-data
 | `description` | the field with the `summary` role |
 | `datePublished` or `startDate` | the field with the `date` role, as stored, when it reads as a date |
 | `dateModified` | the entry's `updatedAt` |
-| `image` | the field with the `image` role: a `url` field's address, or a `file` field's public URL |
+| `image` | the field with the `image` role: a `url` field's address, or a `file` field's public URL. A file this API serves at `/api/public/files/{id}` (database storage, or S3 with no public base URL) is joined to `App:BaseUrl`, or to the request host when `AllowedHosts` names real hosts, and left out when neither is set |
 | `author` | the field with the `author` role, as a `Person` |
 | `url` | the SEO `CanonicalUrl`, when the type has [SEO fields](seo-fields.md) and it is set |
 
