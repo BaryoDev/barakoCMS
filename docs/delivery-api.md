@@ -45,6 +45,7 @@ listed, audited and revocable, and its key is posted in a body rather than put i
 | GET | `/api/public/{type}/search?q=` | ranked matches, not a page |
 | GET | `/api/public/{type}/feed.xml` | RSS |
 | GET | `/api/public/sitemap.xml` | sitemap |
+| GET | `/api/public/types/{type}` | the type's route template and its Public fields' roles |
 | GET | `/api/public/events` | a server-sent event stream of changes (off by default, see below) |
 
 The feed takes an item's title, description and date from the fields the type gives the `title`,

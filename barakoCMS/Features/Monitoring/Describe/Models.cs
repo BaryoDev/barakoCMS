@@ -19,6 +19,19 @@ internal sealed class DescribeResponse
     /// <summary>Every value a field's <c>role</c> may hold, and the field types each is for.</summary>
     public IReadOnlyList<DescribedFieldHint> FieldRoles { get; set; } = [];
 
+    /// <summary>
+    /// The words that make a setting key or a workflow action parameter read as a credential when
+    /// its name contains one, ignoring case: a workflow parameter under such a name is not
+    /// returned, and a setting under one is refused. Read from the list the API checks with.
+    /// </summary>
+    /// <remarks>
+    /// Here rather than on <c>GET /api/meta</c>: this document is what a console reads to know the
+    /// rules the API applies to what an editor types, and the workflow actions whose parameters it
+    /// masks are listed beside it. Shown to every signed-in caller, since a settings screen masks
+    /// by it too, and never to an anonymous one.
+    /// </remarks>
+    public IReadOnlyList<string> CredentialNameParts { get; set; } = [];
+
     /// <summary>What a content type's uniqueness rule may compare, and how many a type may hold.</summary>
     public DescribedUniqueness Uniqueness { get; set; } = DescribedUniqueness.Current;
 

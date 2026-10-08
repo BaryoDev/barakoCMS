@@ -394,7 +394,25 @@ The same rules decide who may set a field: a caller who may not see it may not
 write it.
 
 The caller's roles are read from the store on each request, the roles they hold
-in the current tenant, not from the token's role claims. Taking a capability off
+in the current tenant, not from the token's role claims. `GET /api/me` answers
+the same reading for the caller, so a console can decide the way the API does:
+
+```json
+{
+  "userId": "8c1e...",
+  "username": "ana",
+  "tenant": "clinic",
+  "roles": [ { "id": "4f2a...", "name": "Nurse" } ],
+  "capabilities": ["view_sensitive"]
+}
+```
+
+`roles` is the caller's global roles and their active membership's roles in the
+tenant, and `capabilities` is every capability those roles carry, with `*`
+reported as `*` rather than expanded. The tenant is the token's own, or the
+resolved one for a token without a tenant claim. The route takes no parameters,
+so it only ever describes the caller. It is sent `Cache-Control: no-store`, and
+an API key gets a 403, as on every route outside the content API. Taking a capability off
 a role, or a role off a user, applies on the next request rather than when the
 token expires. A read or a write costs up to three small queries, once per
 request, when the entry or its type is restricted. A Public entry of a type with
@@ -733,15 +751,19 @@ same registries the API checks requests against, so a client does not keep its o
   "rules": [ { "name": "pattern", "aliases": ["regex"] } ],
   "fieldEditors": [ { "name": "blocks", "fieldTypes": ["json", "array"] } ],
   "fieldRoles": [ { "name": "title", "fieldTypes": ["string", "text"] } ],
+  "credentialNameParts": ["secret", "password", "token"],
   "capabilities": [ { "name": "manage_roles", "source": "core", "note": null } ],
   "workflowActions": [ { "type": "Webhook", "requiredParameters": ["Url"], "optionalParameters": ["Secret"], "secretParameters": ["Secret"] } ],
   "modules": [ { "name": "Pages", "httpContractVersion": 1 } ]
 }
 ```
 
-`fieldTypes`, `rules`, `fieldEditors` and `fieldRoles` go to every signed-in caller. The last two
-are the values a field's `editor` and `role` may hold, see
-[field-hints-and-roles.md](field-hints-and-roles.md). The other three repeat what an endpoint with
+`fieldTypes`, `rules`, `fieldEditors`, `fieldRoles` and `credentialNameParts` go to every signed-in
+caller. `fieldEditors` and `fieldRoles` are the values a field's `editor` and `role` may hold, see
+[field-hints-and-roles.md](field-hints-and-roles.md). `credentialNameParts` is the whole list of
+words that make a setting key or a workflow action parameter read as a credential when its name
+contains one, ignoring case (the example above is shortened). It is read from the list the API
+checks with, so a console masks its inputs by it instead of keeping a copy. The other three repeat what an endpoint with
 a gate of its own already lists, so each is `null` for a caller that endpoint would refuse, and a
 list, possibly empty, for one it would serve. So `null` means withheld, and an empty list means none:
 

@@ -291,7 +291,7 @@ internal static class PublicDelivery
             return new();
 
         var publicNames = def.Fields
-            .Where(f => f.Sensitivity == SensitivityLevel.Public && !IsToken(f))
+            .Where(IsDeliveredField)
             .Select(f => f.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
@@ -302,6 +302,10 @@ internal static class PublicDelivery
         barakoCMS.Core.Validation.InlineImageFields.DropUndeliverable(data, def);
         return data;
     }
+
+    /// <summary>Whether a field's value is delivered: Public, and not a token.</summary>
+    public static bool IsDeliveredField(FieldDefinition field) =>
+        field.Sensitivity == SensitivityLevel.Public && !IsToken(field);
 
     /// <summary>A token is never delivered, even from a definition stored with the field Public.</summary>
     /// <remarks>
@@ -336,7 +340,7 @@ internal static class PublicDelivery
          * would leak it. Case-insensitive comparison closes the casing gap too.
          */
         var publicNames = def.Fields
-            .Where(f => f.Sensitivity == SensitivityLevel.Public && !IsToken(f))
+            .Where(IsDeliveredField)
             .Select(f => f.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
