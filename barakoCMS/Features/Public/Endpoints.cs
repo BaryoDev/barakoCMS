@@ -800,7 +800,7 @@ internal class GetBySlugEndpoint(
         projected = (await PublicReferenceFields.FilterAsync([projected], def!, session, ct))[0];
 
         // Last, off what this response sends, so a value the steps above left out is not in it.
-        projected = PublicStructuredData.Attach(projected, def!);
+        projected = PublicStructuredData.Attach(projected, def!, StructuredDataBaseUrl());
 
         if (previewLink is not null)
         {
@@ -830,5 +830,20 @@ internal class GetBySlugEndpoint(
                 PublicDelivery.Scopes(type, [projected]),
                 projected.UpdatedAt > def!.UpdatedAt ? projected.UpdatedAt : def.UpdatedAt);
         await Send.OkAsync(projected, ct);
+    }
+
+    // The API's own address, which a public file's site-relative URL is served under, resolved the
+    // way the feed and the sitemap resolve theirs. A malformed App:BaseUrl leaves a relative image
+    // out of the block rather than failing the read; the feed and the sitemap report that setting.
+    private string? StructuredDataBaseUrl()
+    {
+        try
+        {
+            return barakoCMS.Infrastructure.Security.CanonicalHost.BaseUrl(config, HttpContext.Request);
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
     }
 }

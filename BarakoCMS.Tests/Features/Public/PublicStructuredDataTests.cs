@@ -163,4 +163,30 @@ public class PublicStructuredDataTests
         var resolved = projected with { Data = new Dictionary<string, object>(projected.Data) { ["Cover"] = file } };
         PublicStructuredData.Build(resolved, type)!["image"].Should().Be("https://files.example.com/cover.png");
     }
+
+    [Fact]
+    public void A_file_served_by_this_API_at_a_relative_path_is_joined_to_the_deployments_address()
+    {
+        var type = Story(StructuredDataTypes.Article);
+        type.Fields.Single(f => f.Name == "Cover").Type = FileFields.TypeName;
+        var projected = PublicDelivery.ToPublic(Entry(), type, "Slug")!;
+        var id = Guid.NewGuid();
+
+        PublicContentResponse WithCover(string url) => projected with
+        {
+            Data = new Dictionary<string, object>(projected.Data)
+            {
+                ["Cover"] = new ResolvedFile(id, url, "cover.png", "image/png", 10, null, null),
+            },
+        };
+
+        PublicStructuredData.Build(WithCover($"/api/public/files/{id}"), type, "https://api.example.com/")!["image"]
+            .Should().Be($"https://api.example.com/api/public/files/{id}");
+
+        PublicStructuredData.Build(WithCover($"/api/public/files/{id}"), type, baseUrl: null)!
+            .Should().NotContainKey("image", "with no address to join it to, a path is not an image a crawler can fetch");
+
+        PublicStructuredData.Build(WithCover("//other.example/cover.png"), type, "https://api.example.com")!
+            .Should().NotContainKey("image", "a protocol-relative address names another host and is not joined");
+    }
 }
