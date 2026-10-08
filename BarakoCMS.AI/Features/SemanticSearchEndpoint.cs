@@ -125,7 +125,9 @@ public class SemanticSearchEndpoint(
             if (!current.TryGetValue(e.Id, out var c)
                 || c.Status != ContentStatus.Published
                 || c.Sensitivity != SensitivityLevel.Public) continue;
-            results.Add(new SemanticHit(type, e.Slug, e.Title, Math.Round(score, 4)));
+            // Slug and title are read off the entry as it is now, under the type's current rules,
+            // not the copies stored at indexing: a field marked non-Public since then is not served.
+            results.Add(new SemanticHit(type, PublicText.SlugValue(c, def), PublicText.TitleOf(c, def), Math.Round(score, 4)));
             if (results.Count >= limit) break;
         }
 
