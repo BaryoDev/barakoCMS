@@ -167,7 +167,7 @@ public class ResponseHygieneTests
     [InlineData("/api/authors", false)]
     [InlineData("/api/media", false)]
     [InlineData("/api/public/sitemap.xml", false)]
-    [InlineData("/api/public/types/post", false)]
+    [InlineData("/api/public/types/post/description", false)]
     [InlineData("/api/contents", false)]
     public void Only_token_key_and_self_routes_are_marked_no_store(string path, bool expected)
     {
