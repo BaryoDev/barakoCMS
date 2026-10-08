@@ -65,6 +65,7 @@ public class OidcIdTokenGrantTests
         { "Oidc:Providers:native:ClientSecret", OidcStubProvider.ClientSecret },
         { "Oidc:Providers:native:IdTokenAudiences:0", IosClient },
         { "Oidc:Providers:native:IdTokenAudiences:1", AndroidClient },
+        { "Oidc:Providers:native:IdTokenAudiences:2", OidcStubProvider.ClientId },
         { "Oidc:Providers:webonly:Authority", OidcStubProvider.Authority },
         { "Oidc:Providers:webonly:ClientId", OidcStubProvider.ClientId },
         { "Oidc:Providers:webonly:ClientSecret", OidcStubProvider.ClientSecret },
@@ -95,10 +96,11 @@ public class OidcIdTokenGrantTests
         return OidcTestTokens.Rs256(key ?? Stub.Key, claims);
     }
 
-    private Task<HttpResponseMessage> GrantAsync(string? idToken, string? nonce, string provider = "native", HttpClient? client = null) =>
+    private Task<HttpResponseMessage> GrantAsync(
+        string? idToken, string? nonce, string provider = "native", HttpClient? client = null, string? club = null) =>
         (client ?? _client).PostAsJsonAsync(
             $"/api/auth/oidc/{provider}/id-token",
-            new Dictionary<string, string?> { ["idToken"] = idToken, ["nonce"] = nonce },
+            new Dictionary<string, string?> { ["idToken"] = idToken, ["nonce"] = nonce, ["club"] = club },
             TestContext.Current.CancellationToken);
 
     private static async Task<JsonElement> BodyAsync(HttpResponseMessage response)
@@ -145,7 +147,48 @@ public class OidcIdTokenGrantTests
     }
 
     [Fact]
-    public async Task A_native_token_naming_the_server_as_aud_and_the_app_as_azp_signs_in()
+    public async Task A_google_native_token_naming_the_web_client_as_aud_and_a_listed_app_as_azp_signs_in()
+    {
+        var email = NewEmail();
+        var nonce = NewNonce();
+        var token = Token(nonce, NewSubject(), email, c =>
+        {
+            c["aud"] = OidcStubProvider.ClientId;
+            c["azp"] = AndroidClient;
+        });
+
+        await ShouldBeSignedInAsAsync(await GrantAsync(token, nonce), await UserByEmailAsync(email));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_token_the_web_client_was_issued_is_not_taken_by_the_grant(bool azpIsTheWebClient)
+    {
+        var email = NewEmail();
+        var nonce = NewNonce();
+        var token = Token(nonce, NewSubject(), email, c =>
+        {
+            c["aud"] = OidcStubProvider.ClientId;
+            if (azpIsTheWebClient)
+            {
+                c["azp"] = OidcStubProvider.ClientId;
+            }
+        });
+
+        (await GrantAsync(token, nonce)).StatusCode.Should().Be(HttpStatusCode.Unauthorized,
+            "the web client is listed for Google's native shape, which names an app as azp; a browser token names none");
+        (await UserByEmailAsync(email)).Should().BeNull();
+
+        var fine = NewNonce();
+        var control = NewEmail();
+        await ShouldBeSignedInAsAsync(
+            await GrantAsync(Token(fine, NewSubject(), control, c => { c["aud"] = OidcStubProvider.ClientId; c["azp"] = IosClient; }), fine),
+            await UserByEmailAsync(control));
+    }
+
+    [Fact]
+    public async Task A_token_with_several_audiences_needs_a_listed_azp()
     {
         var email = NewEmail();
         var nonce = NewNonce();
@@ -315,5 +358,120 @@ public class OidcIdTokenGrantTests
         }
 
         (await GrantAsync("not-a-token", NewNonce(), client: client)).StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
+    }
+
+    /// <summary>
+    /// Two first sign-ins for one address race on the user's unique email, and the loser is told to
+    /// try again. Its own token has to still work then: its nonce was not spent by the failed commit.
+    /// </summary>
+    /// <remarks>
+    /// The race is not forced, so each round starts several at once and the test needs at least one
+    /// round where somebody lost. The window between looking the address up and committing the new
+    /// user is the whole sign-in, so a round of four rarely all serialize.
+    /// </remarks>
+    [Fact]
+    public async Task The_loser_of_a_first_sign_in_race_signs_in_on_retry_with_its_own_token()
+    {
+        var losers = 0;
+        for (var round = 0; round < 5 && losers == 0; round++)
+        {
+            var email = NewEmail();
+            var attempts = Enumerable.Range(0, 4)
+                .Select(_ => (Nonce: NewNonce(), Client: ClientOf(_host!)))
+                .Select(a => (a.Nonce, a.Client, Token: Token(a.Nonce, NewSubject(), email)))
+                .ToList();
+
+            var responses = await Task.WhenAll(attempts.Select(a => GrantAsync(a.Token, a.Nonce, client: a.Client)));
+
+            responses.Should().HaveCount(4);
+            responses.Should().OnlyContain(r => r.StatusCode == HttpStatusCode.OK || r.StatusCode == HttpStatusCode.Conflict);
+            for (var i = 0; i < responses.Length; i++)
+            {
+                if (responses[i].StatusCode != HttpStatusCode.Conflict)
+                {
+                    continue;
+                }
+
+                losers++;
+                var retry = await GrantAsync(attempts[i].Token, attempts[i].Nonce, client: attempts[i].Client);
+                await ShouldBeSignedInAsAsync(retry, await UserByEmailAsync(email));
+            }
+        }
+
+        losers.Should().BeGreaterThan(0, "the test proves nothing unless a sign-in lost the race");
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_nonce_works_again_once_its_token_has_expired(bool purged)
+    {
+        var nonce = NewNonce();
+        var first = NewEmail();
+        await ShouldBeSignedInAsAsync(await GrantAsync(Token(nonce, NewSubject(), first), nonce), await UserByEmailAsync(first));
+
+        var key = OidcUsedNonce.KeyOf(OidcStubProvider.Authority, nonce);
+        var store = _host!.Services.GetRequiredService<IDocumentStore>();
+        await using (var session = store.LightweightSession())
+        {
+            session.Store(new OidcUsedNonce { Id = key, ExpiresAt = DateTime.UtcNow.AddMinutes(-1) });
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        if (purged)
+        {
+            (await _host.Services.GetRequiredService<OidcUsedNonces>().PurgeAsync(store, TestContext.Current.CancellationToken))
+                .Should().BeGreaterThan(0);
+            await using var query = store.QuerySession();
+            (await query.LoadAsync<OidcUsedNonce>(key, TestContext.Current.CancellationToken)).Should().BeNull("the purge takes expired records");
+        }
+
+        var second = NewEmail();
+        await ShouldBeSignedInAsAsync(await GrantAsync(Token(nonce, NewSubject(), second), nonce), await UserByEmailAsync(second));
+    }
+
+    [Fact]
+    public async Task The_purge_takes_only_expired_records()
+    {
+        var store = _host!.Services.GetRequiredService<IDocumentStore>();
+        var expired = Enumerable.Range(0, 3).Select(_ => OidcUsedNonce.KeyOf(OidcStubProvider.Authority, NewNonce())).ToList();
+        var live = OidcUsedNonce.KeyOf(OidcStubProvider.Authority, NewNonce());
+        await using (var session = store.LightweightSession())
+        {
+            foreach (var id in expired)
+            {
+                session.Store(new OidcUsedNonce { Id = id, ExpiresAt = DateTime.UtcNow.AddMinutes(-5) });
+            }
+
+            session.Store(new OidcUsedNonce { Id = live, ExpiresAt = DateTime.UtcNow.AddMinutes(5) });
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        (await _host.Services.GetRequiredService<OidcUsedNonces>().PurgeAsync(store, TestContext.Current.CancellationToken))
+            .Should().BeGreaterThanOrEqualTo(3);
+
+        await using var query = store.QuerySession();
+        var left = await query.LoadManyAsync<OidcUsedNonce>(TestContext.Current.CancellationToken, [.. expired, live]);
+        left.Should().HaveCount(1);
+        left[0].Id.Should().Be(live);
+    }
+
+    [Fact]
+    public async Task A_club_the_person_does_not_belong_to_is_answered_403()
+    {
+        string slug;
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            slug = $"club-{Guid.NewGuid():N}".ToLowerInvariant();
+            session.Store(new barakoCMS.Models.Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug, IsActive = true });
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        var nonce = NewNonce();
+        var response = await GrantAsync(Token(nonce, NewSubject(), NewEmail()), nonce, club: slug);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden, "proving an identity is not membership of a club");
+        (await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).Should().NotContain("refreshToken\":\"");
     }
 }

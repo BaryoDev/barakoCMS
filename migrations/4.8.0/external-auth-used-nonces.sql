@@ -4,7 +4,8 @@
 -- until the token it came in has expired, so the nonce cannot be used again. Global, like the
 -- users the grant signs in, so there is no tenant_id column. The id is a hash of issuer and nonce,
 -- and the primary key is what refuses a second use: the module inserts, and a duplicate fails.
--- There is no other index. Expired rows are deleted by the grant itself. Empty on arrival: rows
+-- The index on ExpiresAt serves the purge, which deletes expired rows in bounded batches at most
+-- every five minutes. Empty on arrival: rows
 -- appear once a provider lists IdTokenAudiences and an app uses the grant.
 --
 -- CreateOnly would create it on first boot, since a missing table is a creation and not an
@@ -26,3 +27,6 @@ CREATE TABLE IF NOT EXISTS public.mt_doc_oidc_used_nonces (
     mt_dotnet_type      varchar                     NULL,
     CONSTRAINT pkey_mt_doc_oidc_used_nonces_id PRIMARY KEY (id)
 );
+
+CREATE INDEX IF NOT EXISTS mt_doc_oidc_used_nonces_idx_expires_at
+    ON public.mt_doc_oidc_used_nonces USING btree ((public.mt_immutable_timestamp(data ->> 'ExpiresAt')));

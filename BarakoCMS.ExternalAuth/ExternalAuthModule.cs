@@ -38,6 +38,7 @@ public sealed class ExternalAuthModule : IBarakoModule
         services.AddSingleton<OidcBackchannel>();
         services.AddSingleton<OidcClientSecrets>();
         services.AddSingleton<OidcConsumedStates>();
+        services.AddSingleton<OidcUsedNonces>();
         services.AddHostedService<OidcConfigurationReport>();
 
         // Start and callback are anonymous and each can cost an outbound call, so they get their own
@@ -76,6 +77,7 @@ public sealed class ExternalAuthModule : IBarakoModule
         // Global too: a nonce is spent for the issuer, whichever club the sign-in was for.
         schema.For<OidcUsedNonce>()
             .SingleTenanted()
-            .DocumentAlias("oidc_used_nonces");
+            .DocumentAlias("oidc_used_nonces")
+            .Index(x => x.ExpiresAt);
     }
 }
