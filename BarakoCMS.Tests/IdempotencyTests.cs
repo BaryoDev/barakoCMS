@@ -331,7 +331,7 @@ public class IdempotencyTests
     /// stranger's response to another. They get dedupe only.
     /// </summary>
     [Fact]
-    public async Task an_anonymous_retry_is_answered_409_and_nothing_is_stored()
+    public async Task an_anonymous_retry_is_answered_409_and_no_response_is_stored()
     {
         var key = $"k-{Guid.NewGuid():N}";
 
@@ -355,7 +355,7 @@ public class IdempotencyTests
         records.Should().HaveCount(1);
         records[0].Completed.Should().BeTrue();
         records[0].Replayable.Should().BeFalse();
-        records[0].Method.Should().BeNull("nothing about an anonymous request is kept");
+        records[0].RequestHash.Should().NotBeNull("an anonymous request is still compared, so its key cannot be taken first");
         records[0].ProtectedResponseBody.Should().BeNull();
         records[0].StatusCode.Should().BeNull();
     }
@@ -389,6 +389,7 @@ public class IdempotencyTests
         records[0].Completed.Should().BeTrue();
         records[0].Replayable.Should().BeFalse();
         records[0].ProtectedResponseBody.Should().BeNull("the response holds the raw API key");
+        records[0].RequestHash.Should().BeNull("a route that never replays keeps no request hash");
 
         using var scope = _factory.Services.CreateScope();
         var keys = await scope.ServiceProvider.GetRequiredService<IQuerySession>().Query<ApiKey>()
@@ -415,6 +416,203 @@ public class IdempotencyTests
         // "eyJp" is the base64 of the body's first three bytes, {"i, so a body kept only as base64
         // would contain it.
         records[0].ProtectedResponseBody.Should().NotContain("eyJp");
+    }
+
+    /// <summary>
+    /// Somebody who learns an anonymous caller's key and uses it first, with a different request,
+    /// must not leave the real request told it already succeeded.
+    /// </summary>
+    [Fact]
+    public async Task an_anonymous_key_used_first_for_a_different_request_is_answered_422()
+    {
+        var key = $"k-{Guid.NewGuid():N}";
+
+        HttpRequestMessage Logout(string query)
+        {
+            var req = new HttpRequestMessage(HttpMethod.Post, "/api/auth/logout" + query);
+            req.Headers.Add("Cookie", "barako_refresh=" + Guid.NewGuid().ToString("N"));
+            req.Headers.Add("Idempotency-Key", key);
+            return req;
+        }
+
+        var taken = await _client.SendAsync(Logout("?first=someone-else"));
+        taken.StatusCode.Should().Be(HttpStatusCode.OK, await taken.Content.ReadAsStringAsync());
+
+        var real = await _client.SendAsync(Logout(""));
+        real.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        WasReplayed(real).Should().BeFalse();
+        (await real.Content.ReadAsStringAsync()).Should().Be(IdempotencyFilter.DifferentRequestMessage);
+    }
+
+    /// <summary>
+    /// A request body can hold a password. A plain SHA-256 of it in a database dump could be guessed
+    /// against offline, so the stored hash is keyed.
+    /// </summary>
+    [Fact]
+    public async Task the_stored_request_hash_is_not_a_plain_sha256_of_the_request()
+    {
+        var (token, _) = await TestHelpers.CreateAdminUserAsync(_factory);
+        var key = $"k-{Guid.NewGuid():N}";
+        var json = $"{{\"contentType\":\"idem_{Guid.NewGuid():N}\",\"data\":{{\"Title\":\"hashed\"}},\"status\":1}}";
+
+        var req = new HttpRequestMessage(HttpMethod.Post, "/api/contents")
+        {
+            Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json"),
+        };
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        req.Headers.Add("Idempotency-Key", key);
+        (await _client.SendAsync(req)).IsSuccessStatusCode.Should().BeTrue();
+
+        // What the previous shape stored: SHA-256 over the empty query string, a zero byte, the body.
+        byte[] input = [0, .. System.Text.Encoding.UTF8.GetBytes(json)];
+        var plain = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(input));
+
+        var records = await RecordsAsync(key);
+        records.Should().HaveCount(1);
+        records[0].RequestHash.Should().NotBeNullOrEmpty();
+        records[0].RequestHash.Should().NotBe(plain);
+    }
+
+    [Fact]
+    public async Task a_password_set_keeps_no_request_hash()
+    {
+        var (token, _) = await TestHelpers.CreateAdminUserAsync(_factory);
+        var (_, targetId) = await TestHelpers.CreateAdminUserAsync(_factory);
+        var key = $"k-{Guid.NewGuid():N}";
+
+        var req = new HttpRequestMessage(HttpMethod.Post, $"/api/users/{targetId}/password")
+        {
+            Content = JsonContent.Create(new { newPassword = $"Idem-{Guid.NewGuid():N}-Pw1!" }),
+        };
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        req.Headers.Add("Idempotency-Key", key);
+        var set = await _client.SendAsync(req);
+        set.IsSuccessStatusCode.Should().BeTrue(await set.Content.ReadAsStringAsync());
+
+        var records = await RecordsAsync(key);
+        records.Should().HaveCount(1);
+        records[0].Completed.Should().BeTrue();
+        records[0].RequestHash.Should().BeNull("the body holds the new password");
+        records[0].Replayable.Should().BeFalse();
+    }
+
+    private async Task OverwriteStoredBodyAsync(string rawKey, string value)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var records = await session.Query<IdempotencyRecord>()
+            .Where(r => r.Key.EndsWith(rawKey))
+            .ToListAsync(TestContext.Current.CancellationToken);
+        records.Should().HaveCount(1);
+        records[0].ProtectedResponseBody = value;
+        session.Store(records[0]);
+        await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+    }
+
+    /// <summary>
+    /// A stored body is sealed for its own record. Another secret's envelope pasted into it does not
+    /// open, and the retry is a 409 rather than a replay of whatever that envelope held.
+    /// </summary>
+    [Fact]
+    public async Task another_secrets_envelope_pasted_into_a_record_is_not_replayed()
+    {
+        var (token, _) = await TestHelpers.CreateAdminUserAsync(_factory);
+        var key = $"k-{Guid.NewGuid():N}";
+        var body = Valid("sealed");
+
+        (await _client.SendAsync(Post(token, key, body))).IsSuccessStatusCode.Should().BeTrue();
+
+        var protector = _factory.Services.GetRequiredService<barakoCMS.Infrastructure.Security.ISecretProtector>();
+        await OverwriteStoredBodyAsync(key, protector.Protect(Convert.ToBase64String("{\"pasted\":true}"u8.ToArray())));
+
+        var retry = await _client.SendAsync(Post(token, key, body));
+        retry.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        WasReplayed(retry).Should().BeFalse();
+        (await retry.Content.ReadAsStringAsync()).Should().Be(IdempotencyFilter.AlreadyProcessedMessage);
+    }
+
+    [Fact]
+    public async Task a_body_sealed_for_another_record_is_not_replayed()
+    {
+        var (token, _) = await TestHelpers.CreateAdminUserAsync(_factory);
+        var keyA = $"k-{Guid.NewGuid():N}";
+        var keyB = $"k-{Guid.NewGuid():N}";
+        var bodyB = Valid("b");
+
+        (await _client.SendAsync(Post(token, keyA, Valid("a")))).IsSuccessStatusCode.Should().BeTrue();
+        (await _client.SendAsync(Post(token, keyB, bodyB))).IsSuccessStatusCode.Should().BeTrue();
+
+        var recordsA = await RecordsAsync(keyA);
+        recordsA.Should().HaveCount(1);
+        recordsA[0].ProtectedResponseBody.Should().NotBeNullOrEmpty();
+        await OverwriteStoredBodyAsync(keyB, recordsA[0].ProtectedResponseBody!);
+
+        var retry = await _client.SendAsync(Post(token, keyB, bodyB));
+        retry.StatusCode.Should().Be(HttpStatusCode.Conflict, "A's body must not open as B's");
+        WasReplayed(retry).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task a_stored_body_that_is_not_an_envelope_answers_409_not_500()
+    {
+        var (token, _) = await TestHelpers.CreateAdminUserAsync(_factory);
+        var key = $"k-{Guid.NewGuid():N}";
+        var body = Valid("garbage");
+
+        (await _client.SendAsync(Post(token, key, body))).IsSuccessStatusCode.Should().BeTrue();
+        await OverwriteStoredBodyAsync(key, "not base64 at all %%%");
+
+        var retry = await _client.SendAsync(Post(token, key, body));
+        retry.StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
+    /// <summary>
+    /// Request A ran past the orphan window, retry B reclaimed the key, then A finished. A must not
+    /// release or complete B's claim.
+    /// </summary>
+    [Fact]
+    public async Task a_request_that_lost_its_claim_does_not_release_or_complete_the_new_one()
+    {
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
+        var key = $"owner-{Guid.NewGuid():N}";
+        var lostClaim = Guid.NewGuid();
+        var currentClaim = Guid.NewGuid();
+
+        await using (var session = store.LightweightSession())
+        {
+            session.Store(new IdempotencyRecord { Key = key, ClaimId = currentClaim, Completed = false, CreatedAt = DateTime.UtcNow, Method = "POST" });
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        await using (var session = store.LightweightSession())
+        {
+            await IdempotencyFinalizer.ReleaseAsync(session, key, lostClaim, TestContext.Current.CancellationToken);
+        }
+        await using (var session = store.LightweightSession())
+        {
+            await IdempotencyFinalizer.CompleteAsync(session, key, lostClaim,
+                new IdempotencyFinalizer.StoredResponse(200, "application/json", null, "sealed-by-A", false),
+                TestContext.Current.CancellationToken);
+        }
+
+        var records = await RecordsAsync(key);
+        records.Should().HaveCount(1, "A's release must not delete B's claim");
+        records[0].ClaimId.Should().Be(currentClaim);
+        records[0].Completed.Should().BeFalse("A's completion must not complete B's claim");
+        records[0].ProtectedResponseBody.Should().BeNull();
+
+        await using (var session = store.LightweightSession())
+        {
+            await IdempotencyFinalizer.CompleteAsync(session, key, currentClaim,
+                new IdempotencyFinalizer.StoredResponse(201, "application/json", "/x", "sealed-by-B", false),
+                TestContext.Current.CancellationToken);
+        }
+
+        records = await RecordsAsync(key);
+        records.Should().HaveCount(1);
+        records[0].Completed.Should().BeTrue();
+        records[0].StatusCode.Should().Be(201);
+        records[0].ProtectedResponseBody.Should().Be("sealed-by-B");
     }
 
     /// <summary>

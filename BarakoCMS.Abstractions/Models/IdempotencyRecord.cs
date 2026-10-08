@@ -31,8 +31,14 @@ public class IdempotencyRecord
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>
+    /// Identifies the request holding this claim, so a request that ran long and lost its claim to a
+    /// retry cannot complete or release the retry's claim.
+    /// </summary>
+    public Guid ClaimId { get; set; }
+
+    /// <summary>
     /// The method of the request that claimed the key. Null on a record written before replay
-    /// existed, and on an anonymous caller's record, both of which are answered 409 on a retry.
+    /// existed, which is answered 409 on a retry.
     /// </summary>
     public string? Method { get; set; }
 
@@ -40,8 +46,9 @@ public class IdempotencyRecord
     public string? Path { get; set; }
 
     /// <summary>
-    /// Hex SHA-256 over the query string and the body, so a different request under the same key is
-    /// refused.
+    /// Hex HMAC-SHA256 over the query string and the body, under a key kept for this purpose, so a
+    /// different request under the same key is refused. Null on a route that never replays, whose
+    /// body may hold a password.
     /// </summary>
     public string? RequestHash { get; set; }
 
@@ -58,8 +65,8 @@ public class IdempotencyRecord
     public string? Location { get; set; }
 
     /// <summary>
-    /// The response body, encrypted with the stored-secret key. It is one the caller that owns the
-    /// key was already sent. Never logged.
+    /// The response body, sealed with a key kept for this purpose and bound to <see cref="Key"/>. It
+    /// is one the caller that owns the key was already sent. Never logged.
     /// </summary>
     public string? ProtectedResponseBody { get; set; }
 

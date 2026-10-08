@@ -1226,6 +1226,7 @@ public static class ServiceCollectionExtensions
             options.Validate();
             return options;
         });
+        services.AddSingleton<barakoCMS.Infrastructure.Filters.IdempotencyProtector>();
         services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Filters.IdempotencyFilter>();
         // The finalizer completes an idempotency claim on success or releases it on failure, so a
         // failed request stays retryable. See IdempotencyFilter.
