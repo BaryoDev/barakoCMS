@@ -1,5 +1,6 @@
 using barakoCMS.Extensions;
 using FastEndpoints;
+using FastEndpoints.Security;
 using FluentAssertions;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -39,6 +40,7 @@ public class JobWorkerSchemaOrderTests
     {
         var ct = TestContext.Current.CancellationToken;
         var connectionString = await FreshDatabaseAsync(ct);
+        using var resolver = FastEndpointsResolver.Keep();
         await using var app = Build(connectionString);
 
         app.UseBarakoCMS();
@@ -68,6 +70,7 @@ public class JobWorkerSchemaOrderTests
         var ct = TestContext.Current.CancellationToken;
         var connectionString = await FreshDatabaseAsync(ct);
         await SlowUnlockedJobsDdlAsync(connectionString, ct);
+        using var resolver = FastEndpointsResolver.Keep();
         await using var app = Build(connectionString);
 
         app.UseBarakoCMS();
@@ -81,6 +84,7 @@ public class JobWorkerSchemaOrderTests
     {
         var ct = TestContext.Current.CancellationToken;
         var connectionString = await FreshDatabaseAsync(ct);
+        using var resolver = FastEndpointsResolver.Keep();
         await using var app = Build(connectionString);
 
         app.UseBarakoCMS();
@@ -96,6 +100,31 @@ public class JobWorkerSchemaOrderTests
         {
             await app.StopAsync(CancellationToken.None);
         }
+    }
+
+    /// <summary>
+    /// Each test here builds a host, calls <c>UseBarakoCMS</c> and disposes it, which left FastEndpoints'
+    /// static resolver on the disposed provider, so a later test that issued a token outside a request
+    /// failed (#554). Every test above keeps the resolver; this one shows what keeping it is for.
+    /// </summary>
+    [Fact]
+    public async Task A_disposed_host_of_its_own_leaves_tokens_issuable_in_the_process()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var connectionString = await FreshDatabaseAsync(ct);
+        using (FastEndpointsResolver.Keep())
+        {
+            await using var app = Build(connectionString);
+            app.UseBarakoCMS();
+        }
+
+        var issue = () => JwtBearer.CreateToken(o =>
+        {
+            o.SigningKey = IntegrationTestFixture.JwtKey;
+            o.ExpireAt = DateTime.UtcNow.AddMinutes(1);
+        });
+
+        issue.Should().NotThrow("the resolver points at a live provider again once the test's own host is gone");
     }
 
     private WebApplication Build(string connectionString)
