@@ -1,6 +1,4 @@
-using System.Security.Cryptography;
 using System.Text;
-using barakoCMS.Infrastructure.Security;
 using FastEndpoints;
 using Marten;
 using Microsoft.Extensions.Logging;
@@ -24,6 +22,8 @@ public class IdempotencyFilter : IGlobalPreProcessor
     public const string ScopedKeyItem = "__idempotency_scoped_key";
 
     internal const string CaptureItem = "__idempotency_capture";
+
+    internal const string ClaimIdItem = "__idempotency_claim_id";
 
     public const string ReplayedHeader = "Idempotent-Replayed";
 
@@ -70,13 +70,16 @@ public class IdempotencyFilter : IGlobalPreProcessor
 
         // Every unauthenticated caller shares one key bucket, so a stored response there could be
         // replayed to a stranger who guessed or saw the key. Those callers keep dedupe only: a retry
-        // is a 409, and nothing about the request or its response is stored.
+        // of the same request is a 409 and no response is stored. A route that never replays keeps
+        // no request hash either, because its body can hold a password.
+        var protector = http.RequestServices.GetService<IdempotencyProtector>();
         var anonymous = IdempotencyKeyScope.Caller(http) is null;
-        var replayable = !anonymous && !NeverReplays(http);
+        var neverReplays = NeverReplays(http);
+        var replayable = !anonymous && !neverReplays && protector is not null;
 
         var method = http.Request.Method;
         var path = http.Request.Path.Value ?? "";
-        var requestHash = await HashRequestAsync(http.Request, ct);
+        var requestHash = neverReplays || protector is null ? null : await HashRequestAsync(protector, http.Request, ct);
 
         // A dedicated session, decoupled from the handler's transaction, so committing the claim
         // here and releasing it in the finalizer never entangles with the handler's own writes (or
@@ -102,9 +105,10 @@ public class IdempotencyFilter : IGlobalPreProcessor
             Key = scopedKey,
             Completed = false,
             CreatedAt = now,
-            Method = anonymous ? null : method,
-            Path = anonymous ? null : path,
-            RequestHash = anonymous ? null : requestHash,
+            ClaimId = Guid.NewGuid(),
+            Method = method,
+            Path = path,
+            RequestHash = requestHash,
             Replayable = replayable,
         };
 
@@ -118,6 +122,7 @@ public class IdempotencyFilter : IGlobalPreProcessor
         // Hand the claim to the finalizer, which completes it on success or deletes it on failure,
         // and copy the response as it is written when a retry may be answered with it.
         http.Items[ScopedKeyItem] = scopedKey;
+        http.Items[ClaimIdItem] = claim.ClaimId;
         if (replayable)
         {
             var capture = new IdempotencyResponseCapture(http.Response.Body, options.MaxStoredResponseBytes);
@@ -187,7 +192,7 @@ public class IdempotencyFilter : IGlobalPreProcessor
         bool anonymous,
         string method,
         string path,
-        string requestHash,
+        string? requestHash,
         ILogger? logger,
         string scopedKey,
         CancellationToken ct)
@@ -199,20 +204,29 @@ public class IdempotencyFilter : IGlobalPreProcessor
             return;
         }
 
-        // Completed before responses were kept, or an anonymous caller's key: nothing to compare and
-        // nothing to replay.
-        if (anonymous || existing.Method is null)
+        // Completed before requests were recorded: nothing to compare and nothing to replay.
+        if (existing.Method is null)
         {
             await WriteTextAsync(http, 409, AlreadyProcessedMessage, ct);
             return;
         }
 
+        // Compared for every caller, anonymous ones included, so somebody who learns a key cannot use
+        // it first with a different request and have the real one told it already succeeded. The hash
+        // is compared only when the claim kept one.
         if (!string.Equals(existing.Method, method, StringComparison.OrdinalIgnoreCase)
             || !string.Equals(existing.Path, path, StringComparison.Ordinal)
-            || !string.Equals(existing.RequestHash, requestHash, StringComparison.Ordinal))
+            || (existing.RequestHash is not null
+                && !string.Equals(existing.RequestHash, requestHash, StringComparison.Ordinal)))
         {
             logger?.LogWarning("Idempotency key reused for a different request: {Key}", scopedKey);
             await WriteTextAsync(http, 422, DifferentRequestMessage, ct);
+            return;
+        }
+
+        if (anonymous || !existing.Replayable)
+        {
+            await WriteTextAsync(http, 409, AlreadyProcessedMessage, ct);
             return;
         }
 
@@ -222,12 +236,13 @@ public class IdempotencyFilter : IGlobalPreProcessor
             return;
         }
 
-        var body = existing.Replayable && existing.StatusCode is not null && existing.ProtectedResponseBody is not null
-            ? Unprotect(http, existing.ProtectedResponseBody)
+        var body = existing.StatusCode is not null && existing.ProtectedResponseBody is not null
+            ? http.RequestServices.GetService<IdempotencyProtector>()?.Open(existing.ProtectedResponseBody, existing.Key)
             : null;
         if (body is null)
         {
-            // A route that never replays, or a body the current key cannot decrypt (it was rotated).
+            // Nothing stored, or a body that does not open for this record: the key was rotated, or
+            // the value was not sealed for this key.
             await WriteTextAsync(http, 409, AlreadyProcessedMessage, ct);
             return;
         }
@@ -255,24 +270,15 @@ public class IdempotencyFilter : IGlobalPreProcessor
         }
     }
 
-    internal static string? Protect(HttpContext http, byte[] body) =>
-        http.RequestServices.GetService<ISecretProtector>()?.Protect(Convert.ToBase64String(body));
-
-    private static byte[]? Unprotect(HttpContext http, string protectedBody)
-    {
-        var plain = http.RequestServices.GetService<ISecretProtector>()?.Unprotect(protectedBody);
-        return plain is null ? null : Convert.FromBase64String(plain);
-    }
-
-    /// <summary>Hex SHA-256 over the query string and the body.</summary>
+    /// <summary>Hex HMAC-SHA256 over the query string and the body.</summary>
     /// <remarks>
     /// <see cref="IdempotencyRequestBuffering"/> makes the body rewindable. A host that composes its
     /// own pipeline without it still gets deduplication and replay, with only the query string
     /// compared.
     /// </remarks>
-    private static async Task<string> HashRequestAsync(HttpRequest request, CancellationToken ct)
+    internal static async Task<string> HashRequestAsync(IdempotencyProtector protector, HttpRequest request, CancellationToken ct)
     {
-        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        using var hash = protector.CreateRequestHash();
         hash.AppendData(Encoding.UTF8.GetBytes(request.QueryString.Value ?? ""));
         hash.AppendData([0]);
 

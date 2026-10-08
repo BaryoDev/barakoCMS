@@ -42,8 +42,8 @@ What a request with a key already in use gets depends on the first request:
 | Succeeded (2xx), same method, path, query string and body | The first response replayed |
 | Succeeded, but a different method, path, query string or body | `422` |
 | Succeeded, response over the size limit | `409` |
-| Succeeded, on a route that returns a credential | `409` |
-| Succeeded, from an unauthenticated caller | `409` |
+| Succeeded, on a route that never replays (below) | `409` |
+| Succeeded, from an unauthenticated caller, same request | `409` |
 | Still running | `409` |
 | Failed (any status outside 2xx) | Runs as a new request |
 
@@ -59,8 +59,9 @@ Idempotent-Replayed: true
 ```
 
 The handler does not run again, so nothing is written twice and no workflow fires twice. The query
-string and body are compared by a SHA-256 taken over the exact bytes sent, so a retry has to send
-the same bytes, not just equivalent JSON.
+string and body are compared by an HMAC-SHA256 taken over the exact bytes sent, so a retry has to
+send the same bytes, not just equivalent JSON. On a route that never replays only the method and path
+are compared.
 
 A retry that matches the key but not the request is refused with:
 
@@ -83,9 +84,10 @@ Set it to `0` to keep no response bodies at all, which makes every completed ret
 
 ## Routes that never replay
 
-A route whose response carries a credential never stores its response, so a retry is answered with
-the 409 below and nothing is replayed. Those secrets are kept only as hashes everywhere else, and a
-stored response would be a second copy. The routes are:
+A route whose response carries a credential, or whose request carries a password, never stores its
+response or a hash of its request, so a retry is answered with the 409 below and nothing is
+replayed. Those secrets are kept only as hashes everywhere else, and a stored copy would be a
+second one. The routes are:
 
 - `POST /api/auth/login`, `POST /api/auth/refresh`, `POST /api/auth/otp/verify`,
   `POST /api/auth/mfa/verify` and `POST /api/me/switch` (access and refresh tokens)
@@ -93,6 +95,10 @@ stored response would be a second copy. The routes are:
 - `POST /api/api-keys` (the raw key)
 - `POST /api/preview` (a preview token)
 - `POST /api/site/share-links` and `POST /api/contents/{id}/share-links` (the link key)
+- `POST /api/auth/register`, `POST /api/me/password` and `POST /api/users/{userId}/password` (a
+  password in the request)
+- `POST /api/public/site/share-links/open`, which answers with what a link shows now, so a link
+  revoked since is not opened again from a stored copy
 
 ```
 HTTP/1.1 409 Conflict
@@ -102,15 +108,18 @@ Request with this Idempotency-Key already processed.
 
 The key still stops the request running twice: a retried `POST /api/api-keys` does not mint a
 second key. A module endpoint opts in the same way, with `[NoIdempotentReplay]` on its class.
-`IdempotencyReplayRulesTests` fails when an endpoint answers with a token, key, secret or recovery
-codes without it.
+`IdempotencyReplayRulesTests` fails when an endpoint's response type carries a token, key, secret,
+password or recovery codes, or its request type a password, without it. A route with no typed
+response has to be marked by hand.
 
 ## Unauthenticated callers
 
 Every unauthenticated caller shares one key bucket, so a stored response there could reach a
-stranger who sent the same key. They get deduplication only: the first request runs, a retry with
-the same key is the 409 above, and nothing about the request or its response is stored. A key that
-failed is released for them the same as for anyone else.
+stranger who sent the same key. They get deduplication only: the first request runs, a retry of the
+same request is the 409 above, and no response is stored. The request is still compared, so a
+different request under the same key is the 422, and somebody who learns a key and uses it first
+cannot make the real request read as already done. A key that failed is released for them the same
+as for anyone else.
 
 ## Keys from before 4.7.0
 
@@ -153,13 +162,20 @@ deletes it only while it is still expired or orphaned, in the same transaction a
 the second retry finds the first one's fresh claim and gets the 409. The sweep deletes a record only
 while it is still past the window, so it never removes a claim made after it listed the key.
 
+Each claim carries its own id, and a request completes or releases the record only while it still
+holds that id. A request that ran past the 10 minute orphan window and lost its claim to a retry
+leaves the retry's claim alone when it finishes.
+
 ## What is stored
 
-Each record holds the scoped key and when it was claimed. For an authenticated caller it also holds
-the method, the path and the SHA-256 of the query string and body, and on a 2xx from a route that
-replays, the status code, `Content-Type`, `Location` and response body. The body is encrypted with
-the same key that protects other stored secrets (`Secrets:Key`, falling back to `JWT:Key`); after
-that key is rotated an old body cannot be read, and a retry of it gets the 409 above. The response is
+Each record holds the scoped key, a claim id, when it was claimed, the method and the path. Except
+on a route that never replays it also holds an HMAC-SHA256 of the query string and body. On a 2xx
+from an authenticated caller on a route that replays it holds the status code, `Content-Type`,
+`Location` and the response body. The HMAC key and the body's encryption key are both derived for
+this use alone from `Secrets:Key` (falling back to `JWT:Key`), so neither is the key any other
+secret uses, and the body is sealed with the record's scoped key as associated data: a value copied
+in from another record or another secret does not open, and the retry gets the 409 above. After the
+key material is rotated an old body cannot be read either, with the same answer. The response is
 one the caller was already sent, and only that caller can have it replayed. Request and response
 bodies are never logged. Records live in `mt_doc_idempotency_records` and are removed by the sweep
 above.

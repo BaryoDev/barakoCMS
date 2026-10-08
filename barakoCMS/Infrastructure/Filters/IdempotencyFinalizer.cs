@@ -1,5 +1,6 @@
 using FastEndpoints;
 using Marten;
+using Marten.Patching;
 using Microsoft.Extensions.Logging;
 
 namespace barakoCMS.Infrastructure.Filters;
@@ -29,6 +30,9 @@ public class IdempotencyFinalizer : IGlobalPostProcessor
             ? captureObj as IdempotencyResponseCapture
             : null;
 
+        if (!http.Items.TryGetValue(IdempotencyFilter.ClaimIdItem, out var claimObj) || claimObj is not Guid claimId)
+            return;
+
         var store = http.RequestServices.GetService<IDocumentStore>();
         if (store is null)
             return;
@@ -39,56 +43,72 @@ public class IdempotencyFinalizer : IGlobalPostProcessor
         var logger = http.RequestServices.GetService<ILogger<IdempotencyFinalizer>>();
         await using var session = store.LightweightSession();
 
+        if (capture is not null)
+        {
+            // A JSON response may still sit in the response pipe; flush it through the tee before
+            // reading what was kept.
+            if (succeeded) await http.Response.BodyWriter.FlushAsync(ct);
+            http.Response.Body = capture.Inner;
+        }
+
         if (succeeded)
         {
+            // Only a replayable claim had its response copied. Anonymous callers and routes that
+            // return a credential keep the key and nothing else.
+            StoredResponse? response = null;
             if (capture is not null)
             {
-                // A JSON response may still sit in the response pipe; flush it through the tee before
-                // reading what was kept.
-                await http.Response.BodyWriter.FlushAsync(ct);
-                http.Response.Body = capture.Inner;
+                var location = http.Response.Headers.Location.Count > 0 ? http.Response.Headers.Location.ToString() : null;
+                var protector = http.RequestServices.GetService<IdempotencyProtector>();
+                response = new StoredResponse(
+                    status,
+                    http.Response.ContentType,
+                    location,
+                    capture.Overflowed || protector is null ? null : protector.Seal(capture.Captured, scopedKey),
+                    capture.Overflowed);
             }
 
-            var record = await session.LoadAsync<Models.IdempotencyRecord>(scopedKey, ct);
-            if (record is not null)
-            {
-                record.Completed = true;
-
-                // Only a replayable claim had its response copied. Anonymous callers and routes that
-                // return a credential keep the key and nothing else.
-                if (record.Replayable && capture is not null)
-                {
-                    record.StatusCode = status;
-                    record.ContentType = http.Response.ContentType;
-                    record.Location = http.Response.Headers.Location.Count > 0
-                        ? http.Response.Headers.Location.ToString()
-                        : null;
-
-                    if (capture.Overflowed)
-                    {
-                        record.ResponseTooLarge = true;
-                    }
-                    else
-                    {
-                        // Encrypted with the stored-secret key, never kept as plain text. Without a
-                        // protector nothing is stored, and a retry gets the 409 it got before.
-                        record.ProtectedResponseBody = IdempotencyFilter.Protect(http, capture.Captured);
-                    }
-                }
-
-                session.Store(record);
-                await session.SaveChangesAsync(ct);
-            }
+            await CompleteAsync(session, scopedKey, claimId, response, ct);
         }
         else
         {
-            if (capture is not null) http.Response.Body = capture.Inner;
-
             // The request did not succeed, so release the key and let a retry run.
-            session.Delete<Models.IdempotencyRecord>(scopedKey);
-            await session.SaveChangesAsync(ct);
+            await ReleaseAsync(session, scopedKey, claimId, ct);
             logger?.LogDebug("Released idempotency key after a failed request: {Key}", scopedKey);
         }
+    }
+
+    internal sealed record StoredResponse(int Status, string? ContentType, string? Location, string? SealedBody, bool TooLarge);
+
+    /// <summary>Marks the claim completed, and keeps the response, only if this request still holds it.</summary>
+    /// <remarks>
+    /// Conditional on <paramref name="claimId"/>: a request that ran past the orphan window may have
+    /// lost its claim to a retry, and must not complete the retry's claim with its own response.
+    /// </remarks>
+    internal static async Task CompleteAsync(
+        IDocumentSession session, string scopedKey, Guid claimId, StoredResponse? response, CancellationToken ct)
+    {
+        var patch = session.Patch<Models.IdempotencyRecord>(r => r.Key == scopedKey && r.ClaimId == claimId)
+            .Set(r => r.Completed, true);
+
+        if (response is not null)
+        {
+            patch = patch
+                .Set(r => r.StatusCode, (int?)response.Status)
+                .Set(r => r.ContentType, response.ContentType)
+                .Set(r => r.Location, response.Location)
+                .Set(r => r.ProtectedResponseBody, response.SealedBody)
+                .Set(r => r.ResponseTooLarge, response.TooLarge);
+        }
+
+        await session.SaveChangesAsync(ct);
+    }
+
+    /// <summary>Deletes the claim, only if this request still holds it.</summary>
+    internal static async Task ReleaseAsync(IDocumentSession session, string scopedKey, Guid claimId, CancellationToken ct)
+    {
+        session.DeleteWhere<Models.IdempotencyRecord>(r => r.Key == scopedKey && r.ClaimId == claimId);
+        await session.SaveChangesAsync(ct);
     }
 
     /// <summary>

@@ -29,6 +29,7 @@ namespace barakoCMS.Features.Auth.Register;
 /// nothing about anybody else.
 /// </para>
 /// </remarks>
+[barakoCMS.Infrastructure.Filters.NoIdempotentReplay]
 internal class Endpoint : Endpoint<Request, Response>
 {
     /// <summary>

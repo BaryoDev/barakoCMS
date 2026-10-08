@@ -350,6 +350,7 @@ internal sealed class OpenShareLinkResponse
 ///
 /// A preview token is refused so that it has one use, the <c>?preview=</c> query it was issued for.
 /// </remarks>
+[barakoCMS.Infrastructure.Filters.NoIdempotentReplay]
 internal sealed class OpenShareLinkEndpoint(
     IDocumentSession session) : Endpoint<OpenShareLinkRequest, OpenShareLinkResponse>
 {
