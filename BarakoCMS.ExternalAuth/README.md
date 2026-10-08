@@ -262,14 +262,11 @@ the SDK takes a hash of the nonce (Apple's iOS SDK does), send what the token ca
 works once. It is recorded (`mt_doc_oidc_used_nonces`) in the same commit as the sign-in and
 refused until the token it came in has expired, so a token that leaks from the app cannot be
 exchanged again, while a sign-in that fails (a 409, a transient error) leaves the token usable for
-a retry. A 403 or an MFA challenge does spend it. A token that expires more than a day ahead is
+a retry. A 403 or an MFA challenge does spend it. The nonce is queued only for the commit that
+records the outcome, so an earlier commit (trusting the device, with the DeviceTrust module on)
+does not spend it. A token that expires more than a day ahead is
 refused, which bounds how long a record is kept. Expired records are deleted at most every five
 minutes, up to 5,000 at a time.
-
-One case spends the nonce early: with the DeviceTrust module on and a device id in the request,
-trusting the device commits the request's work so far, the nonce included, before the token is
-issued. A failure after that point needs a fresh token.
-
 | Answer | When |
 | --- | --- |
 | 200 | Signed in, or `requiresMfa` |

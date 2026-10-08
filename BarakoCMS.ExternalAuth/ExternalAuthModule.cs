@@ -39,6 +39,7 @@ public sealed class ExternalAuthModule : IBarakoModule
         services.AddSingleton<OidcClientSecrets>();
         services.AddSingleton<OidcConsumedStates>();
         services.AddSingleton<OidcUsedNonces>();
+        services.AddSingleton<OidcGrantSignIn>();
         services.AddHostedService<OidcConfigurationReport>();
 
         // Start and callback are anonymous and each can cost an outbound call, so they get their own
