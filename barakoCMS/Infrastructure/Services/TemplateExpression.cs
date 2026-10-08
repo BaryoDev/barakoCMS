@@ -17,26 +17,67 @@ internal sealed record TemplatePerson(string Name, string Email)
 /// <summary>The lifecycle transition that fired the workflow.</summary>
 internal sealed record TemplateTransition(string Name, DateTime At, TemplatePerson By);
 
+/// <summary>The absolute bases a <c>links.</c> placeholder is built on. Each is null when it is not configured.</summary>
+/// <param name="Api">This deployment's public URL (<c>App:BaseUrl</c>).</param>
+/// <param name="Console">The console's URL (<c>App:ConsoleUrl</c>).</param>
+/// <param name="Site">The <c>Url</c> of the tenant's published <c>site</c> entry.</param>
+internal sealed record TemplateLinks(string? Api, string? Console, string? Site)
+{
+    public static readonly TemplateLinks None = new(null, null, null);
+}
+
+/// <summary>What one reference field of the entry points at, as the triggering user may read it.</summary>
+/// <param name="Multiple">Whether the field holds a list of ids.</param>
+/// <param name="Total">How many ids the field holds.</param>
+/// <param name="Items">
+/// The entries the user may read, in the field's order, taken from its first
+/// <see cref="TemplateExpression.MaxLoopItems"/> ids only. Each carries only the fields the user is
+/// shown. An entry that is missing, or that the user may not read, is not here.
+/// </param>
+internal sealed record TemplateFollowed(bool Multiple, int Total, IReadOnlyList<Content> Items);
+
 /// <summary>What a template may read beyond the entry itself.</summary>
 /// <param name="TimeZone">The zone a date is shown in. Null when the site names one this server does not know.</param>
 /// <param name="Currency">The site's three-letter currency code, or null.</param>
 /// <param name="Author">Who created the entry. Null when it was not loaded.</param>
 /// <param name="Transition">Null unless the trigger is a transition whose event was found.</param>
+/// <param name="Links">Null when nothing was read to build links, which leaves them as written.</param>
+/// <param name="References">
+/// The reference fields the templates follow, by field name. Null when none were read, which leaves
+/// a <c>data.Field.Other</c> and a loop as written.
+/// </param>
+/// <param name="Notes">Where a resolve records what it left out on purpose. Null records nothing.</param>
 internal sealed record TemplateContext(
-    TimeZoneInfo? TimeZone, string? Currency, TemplatePerson? Author, TemplateTransition? Transition)
+    TimeZoneInfo? TimeZone,
+    string? Currency,
+    TemplatePerson? Author,
+    TemplateTransition? Transition,
+    TemplateLinks? Links = null,
+    IReadOnlyDictionary<string, TemplateFollowed>? References = null,
+    List<string>? Notes = null)
 {
     /// <summary>
     /// For a caller that resolves without preparing. Dates are UTC, money carries no code, and the
-    /// author and transition placeholders are left as written, since nothing was read to fill them.
+    /// author, transition, link and reference placeholders are left as written, since nothing was
+    /// read to fill them.
     /// </summary>
     public static readonly TemplateContext Unprepared = new(TimeZoneInfo.Utc, null, null, null);
+
+    /// <summary>The context one loop item resolves in: no author, and no reference to follow further.</summary>
+    public TemplateContext ForItem() => this with { Author = null, References = null };
+
+    public void Note(string note)
+    {
+        if (Notes is not null && !Notes.Contains(note)) Notes.Add(note);
+    }
 }
 
-/// <summary>What is inside one <c>{{...}}</c>: a variable, a variable with a format, or a duration.</summary>
+/// <summary>What is inside one <c>{{...}}</c>: a variable, a variable with a format, a duration or a link.</summary>
 /// <remarks>
-/// Three shapes and nothing else, so there is no expression language to bound:
-/// <c>name</c>, <c>name | format "argument"</c> and <c>duration from to</c>. A hole that is none of
-/// them, or that names something unknown, is left as written. The plain shape is the one the engine
+/// Four shapes and nothing else, so there is no expression language to bound: <c>name</c>,
+/// <c>name | format "argument"</c>, <c>duration from to</c> and <c>links.site "/path"</c>. The one
+/// block is a loop, <c>{{#each data.Field}}...{{/each}}</c>, and it does not nest. A hole that is
+/// none of them, or that names something unknown, is left as written. The plain shape is the one the engine
 /// has always read, and it is tried first with the same pattern, so a template that resolved before
 /// formats existed resolves to the same text.
 ///
@@ -55,6 +96,12 @@ internal static class TemplateExpression
 
     public static readonly IReadOnlyList<string> Formats = ["date", "money", "upper", "lower"];
 
+    /// <summary>The most entries one loop renders. Past it the loop stops and the run says so.</summary>
+    public const int MaxLoopItems = 50;
+
+    /// <summary>The longest path <c>links.site</c> takes, and the longest name <c>links.transition</c> takes.</summary>
+    public const int MaxLinkArgumentLength = 200;
+
     /// <summary>
     /// Every <c>{{...}}</c> with no brace inside it.
     /// </summary>
@@ -65,6 +112,33 @@ internal static class TemplateExpression
     /// unless it is one of the three shapes.
     /// </remarks>
     public static readonly Regex Token = new(@"\{\{([^{}]*)\}\}", RegexOptions.Compiled);
+
+    /// <summary>
+    /// A loop, or else one <see cref="Token"/>. A resolve is one pass of this, so a loop's body is
+    /// template text and a value substituted into it is never read again.
+    /// </summary>
+    /// <remarks>
+    /// The second alternative is <see cref="Token"/> itself, so a template with no loop is matched
+    /// exactly as before.
+    /// </remarks>
+    public static readonly Regex Block = new(
+        @"\{\{\s*\#each\s+data\.(?<field>[A-Za-z0-9_]+)\s*\}\}(?<body>.*?)\{\{\s*/each\s*\}\}|\{\{(?<hole>[^{}]*)\}\}",
+        RegexOptions.Compiled | RegexOptions.Singleline);
+
+    private static readonly Regex LoopOpen = new(@"\A\s*\#each\s+data\.[A-Za-z0-9_]+\s*\z", RegexOptions.Compiled);
+
+    private static readonly Regex LoopClose = new(@"\A\s*/each\s*\z", RegexOptions.Compiled);
+
+    private static readonly Regex NestedLoop = new(@"\{\{\s*\#each\b", RegexOptions.Compiled);
+
+    private static readonly Regex Follows = new(
+        @"\#each\s+data\.(?<name>[A-Za-z0-9_]+)|data\.(?<name>[A-Za-z0-9_]+)\.[A-Za-z0-9_]", RegexOptions.Compiled);
+
+    private static readonly Regex Link = new(
+        @"\A\s*(?<name>links\.(?:site|transition))\s+""(?<argument>[^""\r\n]*)""\s*\z", RegexOptions.Compiled);
+
+    /// <summary>A path on the site: one leading slash, never two, so it cannot name another host.</summary>
+    private static readonly Regex SitePath = new(@"\A/(?!/)[A-Za-z0-9\-._~/%?=&#+]*\z", RegexOptions.Compiled);
 
     private static readonly Regex Plain = new(@"\A\s*([A-Za-z0-9_.]+)\s*\z", RegexOptions.Compiled);
 
@@ -80,7 +154,7 @@ internal static class TemplateExpression
         @"\A[A-Za-z][A-Za-z0-9_+\-]*(?:/[A-Za-z0-9_+\-]+){0,2}\z", RegexOptions.Compiled);
 
     private static readonly Regex SiteFormat = new(
-        @"(?:\||\\u007[cC])(?:\s|\\+[ntr])*(?:date|money)\b", RegexOptions.Compiled);
+        @"(?:\||\\u007[cC])(?:\s|\\+[ntr])*(?:date|money)\b|links\.site\b", RegexOptions.Compiled);
 
     private static readonly string[] DateFormats =
     [
@@ -95,12 +169,17 @@ internal static class TemplateExpression
         "id", "contentType", "status", "createdAt", "updatedAt", "createdBy.name", "createdBy.email",
     };
 
+    private static readonly HashSet<string> LinkNames = new(StringComparer.Ordinal)
+    {
+        "links.entry", "links.console", "links.edit",
+    };
+
     private static readonly HashSet<string> TransitionNames = new(StringComparer.Ordinal)
     {
         "transition.name", "transition.at", "transition.by.name", "transition.by.email",
     };
 
-    private enum Shape { Plain, Filtered, Between }
+    private enum Shape { Plain, Filtered, Between, Link }
 
     private sealed record Hole(Shape Shape, string Name, string Word, string Second, IReadOnlyList<string> Arguments);
 
@@ -111,7 +190,11 @@ internal static class TemplateExpression
     /// <summary>The text a hole stands for, before encoding, or null when it is left as written.</summary>
     public static string? Evaluate(string body, Content content, TemplateContext context)
     {
-        if (Parse(body) is not { } hole || !TryValue(hole.Name, content, context, out var value))
+        if (Parse(body) is not { } hole) return null;
+
+        if (hole.Shape == Shape.Link) return LinkTo(hole.Name, hole.Arguments[0], content, context);
+
+        if (!TryValue(hole.Name, content, context, out var value))
         {
             return null;
         }
@@ -139,6 +222,52 @@ internal static class TemplateExpression
     }
 
     /// <summary>
+    /// The entries a loop over a reference field renders, or null when the loop is left as written:
+    /// the field is not a reference the context followed, or the body holds another loop.
+    /// </summary>
+    /// <remarks>
+    /// Past <see cref="MaxLoopItems"/> ids the loop renders the entries among the first ones and
+    /// stops, and the context is given a note saying how many the field held.
+    /// </remarks>
+    public static IReadOnlyList<Content>? LoopItems(string field, string body, TemplateContext context)
+    {
+        if (context.References is null
+            || !context.References.TryGetValue(field, out var followed)
+            || NestedLoop.IsMatch(body))
+        {
+            return null;
+        }
+
+        if (followed.Total > MaxLoopItems)
+        {
+            context.Note(string.Create(
+                CultureInfo.InvariantCulture,
+                $"The loop over data.{field} rendered from the first {MaxLoopItems} of its {followed.Total} references and stopped there."));
+        }
+
+        return followed.Items;
+    }
+
+    /// <summary>The reference fields a set of templates follows or loops over, by name.</summary>
+    /// <remarks>By pattern, like <see cref="Needs"/>, so a Conditional's children are counted too.</remarks>
+    public static HashSet<string> FollowedFields(IEnumerable<string?> templates)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var template in templates)
+        {
+            if (string.IsNullOrEmpty(template)) continue;
+
+            foreach (Match match in Follows.Matches(template))
+            {
+                names.Add(match.Groups["name"].Value);
+            }
+        }
+
+        return names;
+    }
+
+    /// <summary>
     /// What the engine will leave as written in a template, as far as the template alone can say.
     /// </summary>
     /// <remarks>
@@ -151,11 +280,21 @@ internal static class TemplateExpression
 
         foreach (Match match in Token.Matches(template))
         {
-            var problem = Problem(match.Groups[1].Value, onTransition);
+            var problem = LoopOpen.IsMatch(match.Groups[1].Value) || LoopClose.IsMatch(match.Groups[1].Value)
+                ? null
+                : Problem(match.Groups[1].Value, onTransition);
             if (problem is null) continue;
 
             var shown = match.Value.Length <= 80 ? match.Value : match.Value[..80] + "...";
             yield return $"'{shown}' {problem}, so it is sent as written.";
+        }
+
+        foreach (Match match in Block.Matches(template))
+        {
+            if (match.Groups["field"].Success && NestedLoop.IsMatch(match.Groups["body"].Value))
+            {
+                yield return $"The loop over 'data.{match.Groups["field"].Value}' holds another loop, and loops do not nest, so it is sent as written.";
+            }
         }
     }
 
@@ -214,6 +353,12 @@ internal static class TemplateExpression
 
         if (body.Length > MaxLength) return null;
 
+        var link = Link.Match(body);
+        if (link.Success)
+        {
+            return new Hole(Shape.Link, link.Groups["name"].Value, string.Empty, string.Empty, [link.Groups["argument"].Value]);
+        }
+
         var between = Between.Match(body);
         if (between.Success)
         {
@@ -235,6 +380,8 @@ internal static class TemplateExpression
     private static string? Problem(string body, bool onTransition)
     {
         if (Parse(body) is not { } hole) return "is not a placeholder";
+
+        if (hole.Shape == Shape.Link) return LinkArgumentProblem(hole.Name, hole.Arguments[0]);
 
         if (NameProblem(hole.Name, onTransition) is { } name) return name;
 
@@ -259,7 +406,9 @@ internal static class TemplateExpression
 
     private static string? NameProblem(string name, bool onTransition)
     {
-        if (EntryNames.Contains(name) || IsField(name)) return null;
+        if (EntryNames.Contains(name) || LinkNames.Contains(name) || name == "links.site" || IsField(name)) return null;
+
+        if (name == "links.transition") return "names 'links.transition' without the transition, as in links.transition \"Approve\"";
 
         if (TransitionNames.Contains(name))
         {
@@ -273,6 +422,39 @@ internal static class TemplateExpression
 
     private static bool CanBeDate(string name) =>
         name is "createdAt" or "updatedAt" or "transition.at" || IsField(name);
+
+    /// <summary>What is wrong with a link's argument, or null. Evaluation refuses on the same answer.</summary>
+    private static string? LinkArgumentProblem(string name, string argument)
+    {
+        if (argument.Length is 0 or > MaxLinkArgumentLength)
+        {
+            return $"gives '{name}' an argument that is not between 1 and {MaxLinkArgumentLength} characters";
+        }
+
+        if (name == "links.site")
+        {
+            return SitePath.IsMatch(argument)
+                ? null
+                : "gives 'links.site' a path that does not start with one '/' or holds a character a path does not";
+        }
+
+        return argument.Any(char.IsControl) ? "gives 'links.transition' a name with a control character in it" : null;
+    }
+
+    /// <summary>
+    /// A link to a page of the site or to the entry in the console with a transition named. Empty
+    /// when the base it needs is not configured, and left as written when nothing was prepared.
+    /// </summary>
+    private static string? LinkTo(string name, string argument, Content content, TemplateContext context)
+    {
+        if (context.Links is not { } links || LinkArgumentProblem(name, argument) is not null) return null;
+
+        if (name == "links.site") return links.Site is null ? string.Empty : links.Site + argument;
+
+        if (links.Console is null || content is barakoCMS.Features.Workflows.ErasedContent) return string.Empty;
+
+        return $"{links.Console}/content/{content.Id}?transition={Uri.EscapeDataString(argument)}";
+    }
 
     /// <summary>What is wrong with a format and its arguments, or null. Evaluation refuses on the same answer.</summary>
     private static string? ArgumentProblem(string format, IReadOnlyList<string> arguments)
@@ -337,12 +519,73 @@ internal static class TemplateExpression
                 return true;
         }
 
+        if (key.StartsWith("links.", StringComparison.Ordinal))
+        {
+            return TryLink(key, content, context, out value);
+        }
+
         if (key.StartsWith("data.", StringComparison.Ordinal) && content.Data != null)
         {
-            return content.Data.TryGetValue(key.Substring("data.".Length), out value);
+            var name = key.Substring("data.".Length);
+            return content.Data.TryGetValue(name, out value) || TryFollow(name, context, out value);
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// <c>Field.Other</c> where <c>Field</c> is a single reference the context followed: the
+    /// referenced entry's <c>Other</c>, or nothing.
+    /// </summary>
+    /// <remarks>
+    /// Nothing, and not the placeholder as written, whenever there is no value to give: no entry,
+    /// one the triggering user may not read, a field they are not shown, a field it does not have.
+    /// Telling those apart would tell the reader of the message which of them it was. A field
+    /// literally named with a dot is read first, as it always was.
+    /// </remarks>
+    private static bool TryFollow(string name, TemplateContext context, out object? value)
+    {
+        value = null;
+
+        var dot = name.IndexOf('.');
+        if (dot <= 0 || context.References is null || !context.References.TryGetValue(name[..dot], out var followed))
+        {
+            return false;
+        }
+
+        if (!followed.Multiple && followed.Items.Count > 0
+            && followed.Items[0].Data.TryGetValue(name[(dot + 1)..], out var found))
+        {
+            value = found;
+        }
+
+        return true;
+    }
+
+    private static bool TryLink(string key, Content content, TemplateContext context, out object? value)
+    {
+        value = null;
+        if (context.Links is not { } links) return false;
+
+        var erased = content is barakoCMS.Features.Workflows.ErasedContent;
+
+        switch (key)
+        {
+            case "links.entry":
+                value = links.Api is null || erased ? string.Empty : $"{links.Api}/api/contents/{content.Id}";
+                return true;
+
+            case "links.console" or "links.edit":
+                value = links.Console is null || erased ? string.Empty : $"{links.Console}/content/{content.Id}";
+                return true;
+
+            case "links.site":
+                value = links.Site ?? string.Empty;
+                return true;
+
+            default:
+                return false;
+        }
     }
 
     private static string Text(object? value) => value switch

@@ -893,7 +893,11 @@ internal sealed class WorkflowRunner(
 
             if (result.Succeeded)
             {
-                return new Outcome(AttemptStatus.Succeeded, null, timer.ElapsedMilliseconds);
+                // What the templates left out on purpose, such as a loop stopped at its cap, is
+                // recorded on the attempt so a message that is short of entries says why.
+                var notes = variables.Notes;
+                return new Outcome(
+                    AttemptStatus.Succeeded, notes.Count == 0 ? null : string.Join(" ", notes), timer.ElapsedMilliseconds);
             }
 
             return new Outcome(AttemptStatus.Failed, result.Error, timer.ElapsedMilliseconds, result.Retryable);

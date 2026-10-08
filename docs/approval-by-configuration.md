@@ -567,6 +567,12 @@ the braces is sent as written.
 | `{{createdBy.name}}`, `{{createdBy.email}}` | The username and address of whoever created the entry |
 | `{{transition.name}}`, `{{transition.at}}` | The transition that fired the workflow, and when |
 | `{{transition.by.name}}`, `{{transition.by.email}}` | Whoever made that transition |
+| `{{data.Supplier.Email}}` | The `Email` field of the entry the reference field `Supplier` points at |
+| `{{#each data.Runners}}{{data.FirstName}} {{/each}}` | The text between the markers once for each entry the reference field `Runners` points at |
+| `{{links.console}}`, `{{links.edit}}` | The entry in the console: `{App:ConsoleUrl}/content/{id}` |
+| `{{links.transition "Approve"}}` | The same with the transition named: `{App:ConsoleUrl}/content/{id}?transition=Approve` |
+| `{{links.entry}}` | The entry in this API: `{App:BaseUrl}/api/contents/{id}` |
+| `{{links.site}}`, `{{links.site "/approvals/"}}` | The `Url` of the site settings, and a page on it |
 
 The time zone is the `TimeZone` field of the tenant's published `site` entry
 ([site-settings.md](site-settings.md)) and the currency is its `Currency`. With no `site` entry or
@@ -599,8 +605,58 @@ An `UpdateField` or `CreateTask` parameter that names `{{createdBy.email}}` or
 public field of a deliverable type is served by delivery, address included. The save is not
 refused, because the field and the entry such an action writes can themselves be placeholders.
 
-A formatted value, a name and an address are encoded like any other value: HTML-encoded in an
-`Email` body, stripped of line breaks in its `Subject` and `To`.
+### References and loops
+
+`{{data.Field.Other}}` follows `Field` when the entry's type declares it a `reference` field, and
+reads `Other` from the entry it points at. A loop, `{{#each data.Field}}...{{/each}}`, renders the
+text between its markers once for each entry the field points at, in the field's order. Inside it,
+`{{data.X}}`, `{{id}}`, `{{status}}`, `{{createdAt}}` and the formats read that entry, and a link
+names that entry. A loop works on a single reference too, as a list of one. A field that holds a
+list is read only by a loop: `{{data.Runners.FirstName}}` on a list renders empty.
+
+What renders is decided by the read permission of the user who fired the workflow: the creator for
+`Created`, and the user on the event for anything else (for a transition, whoever made it). The
+checks are the ones `GET /api/contents/{id}` makes. An entry that user may not read renders empty,
+exactly as one that does not exist, and a loop leaves it out. A field of a readable entry renders
+only when that user's read would show it unchanged, so a Sensitive or Hidden field they are not
+allowed to see renders empty, and so does a field whose mask would show its last four characters.
+A change with no user behind it (a scheduled publish, an import) reads no reference, and every one
+renders empty.
+
+References are followed one level deep. A loop item's own references are not followed, and a loop
+inside a loop is sent as written. A field literally named with a dot, such as `Supplier.Email`, is
+still read first, as it always was.
+
+**A loop stops at 50 entries.** A many-valued reference holds at most 100 ids, and a loop renders
+the entries among the first 50 and stops there. The run records it: the attempt's `error` (on a
+succeeded attempt) says "The loop over data.Runners rendered from the first 50 of its 73 references
+and stopped there." Nothing past the cap is dropped without that line.
+
+The reads do not grow with the template. A prepare reads the entry's type, the user, and one query
+for every id the named fields hold, then checks each entry with the cached permission and
+sensitivity services.
+
+`POST /api/workflows/dry-run` has no user to read as, so it does not follow references, and those
+placeholders are shown as written.
+
+### Links
+
+Links are built from configured bases only, never from a request, and carry no token. The approver
+signs in, and the transition's own permission and conditions decide whether it runs.
+
+| Placeholder | Base |
+| :--- | :--- |
+| `links.console`, `links.edit`, `links.transition` | `App:ConsoleUrl`, the console's URL |
+| `links.entry` | `App:BaseUrl`, this API's public URL |
+| `links.site` | The `Url` field of the tenant's published `site` entry |
+
+A base that is not set, or is not an absolute http or https URL, makes its links render empty. The
+path given to `links.site` starts with one `/` (two would name another host) and is at most 200
+characters of a URL path, query and fragment. The transition name is escaped into the query. A
+link to the entry for a `Deleted` trigger renders empty, since the entry is gone.
+
+A formatted value, a name, an address, a link and a referenced entry's value are encoded like any
+other value: HTML-encoded in an `Email` body, stripped of line breaks in its `Subject` and `To`.
 
 `POST /api/workflows/dry-run` does not look a user up. It fills the author and the transition with
 `sample.user` and `sample.user@example.com`, and takes the sample entry's `updatedAt` as the
