@@ -280,6 +280,65 @@ public class OutboundResilienceTests
     }
 
     [Fact]
+    public async Task An_email_the_provider_did_not_take_is_tried_again_inside_the_attempt()
+    {
+        var provider = new ScriptedEmail(
+            _ => throw new EmailNotSentException("Relay refused the connection."),
+            _ => throw new EmailNotSentException("Relay refused the connection."),
+            _ => Task.CompletedTask);
+        var action = new EmailAction(provider, NullLogger<EmailAction>.Instance, resilience: new OutboundResilience(Fast()));
+
+        var result = await action.RunAsync(Email(), new Content { Id = Guid.NewGuid() }, Ct);
+
+        result.Succeeded.Should().BeTrue();
+        provider.Calls.Should().Be(3, "two sends that never left, then the one that did");
+    }
+
+    [Fact]
+    public async Task An_email_never_taken_is_tried_the_configured_times_then_left_to_the_durable_queue()
+    {
+        var provider = new ScriptedEmail(_ => throw new EmailNotSentException("Relay refused the connection."));
+        var action = new EmailAction(provider, NullLogger<EmailAction>.Instance, resilience: new OutboundResilience(Fast(retries: 1)));
+
+        var result = await action.RunAsync(Email(), new Content { Id = Guid.NewGuid() }, Ct);
+
+        result.Succeeded.Should().BeFalse();
+        result.Retryable.Should().BeTrue();
+        provider.Calls.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task An_email_not_sent_and_then_failed_otherwise_is_not_sent_a_third_time()
+    {
+        var provider = new ScriptedEmail(
+            _ => throw new EmailNotSentException("Relay refused the connection."),
+            _ => throw new InvalidOperationException("The relay dropped the line after the message."),
+            _ => Task.CompletedTask);
+        var action = new EmailAction(provider, NullLogger<EmailAction>.Instance, resilience: new OutboundResilience(Fast()));
+
+        var result = await action.RunAsync(Email(), new Content { Id = Guid.NewGuid() }, Ct);
+
+        result.Succeeded.Should().BeFalse();
+        provider.Calls.Should().Be(2, "the second failure may be a message the relay took");
+    }
+
+    [Fact]
+    public async Task An_email_send_past_its_timeout_after_a_send_that_left_is_not_tried_again()
+    {
+        var provider = new ScriptedEmail(
+            _ => throw new EmailNotSentException("Relay refused the connection."),
+            token => Task.Delay(TimeSpan.FromSeconds(30), token),
+            _ => Task.CompletedTask);
+        var action = new EmailAction(provider, NullLogger<EmailAction>.Instance,
+            resilience: new OutboundResilience(Fast() with { EmailSendTimeout = TimeSpan.FromMilliseconds(300) }));
+
+        var send = () => action.RunAsync(Email(), new Content { Id = Guid.NewGuid() }, Ct);
+
+        await send.Should().ThrowAsync<OperationCanceledException>().WithMessage("*not known whether the email was sent*");
+        provider.Calls.Should().Be(2, "the timed out send may have gone out");
+    }
+
+    [Fact]
     public void An_email_send_has_no_timeout_by_default()
     {
         new OutboundResilienceOptions().EmailSendTimeout.Should().BeNull();
