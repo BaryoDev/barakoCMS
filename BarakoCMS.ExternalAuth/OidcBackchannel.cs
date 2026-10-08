@@ -44,7 +44,8 @@ internal sealed record OidcEndpoints(
 /// they are <see cref="StaleKeyCeiling"/> old. Past that there are no keys and every token is refused.
 /// </para>
 /// </remarks>
-internal sealed class OidcBackchannel(IHttpClientFactory httpFactory, ILogger<OidcBackchannel> logger)
+internal sealed class OidcBackchannel(
+    IHttpClientFactory httpFactory, ILogger<OidcBackchannel> logger, OidcClientSecrets secrets)
 {
     public const string HttpClientName = "ExternalApi";
 
@@ -178,14 +179,15 @@ internal sealed class OidcBackchannel(IHttpClientFactory httpFactory, ILogger<Oi
         };
 
         using var request = new HttpRequestMessage(System.Net.Http.HttpMethod.Post, endpoints.TokenEndpoint);
+        var secret = secrets.For(provider);
         if (endpoints.SecretInBody)
         {
             form["client_id"] = provider.ClientId;
-            form["client_secret"] = provider.ClientSecret;
+            form["client_secret"] = secret;
         }
         else
         {
-            var basic = $"{Uri.EscapeDataString(provider.ClientId)}:{Uri.EscapeDataString(provider.ClientSecret)}";
+            var basic = $"{Uri.EscapeDataString(provider.ClientId)}:{Uri.EscapeDataString(secret)}";
             request.Headers.Authorization = new AuthenticationHeaderValue(
                 "Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes(basic)));
         }

@@ -38,7 +38,8 @@ internal enum OidcRefusal
 /// and the HMAC family (where the "key" would be something the client also knows) never reach a
 /// signature check; <c>iss</c> is exactly the configured issuer; one published key is chosen by the
 /// token's <c>kid</c> and the signature verifies against that key and no other; <c>aud</c> contains
-/// the client id, and with more than one audience <c>azp</c> is the client id; <c>exp</c> and
+/// an accepted audience (the client id, or for the id token grant one of the configured ones), and
+/// with more than one audience <c>azp</c> is an accepted one too; <c>exp</c> and
 /// <c>nbf</c> hold within <see cref="ClockSkew"/>; <c>nonce</c> is the one this browser was given;
 /// <c>sub</c> is present.
 /// </remarks>
@@ -59,8 +60,15 @@ internal static class OidcIdToken
         string? idToken,
         OidcProvider provider,
         IReadOnlyList<JsonWebKey> keys,
-        string nonce)
+        string nonce,
+        IReadOnlyList<string>? audiences = null)
     {
+        audiences ??= [provider.ClientId];
+        if (audiences.Count == 0)
+        {
+            return (null, OidcRefusal.Audience);
+        }
+
         if (string.IsNullOrEmpty(idToken) || idToken.Length > MaxLength)
         {
             return (null, OidcRefusal.Malformed);
@@ -113,7 +121,7 @@ internal static class OidcIdToken
             ValidateIssuer = true,
             ValidIssuer = expectedIssuer,
             ValidateAudience = true,
-            ValidAudience = provider.ClientId,
+            ValidAudiences = audiences,
             IgnoreTrailingSlashWhenValidatingAudience = false,
             ValidateLifetime = true,
             RequireExpirationTime = true,
@@ -139,11 +147,12 @@ internal static class OidcIdToken
         }
 
         // With several audiences the token has to say which one it was issued to, and it has to be
-        // us. An azp that is there at all has to be us too, whatever the audience count.
+        // us. An azp that is there at all has to be us too, whatever the audience count. A native
+        // Google token names the server's client as aud and the app's as azp, so the grant lists both.
         var severalAudiences = payload.TryGetProperty("aud", out var audience)
             && audience.ValueKind == JsonValueKind.Array && audience.GetArrayLength() > 1;
         if ((severalAudiences || payload.TryGetProperty("azp", out _))
-            && !string.Equals(Text(payload, "azp"), provider.ClientId, StringComparison.Ordinal))
+            && !(Text(payload, "azp") is { } party && audiences.Contains(party, StringComparer.Ordinal)))
         {
             return (null, OidcRefusal.Audience);
         }
@@ -173,9 +182,11 @@ internal static class OidcIdToken
 
         // Absent is false: a provider that says nothing has not vouched for the address. Only the
         // JSON boolean counts. The text "true" is what a free-form profile attribute mapped into a
-        // token looks like, and this flag decides whose account a first sign-in lands on.
+        // token looks like, and this flag decides whose account a first sign-in lands on. A provider
+        // that documents the text form for its own claim (Apple) is configured to have it taken.
         var verified = payload.TryGetProperty(provider.EmailVerifiedClaim, out var flag)
-            && flag.ValueKind == JsonValueKind.True;
+            && (flag.ValueKind == JsonValueKind.True
+                || (provider.EmailVerifiedMayBeText && flag.ValueKind == JsonValueKind.String && flag.GetString() == "true"));
 
         return (new OidcIdentity(
             issuer,
@@ -243,6 +254,25 @@ internal static class OidcIdToken
         var keyIssuer = Convert.ToString(raw, System.Globalization.CultureInfo.InvariantCulture);
         return !string.IsNullOrEmpty(keyIssuer)
             && string.Equals(ExpectedIssuer(keyIssuer, payload), issuer, StringComparison.Ordinal);
+    }
+
+    /// <summary>The <c>kid</c> in a token's header, read without checking anything, to pick the key set.</summary>
+    internal static string? KeyIdOf(string? idToken)
+    {
+        if (string.IsNullOrEmpty(idToken) || idToken.Length > MaxLength)
+        {
+            return null;
+        }
+
+        try
+        {
+            var keyId = new JsonWebTokenHandler().ReadJsonWebToken(idToken).Kid;
+            return string.IsNullOrEmpty(keyId) ? null : keyId;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 
     private static bool FixedTimeEquals(string left, string right) =>

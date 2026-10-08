@@ -42,6 +42,8 @@ the repository.
 | `GET /api/auth/{provider}/callback` | Provider redirect target |
 | `GET /api/auth/oidc/{name}/start` | Begin sign-in with a provider configured under `Oidc:Providers` |
 | `GET /api/auth/oidc/{name}/callback` | That provider's redirect target |
+| `POST /api/auth/oidc/{name}/callback` | The same, for a provider set to `ResponseMode` `form_post` (Apple) |
+| `POST /api/auth/oidc/{name}/id-token` | A native app exchanges the provider's id token for a barako token |
 | `GET /api/me/profile` | Profile details captured from the provider |
 
 `{provider}` is `google`, `github`, `facebook` or `linkedin`. Only configured providers are
@@ -88,11 +90,15 @@ Cognito, Microsoft Entra ID and others.
 | Setting | Meaning |
 | --- | --- |
 | `Authority` | The issuer URL. It must be https. `/.well-known/openid-configuration` is fetched from it. |
-| `ClientId`, `ClientSecret` | Both required. A provider with no client id is off; one with no secret is off and a startup warning says so. |
+| `ClientId`, `ClientSecret` | Both required, unless `SignedClientSecret` stands in for the secret. A provider with no client id is off; one with no secret is off and a startup warning says so. |
+| `SignedClientSecret` | Optional. `KeyId`, `TeamId` and `PrivateKey` (a P-256 key in PEM), and optionally `Audience`. The client secret is then an ES256 JWT made from them. See Apple below. |
+| `ResponseMode` | Optional. `query` (the default) or `form_post`, for a provider that posts the code back. |
+| `IdTokenAudiences` | Optional. The audiences the id token grant accepts, as a list or one comma-separated value. The grant is off without it. See below. |
+| `EmailVerifiedMayBeText` | Optional. `true` also takes the text `"true"` for the verified claim. For Apple only. |
 | `DisplayName` | Optional. What `/api/auth/providers` reports for the button. Defaults to the name. |
 | `Scopes` | Optional. Defaults to `openid email profile`. `openid` is added if it is left out. |
 | `Issuer` | Optional. What the discovery document's `issuer` has to equal, when that is not the authority. See Microsoft below. |
-| `EmailVerifiedClaim` | Optional. The id token claim that says the provider vouches for the email. Defaults to `email_verified`. It must be a claim only the provider sets, never a profile attribute a user can edit. Only the JSON boolean `true` counts. |
+| `EmailVerifiedClaim` | Optional. The id token claim that says the provider vouches for the email. Defaults to `email_verified`. It must be a claim only the provider sets, never a profile attribute a user can edit. Only the JSON boolean `true` counts, unless `EmailVerifiedMayBeText` is set. |
 | `Enabled` | `false` turns the provider off and keeps its keys. |
 
 The name is the key under `Providers`: 1 to 32 characters of `a-z`, `0-9` and hyphen. It is the
@@ -113,7 +119,10 @@ What the flow checks:
   states; when that many are all still live it is cleared whole, and until it fills again a replay
   is likewise left to the provider. The cookie holds the three values in clear and is not signed:
   it is a double-submit cookie, and what protects it is the `__Host-` prefix with HttpOnly, Secure
-  and SameSite=Lax.
+  and SameSite=Lax. For a `form_post` provider it is SameSite=None instead, because a browser
+  does not send a Lax cookie on the provider's cross-site POST. The state check is the same: a
+  third site can post a code and a state, but it cannot read or set this cookie, so the state it
+  posts matches nothing.
 - **The id token.** Signed with one of `RS256`, `RS384`, `RS512`, `PS256`, `PS384`, `PS512`,
   `ES256`, `ES384` or `ES512`. `none` and the HMAC algorithms are refused. The token's `kid`
   has to name exactly one key in the provider's key set, and the signature is checked against that
@@ -131,7 +140,8 @@ What the flow checks:
   fails at the hour.
 - **Where the browser goes.** The redirect URI is `App:BaseUrl` plus the route. Nothing in the
   request changes it, and after sign-in the browser is sent to `App:BaseUrl` only.
-- **Rate limit.** Start and callback share 20 requests per five minutes per client address.
+- **Rate limit.** Start, both callbacks and the id token grant share 20 requests per five minutes
+  per client address.
   `Oidc:RateLimit:PermitLimit` and `Oidc:RateLimit:WindowSeconds` change it.
 
 Only the id token is read. The userinfo endpoint is not called, so a provider that puts the email
@@ -190,8 +200,76 @@ This is tested against a stub that publishes a template issuer, not against Micr
 
 ### Apple
 
-Not supported. Apple wants a client secret that is a signed JWT, answers with a form post, and
-sends the name only on the first sign-in, and none of that is built.
+```json
+"apple": {
+  "Authority": "https://appleid.apple.com",
+  "ClientId": "com.example.web",
+  "Scopes": "openid name email",
+  "ResponseMode": "form_post",
+  "EmailVerifiedMayBeText": true,
+  "SignedClientSecret": {
+    "KeyId": "ABC123DEFG",
+    "TeamId": "TEAM456789",
+    "PrivateKey": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
+  }
+}
+```
+
+`ClientId` is the Services ID. Register `{App:BaseUrl}/api/auth/oidc/apple/callback` as its return
+URL. Apple posts the code back as a form when the name or email scope is asked for, so
+`ResponseMode` is `form_post`, and the callback is then a POST as well as a GET.
+
+Apple takes no fixed client secret. `PrivateKey` is the `.p8` key from the developer account, as
+downloaded; written on one line, `\n` is read as a line break, which is how an environment variable
+can hold it. The secret sent with the code exchange is an ES256 JWT with `kid` the key id, `iss` the
+team, `sub` the client id and `aud` the issuer (`Audience` changes that). It lives 30 days, Apple's
+limit being six months, and a new one is made when a day is left. A key that is not a P-256 private
+key turns the provider off with a startup warning, rather than sending no secret.
+
+Apple documents `email_verified` as a boolean or the text `"true"`, so `EmailVerifiedMayBeText`
+takes both. Leave it off for other providers. Apple posts the person's name only on the first
+sign-in, in a `user` field; it is not read, and the id token carries no name.
+
+This is tested against a stub shaped like Apple, not against Apple.
+
+### Native apps: the id token grant
+
+A MAUI or mobile app that signs in with the provider's own SDK already holds an id token. It
+exchanges it here, with no browser:
+
+```http
+POST /api/auth/oidc/{name}/id-token
+{ "idToken": "...", "nonce": "...", "club": "optional-club" }
+```
+
+The answer is `{ "token", "refreshToken", "requiresMfa", "mfaChallengeToken" }`: the same tokens
+the callback issues, or an MFA challenge to finish at `/api/auth/mfa/verify`.
+
+The grant is off for a provider until `IdTokenAudiences` lists the client ids its tokens may be
+issued to. A native app's client id differs from the web one, so the list replaces `ClientId` here
+rather than adding to it. Google's native tokens name the server's client as `aud` and the app's as
+`azp`, so list both. With several audiences in a token, `azp` has to be in the list too.
+
+The token is checked as the callback checks it: issuer, signature against the issuer's keys,
+audience, expiry, `email_verified`. The `nonce` is required: the app makes a random one, gives it
+to the SDK, and sends the same value here, which has to equal the token's `nonce` claim exactly. If
+the SDK takes a hash of the nonce (Apple's iOS SDK does), send what the token carries. Each nonce
+works once. It is recorded (`mt_doc_oidc_used_nonces`) when a grant accepts it and refused until
+the token it came in has expired, so a token that leaks from the app cannot be exchanged again. A
+token that expires more than a day ahead is refused, which bounds how long a record is kept.
+
+| Answer | When |
+| --- | --- |
+| 200 | Signed in, or `requiresMfa` |
+| 400 | No id token, or a nonce that is not 16 to 256 printable characters without spaces |
+| 401 | The token is refused, the nonce was already used, or the email is not verified |
+| 403 | Not a member of the club asked for |
+| 404 | No such provider, or its `IdTokenAudiences` is empty |
+| 409 | Two first sign-ins for one address raced; try again |
+| 503 | The provider's discovery document cannot be fetched |
+
+An upgraded database needs `migrations/4.8.0/external-auth-used-nonces.sql` before the new build
+starts.
 
 ## Security notes
 

@@ -22,6 +22,8 @@ namespace BarakoCMS.ExternalAuth;
 /// Any OpenID Connect provider can be added by configuration under <c>Oidc:Providers:{name}</c>
 /// (<c>GET /api/auth/oidc/{name}/start</c> and <c>/callback</c>). Those are matched to a user by
 /// issuer and subject, kept in <see cref="ExternalIdentity"/>, and by verified email only the first time.
+/// A provider that posts its answer back (Apple) gets a POST callback too, and a provider that lists
+/// <c>IdTokenAudiences</c> takes <c>POST /api/auth/oidc/{name}/id-token</c> from native apps.
 /// </summary>
 public sealed class ExternalAuthModule : IBarakoModule
 {
@@ -34,6 +36,7 @@ public sealed class ExternalAuthModule : IBarakoModule
 
         // One per process: they hold the discovery and key cache and the spent states.
         services.AddSingleton<OidcBackchannel>();
+        services.AddSingleton<OidcClientSecrets>();
         services.AddSingleton<OidcConsumedStates>();
         services.AddHostedService<OidcConfigurationReport>();
 
@@ -69,5 +72,10 @@ public sealed class ExternalAuthModule : IBarakoModule
         schema.For<ExternalIdentity>()
             .SingleTenanted()
             .DocumentAlias("external_identities");
+
+        // Global too: a nonce is spent for the issuer, whichever club the sign-in was for.
+        schema.For<OidcUsedNonce>()
+            .SingleTenanted()
+            .DocumentAlias("oidc_used_nonces");
     }
 }
