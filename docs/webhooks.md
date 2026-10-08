@@ -4,9 +4,10 @@ A `Webhook` workflow action POSTs a JSON body to the URL it is configured with. 
 every delivery is signed so the receiver can tell a genuine delivery from anyone who learned the
 URL. With or without one, every delivery leaves a row in the delivery log.
 
-Retry is not here. Delivery is retried by the workflow runner today (up to five attempts with
-backoff, see `docs/workflow-runs.md`), and a proper retry with dead-lettering arrives with the job
-queue in #106.
+Retry is not here. Delivery is retried by the workflow runner (up to five attempts with backoff),
+and a transient failure is tried again inside one attempt first. Both are in `docs/workflow-runs.md`.
+A receiver can see the same delivery more than once and should dedupe on `Idempotency-Key`, or on
+`X-Barako-Delivery` for tries inside one attempt.
 
 ## The body
 

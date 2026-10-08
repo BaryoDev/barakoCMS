@@ -1,6 +1,9 @@
+using System.Net;
+using System.Net.Sockets;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Infrastructure.Attributes;
 using barakoCMS.Features.Settings.Email;
+using barakoCMS.Infrastructure.Http;
 using barakoCMS.Infrastructure.Multitenancy;
 using Microsoft.Extensions.Logging;
 
@@ -23,20 +26,24 @@ internal class EmailAction : IWorkflowAction
     private readonly TenantContext? _tenant;
     private readonly IFileStore? _files;
     private readonly EmailAttachmentLimits _limits;
+    private readonly OutboundResilience _resilience;
 
     internal const string AttachmentsParameter = "Attachments";
 
     /// <summary>
     /// Creates a new EmailAction. Without a <paramref name="tenant"/> the email is sent as belonging
     /// to no tenant, and without <paramref name="files"/> an email that names an attachment fails.
+    /// Without <paramref name="resilience"/> the default retry and breaker settings apply.
     /// </summary>
     public EmailAction(
         IEmailService emailService,
         ILogger<EmailAction> logger,
         TenantContext? tenant = null,
         IFileStore? files = null,
-        IConfiguration? configuration = null)
+        IConfiguration? configuration = null,
+        OutboundResilience? resilience = null)
     {
+        _resilience = resilience ?? OutboundResilience.Default;
         _emailService = emailService;
         _logger = logger;
         _tenant = tenant;
@@ -116,30 +123,31 @@ internal class EmailAction : IWorkflowAction
 
         try
         {
-            // On the tenant's behalf: the run's scope carries the tenant whose workflow this is.
-            if (attachments.Count == 0)
-            {
-                if (_tenant is null)
+            await _resilience.RunAsync(
+                EmailScope,
+                _emailService.GetType().FullName ?? _emailService.GetType().Name,
+                _resilience.Options.Retries,
+                _resilience.Options.EmailAttemptTimeout,
+                async (_, token) =>
                 {
-                    await _emailService.SendEmailAsync(to, subject, body, ct);
-                }
-                else
-                {
-                    await _emailService.SendForTenantAsync(_tenant.Slug, to, subject, body, ct);
-                }
-            }
-            else if (_tenant is null)
-            {
-                await _emailService.SendEmailAsync(to, subject, body, attachments, ct);
-            }
-            else
-            {
-                await _emailService.SendForTenantAsync(_tenant.Slug, to, subject, body, attachments, ct);
-            }
+                    await SendAsync(to, subject, body, attachments, token);
+                    return true;
+                },
+                WasNotSent,
+                CountsAgainstProvider,
+                ct);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             throw;
+        }
+        catch (OutboundCircuitOpenException)
+        {
+            // Retryable: the durable queue tries again after its backoff, by which time the breaker
+            // has let a probe through. The provider is not named; the operator configured one.
+            _logger.LogWarning("Email not sent: the provider's breaker is open.");
+            return WorkflowActionResult.Failure(
+                "The email provider is paused after repeated failures, so nothing was sent. The next attempt tries again.");
         }
         catch (AttachmentsNotSupportedException)
         {
@@ -162,6 +170,36 @@ internal class EmailAction : IWorkflowAction
 
         return WorkflowActionResult.Success();
     }
+
+    private const string EmailScope = "email";
+
+    // On the tenant's behalf: the run's scope carries the tenant whose workflow this is.
+    private Task SendAsync(string to, string subject, string body, IReadOnlyList<EmailAttachment> attachments, CancellationToken ct) =>
+        (attachments.Count, _tenant) switch
+        {
+            (0, null) => _emailService.SendEmailAsync(to, subject, body, ct),
+            (0, { } tenant) => _emailService.SendForTenantAsync(tenant.Slug, to, subject, body, ct),
+            (_, null) => _emailService.SendEmailAsync(to, subject, body, attachments, ct),
+            (_, { } tenant) => _emailService.SendForTenantAsync(tenant.Slug, to, subject, body, attachments, ct),
+        };
+
+    /// <summary>
+    /// A failure that happened before the provider could have accepted the message: the connection
+    /// was never opened, or the provider answered that it did not take it. Only these are tried again
+    /// inside the attempt. There is no idempotency key on a send, so a timeout or a connection lost
+    /// mid-send may already have delivered the message, and resending it is a second email.
+    /// </summary>
+    internal static bool WasNotSent(Exception ex) => ex switch
+    {
+        HttpRequestException { HttpRequestError: HttpRequestError.ConnectionError or HttpRequestError.NameResolutionError } => true,
+        HttpRequestException { StatusCode: HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable } => true,
+        SocketException { SocketErrorCode: SocketError.ConnectionRefused or SocketError.HostNotFound or SocketError.TryAgain
+            or SocketError.HostUnreachable or SocketError.NetworkUnreachable } => true,
+        _ => false,
+    };
+
+    private static bool CountsAgainstProvider(Exception ex) =>
+        WasNotSent(ex) || ex is TimeoutException or HttpRequestException or SocketException;
 
     /// <summary>
     /// One address and nothing else. <c>To</c> is often filled from an entry field, and a field a

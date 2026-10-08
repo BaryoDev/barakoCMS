@@ -575,8 +575,9 @@ internal sealed class ConnectorSender(
 
             return ex switch
             {
+                barakoCMS.Infrastructure.Http.OutboundCircuitOpenException open => open.Message,
                 HttpRequestException => $"The token endpoint at {tokenUri.IdnHost} could not be reached. The host may be unreachable, or its address is blocked.",
-                OperationCanceledException => $"The token endpoint at {tokenUri.IdnHost} timed out.",
+                OperationCanceledException or TimeoutException => $"The token endpoint at {tokenUri.IdnHost} timed out.",
                 _ => $"The token request to {tokenUri.IdnHost} failed.",
             };
         }
@@ -653,8 +654,9 @@ internal sealed class ConnectorSender(
 
     private static string Describe(Exception ex) => ex switch
     {
+        barakoCMS.Infrastructure.Http.OutboundCircuitOpenException open => open.Message,
         HttpRequestException => "The request could not be completed. The host may be unreachable, or its address is blocked.",
-        TaskCanceledException => "The request timed out.",
+        TaskCanceledException or TimeoutException => "The request timed out.",
         _ => "The request failed.",
     };
 }

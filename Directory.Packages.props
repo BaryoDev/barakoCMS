@@ -14,7 +14,14 @@
     <PackageVersion Include="FastEndpoints" Version="8.3.0" />
     <PackageVersion Include="FastEndpoints.Security" Version="8.3.0" />
     <PackageVersion Include="FastEndpoints.Swagger" Version="8.3.0" />
-    <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.10.0" />
+  </ItemGroup>
+
+  <ItemGroup Label="Resilience">
+    <!-- The retry, timeout and breaker inside one workflow attempt (#703). BaryoDev's own library,
+         zero dependencies. Replaced Microsoft.Extensions.Http.Resilience, whose standard handler
+         retried a POST after a timeout with no way for the receiver to know. -->
+    <PackageVersion Include="Carom" Version="2.0.1" />
+    <PackageVersion Include="Carom.Extensions" Version="2.0.1" />
   </ItemGroup>
 
   <ItemGroup Label="Persistence and storage">

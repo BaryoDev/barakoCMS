@@ -95,6 +95,60 @@ When a node stops, the actions it has in flight are cancelled and the node waits
 the same as with one. An attempt whose outcome was not recorded stays `Running` under its lease and
 is taken again, by any node, when the lease ends five minutes after it was claimed.
 
+## Retries inside one attempt
+
+A reset socket or one 503 during a deploy should not cost a whole durable attempt and its backoff.
+Outbound calls from the `Webhook`, `Request` and `Email` actions, and the other calls made through
+the outbound HTTP client, get a small retry inside the attempt. The runner still owns retry across
+attempts; this sits inside one. It uses [Carom](https://github.com/BaryoDev/Carom).
+
+What is tried again:
+
+| Failure | HTTP | Email |
+| --- | --- | --- |
+| Connection not opened, name not resolved | yes, any method | yes |
+| 408, 429, 503 | yes, any method | yes, when the provider reports the status |
+| Timeout, 502, 504, connection lost mid-exchange | only GET, HEAD, OPTIONS, PUT, DELETE, a request with an `Idempotency-Key` header, or a webhook | no |
+| Any other status, a blocked address, a TLS failure | no | no |
+
+A webhook counts as safe to resend because every try carries the same `X-Barako-Delivery` id, and
+the `Idempotency-Key` when the runner supplied one, so a receiver that took the first try can tell
+the second is the same delivery. An email has no such key, so a send that timed out is never resent
+inside the attempt: it may already have been delivered.
+
+A `Retry-After` up to `MaxRetryAfterSeconds` is waited for. A longer one ends the tries, and the
+answer goes back to the action, which fails the attempt as retryable.
+
+Each destination host (each email provider, for email) has a breaker. After `BreakerFailures`
+failed calls among the last `BreakerWindow` within `BreakerSamplingSeconds`, calls to that host are
+refused without being sent for `BreakerOpenSeconds`, then one probe is let through. A refused call
+fails the attempt as retryable, with an error that names the host and nothing else from the URL, so
+the durable queue comes back later rather than adding to the load on a provider that is down.
+Breakers are kept for at most 1,000 destinations; past that the least recently used tenth is
+dropped, and a dropped host starts again with a closed breaker.
+
+| Setting | Default | |
+| --- | --- | --- |
+| `Workflows:Outbound:Retries` | 2 | Tries after the first. 0 sends once. |
+| `Workflows:Outbound:AttemptTimeoutSeconds` | 10 | One HTTP try, up to the response headers |
+| `Workflows:Outbound:EmailAttemptTimeoutSeconds` | 30 | One email send |
+| `Workflows:Outbound:BaseDelayMilliseconds` | 200 | Floor of the jitter between tries |
+| `Workflows:Outbound:MaxDelaySeconds` | 2 | Ceiling of the jitter between tries |
+| `Workflows:Outbound:MaxRetryAfterSeconds` | 10 | Longest `Retry-After` waited for |
+| `Workflows:Outbound:BreakerFailures` | 5 | 0 turns the breakers off |
+| `Workflows:Outbound:BreakerWindow` | 10 | |
+| `Workflows:Outbound:BreakerSamplingSeconds` | 60 | |
+| `Workflows:Outbound:BreakerOpenSeconds` | 30 | |
+
+The longest one call can spend here is every try running to its timeout plus every wait at its
+ceiling: 54 seconds for HTTP and 94 for email with the defaults. The host refuses to start when that
+is more than half the shorter of the runner's 5 minute lease and `Jobs:LeaseSeconds`, because an
+action that runs past its lease is run again by another node.
+
+Before 4.7.0 the outbound client used the standard .NET resilience handler, which made up to four
+tries and also retried a 500, and a POST after a timeout. The defaults here make one try fewer and
+retry neither.
+
 ## Stopping a chain at a failure
 
 By default a failed action does not stop the ones after it. "Post, then email, then tweet" is three
