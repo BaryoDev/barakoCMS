@@ -194,6 +194,19 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
 
             services.Remove(jobRetention);
 
+            // The idempotency key sweep, for the same reason: a test seeds expired records on
+            // purpose to prove the sweep removes them, and drives the sweep itself.
+            var idempotencyRetention = services.SingleOrDefault(d =>
+                d.ImplementationType == typeof(barakoCMS.Infrastructure.Services.IdempotencyRetentionService));
+            if (idempotencyRetention is null)
+            {
+                throw new InvalidOperationException(
+                    "IdempotencyRetentionService is no longer registered the way this fixture expects, "
+                  + "so the idempotency key sweep may still be running in tests.");
+            }
+
+            services.Remove(idempotencyRetention);
+
             // The startup pass that redacts stored execution logs, for the same reason: it would
             // rewrite a log a test seeded unredacted on purpose, before the test gets to look at it.
             var logRedaction = services.SingleOrDefault(d =>

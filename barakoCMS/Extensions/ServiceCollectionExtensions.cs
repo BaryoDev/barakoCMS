@@ -1126,6 +1126,7 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowExecutionLogRedactionService>();
         services.AddHostedService<barakoCMS.Features.WebhookDeliveries.WebhookDeliveryRetentionService>();
         services.AddHostedService<barakoCMS.Infrastructure.Jobs.JobDeadLetterRetentionService>();
+        services.AddHostedService<barakoCMS.Infrastructure.Services.IdempotencyRetentionService>();
     }
 
     private static void AddMfaAndDeviceTrust(IServiceCollection services)
@@ -1216,6 +1217,15 @@ public static class ServiceCollectionExtensions
         // and a role write checks against it.
         services.AddSingleton<barakoCMS.Infrastructure.Auth.CapabilityVocabulary>();
 
+        // Read from the container's configuration at first use, for the reason AddJobQueue gives, and
+        // asked for in UseBarakoCMS so an out-of-range setting stops startup.
+        services.AddSingleton(sp =>
+        {
+            var options = barakoCMS.Infrastructure.Filters.IdempotencyOptions.FromConfiguration(
+                sp.GetRequiredService<IConfiguration>());
+            options.Validate();
+            return options;
+        });
         services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Filters.IdempotencyFilter>();
         // The finalizer completes an idempotency claim on success or releases it on failure, so a
         // failed request stays retryable. See IdempotencyFilter.
@@ -1456,6 +1466,8 @@ public static class ServiceCollectionExtensions
         // order MODULES.md states, and so a module whose schema is refused fails as itself and not
         // inside whichever module's ConfigureApp first asked for the store.
         _ = app.ApplicationServices.GetRequiredService<IDocumentStore>();
+
+        _ = app.ApplicationServices.GetRequiredService<barakoCMS.Infrastructure.Filters.IdempotencyOptions>();
 
         UseExceptionHandling(app);
 
@@ -1747,6 +1759,10 @@ public static class ServiceCollectionExtensions
         // DeviceTrust enforcement pre-processor) simply by registering IGlobalPreProcessor/PostProcessor.
         var globalPreProcessors = app.ApplicationServices.GetServices<FastEndpoints.IGlobalPreProcessor>().ToArray();
         var globalPostProcessors = app.ApplicationServices.GetServices<FastEndpoints.IGlobalPostProcessor>().ToArray();
+
+        // Lets IdempotencyFilter hash a keyed write's body after FastEndpoints has bound it.
+        app.UseMiddleware<barakoCMS.Infrastructure.Filters.IdempotencyRequestBuffering>();
+
         app.UseFastEndpoints(c =>
         {
             // AllowDuplicateErrors keeps every failure that shares a field name. Without it a
