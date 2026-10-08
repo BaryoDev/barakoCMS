@@ -753,7 +753,7 @@ same registries the API checks requests against, so a client does not keep its o
 
 ```json
 {
-  "apiContractVersion": 6,
+  "apiContractVersion": 7,
   "fieldTypes": [
     { "name": "int", "aliases": ["integer", "number"], "editorHint": "number", "ruleNames": ["min", "max", "requiredWhen"] }
   ],
@@ -763,7 +763,7 @@ same registries the API checks requests against, so a client does not keep its o
   "credentialNameParts": ["secret", "password", "token"],
   "capabilities": [ { "name": "manage_roles", "source": "core", "note": null } ],
   "workflowActions": [ { "type": "Webhook", "requiredParameters": ["Url"], "optionalParameters": ["Secret"], "secretParameters": ["Secret"] } ],
-  "modules": [ { "name": "Pages", "httpContractVersion": 1 } ]
+  "modules": [ { "name": "Pages", "httpContractVersion": 2 } ]
 }
 ```
 

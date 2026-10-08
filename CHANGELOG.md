@@ -182,7 +182,7 @@ policy restore rollbacks change nothing on purpose.
   This refuses some writes that used to be accepted.
 - **A public form submission read only the first spelling of a field sent twice.**
   `POST /api/public/forms/{slug}` now refuses a field sent under more than one spelling, ignoring
-  case, with a 400 on that field, as a signed-in write does. BarakoCMS.Forms goes to 4.4.1.
+  case, with a 400 on that field, as a signed-in write does. BarakoCMS.Forms goes to 4.5.0.
 - **An update was checked against the entry as stored only.** `PUT /api/contents/{id}`, a
   collection push, a rollback and a transition carrying values now also check the rule that
   granted the write against the entry as it will be stored, so a rule with conditions, such as a
