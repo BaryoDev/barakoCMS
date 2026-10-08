@@ -95,6 +95,7 @@ internal static class RateLimitSetup
     public const string LogoutPolicy = "logout";
     public const string DeliveryPolicy = "delivery";
     public const string TlsAskPolicy = "tls-ask";
+    public const string EmailPreviewPolicy = "email-preview";
 
     public const int MaxPolicyNameLength = 64;
 
@@ -116,6 +117,7 @@ internal static class RateLimitSetup
         [DeliveryPolicy] = "Delivery",
         [LogoutPolicy] = null,
         [TlsAskPolicy] = null,
+        [EmailPreviewPolicy] = null,
     };
 
     private static readonly RateLimitWindow OptInDefaults = new(0, 60, 0);
@@ -138,6 +140,12 @@ internal static class RateLimitSetup
     /// name it has no certificate for, so a real name stays far below this.
     /// </summary>
     public static readonly RateLimitWindow TlsAsk = new(60, 60, 0);
+
+    /// <summary>
+    /// Fixed, per IP. A preview renders markdown and reads the entry, the template, its layout and
+    /// what the placeholders follow, so it is held under the global limit. It sends nothing.
+    /// </summary>
+    public static readonly RateLimitWindow EmailPreview = new(30, 60, 0);
 
     /// <summary>How many buckets the asked names are spread over, which bounds the limiter's partitions.</summary>
     public const int TlsAskBuckets = 4096;
@@ -210,6 +218,9 @@ internal static class RateLimitSetup
 
         options.AddPolicy(LogoutPolicy, context =>
             RateLimitPartition.GetFixedWindowLimiter($"logout-{ClientIp(context)}", _ => Options(Logout)));
+
+        options.AddPolicy(EmailPreviewPolicy, context =>
+            RateLimitPartition.GetFixedWindowLimiter($"email-preview-{ClientIp(context)}", _ => Options(EmailPreview)));
 
         options.AddPolicy(DeliveryPolicy, context => DeliveryPartition(context, settings.Delivery, rendererKeyHash));
 

@@ -14,7 +14,7 @@ namespace barakoCMS.Features.Workflows.Actions;
     Description = "Send email notifications",
     Group = WorkflowActionGroup.Comms,
     RequiredParameters = new[] { "To", "Subject", "Body" },
-    OptionalParameters = new[] { "Attachments" },
+    OptionalParameters = new[] { "Attachments", "Template" },
     ExampleJson = @"{""Type"":""Email"",""Parameters"":{""To"":""admin@example.com"",""Subject"":""Workflow Triggered"",""Body"":""Content {{id}} was updated""}}"
 )]
 internal class EmailAction : IWorkflowAction
@@ -25,6 +25,8 @@ internal class EmailAction : IWorkflowAction
     private readonly IFileStore? _files;
     private readonly EmailAttachmentLimits _limits;
     private readonly OutboundResilience _resilience;
+    private readonly Marten.IDocumentSession? _session;
+    private readonly barakoCMS.Infrastructure.Services.ITemplateVariableExtractor? _extractor;
 
     internal const string AttachmentsParameter = "Attachments";
 
@@ -32,7 +34,10 @@ internal class EmailAction : IWorkflowAction
     /// Creates a new EmailAction. Without a <paramref name="tenant"/> the email is sent as belonging
     /// to no tenant, and without <paramref name="files"/> an email that names an attachment fails.
     /// <paramref name="resilience"/> carries the optional send timeout and the retries; without it a
-    /// send has no timeout and the default retries.
+    /// send has no timeout and the default retries. <paramref name="session"/> is where a named
+    /// template is read, in the run's tenant; without it an email that names a template fails.
+    /// <paramref name="extractor"/> resolves the template's placeholders the way the runner resolved
+    /// the parameters; without it they resolve as an unprepared template does.
     /// </summary>
     public EmailAction(
         IEmailService emailService,
@@ -40,8 +45,12 @@ internal class EmailAction : IWorkflowAction
         TenantContext? tenant = null,
         IFileStore? files = null,
         IConfiguration? configuration = null,
-        OutboundResilience? resilience = null)
+        OutboundResilience? resilience = null,
+        Marten.IDocumentSession? session = null,
+        barakoCMS.Infrastructure.Services.ITemplateVariableExtractor? extractor = null)
     {
+        _session = session;
+        _extractor = extractor;
         _resilience = resilience ?? OutboundResilience.Default;
         _emailService = emailService;
         _logger = logger;
@@ -78,6 +87,31 @@ internal class EmailAction : IWorkflowAction
             // Permanent: the same entry resolves to the same recipient on every retry.
             return WorkflowActionResult.PermanentFailure(
                 "The 'To' parameter must resolve to exactly one email address.");
+        }
+
+        if (parameters.TryGetValue(barakoCMS.Features.EmailTemplates.EmailTemplateRenderer.TemplateParameter, out var templateName)
+            && !string.IsNullOrWhiteSpace(templateName))
+        {
+            string? refusal;
+            try
+            {
+                (subject, body, refusal) = await FromTemplateAsync(templateName, content, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // Retryable: a read that failed may not fail again.
+                _logger.LogWarning("Reading an email template failed ({Exception}).", ex.GetType().Name);
+                return WorkflowActionResult.Failure($"The email template could not be read ({ex.GetType().Name}).");
+            }
+
+            if (refusal is not null)
+            {
+                return WorkflowActionResult.PermanentFailure(refusal);
+            }
         }
 
         // Everything that can refuse an attachment happens here, before the send. Nothing after the
@@ -196,6 +230,44 @@ internal class EmailAction : IWorkflowAction
         }
 
         return WorkflowActionResult.Success();
+    }
+
+    /// <summary>
+    /// The subject and body of the published template a workflow names, resolved against the entry
+    /// with the same encodings an inline subject and body get, or why it cannot be sent.
+    /// </summary>
+    /// <remarks>
+    /// Read through the run's session, so only a template of the run's tenant is found. The
+    /// extractor is asked to read what the template names first, the way the runner did for the
+    /// parameters, so a reference or a site format in a template resolves as it would inline.
+    /// </remarks>
+    private async Task<(string Subject, string Body, string? Refusal)> FromTemplateAsync(
+        string name, barakoCMS.Models.Content content, CancellationToken ct)
+    {
+        if (_session is null)
+        {
+            return (string.Empty, string.Empty, "This Email action was built without the content store, so it cannot read a template.");
+        }
+
+        var (rendered, error) = await barakoCMS.Features.EmailTemplates.EmailTemplateRenderer.ForSendingAsync(_session, name, ct);
+        if (rendered is null)
+        {
+            return (string.Empty, string.Empty, error);
+        }
+
+        var texts = new Dictionary<string, string> { ["Subject"] = rendered.Subject, ["Body"] = rendered.Html };
+        Dictionary<string, string> resolved;
+        if (_extractor is null)
+        {
+            resolved = ActionParameters.Resolve(Type, texts, content);
+        }
+        else
+        {
+            await _extractor.PrepareMoreAsync(content, texts.Values, ct);
+            resolved = ActionParameters.Resolve(_extractor, Type, texts, content);
+        }
+
+        return (resolved["Subject"], barakoCMS.Features.EmailTemplates.EmailTemplateRenderer.Finish(resolved["Body"]), null);
     }
 
     // On the tenant's behalf: the run's scope carries the tenant whose workflow this is.

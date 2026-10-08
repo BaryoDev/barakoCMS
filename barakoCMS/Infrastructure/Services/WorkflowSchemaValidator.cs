@@ -1,3 +1,4 @@
+using barakoCMS.Features.EmailTemplates;
 using barakoCMS.Features.Workflows;
 using barakoCMS.Features.Workflows.Actions;
 using barakoCMS.Models;
@@ -294,6 +295,7 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
     public async Task<WorkflowValidationResult> ValidateAsync(WorkflowDefinition workflow, CancellationToken ct = default)
     {
         var result = Validate(workflow, ct);
+        await AddTemplateWarningsAsync(workflow, result, ct);
 
         var events = WorkflowTriggers.Events(workflow);
         if (!events.Any(e => WorkflowEvents.TransitionName(e) is { Length: > 0 }))
@@ -340,6 +342,59 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
         }
 
         return result;
+    }
+
+    /// <summary>How many distinct templates one validation reads.</summary>
+    internal const int MaxTemplatesChecked = 20;
+
+    /// <summary>
+    /// For each Email action that names a template, what the save of an inline subject and body
+    /// would have said about the template's text, and whether it can be sent at all.
+    /// </summary>
+    /// <remarks>
+    /// Warnings and never errors. A workflow may be saved before its template is written or
+    /// published, and the template can change after the save, so the send checks again. Only the
+    /// workflow's own actions are read, not the children of a Conditional.
+    /// </remarks>
+    private async Task AddTemplateWarningsAsync(WorkflowDefinition workflow, WorkflowValidationResult result, CancellationToken ct)
+    {
+        if (workflow.Actions is null) return;
+
+        var onTransition = WorkflowTriggers.Events(workflow).Any(WorkflowEvents.IsTransition);
+        var read = new Dictionary<string, (RenderedTemplate? Rendered, string? Error)>(StringComparer.OrdinalIgnoreCase);
+
+        for (var i = 0; i < workflow.Actions.Count; i++)
+        {
+            var action = workflow.Actions[i];
+            if (action is null
+                || !string.Equals(action.Type, "Email", StringComparison.Ordinal)
+                || action.Parameters?.GetValueOrDefault(EmailTemplateRenderer.TemplateParameter) is not { } name
+                || string.IsNullOrWhiteSpace(name))
+            {
+                continue;
+            }
+
+            if (!read.TryGetValue(name.Trim(), out var found))
+            {
+                if (read.Count == MaxTemplatesChecked) return;
+
+                found = await EmailTemplateRenderer.ForSendingAsync(_session, name, ct);
+                read[name.Trim()] = found;
+            }
+
+            var field = $"actions[{i}].parameters.{EmailTemplateRenderer.TemplateParameter}";
+            if (found.Rendered is null)
+            {
+                result.Warnings.Add(new ValidationError { Field = field, Message = $"{found.Error} Until that changes this action fails." });
+                continue;
+            }
+
+            foreach (var (source, message) in EmailTemplateRenderer.Warnings(found.Rendered, onTransition))
+            {
+                if (result.Warnings.Count >= MaxPlaceholderWarnings) return;
+                result.Warnings.Add(new ValidationError { Field = field, Message = $"In the template's {source}: {message}" });
+            }
+        }
     }
 
     /// <summary>
@@ -526,12 +581,35 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
             }
         }
 
+        // An email that names a template takes its subject and body from it, so it needs neither,
+        // and one that also writes them is refused: which of the two is sent would be a guess.
+        var namesTemplate = string.Equals(action.Type, "Email", StringComparison.Ordinal)
+            && action.Parameters.TryGetValue(EmailTemplateRenderer.TemplateParameter, out var template)
+            && !string.IsNullOrWhiteSpace(template);
+
+        if (namesTemplate
+            && (!string.IsNullOrWhiteSpace(action.Parameters.GetValueOrDefault("Subject"))
+                || !string.IsNullOrWhiteSpace(action.Parameters.GetValueOrDefault("Body"))))
+        {
+            result.Errors.Add(new ValidationError
+            {
+                Field = $"{fieldPrefix}.parameters.{EmailTemplateRenderer.TemplateParameter}",
+                Message = "Name a Template or write a Subject and Body, not both"
+            });
+            result.IsValid = false;
+        }
+
         // Validate required parameters
         var metadata = _pluginRegistry.GetActionMetadata(action.Type);
         if (metadata != null && metadata.RequiredParameters.Any())
         {
             foreach (var requiredParam in metadata.RequiredParameters)
             {
+                if (namesTemplate && requiredParam is "Subject" or "Body")
+                {
+                    continue;
+                }
+
                 if (!action.Parameters.ContainsKey(requiredParam) ||
                     string.IsNullOrWhiteSpace(action.Parameters[requiredParam]))
                 {
