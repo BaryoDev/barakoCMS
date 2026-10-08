@@ -231,6 +231,11 @@ public class PublicReferenceDeliveryTests
 
         (await CountAsync($"filter[Related][has]={seed.Published}")).Should().Be(1, "the control: a delivered id still matches");
         (await CountAsync($"filter[Pinned][eq]={seed.Published}")).Should().Be(1);
+        (await CountAsync($"filter[Related][has]={seed.Published.ToString().ToUpperInvariant()}")).Should().Be(1,
+            "an id in upper case names the same published target, and the filter keeps the value it was sent");
+        (await CountAsync($"filter[Related][eq]={seed.Published.ToString().ToUpperInvariant()}")).Should().Be(1);
+        (await CountAsync($"filter[Related][has]={seed.Draft.ToString().ToUpperInvariant()}")).Should().Be(0,
+            "the draft in upper case is still the draft");
 
         (await CountAsync($"filter[Description][eq]={seed.Draft}")).Should().Be(0,
             "the entry is delivered without Description, so it does not hold the draft's id");
