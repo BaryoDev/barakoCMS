@@ -246,6 +246,9 @@ internal static class RateLimitSetup
     internal static async Task Reject(HttpContext context, RateLimitLease lease, CancellationToken cancellationToken)
     {
         context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+
+        // A fixed window reports its whole window, not the time left in it: never too short, and
+        // the limiter does not say when the current window started, so it is passed on as it is.
         if (lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
         {
             context.Response.Headers.RetryAfter =

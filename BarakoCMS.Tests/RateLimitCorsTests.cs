@@ -108,10 +108,10 @@ public class RateLimitCorsTests
         using var refused = await PastTheLimit(FromNewAddress(), Listed);
 
         refused.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
-        refused.Headers.RetryAfter.Should().NotBeNull("the fixed window knows when it reopens");
+        refused.Headers.RetryAfter.Should().NotBeNull("the limiter says how long to wait");
         refused.Headers.RetryAfter!.Delta.Should().NotBeNull();
-        refused.Headers.RetryAfter.Delta!.Value.Should().BeGreaterThan(TimeSpan.Zero)
-            .And.BeLessThanOrEqualTo(TimeSpan.FromSeconds(60));
+        refused.Headers.RetryAfter.Delta!.Value.Should().Be(TimeSpan.FromSeconds(60),
+            "a fixed window reports its whole window, which is never shorter than the time left in it");
 
         var exposed = Exposed(refused);
         exposed.Should().NotBeEmpty("the assertion below runs over this list");

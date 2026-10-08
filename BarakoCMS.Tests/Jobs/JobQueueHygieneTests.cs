@@ -203,22 +203,36 @@ public class JobQueueHygieneTests
     {
         var queue = NewQueue();
         var now = DateTime.UtcNow;
-        var old = now.AddDays(-JobOptions.DefaultDeadLetterRetentionDays - 10);
+        var old = now.AddDays(-JobOptions.RecommendedDeadLetterRetentionDays - 10);
 
         var expired = await StoreAsync(queue, r => { r.State = JobState.DeadLettered; r.CreatedAt = old; r.CompletedAt = old; });
-        var legacy = await StoreAsync(queue, r => { r.State = JobState.DeadLettered; r.CreatedAt = old; r.CompletedAt = null; });
+        var legacy = await StoreAsync(queue, r =>
+        {
+            r.State = JobState.DeadLettered;
+            r.CreatedAt = r.ExecuteAfter = r.DequeueAfter = old;
+            r.CompletedAt = null;
+        });
+        var legacyDueLately = await StoreAsync(queue, r =>
+        {
+            r.State = JobState.DeadLettered;
+            r.CreatedAt = old;
+            r.ExecuteAfter = r.DequeueAfter = now.AddDays(-1);
+            r.CompletedAt = null;
+        });
         var recent = await StoreAsync(queue, r => { r.State = JobState.DeadLettered; r.CreatedAt = old; r.CompletedAt = now.AddDays(-1); });
         var pending = await StoreAsync(queue, r => r.CreatedAt = old);
 
         await using (var session = Store.LightweightSession())
         {
             var removed = await JobDeadLetterRetentionService.SweepTenantAsync(
-                session, now, JobOptions.DefaultDeadLetterRetentionDays, Ct);
+                session, now, JobOptions.RecommendedDeadLetterRetentionDays, Ct);
             removed.Should().BeGreaterThanOrEqualTo(2);
         }
 
         (await LoadAsync(expired.TrackingID)).Should().BeNull("it gave up before the window");
-        (await LoadAsync(legacy.TrackingID)).Should().BeNull("a dead letter with no give-up time is aged by when it was queued");
+        (await LoadAsync(legacy.TrackingID)).Should().BeNull("a dead letter with no give-up time is aged by when it was queued or due");
+        (await LoadAsync(legacyDueLately.TrackingID)).Should().NotBeNull(
+            "queued long ago but due a day ago, so it cannot have given up before the window");
         (await LoadAsync(recent.TrackingID)).Should().NotBeNull("it gave up a day ago, whenever it was queued");
         (await LoadAsync(pending.TrackingID)).Should().NotBeNull("only dead letters are swept");
     }

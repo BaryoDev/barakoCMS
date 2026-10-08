@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Http.Headers;
 using System.Text.Json;
 using barakoCMS.Features.Workflows;
 using barakoCMS.Models;
@@ -134,6 +136,38 @@ public class WorkflowActionBuildFailureTests
 
         build.Should().Throw<InvalidOperationException>(
             "otherwise the tests below pass without exercising a broken action at all");
+    }
+
+    /// <summary>The registry the workflow editor reads was built from every action at once too.</summary>
+    [Fact]
+    public async Task The_action_list_still_answers_with_the_actions_that_can_be_built()
+    {
+        var client = Host().CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", await _fixture.StoredUserTokenAsync("SuperAdmin"));
+
+        using var response = await client.GetAsync("/api/workflows/actions", Ct);
+        var body = await response.Content.ReadAsStringAsync(Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, body);
+        using var listed = JsonDocument.Parse(body);
+        var types = listed.RootElement.EnumerateArray().Select(a => a.GetProperty("type").GetString()).ToList();
+        types.Should().NotBeEmpty("the assertions below run over this list");
+        types.Should().Contain(WorkflowStopHarness.Counting).And.Contain("Webhook");
+        types.Should().NotContain("BrokenConstructor");
+    }
+
+    [Fact]
+    public void The_workflow_engine_and_registry_can_be_built_on_that_host()
+    {
+        using var scope = Host().Services.CreateScope();
+
+        var engine = () => scope.ServiceProvider.GetRequiredService<IWorkflowEngine>();
+        var registry = () => scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Services.IWorkflowPluginRegistry>();
+
+        engine.Should().NotThrow();
+        registry.Should().NotThrow();
+        registry().IsActionRegistered(WorkflowStopHarness.Counting).Should().BeTrue();
     }
 
     [Fact]

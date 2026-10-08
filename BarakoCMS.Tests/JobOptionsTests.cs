@@ -72,14 +72,25 @@ public class JobOptionsTests
     }
 
     [Fact]
-    public void Dead_letters_are_kept_ninety_days_by_default_and_zero_keeps_them_forever()
+    public void Dead_letters_are_kept_forever_by_default_and_a_retention_is_opted_into()
     {
-        JobOptions.FromConfiguration(Config()).DeadLetterRetentionDays.Should().Be(90);
-        JobOptions.FromConfiguration(Config()).MetricsIntervalSeconds.Should().Be(30);
+        var defaults = JobOptions.FromConfiguration(Config());
+        defaults.DeadLetterRetentionDays.Should().Be(0, "a default must keep what deployments kept before");
+        defaults.MetricsIntervalSeconds.Should().Be(30);
+        defaults.Invoking(o => o.Validate()).Should().NotThrow();
 
-        var off = JobOptions.FromConfiguration(Config((JobOptions.DeadLetterRetentionDaysKey, "0")));
-        off.DeadLetterRetentionDays.Should().Be(0);
-        off.Invoking(o => o.Validate()).Should().NotThrow();
+        var on = JobOptions.FromConfiguration(Config((JobOptions.DeadLetterRetentionDaysKey, "90")));
+        on.DeadLetterRetentionDays.Should().Be(90);
+        on.Invoking(o => o.Validate()).Should().NotThrow();
+    }
+
+    [Fact]
+    public void A_retention_past_ten_years_is_refused()
+    {
+        var options = JobOptions.FromConfiguration(Config((JobOptions.DeadLetterRetentionDaysKey, "3651")));
+
+        options.Invoking(o => o.Validate()).Should().Throw<InvalidOperationException>()
+            .WithMessage($"*{JobOptions.DeadLetterRetentionDaysKey}*");
     }
 
     [Theory]

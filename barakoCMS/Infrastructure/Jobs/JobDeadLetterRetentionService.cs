@@ -16,10 +16,12 @@ namespace barakoCMS.Infrastructure.Jobs;
 ///
 /// The hourly purge FastEndpoints runs deletes completed jobs and never touches a dead letter, so
 /// before this a dead letter stayed forever. It is counted from <see cref="JobRecord.CompletedAt"/>,
-/// which is set when a job gives up. A dead letter stored before that was set has only its
-/// <see cref="JobRecord.CreatedAt"/>, which is earlier, so such a row goes a little sooner, never later.
+/// which is set when a job gives up. A dead letter stored before that was set is aged by the later of
+/// <see cref="JobRecord.CreatedAt"/> and <see cref="JobRecord.ExecuteAfter"/>, the last time it was
+/// queued or due, so a job that waited long for its run is not taken as old.
 ///
-/// Zero or less keeps them forever, the reading the other retention settings use.
+/// Off by default: zero or less keeps them forever, as before the setting existed. An operator turns
+/// it on with a number of days, and docs/background-jobs.md recommends 90.
 /// </remarks>
 internal sealed class JobDeadLetterRetentionService(
     IDocumentStore store,
@@ -113,11 +115,13 @@ internal sealed class JobDeadLetterRetentionService(
         var cutoff = nowUtc.AddDays(-days);
 
         var due = await session.Query<JobRecord>().CountAsync(r => r.State == JobState.DeadLettered
-            && ((r.CompletedAt != null && r.CompletedAt < cutoff) || (r.CompletedAt == null && r.CreatedAt < cutoff)), ct);
+            && ((r.CompletedAt != null && r.CompletedAt < cutoff)
+                || (r.CompletedAt == null && r.CreatedAt < cutoff && r.ExecuteAfter < cutoff)), ct);
         if (due == 0) return 0;
 
         session.DeleteWhere<JobRecord>(r => r.State == JobState.DeadLettered
-            && ((r.CompletedAt != null && r.CompletedAt < cutoff) || (r.CompletedAt == null && r.CreatedAt < cutoff)));
+            && ((r.CompletedAt != null && r.CompletedAt < cutoff)
+                || (r.CompletedAt == null && r.CreatedAt < cutoff && r.ExecuteAfter < cutoff)));
         await session.SaveChangesAsync(ct);
 
         return due;

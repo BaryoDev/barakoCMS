@@ -41,7 +41,7 @@ construction. A command carries what its handler needs, including the tenant.
     "BackoffMaxSeconds": 3600,
     "StorageProbeSeconds": 60,
     "LeaseSeconds": 600,
-    "DeadLetterRetentionDays": 90,
+    "DeadLetterRetentionDays": 0,
     "MetricsIntervalSeconds": 30
   }
 }
@@ -66,12 +66,20 @@ message is cut to its scheme and host, the way a workflow run's error shows a we
 some webhook URLs carry a token in the path or the query. `GET /api/jobs` applies the same cut to a
 record stored before this was done.
 
-## Dead letters are kept for 90 days
+## Purging dead letters
 
-A dead-lettered or cancelled job is deleted once it has been given up on for longer than
-`DeadLetterRetentionDays`, by a sweep that runs hourly. The time it gave up is its `completedAt`.
-A dead letter stored before that was set is aged by when it was queued instead. Zero or less keeps
-dead letters forever, which is what happened before the setting existed.
+Dead letters are kept forever by default, as they always were. Set `DeadLetterRetentionDays` to
+turn on an hourly sweep that deletes a dead-lettered or cancelled job once it has been given up on
+for longer than that many days. 90 is the recommended value, the window a failed workflow run is
+kept for, and the most allowed is 3650:
+
+```json
+{ "Jobs": { "DeadLetterRetentionDays": 90 } }
+```
+
+or `Jobs__DeadLetterRetentionDays=90` as an environment variable. The time a job gave up is its
+`completedAt`. A dead letter stored before that was set is aged by the later of when it was queued
+and when it was due. Zero or less switches the sweep off.
 
 ## States
 
@@ -80,7 +88,7 @@ dead letters forever, which is what happened before the setting existed.
 | `Pending` | Stored and waiting for `ExecuteAfter`, or waiting for its next attempt |
 | `Running` | Claimed by a worker. The lease is `DequeueAfter`, `LeaseSeconds` long; a crash frees the job when it passes |
 | `Completed` | The handler returned. Deleted by the hourly purge |
-| `DeadLettered` | Failed `MaxAttempts` times, expired before it ran, or was cancelled. Kept for `DeadLetterRetentionDays` |
+| `DeadLettered` | Failed `MaxAttempts` times, expired before it ran, or was cancelled. Kept, or for `DeadLetterRetentionDays` when set |
 
 ## Reading the queue
 
