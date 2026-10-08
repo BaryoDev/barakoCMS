@@ -9,6 +9,7 @@ namespace barakoCMS.Infrastructure.Services;
 /// Supports both system variables (id, contentType, status, etc.) and dynamic
 /// data field variables from content.
 /// </summary>
+/// <remarks>A module cannot replace this. Core's registration wins, and a module that registers one is named in a startup warning.</remarks>
 public interface ITemplateVariableExtractor
 {
     /// <summary>

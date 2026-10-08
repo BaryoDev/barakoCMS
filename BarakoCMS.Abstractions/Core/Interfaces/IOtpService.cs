@@ -6,6 +6,7 @@ namespace barakoCMS.Core.Interfaces;
 /// Issues and emails one-time sign-in codes. Shared by the OTP request endpoint and by password
 /// login when it needs to step up to approve a new device.
 /// </summary>
+/// <remarks>A module may replace this: core registers it with TryAdd, and module services are registered first.</remarks>
 public interface IOtpService
 {
     /// <summary>
