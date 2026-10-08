@@ -190,6 +190,21 @@ public class ContentTypeValidatorService : IContentTypeValidatorService
             }
 
             errors.AddRange(FieldPresentation.RoleErrors(fields));
+
+            // Entries, filters, sensitivity and the write rules all find a field by its name
+            // ignoring case, so two names that differ only in case are one field read two ways. A
+            // pair already stored together is left alone, as rules are above, so a type saved
+            // before this check can still change.
+            var duplicates = fields
+                .Where(f => !string.IsNullOrWhiteSpace(f.Name))
+                .GroupBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
+                .Where(g => g.Count() > 1 && g.Any(f => !stored.Contains(f)));
+
+            foreach (var duplicate in duplicates)
+            {
+                errors.Add($"Field name '{duplicate.Key}' is declared more than once, ignoring case "
+                    + $"({string.Join(", ", duplicate.Select(f => $"'{f.Name}'"))}). Field names have to differ by more than case.");
+            }
         }
 
         return (errors.Count == 0, errors);
