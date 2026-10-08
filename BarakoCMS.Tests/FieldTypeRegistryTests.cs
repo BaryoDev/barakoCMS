@@ -112,7 +112,7 @@ public class FieldTypeRegistryTests
     [InlineData("a@b.co>")]
     [InlineData("a@b.co\r\nBcc: c@d.co")]
     [InlineData("a\u0000@b.co")]
-    [InlineData("a​@b.co")]
+    [InlineData("a\u200B@b.co")]
     [InlineData("a@b.co,c@d.co")]
     [InlineData("a@b.co;c@d.co")]
     [InlineData("(note)a@b.co")]
