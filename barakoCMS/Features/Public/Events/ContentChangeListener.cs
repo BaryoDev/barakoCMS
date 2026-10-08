@@ -128,8 +128,7 @@ internal sealed class ContentChangeListener(
             .Where(o => o.Projected is not null)
             .Select(o => (Item: o.Projected!, Definition: o.Definition!))
             .ToList();
-        var checkedEntries = new Queue<PublicContentResponse>(
-            await PublicReferenceFields.FilterAsync(entries, session, token));
+        var checkedEntries = new Queue<PublicContentResponse>(await CheckReferencesAsync(session, entries, token));
 
         foreach (var change in outgoing)
         {
@@ -141,6 +140,30 @@ internal sealed class ContentChangeListener(
 
             var entry = checkedEntries.Dequeue();
             broadcaster.Publish(tenant, new ContentChange(change.Name, entry.Id, entry.ContentType, entry.Slug, entry));
+        }
+    }
+
+    /// <summary>
+    /// The entries with their references checked, or, when the check cannot be made, with every
+    /// reference field left out.
+    /// </summary>
+    /// <remarks>
+    /// A failed read must not cost the commit its other changes: an unpublish in the same commit is
+    /// sent either way, and so is each entry, without the ids nothing could vouch for.
+    /// </remarks>
+    private async Task<List<PublicContentResponse>> CheckReferencesAsync(
+        IDocumentSession session,
+        List<(PublicContentResponse Item, ContentTypeDefinition Definition)> entries,
+        CancellationToken token)
+    {
+        try
+        {
+            return await PublicReferenceFields.FilterAsync(entries, session, token);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "Content event stream could not check references, so they are left out of this commit's payloads");
+            return entries.Select(e => PublicReferenceFields.LeaveOut(e.Item, e.Definition)).ToList();
         }
     }
 

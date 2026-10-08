@@ -251,6 +251,72 @@ public class ContentEventStreamTests
             .Should().BeEquivalentTo(rest.EnumerateObject().Select(p => p.Name));
     }
 
+    /// <summary>
+    /// A streamed entry names only references delivery would serve, as the REST reads do: the
+    /// published target stays and the draft is left out.
+    /// </summary>
+    [Fact]
+    public async Task A_streamed_entry_names_only_the_published_target_of_its_references()
+    {
+        var host = EnabledHost();
+        var type = TypeName();
+        var slug = Slug();
+        var published = Guid.NewGuid();
+        var draft = Guid.NewGuid();
+
+        using (var scope = host.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(), Name = type, DisplayName = type, IsPubliclyDeliverable = true,
+                Fields =
+                [
+                    new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" },
+                    new FieldDefinition { Name = "Slug", DisplayName = "Slug", Type = "slug" },
+                    new FieldDefinition { Name = "Related", DisplayName = "Related", Type = "reference", ReferenceType = type, Multiple = true },
+                    new FieldDefinition { Name = "Lead", DisplayName = "Lead", Type = "reference", ReferenceType = type },
+                ],
+            });
+            session.Store(new Content
+            {
+                Id = published, ContentType = type, Status = ContentStatus.Published, Sensitivity = SensitivityLevel.Public,
+                Data = new() { ["Title"] = "Out", ["Slug"] = slug + "-out" },
+            });
+            session.Store(new Content
+            {
+                Id = draft, ContentType = type, Status = ContentStatus.Draft, Sensitivity = SensitivityLevel.Public,
+                Data = new() { ["Title"] = "Not yet", ["Slug"] = slug + "-draft" },
+            });
+            await session.SaveChangesAsync();
+        }
+
+        using var stream = await OpenStream.OpenAsync(host.CreateClient(), "/api/public/events");
+
+        var created = await WriteAsync(host, null, w => w.CreateAsync(new ContentCreated(
+            Guid.NewGuid(), type,
+            new Dictionary<string, object>
+            {
+                ["Title"] = "Points both ways",
+                ["Slug"] = slug,
+                ["Related"] = new List<string> { published.ToString(), draft.ToString() },
+                ["Lead"] = draft.ToString(),
+            },
+            ContentStatus.Published, Guid.NewGuid(), "Points both ways", SensitivityLevel.Public, DateTime.UtcNow), default));
+
+        var frame = await stream.NextChangeAsync();
+
+        frame.Event.Should().Be("content.published");
+        frame.Data.Should().Contain(created.Id.ToString()).And.Contain(published.ToString());
+        frame.Data.Should().NotContain(draft.ToString(), "a draft's id is left out of the stream as it is out of every read");
+        using var streamed = JsonDocument.Parse(frame.Data);
+        var data = streamed.RootElement.GetProperty("data");
+        data.TryGetProperty("Lead", out _).Should().BeFalse();
+        var related = data.GetProperty("Related").EnumerateArray().Select(e => e.GetString()).ToList();
+        related.Should().HaveCount(1);
+        related.Should().Equal(published.ToString());
+    }
+
     [Fact]
     public async Task A_draft_save_streams_nothing()
     {

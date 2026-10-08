@@ -325,6 +325,50 @@ internal sealed class DeliveryQuery
         return query;
     }
 
+    /// <summary>
+    /// The same query, with each eq, ne or has filter on a reference field that names an entry
+    /// delivery would not serve turned into one on an id no entry holds.
+    /// </summary>
+    /// <remarks>
+    /// Delivery leaves such an id out of every entry (<see cref="PublicReferenceFields"/>), so a
+    /// filter matching it on the stored data would return entries whose delivered field does not
+    /// hold it, and would say which entries point at a draft. With the id replaced, eq and has match
+    /// nothing and ne matches every entry with a value, which is what the delivered data shows.
+    ///
+    /// One read for the ids the filters name, at most <see cref="MaxFilters"/> of them, and none
+    /// without a reference filter. Not covered: an entry whose own stored reference names an entry
+    /// delivery would not serve still matches ne on another id, though it is delivered without the
+    /// field. Matching that would mean checking every candidate's targets inside the query.
+    /// </remarks>
+    public async Task<DeliveryQuery> WithDeliverableReferencesAsync(IQuerySession session, CancellationToken ct)
+    {
+        var asked = Filters
+            .Where(IsReferenceIdFilter)
+            .Select(f => Guid.Parse(f.Value))
+            .ToHashSet();
+        if (asked.Count == 0)
+            return this;
+
+        var deliverable = await PublicReferenceFields.DeliverableAsync(session, asked, ct);
+        var unheld = Guid.NewGuid().ToString();
+
+        return new DeliveryQuery
+        {
+            Filters = Filters
+                .Select(f => IsReferenceIdFilter(f) && !deliverable.Contains(Guid.Parse(f.Value)) ? f with { Value = unheld } : f)
+                .ToList(),
+            Sort = Sort,
+            Near = Near,
+            DistanceSortDescending = DistanceSortDescending,
+            Error = Error,
+        };
+    }
+
+    private static bool IsReferenceIdFilter(DeliveryFilter f) =>
+        string.Equals(f.Type, "reference", StringComparison.OrdinalIgnoreCase)
+        && f.Op is FilterOp.Eq or FilterOp.Ne or FilterOp.Has
+        && Guid.TryParse(f.Value, out _);
+
     private static bool TryNumber(string text, out double value) =>
         double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value)
         && double.IsFinite(value);

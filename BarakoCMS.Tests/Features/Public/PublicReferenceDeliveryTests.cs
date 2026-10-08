@@ -32,7 +32,10 @@ public class PublicReferenceDeliveryTests
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private sealed record Seed(string Type, string Target, Guid Entry, string Slug, string Needle, Guid Published, Guid Draft, Guid TargetsDraft);
+    /// <param name="Closed">Every target delivery would not serve, the draft included.</param>
+    private sealed record Seed(
+        string Type, string Target, Guid Entry, string Slug, string Needle, Guid Published, Guid Draft, Guid TargetsDraft,
+        IReadOnlyList<Guid> Closed);
 
     private async Task<Seed> SeedAsync()
     {
@@ -44,7 +47,12 @@ public class PublicReferenceDeliveryTests
         var published = Guid.NewGuid();
         var draft = Guid.NewGuid();
         var targetsDraft = Guid.NewGuid();
+        var sensitive = Guid.NewGuid();
+        var ofClosedType = Guid.NewGuid();
+        var inOtherTenant = Guid.NewGuid();
         var entry = Guid.NewGuid();
+        var closedType = "refcls" + tag;
+        var otherTenant = "refoth-" + tag;
 
         using var scope = _factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
@@ -67,7 +75,23 @@ public class PublicReferenceDeliveryTests
                 new FieldDefinition { Name = "Slug", DisplayName = "Slug", Type = "slug" },
                 new FieldDefinition { Name = "Related", DisplayName = "Related", Type = "reference", ReferenceType = target, Multiple = true },
                 new FieldDefinition { Name = "Description", DisplayName = "Description", Type = "reference", ReferenceType = target },
+                new FieldDefinition { Name = "Pinned", DisplayName = "Pinned", Type = "reference", ReferenceType = target },
             ],
+        });
+        session.Store(new ContentTypeDefinition
+        {
+            Id = Guid.NewGuid(), Name = closedType, DisplayName = closedType, IsPubliclyDeliverable = false,
+            Fields = [new FieldDefinition { Name = "Name", DisplayName = "Name", Type = "string" }],
+        });
+        session.Store(new Content
+        {
+            Id = sensitive, ContentType = target, Status = ContentStatus.Published, Sensitivity = SensitivityLevel.Sensitive,
+            Data = new() { ["Name"] = "Kept back" },
+        });
+        session.Store(new Content
+        {
+            Id = ofClosedType, ContentType = closedType, Status = ContentStatus.Published, Sensitivity = SensitivityLevel.Public,
+            Data = new() { ["Name"] = "Type not delivered" },
         });
 
         session.Store(new Content
@@ -92,8 +116,12 @@ public class PublicReferenceDeliveryTests
             {
                 ["Title"] = $"{needle} points both ways",
                 ["Slug"] = slug,
-                ["Related"] = new List<string> { published.ToString(), draft.ToString() },
+                ["Related"] = new List<string>
+                {
+                    published.ToString(), draft.ToString(), sensitive.ToString(), ofClosedType.ToString(), inOtherTenant.ToString(),
+                },
                 ["Description"] = draft.ToString(),
+                ["Pinned"] = published.ToString(),
             },
             SearchText = $"{needle} points both ways",
             CreatedAt = DateTime.UtcNow,
@@ -101,7 +129,26 @@ public class PublicReferenceDeliveryTests
         });
 
         await session.SaveChangesAsync(Ct);
-        return new Seed(type, target, entry, slug, needle, published, draft, targetsDraft);
+
+        // Published, Public and of the same type, in another tenant: this tenant's delivery cannot read it.
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
+        await using (var other = store.LightweightSession(otherTenant))
+        {
+            other.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(), Name = target, DisplayName = target, IsPubliclyDeliverable = true,
+                Fields = [new FieldDefinition { Name = "Name", DisplayName = "Name", Type = "string" }],
+            });
+            other.Store(new Content
+            {
+                Id = inOtherTenant, ContentType = target, Status = ContentStatus.Published, Sensitivity = SensitivityLevel.Public,
+                Data = new() { ["Name"] = "Somewhere else" },
+            });
+            await other.SaveChangesAsync(Ct);
+        }
+
+        return new Seed(type, target, entry, slug, needle, published, draft, targetsDraft,
+            [draft, sensitive, ofClosedType, inOtherTenant]);
     }
 
     private async Task<string> OkBodyAsync(string path)
@@ -117,12 +164,19 @@ public class PublicReferenceDeliveryTests
         var data = entry.GetProperty("data");
 
         var related = data.GetProperty("Related").EnumerateArray().Select(e => e.GetString()).ToList();
-        related.Should().HaveCount(1, "the list keeps the published target and drops the draft");
+        related.Should().HaveCount(1,
+            "the list keeps the published target and drops a draft, a Sensitive entry, an entry of a type "
+            + "that is not delivered and an entry in another tenant");
         related.Should().Equal(seed.Published.ToString());
 
         data.TryGetProperty("Description", out _).Should().BeFalse(
             "a single reference to a draft is left out, as include leaves it out");
-        entry.GetRawText().Should().NotContain(seed.Draft.ToString());
+        data.GetProperty("Pinned").GetString().Should().Be(seed.Published.ToString(),
+            "a single reference to a published target is still its id");
+
+        seed.Closed.Should().HaveCount(4);
+        foreach (var closed in seed.Closed)
+            entry.GetRawText().Should().NotContain(closed.ToString());
     }
 
     [Fact]
@@ -158,6 +212,38 @@ public class PublicReferenceDeliveryTests
 
         results.Should().HaveCount(1);
         OnlyThePublishedTargetIsNamed(results[0], seed);
+    }
+
+    /// <summary>
+    /// A filter on a reference field answers against the ids delivery shows, so naming a draft finds
+    /// nothing, the same as naming an id no entry holds.
+    /// </summary>
+    [Fact]
+    public async Task A_reference_filter_naming_an_entry_delivery_would_not_serve_matches_nothing()
+    {
+        var seed = await SeedAsync();
+
+        async Task<int> CountAsync(string query)
+        {
+            var root = JsonDocument.Parse(await OkBodyAsync($"/api/public/{seed.Type}?{query}")).RootElement;
+            return root.GetProperty("items").GetArrayLength();
+        }
+
+        (await CountAsync($"filter[Related][has]={seed.Published}")).Should().Be(1, "the control: a delivered id still matches");
+        (await CountAsync($"filter[Pinned][eq]={seed.Published}")).Should().Be(1);
+
+        (await CountAsync($"filter[Description][eq]={seed.Draft}")).Should().Be(0,
+            "the entry is delivered without Description, so it does not hold the draft's id");
+        (await CountAsync($"filter[Related][has]={seed.Draft}")).Should().Be(0);
+        (await CountAsync($"filter[Related][eq]={seed.Closed[1]}")).Should().Be(0, "a Sensitive target");
+        (await CountAsync($"filter[Related][has]={seed.Closed[2]}")).Should().Be(0, "a target of a type that is not delivered");
+        (await CountAsync($"filter[Related][has]={seed.Closed[3]}")).Should().Be(0, "a target in another tenant");
+        (await CountAsync($"filter[Related][ne]={seed.Draft}")).Should().Be(1,
+            "the delivered list does not hold the draft, so the entry is one that does not");
+
+        var search = JsonDocument.Parse(await OkBodyAsync(
+            $"/api/public/{seed.Type}/search?q={seed.Needle}&filter[Related][has]={seed.Draft}")).RootElement;
+        search.GetProperty("results").GetArrayLength().Should().Be(0, "search applies the same rule");
     }
 
     [Fact]
