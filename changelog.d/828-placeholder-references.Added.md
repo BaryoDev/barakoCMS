@@ -7,5 +7,5 @@
   followed one level deep with a fixed number of reads per action. A loop renders the entries among
   the first 50 ids and stops, and the attempt's `error` on a succeeded attempt (or the action's
   `errorMessage` in the execution log) says how many the field held. A dry run does not follow
-  references. Saving a workflow warns about a loop inside a loop, and refuses with 400 a parameter
-  longer than 262,144 characters, naming it (#828, #805).
+  references. Saving a workflow warns about a loop inside a loop, and about a parameter longer than
+  262,144 characters, which the engine sends as written with a note on the run (#828, #805).

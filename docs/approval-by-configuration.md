@@ -630,9 +630,11 @@ References are followed one level deep. A loop item's own references are not fol
 inside a loop is sent as written. A field literally named with a dot, such as `Supplier.Email`, is
 still read first, as it always was.
 
-**A parameter holds at most 262,144 characters.** Saving a workflow with a longer one answers 400
-naming the parameter, such as `actions[0].parameters.Body`, and `POST /api/workflows/validate`
-lists the same error. A Conditional's branch is one parameter, so its children count toward
+**A parameter past 262,144 characters is sent as written.** Its placeholders are not resolved, and
+the run records it: the attempt's `error` on a succeeded attempt (or the action's `errorMessage` in
+the execution log) gives its length and the cap. Saving such a workflow is not refused; the save
+and `POST /api/workflows/validate` list a warning naming the parameter, such as
+`actions[0].parameters.Body`. A Conditional's branch is one parameter, so its children count toward
 it. Resolving a template is linear in its length: an opening `{{#each}}` is paired with the first
 `{{/each}}` after it, and one with no closing marker is sent as written.
 
