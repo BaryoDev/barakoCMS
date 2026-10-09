@@ -52,7 +52,7 @@ public sealed class FilesModule : IBarakoModule
 
         // Resizing is stateless, so one instance. The variant cache is per request because it
         // writes through the request's Marten session and the storage provider bound to it.
-        services.TryAddSingleton<IImageResizer, ImageSharpResizer>();
+        services.TryAddSingleton<IImageResizer, SkiaImageResizer>();
         services.TryAddScoped<ImageVariants>();
     }
 
