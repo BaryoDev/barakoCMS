@@ -33,6 +33,9 @@ public class SemanticSearchFilterTests
         _services = derived.Services;
     }
 
+    // The slug is a Public slug field on the entry, because a hit's slug is read off the entry as it
+    // is now, under the type's rules, and not off the copy stored with the embedding.
+    //
     // Every entry carries the same vector, so ranking cannot tell them apart and only the filter
     // decides which come back. The scan reads embeddings in id order, so the ids are not left to
     // chance: every sports entry sorts before every news entry. An unfiltered scan therefore meets
@@ -53,6 +56,7 @@ public class SemanticSearchFilterTests
             Fields =
             [
                 new FieldDefinition { Name = "Title", Type = "string", Sensitivity = SensitivityLevel.Public },
+                new FieldDefinition { Name = "Slug", Type = "slug", Sensitivity = SensitivityLevel.Public },
                 new FieldDefinition { Name = "Category", Type = "string", Sensitivity = SensitivityLevel.Public },
                 new FieldDefinition { Name = "Secret", Type = "string", Sensitivity = SensitivityLevel.Sensitive },
             ],
@@ -74,6 +78,7 @@ public class SemanticSearchFilterTests
                 Data = new Dictionary<string, object>
                 {
                     ["Title"] = $"Solar {category} {i}",
+                    ["Slug"] = $"{category}-{i}",
                     ["Category"] = category,
                     ["Secret"] = "classified",
                 },
@@ -82,7 +87,7 @@ public class SemanticSearchFilterTests
             {
                 Id = id,
                 ContentType = type,
-                Slug = $"{category}-{i}",
+                Slug = $"stale-{category}-{i}",
                 Title = $"Solar {category} {i}",
                 Vector = vector!,
             });
