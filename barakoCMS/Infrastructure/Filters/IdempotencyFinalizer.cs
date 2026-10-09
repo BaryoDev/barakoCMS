@@ -74,7 +74,7 @@ public class IdempotencyFinalizer : IGlobalPostProcessor
         {
             // The request did not succeed, so release the key and let a retry run.
             await ReleaseAsync(session, scopedKey, claimId, ct);
-            logger?.LogDebug("Released idempotency key after a failed request: {Key}", scopedKey);
+            logger?.LogDebug("Released idempotency key after a failed request: {Key}", barakoCMS.Infrastructure.Logging.LogSafe.Value(scopedKey));
         }
     }
 

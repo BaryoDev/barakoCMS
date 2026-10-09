@@ -114,7 +114,7 @@ public class IdempotencyFilter : IGlobalPreProcessor
 
         if (!await TryClaimAsync(session, claim, replacing: existing is not null, options.KeyLifetime, ct))
         {
-            logger?.LogWarning("Concurrent duplicate idempotency key: {Key}", scopedKey);
+            logger?.LogWarning("Concurrent duplicate idempotency key: {Key}", barakoCMS.Infrastructure.Logging.LogSafe.Value(scopedKey));
             await WriteTextAsync(http, 409, InProgressMessage, ct);
             return;
         }
@@ -199,7 +199,7 @@ public class IdempotencyFilter : IGlobalPreProcessor
     {
         if (!existing.Completed)
         {
-            logger?.LogWarning("Idempotency key still in progress: {Key}", scopedKey);
+            logger?.LogWarning("Idempotency key still in progress: {Key}", barakoCMS.Infrastructure.Logging.LogSafe.Value(scopedKey));
             await WriteTextAsync(http, 409, InProgressMessage, ct);
             return;
         }
@@ -219,7 +219,7 @@ public class IdempotencyFilter : IGlobalPreProcessor
             || (existing.RequestHash is not null
                 && !string.Equals(existing.RequestHash, requestHash, StringComparison.Ordinal)))
         {
-            logger?.LogWarning("Idempotency key reused for a different request: {Key}", scopedKey);
+            logger?.LogWarning("Idempotency key reused for a different request: {Key}", barakoCMS.Infrastructure.Logging.LogSafe.Value(scopedKey));
             await WriteTextAsync(http, 422, DifferentRequestMessage, ct);
             return;
         }
@@ -247,7 +247,7 @@ public class IdempotencyFilter : IGlobalPreProcessor
             return;
         }
 
-        logger?.LogInformation("Replaying the stored response for idempotency key: {Key}", scopedKey);
+        logger?.LogInformation("Replaying the stored response for idempotency key: {Key}", barakoCMS.Infrastructure.Logging.LogSafe.Value(scopedKey));
 
         http.Response.StatusCode = existing.StatusCode!.Value;
         if (existing.ContentType is not null)
