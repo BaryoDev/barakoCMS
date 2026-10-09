@@ -6,6 +6,28 @@ COPY . .
 # The implicit restore inside publish runs in locked mode against the committed packages.lock.json
 # files, which COPY . . brought in with everything else.
 RUN dotnet publish "BarakoCMS.Suite/BarakoCMS.Suite.csproj" -c Release -o /app/publish /p:UseAppHost=false /p:RestoreLockedMode=true
+# The Files module's image resizer ships Skia's native library for every platform it supports, and a
+# portable publish copies all of them, Windows debug symbols included: hundreds of megabytes this
+# image can never load. Keep the one for the architecture being built. This stage runs on the target
+# platform, so uname reports that architecture, also under emulation in a multi-arch build. Only
+# native folders are touched; managed runtimes/ assemblies stay.
+RUN case "$(uname -m)" in \
+      x86_64) keep=linux-x64 ;; \
+      aarch64) keep=linux-arm64 ;; \
+      *) echo "no Skia native library for $(uname -m)" >&2; exit 1 ;; \
+    esac \
+    && test -f "/app/publish/runtimes/$keep/native/libSkiaSharp.so" \
+    && find /app/publish/runtimes -mindepth 2 -maxdepth 2 -type d -name native ! -path "*/runtimes/$keep/native" -exec rm -rf {} + \
+    && find /app/publish/runtimes -mindepth 1 -maxdepth 1 -type d -empty -delete
+# The native Skia library bundles code under several licences (BSD, Apache-2.0, IJG, zlib, FreeType and
+# others), and their notices have to travel with the binary. They ship in the image under
+# /app/licenses. The package folder is globbed rather than versioned, and exactly one has to match,
+# so a version bump cannot silently copy nothing.
+RUN set -- /root/.nuget/packages/skiasharp.nativeassets.linux.nodependencies/*/THIRD-PARTY-NOTICES.txt \
+    && test "$#" -eq 1 && test -f "$1" \
+    && mkdir -p /app/publish/licenses \
+    && cp "$1" /app/publish/licenses/SkiaSharp-THIRD-PARTY-NOTICES.txt \
+    && cp "$(dirname "$1")/LICENSE.txt" /app/publish/licenses/SkiaSharp-LICENSE.txt
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app

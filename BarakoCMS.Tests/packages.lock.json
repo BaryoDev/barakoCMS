@@ -95,11 +95,15 @@
           "Castle.Core": "5.1.1"
         }
       },
-      "SixLabors.ImageSharp": {
+      "SkiaSharp": {
         "type": "Direct",
-        "requested": "[3.1.12, )",
-        "resolved": "3.1.12",
-        "contentHash": "iAg6zifihXEFS/t7fiHhZBGAdCp3FavsF4i2ZIDp0JfeYeDVzvmlbY1CNhhIKimaIzrzSi5M/NBFcWvZT2rB/A=="
+        "requested": "[4.153.1, )",
+        "resolved": "4.153.1",
+        "contentHash": "TghYLOUaP3q6rTjQw7U9uQaaXh8lEs9rfA1U7/VtmyAptVDtj/SmjtcWzFWmcC/VMWxe3QgbV9uyvqDL7ySFtQ==",
+        "dependencies": {
+          "SkiaSharp.NativeAssets.Win32": "4.153.1",
+          "SkiaSharp.NativeAssets.macOS": "4.153.1"
+        }
       },
       "System.IdentityModel.Tokens.Jwt": {
         "type": "Direct",
@@ -758,6 +762,16 @@
         "resolved": "1.4.2",
         "contentHash": "yjj+3zgz8zgXpiiC3ZdF/iyTBbz2fFvMxZFEBPUcwZjIvXOf37Ylm+K58hqMfIBt5JgU/Z2uoUS67JmTLe973A=="
       },
+      "SkiaSharp.NativeAssets.macOS": {
+        "type": "Transitive",
+        "resolved": "4.153.1",
+        "contentHash": "YTojWeWIhnpF7uC8vpMxB5wRONKkDB2t3r/nNPA3DL2pgj9fqMXRevA/rIanYazWnco4jo1ufgp3HkXuh1Tz8A=="
+      },
+      "SkiaSharp.NativeAssets.Win32": {
+        "type": "Transitive",
+        "resolved": "4.153.1",
+        "contentHash": "Yqg6rChTVh0BUE8QQxtOA3uUBnihfgID4yex/AvDa0+os2bVcBjmI3Qj9tnOB+R1hd/Jry1Gwl8qw5JI9HZG8Q=="
+      },
       "Spectre.Console": {
         "type": "Transitive",
         "resolved": "0.55.0",
@@ -953,7 +967,7 @@
           "AspNetCore.HealthChecks.UI.Client": "[9.0.0, )",
           "AspNetCore.HealthChecks.UI.InMemory.Storage": "[9.0.0, )",
           "BCrypt.Net-Next": "[4.2.0, )",
-          "BarakoCMS.Abstractions": "[4.6.0, )",
+          "BarakoCMS.Abstractions": "[4.7.0, )",
           "Carom": "[2.0.1, )",
           "Carom.Extensions": "[2.0.1, )",
           "FastEndpoints": "[8.3.0, )",
@@ -990,7 +1004,7 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.7.0, )",
-          "BarakoCMS.Abstractions": "[4.6.0, )",
+          "BarakoCMS.Abstractions": "[4.7.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
@@ -999,7 +1013,7 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.7.0, )",
-          "BarakoCMS.Abstractions": "[4.6.0, )",
+          "BarakoCMS.Abstractions": "[4.7.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
@@ -1008,7 +1022,7 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.7.0, )",
-          "BarakoCMS.Abstractions": "[4.6.0, )",
+          "BarakoCMS.Abstractions": "[4.7.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
@@ -1017,7 +1031,7 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.7.0, )",
-          "BarakoCMS.Abstractions": "[4.6.0, )",
+          "BarakoCMS.Abstractions": "[4.7.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
@@ -1026,7 +1040,7 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.7.0, )",
-          "BarakoCMS.Abstractions": "[4.6.0, )",
+          "BarakoCMS.Abstractions": "[4.7.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
@@ -1035,7 +1049,7 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.7.0, )",
-          "BarakoCMS.Abstractions": "[4.6.0, )",
+          "BarakoCMS.Abstractions": "[4.7.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
@@ -1044,7 +1058,7 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.7.0, )",
-          "BarakoCMS.Abstractions": "[4.6.0, )",
+          "BarakoCMS.Abstractions": "[4.7.0, )",
           "MailKit": "[4.18.1, )"
         }
       },
@@ -1052,7 +1066,7 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.7.0, )",
-          "BarakoCMS.Abstractions": "[4.6.0, )",
+          "BarakoCMS.Abstractions": "[4.7.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
@@ -1061,7 +1075,7 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.7.0, )",
-          "BarakoCMS.Abstractions": "[4.6.0, )",
+          "BarakoCMS.Abstractions": "[4.7.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
@@ -1070,9 +1084,10 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.7.0, )",
-          "BarakoCMS.Abstractions": "[4.6.0, )",
+          "BarakoCMS.Abstractions": "[4.7.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
-          "SixLabors.ImageSharp": "[3.1.12, )",
+          "SkiaSharp": "[4.153.1, )",
+          "SkiaSharp.NativeAssets.Linux.NoDependencies": "[4.153.1, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
       },
@@ -1080,8 +1095,8 @@
         "type": "Project",
         "dependencies": {
           "AWSSDK.S3": "[3.7.511.8, )",
-          "BarakoCMS.Abstractions": "[4.6.0, )",
-          "BarakoCMS.Files": "[4.4.0, )",
+          "BarakoCMS.Abstractions": "[4.7.0, )",
+          "BarakoCMS.Files": "[4.5.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
@@ -1090,7 +1105,7 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.7.0, )",
-          "BarakoCMS.Abstractions": "[4.6.0, )",
+          "BarakoCMS.Abstractions": "[4.7.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
@@ -1099,7 +1114,7 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.7.0, )",
-          "BarakoCMS.Abstractions": "[4.6.0, )",
+          "BarakoCMS.Abstractions": "[4.7.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )",
           "Talaan": "[0.2.0, )"
@@ -1109,7 +1124,7 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.7.0, )",
-          "BarakoCMS.Abstractions": "[4.6.0, )",
+          "BarakoCMS.Abstractions": "[4.7.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
@@ -1118,7 +1133,7 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.7.0, )",
-          "BarakoCMS.Abstractions": "[4.6.0, )",
+          "BarakoCMS.Abstractions": "[4.7.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
@@ -1127,7 +1142,7 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.7.0, )",
-          "BarakoCMS.Abstractions": "[4.6.0, )",
+          "BarakoCMS.Abstractions": "[4.7.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
@@ -1136,7 +1151,7 @@
         "type": "Project",
         "dependencies": {
           "BarakoCMS": "[4.7.0, )",
-          "BarakoCMS.Abstractions": "[4.6.0, )",
+          "BarakoCMS.Abstractions": "[4.7.0, )",
           "Marten": "[9.40.0, )",
           "Microsoft.AspNetCore.TestHost": "[10.0.12, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )",
@@ -1387,6 +1402,12 @@
         "dependencies": {
           "Serilog": "4.2.0"
         }
+      },
+      "SkiaSharp.NativeAssets.Linux.NoDependencies": {
+        "type": "CentralTransitive",
+        "requested": "[4.153.1, )",
+        "resolved": "4.153.1",
+        "contentHash": "NrnPjcxjcRau4GMOY0BTpUdMey+MnmLU3jC5AuExEFHPS2NkX1tdkXW0n/c5nQMMHBTAMpHnt7qEOpXs2FNfIQ=="
       },
       "SSH.NET": {
         "type": "CentralTransitive",

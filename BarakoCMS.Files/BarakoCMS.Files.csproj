@@ -5,12 +5,16 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.Files</PackageId>
-    <Version>4.4.0</Version>
+    <Version>4.5.0</Version>
     <Description>Optional file-attachment module for barakoCMS: upload and retrieve files (receipts, photos, documents) stored in Postgres via Marten.</Description>
   </PropertyGroup>
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="BarakoCMS.Tests" />
   </ItemGroup>
 
   <ItemGroup>
@@ -20,7 +24,8 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
-    <PackageReference Include="SixLabors.ImageSharp" />
+    <PackageReference Include="SkiaSharp" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
   </ItemGroup>
 
