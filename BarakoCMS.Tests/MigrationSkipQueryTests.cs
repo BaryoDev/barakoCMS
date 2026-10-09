@@ -77,6 +77,16 @@ public class MigrationSkipQueryTests
             "create table public.mt_doc_refresh_tokens (id uuid primary key, data jsonb not null);",
             "select (select indisunique from pg_index where indexrelid = to_regclass('public.mt_doc_refresh_tokens_uidx_token_hash'))"),
 
+        // Memberships as 4.6 left them, two rows that share neither a user nor a tenant, and no
+        // unique index. The file builds the index over them.
+        ["core/4.7.0/membership-unique-user-tenant"] = (
+            "create table public.mt_doc_memberships (id uuid primary key, data jsonb not null);"
+            + "insert into public.mt_doc_memberships (id, data) values "
+            + "(gen_random_uuid(), '{\"UserId\": \"00000000-0000-0000-0000-000000000001\", \"TenantSlug\": \"default\"}'), "
+            + "(gen_random_uuid(), '{\"UserId\": \"00000000-0000-0000-0000-000000000001\", \"TenantSlug\": \"other\"}');",
+            "select coalesce((select indisunique and indisvalid from pg_index "
+            + "where indexrelid = to_regclass('public.mt_doc_memberships_uidx_user_id_tenant_slug')), false)"),
+
         ["Email.Resend/4.5.0/email-sent-emails"] = (
             ImmutableTimestamp,
             "select to_regclass('public.mt_doc_sent_emails_idx_at') is not null"),
@@ -128,7 +138,7 @@ public class MigrationSkipQueryTests
     {
         var keys = WithSkipQuery().Select(m => m.Key).OrderBy(k => k, StringComparer.Ordinal).ToList();
 
-        keys.Count.Should().BeGreaterThanOrEqualTo(11, "ten files released before the ledger, and the Forms 4.6.0 file");
+        keys.Count.Should().BeGreaterThanOrEqualTo(12, "ten files released before the ledger, the Forms 4.6.0 file and the 4.7.0 memberships index");
         keys.Should().Equal(Cases.Keys.OrderBy(k => k, StringComparer.Ordinal));
     }
 
