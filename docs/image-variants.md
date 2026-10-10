@@ -62,9 +62,39 @@ that appends the parameter to every asset URL does not break on the one that is 
 
 GIF is left out because resizing an animated one resamples every frame, which makes the cost of a
 request a property of the file rather than of the requested width, on an anonymous route. AVIF is
-left out because ImageSharp has no AVIF decoder. Both are served at full size.
+left out because the bundled decoder has none. Both are served at full size.
+
+An animated WebP is served whole, at full size, for the same reason as a GIF and because the decoder
+reads only its first frame. The pixel limit is still checked on its header first; serving the
+original decodes nothing. An animated PNG is different: the decoder sees only its first frame, so
+its variant is a still of that frame.
+
+A variant keeps its original's format: a PNG stays a PNG, a JPEG a JPEG, a WebP a WebP, and a
+lossless WebP stays lossless (read from its `VP8L` chunk). JPEG and lossy WebP variants are written
+at quality 75. That is fixed rather than matched to the source: reading a JPEG's quality back means
+estimating it from its quantisation tables, which is only a guess for encoders that did not use the
+standard ones.
+
+A variant carries no EXIF, so camera details and location do not follow the image into its copies.
+A photo stored sideways with an orientation tag is turned upright in the variant's pixels instead,
+so it shows the way the original does. The rung still applies to the stored width, before turning:
+a 4032x3024 photo tagged as turned a quarter, asked for at 640, is stored 640x480 and becomes
+480x640, which is how it showed before.
 
 Bytes that do not decode are served unchanged too. A download does not fail because a resize did.
+So are bytes that do not carry the signature of the type the file was stored as, which only a row
+stored before uploads were checked can have: they never reach a decoder.
+
+## The library
+
+Resizing uses SkiaSharp (MIT) over Skia (BSD-3-Clause), with no licence key. The Files module
+brings Skia's Linux build that needs nothing beyond libc and libstdc++, so the stock .NET runtime
+image runs it on x64 and arm64 without extra packages. `Dockerfile.suite` keeps only the native
+library for the architecture it is building, because a portable publish copies the one for every
+platform Skia supports. The native library bundles code under several licences; their notices are
+in the suite image under `/app/licenses`. A host that references BarakoCMS.Files from NuGet and publishes without a
+runtime identifier gets those copies too; publish with `-r linux-x64` (or the target it runs on), or
+prune `runtimes/*/native` the same way.
 
 ## Access rules
 

@@ -44,7 +44,7 @@ public sealed class ImageVariants
         _session = session;
         _storage = storage;
         _resizer = resizer;
-        _options = ImageSharpResizer.Read(configuration);
+        _options = SkiaImageResizer.Read(configuration);
     }
 
     public async Task<VariantResult> ResolveAsync(StoredFile original, int? requested, CancellationToken ct)
@@ -80,6 +80,15 @@ public sealed class ImageVariants
 
         var source = await _storage.GetAsync(original.StorageKey, ct);
         if (source is null)
+        {
+            return new VariantResult(original, null);
+        }
+
+        // The bytes have to be what the row says they are. A row stored before uploads were checked
+        // can name one type and hold another, and a variant would then be stored and served under
+        // a type its bytes are not.
+        if (UploadTypes.Allowed(original.ContentType) is not { } declared
+            || !UploadTypes.Matches(declared, source.AsSpan(0, Math.Min(source.Length, UploadTypes.HeadLength))))
         {
             return new VariantResult(original, null);
         }

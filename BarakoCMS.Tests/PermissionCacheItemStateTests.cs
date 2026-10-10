@@ -105,12 +105,17 @@ public class PermissionCacheItemStateTests
     /// in the question, so there is no item state to go stale. Asserted through the behaviour that
     /// caching is for, a revocation that is invisible until something invalidates: the role is
     /// emptied in the database, where no endpoint runs and nothing cancels an expiration token, and
-    /// the answer must still be the cached one.
+    /// the answer to the question with no item must still be the cached one.
     /// </summary>
+    /// <remarks>
+    /// Create asks twice: whether a Create rule exists, with no item, and whether it holds for the
+    /// entry as it will be stored. The second has an item, so it is answered fresh and the create is
+    /// refused once the role is emptied. That is why the cached half is asked of the resolver itself.
+    /// </remarks>
     [Fact]
     public async Task The_type_level_decision_is_still_cached()
     {
-        var (client, _, roleId) = await ScopedUserWithRoleAsync();
+        var (client, userId, roleId) = await ScopedUserWithRoleAsync();
 
         var first = await client.PostAsJsonAsync("/api/contents", new
         {
@@ -134,8 +139,22 @@ public class PermissionCacheItemStateTests
             contentType = Type,
             data = new Dictionary<string, object> { ["Title"] = "second" },
         });
-        second.IsSuccessStatusCode.Should().BeTrue(
-            "the create decision has no item in it, so it is still served from the cache and a silent database edit does not reach it");
+        second.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "the rule is also asked of the entry as it will be stored, and a question with an item is never cached");
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var user = await session.LoadAsync<User>(userId, TestContext.Current.CancellationToken);
+            var permissions = scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Services.IPermissionResolver>();
+
+            (await permissions.CanPerformActionAsync(user!, Type, "create", null, TestContext.Current.CancellationToken))
+                .Should().BeTrue("the question with no item was cached by the first create, and a silent database edit does not reach it");
+
+            var entry = new Content { Id = Guid.NewGuid(), ContentType = Type, CreatedBy = userId };
+            (await permissions.CanPerformActionAsync(user!, Type, "create", entry, TestContext.Current.CancellationToken))
+                .Should().BeFalse("the same question with an item is answered from the emptied role");
+        }
     }
 
     /// <summary>

@@ -37,10 +37,13 @@
   </ItemGroup>
 
   <ItemGroup Label="Imaging">
-    <!-- Fully managed, so it resizes on linux/arm64 in a container with no native libgdiplus or
-         libvips to install, which is what ruled out the alternatives. Pinned: an imaging decoder is
-         exactly the dependency where "whatever floats to" is how a CVE arrives unannounced. -->
-    <PackageVersion Include="SixLabors.ImageSharp" Version="3.1.12" />
+    <!-- MIT, over Skia (BSD-3), with no licence key. The NoDependencies Linux build needs only libc
+         and libstdc++, so the stock .NET runtime image runs it on x64 and arm64 with nothing added.
+         Both are pinned together: the managed binding and the native library ship as a pair, and an
+         imaging decoder is exactly the dependency where "whatever floats to" is how a CVE arrives
+         unannounced. -->
+    <PackageVersion Include="SkiaSharp" Version="4.153.1" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.153.1" />
   </ItemGroup>
 
   <ItemGroup Label="Security">
