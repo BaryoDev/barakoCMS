@@ -7,6 +7,143 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.8.0] - 2026-10-22
+
+Upgrading from 4.7 takes three steps. The API contract stays at 7, so barakoBrew 1.8.0 and barakoPress 0.12.0 keep working.
+
+1. **Stop the API.** One migration ships under `migrations/4.8.0/`, from ExternalAuth: the store of used nonces for the id token grant.
+2. **Run `db-migrate`, then `db-assert`.** A host without ExternalAuth can skip that file. `scripts/upgrade-check.sh --list` prints it and its rollback.
+3. **Start 4.8.0.** The SMTP timeout per exchange is now 30 s (it was MailKit's 120 s); set `Modules:Email.Smtp:TimeoutSeconds` if a relay needs longer.
+
+### Added
+
+- **A workflow email that never left is tried again inside the attempt.** `EmailNotSentException`
+  in `BarakoCMS.Abstractions` lets an email provider say a message cannot have been delivered. The
+  SMTP module throws it for a failure to connect or log in and for a 4xx or 5xx answer to MAIL FROM
+  or RCPT TO, and the Resend module for a connection not made and for a 429 or 503. The workflow
+  email action tries again on that exception only, up to `Workflows:Outbound:Retries` more times,
+  cut so the tries fit in the lease. `IEmailService.MaxNotSentDuration`, with a default of null, is
+  how a provider says how long a not-sent try can take; a provider with none is sent once. Any other failure, a timeout included, is
+  still sent once and left to the durable queue. It is an `InvalidOperationException`, so code that
+  caught that from a provider still catches it (#1114).
+- **Delivery describes an entry as schema.org JSON-LD.** A content type can declare a
+  `structuredDataType` (`Article`, `NewsArticle`, `BlogPosting`, `Event`, `Product` or `WebPage`)
+  on create or through `PUT /api/content-types/{name}/structured-data`, and a read by slug then
+  carries `structuredData`, built from the fields holding the `title`, `summary`, `date`, `image`
+  and `author` roles. `image` and `author` are new roles. A file this API serves at a relative path
+  is joined to `App:BaseUrl` for the image. The block is read off what delivery sends,
+  so a field that is not Public, a file that is not public and a filtered reference never reach it.
+  A type that declares nothing emits nothing. `GET /api/meta/describe` lists the values under
+  `structuredDataTypes`, and the type description reports the type's own. See
+  `docs/structured-data.md` (#567).
+- **Background work and database commands now show up in traces.** With `Tracing:Otlp:Endpoint`
+  set, the job queue exports a span for each claim, each run and the write that records its
+  outcome, tagged with the tenant and never the command. Each tick of scheduled publishing and of
+  collection syncs is a span, with one per tenant or per sync under it. Each outbound call through
+  the retry and the breaker is a span with one child per try and a `retry` event from Carom's
+  retry hook for each retry. Npgsql's span of each database command made under one of these
+  spans or a request is exported cut down to the statement and the server it went to: no
+  parameter values, no connection string, no database user. A failed command, whose event quotes
+  the server's message, is not exported, and neither is a command with no parent, which includes
+  the background polls and a job handler's own commands. Each dropped span is counted on
+  `barako.tracing.spans_dropped`, by reason. See `docs/tracing.md` (#691).
+- **Sign in with Apple.** An OpenID Connect provider can now be set to `ResponseMode` `form_post`,
+  which adds `POST /api/auth/oidc/{name}/callback` beside the GET with the same state, nonce and
+  PKCE checks, and leaves its flow cookies SameSite=None so the provider's cross-site POST carries
+  them. `SignedClientSecret` (`KeyId`, `TeamId`, a P-256 `PrivateKey` in PEM) makes the client
+  secret an ES256 JWT, made for 30 days and made again when a day is left. `EmailVerifiedMayBeText`
+  takes Apple's text form of `email_verified`. ExternalAuth 4.5.0 (#786).
+- **An id token grant for native apps.** `POST /api/auth/oidc/{name}/id-token` takes an id token a
+  MAUI or mobile app got from the provider's SDK, checks it as the callback does (issuer, signature,
+  expiry, `email_verified`) against the provider's `IdTokenAudiences` list, and answers with the
+  same tokens or MFA challenge. A token addressed to the web client is taken only when its `azp`
+  names a listed app, so a token from the browser sign-in cannot be exchanged. The request must
+  carry the token's nonce. Each nonce is spent in the same commit as the sign-in, so a failed
+  sign-in can be retried with the same token, and works once until the token expires. It shares the
+  OIDC rate limit. An upgraded database needs `migrations/4.8.0/external-auth-used-nonces.sql`,
+  which creates the empty `mt_doc_oidc_used_nonces` table and its `ExpiresAt` index;
+  `migrations/4.8.0/rollback-external-auth-used-nonces.sql` drops it. ExternalAuth 4.5.0 (#786).
+- **A workflow template could not reach a referenced entry or list related ones.**
+  `{{data.Supplier.Email}}` now reads a field of the entry a `reference` field points at, and
+  `{{#each data.Runners}}...{{/each}}` renders its text once per entry a reference field points at.
+  What renders is what the user who fired the workflow may read, checked with the same permission
+  and sensitivity services as `GET /api/contents/{id}`: an entry they may not read renders empty,
+  like a missing one, and so does a Sensitive or Hidden field they may not see. References are
+  followed one level deep with a fixed number of reads per action. A loop renders the entries among
+  the first 50 ids and stops, and the attempt's `error` on a succeeded attempt (or the action's
+  `errorMessage` in the execution log) says how many the field held. A dry run does not follow
+  references. Saving a workflow warns about a loop inside a loop, and about a parameter longer than
+  262,144 characters, which the engine sends as written with a note on the run (#828, #805).
+- **Email templates as content.** The new `email` blueprint creates `email-template` (subject,
+  markdown body, layout, locale) and `email-layout` (header, footer, logo, colours), neither publicly
+  deliverable. An Email workflow action can name one with `Template` (id or slug) instead of writing
+  `Subject` and `Body`; a workflow without it sends exactly as before, and one with both is refused
+  with 400. Only a published template of the workflow's own tenant is sent: a missing, erased,
+  draft, archived or scheduled template, a missing or unpublished layout, or a text (or the body as
+  HTML in its layout) past 262,144 characters fails the action permanently, saying which. The body
+  is markdown with raw HTML off, placeholders resolve with the same engine as an inline body, values
+  are HTML encoded with their braces too, and links keep only `http`, `https` and `mailto`
+  addresses. With no layout, the tenant's `site` entry gives the name, logo and colours. Saving a
+  workflow warns about the template's placeholders as it does for inline text.
+  `POST /api/email-templates/{id}/preview` renders a template against an entry without sending, for
+  a caller with `manage_workflows` who can read both, showing the entry and the layout as that
+  caller reads them, under its own `email-preview` rate limit of 30 a minute per user. Markdown is
+  rendered with Markdig 1.4.0 (#829).
+- **An email from a workflow could not link to the entry it was about.** `{{links.console}}` (and
+  `{{links.edit}}`) give the entry's page in the console from the new `App:ConsoleUrl` setting,
+  `{{links.transition "Approve"}}` the same page with the transition named, `{{links.entry}}` the
+  entry in this API from `App:BaseUrl`, and `{{links.site "/approvals/"}}` a page on the tenant's
+  site from the `Url` of its site settings. Links are built from configuration only, carry no
+  token, and render empty when their base is not set. Signed one-click approvals are not part of
+  this (#840).
+- **A renderer could not tell how long a delivery read may be kept, and nothing answered 304.**
+  Every delivery read now sends `X-Barako-Cache-Class` (`short`, `long` or `no-store`) beside the
+  `Cache-Control` it always sent, which is unchanged. Each `short` or `long` read carries a weak
+  ETag over the tenant and the body, `Last-Modified` where one timestamp covers the body (a type
+  description, a public file), and answers `If-None-Match` and `If-Modified-Since` with a 304
+  and no body. `Surrogate-Key` and `Cache-Tag` name the tenant, the type, every type it refers to
+  or includes, and every entry or file the response was built from, all under `t:<tenant>`, at
+  most 32 tags and 1024 bytes per header, with `X-Barako-Cache-Tags-Dropped` counting any left
+  out. A preview read stays `no-store` with no tag or ETag, and so does a 404 for a public file
+  whose bytes are missing. Covers the public routes, the feed, the sitemap, the type description,
+  redirect lookup, public files and their metadata (BarakoCMS.Files 4.5.0) and semantic search
+  (BarakoCMS.AI 4.4.0). See "Cache classes, validators and tags" in `docs/delivery-api.md` (#973,
+  #561).
+
+### Changed
+
+- **One S3 call now fits inside the job lease.** The S3 files module sets the SDK's retries and
+  timeout from `Modules:Files.S3:MaxErrorRetry` (2 when unset, the SDK's own was 4) and
+  `TimeoutSeconds` (45 when unset). The longest one call can take, 195 seconds with the defaults,
+  must fit in 80% of the shorter of the workflow runner's 5 minute lease and `Jobs:LeaseSeconds`.
+  An unset value gives way to fit a shorter lease, so a host that started before still starts;
+  values set by hand that cannot fit stop the host with a message that names them. Each try now has
+  a time limit, so a large upload over a slow link may need a higher `TimeoutSeconds` and fewer
+  retries. `MaxErrorRetry` is always set on the client now, so `AWS_MAX_ATTEMPTS` no longer changes
+  it, and `AWS_RETRY_MODE=adaptive` can wait for the SDK's rate limiter outside this bound (#1114).
+- **SMTP sends have a timeout of their own.** `Modules:Email.Smtp:TimeoutSeconds` (default 30) is
+  MailKit's limit on each exchange with the relay, which was 120 s, and one limit over the connect
+  and login together. A relay that accepts the connection and never answers now fails as not sent
+  within it (#1114).
+
+### Fixed
+
+- **An SMTP email could be sent twice when closing the connection failed.** A failure after the
+  relay accepted the message is now logged and the send counts as sent, so the durable queue no
+  longer sends a second copy (#1114).
+- **A module could not replace the OTP, email verification or email settings services, and nothing
+  said so.** Core registered its own after the modules', so a module's implementation was never
+  called. Those three are now registered with `TryAdd` and a module's registration wins.
+  `IContentWriter`, `ISensitivityService`, `IContentSourcingPolicy` and `ITemplateVariableExtractor`
+  stay core's own, and a module that registers one now gets a startup warning naming the module and
+  the interface (#697).
+- **An int field takes any 64-bit integer on every input path.** A request body already did. Numeric
+  text and a raw JSON number stopped at Int32, so the same value was accepted on one path and
+  refused on another. A page's order in the Pages module now reads past Int32. A fraction or a
+  number past Int64 is still refused with a 400 naming the field, and stored values read as before.
+  Collection syncs are unchanged: a field declared `int` gets a whole number, and one declared
+  `integer` or `number` keeps the cell text as it always has. See `docs/int-fields.md` (#706).
+
 ## [4.7.0] - 2026-10-08
 
 Upgrading from 4.6 takes four steps, in this order.

@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using barakoCMS.Core.Interfaces;
@@ -50,6 +51,12 @@ public class ResendEmailService : IEmailService
         this.store = store;
         this.logger = logger;
     }
+
+    /// <summary>
+    /// The client's own timeout, which covers the whole request. Null when it has none.
+    /// </summary>
+    public TimeSpan? MaxNotSentDuration =>
+        http.Timeout == System.Threading.Timeout.InfiniteTimeSpan ? null : http.Timeout;
 
     /// <summary>Resend's shared testing sender, which works without a verified domain.</summary>
     private const string DefaultFrom = "BarakoCMS <onboarding@resend.dev>";
@@ -109,18 +116,50 @@ public class ResendEmailService : IEmailService
                 }).ToArray(),
             });
 
-        var response = await http.SendAsync(request, cancellationToken);
+        HttpResponseMessage response;
+        try
+        {
+            response = await http.SendAsync(request, cancellationToken);
+        }
+        catch (HttpRequestException ex) when (NeverConnected(ex))
+        {
+            throw new EmailNotSentException($"Resend could not be reached ({ex.HttpRequestError}).", ex);
+        }
+
         if (!response.IsSuccessStatusCode)
         {
             using (response)
             {
                 var detail = await response.Content.ReadAsStringAsync(cancellationToken);
-                throw new InvalidOperationException($"Resend send failed ({(int)response.StatusCode}): {detail}");
+                var text = $"Resend send failed ({(int)response.StatusCode}): {detail}";
+                throw Refused(response.StatusCode) ? new EmailNotSentException(text) : new InvalidOperationException(text);
             }
         }
 
         return response;
     }
+
+    /// <summary>
+    /// A name that did not resolve, a connection that was not made, or a TLS handshake that failed.
+    /// The request had not been written, so Resend cannot have the message.
+    /// </summary>
+    /// <remarks>
+    /// Not a connection that ended after the request went (<see cref="HttpRequestError.ResponseEnded"/>
+    /// and the rest), and not a timeout, which surfaces as a cancellation: Resend may have accepted
+    /// the message either way.
+    /// </remarks>
+    internal static bool NeverConnected(HttpRequestException ex) =>
+        ex.HttpRequestError is HttpRequestError.NameResolutionError
+            or HttpRequestError.ConnectionError
+            or HttpRequestError.SecureConnectionError;
+
+    /// <summary>
+    /// A rate limit or an unavailable service: Resend answered and did not take the message. Other
+    /// refusals are not sent either, but trying again inside the attempt does not change a bad key
+    /// or a rejected sender.
+    /// </summary>
+    internal static bool Refused(HttpStatusCode status) =>
+        status is HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable;
 
     /// <summary>
     /// Keeps the tenant that sent this email against Resend's id for it, so the webhook can put a

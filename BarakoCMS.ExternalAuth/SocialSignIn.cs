@@ -70,7 +70,7 @@ public static class SocialSignIn
             session.Store(user);
         }
 
-        return await IssueForUserAsync(session, config, deviceGate, tokenIssuer, mfa, http, user, club, ct, profile);
+        return await IssueForUserAsync(session, config, deviceGate, tokenIssuer, mfa, http, user, club, ct, profile, null);
     }
 
     /// <summary>
@@ -92,7 +92,8 @@ public static class SocialSignIn
         OidcIdentity identity,
         string provider,
         string club,
-        CancellationToken ct)
+        CancellationToken ct,
+        Action<IDocumentSession>? beforeFinalCommit = null)
     {
         var key = ExternalIdentity.KeyOf(identity.Issuer, identity.Subject);
         var link = await session.LoadAsync<ExternalIdentity>(key, ct);
@@ -132,13 +133,19 @@ public static class SocialSignIn
         }
 
         var profile = new ProfileData(identity.Name, identity.Picture, null, null, provider);
-        return (await IssueForUserAsync(session, config, deviceGate, tokenIssuer, mfa, http, user, club, ct, profile), false);
+        return (await IssueForUserAsync(
+            session, config, deviceGate, tokenIssuer, mfa, http, user, club, ct, profile, beforeFinalCommit), false);
     }
 
     /// <summary>
     /// Everything after the provider has said who this is: the profile merge, the second factor, the
     /// device, and the token from core's issuer, which is where tenant membership is decided.
     /// </summary>
+    /// <param name="beforeFinalCommit">
+    /// Queues writes that must commit with the outcome and with nothing earlier. Trusting a device
+    /// commits the session on its own, so work queued before that would commit before the token is
+    /// issued.
+    /// </param>
     private static async Task<Tokens> IssueForUserAsync(
         IDocumentSession session,
         IConfiguration config,
@@ -149,7 +156,8 @@ public static class SocialSignIn
         User user,
         string club,
         CancellationToken ct,
-        ProfileData? profile)
+        ProfileData? profile,
+        Action<IDocumentSession>? beforeFinalCommit)
     {
         if (profile is not null)
         {
@@ -172,6 +180,7 @@ public static class SocialSignIn
         // provider account takeover would sidestep the second factor.
         if (await mfa.IsEnabledAsync(user.Id, ct))
         {
+            beforeFinalCommit?.Invoke(session);
             await session.SaveChangesAsync(ct); // persist the user/profile created above
             var (challenge, _) = barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Create(config, user.Id);
             return Tokens.MfaRequired(challenge);
@@ -189,6 +198,7 @@ public static class SocialSignIn
         {
             // The user record and any profile merge above are still worth persisting; they are not
             // sensitive and re-doing the provider round trip on a retry would be wasteful.
+            beforeFinalCommit?.Invoke(session);
             await session.SaveChangesAsync(ct);
             return Tokens.Denied();
         }
@@ -206,6 +216,7 @@ public static class SocialSignIn
             IsRevoked = false,
             DeviceId = device.DeviceId,
         });
+        beforeFinalCommit?.Invoke(session);
         await session.SaveChangesAsync(ct);
 
         return new Tokens(jwt, refresh);

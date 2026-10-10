@@ -14,7 +14,7 @@ namespace barakoCMS.Features.Workflows.Actions;
     Description = "Send email notifications",
     Group = WorkflowActionGroup.Comms,
     RequiredParameters = new[] { "To", "Subject", "Body" },
-    OptionalParameters = new[] { "Attachments" },
+    OptionalParameters = new[] { "Attachments", "Template" },
     ExampleJson = @"{""Type"":""Email"",""Parameters"":{""To"":""admin@example.com"",""Subject"":""Workflow Triggered"",""Body"":""Content {{id}} was updated""}}"
 )]
 internal class EmailAction : IWorkflowAction
@@ -24,14 +24,20 @@ internal class EmailAction : IWorkflowAction
     private readonly TenantContext? _tenant;
     private readonly IFileStore? _files;
     private readonly EmailAttachmentLimits _limits;
-    private readonly TimeSpan? _sendTimeout;
+    private readonly OutboundResilience _resilience;
+    private readonly Marten.IDocumentSession? _session;
+    private readonly barakoCMS.Infrastructure.Services.ITemplateVariableExtractor? _extractor;
 
     internal const string AttachmentsParameter = "Attachments";
 
     /// <summary>
     /// Creates a new EmailAction. Without a <paramref name="tenant"/> the email is sent as belonging
     /// to no tenant, and without <paramref name="files"/> an email that names an attachment fails.
-    /// <paramref name="resilience"/> carries the optional send timeout; without it a send has none.
+    /// <paramref name="resilience"/> carries the optional send timeout and the retries; without it a
+    /// send has no timeout and the default retries. <paramref name="session"/> is where a named
+    /// template is read, in the run's tenant; without it an email that names a template fails.
+    /// <paramref name="extractor"/> resolves the template's placeholders the way the runner resolved
+    /// the parameters; without it they resolve as an unprepared template does.
     /// </summary>
     public EmailAction(
         IEmailService emailService,
@@ -39,9 +45,13 @@ internal class EmailAction : IWorkflowAction
         TenantContext? tenant = null,
         IFileStore? files = null,
         IConfiguration? configuration = null,
-        OutboundResilience? resilience = null)
+        OutboundResilience? resilience = null,
+        Marten.IDocumentSession? session = null,
+        barakoCMS.Infrastructure.Services.ITemplateVariableExtractor? extractor = null)
     {
-        _sendTimeout = (resilience ?? OutboundResilience.Default).Options.EmailSendTimeout;
+        _session = session;
+        _extractor = extractor;
+        _resilience = resilience ?? OutboundResilience.Default;
         _emailService = emailService;
         _logger = logger;
         _tenant = tenant;
@@ -77,6 +87,31 @@ internal class EmailAction : IWorkflowAction
             // Permanent: the same entry resolves to the same recipient on every retry.
             return WorkflowActionResult.PermanentFailure(
                 "The 'To' parameter must resolve to exactly one email address.");
+        }
+
+        if (parameters.TryGetValue(barakoCMS.Features.EmailTemplates.EmailTemplateRenderer.TemplateParameter, out var templateName)
+            && !string.IsNullOrWhiteSpace(templateName))
+        {
+            string? refusal;
+            try
+            {
+                (subject, body, refusal) = await FromTemplateAsync(templateName, content, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // Retryable: a read that failed may not fail again.
+                _logger.LogWarning("Reading an email template failed ({Exception}).", ex.GetType().Name);
+                return WorkflowActionResult.Failure($"The email template could not be read ({ex.GetType().Name}).");
+            }
+
+            if (refusal is not null)
+            {
+                return WorkflowActionResult.PermanentFailure(refusal);
+            }
         }
 
         // Everything that can refuse an attachment happens here, before the send. Nothing after the
@@ -119,26 +154,59 @@ internal class EmailAction : IWorkflowAction
             attachments = resolution.Files;
         }
 
-        // Not retried inside the attempt, and no breaker. The shipped providers wrap every failure in
-        // one InvalidOperationException with the cause dropped on purpose (it can carry the SMTP
-        // password), so a send that never left cannot be told from one the relay may have taken, and
-        // there is no idempotency key to make a second send safe.
+        // Retried inside the attempt only on EmailNotSentException, which a provider throws only when
+        // the message cannot have left. Any other failure may be a message the relay took, and there
+        // is no idempotency key to make a second send safe, so it is sent once. No breaker: nothing
+        // counts against it. How many tries fit is EmailRetries: with a send timeout, that timeout
+        // covers every try and the waits between them; without one, the provider's own bound on a
+        // not-sent try decides, and a provider with no bound is sent once.
+        var sendTimeout = _resilience.Options.EmailSendTimeout;
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        if (_sendTimeout is { } limit) deadline.CancelAfter(limit);
+        if (sendTimeout is { } limit) deadline.CancelAfter(limit);
 
+        var lastNotSent = false;
         try
         {
-            await SendAsync(to, subject, body, attachments, deadline.Token);
+            await _resilience.RunAsync(
+                "email",
+                _tenant?.Slug ?? "",
+                _emailService.GetType().Name,
+                _resilience.Options.EmailRetries(_emailService.MaxNotSentDuration),
+                System.Threading.Timeout.InfiniteTimeSpan,
+                async (_, token) =>
+                {
+                    lastNotSent = false;
+                    try
+                    {
+                        await SendAsync(to, subject, body, attachments, token);
+                    }
+                    catch (EmailNotSentException)
+                    {
+                        lastNotSent = true;
+                        throw;
+                    }
+
+                    return true;
+                },
+                ex => ex is EmailNotSentException,
+                _ => false,
+                deadline.Token);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             throw;
         }
+        catch (OperationCanceledException) when (deadline.IsCancellationRequested && lastNotSent)
+        {
+            // The limit ran out between tries, and the last one did not leave.
+            _logger.LogWarning("Email send ran out of time between tries, and nothing was sent.");
+            return WorkflowActionResult.Failure("The email provider did not take the email before the send timeout.");
+        }
         catch (OperationCanceledException) when (deadline.IsCancellationRequested)
         {
             // Thrown on, not returned as a failure: the runner records a timeout as unknown and does
             // not retry it, because the message may already have gone and a retry is a second email.
-            var seconds = _sendTimeout?.TotalSeconds ?? 0;
+            var seconds = sendTimeout?.TotalSeconds ?? 0;
             _logger.LogWarning("Email send did not finish within {Seconds} s.", seconds);
             throw new OperationCanceledException(
                 $"The email provider did not finish within {seconds:0.#} s, so it is not known whether the email was sent.");
@@ -163,6 +231,38 @@ internal class EmailAction : IWorkflowAction
         }
 
         return WorkflowActionResult.Success();
+    }
+
+    /// <summary>
+    /// The subject and body of the published template a workflow names, resolved against the entry
+    /// with the same encodings an inline subject and body get, or why it cannot be sent.
+    /// </summary>
+    /// <remarks>
+    /// Read through the run's session, so only a template of the run's tenant is found. The
+    /// extractor is asked to read what the template names first, the way the runner did for the
+    /// parameters, so a reference or a site format in a template resolves as it would inline.
+    /// </remarks>
+    private async Task<(string Subject, string Body, string? Refusal)> FromTemplateAsync(
+        string name, barakoCMS.Models.Content content, CancellationToken ct)
+    {
+        if (_session is null)
+        {
+            return (string.Empty, string.Empty, "This Email action was built without the content store, so it cannot read a template.");
+        }
+
+        var (rendered, error) = await barakoCMS.Features.EmailTemplates.EmailTemplateRenderer.ForSendingAsync(_session, name, ct);
+        if (rendered is null)
+        {
+            return (string.Empty, string.Empty, error);
+        }
+
+        if (_extractor is not null)
+        {
+            await _extractor.PrepareMoreAsync(content, [rendered.Subject, rendered.Html], ct);
+        }
+
+        var (subject, body) = barakoCMS.Features.EmailTemplates.EmailTemplateRenderer.Resolve(rendered, content, _extractor);
+        return (subject, body, null);
     }
 
     // On the tenant's behalf: the run's scope carries the tenant whose workflow this is.

@@ -1,6 +1,8 @@
 using barakoCMS.Core.Interfaces;
 using MailKit.Net.Smtp;
 using MailKit.Security;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MimeKit;
 
@@ -22,12 +24,38 @@ public sealed class SmtpEmailService : IEmailService
 {
     private readonly IOptionsSnapshot<SmtpOptions> _options;
     private readonly IEmailSettingsProvider _settings;
+    private readonly ILogger<SmtpEmailService>? _logger;
+    private readonly Func<SmtpClient> _newClient;
 
     public SmtpEmailService(IOptionsSnapshot<SmtpOptions> options, IEmailSettingsProvider settings)
+        : this(options, settings, null)
+    {
+    }
+
+    [ActivatorUtilitiesConstructor]
+    public SmtpEmailService(IOptionsSnapshot<SmtpOptions> options, IEmailSettingsProvider settings, ILogger<SmtpEmailService>? logger)
+        : this(options, settings, logger, () => new SmtpClient())
+    {
+    }
+
+    /// <summary>For tests that need a client which fails at a chosen step.</summary>
+    internal SmtpEmailService(
+        IOptionsSnapshot<SmtpOptions> options,
+        IEmailSettingsProvider settings,
+        ILogger<SmtpEmailService>? logger,
+        Func<SmtpClient> newClient)
     {
         _options = options;
         _settings = settings;
+        _logger = logger;
+        _newClient = newClient;
     }
+
+    /// <summary>
+    /// Three timeouts: the connect and login together, then MAIL FROM and RCPT TO, each one MailKit
+    /// operation. A send that throws <see cref="EmailNotSentException"/> has ended by then.
+    /// </summary>
+    public TimeSpan? MaxNotSentDuration => _options.Value.Timeout * 3;
 
     public Task SendEmailAsync(string to, string subject, string body, CancellationToken cancellationToken = default) =>
         SendEmailAsync(to, subject, body, Array.Empty<EmailAttachment>(), cancellationToken);
@@ -56,17 +84,32 @@ public sealed class SmtpEmailService : IEmailService
 
         message.Body = builder.ToMessageBody();
 
-        using var client = new SmtpClient();
+        using var client = _newClient();
+        client.Timeout = (int)options.Timeout.TotalMilliseconds;
+        var sending = false;
 
         try
         {
-            await client.ConnectAsync(options.Host, options.Port, SecurityFor(options), cancellationToken);
+            // One limit over the connect and the login together, since each is several reads and
+            // MailKit's timeout is per read. Nothing has been sent when it fires.
+            using (var handshake = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+            {
+                handshake.CancelAfter(options.Timeout);
+                try
+                {
+                    await client.ConnectAsync(options.Host, options.Port, SecurityFor(options), handshake.Token);
 
-            if (!string.IsNullOrWhiteSpace(options.User))
-                await client.AuthenticateAsync(options.User, options.Password ?? string.Empty, cancellationToken);
+                    if (!string.IsNullOrWhiteSpace(options.User))
+                        await client.AuthenticateAsync(options.User, options.Password ?? string.Empty, handshake.Token);
+                }
+                catch (OperationCanceledException) when (handshake.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                {
+                    throw new TimeoutException($"No answer within {options.Timeout.TotalSeconds:0.#} s.");
+                }
+            }
 
+            sending = true;
             await client.SendAsync(message, cancellationToken);
-            await client.DisconnectAsync(true, cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -82,11 +125,43 @@ public sealed class SmtpEmailService : IEmailService
             // {Exception}, which is ToString(), which concatenates the inner. The password went to
             // stdout on every failed send, and to disk wherever file logging is on. Keeping the
             // stack would mean keeping the leak, so the type name carries the diagnostic instead.
-            throw new InvalidOperationException(
-                Redact($"SMTP send via {options.Host}:{options.Port} failed ({ex.GetType().Name}): {ex.Message}",
-                    options.Password));
+            var text = Redact($"SMTP send via {options.Host}:{options.Port} failed ({ex.GetType().Name}): {ex.Message}",
+                options.Password);
+            throw NothingSent(ex, sending) ? new EmailNotSentException(text) : new InvalidOperationException(text);
+        }
+
+        try
+        {
+            await client.DisconnectAsync(true, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // The relay accepted the message, so this send succeeded. Failing it here would have the
+            // durable queue send a second copy.
+            _logger?.LogWarning("Closing the SMTP connection after a sent message failed ({Exception}).", ex.GetType().Name);
         }
     }
+
+    /// <summary>
+    /// Whether the relay cannot have the message, so sending it again cannot deliver it twice.
+    /// </summary>
+    /// <remarks>
+    /// Anything <c>ConnectAsync</c> or <c>AuthenticateAsync</c> throws: a DNS failure or refused
+    /// connection (<see cref="System.Net.Sockets.SocketException"/>), a failed TLS handshake
+    /// (<see cref="SslHandshakeException"/>), a relay that does not offer STARTTLS
+    /// (<see cref="NotSupportedException"/>), a refused login (<see cref="AuthenticationException"/>)
+    /// or a broken greeting (<see cref="SmtpProtocolException"/>). No MAIL FROM has been sent yet.
+    ///
+    /// From <c>SendAsync</c>, only a 4xx or 5xx answer to MAIL FROM or RCPT TO, which MailKit raises as
+    /// <see cref="SmtpCommandException"/> with <see cref="SmtpErrorCode.SenderNotAccepted"/> or
+    /// <see cref="SmtpErrorCode.RecipientNotAccepted"/>. <see cref="SmtpErrorCode.MessageNotAccepted"/>
+    /// is not on the list: MailKit raises it both for a refused DATA command and for a refusal after
+    /// the whole message went over, and the two cannot be told apart. A dropped connection or a
+    /// timeout during the send is not on it either, since the relay may have queued the message.
+    /// </remarks>
+    internal static bool NothingSent(Exception ex, bool sending) =>
+        !sending
+        || ex is SmtpCommandException { ErrorCode: SmtpErrorCode.SenderNotAccepted or SmtpErrorCode.RecipientNotAccepted };
 
     private static ContentType MimeTypeOf(EmailAttachment attachment) =>
         ContentType.TryParse(attachment.ContentType, out var parsed)

@@ -29,7 +29,7 @@ public class TemplateVariableExtractorIntegrationTests
 
         // Assert
         Assert.NotNull(result.SystemVariables);
-        Assert.Equal(11, result.SystemVariables.Count);
+        Assert.Equal(15, result.SystemVariables.Count);
         Assert.Contains(result.SystemVariables, v => v.Name == "{{id}}");
         Assert.Contains(result.SystemVariables, v => v.Name == "{{contentType}}");
         Assert.Contains(result.SystemVariables, v => v.Name == "{{status}}");
@@ -41,6 +41,10 @@ public class TemplateVariableExtractorIntegrationTests
         Assert.Contains(result.SystemVariables, v => v.Name == "{{transition.at}}");
         Assert.Contains(result.SystemVariables, v => v.Name == "{{transition.by.name}}");
         Assert.Contains(result.SystemVariables, v => v.Name == "{{transition.by.email}}");
+        Assert.Contains(result.SystemVariables, v => v.Name == "{{links.console}}");
+        Assert.Contains(result.SystemVariables, v => v.Name == "{{links.edit}}");
+        Assert.Contains(result.SystemVariables, v => v.Name == "{{links.entry}}");
+        Assert.Contains(result.SystemVariables, v => v.Name == "{{links.site}}");
     }
 
     /// <summary>
@@ -55,10 +59,13 @@ public class TemplateVariableExtractorIntegrationTests
 
         var result = await extractor.GetVariablesAsync("TestType");
 
-        Assert.Equal(6, result.Formats.Count);
+        Assert.Equal(10, result.Formats.Count);
         Assert.Contains(result.Formats, v => v.Name == "{{createdAt | date \"MMM d, h:mm tt\"}}");
         Assert.Contains(result.Formats, v => v.Name == "{{data.Field | money}}");
         Assert.Contains(result.Formats, v => v.Name == "{{duration createdAt updatedAt}}");
+        Assert.Contains(result.Formats, v => v.Name == "{{links.transition \"Approve\"}}");
+        Assert.Contains(result.Formats, v => v.Name == "{{#each data.References}}{{data.Field}} {{/each}}");
+        Assert.Contains(result.SystemVariables, v => v.Name == "{{links.console}}");
 
         var entry = new Content
         {
@@ -72,7 +79,13 @@ public class TemplateVariableExtractorIntegrationTests
             TimeZoneInfo.Utc,
             null,
             new TemplatePerson("maria", "maria@example.com"),
-            new TemplateTransition("Approve", entry.UpdatedAt, new TemplatePerson("ramon", "ramon@example.com")));
+            new TemplateTransition("Approve", entry.UpdatedAt, new TemplatePerson("ramon", "ramon@example.com")),
+            new TemplateLinks("https://api.example.com", "https://console.example.com", "https://example.com"),
+            new Dictionary<string, TemplateFollowed>
+            {
+                ["Reference"] = new(false, 1, [entry]),
+                ["References"] = new(true, 1, [entry]),
+            });
 
         foreach (var listed in result.SystemVariables.Concat(result.Formats))
         {

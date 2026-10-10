@@ -9,6 +9,8 @@ namespace barakoCMS.Core.Interfaces;
 /// One place, deliberately. The routing decision must not appear in six endpoints: six copies of
 /// "is this type event sourced" drift, and the drift is invisible because both branches produce a
 /// valid-looking document. <c>IContentWriter</c> is the only caller on the write path.
+///
+/// A module cannot replace this. Core's registration wins, and a module that registers one is named in a startup warning.
 /// </remarks>
 public interface IContentSourcingPolicy
 {

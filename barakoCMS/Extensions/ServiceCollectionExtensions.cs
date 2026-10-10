@@ -181,7 +181,9 @@ public static class ServiceCollectionExtensions
         {
             // Keep the instance discoverable at runtime (used by the seed runner).
             services.AddSingleton<IBarakoModule>(module);
+            var before = SealedCoreServices.Snapshot(services);
             module.ConfigureServices(services, ModuleConfiguration(configuration, module));
+            SealedCoreServices.WarnAbout(module, services, before);
         }
 
         return (seen, enabled, modules, moduleBuilder.Skipped);
@@ -464,6 +466,10 @@ public static class ServiceCollectionExtensions
             barakoCMS.Features.Monitoring.Meta.ApiContract.HeaderName,
             barakoCMS.Features.Monitoring.Meta.ApiContract.DeliveryHeaderName,
             Microsoft.Net.Http.Headers.HeaderNames.RetryAfter,
+            barakoCMS.Infrastructure.Caching.DeliveryCache.ClassHeader,
+            barakoCMS.Infrastructure.Caching.DeliveryCache.SurrogateKeyHeader,
+            barakoCMS.Infrastructure.Caching.DeliveryCache.CacheTagHeader,
+            barakoCMS.Infrastructure.Caching.DeliveryCache.TagsDroppedHeader,
         ];
 
         services.AddCors(options =>
@@ -485,6 +491,11 @@ public static class ServiceCollectionExtensions
             //
             //   Retry-After              A 429 from the rate limiter and a 409 from a busy collection
             //                            sync say when to come back. The console shows that wait.
+            //
+            //   X-Barako-Cache-Class, Surrogate-Key, Cache-Tag, X-Barako-Cache-Tags-Dropped
+            //                            How long a delivery read may be kept and what it was built
+            //                            from (#973), for a renderer that reads delivery in a browser.
+            //                            Last-Modified needs no entry: it is safelisted.
             options.AddPolicy(barakoCMS.Infrastructure.Security.TenantDomainCorsPolicyProvider.PolicyName, builder =>
             {
                 // CORS__AllowedOrigins as an environment variable, CORS:AllowedOrigins in
@@ -1077,7 +1088,9 @@ public static class ServiceCollectionExtensions
 
     private static void AddOtpAndEmailVerification(IServiceCollection services, IConfiguration configuration)
     {
-        services.AddScoped<barakoCMS.Core.Interfaces.IOtpService, barakoCMS.Infrastructure.Services.OtpService>();
+        // TryAdd here and for the email verification and settings services, so a module that
+        // registers its own wins (#697).
+        services.TryAddScoped<barakoCMS.Core.Interfaces.IOtpService, barakoCMS.Infrastructure.Services.OtpService>();
 
         // Email verification for self-registration. Validated at startup for the same reason erasure
         // is: an operator who turned verification off has to have said so, because the failure is a
@@ -1086,8 +1099,8 @@ public static class ServiceCollectionExtensions
         var emailVerification = barakoCMS.Infrastructure.Auth.EmailVerificationOptions.FromConfiguration(configuration);
         emailVerification.Validate();
         services.AddSingleton(emailVerification);
-        services.AddScoped<barakoCMS.Core.Interfaces.IEmailVerificationService,
-                           barakoCMS.Infrastructure.Services.EmailVerificationService>();
+        services.TryAddScoped<barakoCMS.Core.Interfaces.IEmailVerificationService,
+                              barakoCMS.Infrastructure.Services.EmailVerificationService>();
     }
 
     private static void AddSecretProtection(IServiceCollection services)
@@ -1095,7 +1108,7 @@ public static class ServiceCollectionExtensions
         // MFA (TOTP): secret protection (AES-GCM) + enrollment/verification.
         services.AddSingleton<barakoCMS.Infrastructure.Auth.Mfa.IMfaSecretProtector, barakoCMS.Infrastructure.Auth.Mfa.MfaSecretProtector>();
         services.AddSingleton<barakoCMS.Infrastructure.Security.ISecretProtector, barakoCMS.Infrastructure.Security.SecretProtector>();
-        services.AddScoped<barakoCMS.Core.Interfaces.IEmailSettingsProvider, barakoCMS.Infrastructure.Services.EmailSettingsProvider>();
+        services.TryAddScoped<barakoCMS.Core.Interfaces.IEmailSettingsProvider, barakoCMS.Infrastructure.Services.EmailSettingsProvider>();
     }
 
     private static void AddConnectorServices(IServiceCollection services)
@@ -1774,6 +1787,10 @@ public static class ServiceCollectionExtensions
 
         // Lets IdempotencyFilter hash a keyed write's body after FastEndpoints has bound it.
         app.UseMiddleware<barakoCMS.Infrastructure.Filters.IdempotencyRequestBuffering>();
+
+        // Inside the output cache, so a cached delivery read is stored with its ETag, and next to the
+        // endpoints, so the body it hashes is the one the endpoint wrote.
+        app.UseMiddleware<barakoCMS.Infrastructure.Caching.DeliveryValidatorsMiddleware>();
 
         app.UseFastEndpoints(c =>
         {

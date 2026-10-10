@@ -2,6 +2,7 @@ using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
 using Marten.Linq.MatchesSql;
+using barakoCMS.Infrastructure.Caching;
 using ContentDoc = barakoCMS.Models.Content; /* distinct alias; avoids the Features.Content namespace clash */
 
 namespace barakoCMS.Features.Public;
@@ -52,7 +53,18 @@ internal sealed record PublicContentResponse(
     /// than for null.
     /// </remarks>
     [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
-    double? DistanceKm = null);
+    double? DistanceKm = null,
+
+    /// <summary>
+    /// The entry as schema.org JSON-LD, on a single entry read by slug, when its type declares a
+    /// structured data type. Absent otherwise.
+    /// </summary>
+    /// <remarks>
+    /// Built by <see cref="PublicStructuredData"/> from the delivered values only. An object, not
+    /// text: a renderer serializes it into its own script element and escapes it there.
+    /// </remarks>
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    Dictionary<string, object>? StructuredData = null);
 
 internal static class PublicDelivery
 {
@@ -401,11 +413,58 @@ internal static class PublicDelivery
      * fronting a header- or path-routed deployment (the front end sets X-Tenant from the URL handle;
      * see docs/multi-tenancy.md), would serve one tenant's response to another. A conforming cache
      * only has to honour Vary if it is configured to: see docs/deploy-in-production.md.
+     *
+     * The class, tags and Last-Modified come from DeliveryCache (#973). Cache-Control stays the
+     * 60 second hint it always was, so a deployment that sets nothing caches exactly as long as before.
      */
-    public static void SetCache(HttpContext http)
+    public static void SetCache(HttpContext http, IEnumerable<CacheScope> scopes, DateTimeOffset? lastModified = null)
     {
         http.Response.Headers.CacheControl = "public, max-age=60";
         http.Response.Headers.Vary = barakoCMS.Infrastructure.Multitenancy.TenantResolutionMiddleware.TenantHeader;
+        DeliveryCache.Shared(http, DeliveryCacheClass.Short, scopes, lastModified);
+    }
+
+    /// <summary>
+    /// The type, then every type the response refers to or includes, then every entry it was built
+    /// from, included ones too, so publishing any of them can purge it.
+    /// </summary>
+    /// <remarks>
+    /// Type tags come before entry tags because the bounds in <see cref="DeliveryCache"/> drop from
+    /// the end. A page of twenty with includes loses entry tags, and a publish of an included author
+    /// still reaches the list through the author type's tag.
+    /// </remarks>
+    public static IEnumerable<CacheScope> Scopes(
+        string type, IEnumerable<PublicContentResponse> items, ContentTypeDefinition? def = null)
+    {
+        var list = items.ToList();
+        var included = list.SelectMany(Included).ToList();
+
+        yield return CacheScope.Type(type);
+
+        var referenced = def?.Fields
+            .Where(f => string.Equals(f.Type, "reference", StringComparison.OrdinalIgnoreCase)
+                        && f.Sensitivity == SensitivityLevel.Public
+                        && !string.IsNullOrEmpty(f.ReferenceType))
+            .Select(f => f.ReferenceType!) ?? [];
+        foreach (var name in referenced.Concat(included.Select(i => i.ContentType)).Distinct(StringComparer.Ordinal))
+            yield return CacheScope.Type(name);
+
+        foreach (var item in list)
+            yield return CacheScope.Entry(item.Id);
+        foreach (var item in included)
+            yield return CacheScope.Entry(item.Id);
+    }
+
+    private static IEnumerable<PublicContentResponse> Included(PublicContentResponse item)
+    {
+        foreach (var value in item.Data.Values)
+        {
+            if (value is PublicContentResponse one)
+                yield return one;
+            else if (value is IEnumerable<PublicContentResponse> many)
+                foreach (var listed in many)
+                    yield return listed;
+        }
     }
 }
 
@@ -420,7 +479,9 @@ internal class ListPublishedEndpoint(
     {
         Get("/api/public/{type}");
         AllowAnonymous();
-        Options(x => x.RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy));
+        Options(x => x
+            .RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy)
+            .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators));
     }
 
     public override async Task HandleAsync(PublicListRequest req, CancellationToken ct)
@@ -525,7 +586,7 @@ internal class ListPublishedEndpoint(
         items = await PublicReferenceFields.FilterAsync(items, def!, session, ct);
         items = await PublicDelivery.ResolveIncludesAsync(items, includes, def, session, ct, files);
 
-        PublicDelivery.SetCache(HttpContext);
+        PublicDelivery.SetCache(HttpContext, PublicDelivery.Scopes(type, items, def));
         await Send.ResponseAsync(new PaginatedResponse<PublicContentResponse>
         {
             Items = items,
@@ -566,7 +627,9 @@ internal class PublicSearchEndpoint(IQuerySession session, IConfiguration config
     {
         Get("/api/public/{type}/search");
         AllowAnonymous();
-        Options(x => x.RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy));
+        Options(x => x
+            .RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy)
+            .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators));
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -602,7 +665,7 @@ internal class PublicSearchEndpoint(IQuerySession session, IConfiguration config
         {
             // Otherwise this 200 went out with no cache header at all, the same gap #546 closed
             // for the stream: nothing here says whether or how an intermediary may store it.
-            PublicDelivery.SetCache(HttpContext);
+            PublicDelivery.SetCache(HttpContext, [CacheScope.Type(type)]);
             await Send.OkAsync(new PublicSearchResponse(Array.Empty<PublicContentResponse>(), 0, q), ct);
             return;
         }
@@ -636,7 +699,7 @@ internal class PublicSearchEndpoint(IQuerySession session, IConfiguration config
             results, def!, Resolve<barakoCMS.Core.Interfaces.IFileStore>(), ct);
         results = await PublicReferenceFields.FilterAsync(results, def!, session, ct);
 
-        PublicDelivery.SetCache(HttpContext);
+        PublicDelivery.SetCache(HttpContext, PublicDelivery.Scopes(type, results, def));
         await Send.OkAsync(new PublicSearchResponse(results, results.Count, q), ct);
     }
 
@@ -671,7 +734,9 @@ internal class GetBySlugEndpoint(
     {
         Get("/api/public/{type}/{slug}");
         AllowAnonymous();
-        Options(x => x.RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy));
+        Options(x => x
+            .RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy)
+            .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators));
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -756,6 +821,9 @@ internal class GetBySlugEndpoint(
             [projected], def!, Resolve<barakoCMS.Core.Interfaces.IFileStore>(), ct))[0];
         projected = (await PublicReferenceFields.FilterAsync([projected], def!, session, ct))[0];
 
+        // Last, off what this response sends, so a value the steps above left out is not in it.
+        projected = PublicStructuredData.Attach(projected, def!, StructuredDataBaseUrl());
+
         if (previewLink is not null)
         {
             // Best effort. The draft is already read, and a failed timestamp is no reason to
@@ -773,10 +841,28 @@ internal class GetBySlugEndpoint(
             }
         }
 
+        // Never cache a draft, and give a shared cache nothing to file it under. No Last-Modified on
+        // a published read: a referenced entry or a file can change what is sent without moving any
+        // timestamp here, so only the ETag, which hashes the body, can say whether it changed.
         if (previewId is not null)
-            HttpContext.Response.Headers.CacheControl = "no-store"; /* never cache a draft */
+            DeliveryCache.NoStore(HttpContext);
         else
-            PublicDelivery.SetCache(HttpContext);
+            PublicDelivery.SetCache(HttpContext, PublicDelivery.Scopes(type, [projected], def));
         await Send.OkAsync(projected, ct);
+    }
+
+    // The API's own address, which a public file's site-relative URL is served under, resolved the
+    // way the feed and the sitemap resolve theirs. A malformed App:BaseUrl leaves a relative image
+    // out of the block rather than failing the read; the feed and the sitemap report that setting.
+    private string? StructuredDataBaseUrl()
+    {
+        try
+        {
+            return barakoCMS.Infrastructure.Security.CanonicalHost.BaseUrl(config, HttpContext.Request);
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
     }
 }

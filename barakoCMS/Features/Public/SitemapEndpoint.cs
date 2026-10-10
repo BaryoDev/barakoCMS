@@ -12,7 +12,9 @@ internal class SitemapEndpoint(IQuerySession session, IConfiguration config) : E
     {
         Get("/api/public/sitemap.xml");
         AllowAnonymous();
-        Options(x => x.RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy));
+        Options(x => x
+            .RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy)
+            .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators));
     }
     public override async Task HandleAsync(CancellationToken ct)
     {
@@ -98,7 +100,13 @@ internal class SitemapEndpoint(IQuerySession session, IConfiguration config) : E
 
         sb.Append("</urlset>\n");
 
-        PublicDelivery.SetCache(HttpContext);
+        // The sitemap tag is what a purge relies on: every publish purges t:<tenant>:sitemap. The
+        // type tags after it are best effort and fall off past the bound on a tenant with many
+        // types. No entry tags: a sitemap holds up to 50,000 entries.
+        PublicDelivery.SetCache(
+            HttpContext,
+            deliverableTypes.Select(barakoCMS.Infrastructure.Caching.CacheScope.Type)
+                .Prepend(barakoCMS.Infrastructure.Caching.CacheScope.Named("sitemap")));
         await Send.StringAsync(
             sb.ToString(),
             200,

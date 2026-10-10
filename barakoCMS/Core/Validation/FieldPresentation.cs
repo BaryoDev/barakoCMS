@@ -28,6 +28,8 @@ internal static class FieldPresentation
     public const string TitleRole = "title";
     public const string SummaryRole = "summary";
     public const string DateRole = "date";
+    public const string ImageRole = "image";
+    public const string AuthorRole = "author";
 
     public const int MaxSectionLength = 60;
     public const int MaxRouteTemplateLength = 200;
@@ -49,6 +51,10 @@ internal static class FieldPresentation
         new(TitleRole, ["string", "text"]),
         new(SummaryRole, ["string", "text", "markdown", "richtext"]),
         new(DateRole, ["date", "datetime"]),
+        // Read by structured data only. An image is an address or a stored file, and an author is
+        // a name: a reference would name an entry that delivery may not serve.
+        new(ImageRole, ["url", FileFields.TypeName]),
+        new(AuthorRole, ["string", "text"]),
     ];
 
     /// <summary>What is wrong with the editor, section and role one field declares.</summary>

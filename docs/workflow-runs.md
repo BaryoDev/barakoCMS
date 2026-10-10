@@ -129,13 +129,27 @@ durable queue comes back later rather than adding to the load on a provider that
 are kept for at most 1,000 tenant and host pairs; past that the least recently used tenth is
 dropped, and a dropped pair starts again with a closed breaker.
 
-Email is not retried inside the attempt and has no breaker. The SMTP and Resend modules report
-every failure the same way, with the cause left out because it can carry the relay password, so a
-send that never left cannot be told from one the relay may have taken, and there is no idempotency
-key to make a second send safe. A failed send is left to the durable queue, as before.
-`EmailSendTimeoutSeconds` is off by default, so a large attachment over a slow relay still sends.
-When it is set and fires, the attempt is recorded as unknown and not retried, because the message
-may already have gone.
+Email is retried inside the attempt only when the provider throws `EmailNotSentException`, which
+it does only when the message cannot have left. There is no idempotency key to make a second send
+safe, so every other failure is sent once and left to the durable queue, and email has no breaker.
+`Retries` sets how many more tries a send that was not taken gets, cut to fit the lease: each
+provider says how long a not-sent try can take (`MaxNotSentDuration`), and every try running that
+long, plus the waits between them, must stay within 80% of the shorter of the runner's 5 minute
+lease and `Jobs:LeaseSeconds`. SMTP's bound is three `TimeoutSeconds` (90 s by default), and
+Resend's is its client timeout (100 s), so with the defaults each gets one more try. A provider that
+gives no bound is sent once. With `EmailSendTimeoutSeconds` set, that limit covers every try and all
+of `Retries` is used.
+
+| Provider | Not sent, so tried again | Everything else, sent once |
+| --- | --- | --- |
+| SMTP | Any failure to connect or log in: DNS, a refused connection, the TLS handshake, no STARTTLS, a refused login. A 4xx or 5xx answer to MAIL FROM or RCPT TO. | A refused DATA (MailKit reports it the same way as a refusal after the whole message), a dropped connection or a timeout during the send |
+| Resend | A name not resolved, a connection not opened, a failed TLS handshake. A 429 or 503. | Any other status, a connection lost after the request went, a timeout |
+
+The SMTP failure still leaves the relay's own exception out, because it can carry the relay
+password. `EmailSendTimeoutSeconds` is off by default, so a large attachment over a slow relay still
+sends. When it is set it covers every try and the waits between them. When it fires during a send,
+the attempt is recorded as unknown and not retried, because the message may already have gone; when
+it fires between tries, after a send that was not taken, the attempt fails as retryable.
 
 | Setting | Default | |
 | --- | --- | --- |

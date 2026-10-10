@@ -42,12 +42,19 @@ public sealed class S3FilesModule : IBarakoModule
         if (string.IsNullOrWhiteSpace(section["Bucket"]))
             return;
 
-        services.Configure<S3StorageOptions>(section);
+        services.AddOptions<S3StorageOptions>().Bind(section).ValidateOnStart();
+        services.AddSingleton<IValidateOptions<S3StorageOptions>, S3StorageOptionsValidator>();
 
         services.AddSingleton<IAmazonS3>(sp =>
         {
             var o = sp.GetRequiredService<IOptions<S3StorageOptions>>().Value;
-            var cfg = new AmazonS3Config { ForcePathStyle = o.ForcePathStyle };
+            var bounds = o.Resolve(S3StorageOptionsValidator.JobLeaseSeconds(sp.GetService<IConfiguration>()));
+            var cfg = new AmazonS3Config
+            {
+                ForcePathStyle = o.ForcePathStyle,
+                MaxErrorRetry = bounds.MaxErrorRetry,
+                Timeout = bounds.Timeout,
+            };
             if (!string.IsNullOrEmpty(o.ServiceUrl))
                 cfg.ServiceURL = o.ServiceUrl;                      /* R2 / self-hosted */
             else
@@ -59,4 +66,23 @@ public sealed class S3FilesModule : IBarakoModule
         services.RemoveAll<IFileStorage>();
         services.AddScoped<IFileStorage, S3FileStorage>();
     }
+}
+
+/// <summary>
+/// Checks the retry and timeout settings against the leases when the host starts, the way core checks
+/// <c>Workflows:Outbound</c>. A validator rather than a check in ConfigureServices, because the job
+/// lease is outside this module's own section.
+/// </summary>
+internal sealed class S3StorageOptionsValidator(IConfiguration? configuration = null) : IValidateOptions<S3StorageOptions>
+{
+    public ValidateOptionsResult Validate(string? name, S3StorageOptions options)
+    {
+        return options.Resolve(JobLeaseSeconds(configuration)).Problem is { } problem
+            ? ValidateOptionsResult.Fail(problem)
+            : ValidateOptionsResult.Success;
+    }
+
+    internal static int JobLeaseSeconds(IConfiguration? configuration) =>
+        configuration?.GetValue(S3StorageOptions.JobLeaseSecondsKey, S3StorageOptions.DefaultJobLeaseSeconds)
+        ?? S3StorageOptions.DefaultJobLeaseSeconds;
 }

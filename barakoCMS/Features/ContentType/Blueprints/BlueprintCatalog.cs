@@ -254,6 +254,12 @@ internal sealed class BlueprintCatalog(
                 errors.AddRange(routeErrors.Select(e => $"Type '{label}': {e}"));
             }
 
+            var (structuredValid, structuredErrors) = validator.ValidateStructuredDataType(type.StructuredDataType);
+            if (!structuredValid)
+            {
+                errors.AddRange(structuredErrors.Select(e => $"Type '{label}': {e}"));
+            }
+
             var (uniquenessValid, uniquenessErrors) = validator.ValidateUniqueness(type.Uniqueness, type.Fields, type.Lifecycle);
             if (!uniquenessValid)
             {

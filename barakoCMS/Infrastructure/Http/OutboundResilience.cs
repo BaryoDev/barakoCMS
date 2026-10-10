@@ -1,5 +1,6 @@
 using Carom;
 using Carom.Extensions;
+using barakoCMS.Infrastructure.Tracing;
 
 namespace barakoCMS.Infrastructure.Http;
 
@@ -19,6 +20,11 @@ namespace barakoCMS.Infrastructure.Http;
 /// </remarks>
 internal sealed class OutboundResilience(OutboundResilienceOptions options)
 {
+    // Carom raises this for every retry in the process. The handler only acts inside a call this
+    // class started, so a module's own Carom use is not touched. The hook is a settable property,
+    // not an event, so code that assigns it instead of adding to it removes this handler.
+    static OutboundResilience() => CaromHooks.OnRetry += BarakoTracing.RecordRetry;
+
     public static readonly OutboundResilience Default = new(new OutboundResilienceOptions());
 
     public OutboundResilienceOptions Options => options;
@@ -54,29 +60,62 @@ internal sealed class OutboundResilience(OutboundResilienceOptions options)
             .When(shouldRetry);
 
         var number = 0;
+        using var call = BarakoTracing.StartOutboundCall(scope, partition, destination);
 
         // Carom's breaker overloads take an action with no token, so the timeout is applied here
         // rather than with Bounce.WithTimeout, whose token would never reach the send.
         async Task<T> Once()
         {
             var current = ++number;
+            using var span = BarakoTracing.StartOutboundTry(current);
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(attemptTimeout);
             try
             {
-                return await attempt(current, timeout.Token);
+                var result = await attempt(current, timeout.Token);
+                BarakoTracing.RecordOutbound(span, BarakoTracing.OutboundOk);
+                return result;
             }
             catch (OperationCanceledException) when (timeout.IsCancellationRequested && !ct.IsCancellationRequested)
             {
+                BarakoTracing.RecordOutbound(span, BarakoTracing.OutboundTimeout);
+
                 // Not an OperationCanceledException, which Carom never retries and which callers
                 // read as the caller giving up.
                 throw new TimeoutException($"No answer within {attemptTimeout.TotalSeconds:0.#} s.");
             }
+            catch
+            {
+                BarakoTracing.RecordOutbound(span, BarakoTracing.OutboundFailed);
+                throw;
+            }
         }
 
+        try
+        {
+            var result = await ShootAsync(Once, bounce, scope, partition, destination, countsAgainstDestination, ct);
+            BarakoTracing.RecordOutbound(call, BarakoTracing.OutboundOk, number);
+            return result;
+        }
+        catch (OutboundCircuitOpenException)
+        {
+            BarakoTracing.RecordOutbound(call, BarakoTracing.OutboundBreakerOpen, number);
+            throw;
+        }
+        catch
+        {
+            BarakoTracing.RecordOutbound(call, BarakoTracing.OutboundFailed, number);
+            throw;
+        }
+    }
+
+    private async Task<T> ShootAsync<T>(
+        Func<Task<T>> once, Bounce bounce, string scope, string partition, string destination,
+        Func<Exception, bool> countsAgainstDestination, CancellationToken ct)
+    {
         if (options.BreakerFailures == 0)
         {
-            return await global::Carom.Carom.ShotAsync(Once, bounce, ct);
+            return await global::Carom.Carom.ShotAsync(once, bounce, ct);
         }
 
         var cushion = Cushion.ForService($"barako|{scope}|{options.BreakerFingerprint}|{partition}|{destination}")
@@ -87,7 +126,7 @@ internal sealed class OutboundResilience(OutboundResilienceOptions options)
 
         try
         {
-            return await CaromCushionExtensions.ShotAsync(Once, cushion, bounce, ct);
+            return await CaromCushionExtensions.ShotAsync(once, cushion, bounce, ct);
         }
         catch (CircuitOpenException)
         {

@@ -10,7 +10,7 @@ internal sealed record NavigationItem(
     string? Title,
     string Slug,
     string Path,
-    int? Order,
+    long? Order,
     IReadOnlyList<NavigationItem> Children);
 
 internal sealed record NavigationResponse(int Contract, bool Truncated, IReadOnlyList<NavigationItem> Items);

@@ -22,6 +22,9 @@ which is `no-store` because it can return an unpublished entry. `Vary` tells a c
 key on the header, but it is not a CDN setting on its own: see the caching section of
 `docs/deploy-in-production.md` for what the CDN itself has to be configured to do.
 
+Each read also says its cache class, carries a weak ETag and the tags it was built from, and answers
+304 when the caller already holds it. See [Cache classes, validators and tags](#cache-classes-validators-and-tags).
+
 **Preview tokens are minted through the API, not the admin.** `POST /api/preview` returns a token
 for one entry in the resolved tenant. It is authenticated, and the caller also needs `read`
 on the entry being previewed, so minting a token is not a way around the permissions that guard
@@ -53,6 +56,9 @@ The feed takes an item's title, description and date from the fields the type gi
 `routeTemplate`. A type that declares neither is read by field name and linked at
 `Feeds:Paths:{type}` or `/{type}/{slug}`, as before. See
 [field-hints-and-roles.md](field-hints-and-roles.md).
+
+A read by slug of a type that declares a `structuredDataType` also carries `structuredData`, the
+entry as schema.org JSON-LD built from its field roles. See [structured-data.md](structured-data.md).
 
 A [file field](file-fields.md) is answered as the public file it names: its `id`, `url`,
 `fileName`, `contentType`, `size`, `alt` and `caption`. A field naming any other file, or a file
@@ -545,7 +551,10 @@ when `Error` is set, so a refused filter cannot run as no filter. `sort` is not 
 ### The cache headers a module route owes its callers
 
 The two lines above are the contract the core public routes set, and a module route has to set them
-itself: `SetCache` is internal to the delivery slice. The `Cache-Control` window is short on purpose,
+itself: `SetCache` is internal to the delivery slice. The class and tags come from
+`barakoCMS.Infrastructure.Caching.DeliveryCache`: call `DeliveryCache.Shared(HttpContext,
+DeliveryCacheClass.Short, scopes)` beside the two lines, and add
+`Options(x => x.WithMetadata(DeliveryCache.Validators))` in `Configure` for the ETag and the 304. The `Cache-Control` window is short on purpose,
 long enough for a CDN to absorb a burst and short enough that a publish shows up quickly.
 
 `Vary: X-Tenant` is not optional in a multi-tenant deployment. `TenantResolutionMiddleware` reads
@@ -553,6 +562,73 @@ that header before it reads `Host`, and the response is built entirely from the 
 shared cache keyed on the URL alone in front of a header-routed deployment will serve one tenant's
 public response to another. See `docs/multi-tenancy.md` for how the front end sets the header, and
 `docs/deploy-in-production.md` for the caches that honour `Vary` only when configured to.
+
+## Cache classes, validators and tags
+
+`Cache-Control` keeps the value each route always sent, so a deployment that sets nothing caches
+exactly as long as before. Beside it every delivery read says, in `X-Barako-Cache-Class`, how long
+the read may be kept, which a renderer can tell apart from the CDN hint:
+
+| Class      | Means                                   | Sent by |
+|------------|-----------------------------------------|---------|
+| `short`    | minutes                                 | `/api/public/{type}`, `{type}/{slug}`, `{type}/search`, `{type}/semantic`, `{type}/feed.xml`, `sitemap.xml`, `types/{type}/description` (all `public, max-age=60`), `files/{id}/meta` (`public, max-age=300`), `redirects/resolve` (no Cache-Control, held 5 minutes in the server's output cache) |
+| `long`     | hours or days                           | `files/{id}` (`public, max-age=86400`) |
+| `no-store` | never kept                              | a slug read under a valid `?preview=` token, JWT or share link key |
+| `swr`      | may be served stale while it is fetched | nothing by default |
+
+### ETag and Last-Modified
+
+A `short` or `long` read carries a weak ETag, `W/"..."`, a hash of the tenant and the exact body
+sent. It is weak because a proxy that compresses the body changes its bytes but not its meaning
+(nginx turns a strong tag weak when it gzips anyway), and no delivery route serves byte ranges,
+the one case that needs a strong tag. Because the body is hashed after it is built, anything that
+changes what a caller is sent changes the tag: an edit, a resolved reference, a field made
+non-Public. Two tenants with the same body get different tags.
+
+A file's tag is a hash of the stored record and how it is served, since its bytes never change,
+and is answered before the bytes are read.
+
+`Last-Modified` is sent only where one timestamp covers everything in the body: a type description
+(the type's `UpdatedAt`) and a file (its upload time). Lists, search, the feed and the sitemap have
+none, because an entry leaving them moves no timestamp. A slug read has none either: a referenced
+entry or a file can change what it sends without moving the entry's `UpdatedAt`.
+
+`If-None-Match` matching the ETag (weak comparison, `*` matches anything) answers `304 Not Modified`
+with no body. `If-Modified-Since` is used only when `If-None-Match` is absent, as RFC 9110 says,
+and only on a read that sent `Last-Modified`; anywhere else it is ignored and the read answers in
+full.
+
+### Tags
+
+`Surrogate-Key` (Fastly) and `Cache-Tag` (Cloudflare) carry the same space-separated value. Every
+tag starts with the tenant, so a purge by tag cannot cross tenants:
+
+| Tag                          | On |
+|------------------------------|----|
+| `t:<tenant>`                 | every tagged read |
+| `t:<tenant>:type:<type>`     | reads of that type, and of any type it refers to or includes; the sitemap for each type it lists, best effort |
+| `t:<tenant>:entry:<id>`      | every entry in the response, included references too |
+| `t:<tenant>:file:<id>`       | a public file and its metadata (a resized copy is tagged by its original) |
+| `t:<tenant>:sitemap`         | the sitemap |
+| `t:<tenant>:redirects`       | a redirect lookup |
+
+Only values the response already shows go in a tag: a type name, a published entry's id, a public
+file's id. Anything outside letters, digits and `-_.~` is percent-encoded, so a type name cannot
+pose as another tag. A `no-store` read carries no tag and no ETag.
+
+A response carries at most 32 tags and 1024 bytes per header, which keeps both headers inside the 4
+KB header buffer of a default nginx proxy. Past either bound the remaining tags are dropped in
+order, and `X-Barako-Cache-Tags-Dropped` says how many. The order is the tenant, the type read,
+each type it refers to or includes, then the entries, so entry tags are what falls off. That gives
+the purge rule: when an entry of type X is published, purge `t:<tenant>:entry:<id>` and
+`t:<tenant>:type:X`. The type tag reaches every list and search of X, and every read of another
+type that refers to or includes X, whether or not its entry tags survived.
+
+The sitemap is the exception, because a tenant can have more types than the bound holds. Purge
+`t:<tenant>:sitemap` on every publish; its type tags are best effort and fall off past about thirty
+types. It carries no entry tags, since it holds up to 50,000 entries.
+
+These headers are exposed to browsers through CORS. Nothing purges a CDN yet; that is #561.
 
 ## Stability and deprecation
 

@@ -16,10 +16,14 @@ internal sealed record PublicFieldDescription(string Name, string Type, string? 
 /// type declares none. A renderer falls back to its own path then, as the feed and the sitemap do.
 /// </param>
 /// <param name="Fields">The type's Public fields, in declared order.</param>
+/// <param name="StructuredDataType">
+/// The schema.org type a read by slug describes an entry as, or null when the type emits none.
+/// </param>
 internal sealed record PublicTypeDescription(
     string Name,
     string? RouteTemplate,
-    IReadOnlyList<PublicFieldDescription> Fields);
+    IReadOnlyList<PublicFieldDescription> Fields,
+    string? StructuredDataType = null);
 
 /// <summary>
 /// GET /api/public/types/{type}/description, what a renderer needs to build titles, links, a
@@ -51,7 +55,9 @@ internal sealed class TypeDescriptionEndpoint(IQuerySession session) : EndpointW
     {
         Get("/api/public/types/{type}/description");
         AllowAnonymous();
-        Options(x => x.RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy));
+        Options(x => x
+            .RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy)
+            .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators));
         Description(b => b
             .Produces<PublicTypeDescription>(200)
             .Produces(404));
@@ -72,7 +78,11 @@ internal sealed class TypeDescriptionEndpoint(IQuerySession session) : EndpointW
             ? def.RouteTemplate
             : null;
 
-        PublicDelivery.SetCache(HttpContext);
-        await Send.OkAsync(new PublicTypeDescription(def.Name, template, fields), ct);
+        PublicDelivery.SetCache(HttpContext, [barakoCMS.Infrastructure.Caching.CacheScope.Type(def.Name)], def.UpdatedAt);
+        var structured = barakoCMS.Core.Validation.StructuredDataTypes.IsKnown(def.StructuredDataType)
+            ? def.StructuredDataType
+            : null;
+
+        await Send.OkAsync(new PublicTypeDescription(def.Name, template, fields, structured), ct);
     }
 }

@@ -22,6 +22,7 @@ public class ShippedMigrationTests
         "4.6.0/external-auth-identities",
         "4.6.0/forms-email-verification",
         "4.7.0/forms-tenant-policy-restore",
+        "4.8.0/external-auth-used-nonces",
     ];
 
     /// <summary>
@@ -52,6 +53,7 @@ public class ShippedMigrationTests
         ["core/4.7.0/membership-unique-user-tenant"] = "80f9d4e5fab5ab7b8053c47634fde7a3caabf6ed594f466949b4d2bb49e86303",
         ["core/4.7.0/tenant-policy-restore"] = "79195b3f5af298a2dc7fd457462f220da290046fdd15cb1dcc0988014d8d0758",
         ["Forms/4.7.0/forms-tenant-policy-restore"] = "fed503d62bd158382f74db7dea413a15f1ccb4ee3df25a9efec469a450e0dae3",
+        ["ExternalAuth/4.8.0/external-auth-used-nonces"] = "3c5a28d80e303db280fee5124aa24073666476fd22fd5254fae1c3d3b20c7f5f",
     };
 
     private static IReadOnlyList<ShippedMigration> FirstParty() =>
@@ -117,12 +119,13 @@ public class ShippedMigrationTests
         owned.Should().Equal(
             "Email.Resend/4.5.0/email-sent-emails",
             "ExternalAuth/4.6.0/external-auth-identities",
+            "ExternalAuth/4.8.0/external-auth-used-nonces",
             "Files/4.2.0/stored-files-parent-index",
             "Forms/4.2.0/forms-public-forms",
             "Forms/4.6.0/forms-email-verification",
             "Forms/4.7.0/forms-tenant-policy-restore");
         coreOnly.Count.Should().BeGreaterThanOrEqualTo(7, "seven core files were released before the ledger");
-        coreOnly.Should().HaveCount(all.Count - 6, "a module that is not enabled contributes nothing");
+        coreOnly.Should().HaveCount(all.Count - 7, "a module that is not enabled contributes nothing");
         coreOnly.Should().OnlyContain(m => m.Owner == ShippedMigrations.CoreOwner);
         coreOnly.Select(m => m.Id).Should().NotIntersectWith(ModuleOwned, "core must not also ship a module's file");
     }

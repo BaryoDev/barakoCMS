@@ -314,6 +314,12 @@ internal static class DeliveryDocument
                 ["type"] = "number",
                 ["description"] = "Kilometres from the centre of a near filter. Present only when the request had one.",
             },
+            ["structuredData"] = new JsonObject
+            {
+                ["type"] = "object",
+                ["description"] = "The entry as schema.org JSON-LD. Present only on a read by slug, when the type "
+                    + "declares a structuredDataType and the entry has a title.",
+            },
         },
     };
 

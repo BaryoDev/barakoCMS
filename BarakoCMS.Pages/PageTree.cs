@@ -7,7 +7,7 @@ internal sealed record PageNode(
     string? Title,
     Guid? ParentId,
     bool ShowInNavigation,
-    int? Order);
+    long? Order);
 
 /// <summary>
 /// Paths, ancestry and sibling order over a set of pages that has already been loaded and filtered.

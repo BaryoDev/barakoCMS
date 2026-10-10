@@ -21,7 +21,7 @@ public class OidcBackchannelTests
     public OidcBackchannelTests()
     {
         _clients = new RecordingClientFactory(_stub);
-        _backchannel = new OidcBackchannel(_clients, _log) { Now = () => _now };
+        _backchannel = new OidcBackchannel(_clients, _log, new OidcClientSecrets()) { Now = () => _now };
     }
 
     private sealed class CapturingLogger : ILogger<OidcBackchannel>

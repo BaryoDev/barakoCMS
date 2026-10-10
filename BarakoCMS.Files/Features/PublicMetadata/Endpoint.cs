@@ -1,5 +1,7 @@
+using barakoCMS.Infrastructure.Caching;
 using FastEndpoints;
 using Marten;
+using Microsoft.AspNetCore.Builder;
 
 namespace BarakoCMS.Files.Features.PublicMetadata;
 
@@ -31,6 +33,7 @@ public class Endpoint(IQuerySession session) : Endpoint<Request, Response>
     {
         Get("/api/public/files/{id}/meta");
         AllowAnonymous();
+        Options(x => x.WithMetadata(DeliveryCache.Validators));
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
@@ -44,6 +47,7 @@ public class Endpoint(IQuerySession session) : Endpoint<Request, Response>
 
         // Shorter than the bytes' day: an alt text edit should reach the site without a purge.
         HttpContext.Response.Headers.CacheControl = "public, max-age=300";
+        DeliveryCache.Shared(HttpContext, DeliveryCacheClass.Short, [new CacheScope("file", file.Id.ToString("D"))]);
 
         await Send.OkAsync(new Response
         {
