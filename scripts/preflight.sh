@@ -135,6 +135,9 @@ bash scripts/changelog-assemble.sh --check || fail "changelog-assemble --check f
 echo "== module versions =="
 bash scripts/check-module-versions.sh || fail "check-module-versions.sh failed"
 
+echo "== upgrade plan =="
+bash scripts/test-upgrade-plan.sh || fail "test-upgrade-plan.sh failed"
+
 echo "== pinned versions agree =="
 bash scripts/check-pinned-versions.sh || fail "check-pinned-versions.sh failed"
 

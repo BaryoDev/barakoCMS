@@ -35,6 +35,7 @@ internal class ChangePasswordValidator : Validator<ChangePasswordRequest>
 /// short-lived access tokens are not individually killed; they expire on their own. It lives under the
 /// global <c>/api/me</c> identity prefix, so it is not tenant-scoped — a user is global.
 /// </summary>
+[barakoCMS.Infrastructure.Filters.NoIdempotentReplay]
 internal class ChangePasswordEndpoint(
     IDocumentSession session,
     IPasswordPolicyValidator passwordValidator) : Endpoint<ChangePasswordRequest, ChangePasswordResponse>

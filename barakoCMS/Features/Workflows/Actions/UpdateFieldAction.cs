@@ -176,11 +176,17 @@ internal class UpdateFieldAction : IWorkflowAction
         // lifecycle hooks below can compare the two.
         var data = new Dictionary<string, object>(targetContent.Data, targetContent.Data.Comparer);
 
+        // Written under the key the entry already stores the field as, so a Field spelled in
+        // another case replaces the value rather than adding a second key beside it.
+        string? writtenKey = null;
+        string KeyFor(string name) =>
+            data.Keys.FirstOrDefault(k => string.Equals(k, name, StringComparison.OrdinalIgnoreCase)) ?? name;
+
         // Handle nested field paths (e.g., "data.AssignedTo")
         if (field.StartsWith("data.", StringComparison.OrdinalIgnoreCase))
         {
-            var dataKey = field.Substring(5);
-            data[dataKey] = value;
+            writtenKey = KeyFor(field.Substring(5));
+            data[writtenKey] = value;
             dataChanged = true;
         }
         else if (field.Equals("Status", StringComparison.OrdinalIgnoreCase))
@@ -193,7 +199,8 @@ internal class UpdateFieldAction : IWorkflowAction
         else
         {
             // Default to data field
-            data[field] = value;
+            writtenKey = KeyFor(field);
+            data[writtenKey] = value;
             dataChanged = true;
         }
 
@@ -291,6 +298,36 @@ internal class UpdateFieldAction : IWorkflowAction
                 }
             }
 
+            // An email or a choice is checked as an entry write checks it, since a value stored
+            // unchecked here would be read by everything that trusts the field. The value is not
+            // named, as for an amount below. What the entry already holds is not checked again.
+            if (declared is not null && !barakoCMS.Core.Validation.StoredValues.IsUnchanged(declared.Name, value, targetContent))
+            {
+                if (string.Equals(declared.Type, "email", StringComparison.OrdinalIgnoreCase)
+                    && !barakoCMS.Core.Validation.FieldTypeRegistry.IsValidValue("email", value))
+                {
+                    return WorkflowActionResult.PermanentFailure(
+                        $"Field '{declared.Name}' takes a bare email address, and the value this action was given is not one.");
+                }
+
+                if (string.Equals(declared.Type, "choice", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (declared.Multiple)
+                    {
+                        return WorkflowActionResult.PermanentFailure(
+                            $"Field '{declared.Name}' holds a list of options, and this action sets a field to one text value.");
+                    }
+
+                    var accepted = (declared.Options ?? []).Where(o => o is not null).Select(o => o.Value).ToList();
+                    if (!accepted.Contains(value, StringComparer.Ordinal))
+                    {
+                        return WorkflowActionResult.PermanentFailure(
+                            $"Field '{declared.Name}' accepts {(accepted.Count == 0 ? "no values" : string.Join(", ", accepted))}, "
+                            + "and the value this action was given is not one of them.");
+                    }
+                }
+            }
+
             if (declared is not null
                 && barakoCMS.Core.Validation.MoneyFields.TryResolve(declared, out var currency, out var scale))
             {
@@ -309,7 +346,7 @@ internal class UpdateFieldAction : IWorkflowAction
                         + $"{(scale == 1 ? "place" : "places")}, and the value this action was given has more.");
                 }
 
-                data[dataKey] = amount;
+                data[writtenKey!] = amount;
             }
         }
 

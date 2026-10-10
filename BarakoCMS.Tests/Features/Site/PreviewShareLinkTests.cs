@@ -144,6 +144,7 @@ public class PreviewShareLinkTests
         var text = await preview.Content.ReadAsStringAsync(Ct);
         text.Should().Contain(ShareLinkTestHost.BodyOf("wip"));
         text.Should().NotContain(ShareLinkTestHost.SecretValue).And.NotContain(ShareLinkTestHost.BodyOf("other"));
+        text.Should().NotContain(other.ToString(), "the preview lifts the Published gate for this entry, not for the draft it points at");
 
         (await _host.SlugReadAsync(tenant, type, "other", preview: token)).StatusCode.Should().Be(HttpStatusCode.NotFound,
             "the token opens the entry it was issued for, whatever slug is in the URL");

@@ -57,16 +57,39 @@ internal sealed record PublicContentResponse(
 internal static class PublicDelivery
 {
     /// <summary>
-    /// The field holding an entry's slug: a field of type "slug", else a Public text field literally
-    /// named "slug" (case-insensitive). Null if the type has no such field, so it isn't slug-addressable.
+    /// The field holding an entry's slug for delivery: the field <see cref="SlugFieldForAuthoring"/>
+    /// names, when the type marks it Public. Null otherwise, so the type isn't slug-addressable.
     /// </summary>
     /// <remarks>
     /// The slug is served to anonymous callers outside the Public field allowlist, as the top-level
-    /// <c>slug</c> and in every URL built from it. So a field picked by its name alone has to be one
-    /// the type already serves: a Hidden field or a token that happens to be called Slug is not a
-    /// slug, and the type then has none, as a type without such a field always had.
+    /// <c>slug</c> and in every URL built from it, and a lookup by it answers whether a value is
+    /// stored. So it has to be a field the type already serves, however it was found: a slug field
+    /// marked Sensitive, a Hidden field or a token that happens to be called Slug is not a slug here,
+    /// and the type then has none, as a type without such a field always had.
+    ///
+    /// No fallback to another field when the slug field is not Public. Authoring holds the slug field
+    /// unique, and delivery addressing entries by a different field would address them by values
+    /// nothing keeps unique.
     /// </remarks>
     public static string? SlugField(ContentTypeDefinition def)
+    {
+        var field = SlugFieldForAuthoring(def);
+        return field is not null
+               && def.Fields.Any(f => f.Name == field && f.Sensitivity == SensitivityLevel.Public)
+            ? field
+            : null;
+    }
+
+    /// <summary>
+    /// The field the signed-in API treats as an entry's slug: a field of type "slug" whatever its
+    /// sensitivity, else a Public text field named "slug" (case-insensitive).
+    /// </summary>
+    /// <remarks>
+    /// For authoring only: the uniqueness check on write, the signed-in read by slug and a
+    /// collection push. A slug field marked Sensitive is still kept unique and still found there.
+    /// Anything anonymous uses <see cref="SlugField"/>.
+    /// </remarks>
+    public static string? SlugFieldForAuthoring(ContentTypeDefinition def)
     {
         var byType = def.Fields.FirstOrDefault(f => string.Equals(f.Type, "slug", StringComparison.OrdinalIgnoreCase));
         if (byType is not null) return byType.Name;
@@ -139,8 +162,12 @@ internal static class PublicDelivery
                 projectedTargets.Add((projected, targetDef!));
         }
 
-        // A target's file fields resolve as they do when it is read on its own, in one more read
-        // for all the targets together.
+        // A target's file and reference fields read as they do when it is read on its own, each in
+        // one more read for all the targets together.
+        var withReferences = await PublicReferenceFields.FilterAsync(projectedTargets, session, ct);
+        projectedTargets = withReferences
+            .Select((item, i) => (Item: item, projectedTargets[i].Definition))
+            .ToList();
         var resolved = (await PublicFileFields.ResolveAsync(projectedTargets, files, ct))
             .ToDictionary(r => r.Id);
 
@@ -291,7 +318,7 @@ internal static class PublicDelivery
             return new();
 
         var publicNames = def.Fields
-            .Where(f => f.Sensitivity == SensitivityLevel.Public && !IsToken(f))
+            .Where(IsDeliveredField)
             .Select(f => f.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
@@ -302,6 +329,10 @@ internal static class PublicDelivery
         barakoCMS.Core.Validation.InlineImageFields.DropUndeliverable(data, def);
         return data;
     }
+
+    /// <summary>Whether a field's value is delivered: Public, and not a token.</summary>
+    public static bool IsDeliveredField(FieldDefinition field) =>
+        field.Sensitivity == SensitivityLevel.Public && !IsToken(field);
 
     /// <summary>A token is never delivered, even from a definition stored with the field Public.</summary>
     /// <remarks>
@@ -316,6 +347,10 @@ internal static class PublicDelivery
     /// content type marks Public, or null if it must not be exposed at all. Robust to a missing content
     /// type definition: with no schema to say which fields are Public, nothing is delivered (fail closed).
     /// </summary>
+    /// <remarks>
+    /// A reference field still holds the ids it was stored with, drafts included, since this reads
+    /// nothing. What a response serves goes through <see cref="PublicReferenceFields.FilterAsync(IReadOnlyList{PublicContentResponse}, ContentTypeDefinition, IQuerySession, CancellationToken)"/> as well.
+    /// </remarks>
     public static PublicContentResponse? ToPublic(ContentDoc c, ContentTypeDefinition? def, string? slugField, bool allowUnpublished = false)
     {
         /* Draft preview (allowUnpublished) skips ONLY the Published gate — a valid, tenant-scoped
@@ -336,7 +371,7 @@ internal static class PublicDelivery
          * would leak it. Case-insensitive comparison closes the casing gap too.
          */
         var publicNames = def.Fields
-            .Where(f => f.Sensitivity == SensitivityLevel.Public && !IsToken(f))
+            .Where(IsDeliveredField)
             .Select(f => f.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
@@ -416,6 +451,9 @@ internal class ListPublishedEndpoint(
             return;
         }
 
+        // A reference filter answers against what delivery shows, not the stored ids.
+        query = await query.WithDeliverableReferencesAsync(session, ct);
+
         var (includes, includeError) = PublicDelivery.ParseIncludes(
             HttpContext.Request.Query["include"].FirstOrDefault(), def);
         if (includeError is not null)
@@ -484,6 +522,7 @@ internal class ListPublishedEndpoint(
 
         var files = Resolve<barakoCMS.Core.Interfaces.IFileStore>();
         items = await PublicFileFields.ResolveAsync(items, def!, files, ct);
+        items = await PublicReferenceFields.FilterAsync(items, def!, session, ct);
         items = await PublicDelivery.ResolveIncludesAsync(items, includes, def, session, ct, files);
 
         PublicDelivery.SetCache(HttpContext);
@@ -557,6 +596,8 @@ internal class PublicSearchEndpoint(IQuerySession session, IConfiguration config
             return;
         }
 
+        filters = await filters.WithDeliverableReferencesAsync(session, ct);
+
         if (q.Length < 2)
         {
             // Otherwise this 200 went out with no cache header at all, the same gap #546 closed
@@ -593,6 +634,7 @@ internal class PublicSearchEndpoint(IQuerySession session, IConfiguration config
         // After the ranking, which reads the stored values, and for the returned entries only.
         results = await PublicFileFields.ResolveAsync(
             results, def!, Resolve<barakoCMS.Core.Interfaces.IFileStore>(), ct);
+        results = await PublicReferenceFields.FilterAsync(results, def!, session, ct);
 
         PublicDelivery.SetCache(HttpContext);
         await Send.OkAsync(new PublicSearchResponse(results, results.Count, q), ct);
@@ -712,6 +754,7 @@ internal class GetBySlugEndpoint(
 
         projected = (await PublicFileFields.ResolveAsync(
             [projected], def!, Resolve<barakoCMS.Core.Interfaces.IFileStore>(), ct))[0];
+        projected = (await PublicReferenceFields.FilterAsync([projected], def!, session, ct))[0];
 
         if (previewLink is not null)
         {

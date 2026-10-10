@@ -683,6 +683,31 @@ Marten session for arranging data, and `CreateClient()` is anonymous. Nothing is
 that fails the contract check or configures a document type it does not own fails here the way it
 fails on a deployment.
 
+#### More than one host in a test process
+
+FastEndpoints keeps some of its state in statics, one copy for the whole process: the JWT signing
+key, its endpoint configuration, and the service resolver that code outside a request resolves
+through. Each host that starts writes its own values there. `BarakoTestHost` copes with the first
+two for you: each host validates tokens with its own key, and hosts in one process start one at a
+time, so several fixtures can run side by side.
+
+The resolver it cannot fix. After a host is disposed the static still points at that host's
+disposed services until another host starts, and anything that goes through it outside a request
+then throws `ObjectDisposedException`. `JwtBearer.CreateToken` is one: the core issues every token
+with it. So:
+
+- Copy the fixture pattern above. One host per fixture, shared by the class and disposed by xunit
+  when the class is done, is safe.
+- Do not build and dispose a host inside a test while another host in the same process is still in
+  use. If a test has to, give it its own collection with `DisableParallelization = true`, and do not
+  issue tokens or send FastEndpoints commands outside a request after it.
+- Sign tokens for a test with `CreateAdminClientAsync`, `CreateClientAsync` or `JwtKey`, not with
+  `JwtBearer.CreateToken` from the test itself.
+
+barakoCMS's own suite builds such hosts in `JobWorkerSchemaOrderTests`. It puts the resolver back
+after each one with a test-only helper, `BarakoCMS.Tests/FastEndpointsResolver.cs`, which reaches
+into FastEndpoints internals; it is a workaround for this repository, not an API to depend on.
+
 ### What the host checks at startup, and what it does not
 
 Checked, in this order, before any request is served:

@@ -7,7 +7,7 @@ namespace barakoCMS.Infrastructure.Filters;
 /// <summary>
 /// Builds the stored key for an idempotent request from the client's raw Idempotency-Key.
 ///
-/// The raw key is namespaced by tenant and user so it is unique <em>to the caller</em>, not
+/// The raw key is namespaced by tenant and caller so it is unique <em>to the caller</em>, not
 /// globally. Without this, tenant B reusing a key tenant A already used gets a spurious 409, and one
 /// user could probe another's key space.
 /// </summary>
@@ -20,15 +20,27 @@ internal static class IdempotencyKeyScope
     public static string Build(HttpContext http, string rawKey)
     {
         var tenant = http.RequestServices.GetService<TenantContext>()?.Slug ?? Models.Tenant.DefaultSlug;
+        return string.Join(Sep, tenant, Caller(http) ?? "anon", rawKey);
+    }
 
-        // Prefer the stable user id; fall back to the username, then to "anon" for unauthenticated
-        // POSTs (rare, but the header is still honoured).
+    /// <summary>Who the key belongs to, or null for an unauthenticated caller.</summary>
+    /// <remarks>
+    /// An API key is its own caller, apart from the user it acts for, so a key and that user's own
+    /// session never answer each other's replays. Otherwise the stable user id, then the username.
+    /// Every unauthenticated caller shares one bucket, which is why <see cref="IdempotencyFilter"/>
+    /// never replays a stored response into it.
+    /// </remarks>
+    public static string? Caller(HttpContext http)
+    {
         var user = http.User;
-        var userId = user?.FindFirst("UserId")?.Value
-                     ?? user?.FindFirst(ClaimTypes.NameIdentifier)?.Value
-                     ?? user?.FindFirst("Username")?.Value
-                     ?? "anon";
+        var apiKeyId = user?.FindFirst("apikey_id")?.Value;
+        if (apiKeyId is not null)
+        {
+            return "apikey:" + apiKeyId;
+        }
 
-        return string.Join(Sep, tenant, userId, rawKey);
+        return user?.FindFirst("UserId")?.Value
+               ?? user?.FindFirst(ClaimTypes.NameIdentifier)?.Value
+               ?? user?.FindFirst("Username")?.Value;
     }
 }

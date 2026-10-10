@@ -102,6 +102,7 @@ internal class SwitchTenantValidator : Validator<SwitchTenantRequest>
 /// expiry. It returns no refresh token: the one the caller already holds is not tied to a tenant, since
 /// a refresh mints for the <c>X-Tenant</c> it is sent and re-checks membership.
 /// </remarks>
+[barakoCMS.Infrastructure.Filters.NoIdempotentReplay]
 internal class SwitchTenantEndpoint : Endpoint<SwitchTenantRequest, SwitchTenantResponse>
 {
     private readonly IDocumentSession _session;

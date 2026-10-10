@@ -113,7 +113,7 @@ internal sealed class RateLimitAfterAuthentication
             return true;
         }
 
-        await RateLimitSetup.Reject(context, context.RequestAborted);
+        await RateLimitSetup.Reject(context, lease, context.RequestAborted);
         return false;
     }
 

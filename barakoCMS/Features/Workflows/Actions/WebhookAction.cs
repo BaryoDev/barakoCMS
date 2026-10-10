@@ -229,6 +229,12 @@ internal class WebhookAction : IWorkflowAction
 
             delivery.RequestHeaders = RecordableHeaders(request);
 
+            // Safe to resend inside this attempt after a timeout or a 502: every try carries the same
+            // X-Barako-Delivery id, and the Idempotency-Key when the runner supplied one, so a
+            // receiver that already took the first one can tell the second is the same delivery.
+            request.Options.Set(OutboundResilienceHandler.Replayable, true);
+            OutboundResilienceHandler.SetTenant(request, tenant);
+
             // Headers only. The default completion option holds the whole body in memory before
             // returning, so the 4 KB cut below would apply after a receiver's 100 MB answer had
             // already been buffered.
@@ -255,6 +261,20 @@ internal class WebhookAction : IWorkflowAction
             // an unexpected error and returned normally, so a cancelled run looked like a completed
             // one to everything upstream.
             throw;
+        }
+        catch (OutboundCircuitOpenException ex)
+        {
+            timer.Stop();
+
+            // Retryable, so the durable queue comes back after its backoff instead of this attempt
+            // adding to the load on a host that is failing. The message names the host only.
+            _logger.LogWarning("Webhook to {Url} not sent: {Reason}", Redact(url), ex.Message);
+
+            delivery.DurationMs = timer.ElapsedMilliseconds;
+            delivery.Error = ex.Message;
+            await RecordAsync(delivery, ct);
+
+            return WorkflowActionResult.Failure($"Webhook to {Redact(url)} was not sent. {ex.Message}");
         }
         catch (HttpRequestException ex)
         {

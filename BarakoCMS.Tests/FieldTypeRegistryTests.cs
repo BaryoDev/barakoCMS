@@ -105,6 +105,44 @@ public class FieldTypeRegistryTests
     }
 
     [Theory]
+    [InlineData("Name<a@b.co>")]
+    [InlineData("<a@b.co>")]
+    [InlineData("Ana Cruz <a@b.co>")]
+    [InlineData("\"Ana\"@b.co")]
+    [InlineData("a@b.co>")]
+    [InlineData("a@b.co\r\nBcc: c@d.co")]
+    [InlineData("a\u0000@b.co")]
+    [InlineData("a\u200B@b.co")]
+    [InlineData("a@b.co,c@d.co")]
+    [InlineData("a@b.co;c@d.co")]
+    [InlineData("(note)a@b.co")]
+    public void An_email_is_a_bare_address_and_a_header_form_is_refused(string value)
+    {
+        FieldTypeRegistry.IsValidValue("email", value).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("first.last+tag@example.co.uk")]
+    [InlineData("o'brien@example.ie")]
+    [InlineData("juan@ejemplo.com.ph")]
+    [InlineData("josé@exämple.com")]
+    public void An_ordinary_address_is_still_an_email(string value)
+    {
+        FieldTypeRegistry.IsValidValue("email", value).Should().BeTrue();
+    }
+
+    [Fact]
+    public void An_email_longer_than_a_mail_server_takes_is_refused()
+    {
+        var local = new string('a', 64);
+        var longest = local + "@" + new string('b', 254 - 64 - 1 - 3) + ".co";
+        longest.Should().HaveLength(254);
+
+        FieldTypeRegistry.IsValidValue("email", longest).Should().BeTrue();
+        FieldTypeRegistry.IsValidValue("email", "a" + longest).Should().BeFalse();
+    }
+
+    [Theory]
     [InlineData(12.50, true)]
     [InlineData(0, true)]
     [InlineData(-5, true)]

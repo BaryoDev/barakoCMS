@@ -459,9 +459,11 @@ public class ManyValuedReferenceTests : IAsyncLifetime
     [Fact]
     public async Task Eq_ne_and_has_on_a_list_reference_compare_ids_in_any_case_and_other_operators_are_refused()
     {
-        var (_, evt) = await StoreTypesAsync();
-        var ada = Guid.NewGuid();
-        var grace = Guid.NewGuid();
+        // Both speakers are stored and published: a filter answers against the ids delivery shows,
+        // and an id that names no entry is not one of them.
+        var (speaker, evt) = await StoreTypesAsync();
+        var ada = await StoreEntryAsync(speaker, new() { ["Name"] = "Ada" });
+        var grace = await StoreEntryAsync(speaker, new() { ["Name"] = "Grace" });
 
         // Stored directly, as a bundle that turned an array into a reference would leave it.
         await StoreEntryAsync(evt, new()

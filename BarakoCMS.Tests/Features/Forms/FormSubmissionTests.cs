@@ -98,6 +98,43 @@ public class FormSubmissionTests
     }
 
     [Fact]
+    public async Task A_field_sent_under_two_spellings_is_refused_as_a_signed_in_write_refuses_it()
+    {
+        var type = await CreateTypeAsync();
+        await EnableAsync(type);
+
+        var response = await Visitor().PostAsJsonAsync($"/api/public/forms/{type}", new
+        {
+            data = new Dictionary<string, object>
+            {
+                ["name"] = "Ana",
+                ["email"] = "ana@example.com",
+                ["EMAIL"] = "Ana <ana@example.com>",
+            },
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
+        (await ErrorNamesAsync(response)).Should().Equal(["data.email"]);
+        (await EntriesAsync(type)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_header_form_email_is_refused_as_a_signed_in_write_refuses_it()
+    {
+        var type = await CreateTypeAsync();
+        await EnableAsync(type);
+
+        var response = await Visitor().PostAsJsonAsync($"/api/public/forms/{type}", new
+        {
+            data = new { name = "Ana", email = "Ana <ana@example.com>" },
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
+        (await ErrorNamesAsync(response)).Should().Equal(["data.email"]);
+        (await EntriesAsync(type)).Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Unknown_and_non_public_fields_are_refused_alike()
     {
         var type = await CreateTypeAsync();
@@ -190,8 +227,8 @@ public class FormSubmissionTests
             new { data = new { name = "Ben", entryType = "fun" } });
         refused.StatusCode.Should().Be(HttpStatusCode.BadRequest, "values are matched exactly");
         var reasons = await ErrorReasonsAsync(refused);
-        reasons.Should().ContainSingle(r => r.Contains("FUN") && r.Contains("COMPETE") && r.Contains("'fun'"),
-            "the refusal must name what is accepted");
+        reasons.Should().ContainSingle(r => r.Contains("FUN") && r.Contains("COMPETE") && !r.Contains("'fun'"),
+            "the refusal names what is accepted and never the value received");
 
         var entries = await EntriesAsync(type);
         entries.Should().HaveCount(1, "only the offered value was stored");
@@ -212,7 +249,8 @@ public class FormSubmissionTests
             new { data = new { name = "Ben", sizes = new[] { "S", "XL" } } });
         refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         var reasons = await ErrorReasonsAsync(refused);
-        reasons.Should().ContainSingle(r => r.Contains("'XL'"));
+        reasons.Should().ContainSingle(r => r.Contains("(sizes)") && !r.Contains("XL"),
+            "the refusal names the field and never the value received");
 
         var entries = await EntriesAsync(type);
         entries.Should().HaveCount(1, "only the offered list was stored");

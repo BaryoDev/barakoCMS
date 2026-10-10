@@ -78,6 +78,15 @@ status code each one answers.
 { "Read": { "Enabled": true, "Conditions": { "memberId": { "_eq": "$CURRENT_USER" } } } }
 ```
 
+A write is checked against the entry before and after it. An update, a collection push, a
+rollback and a transition carrying values need the granting rule to hold for the stored entry and
+for the entry as it will be stored. A create needs a Create rule to hold for the entry as it will
+be stored, with the caller as its creator, after sensitivity, validation and lifecycle hooks have
+run. So a rule limited to `Branch` `A` cannot create an entry in `B`, or move one there. A rule
+with no conditions grants every entry, as before. A public form submission and a portability
+import are not asked the Create rule: the form's own settings and the import capability decide
+those.
+
 ### Something about the caller other than their id
 
 `$CURRENT_USER` is the caller's user id. `$CURRENT_USER.<name>` is a value from the caller's member
@@ -160,7 +169,7 @@ not two names around one dot, a first name that is not a reference field of the 
 (a reference with `multiple` counts as not one, with the same message),
 a second name that is not a Public field of the referenced type, an operator outside the four, a
 comparison that is not on text, a content type the tenant does not define, and a condition on a
-Create rule (Create has no stored entry and does not evaluate conditions). One write checks such
+Create rule (Create has no stored entry to follow a reference from). One write checks such
 conditions on at most 50 content types.
 
 The check is against the content types of the tenant the request is made in. Roles are stored once
@@ -394,7 +403,25 @@ The same rules decide who may set a field: a caller who may not see it may not
 write it.
 
 The caller's roles are read from the store on each request, the roles they hold
-in the current tenant, not from the token's role claims. Taking a capability off
+in the current tenant, not from the token's role claims. `GET /api/me` answers
+the same reading for the caller, so a console can decide the way the API does:
+
+```json
+{
+  "userId": "8c1e...",
+  "username": "ana",
+  "tenant": "clinic",
+  "roles": [ { "id": "4f2a...", "name": "Nurse" } ],
+  "capabilities": ["view_sensitive"]
+}
+```
+
+`roles` is the caller's global roles and their active membership's roles in the
+tenant, and `capabilities` is every capability those roles carry, with `*`
+reported as `*` rather than expanded. The tenant is the token's own, or the
+resolved one for a token without a tenant claim. The route takes no parameters,
+so it only ever describes the caller. It is sent `Cache-Control: no-store`, and
+an API key gets a 403, as on every route outside the content API. Taking a capability off
 a role, or a role off a user, applies on the next request rather than when the
 token expires. A read or a write costs up to three small queries, once per
 request, when the entry or its type is restricted. A Public entry of a type with
@@ -726,22 +753,26 @@ same registries the API checks requests against, so a client does not keep its o
 
 ```json
 {
-  "apiContractVersion": 6,
+  "apiContractVersion": 7,
   "fieldTypes": [
     { "name": "int", "aliases": ["integer", "number"], "editorHint": "number", "ruleNames": ["min", "max", "requiredWhen"] }
   ],
   "rules": [ { "name": "pattern", "aliases": ["regex"] } ],
   "fieldEditors": [ { "name": "blocks", "fieldTypes": ["json", "array"] } ],
   "fieldRoles": [ { "name": "title", "fieldTypes": ["string", "text"] } ],
+  "credentialNameParts": ["secret", "password", "token"],
   "capabilities": [ { "name": "manage_roles", "source": "core", "note": null } ],
   "workflowActions": [ { "type": "Webhook", "requiredParameters": ["Url"], "optionalParameters": ["Secret"], "secretParameters": ["Secret"] } ],
-  "modules": [ { "name": "Pages", "httpContractVersion": 1 } ]
+  "modules": [ { "name": "Pages", "httpContractVersion": 2 } ]
 }
 ```
 
-`fieldTypes`, `rules`, `fieldEditors` and `fieldRoles` go to every signed-in caller. The last two
-are the values a field's `editor` and `role` may hold, see
-[field-hints-and-roles.md](field-hints-and-roles.md). The other three repeat what an endpoint with
+`fieldTypes`, `rules`, `fieldEditors`, `fieldRoles` and `credentialNameParts` go to every signed-in
+caller. `fieldEditors` and `fieldRoles` are the values a field's `editor` and `role` may hold, see
+[field-hints-and-roles.md](field-hints-and-roles.md). `credentialNameParts` is the whole list of
+words that make a setting key or a workflow action parameter read as a credential when its name
+contains one, ignoring case (the example above is shortened). It is read from the list the API
+checks with, so a console masks its inputs by it instead of keeping a copy. The other three repeat what an endpoint with
 a gate of its own already lists, so each is `null` for a caller that endpoint would refuse, and a
 list, possibly empty, for one it would serve. So `null` means withheld, and an empty list means none:
 

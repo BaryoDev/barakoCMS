@@ -2,6 +2,7 @@ using barakoCMS.Core.Interfaces;
 using FastEndpoints;
 using Marten;
 using barakoCMS.Infrastructure.Auth;
+using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using barakoCMS.Events;
 
@@ -123,6 +124,14 @@ internal class RollbackEndpoint(
         // that changes a field the Update rule does not let the caller set.
         await Resolve<barakoCMS.Core.Interfaces.ISensitivityService>()
             .ApplyWriteAsync(content, data, HttpContext, ct);
+
+        // The update rule has to hold for the entry as restored too, or restoring an old version
+        // moves the entry out of the rows the rule limits this caller to.
+        if (!await permissionResolver.AllowsWrittenEntryAsync(actor, content, "update", data, ct))
+        {
+            await Send.ForbiddenAsync(ct);
+            return;
+        }
 
         var validationResult = await Resolve<barakoCMS.Infrastructure.Services.IContentValidatorService>()
             .ValidateAsync(content.ContentType, data, existing: content, caller: User);

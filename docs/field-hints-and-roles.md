@@ -140,6 +140,25 @@ changes nothing records nothing.
 A console can read these lists instead of keeping its own copy. A value this API does not list is
 one it would refuse.
 
+A renderer reads a publicly deliverable type's own declaration anonymously, from
+`GET /api/public/types/{type}/description`:
+
+```json
+{
+  "name": "event",
+  "routeTemplate": "/whats-on/{slug}",
+  "fields": [
+    { "name": "Title", "type": "string", "role": "title", "editor": null },
+    { "name": "StartsAt", "type": "datetime", "role": "date", "editor": null }
+  ]
+}
+```
+
+Only the Public fields are listed, the ones delivery returns values for, and nothing about their
+sensitivity, rules or defaults. `routeTemplate` is `null` when the type declares none or the stored
+value fails the rule above. A type that is not publicly deliverable is a 404, the same as an unknown
+one. The answer is cached for one minute and varies by `X-Tenant`, like the other delivery reads.
+
 ## Blueprints and bundles
 
 A blueprint file and a Portability bundle carry all four, and both are held to the rules above.

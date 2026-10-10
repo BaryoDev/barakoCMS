@@ -286,6 +286,14 @@ internal sealed class ContentTransitioner(
             {
                 await services.GetRequiredService<ISensitivityService>().ApplyTransitionWriteAsync(
                     current, data, ownRequest ?? RequestNaming(user!), ct);
+
+                // The transition rule has to hold for the entry the values leave behind, or a
+                // field the rule filters on could be sent to move the entry outside it.
+                if (!await permissionResolver.AllowsWrittenEntryAsync(
+                        user!, current, PermissionResolver.TransitionActionPrefix + declared.Name, data, ct))
+                {
+                    return ContentTransitionResult.Forbidden("The actor does not hold the permission for this transition.");
+                }
             }
         }
 

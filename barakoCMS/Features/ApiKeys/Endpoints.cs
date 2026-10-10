@@ -27,6 +27,7 @@ internal sealed record CreateApiKeyResponse(
     string TenantSlug, DateTime? ExpiresAt, DateTime CreatedAt, List<string> ContentTypes);
 
 /// <summary>POST /api/api-keys — create a key; returns the full secret ONCE.</summary>
+[barakoCMS.Infrastructure.Filters.NoIdempotentReplay]
 internal class CreateApiKeyEndpoint(
     IDocumentSession session,
     ApiKeyService keys) : Endpoint<CreateApiKeyRequest, CreateApiKeyResponse>

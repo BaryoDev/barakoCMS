@@ -176,6 +176,14 @@ internal sealed class Endpoint(
 
         foreach (var field in fields.Values)
         {
+            // Refused as a signed-in write refuses it. Reading only the first spelling would accept
+            // a submission whose other spelling nothing checked.
+            if (submitted.Keys.Count(k => k.Equals(field.Name, StringComparison.OrdinalIgnoreCase)) > 1)
+            {
+                ValidationFailures.Add(new ValidationFailure($"data.{field.Name}", $"'{Label(field)}' was sent more than once, ignoring case."));
+                continue;
+            }
+
             var value = submitted.FirstOrDefault(kv => kv.Key.Equals(field.Name, StringComparison.OrdinalIgnoreCase)).Value;
             if (value is JsonElement { ValueKind: JsonValueKind.Null or JsonValueKind.Undefined })
             {

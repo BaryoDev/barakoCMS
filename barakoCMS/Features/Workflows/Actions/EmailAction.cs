@@ -1,6 +1,7 @@
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Infrastructure.Attributes;
 using barakoCMS.Features.Settings.Email;
+using barakoCMS.Infrastructure.Http;
 using barakoCMS.Infrastructure.Multitenancy;
 using Microsoft.Extensions.Logging;
 
@@ -23,20 +24,24 @@ internal class EmailAction : IWorkflowAction
     private readonly TenantContext? _tenant;
     private readonly IFileStore? _files;
     private readonly EmailAttachmentLimits _limits;
+    private readonly TimeSpan? _sendTimeout;
 
     internal const string AttachmentsParameter = "Attachments";
 
     /// <summary>
     /// Creates a new EmailAction. Without a <paramref name="tenant"/> the email is sent as belonging
     /// to no tenant, and without <paramref name="files"/> an email that names an attachment fails.
+    /// <paramref name="resilience"/> carries the optional send timeout; without it a send has none.
     /// </summary>
     public EmailAction(
         IEmailService emailService,
         ILogger<EmailAction> logger,
         TenantContext? tenant = null,
         IFileStore? files = null,
-        IConfiguration? configuration = null)
+        IConfiguration? configuration = null,
+        OutboundResilience? resilience = null)
     {
+        _sendTimeout = (resilience ?? OutboundResilience.Default).Options.EmailSendTimeout;
         _emailService = emailService;
         _logger = logger;
         _tenant = tenant;
@@ -114,32 +119,29 @@ internal class EmailAction : IWorkflowAction
             attachments = resolution.Files;
         }
 
+        // Not retried inside the attempt, and no breaker. The shipped providers wrap every failure in
+        // one InvalidOperationException with the cause dropped on purpose (it can carry the SMTP
+        // password), so a send that never left cannot be told from one the relay may have taken, and
+        // there is no idempotency key to make a second send safe.
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        if (_sendTimeout is { } limit) deadline.CancelAfter(limit);
+
         try
         {
-            // On the tenant's behalf: the run's scope carries the tenant whose workflow this is.
-            if (attachments.Count == 0)
-            {
-                if (_tenant is null)
-                {
-                    await _emailService.SendEmailAsync(to, subject, body, ct);
-                }
-                else
-                {
-                    await _emailService.SendForTenantAsync(_tenant.Slug, to, subject, body, ct);
-                }
-            }
-            else if (_tenant is null)
-            {
-                await _emailService.SendEmailAsync(to, subject, body, attachments, ct);
-            }
-            else
-            {
-                await _emailService.SendForTenantAsync(_tenant.Slug, to, subject, body, attachments, ct);
-            }
+            await SendAsync(to, subject, body, attachments, deadline.Token);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             throw;
+        }
+        catch (OperationCanceledException) when (deadline.IsCancellationRequested)
+        {
+            // Thrown on, not returned as a failure: the runner records a timeout as unknown and does
+            // not retry it, because the message may already have gone and a retry is a second email.
+            var seconds = _sendTimeout?.TotalSeconds ?? 0;
+            _logger.LogWarning("Email send did not finish within {Seconds} s.", seconds);
+            throw new OperationCanceledException(
+                $"The email provider did not finish within {seconds:0.#} s, so it is not known whether the email was sent.");
         }
         catch (AttachmentsNotSupportedException)
         {
@@ -162,6 +164,16 @@ internal class EmailAction : IWorkflowAction
 
         return WorkflowActionResult.Success();
     }
+
+    // On the tenant's behalf: the run's scope carries the tenant whose workflow this is.
+    private Task SendAsync(string to, string subject, string body, IReadOnlyList<EmailAttachment> attachments, CancellationToken ct) =>
+        (attachments.Count, _tenant) switch
+        {
+            (0, null) => _emailService.SendEmailAsync(to, subject, body, ct),
+            (0, { } tenant) => _emailService.SendForTenantAsync(tenant.Slug, to, subject, body, ct),
+            (_, null) => _emailService.SendEmailAsync(to, subject, body, attachments, ct),
+            (_, { } tenant) => _emailService.SendForTenantAsync(tenant.Slug, to, subject, body, attachments, ct),
+        };
 
     /// <summary>
     /// One address and nothing else. <c>To</c> is often filled from an entry field, and a field a

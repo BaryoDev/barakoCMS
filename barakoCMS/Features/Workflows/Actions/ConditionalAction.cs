@@ -109,8 +109,8 @@ internal class ConditionalAction : IWorkflowAction
             return WorkflowActionResult.Success();
         }
 
-        var availableActions = _serviceProvider.GetService<IEnumerable<IWorkflowAction>>();
-        if (availableActions == null)
+        await using var availableActions = WorkflowActionSet.Build(_serviceProvider, _logger);
+        if (availableActions.Actions == null)
         {
             return WorkflowActionResult.PermanentFailure("No workflow actions are registered, so the conditional's children could not run.");
         }
@@ -127,7 +127,16 @@ internal class ConditionalAction : IWorkflowAction
 
         foreach (var childAction in actions)
         {
-            var plugin = availableActions.FirstOrDefault(a => a.Type == childAction.Type);
+            var plugin = availableActions.Find(childAction.Type);
+            if (plugin == null && availableActions.NotBuiltError(childAction.Type) is not null)
+            {
+                // Not permanent: the child that could not be built may be this one, and the runner's
+                // attempt limit still ends the retries.
+                _logger.LogWarning("Action type {Type} not found while some actions could not be built", childAction.Type);
+                failedTypes.Add(childAction.Type);
+                continue;
+            }
+
             if (plugin == null)
             {
                 _logger.LogWarning("Action type {Type} not found", childAction.Type);

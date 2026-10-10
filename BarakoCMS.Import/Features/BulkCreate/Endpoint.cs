@@ -104,7 +104,28 @@ public class Endpoint(
         // a field the caller may not see is dropped, the record is validated, and the type's
         // lifecycle hooks run. The batch carries the definition resolved above, and what earlier
         // rows claimed, so a singleton type takes one row and two rows cannot share a slug.
-        var batch = new ContentCreateBatch();
+        // The check before the batch asks only whether a Create rule exists. This asks whether one
+        // holds for each row as it will be stored, the caller as its creator. Asked by the batch
+        // before it counts the row, so a refused row claims no slug a later row could need.
+        var batch = new ContentCreateBatch
+        {
+            Admit = async (request, token) =>
+            {
+                var asStored = new Content
+                {
+                    Id = Guid.NewGuid(),
+                    ContentType = request.ContentType,
+                    Data = new Dictionary<string, object>(request.Data, request.Data.Comparer),
+                    Status = request.Status,
+                    CreatedBy = userId,
+                    LastModifiedBy = userId,
+                };
+
+                return await permissions.CanPerformActionAsync(user, request.ContentType, "create", asStored, token)
+                    ? null
+                    : "Your create permission on this content type does not cover this row.";
+            },
+        };
         if (definition is not null)
             batch.UseSchema(definition);
 

@@ -12,7 +12,8 @@ namespace BarakoCMS.Tests;
 /// The cleanup sweep has to reach every document type that grows without bound.
 /// </summary>
 /// <remarks>
-/// It swept RefreshToken, RevokedToken and IdempotencyRecord and never touched OtpCode, and no
+/// It swept RefreshToken, RevokedToken and IdempotencyRecord (now IdempotencyRetentionService's job)
+/// and never touched OtpCode, and no
 /// other deletion path existed. <c>OtpService.SendCodeAsync</c> only marks outstanding codes
 /// Consumed when a new one is issued, so every sign-in request left a permanent row behind and the
 /// "this email, not consumed" scan in send and verify degraded with the table. The ExpiresAt index
@@ -44,14 +45,6 @@ public class TokenCleanupTests
         using var scope = _factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
         return await session.LoadAsync<T>(id, TestContext.Current.CancellationToken);
-    }
-
-    /// <summary>IdempotencyRecord is keyed by its string Key, not a Guid.</summary>
-    private async Task<IdempotencyRecord?> LoadByKeyAsync(string key)
-    {
-        using var scope = _factory.Services.CreateScope();
-        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
-        return await session.LoadAsync<IdempotencyRecord>(key, TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -92,7 +85,7 @@ public class TokenCleanupTests
     }
 
     /// <summary>
-    /// The three passes that already existed still do their job after being rewritten as
+    /// The token passes that already existed still do their job after being rewritten as
     /// <c>DeleteWhere</c>, and still leave unexpired rows alone.
     /// </summary>
     [Fact]
@@ -118,25 +111,12 @@ public class TokenCleanupTests
             TokenJti = $"expired-{Guid.NewGuid():N}",
             ExpiresAt = DateTime.UtcNow.AddDays(-1),
         };
-        var oldIdempotency = new IdempotencyRecord
-        {
-            Key = $"old-{Guid.NewGuid():N}",
-            CreatedAt = DateTime.UtcNow.AddHours(-48),
-        };
-        var freshIdempotency = new IdempotencyRecord
-        {
-            Key = $"fresh-{Guid.NewGuid():N}",
-            CreatedAt = DateTime.UtcNow,
-        };
-
-        await StoreAsync(expiredRefresh, liveRefresh, expiredRevoked, oldIdempotency, freshIdempotency);
+        await StoreAsync(expiredRefresh, liveRefresh, expiredRevoked);
 
         await SweepAsync();
 
         (await LoadAsync<RefreshToken>(expiredRefresh.Id)).Should().BeNull();
         (await LoadAsync<RefreshToken>(liveRefresh.Id)).Should().NotBeNull();
         (await LoadAsync<RevokedToken>(expiredRevoked.Id)).Should().BeNull();
-        (await LoadByKeyAsync(oldIdempotency.Key)).Should().BeNull();
-        (await LoadByKeyAsync(freshIdempotency.Key)).Should().NotBeNull();
     }
 }

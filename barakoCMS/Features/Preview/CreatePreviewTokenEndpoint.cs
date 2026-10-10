@@ -41,6 +41,7 @@ internal class CreatePreviewTokenResponse
 /// 404s and the 401 for a token whose user is gone. It is not on an answer written before the
 /// handler runs: the 401 for no credentials, a 400 from binding, a 429, or the 403 an API key gets.
 /// </remarks>
+[barakoCMS.Infrastructure.Filters.NoIdempotentReplay]
 internal class CreatePreviewTokenEndpoint(
     IDocumentSession session,
     IPermissionResolver permissions) : Endpoint<CreatePreviewTokenRequest, CreatePreviewTokenResponse>

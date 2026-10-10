@@ -9,9 +9,9 @@ using Xunit;
 namespace BarakoCMS.Tests.Features.Public;
 
 /// <summary>
-/// Delivery takes an entry's slug from a field of type slug, or from a Public text field named
-/// Slug. A token or a Hidden field that happens to be named Slug is not a slug, so its value is not
-/// served as one, and the type has no slug route.
+/// Delivery takes an entry's slug from a Public field of type slug, or from a Public text field
+/// named Slug. A slug field marked Sensitive, a token or a Hidden field that happens to be named
+/// Slug is not a slug, so its value is not served as one, and the type has no slug route.
 /// </summary>
 /// <remarks>
 /// The type and the entry are stored directly, so the stored value is one the test knows and the
@@ -112,6 +112,45 @@ public class SlugFieldDeliveryTests
         {
             Name = "Slug", DisplayName = "Slug", Type = "string", Sensitivity = SensitivityLevel.Hidden,
         });
+    }
+
+    [Fact]
+    public async Task A_sensitive_slug_field_is_not_served_as_the_slug()
+    {
+        await AssertNotServedAsync(new FieldDefinition
+        {
+            Name = "Slug", DisplayName = "Slug", Type = "slug", Sensitivity = SensitivityLevel.Sensitive,
+        });
+    }
+
+    [Fact]
+    public async Task A_public_slug_field_is_still_the_slug()
+    {
+        var (type, id, marker) = await StoreAsync(new FieldDefinition { Name = "Slug", DisplayName = "Slug", Type = "slug" });
+
+        var entry = JsonDocument.Parse(await OkBodyAsync($"/api/public/{type}/{marker}")).RootElement;
+
+        entry.GetProperty("id").GetGuid().Should().Be(id);
+        entry.GetProperty("slug").GetString().Should().Be(marker);
+    }
+
+    [Fact]
+    public void A_sensitive_slug_field_is_still_the_slug_for_authoring()
+    {
+        var def = new ContentTypeDefinition
+        {
+            Id = Guid.NewGuid(),
+            Name = "slugrule",
+            DisplayName = "slugrule",
+            Fields =
+            [
+                new FieldDefinition { Name = "Handle", DisplayName = "Handle", Type = "slug", Sensitivity = SensitivityLevel.Sensitive },
+            ],
+        };
+
+        barakoCMS.Features.Public.PublicDelivery.SlugFieldForAuthoring(def).Should().Be("Handle",
+            "a signed-in caller still writes and reads by it, and it is still held unique");
+        barakoCMS.Features.Public.PublicDelivery.SlugField(def).Should().BeNull();
     }
 
     [Fact]

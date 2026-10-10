@@ -70,4 +70,37 @@ public class JobOptionsTests
         options.Invoking(o => o.Validate()).Should().Throw<InvalidOperationException>()
             .WithMessage($"*{JobOptions.BackoffMaxSecondsKey}*");
     }
+
+    [Fact]
+    public void Dead_letters_are_kept_forever_by_default_and_a_retention_is_opted_into()
+    {
+        var defaults = JobOptions.FromConfiguration(Config());
+        defaults.DeadLetterRetentionDays.Should().Be(0, "a default must keep what deployments kept before");
+        defaults.MetricsIntervalSeconds.Should().Be(30);
+        defaults.Invoking(o => o.Validate()).Should().NotThrow();
+
+        var on = JobOptions.FromConfiguration(Config((JobOptions.DeadLetterRetentionDaysKey, "90")));
+        on.DeadLetterRetentionDays.Should().Be(90);
+        on.Invoking(o => o.Validate()).Should().NotThrow();
+    }
+
+    [Fact]
+    public void A_retention_past_ten_years_is_refused()
+    {
+        var options = JobOptions.FromConfiguration(Config((JobOptions.DeadLetterRetentionDaysKey, "3651")));
+
+        options.Invoking(o => o.Validate()).Should().Throw<InvalidOperationException>()
+            .WithMessage($"*{JobOptions.DeadLetterRetentionDaysKey}*");
+    }
+
+    [Theory]
+    [InlineData("-1")]
+    [InlineData("3601")]
+    public void A_metrics_interval_out_of_range_is_refused(string value)
+    {
+        var options = JobOptions.FromConfiguration(Config((JobOptions.MetricsIntervalSecondsKey, value)));
+
+        options.Invoking(o => o.Validate()).Should().Throw<InvalidOperationException>()
+            .WithMessage($"*{JobOptions.MetricsIntervalSecondsKey}*");
+    }
 }

@@ -72,7 +72,10 @@ public class ShareLinkScopeTests
         entry.GetProperty("id").GetGuid().Should().Be(wip);
         entry.GetProperty("slug").GetString().Should().Be("wip");
         entry.GetProperty("data").GetProperty("Body").GetString().Should().Be(ShareLinkTestHost.BodyOf("wip"));
-        entry.GetProperty("data").GetProperty("Related").GetString().Should().Be(other.ToString(), "a reference stays the id it is stored as");
+        entry.GetProperty("data").GetProperty("Body").GetString().Should().NotBeNullOrEmpty("the Public fields are delivered");
+        entry.GetProperty("data").TryGetProperty("Related", out _).Should().BeFalse(
+            "the referenced entry is a draft, and a reference to one is left out as on the delivery routes");
+        text.Should().NotContain(other.ToString());
         text.Should().NotContain(ShareLinkTestHost.SecretValue, "a link is not a signed-in caller and gets Public fields only");
         text.Should().NotContain(ShareLinkTestHost.BodyOf("other"), "the referenced draft is not opened by a link to this one");
         text.Should().NotContain(key).And.NotContain(ShareLinkTestHost.EntryHashHex(key));

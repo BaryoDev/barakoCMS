@@ -14,6 +14,7 @@ namespace barakoCMS.Features.Auth.Mfa;
 /// refresh token password login issues. Wrong codes count toward the same lockout as password failures,
 /// so the 6-digit space can't be brute-forced.
 /// </summary>
+[barakoCMS.Infrastructure.Filters.NoIdempotentReplay]
 internal class VerifyEndpoint(
     IMfaService mfa,
     IDocumentSession session,

@@ -99,4 +99,60 @@ public class AiSemanticTests
         var res = await _client.GetAsync($"/api/public/{type}/semantic?q=photovoltaic%20renewable%20sunlight");
         (await res.Content.ReadAsStringAsync()).Should().NotContain("\"solar\"", "a since-unpublished entry is filtered at query time");
     }
+
+    /// <summary>
+    /// The slug a hit carries is read under the type's rules at search time. One indexed while the
+    /// slug field was Public is not returned once the field is marked Sensitive.
+    /// </summary>
+    [Fact]
+    public async Task SemanticSearch_does_not_return_a_slug_whose_field_was_made_sensitive_after_indexing()
+    {
+        var type = "ai_slug" + Guid.NewGuid().ToString("n")[..8];
+        await SeedAsync(type);
+
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", await AdminToken());
+        (await _client.PostAsync($"/api/ai/index/{type}", null)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var def = await s.Query<ContentTypeDefinition>().FirstAsync(d => d.Name == type);
+            def.Fields.Single(f => f.Name == "Slug").Sensitivity = SensitivityLevel.Sensitive;
+            s.Store(def);
+            await s.SaveChangesAsync();
+        }
+
+        _client.DefaultRequestHeaders.Authorization = null;
+        var res = await _client.GetAsync($"/api/public/{type}/semantic?q=photovoltaic%20renewable%20sunlight");
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await res.Content.ReadAsStringAsync();
+
+        var results = System.Text.Json.JsonDocument.Parse(body).RootElement.GetProperty("results").EnumerateArray().ToList();
+        results.Should().HaveCount(1, "the solar entry is still the nearest match");
+        results[0].GetProperty("title").GetString().Should().Be("Solar panels");
+        results[0].GetProperty("slug").ValueKind.Should().Be(System.Text.Json.JsonValueKind.Null,
+            "the slug field is Sensitive now, whatever the index stored");
+        body.Should().NotContain("\"solar\"");
+    }
+
+    [Fact]
+    public void The_module_slug_rule_agrees_with_the_core_delivery_rule()
+    {
+        FieldDefinition[][] shapes =
+        [
+            [new FieldDefinition { Name = "Slug", DisplayName = "Slug", Type = "slug" }],
+            [new FieldDefinition { Name = "Slug", DisplayName = "Slug", Type = "slug", Sensitivity = SensitivityLevel.Sensitive }],
+            [new FieldDefinition { Name = "slug", DisplayName = "slug", Type = "string" }],
+            [new FieldDefinition { Name = "Slug", DisplayName = "Slug", Type = "string", Sensitivity = SensitivityLevel.Hidden }],
+            [new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" }],
+        ];
+        shapes.Should().HaveCount(5);
+
+        foreach (var fields in shapes)
+        {
+            var def = new ContentTypeDefinition { Id = Guid.NewGuid(), Name = "t", DisplayName = "t", Fields = fields.ToList() };
+            BarakoCMS.AI.PublicText.SlugField(def).Should().Be(barakoCMS.Features.Public.PublicDelivery.SlugField(def),
+                "the module returns a slug only where delivery would");
+        }
+    }
 }

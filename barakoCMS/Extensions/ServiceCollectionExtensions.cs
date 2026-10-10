@@ -463,6 +463,7 @@ public static class ServiceCollectionExtensions
             "ETag",
             barakoCMS.Features.Monitoring.Meta.ApiContract.HeaderName,
             barakoCMS.Features.Monitoring.Meta.ApiContract.DeliveryHeaderName,
+            Microsoft.Net.Http.Headers.HeaderNames.RetryAfter,
         ];
 
         services.AddCors(options =>
@@ -482,9 +483,8 @@ public static class ServiceCollectionExtensions
             //                            decide whether it can drive this API at all.
             //   X-Delivery-Contract-Version   The same for a site that reads delivery from a browser.
             //
-            // Retry-After is deliberately not here. The one place it is set is the SSE stream, and a
-            // browser EventSource does not surface response headers to script at all, so exposing it
-            // would buy nothing.
+            //   Retry-After              A 429 from the rate limiter and a 409 from a busy collection
+            //                            sync say when to come back. The console shows that wait.
             options.AddPolicy(barakoCMS.Infrastructure.Security.TenantDomainCorsPolicyProvider.PolicyName, builder =>
             {
                 // CORS__AllowedOrigins as an environment variable, CORS:AllowedOrigins in
@@ -828,7 +828,15 @@ public static class ServiceCollectionExtensions
             .SingleTenanted() // maps global users to tenants — necessarily cross-tenant
             .DocumentAlias("memberships")
             .Index(x => x.UserId)
-            .Index(x => x.TenantSlug);
+            .Index(x => x.TenantSlug)
+            // One row per person per tenant. Two rows made the roles a member holds depend on which
+            // one a read found first. migrations/4.7.0/membership-unique-user-tenant.sql adds it to
+            // an existing database, under this name.
+            .Index(x => new { x.UserId, x.TenantSlug }, idx =>
+            {
+                idx.IsUnique = true;
+                idx.Name = MembershipUniqueIndex;
+            });
     }
 
     private static void AddMartenStore(
@@ -989,11 +997,22 @@ public static class ServiceCollectionExtensions
         // because a system proxy can arrive from an environment variable nobody chose.
         var allowWebhookProxy = configuration.GetValue("Webhooks:AllowProxy", false);
 
+        // The retry inside one attempt, checked here against the leases so a host whose settings
+        // could outlast them never starts. See OutboundResilienceOptions.
+        var outbound = barakoCMS.Infrastructure.Http.OutboundResilienceOptions.FromConfiguration(configuration);
+        outbound.Validate(barakoCMS.Infrastructure.Jobs.JobOptions.FromConfiguration(configuration).LeaseSeconds);
+        services.AddSingleton(new barakoCMS.Infrastructure.Http.OutboundResilience(outbound));
+
         services.AddHttpClient("ExternalApi")
                 .ConfigurePrimaryHttpMessageHandler(sp => barakoCMS.Infrastructure.Http.OutboundHttpHandler.Create(
                     sp.GetRequiredService<barakoCMS.Infrastructure.Http.OutboundAddressGuard>(),
                     allowWebhookProxy))
-                .AddStandardResilienceHandler();
+                .AddHttpMessageHandler(sp => new barakoCMS.Infrastructure.Http.OutboundResilienceHandler(
+                    sp.GetRequiredService<barakoCMS.Infrastructure.Http.OutboundResilience>(),
+                    sp.GetService<Microsoft.AspNetCore.Http.IHttpContextAccessor>()))
+                // Above the retry budget, so the client's own timeout never cuts the tries short; it
+                // still bounds a buffered body read after the headers.
+                .ConfigureHttpClient(client => client.Timeout = outbound.ClientTimeout);
     }
 
     private static void AddContentServices(IServiceCollection services)
@@ -1117,6 +1136,8 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<barakoCMS.Infrastructure.Services.StoredReferenceConditionsNotice>();
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowExecutionLogRedactionService>();
         services.AddHostedService<barakoCMS.Features.WebhookDeliveries.WebhookDeliveryRetentionService>();
+        services.AddHostedService<barakoCMS.Infrastructure.Jobs.JobDeadLetterRetentionService>();
+        services.AddHostedService<barakoCMS.Infrastructure.Services.IdempotencyRetentionService>();
     }
 
     private static void AddMfaAndDeviceTrust(IServiceCollection services)
@@ -1156,15 +1177,22 @@ public static class ServiceCollectionExtensions
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.UpdateFieldAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.RequestAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.ConditionalAction>();
+        services.AddSingleton(sp => new barakoCMS.Features.Workflows.WorkflowActionRegistrations(services, sp));
 
+        // The actions a scope can build, with one that throws left out (#1111). The engine and the
+        // registry take them from here rather than from IEnumerable<IWorkflowAction>, which fails
+        // as a whole when one action cannot be built.
+        services.AddScoped(barakoCMS.Features.Workflows.WorkflowActionSet.ForScope);
 
-        services.AddScoped<barakoCMS.Features.Workflows.WorkflowEngine>();
+        services.AddScoped(sp => ActivatorUtilities.CreateInstance<barakoCMS.Features.Workflows.WorkflowEngine>(
+            sp, (IEnumerable<barakoCMS.Features.Workflows.IWorkflowAction>)(sp.GetRequiredService<barakoCMS.Features.Workflows.WorkflowActionSet>().Actions ?? [])));
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowEngine>(sp => sp.GetRequiredService<barakoCMS.Features.Workflows.WorkflowEngine>());
     }
 
     private static void AddWorkflowTooling(IServiceCollection services)
     {
-        services.AddScoped<IWorkflowPluginRegistry, WorkflowPluginRegistry>();
+        services.AddScoped<IWorkflowPluginRegistry>(sp => new WorkflowPluginRegistry(
+            sp.GetRequiredService<barakoCMS.Features.Workflows.WorkflowActionSet>().Actions ?? []));
         services.AddScoped<IWorkflowSchemaValidator, WorkflowSchemaValidator>();
         services.AddScoped<ITemplateVariableExtractor, TemplateVariableExtractor>();
         services.AddScoped<IWorkflowDebugger, WorkflowDebugger>();
@@ -1200,6 +1228,16 @@ public static class ServiceCollectionExtensions
         // and a role write checks against it.
         services.AddSingleton<barakoCMS.Infrastructure.Auth.CapabilityVocabulary>();
 
+        // Read from the container's configuration at first use, for the reason AddJobQueue gives, and
+        // asked for in UseBarakoCMS so an out-of-range setting stops startup.
+        services.AddSingleton(sp =>
+        {
+            var options = barakoCMS.Infrastructure.Filters.IdempotencyOptions.FromConfiguration(
+                sp.GetRequiredService<IConfiguration>());
+            options.Validate();
+            return options;
+        });
+        services.AddSingleton<barakoCMS.Infrastructure.Filters.IdempotencyProtector>();
         services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Filters.IdempotencyFilter>();
         // The finalizer completes an idempotency claim on success or releases it on failure, so a
         // failed request stays retryable. See IdempotencyFilter.
@@ -1440,6 +1478,8 @@ public static class ServiceCollectionExtensions
         // order MODULES.md states, and so a module whose schema is refused fails as itself and not
         // inside whichever module's ConfigureApp first asked for the store.
         _ = app.ApplicationServices.GetRequiredService<IDocumentStore>();
+
+        _ = app.ApplicationServices.GetRequiredService<barakoCMS.Infrastructure.Filters.IdempotencyOptions>();
 
         UseExceptionHandling(app);
 
@@ -1731,6 +1771,10 @@ public static class ServiceCollectionExtensions
         // DeviceTrust enforcement pre-processor) simply by registering IGlobalPreProcessor/PostProcessor.
         var globalPreProcessors = app.ApplicationServices.GetServices<FastEndpoints.IGlobalPreProcessor>().ToArray();
         var globalPostProcessors = app.ApplicationServices.GetServices<FastEndpoints.IGlobalPostProcessor>().ToArray();
+
+        // Lets IdempotencyFilter hash a keyed write's body after FastEndpoints has bound it.
+        app.UseMiddleware<barakoCMS.Infrastructure.Filters.IdempotencyRequestBuffering>();
+
         app.UseFastEndpoints(c =>
         {
             // AllowDuplicateErrors keeps every failure that shares a field name. Without it a
@@ -2114,6 +2158,9 @@ public static class ServiceCollectionExtensions
 
     /// <summary>Root key under which every module's own settings live.</summary>
     internal const string ModulesConfigurationSection = "Modules";
+
+    /// <summary>The unique index on a membership's user and tenant, named as the 4.7.0 migration creates it.</summary>
+    internal const string MembershipUniqueIndex = "mt_doc_memberships_uidx_user_id_tenant_slug";
 
     /// <summary>
     /// Whether a module actually implements the deprecated hook, rather than inheriting the

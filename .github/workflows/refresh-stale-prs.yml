@@ -25,9 +25,8 @@ on:
     - cron: "17 7 * * *"
   workflow_dispatch:
 
-permissions:
-  contents: write
-  pull-requests: write
+# Every call below uses REFRESH_PR_TOKEN, not GITHUB_TOKEN, so the workflow's own token needs nothing.
+permissions: {}
 
 concurrency:
   group: refresh-stale-prs
@@ -38,9 +37,25 @@ jobs:
     name: Update branches that are behind and failing
     runs-on: ubuntu-latest
     steps:
+      # GitHub starts no workflow for a push made with GITHUB_TOKEN, so a branch this job updated
+      # with it sat at action_required with no CI (#1068, #1112). The update needs a token that is
+      # not the workflow's own: a fine-grained personal access token or a GitHub App token, limited
+      # to this repository, with Contents, Pull requests and Workflows read and write and Commit
+      # statuses read, stored as the REFRESH_PR_TOKEN repository secret. Workflows is needed
+      # because an update that brings in a change under .github/workflows/ is refused without it. Without it the job fails here
+      # rather than doing an update that starts nothing.
+      - name: Check the REFRESH_PR_TOKEN secret is set
+        env:
+          REFRESH_PR_TOKEN: ${{ secrets.REFRESH_PR_TOKEN }}
+        run: |
+          if [ -z "$REFRESH_PR_TOKEN" ]; then
+            echo "::error::The REFRESH_PR_TOKEN repository secret is not set. It must hold a fine-grained token or GitHub App token for this repository with Contents, Pull requests and Workflows read and write and Commit statuses read. GITHUB_TOKEN is not used: a branch it updates gets no CI run."
+            exit 1
+          fi
+
       - name: Update every pull request that is behind master and red
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.REFRESH_PR_TOKEN }}
           REPO: ${{ github.repository }}
           BASE: master
           # A ceiling, so a bad day cannot start thirty CI runs at once.
@@ -82,7 +97,7 @@ jobs:
               *dependabot*)
                 printf '| #%s | - | - | skipped, dependabot rebases itself |\n' "$N" >> summary.md; continue ;;
             esac
-            # A fork's branch is not ours to push to, and GITHUB_TOKEN cannot anyway.
+            # A fork's branch is not ours to push to.
             if [ -n "$OWNER" ] && [ "$OWNER" != "${REPO%%/*}" ]; then
               printf '| #%s | - | - | skipped, fork |\n' "$N" >> summary.md; continue
             fi

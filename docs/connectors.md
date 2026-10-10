@@ -28,6 +28,11 @@ the secrets held and never a value.
 Setting and secret names are case sensitive. A connector missing a setting or a secret its `auth`
 needs is saved as it is, and a send or a test says which one is missing.
 
+`settings` are stored and returned as plain text, so a setting whose name reads as a credential
+(it holds a word such as `token`, `password`, `secret`, `apikey` or `authorization`) is refused
+with a 400 that points at `secrets`. The settings in the table above are accepted, `TokenUrl`
+included.
+
 ## Secrets
 
 `secrets` is write only. Each value is encrypted under `Connectors:Key` (see

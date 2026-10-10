@@ -70,10 +70,18 @@ internal class FeedEndpoint(IQuerySession session, IConfiguration config) : Endp
         sb.Append($"    <description>{Esc(channelTitle)} — {Esc(type)} feed</description>\n");
         sb.Append($"    <atom:link href=\"{Esc(siteUrl)}/api/public/{Esc(type)}/feed.xml\" rel=\"self\" type=\"application/rss+xml\" />\n");
 
-        foreach (var entry in entries)
+        // Fail closed, same rules as the rest of delivery. A field read by its fallback name, such
+        // as Name or Description, can be a reference field, so its ids are checked as every other
+        // route checks them.
+        var delivered = entries
+            .Select(entry => PublicDelivery.ToPublic(entry, def, slugField))
+            .Where(pub => pub is not null)
+            .Select(pub => pub!)
+            .ToList();
+        delivered = await PublicReferenceFields.FilterAsync(delivered, def!, session, ct);
+
+        foreach (var pub in delivered)
         {
-            var pub = PublicDelivery.ToPublic(entry, def, slugField);
-            if (pub is null) continue; // fail-closed, same rules as the rest of delivery
 
             var slug = pub.Slug ?? string.Empty;
             var title = Field(pub.Data, FieldPresentation.Candidates(

@@ -205,11 +205,10 @@ public class ContentValidatorService(
 
             var keyDetails = data.FirstOrDefault(k => k.Key.Equals(field.Name, StringComparison.OrdinalIgnoreCase));
 
-            // Only the first of two keys differing in case is read below, and delivery resolves
-            // both, so a file field sent twice is refused before anything else, a null first one
-            // included.
-            if (FileFields.IsFileField(field)
-                && data.Keys.Count(k => k.Equals(field.Name, StringComparison.OrdinalIgnoreCase)) > 1)
+            // Only the first of two keys differing in case is checked below, and both are stored,
+            // so a reader that takes the other one would get a value nothing checked. A field sent
+            // twice is refused before anything else, a null first one included.
+            if (data.Keys.Count(k => k.Equals(field.Name, StringComparison.OrdinalIgnoreCase)) > 1)
             {
                 errors.Add($"Field '{field.DisplayName}' ({field.Name}) was sent more than once, ignoring case.");
                 continue;
@@ -256,6 +255,11 @@ public class ContentValidatorService(
                     if (error is not null)
                         errors.Add(error);
                 }
+                else if (expectedType == "email" && StoredValues.IsUnchanged(field.Name, value, existing))
+                {
+                    // An address stored before the email check was tightened is still the entry's
+                    // own, and an edit of another field keeps it as it is.
+                }
                 else if (!FieldTypeRegistry.IsValidValue(expectedType, value))
                 {
                     var actualType = GetActualTypeName(value);
@@ -273,7 +277,13 @@ public class ContentValidatorService(
                 }
                 else if (expectedType == "choice")
                 {
-                    var error = ValidateChoice(field, value);
+                    // What the entry already holds is not checked again. The options may have
+                    // changed since it was stored, and a field the caller may not see is put back
+                    // to its stored value before this runs, so refusing it would block every edit
+                    // of the rest of the entry over a value the caller did not send.
+                    var error = StoredValues.IsUnchanged(field.Name, value, existing)
+                        ? null
+                        : ValidateChoice(field, value);
                     if (error is not null)
                         errors.Add(error);
                 }
@@ -330,7 +340,7 @@ public class ContentValidatorService(
         Dictionary<string, object> data,
         Guid? entryId)
     {
-        var slugField = barakoCMS.Features.Public.PublicDelivery.SlugField(schema);
+        var slugField = barakoCMS.Features.Public.PublicDelivery.SlugFieldForAuthoring(schema);
         if (slugField is null)
             return null;
 
@@ -444,7 +454,8 @@ public class ContentValidatorService(
     /// <remarks>
     /// Matched exactly, case included. The value is the stable key a filter, a workflow condition and
     /// a renderer's colour map all compare against, so 'fun' beside 'FUN' is exactly the drift this
-    /// refuses. The error names every accepted value, because the fix is to pick one of them.
+    /// refuses. The error names every accepted value, because the fix is to pick one of them, and
+    /// never the value received, so a message cannot carry a stored value back to a caller.
     /// </remarks>
     private static string? ValidateChoice(FieldDefinition field, object value)
     {
@@ -462,24 +473,12 @@ public class ContentValidatorService(
         if (!field.Multiple && isList)
             return $"Field '{field.DisplayName}' holds one option and received a list.";
 
-        var unknown = values
-            .Where(v => !accepted.Contains(v, StringComparer.Ordinal))
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
+        if (values.Any(v => !accepted.Contains(v, StringComparer.Ordinal)))
+            return $"Field '{field.DisplayName}' ({field.Name}) accepts {acceptedText}, and received a value "
+                 + "that is not one of them.";
 
-        if (unknown.Count > 0)
-            return $"Field '{field.DisplayName}' accepts {acceptedText}, and "
-                 + string.Join(", ", unknown.Select(u => $"'{u}'"))
-                 + (unknown.Count == 1 ? " is" : " are") + " not one of them.";
-
-        var repeated = values
-            .GroupBy(v => v, StringComparer.Ordinal)
-            .Where(g => g.Count() > 1)
-            .Select(g => $"'{g.Key}'")
-            .ToList();
-
-        if (repeated.Count > 0)
-            return $"Field '{field.DisplayName}' lists {string.Join(", ", repeated)} more than once.";
+        if (values.Distinct(StringComparer.Ordinal).Count() < values.Count)
+            return $"Field '{field.DisplayName}' ({field.Name}) lists an option more than once.";
 
         return null;
     }

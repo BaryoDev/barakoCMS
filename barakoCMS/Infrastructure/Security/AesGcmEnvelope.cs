@@ -73,6 +73,40 @@ internal static class AesGcmEnvelope
     }
 
     /// <summary>
+    /// The same envelope over raw bytes, with associated data the ciphertext is bound to: a value
+    /// sealed for one context does not open in another.
+    /// </summary>
+    internal static string Seal(byte[] key, ReadOnlySpan<byte> plain, ReadOnlySpan<byte> associatedData)
+    {
+        var outBytes = new byte[NonceLen + TagLen + plain.Length];
+        var nonce = outBytes.AsSpan(0, NonceLen);
+        RandomNumberGenerator.Fill(nonce);
+
+        using var aes = new AesGcm(key, TagLen);
+        aes.Encrypt(nonce, plain, outBytes.AsSpan(NonceLen + TagLen), outBytes.AsSpan(NonceLen, TagLen), associatedData);
+        return Convert.ToBase64String(outBytes);
+    }
+
+    /// <summary>Opens a <see cref="Seal"/> value, or returns null when it does not open with this key and context.</summary>
+    internal static byte[]? Open(byte[] key, string sealedValue, ReadOnlySpan<byte> associatedData)
+    {
+        try
+        {
+            var raw = Convert.FromBase64String(sealedValue);
+            if (raw.Length < NonceLen + TagLen) return null;
+
+            var plain = new byte[raw.Length - NonceLen - TagLen];
+            using var aes = new AesGcm(key, TagLen);
+            aes.Decrypt(raw.AsSpan(0, NonceLen), raw.AsSpan(NonceLen + TagLen), raw.AsSpan(NonceLen, TagLen), plain, associatedData);
+            return plain;
+        }
+        catch (Exception ex) when (ex is CryptographicException or FormatException or ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Whether a value is shaped like this format's envelope: base64 of at least nonce+tag length.
     /// Does not attempt to decrypt it, so it says nothing about whether any particular key can read
     /// it, only whether the value could ever have been one of ours.

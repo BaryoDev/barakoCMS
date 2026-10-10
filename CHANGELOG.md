@@ -7,6 +7,248 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.7.0] - 2026-10-08
+
+Upgrading from 4.6 takes four steps, in this order.
+
+1. **Update the console and the renderer first.** This release answers with API contract 7
+   (`X-Api-Contract-Version: 7`), delivery contract 7 and Pages contract 2. Deploy barakoBrew 1.8.0
+   or later and barakoPress 0.12.0 or later before the API; older ones refuse to run against it.
+2. **Stop the API.** Three migrations ship under `migrations/4.7.0/`.
+3. **Run `db-migrate`, then `db-assert`.** `membership-unique-user-tenant.sql` adds a unique index on
+   (user, tenant) for memberships. If two memberships already share a user and a tenant it stops,
+   changes nothing and says how many pairs there are; the query that lists them is in the file's
+   header. Remove the extra rows and run it again. The two `tenant-policy-restore` files change
+   nothing unless `Tenancy:DatabaseEnforcement` is on.
+4. **Start 4.7.0.**
+
+`scripts/upgrade-check.sh --list` prints the files and the rollbacks in the order they run. To roll
+back to 4.6, stop 4.7.0 and run the rollbacks, newest first, before starting the older image. The
+policy restore rollbacks change nothing on purpose.
+
+### Breaking
+
+- **The contracts move to 7, and Pages to 2.** The admin contract (`X-Api-Contract-Version`) and the delivery contract (`X-Delivery-Contract-Version`) move from 6 to 7, and the Pages body `contract` moves from 1 to 2. On the admin side, a retry with a used Idempotency-Key gets the first response back (or a 422 for a different request) instead of a 409, and writes now refuse what they used to accept: an email that is not a bare address, a field sent under two spellings, two content type fields whose names differ only in case, a connector setting whose name looks like a credential, and an update, push, rollback, transition or create that the caller's rule would not grant for the entry as it will be stored. On the delivery side, a slug field that is not Public no longer addresses entries, and a reference to an entry delivery would not serve (a draft, an entry that is not Public, or one that no longer exists) is left out of `data` (a single reference loses its key, a list keeps only the ids that are served). Pages resolve follows the same reference rule. A console or renderer that checks the range needs a release that accepts 7 (and Pages 2) before this API is deployed.
+
+### Added
+
+- **A signed-in caller can ask which roles and capabilities it holds.** `GET /api/me` answers the
+  caller's user id, username, the tenant, its stored roles there (global roles and the active
+  membership's, by id and name) and every capability those roles carry, with `*` reported as
+  stored. It is the reading the API decides Sensitive and Hidden access by, so a console no longer
+  has to guess from role names. The tenant is the token's own. The route takes no parameters, is
+  sent `Cache-Control: no-store`, and refuses an API key with 403. Additive (#1107).
+- **A renderer can read a deliverable type's field roles and route template anonymously.**
+  `GET /api/public/types/{type}/description` answers the type's `routeTemplate` and, for each
+  Public field, its name, type, role and editor hint, so a renderer can build titles, links, a
+  sitemap and a feed from the type's own declaration. Sensitive and Hidden fields and tokens are
+  not listed, and no sensitivity, rule or default is returned. A type that is not publicly
+  deliverable is a 404, the same as an unknown one. Cached for one minute and varying by
+  `X-Tenant`. The route has three segments under `/api/public/`, and every route a content type is
+  read on has at most two, so a type of any name, `types` included, is read exactly as before.
+  Additive (#1108).
+- **The credential name words are published.** `GET /api/meta/describe` answers
+  `credentialNameParts` to every signed-in caller: the words that make a setting key or a workflow
+  action parameter read as a credential. It is read from the list the API checks with, so the
+  console can mask its inputs by it instead of keeping a copy. Additive (#1113).
+- **Dead-lettered and cancelled jobs were never deleted.** Set `Jobs:DeadLetterRetentionDays` (90 is
+  the recommended value, at most 3650) to turn on an hourly sweep that deletes them once they have
+  been given up on for longer than that. It is off by default, so a deployment keeps every dead
+  letter as before until it opts in. A job that dead-letters now records when it gave up in
+  `completedAt`.
+- **The job queue published no metrics.** It now publishes `barakocms_jobs_attempts_total` by
+  outcome, and `barakocms_jobs_due`, `barakocms_jobs_oldest_due_age_seconds` and
+  `barakocms_jobs_dead_lettered`, counted at most every `Jobs:MetricsIntervalSeconds` (30 by
+  default, 0 for off). See docs/background-jobs.md.
+
+### Changed
+
+- **A retry with a used `Idempotency-Key` got a 409 instead of the response it missed.** A client
+  whose connection dropped after the write committed learned that it had succeeded and never learned
+  the id it created. The same request from the same authenticated caller now gets the first
+  response replayed: its status code, `Content-Type`, `Location` and body, plus
+  `Idempotent-Replayed: true`, and the handler does not run again. The same key with a different
+  method, path, query string or body is answered 422. A key whose first request is still running
+  stays a 409. A response over `Idempotency:MaxStoredResponseBytes` (default 65536) is not kept, and
+  a retry of it stays a 409 saying so. Routes that answer with a credential (sign-in, refresh, OTP and
+  MFA verify, tenant switch, MFA setup and enable, API key, preview token and share link create),
+  routes that take a password (register, password change, password set) and share link opening
+  never store or replay a response, store no request hash, and keep the 409; an endpoint opts in
+  with `[NoIdempotentReplay]`. Unauthenticated callers keep deduplication only: the same request
+  again is a 409, a different one under the key is a 422, and no response is stored. Requests are
+  compared by an HMAC, and stored bodies are sealed for their own record, both under keys derived
+  for this use from the stored-secret key material. Only
+  a 2xx is kept; any other status releases the key, which now includes 3xx. An API key is now its own
+  caller, so it no longer shares keys with the user it acts for. This is a status change on every
+  `POST`, `PUT` and `PATCH`, covered by `ApiContract.Version` 7. Keys are honoured for
+  `Idempotency:KeyHours` (default 24, 1 to 720) and are free again after that, checked on the
+  request rather than waiting for the hourly sweep that used to be the only expiry. A deployment
+  that relies on keys lasting longer sets `Idempotency:KeyHours`, up to 720 (30 days). Expired
+  records are deleted by their own hourly sweep, which runs again after a minute and logs a warning
+  when it could not finish. See `docs/idempotency.md`.
+- **A reset socket or one 503 cost a workflow a whole durable attempt.** Outbound calls from the
+  `Webhook` and `Request` actions, and the rest of the outbound HTTP client's calls, are now tried
+  again inside the attempt when the failure is transient (a connection that did not open, 408, 429
+  with its `Retry-After`, 502, 503, 504), with a timeout on each try and a breaker per tenant and
+  host, using Carom. A call that may have reached the server is resent only when the receiver can
+  recognise it (an idempotent method, an `Idempotency-Key`, or a webhook's delivery id). A 429 never
+  counts toward a breaker, so one tenant's quota on a shared host does not refuse calls for the
+  others. An open breaker fails the attempt as retryable and names only the host. Email is not
+  retried inside the attempt; an optional `EmailSendTimeoutSeconds`, off by default, records a send
+  that runs past it as unknown rather than retrying it. Settings are under `Workflows:Outbound`, and
+  the host refuses to start when they let the slowest action take more than 80% of the shortest
+  lease. The outbound client's own timeout is now the retry budget plus 30 seconds, 74 seconds by
+  default, down from 100. This replaces the standard .NET resilience handler on that client, which
+  also retried a 500 and a POST after a timeout, so `Microsoft.Extensions.Http.Resilience` is no
+  longer a dependency. (#703)
+
+- **The upgrade file list is read from `migrations/`.** `scripts/upgrade-check.sh --list` prints a
+  `psql` line for each file, core files first, then module files, then the rollback newest first,
+  in the order CI applies them, and leaves out every folder no newer than `FROM_VERSION`.
+  `docs/upgrading-to-4.0.md` now sends operators there instead of keeping its own copy of the
+  list, and a new migration needs no edit to the script or the guide. The upgrade lines the guide
+  printed ran some module files before core files; the order is now the one CI proves.
+- **`BarakoCMS.Testing` carries the core's version.** It was 4.3.0 beside a 4.6.0 core.
+  `scripts/check-module-versions.sh` now fails when the two differ, and the module template's
+  default `TestingVersion` follows it.
+- **The stale pull request refresher pushes with `REFRESH_PR_TOKEN`.** A branch it updated with
+  `GITHUB_TOKEN` got no CI run. The workflow now reads a token from the `REFRESH_PR_TOKEN`
+  repository secret and fails, naming the secret, when it is not set.
+- **A content type could declare two fields whose names differ only in case.** Creating a type, a
+  blueprint and a portability import now refuse it, naming both spellings, since every
+  reader finds a field by its name ignoring case. A type that already stores such a pair can still
+  be changed.
+
+### Fixed
+
+- **Test teardown stops each projection coordinator first.** The integration fixture stops the
+  coordinator of every host it started before any host stops, so the host's own stop finds it
+  already stopped. An `ObjectDisposedException` from that stop is written to stderr instead of
+  failing every test in the collection; anything else still fails it.
+- **A browser on another origin saw a rate limited request as a network error.** The limiter answers
+  before the CORS middleware runs, so its 429 had no allow header. It now carries the CORS headers
+  the origin is allowed (a tenant domain still without credentials), and a `Retry-After`, which the
+  CORS policy now exposes to script. The fixed window limiter reports its whole window there rather
+  than the time left in it, so the wait is never too short and can be longer than needed. A
+  preflight is still counted by the limiter.
+- **One workflow action that could not be built failed every step of every run.** The runner, the
+  Conditional action, the workflow engine and the action registry built every registered action
+  together, so one constructor that threw failed all of them, and saving, validating and listing
+  workflows answered 500. Each action is now built on its own
+  when that happens: steps using the other actions run, and a step whose action is missing while
+  some could not be built fails with the class and exception type named, retried up to the normal
+  attempt limit. The exception's message is not logged or stored.
+- **Tests that build their own host leave FastEndpoints usable.** `JobWorkerSchemaOrderTests` put
+  FastEndpoints' process-wide resolver back after disposing each host, so a later test that issues
+  a token outside a request no longer fails. MODULES.md says what a module's tests should do about
+  the same statics.
+- **One person holds one membership per tenant.** Memberships carry a unique index on the user and
+  the tenant, and `migrations/4.7.0/membership-unique-user-tenant.sql` adds it to an existing
+  database. Where two rows already share a user and a tenant the file refuses, changes nothing and
+  says how many pairs there are; its header has the query that lists them. Two requests adding the
+  same person to a tenant at once could store two rows, and the roles the person held then depended
+  on which row a read found first. Now the second request is answered 409 and stores nothing.
+- **A top-level page cannot take a reserved slug whatever its slug field's sensitivity**
+  (BarakoCMS.Pages 4.3.1). The check on write reads the slug the way core's authoring checks do,
+  so a slug field marked Sensitive is still checked.
+- **The tenant policy is put back where an upgrade file left a table without it.**
+  `migrations/4.7.0/tenant-policy-restore.sql` (core) and
+  `migrations/4.7.0/forms-tenant-policy-restore.sql` (shipped by Forms 4.5.0, so it runs after the
+  Forms files that create its tables) read whether the database enforces tenancy with row level
+  security from its other tables. Where it does, each of the six tables an earlier upgrade file
+  creates (share links, sourcing policies, collection syncs and the three Forms tables) that lacks
+  `marten_tenant_isolation` gets the same policy, copied from a table that has it, with row level
+  security on. With `Tenancy:DatabaseEnforcement` off they change nothing.
+- **The UpdateField workflow action stored any text in an email or choice field.** It now checks
+  the value as an entry write does and fails the step for good when it is refused, without naming
+  the value. A multiple choice cannot be set from one text value. A Field spelled in another case
+  than the stored key now replaces that value instead of adding a second key.
+
+### Security
+
+- **Image variants are made with SkiaSharp instead of SixLabors.ImageSharp.** BarakoCMS.Files 4.5.0
+  resizes PNG, JPEG and WebP with SkiaSharp 4.153.1 (MIT, over BSD-licensed Skia) and its Linux
+  build that needs only libc and libstdc++, on x64 and arm64. The width ladder, never upscaling,
+  keeping the original's format and the pixel limit read from the header before decoding are
+  unchanged. What a variant looks like changes in these ways:
+  - EXIF is no longer copied into a variant, so camera details and location stay with the original.
+  - A photo with an EXIF orientation tag is turned upright in the variant's pixels instead.
+  - An animated WebP is served whole at full size rather than resized. The pixel limit still runs on
+    its header first.
+  - An animated PNG's variant is a still of its first frame.
+  - JPEG and lossy WebP variants are written at quality 75 rather than at a quality estimated from
+    the source. A lossless WebP stays lossless.
+
+  `ImageSharpResizer` still compiles and now delegates to `SkiaImageResizer`; it is marked obsolete
+  for removal in barakoCMS 5.0. The suite image keeps only the Skia native library for its own
+  architecture. That library bundles code under several licences, and their notices ship in the
+  suite image under `/app/licenses`. Resizing also declines bytes that are not the stored file's
+  declared type, or not PNG, JPEG or WebP, before any decoder sees them. A host that takes BarakoCMS.Files from NuGet and publishes without a runtime
+  identifier gets Skia's native library for every platform it supports, several hundred megabytes
+  with the Windows debug symbols; publish with `-r linux-x64` (or your target) to keep one.
+
+- **A job's stored error could hold a full URL.** A URL in the exception message is now cut to its
+  scheme and host before the error is stored, and `GET /api/jobs` applies the same cut to errors
+  stored before this release.
+- **Semantic search returns a slug only when the type marks the slug field Public** (BarakoCMS.AI
+  4.3.2). The module uses the same slug rule as delivery, and a hit's slug and title are read off
+  the entry under the type's current fields at search time rather than taken from the index, so
+  an entry indexed while its slug field was Public does not return it after the field is marked
+  Sensitive.
+- **A refused choice value was repeated back in the 400.** The message now names the field and the
+  values it accepts, never the value received. A choice the entry already holds is not checked
+  again on an edit, so a stored value outside the current options, including one in a field the
+  caller cannot see and did not send, no longer blocks saving the rest of the entry.
+- **A connector setting could hold a credential in plain text.** `POST /api/connectors` and
+  `PUT /api/connectors/{slug}` now refuse a setting whose name reads as a credential with a 400
+  pointing at `secrets`, which are encrypted and never returned. The settings the auth modes read
+  (`TokenUrl` among them) are still accepted.
+- **A Create rule's conditions were not applied to a create.** `POST /api/contents`, a collection
+  push creating an entry and `POST /api/import/content` now check the Create rule against the entry
+  as it will be stored, with the caller as its creator, so a rule limited to one branch cannot
+  create an entry in another. The first two answer 403; an import reports the row as refused. A
+  Create rule with no conditions grants as before, and one on `$createdBy` equal to
+  `$CURRENT_USER` still lets the caller create. A role whose Create rule holds conditions now has
+  them applied, which can refuse creates that used to be accepted.
+- **`authorization` and `bearer` now read as credential names.** A setting key or a workflow
+  parameter holding either word is treated like one holding `token` or `password`: a setting under
+  it can only be cleared, and a workflow parameter under it is encrypted at startup and not
+  returned. `auth` on its own is not a credential word, so a name like `Author` is unaffected.
+- **A delivered reference names only entries delivery would serve.** On the anonymous routes (the
+  list, search, the read by slug and its preview, the feed, the event stream, share links and the
+  tenant profile) and in `IPublicContentProjector.ProjectAsync`, a reference field keeps an id only
+  when it names an entry in the same tenant that is Published, document Public and of a publicly
+  deliverable type, the test `include` already applied. A single reference to any other entry is
+  left out of the entry, and a list keeps the ids that pass, in stored order. An entry resolved
+  through `include` has its own references checked the same way. The check reads the targets once
+  per response. On the list and search, a `filter[field][eq|ne|has]` on a reference field that
+  names any other entry answers as if no entry held that id, which is what the delivered data
+  shows. If the event stream cannot read the targets, it sends the commit's changes with no
+  reference ids in them and still sends its unpublish events.
+- **Delivery uses a slug field only when the type marks it Public.** A field of type `slug` marked
+  Sensitive is not the type's slug on the anonymous routes: it is not served as the top-level
+  `slug`, `GET /api/public/{type}/{slug}` does not look entries up by it, and the feed and sitemap do
+  not build links from it. The type then has no slug route, as a type with no slug field never had.
+  Signed-in reads by slug, the uniqueness check on write and collection pushes still use the field.
+- **An email field took a display name or header form such as `Name <a@b.co>`.** It now takes a
+  bare address only: angle brackets, quotes, parentheses, commas, semicolons, colons, square
+  brackets, backslashes and control or format characters are refused, and so is an address longer
+  than 254 characters. This refuses some writes that used to be accepted. A value already stored is
+  still read as it is, and an edit that sends it back unchanged is accepted.
+- **A field sent under two spellings had only the first one checked.** Both were stored, so a reader
+  taking the other spelling got a value nothing had checked. A write to a field of the type under
+  more than one spelling, ignoring case, is now refused with a 400 on create, update, collection
+  push, rollback and transition, and as a row error on bulk import, as file fields already were.
+  This refuses some writes that used to be accepted.
+- **A public form submission read only the first spelling of a field sent twice.**
+  `POST /api/public/forms/{slug}` now refuses a field sent under more than one spelling, ignoring
+  case, with a 400 on that field, as a signed-in write does. BarakoCMS.Forms goes to 4.5.0.
+- **An update was checked against the entry as stored only.** `PUT /api/contents/{id}`, a
+  collection push, a rollback and a transition carrying values now also check the rule that
+  granted the write against the entry as it will be stored, so a rule with conditions, such as a
+  branch field or `$CURRENT_USER`, holds after the write as well as before it. A write that would
+  leave the entry outside the rule answers 403 and stores nothing.
+
 ## [4.6.0] - 2026-10-04
 
 Upgrading from 4.5 takes five steps, in this order.

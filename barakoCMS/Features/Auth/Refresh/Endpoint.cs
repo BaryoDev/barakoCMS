@@ -8,6 +8,7 @@ using System.IdentityModel.Tokens.Jwt;
 
 namespace barakoCMS.Features.Auth.Refresh;
 
+[barakoCMS.Infrastructure.Filters.NoIdempotentReplay]
 internal class Endpoint : Endpoint<Request, Response>
 {
     private readonly IQuerySession _querySession;

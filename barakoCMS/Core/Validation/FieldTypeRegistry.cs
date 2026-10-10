@@ -35,8 +35,15 @@ public static class FieldTypeRegistry
 
     // Compiled once. Email/slug are intentionally pragmatic, not RFC-exhaustive:
     // enough to catch obvious mistakes without rejecting legitimate values.
+    //
+    // An email value is a bare address. A display name form ("Ana <a@b.c>"), angle brackets,
+    // quotes, the other characters that delimit an address in a mail header, and control or format
+    // characters are refused, because the value is handed to mail headers and rendered as text, and
+    // in either place those characters change what the value means. 254 is the longest address a
+    // mail server accepts (RFC 5321), and the cap keeps the match short.
+    private const int MaxEmailLength = 254;
     private static readonly Regex EmailRegex =
-        new(@"^[^@\s]+@[^@\s]+\.[^@\s]+$", RegexOptions.Compiled);
+        new(@"^[^@\s<>()\[\]\\,;:""\p{C}]+@[^@\s<>()\[\]\\,;:""\p{C}]+\.[^@\s<>()\[\]\\,;:""\p{C}]+$", RegexOptions.Compiled);
     private static readonly Regex SlugRegex =
         new(@"^[a-z0-9]+(?:-[a-z0-9]+)*$", RegexOptions.Compiled);
 
@@ -59,7 +66,7 @@ public static class FieldTypeRegistry
         // Mostly a string plus a format check, so they read as their own type in
         // the admin and reject malformed values at the API instead of silently
         // storing junk in the JSON bag.
-        new("email",    "email",    v => AsString(v) is { } s && EmailRegex.IsMatch(s)),
+        new("email",    "email",    v => AsString(v) is { Length: <= MaxEmailLength } s && EmailRegex.IsMatch(s)),
         new("url",      "url",      v => AsString(v) is { } s && IsAbsoluteUrl(s)),
         new("slug",     "slug",     v => AsString(v) is { } s && SlugRegex.IsMatch(s)),
         new("uuid",     "text",     v => AsString(v) is { } s && Guid.TryParse(s, out _)),

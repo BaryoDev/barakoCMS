@@ -65,6 +65,7 @@ internal sealed class ContentChangeListener(
             .ToDictionary(g => g.Key, g => g.Last());
 
         var definitions = new Dictionary<string, ContentTypeDefinition?>(StringComparer.Ordinal);
+        var outgoing = new List<Outgoing>();
 
         foreach (var stream in events.GroupBy(e => e.StreamId))
         {
@@ -102,8 +103,7 @@ internal sealed class ContentChangeListener(
                 var name = stream.Any(e => BecamePublic(e.Data))
                     ? ContentChangeEvents.Published
                     : ContentChangeEvents.Updated;
-                broadcaster.Publish(tenant, new ContentChange(
-                    name, projected.Id, projected.ContentType, projected.Slug, projected));
+                outgoing.Add(new Outgoing(name, projected, effective, null));
                 continue;
             }
 
@@ -113,15 +113,63 @@ internal sealed class ContentChangeListener(
             if (stream.Any(e => LeftPublic(e.Data))
                 && await WasPublicBeforeAsync(session, stream.Key, stream, def!, slugField, token))
             {
-                broadcaster.Publish(tenant, new ContentChange(
+                outgoing.Add(new Outgoing(ContentChangeEvents.Unpublished, null, null, new ContentChange(
                     ContentChangeEvents.Unpublished,
                     content.Id,
                     content.ContentType,
                     PublicDelivery.SlugValue(content, slugField),
-                    new UnpublishedPayload(content.Id, content.ContentType, PublicDelivery.SlugValue(content, slugField))));
+                    new UnpublishedPayload(content.Id, content.ContentType, PublicDelivery.SlugValue(content, slugField)))));
             }
         }
+
+        // References are checked for every entry in the commit together, in one read, and the
+        // changes go out in the order they were found.
+        var entries = outgoing
+            .Where(o => o.Projected is not null)
+            .Select(o => (Item: o.Projected!, Definition: o.Definition!))
+            .ToList();
+        var checkedEntries = new Queue<PublicContentResponse>(await CheckReferencesAsync(session, entries, token));
+
+        foreach (var change in outgoing)
+        {
+            if (change.Ready is not null)
+            {
+                broadcaster.Publish(tenant, change.Ready);
+                continue;
+            }
+
+            var entry = checkedEntries.Dequeue();
+            broadcaster.Publish(tenant, new ContentChange(change.Name, entry.Id, entry.ContentType, entry.Slug, entry));
+        }
     }
+
+    /// <summary>
+    /// The entries with their references checked, or, when the check cannot be made, with every
+    /// reference field left out.
+    /// </summary>
+    /// <remarks>
+    /// A failed read must not cost the commit its other changes: an unpublish in the same commit is
+    /// sent either way, and so is each entry, without the ids nothing could vouch for.
+    /// </remarks>
+    private async Task<List<PublicContentResponse>> CheckReferencesAsync(
+        IDocumentSession session,
+        List<(PublicContentResponse Item, ContentTypeDefinition Definition)> entries,
+        CancellationToken token)
+    {
+        try
+        {
+            return await PublicReferenceFields.FilterAsync(entries, session, token);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "Content event stream could not check references, so they are left out of this commit's payloads");
+            return entries.Select(e => PublicReferenceFields.LeaveOut(e.Item, e.Definition)).ToList();
+        }
+    }
+
+    /// <summary>A change to send: an entry still to have its references checked, or a ready unpublish.</summary>
+    private sealed record Outgoing(
+        string Name, PublicContentResponse? Projected, ContentTypeDefinition? Definition, ContentChange? Ready);
 
     /// <summary>
     /// Folds the stream as it stood before this commit and asks the same projection whether that

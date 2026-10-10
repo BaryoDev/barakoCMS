@@ -1,6 +1,7 @@
 using barakoCMS.Core.Interfaces;
 using FastEndpoints;
 using Marten;
+using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using System.Security.Claims;
 
@@ -63,6 +64,14 @@ internal class Endpoint(
             }
 
             ThrowIfAnyErrors();
+        }
+
+        // The check above asks only whether a Create rule exists. This one asks whether a rule
+        // holds for the entry as it will be stored, so its conditions apply to a create as well.
+        if (!await permissionResolver.AllowsCreatedEntryAsync(user, request, ct))
+        {
+            await Send.ForbiddenAsync(ct);
+            return;
         }
 
         var created = await creator.StageAsync(request, userId, batch: null, ct);

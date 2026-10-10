@@ -3,6 +3,8 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.RegularExpressions;
+using barakoCMS.Infrastructure.Http;
+using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Models;
 using Marten;
 
@@ -98,7 +100,10 @@ internal sealed class ConnectorSender(
     /// token endpoint that sent headers and then nothing would hold the caller for as long as it
     /// liked, and the workflow runner is one loop.
     /// </remarks>
-    internal TimeSpan GrantTimeout { get; init; } = TimeSpan.FromSeconds(30);
+    internal TimeSpan GrantTimeout { get; init; } = DefaultGrantTimeout;
+
+    /// <summary>Also counted in the slowest action the outbound settings are checked against at startup.</summary>
+    internal static readonly TimeSpan DefaultGrantTimeout = TimeSpan.FromSeconds(30);
 
     /// <summary>The longest the write of one delivery row may hold up the caller.</summary>
     /// <remarks>
@@ -134,7 +139,7 @@ internal sealed class ConnectorSender(
         // between the check and the connection is the whole of #258. Send time means socket time.
         var client = httpClientFactory.CreateClient("ExternalApi");
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, target);
+        using var request = Tagged(new HttpRequestMessage(HttpMethod.Get, target));
 
         // Credentials are attached to the finished request, after everything else about it is
         // decided. Nothing that composes a request ever holds a secret, so no template, condition or
@@ -152,7 +157,7 @@ internal sealed class ConnectorSender(
         {
             using var first = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
             using var again = await RetryWithNewTokenAsync(client, connector, request, first,
-                () => new HttpRequestMessage(HttpMethod.Get, target), HttpCompletionOption.ResponseHeadersRead, ct);
+                () => Tagged(new HttpRequestMessage(HttpMethod.Get, target)), HttpCompletionOption.ResponseHeadersRead, ct);
             var response = again ?? first;
             timer.Stop();
 
@@ -560,7 +565,8 @@ internal sealed class ConnectorSender(
                     tokenUri, clientId.Trim(), secret,
                     connector.Settings?.GetValueOrDefault(ConnectorSettingKeys.Scope),
                     connector.Settings?.GetValueOrDefault(ConnectorSettingKeys.Audience),
-                    inBody),
+                    inBody,
+                    TenantScopes.SlugFor(session.TenantId)),
                 deadline.Token);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -575,8 +581,9 @@ internal sealed class ConnectorSender(
 
             return ex switch
             {
+                OutboundCircuitOpenException open => open.Message,
                 HttpRequestException => $"The token endpoint at {tokenUri.IdnHost} could not be reached. The host may be unreachable, or its address is blocked.",
-                OperationCanceledException => $"The token endpoint at {tokenUri.IdnHost} timed out.",
+                OperationCanceledException or TimeoutException => $"The token endpoint at {tokenUri.IdnHost} timed out.",
                 _ => $"The token request to {tokenUri.IdnHost} failed.",
             };
         }
@@ -619,9 +626,19 @@ internal sealed class ConnectorSender(
         return await client.SendAsync(again, completion, ct);
     }
 
-    private static HttpRequestMessage BuildRequest(ComposedRequest composed, Uri target)
+    /// <summary>
+    /// Marks a request with this session's tenant, so the outbound breaker for a shared host is this
+    /// tenant's own and another tenant's failures cannot open it.
+    /// </summary>
+    private HttpRequestMessage Tagged(HttpRequestMessage request)
     {
-        var request = new HttpRequestMessage(new HttpMethod(composed.Method), target);
+        OutboundResilienceHandler.SetTenant(request, TenantScopes.SlugFor(session.TenantId));
+        return request;
+    }
+
+    private HttpRequestMessage BuildRequest(ComposedRequest composed, Uri target)
+    {
+        var request = Tagged(new HttpRequestMessage(new HttpMethod(composed.Method), target));
 
         foreach (var (name, value) in composed.Headers)
         {
@@ -653,8 +670,9 @@ internal sealed class ConnectorSender(
 
     private static string Describe(Exception ex) => ex switch
     {
+        OutboundCircuitOpenException open => open.Message,
         HttpRequestException => "The request could not be completed. The host may be unreachable, or its address is blocked.",
-        TaskCanceledException => "The request timed out.",
+        TaskCanceledException or TimeoutException => "The request timed out.",
         _ => "The request failed.",
     };
 }

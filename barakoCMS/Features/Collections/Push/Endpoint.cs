@@ -69,7 +69,7 @@ internal sealed class Endpoint(
             return;
         }
 
-        var slugField = PublicDelivery.SlugField(definition);
+        var slugField = PublicDelivery.SlugFieldForAuthoring(definition);
         if (slugField is null)
         {
             ThrowError($"'{req.Type}' has no slug field, so a push has nothing to key its entries on.");
@@ -124,6 +124,13 @@ internal sealed class Endpoint(
             else
                 await sensitivity.ApplyWriteAsync(existing, data, HttpContext, ct);
 
+            if (existing is not null
+                && !await permissions.AllowsWrittenEntryAsync(user, existing, "update", data, ct))
+            {
+                await Send.ForbiddenAsync(ct);
+                return;
+            }
+
             var (valid, messages) = await validator.ValidateAsync(req.Type, data, existing, User);
             if (valid)
             {
@@ -134,6 +141,18 @@ internal sealed class Endpoint(
             {
                 errors.Add(new EntryError { Index = i, Slug = slug, Messages = messages });
                 continue;
+            }
+
+            // A new entry is checked as it will be stored, after the hooks, as POST /api/contents
+            // checks it.
+            if (existing is null
+                && !await permissions.AllowsCreatedEntryAsync(
+                    user,
+                    new ContentCreateRequest { ContentType = req.Type, Data = data, Status = req.Status },
+                    ct))
+            {
+                await Send.ForbiddenAsync(ct);
+                return;
             }
 
             plans.Add(new Plan(i, data, existing));

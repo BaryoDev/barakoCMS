@@ -61,6 +61,26 @@ public class CredentialNamesTests
     }
 
     [Theory]
+    [InlineData("Authorization")]
+    [InlineData("Proxy-Authorization")]
+    [InlineData("Webhook:AuthorizationHeader")]
+    [InlineData("Bearer")]
+    [InlineData("BearerValue")]
+    public void A_name_an_http_credential_header_goes_by_is_a_credential_name(string name)
+    {
+        CredentialNames.IsCredential(name).Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("Author")]
+    [InlineData("AuthorName")]
+    [InlineData("Authority")]
+    public void A_name_that_only_starts_like_auth_is_not_a_credential_name(string name)
+    {
+        CredentialNames.IsCredential(name).Should().BeFalse();
+    }
+
+    [Theory]
     [InlineData("Kubernetes__Enabled")]
     [InlineData("HealthChecksUI__Enabled")]
     [InlineData("Serilog__WriteToFile")]

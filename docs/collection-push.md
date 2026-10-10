@@ -103,7 +103,8 @@ the usual validation shape instead.
 | 401 | No credentials. |
 | 403 | The key is limited to other types or lacks `content:write`, or the caller may not create or update entries of this type. |
 | 404 | No such content type in the caller's tenant. |
-| 409 | A concurrent write, or a repeated `Idempotency-Key`. Nothing written. |
+| 409 | A concurrent write, or an `Idempotency-Key` whose first request is still running. Nothing written. |
+| 422 | An `Idempotency-Key` already used for a different push. Nothing written. |
 | 413 | The body is over the size limit. |
 
 ## Limits
@@ -114,8 +115,9 @@ smaller.
 ## Retries and webhooks
 
 `Idempotency-Key` works here as on every other write (see [idempotency.md](idempotency.md)): a
-repeat of a key that succeeded is answered 409, and a key whose push failed can be retried. Pushing
-the same entries again without a key is also safe, since unchanged entries are not written.
+repeat of a key that succeeded gets the first push's response back with `Idempotent-Replayed: true`,
+and a key whose push failed can be retried. Pushing the same entries again without a key is also
+safe, since unchanged entries are not written.
 
 Workflows and their webhooks fire from the events a push appends, the same as for the content API:
 once per created entry (`Created`), once per changed entry (`Updated`), and `Published` when a

@@ -19,6 +19,7 @@ internal class ResetPasswordRequest
 /// tokens; no current-password check, since this is an administrative reset. Outstanding
 /// short-lived access tokens expire on their own rather than being individually revoked.
 /// </summary>
+[barakoCMS.Infrastructure.Filters.NoIdempotentReplay]
 internal class ResetPasswordEndpoint(
     IDocumentSession session,
     IPasswordPolicyValidator passwordValidator) : Endpoint<ResetPasswordRequest>

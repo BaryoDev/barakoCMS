@@ -285,7 +285,7 @@ public class PagesModuleTests
 
         var root = await NavigationAsync();
 
-        root.GetProperty("contract").GetInt32().Should().Be(1);
+        root.GetProperty("contract").GetInt32().Should().Be(BarakoCMS.Pages.PagesContract.Version);
         root.GetProperty("truncated").GetBoolean().Should().BeFalse();
         var aboutItem = root.GetProperty("items").EnumerateArray()
             .Single(i => i.GetProperty("slug").GetString() == aboutSlug);
@@ -338,7 +338,7 @@ public class PagesModuleTests
         res.StatusCode.Should().Be(HttpStatusCode.OK, body);
 
         var root = JsonDocument.Parse(body).RootElement;
-        root.GetProperty("contract").GetInt32().Should().Be(1);
+        root.GetProperty("contract").GetInt32().Should().Be(BarakoCMS.Pages.PagesContract.Version);
         root.GetProperty("path").GetString().Should().Be($"/{sectionA}/{leaf}");
         root.GetProperty("entry").GetProperty("slug").GetString().Should().Be(leaf);
         root.GetProperty("entry").GetProperty("data").GetProperty("Title").GetString().Should().Be("Leaf");
@@ -396,7 +396,7 @@ public class PagesModuleTests
         res.StatusCode.Should().Be(HttpStatusCode.OK, body);
 
         var root = JsonDocument.Parse(body).RootElement;
-        root.GetProperty("contract").GetInt32().Should().Be(1);
+        root.GetProperty("contract").GetInt32().Should().Be(BarakoCMS.Pages.PagesContract.Version);
         root.GetProperty("truncated").GetBoolean().Should().BeFalse();
 
         var parentItem = root.GetProperty("items").EnumerateArray()

@@ -47,7 +47,10 @@ public class MyModuleTests : IClassFixture<MyHost>
 
 `BarakoTestHost<MyModule>` is the same for a module with a parameterless constructor and no
 settings. One container per fixture, shared by every test in the class. Each host validates
-tokens with its own key, so several fixtures can run in one test process.
+tokens with its own key, so several fixtures can run in one test process. Building and disposing a
+host inside a test is another matter: FastEndpoints keeps a process-wide resolver that then points
+at the disposed host. [MODULES.md](https://github.com/BaryoDev/barakoCMS/blob/master/MODULES.md#more-than-one-host-in-a-test-process)
+says what to avoid.
 
 ## What it gives you
 
