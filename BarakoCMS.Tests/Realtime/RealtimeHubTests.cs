@@ -4,6 +4,8 @@ using barakoCMS.Infrastructure.Realtime;
 using BarakoCMS.Tests.Clinic;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http.Connections;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.SignalR.Client;
 using Xunit;
@@ -95,5 +97,35 @@ public class RealtimeHubTests(ClinicProbeHost host) : IClassFixture<ClinicProbeH
             $"/api/changes?after=0&topics=probe.tickets&access_token={Uri.EscapeDataString(caller.Token)}");
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Hub_SubscribeAfterLogout_IsRefused()
+    {
+        var caller = await host.CallerHoldingAsync(Tickets);
+        await using var connection = await ConnectAsync(host, caller.Token);
+
+        var logout = await caller.Client.PostAsync("/api/auth/logout", null, TestContext.Current.CancellationToken);
+        logout.IsSuccessStatusCode.Should().BeTrue();
+
+        // Long polling sends every message as an HTTP request, so the revoked token is also refused
+        // by TokenValidationMiddleware with a 401 before the hub runs. Either refusal is the point:
+        // a revoked session cannot subscribe. Over WebSockets only the hub check applies.
+        var act = () => connection.InvokeAsync("Subscribe", "probe.tickets");
+
+        await act.Should().ThrowAsync<Exception>();
+    }
+
+    [Fact]
+    public void Hub_Endpoint_ClosesWhenTokenExpires()
+    {
+        var options = host.Services.GetRequiredService<EndpointDataSource>().Endpoints
+            .Where(e => e.Metadata.GetMetadata<HubMetadata>()?.HubType == typeof(RealtimeHub))
+            .Select(e => e.Metadata.GetMetadata<HttpConnectionDispatcherOptions>())
+            .OfType<HttpConnectionDispatcherOptions>()
+            .ToList();
+
+        options.Should().NotBeEmpty();
+        options.Should().OnlyContain(o => o!.CloseOnAuthenticationExpiration);
     }
 }

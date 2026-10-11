@@ -1,5 +1,8 @@
 using barakoCMS.Core.Interfaces;
+using System.IdentityModel.Tokens.Jwt;
+using barakoCMS.Infrastructure.Middleware;
 using barakoCMS.Infrastructure.Multitenancy;
+using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
@@ -16,9 +19,12 @@ namespace barakoCMS.Infrastructure.Realtime;
 /// resolved is not there. It is set from the caller's <c>tenant</c> claim before anything that reads
 /// the tenant is resolved.
 ///
-/// The capability is checked when the client subscribes. A connection whose capability is revoked
-/// later keeps hearing notices until it reconnects, but a notice holds only a topic, a sequence, a
-/// stream id and an event type, and the feed refuses the read that would follow it.
+/// The capability, the token's revocation and the user's session epoch are checked when the client
+/// subscribes, because TokenValidationMiddleware only sees HTTP requests. The hub is mapped with
+/// CloseOnAuthenticationExpiration, so an open connection closes when its access token expires, the
+/// same bound HTTP has. Until then a connection whose capability is revoked keeps hearing notices,
+/// but a notice holds only a topic, a sequence, a stream id and an event type, and the feed refuses
+/// the read that would follow it.
 /// </remarks>
 [Authorize]
 public sealed class RealtimeHub(TopicRegistry topics, TenantContext tenant, IServiceProvider services) : Hub
@@ -35,6 +41,19 @@ public sealed class RealtimeHub(TopicRegistry topics, TenantContext tenant, ISer
         var callers = services.GetRequiredService<ICallerCapabilities>();
         if (!await callers.HoldsAsync(Context.User!, found.Capability, Context.ConnectionAborted))
             throw new HubException($"This caller is missing the '{found.Capability}' capability.");
+
+        var user = Context.User!;
+        var jti = user.FindFirst(JwtRegisteredClaimNames.Jti)?.Value;
+        if (jti is not null
+            && await services.GetRequiredService<ITokenRevocationService>().IsTokenRevokedAsync(jti, Context.ConnectionAborted))
+            throw new HubException("This token has been revoked.");
+
+        if (await SessionEpochCheck.IsBeforeSessionEpochAsync(
+                user,
+                services.GetRequiredService<ISessionEpochService>(),
+                services.GetRequiredService<ILogger<RealtimeHub>>(),
+                Context.ConnectionAborted))
+            throw new HubException("This token has been revoked.");
 
         await Groups.AddToGroupAsync(Context.ConnectionId, GroupName(slug, found.Name), Context.ConnectionAborted);
     }

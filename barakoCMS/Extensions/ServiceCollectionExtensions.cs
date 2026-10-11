@@ -1562,7 +1562,9 @@ public static class ServiceCollectionExtensions
 
         // The host is a WebApplication in every supported setup, which is also the route builder.
         if (app is Microsoft.AspNetCore.Routing.IEndpointRouteBuilder routes)
-            routes.MapHub<barakoCMS.Infrastructure.Realtime.RealtimeHub>(barakoCMS.Infrastructure.Realtime.RealtimeHub.Path);
+            routes.MapHub<barakoCMS.Infrastructure.Realtime.RealtimeHub>(
+                barakoCMS.Infrastructure.Realtime.RealtimeHub.Path,
+                o => o.CloseOnAuthenticationExpiration = true);
 
         UseJobWorkers(app);
 
