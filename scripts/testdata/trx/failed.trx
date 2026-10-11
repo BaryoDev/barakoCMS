@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Results>
+    <UnitTestResult testName="BarakoCMS.Tests.RoleApiTests.A_role_keeps_its_name" outcome="Passed" />
+    <UnitTestResult testName="BarakoCMS.Tests.RoleApiTests.Renaming_onto_a_taken_name_is_a_conflict" outcome="Failed">
+      <Output>
+        <ErrorInfo>
+          <Message>Expected response.StatusCode to be HttpStatusCode.Conflict {value: 409}, but found HttpStatusCode.InternalServerError {value: 500}.</Message>
+          <StackTrace>   at BarakoCMS.Tests.RoleApiTests.Renaming_onto_a_taken_name_is_a_conflict() in /_/BarakoCMS.Tests/Features/Roles/RoleApiTests.cs:line 212</StackTrace>
+        </ErrorInfo>
+      </Output>
+    </UnitTestResult>
+  </Results>
+</TestRun>
