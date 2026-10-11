@@ -1255,6 +1255,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<barakoCMS.Infrastructure.Auth.CapabilityVocabulary>();
         services.AddScoped<barakoCMS.Core.Interfaces.ICallerCapabilities, barakoCMS.Infrastructure.Auth.CallerCapabilities>();
         services.AddSingleton(sp => new barakoCMS.Infrastructure.Realtime.TopicRegistry(sp.GetServices<IBarakoModule>()));
+        services.AddSingleton<barakoCMS.Infrastructure.Realtime.IHighWaterMark, barakoCMS.Infrastructure.Realtime.MartenHighWaterMark>();
 
         // Read from the container's configuration at first use, for the reason AddJobQueue gives, and
         // asked for in UseBarakoCMS so an out-of-range setting stops startup.

@@ -1,0 +1,3 @@
+- **Change feed.** `GET /api/changes?after=&topics=&limit=` returns the events after a sequence for the topics the caller holds, in the caller's tenant. It never reads past the store's high-water mark, so an event that commits after a higher one is still delivered.
+- **Module topics.** Modules declare topics with `IBarakoModule.ConfigureTopics`, each a group of the module's own event types and the capability needed to read them. Topic capabilities appear in `GET /api/capabilities` and can be granted through roles.
+- **Caller capability check.** `ICallerCapabilities` answers whether the signed-in caller holds a capability, for code outside an endpoint.
