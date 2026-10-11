@@ -11,6 +11,10 @@ on:
   # counts when it reports on the merge_group event. No path filters here on purpose: the queue is
   # the last gate before master, so it runs everything every time.
   merge_group:
+  # refresh-stale-prs.yml starts this on a pull request branch it has just updated, because the push
+  # it made with GITHUB_TOKEN starts nothing. The checks report under the same names as a
+  # pull_request run, on the same head commit.
+  workflow_dispatch:
 
 jobs:
   backend:
