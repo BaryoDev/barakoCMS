@@ -1,0 +1,2 @@
+- **Realtime hub.** SignalR hub at `/hubs/realtime`. A signed-in caller subscribes to module topics it holds the capability for, and hears `changed` notices (`topic`, `sequence`, `streamId`, `type`, never event data) after each commit, for its own tenant only. The bearer token may come in the `access_token` query string on hub paths only.
+- **Test host handler.** `BarakoTestHost.CreateHandler()` for clients that need the in-memory server's handler, such as a SignalR `HubConnection`.

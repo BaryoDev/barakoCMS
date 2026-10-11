@@ -965,6 +965,12 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>(),
                 sp.GetRequiredService<ILogger<barakoCMS.Features.Public.Events.ContentChangeListener>>()));
 
+            // Realtime topic notices, after commit, on this instance. See RealtimeEventListener.
+            options.Listeners.Add(new barakoCMS.Infrastructure.Realtime.RealtimeEventListener(
+                sp.GetRequiredService<Microsoft.AspNetCore.SignalR.IHubContext<barakoCMS.Infrastructure.Realtime.RealtimeHub>>(),
+                sp.GetRequiredService<barakoCMS.Infrastructure.Realtime.TopicRegistry>(),
+                sp.GetRequiredService<ILogger<barakoCMS.Infrastructure.Realtime.RealtimeEventListener>>()));
+
             // What goes in the correlation and causation columns is decided here, for every session
             // of the store and not only the scoped one: Marten's own default is the raw parent id of
             // the current span, which is the caller's header as sent.

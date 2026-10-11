@@ -327,6 +327,21 @@ Events are partitioned per tenant. Mark a projected document `MultiTenanted()` s
 
 A host older than 4.9 throws `NotSupportedException` from both methods.
 
+#### Realtime topics
+
+A module names the groups of its own events a client may follow, and the capability needed to read each:
+
+```csharp
+public void ConfigureTopics(IModuleTopics topics)
+{
+    topics.Add("queue.tickets", "read_queue", typeof(TicketIssued), typeof(TicketCalled));
+}
+```
+
+Topic names are lower case words joined by dots or dashes, unique across all modules. Only event types from the module's own assemblies may be listed. A bad declaration stops the host at startup. The capability shows up in `GET /api/capabilities` with the module as its source, so a role can grant it.
+
+Clients read a topic through `GET /api/changes` and hear about new events through the realtime hub. See `docs/realtime.md`.
+
 ### Migrations
 
 `CreateOnly` creates your tables on a database that does not have them and never alters them
