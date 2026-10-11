@@ -4,7 +4,6 @@ using Marten;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
-using Microsoft.IdentityModel.JsonWebTokens;
 
 namespace BarakoCMS.ExternalAuth;
 
@@ -50,8 +49,8 @@ internal sealed class OidcStartEndpoint(IConfiguration config, OidcBackchannel b
         }
 
         var flow = OidcFlow.New();
-        HttpContext.Response.Cookies.Append(provider.StateCookie, flow.ToCookie(), ExternalAuthSupport.ShortCookie());
-        HttpContext.Response.Cookies.Append(provider.ClubCookie, club, ExternalAuthSupport.ShortCookie());
+        HttpContext.Response.Cookies.Append(provider.StateCookie, flow.ToCookie(), OidcSupport.FlowCookie(provider));
+        HttpContext.Response.Cookies.Append(provider.ClubCookie, club, OidcSupport.FlowCookie(provider));
 
         var separator = endpoints.AuthorizationEndpoint.Contains('?') ? '&' : '?';
         var url =
@@ -59,6 +58,7 @@ internal sealed class OidcStartEndpoint(IConfiguration config, OidcBackchannel b
             $"&client_id={Uri.EscapeDataString(provider.ClientId)}" +
             $"&redirect_uri={Uri.EscapeDataString(redirect)}" +
             $"&scope={Uri.EscapeDataString(provider.Scopes)}" +
+            (provider.FormPost ? "&response_mode=form_post" : "") +
             $"&state={flow.State}&nonce={flow.Nonce}" +
             $"&code_challenge={flow.CodeChallenge}&code_challenge_method=S256";
         await Send.ResultAsync(Results.Redirect(url));
@@ -66,14 +66,9 @@ internal sealed class OidcStartEndpoint(IConfiguration config, OidcBackchannel b
 }
 
 /// <summary>
-/// GET /api/auth/oidc/{name}/callback. Checks the state, exchanges the code, validates the id token
-/// and hands the identity to <see cref="SocialSignIn"/>.
+/// GET /api/auth/oidc/{name}/callback. Where a provider redirects back to, with the code and state
+/// in the query.
 /// </summary>
-/// <remarks>
-/// Whatever happens, the browser is sent to the configured base URL: the sign-in page with a
-/// message, or the console's social callback with the tokens in the fragment. There is no return
-/// address in the request to honour.
-/// </remarks>
 internal sealed class OidcCallbackEndpoint(
     IDocumentSession session,
     IConfiguration config,
@@ -81,7 +76,8 @@ internal sealed class OidcCallbackEndpoint(
     OidcConsumedStates consumed,
     barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
     barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer,
-    ILogger<OidcCallbackEndpoint> logger) : EndpointWithoutRequest
+    ILogger<OidcCallback> logger)
+    : OidcCallback(session, config, backchannel, consumed, deviceGate, tokenIssuer, logger)
 {
     public override void Configure()
     {
@@ -92,13 +88,101 @@ internal sealed class OidcCallbackEndpoint(
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        var provider = OidcProviders.Find(config, Route<string>("name"));
+        var provider = OidcProviders.Find(AppConfig, Route<string>("name"));
         if (provider is null)
         {
             await Send.NotFoundAsync(ct);
             return;
         }
 
+        await CompleteAsync(
+            provider, Query<string>("code", isRequired: false), Query<string>("state", isRequired: false), ct);
+    }
+}
+
+/// <summary>
+/// POST /api/auth/oidc/{name}/callback. Where a provider configured with <c>ResponseMode</c>
+/// <c>form_post</c> (Apple) posts the code and state back, as a form.
+/// </summary>
+/// <remarks>
+/// Only for those providers: for any other this route does not exist. The state is checked exactly
+/// as on the GET. The body is read only as a URL-encoded form of at most
+/// <see cref="MaxFormBytes"/>, and a field sent twice counts as missing. Apple also posts an
+/// <c>id_token</c>, which is ignored: the one that is validated is the one the code exchange returns.
+/// </remarks>
+[barakoCMS.Infrastructure.Filters.NoIdempotentReplay]
+internal sealed class OidcFormPostCallbackEndpoint(
+    IDocumentSession session,
+    IConfiguration config,
+    OidcBackchannel backchannel,
+    OidcConsumedStates consumed,
+    barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
+    barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer,
+    ILogger<OidcCallback> logger)
+    : OidcCallback(session, config, backchannel, consumed, deviceGate, tokenIssuer, logger)
+{
+    internal const int MaxFormBytes = 64 * 1024;
+
+    public override void Configure()
+    {
+        Post("/api/auth/oidc/{name}/callback");
+        AllowAnonymous();
+        AllowFormData(urlEncoded: true);
+        MaxRequestBodySize(MaxFormBytes);
+        Options(x => x.RequireRateLimiting(OidcSupport.RateLimitPolicy));
+    }
+
+    public override async Task HandleAsync(CancellationToken ct)
+    {
+        var provider = OidcProviders.Find(AppConfig, Route<string>("name"));
+        if (provider is null || !provider.FormPost)
+        {
+            await Send.NotFoundAsync(ct);
+            return;
+        }
+
+        string? code = null;
+        string? state = null;
+        if (HttpContext.Request.HasFormContentType)
+        {
+            try
+            {
+                var form = await HttpContext.Request.ReadFormAsync(ct);
+                code = form["code"].Count == 1 ? form["code"][0] : null;
+                state = form["state"].Count == 1 ? form["state"][0] : null;
+            }
+            catch (Exception ex) when (ex is InvalidDataException or IOException or BadHttpRequestException)
+            {
+                // Too long, or not a form. Both leave code and state missing, which fails the flow.
+            }
+        }
+
+        await CompleteAsync(provider, code, state, ct);
+    }
+}
+
+/// <summary>
+/// The callback, by either method. Checks the state, exchanges the code, validates the id token and
+/// hands the identity to <see cref="SocialSignIn"/>.
+/// </summary>
+/// <remarks>
+/// Whatever happens, the browser is sent to the configured base URL: the sign-in page with a
+/// message, or the console's social callback with the tokens in the fragment. There is no return
+/// address in the request to honour.
+/// </remarks>
+internal abstract class OidcCallback(
+    IDocumentSession session,
+    IConfiguration config,
+    OidcBackchannel backchannel,
+    OidcConsumedStates consumed,
+    barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
+    barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer,
+    ILogger<OidcCallback> logger) : EndpointWithoutRequest
+{
+    protected IConfiguration AppConfig => config;
+
+    protected async Task CompleteAsync(OidcProvider provider, string? code, string? state, CancellationToken ct)
+    {
         var baseUrl = ExternalAuthSupport.BaseUrl(config, HttpContext);
         var club = (HttpContext.Request.Cookies[provider.ClubCookie] ?? "").Trim().ToLowerInvariant();
         if (club.Length > OidcSupport.MaxClubLength)
@@ -107,10 +191,8 @@ internal sealed class OidcCallbackEndpoint(
         }
 
         var flow = OidcFlow.FromCookie(HttpContext.Request.Cookies[provider.StateCookie]);
-        var code = Query<string>("code", isRequired: false);
-        var state = Query<string>("state", isRequired: false);
-        OidcSupport.Expire(HttpContext.Response, provider.StateCookie);
-        OidcSupport.Expire(HttpContext.Response, provider.ClubCookie);
+        OidcSupport.Expire(HttpContext.Response, provider, provider.StateCookie);
+        OidcSupport.Expire(HttpContext.Response, provider, provider.ClubCookie);
 
         async Task Fail(string message)
         {
@@ -153,7 +235,7 @@ internal sealed class OidcCallbackEndpoint(
             return;
         }
 
-        var keys = await backchannel.SigningKeysAsync(provider, endpoints, KeyIdOf(idToken), ct);
+        var keys = await backchannel.SigningKeysAsync(provider, endpoints, OidcIdToken.KeyIdOf(idToken), ct);
         var (identity, refusal) = await OidcIdToken.ValidateAsync(idToken, provider, keys, flow.Nonce);
         if (identity is null)
         {
@@ -195,23 +277,5 @@ internal sealed class OidcCallbackEndpoint(
             return;
         }
         await Send.ResultAsync(Results.Redirect(SocialSignIn.FrontendCallback(baseUrl, tokens.Token, tokens.Refresh, club)));
-    }
-
-    private static string? KeyIdOf(string idToken)
-    {
-        if (idToken.Length > OidcIdToken.MaxLength)
-        {
-            return null;
-        }
-
-        try
-        {
-            var keyId = new JsonWebTokenHandler().ReadJsonWebToken(idToken).Kid;
-            return string.IsNullOrEmpty(keyId) ? null : keyId;
-        }
-        catch (Exception)
-        {
-            return null;
-        }
     }
 }

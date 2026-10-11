@@ -12,7 +12,7 @@ namespace BarakoCMS.Tests.Features.ExternalAuth;
 /// token endpoint, answered from memory. Nothing here opens a socket.
 /// </summary>
 /// <remarks>
-/// It serves two issuers from one host. The plain one has a fixed issuer. The shared one publishes
+/// It serves two issuers from one host, plus an Apple-shaped one on a host of its own. The plain one has a fixed issuer. The shared one publishes
 /// a <c>{tenantid}</c> template the way Microsoft's multi-directory endpoints do, takes the client
 /// secret in the form, and marks its key with the issuer it signs for.
 ///
@@ -24,6 +24,8 @@ internal sealed class OidcStubProvider : HttpMessageHandler
     public const string Authority = "https://idp.test.example";
     public const string SharedAuthority = "https://idp.test.example/common/v2.0";
     public const string SharedIssuerTemplate = "https://idp.test.example/{tenantid}/v2.0";
+    /// <summary>Shaped like Apple: a fixed issuer, and the client secret taken in the form only.</summary>
+    public const string AppleAuthority = "https://apple.test.example";
     public const string ClientId = "barako-test-client";
     public const string ClientSecret = "stub-client-secret-do-not-leak";
     public const string KeyId = "stub-key-1";
@@ -77,6 +79,23 @@ internal sealed class OidcStubProvider : HttpMessageHandler
         {
             Interlocked.Increment(ref DiscoveryCalls);
             return Json(Discovery(SharedIssuerTemplate, SharedAuthority, postSecret: true));
+        }
+
+        if (url == AppleAuthority + "/.well-known/openid-configuration")
+        {
+            Interlocked.Increment(ref DiscoveryCalls);
+            return Json(Discovery(AppleAuthority, AppleAuthority, postSecret: true));
+        }
+
+        if (url == AppleAuthority + "/keys")
+        {
+            Interlocked.Increment(ref KeysCalls);
+            return Json(Jwks(Key, KeyId));
+        }
+
+        if (url == AppleAuthority + "/token")
+        {
+            return await RedeemAsync(request, ct);
         }
 
         if (url == Authority + "/keys" || url == SharedAuthority + "/keys")

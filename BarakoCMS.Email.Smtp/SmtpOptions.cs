@@ -42,6 +42,16 @@ public sealed class SmtpOptions
     /// else.
     /// </summary>
     public SmtpSecurity? Security { get; set; }
+
+    public const double DefaultTimeoutSeconds = 30;
+
+    /// <summary>
+    /// How long one MailKit operation may take, and the connect and login together. Zero or less uses
+    /// <see cref="DefaultTimeoutSeconds"/>. MailKit's own default was 120 s per operation.
+    /// </summary>
+    public double TimeoutSeconds { get; set; } = DefaultTimeoutSeconds;
+
+    internal TimeSpan Timeout => TimeSpan.FromSeconds(TimeoutSeconds > 0 ? TimeoutSeconds : DefaultTimeoutSeconds);
 }
 
 /// <summary>How the connection to the relay is secured.</summary>

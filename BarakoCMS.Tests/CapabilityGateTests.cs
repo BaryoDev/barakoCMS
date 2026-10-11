@@ -956,6 +956,7 @@ public class CapabilityGateTests
         ("GET", "/api/workflows/actions", HttpStatusCode.OK),
         ("POST", "/api/workflows/validate", HttpStatusCode.BadRequest),
         ("POST", "/api/workflows/dry-run", HttpStatusCode.BadRequest),
+        ("POST", $"/api/email-templates/{NotASlug}/preview", HttpStatusCode.BadRequest),
         ("GET", "/api/workflows/variables", HttpStatusCode.OK),
         ("GET", $"/api/workflows/{NotAGuid}/debug", HttpStatusCode.BadRequest),
         ("PUT", $"/api/workflows/{NotAGuid}/enabled", HttpStatusCode.BadRequest),

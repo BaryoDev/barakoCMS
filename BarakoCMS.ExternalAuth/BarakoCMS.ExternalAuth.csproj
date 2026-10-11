@@ -5,8 +5,8 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.ExternalAuth</PackageId>
-    <Version>4.4.0</Version>
-    <Description>External / social sign-in module for barakoCMS: "Continue with Facebook / Google / LinkedIn / GitHub" via OAuth, matched to a global user by verified email, plus any OpenID Connect provider configured by issuer URL, issuing the same tenant-scoped, device-bound token as the built-in flows. Captures profile details (photo, birthday, location) per provider.</Description>
+    <Version>4.5.0</Version>
+    <Description>External / social sign-in module for barakoCMS: "Continue with Facebook / Google / LinkedIn / GitHub" via OAuth, matched to a global user by verified email, plus any OpenID Connect provider configured by issuer URL (Apple included) and an id token grant for native apps, issuing the same tenant-scoped, device-bound token as the built-in flows. Captures profile details (photo, birthday, location) per provider.</Description>
   </PropertyGroup>
 
   <ItemGroup>
@@ -37,5 +37,6 @@
     <!-- This module's migration, shipped in its own assembly so db-migrate records it under the
          module and runs it only where the module is enabled. See MODULES.md, "Migrations". -->
     <EmbeddedResource Include="..\migrations\4.6.0\external-auth-identities.sql" LogicalName="barako-migrations/4.6.0/external-auth-identities.sql" />
+    <EmbeddedResource Include="..\migrations\4.8.0\external-auth-used-nonces.sql" LogicalName="barako-migrations/4.8.0/external-auth-used-nonces.sql" />
   </ItemGroup>
 </Project>

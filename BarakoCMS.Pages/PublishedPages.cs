@@ -125,7 +125,7 @@ internal static class PublishedPages
                 PageData.String(entry.Data, options.TitleField),
                 PageData.Guid(entry.Data, options.ParentField),
                 PageData.Bool(entry.Data, options.ShowInNavigationField),
-                PageData.Int(entry.Data, options.OrderField));
+                PageData.Long(entry.Data, options.OrderField));
 
             result.Add((node, entry));
         }

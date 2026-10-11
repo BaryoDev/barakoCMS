@@ -4,6 +4,7 @@ namespace barakoCMS.Core.Interfaces;
 /// Issues the tokens that turn a self-registration into an account. Sits beside
 /// <see cref="IOtpService"/>, which does the same job for sign-in codes.
 /// </summary>
+/// <remarks>A module may replace this: core registers it with TryAdd, and module services are registered first.</remarks>
 public interface IEmailVerificationService
 {
     /// <summary>

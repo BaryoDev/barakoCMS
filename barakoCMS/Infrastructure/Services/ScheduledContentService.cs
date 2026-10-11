@@ -113,6 +113,7 @@ public class ScheduledContentService : BackgroundService
         // The connection object, not a new one built from its ConnectionString: Npgsql redacts the
         // password out of ConnectionString unless Persist Security Info is set, so rebuilding from it
         // fails authentication.
+        using var span = Tracing.BarakoTracing.StartSweep(Tracing.BarakoTracing.ScheduledSweepSpan);
         await using var lockConnection = _store.Storage.Database.CreateConnection();
         await lockConnection.OpenAsync(ct);
 
@@ -121,6 +122,7 @@ public class ScheduledContentService : BackgroundService
             acquire.CommandText = "select pg_try_advisory_lock(@key)";
             acquire.Parameters.AddWithValue("key", SweepLockKey);
             var acquired = (bool?)await acquire.ExecuteScalarAsync(ct) ?? false;
+            span?.SetTag(Tracing.BarakoTracing.SweepHeldTag, acquired);
             if (!acquired)
             {
                 _logger.LogDebug("Another instance is sweeping scheduled content; skipping this tick.");
@@ -159,8 +161,10 @@ public class ScheduledContentService : BackgroundService
 
         foreach (var slug in partitions.Distinct())
         {
+            using var span = Tracing.BarakoTracing.StartTenantWork(Tracing.BarakoTracing.ScheduledTenantSpan, slug);
             await using var session = slug is null ? _store.LightweightSession() : _store.LightweightSession(slug);
             var changed = await SweepTenantAsync(session, nowUtc, _logger, ct);
+            span?.SetTag(Tracing.BarakoTracing.ScheduledTransitionsTag, changed);
             if (changed > 0)
                 _logger.LogInformation("Scheduled sweep applied {Count} transition(s) for tenant {Tenant}",
                     changed, slug ?? "(default)");

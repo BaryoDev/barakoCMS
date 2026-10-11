@@ -36,16 +36,17 @@ internal static class PageData
             _ => false,
         };
 
-    public static int? Int(IReadOnlyDictionary<string, object> data, string field) =>
+    /// <summary>A whole number, any a core int field holds (Int64), or null.</summary>
+    public static long? Long(IReadOnlyDictionary<string, object> data, string field) =>
         Raw(data, field) switch
         {
             null => null,
             int i => i,
-            long l when l is >= int.MinValue and <= int.MaxValue => (int)l,
-            JsonElement { ValueKind: JsonValueKind.Number } je when je.TryGetInt32(out var n) => n,
+            long l => l,
+            JsonElement { ValueKind: JsonValueKind.Number } je when je.TryGetInt64(out var n) => n,
             JsonElement { ValueKind: JsonValueKind.String } je
-                when int.TryParse(je.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) => n,
-            string s when int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) => n,
+                when long.TryParse(je.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) => n,
+            string s when long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) => n,
             _ => null,
         };
 }

@@ -133,7 +133,7 @@ public class FieldPresentationDefinitionTests
 
         errors.Should().ContainSingle();
         errors[0].Should().Contain("EventName").And.Contain("role");
-        FieldPresentation.Roles.Should().HaveCount(3);
+        FieldPresentation.Roles.Should().HaveCount(5);
         foreach (var role in FieldPresentation.Roles)
             errors[0].Should().Contain(role.Name);
         errors[0].Should().NotContain("headline-of-the-page");

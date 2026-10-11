@@ -63,6 +63,19 @@ public interface IContentTypeValidatorService
     }
 
     /// <summary>
+    /// Checks the schema.org type a type declares for structured data. Null is valid and means none.
+    /// </summary>
+    /// <remarks>
+    /// The default is the rule itself, for the reason <see cref="ValidateRouteTemplate"/> gives.
+    /// Delivery checks a stored name again and emits nothing for one this would refuse.
+    /// </remarks>
+    (bool IsValid, List<string> Errors) ValidateStructuredDataType(string? structuredDataType)
+    {
+        var errors = StructuredDataTypes.Errors(structuredDataType);
+        return (errors.Count == 0, errors);
+    }
+
+    /// <summary>
     /// Checks the uniqueness rules a type declares against its fields and its lifecycle. Null and
     /// empty are valid and mean the type has none.
     /// </summary>

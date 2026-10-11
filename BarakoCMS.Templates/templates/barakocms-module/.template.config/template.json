@@ -38,14 +38,14 @@
     "BarakoCMSVersion": {
       "type": "parameter",
       "datatype": "string",
-      "defaultValue": "4.7.0",
+      "defaultValue": "4.8.0",
       "replaces": "BARAKOCMS_VERSION",
       "description": "The BarakoCMS package version the module compiles against."
     },
     "TestingVersion": {
       "type": "parameter",
       "datatype": "string",
-      "defaultValue": "4.7.0",
+      "defaultValue": "4.8.0",
       "replaces": "BARAKOCMS_TESTING_VERSION",
       "description": "The BarakoCMS.Testing package version the tests run on."
     },

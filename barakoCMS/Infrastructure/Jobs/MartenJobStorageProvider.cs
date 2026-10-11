@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Infrastructure.Security;
+using barakoCMS.Infrastructure.Tracing;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
@@ -53,6 +55,9 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
 
     /// <summary>Where this provider counts what it does. A test gives it a registry of its own.</summary>
     internal JobMetrics Metrics { get; init; } = JobMetrics.Default;
+
+    /// <summary>The run spans of the jobs this provider claimed and has not finished.</summary>
+    internal JobRunSpans RunSpans { get; } = new();
 
     private long _measuredAt;
     private int _measuring;
@@ -176,31 +181,55 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
         var stillMatches = p.Match.Compile();
         var claimed = new List<JobRecord>(candidates.Count);
 
-        foreach (var candidate in candidates)
+        // Only a poll that found something gets a span. The queue polls far more often than it
+        // finds work, and an empty poll is nothing anyone needs to see in a trace.
+        Activity? claim = null;
+        if (candidates.Count > 0)
         {
-            await using var session = _store.LightweightSession(candidate.TenantId);
-            var fresh = await session.LoadAsync<JobRecord>(candidate.TrackingID, ct);
-            if (fresh is null || !stillMatches(fresh)
-                || fresh.State is JobState.Completed or JobState.DeadLettered)
+            RunSpans.EndStartedBefore(DateTime.UtcNow - lease - lease);
+            claim = BarakoTracing.StartJobClaim(p.QueueID);
+        }
+
+        try
+        {
+            foreach (var candidate in candidates)
             {
-                continue;
+                await using var session = _store.LightweightSession(candidate.TenantId);
+                var fresh = await session.LoadAsync<JobRecord>(candidate.TrackingID, ct);
+                if (fresh is null || !stillMatches(fresh)
+                    || fresh.State is JobState.Completed or JobState.DeadLettered)
+                {
+                    continue;
+                }
+
+                fresh.State = JobState.Running;
+                fresh.DequeueAfter = DateTime.UtcNow + lease;
+                session.Store(fresh);
+
+                try
+                {
+                    await session.SaveChangesAsync(ct);
+                }
+                catch (Exception ex) when (IsConcurrency(ex))
+                {
+                    // Another instance claimed it between the read and the save. Theirs.
+                    continue;
+                }
+
+                claimed.Add(fresh);
+                if (claim is not null) RunSpans.Started(fresh, claim.Context);
             }
 
-            fresh.State = JobState.Running;
-            fresh.DequeueAfter = DateTime.UtcNow + lease;
-            session.Store(fresh);
-
-            try
-            {
-                await session.SaveChangesAsync(ct);
-            }
-            catch (Exception ex) when (IsConcurrency(ex))
-            {
-                // Another instance claimed it between the read and the save. Theirs.
-                continue;
-            }
-
-            claimed.Add(fresh);
+            BarakoTracing.RecordClaimed(claim, claimed.Count);
+        }
+        catch
+        {
+            claim?.SetStatus(ActivityStatusCode.Error);
+            throw;
+        }
+        finally
+        {
+            claim?.Dispose();
         }
 
         StartMeasureWhenDue(ct);
@@ -330,11 +359,45 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
         }
     }
 
-    public async Task MarkJobAsCompleteAsync(JobRecord r, CancellationToken ct)
+    public Task MarkJobAsCompleteAsync(JobRecord r, CancellationToken ct) =>
+        FinishAsync(r, () => CompleteAsync(r, ct));
+
+    /// <summary>
+    /// Runs the write that records how a job went under a span of its own, then ends the job's run
+    /// span with the outcome.
+    /// </summary>
+    /// <remarks>
+    /// A write that throws leaves the run open: FastEndpoints calls again every few seconds until
+    /// one goes through, and that one decides the outcome. Only the failed write's own span says
+    /// it failed.
+    /// </remarks>
+    private async Task FinishAsync(JobRecord r, Func<Task<string>> record)
+    {
+        var run = RunSpans.Take(r.TrackingID);
+        var finish = BarakoTracing.StartJobFinish(run);
+        string outcome;
+
+        try
+        {
+            outcome = await record();
+        }
+        catch
+        {
+            finish?.SetStatus(ActivityStatusCode.Error);
+            finish?.Dispose();
+            RunSpans.Restore(r.TrackingID, run);
+            throw;
+        }
+
+        finish?.Dispose();
+        BarakoTracing.EndJobRun(run, outcome);
+    }
+
+    private async Task<string> CompleteAsync(JobRecord r, CancellationToken ct)
     {
         await using var session = _store.LightweightSession(r.TenantId);
         var fresh = await session.LoadAsync<JobRecord>(r.TrackingID, ct);
-        if (fresh is null) return;
+        if (fresh is null) return BarakoTracing.JobGone;
 
         fresh.IsComplete = true;
         fresh.State = JobState.Completed;
@@ -344,6 +407,7 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
         await session.SaveChangesAsync(ct);
 
         Metrics.Recorded(JobMetrics.Succeeded);
+        return JobMetrics.Succeeded;
     }
 
     public async Task CancelJobAsync(Guid trackingId, CancellationToken ct)
@@ -384,11 +448,14 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
     /// FastEndpoints calls this until it returns without throwing, so a record that has moved
     /// underneath us is logged and let go rather than rethrown into that loop.
     /// </remarks>
-    public async Task OnHandlerExecutionFailureAsync(JobRecord r, Exception exception, CancellationToken ct)
+    public Task OnHandlerExecutionFailureAsync(JobRecord r, Exception exception, CancellationToken ct) =>
+        FinishAsync(r, () => RecordFailureAsync(r, exception, ct));
+
+    private async Task<string> RecordFailureAsync(JobRecord r, Exception exception, CancellationToken ct)
     {
         await using var session = _store.LightweightSession(r.TenantId);
         var fresh = await session.LoadAsync<JobRecord>(r.TrackingID, ct);
-        if (fresh is null) return;
+        if (fresh is null) return BarakoTracing.JobGone;
 
         var now = DateTime.UtcNow;
         fresh.AttemptCount++;
@@ -430,10 +497,12 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
         catch (Exception ex) when (IsConcurrency(ex))
         {
             _logger.LogWarning(ex, "Job {TrackingId} changed while its failure was being recorded; leaving it as is.", r.TrackingID);
-            return;
+            return BarakoTracing.JobChanged;
         }
 
-        Metrics.Recorded(deadLettered ? JobMetrics.DeadLettered : JobMetrics.Retried);
+        var outcome = deadLettered ? JobMetrics.DeadLettered : JobMetrics.Retried;
+        Metrics.Recorded(outcome);
+        return outcome;
     }
 
     /// <summary>

@@ -65,6 +65,19 @@ public class ContentTypeDefinition
     /// </remarks>
     public string? RouteTemplate { get; set; }
 
+    /// <summary>
+    /// The schema.org type a delivered entry of this type is described as, for example
+    /// <c>Article</c>, or null for none.
+    /// </summary>
+    /// <remarks>
+    /// Null, the default, is every type stored before this existed, and such a type emits no
+    /// structured data: nothing is guessed from its fields. Set, a single entry read by slug carries
+    /// a JSON-LD block built from the fields that hold the title, summary, date, image and author
+    /// roles, read off the delivered values only. One of the names <c>GET /api/meta/describe</c>
+    /// lists under <c>structuredDataTypes</c>, compared exactly.
+    /// </remarks>
+    public string? StructuredDataType { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 
@@ -261,12 +274,14 @@ public class FieldDefinition
     public string? Section { get; set; }
 
     /// <summary>
-    /// What this field is to the entry: <c>title</c>, <c>summary</c> or <c>date</c>.
+    /// What this field is to the entry: <c>title</c>, <c>summary</c>, <c>date</c>, <c>image</c> or
+    /// <c>author</c>.
     /// </summary>
     /// <remarks>
     /// Null, the default, leaves the feed and the SEO block finding these by field name, as they did
     /// before roles existed. Set, the field is read ahead of those names, which stay the fallback
-    /// when it holds nothing. One field per role in a type.
+    /// when it holds nothing. One field per role in a type. <c>image</c> and <c>author</c> are read
+    /// by structured data only, see <see cref="ContentTypeDefinition.StructuredDataType"/>.
     /// </remarks>
     public string? Role { get; set; }
 

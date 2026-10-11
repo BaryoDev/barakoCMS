@@ -46,6 +46,13 @@ To send to arbitrary recipients, verify your domain in the Resend dashboard and 
 to an address on it. (The shared `onboarding@resend.dev` sender only delivers to your own account
 email.)
 
+## Failures
+
+A send Resend cannot have taken throws `EmailNotSentException`: a name not resolved, a connection
+not opened, a failed TLS handshake, or a 429 or 503 answer. A workflow email tries again inside the
+attempt on that exception. Any other status throws `InvalidOperationException`, and a timeout or a
+connection lost after the request went is not caught here, so neither is resent.
+
 ## Requires
 
 barakoCMS and BarakoCMS.Abstractions, at the versions NuGet lists as this package's dependencies.

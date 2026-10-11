@@ -3,7 +3,7 @@
   <PropertyGroup>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageId>BarakoCMS</PackageId>
-    <Version>4.7.0</Version>
+    <Version>4.8.0</Version>
 
     <Description>Headless CMS for .NET 10 on FastEndpoints and Marten over PostgreSQL: content types defined at runtime, event-sourced content, role and capability access control with field sensitivity, multi-tenancy, a public delivery API, blueprints, collection syncs and push, and workflows with 7 built-in actions. Optional modules ship as separate packages.</Description>
     <IsPackable>true</IsPackable>
@@ -52,7 +52,7 @@
          never runs, the tenancy role script, which is a superuser's one-off, and the files a
          module ships from its own assembly so the ledger carries them under that module. -->
     <EmbeddedResource Include="..\migrations\**\*.sql"
-                      Exclude="..\migrations\tenancy\**;..\migrations\**\rollback-*.sql;..\migrations\4.2.0\stored-files-parent-index.sql;..\migrations\4.2.0\forms-public-forms.sql;..\migrations\4.5.0\email-sent-emails.sql;..\migrations\4.6.0\external-auth-identities.sql;..\migrations\4.6.0\forms-email-verification.sql;..\migrations\4.7.0\forms-tenant-policy-restore.sql"
+                      Exclude="..\migrations\tenancy\**;..\migrations\**\rollback-*.sql;..\migrations\4.2.0\stored-files-parent-index.sql;..\migrations\4.2.0\forms-public-forms.sql;..\migrations\4.5.0\email-sent-emails.sql;..\migrations\4.6.0\external-auth-identities.sql;..\migrations\4.6.0\forms-email-verification.sql;..\migrations\4.7.0\forms-tenant-policy-restore.sql;..\migrations\4.8.0\external-auth-used-nonces.sql"
                       LogicalName="barako-migrations/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
@@ -70,6 +70,7 @@
     <PackageReference Include="FastEndpoints.Security" />
     <PackageReference Include="JasperFx" />
     <PackageReference Include="KubernetesClient" />
+    <PackageReference Include="Markdig" />
     <PackageReference Include="Marten" />
     <PackageReference Include="Microsoft.Extensions.DependencyModel" />
     <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />

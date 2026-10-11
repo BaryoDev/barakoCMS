@@ -118,10 +118,16 @@ public class TlsAskTests
             "the proxy asks on the API's own host, which names no tenant, so the route has to be tenantless");
     }
 
+    /// <summary>
+    /// On a host of its own: the emptied bucket would otherwise hold for the rest of the minute on the
+    /// shared one, where any other test's made-up name can hash into it and get a 429 (#1119).
+    /// </summary>
     [Fact]
     public async Task The_sixty_first_question_about_one_name_in_a_minute_is_refused_from_any_address()
     {
-        var client = From(_fixture);
+        using var resolver = FastEndpointsResolver.Keep();
+        using var host = _fixture.WithWebHostBuilder(_ => { });
+        var client = From(host);
         var unknown = Domain();
 
         var codes = new List<HttpStatusCode>();
@@ -131,14 +137,14 @@ public class TlsAskTests
             codes.Add(response.StatusCode);
         }
 
-        // The first 50, not 60: another test's made-up name can share this name's bucket in the
-        // same minute, which takes a permit or two.
         codes.Should().HaveCount(61);
-        codes.Take(50).Should().OnlyContain(c => c == HttpStatusCode.NotFound);
+        codes.Take(60).Should().OnlyContain(c => c == HttpStatusCode.NotFound);
         codes[60].Should().Be(HttpStatusCode.TooManyRequests);
 
-        (await Ask(From(_fixture), unknown)).StatusCode.Should().Be(HttpStatusCode.TooManyRequests,
+        (await Ask(From(host), unknown)).StatusCode.Should().Be(HttpStatusCode.TooManyRequests,
             "the bucket belongs to the name asked about, not to the caller");
+        (await Ask(From(_fixture), unknown)).StatusCode.Should().Be(HttpStatusCode.NotFound,
+            "the emptied bucket stays on this test's host and cannot refuse another test's name");
     }
 
     /// <summary>

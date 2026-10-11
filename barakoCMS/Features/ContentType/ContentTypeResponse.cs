@@ -43,6 +43,9 @@ internal sealed class ContentTypeResponse
     /// </summary>
     public string? RouteTemplate { get; init; }
 
+    /// <summary>The schema.org type a delivered entry is described as, or null when the type declares none.</summary>
+    public string? StructuredDataType { get; init; }
+
     /// <summary>
     /// Values only one entry of this type may hold at a time, or null when the type declares none.
     /// </summary>
@@ -76,6 +79,7 @@ internal sealed class ContentTypeResponse
         IsPubliclyDeliverable = d.IsPubliclyDeliverable,
         IsSingleton = d.IsSingleton,
         RouteTemplate = d.RouteTemplate,
+        StructuredDataType = d.StructuredDataType,
         Uniqueness = d.Uniqueness,
         EventSourced = eventSourced,
         CreatedAt = d.CreatedAt,

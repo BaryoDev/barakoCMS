@@ -233,6 +233,7 @@ internal sealed class ContentChangeListener(
             Description = def.Description,
             IsPubliclyDeliverable = def.IsPubliclyDeliverable,
             RouteTemplate = def.RouteTemplate,
+            StructuredDataType = def.StructuredDataType,
             CreatedAt = def.CreatedAt,
             UpdatedAt = def.UpdatedAt,
             Lifecycle = def.Lifecycle,

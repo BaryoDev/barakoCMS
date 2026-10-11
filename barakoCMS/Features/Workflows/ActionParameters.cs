@@ -32,6 +32,9 @@ internal static class ActionParameters
     /// An email's attachments are left as written as well. The action reads the field its
     /// placeholder names from the entry itself, so a field holding a list of files is read as a
     /// list and not as the text a list renders to.
+    ///
+    /// So is the template an email names: which template is sent is the workflow's choice, never
+    /// a value in the entry.
     /// </remarks>
     public static bool IsResolvedByTheAction(string actionType, string parameter) =>
         (actionType == "Conditional"
@@ -39,7 +42,8 @@ internal static class ActionParameters
              || parameter.Equals("ThenActions", StringComparison.OrdinalIgnoreCase)
              || parameter.Equals("ElseActions", StringComparison.OrdinalIgnoreCase)))
         || (actionType == "Email"
-            && parameter.Equals(Actions.EmailAction.AttachmentsParameter, StringComparison.OrdinalIgnoreCase));
+            && (parameter.Equals(Actions.EmailAction.AttachmentsParameter, StringComparison.OrdinalIgnoreCase)
+                || parameter.Equals(EmailTemplates.EmailTemplateRenderer.TemplateParameter, StringComparison.OrdinalIgnoreCase)));
 
     /// <summary>The parameter the runner and the engine use to tell an action which trigger fired.</summary>
     public const string TriggerEventParameter = "TriggerEvent";

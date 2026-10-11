@@ -28,6 +28,27 @@ internal sealed record OidcProvider(
     public bool IssuerIsTemplate => Issuer.Contains(TenantPlaceholder, StringComparison.Ordinal);
 
     /// <summary>
+    /// The provider answers the authorization request with a cross-site form post (Apple) rather
+    /// than a redirect, so the callback is a POST and the flow cookies have to be sent on one.
+    /// </summary>
+    public bool FormPost { get; init; }
+
+    /// <summary>When set, the client secret is a JWT signed with this key instead of <see cref="ClientSecret"/>.</summary>
+    public OidcSignedSecret? SignedSecret { get; init; }
+
+    /// <summary>
+    /// The audiences the id token grant accepts. Empty means the grant is off for this provider. The
+    /// redirect flow always takes <see cref="ClientId"/> alone.
+    /// </summary>
+    public IReadOnlyList<string> IdTokenAudiences { get; init; } = [];
+
+    /// <summary>
+    /// Also take the text <c>"true"</c> for the verified claim. Apple documents its claim as a string
+    /// or a boolean. Off unless configured, for the reason given in <see cref="OidcIdToken"/>.
+    /// </summary>
+    public bool EmailVerifiedMayBeText { get; init; }
+
+    /// <summary>
     /// <c>__Host-</c> makes the browser refuse the cookie unless it is Secure, has Path=/ and names
     /// no Domain, so a sibling subdomain cannot plant a state of its own choosing.
     /// </summary>
@@ -53,6 +74,11 @@ internal static partial class OidcProviders
     public const int MaxProviders = 20;
 
     private const int MaxDisplayNameLength = 100;
+
+    /// <summary>Bounds the id token grant's audience list.</summary>
+    public const int MaxAudiences = 20;
+
+    private const int MaxAudienceLength = 255;
 
     [GeneratedRegex("^[a-z0-9][a-z0-9-]{0,31}$")]
     private static partial Regex NamePattern();
@@ -124,10 +150,31 @@ internal static partial class OidcProviders
             return null;
         }
 
+        var signed = OidcSignedSecret.Read(section.GetSection(OidcSignedSecret.Section), out var signedProblem);
+        if (signedProblem is not null)
+        {
+            problem = $"{Section}:{name}:{OidcSignedSecret.Section} {signedProblem}";
+            return null;
+        }
+
         var secret = section["ClientSecret"] ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(secret))
+        if (signed is null && string.IsNullOrWhiteSpace(secret))
         {
             problem = $"{Section}:{name}:ClientSecret is not set";
+            return null;
+        }
+
+        var responseMode = section["ResponseMode"]?.Trim() ?? string.Empty;
+        if (responseMode is not ("" or "query" or "form_post"))
+        {
+            problem = $"{Section}:{name}:ResponseMode must be query or form_post";
+            return null;
+        }
+
+        var audiences = Audiences(section.GetSection("IdTokenAudiences"));
+        if (audiences is null)
+        {
+            problem = $"{Section}:{name}:IdTokenAudiences takes at most {MaxAudiences} values of at most {MaxAudienceLength} characters";
             return null;
         }
 
@@ -170,7 +217,32 @@ internal static partial class OidcProviders
             section["ClientId"]!.Trim(),
             secret,
             string.Join(' ', scopes),
-            string.IsNullOrEmpty(verifiedClaim) ? DefaultEmailVerifiedClaim : verifiedClaim);
+            string.IsNullOrEmpty(verifiedClaim) ? DefaultEmailVerifiedClaim : verifiedClaim)
+        {
+            FormPost = responseMode == "form_post",
+            SignedSecret = signed,
+            IdTokenAudiences = audiences,
+            EmailVerifiedMayBeText = string.Equals(section["EmailVerifiedMayBeText"], "true", StringComparison.OrdinalIgnoreCase),
+        };
+    }
+
+    /// <summary>
+    /// A configuration array, or one value with the audiences separated by commas or spaces, which
+    /// is what an environment variable can hold. Null when there are too many or one is too long.
+    /// </summary>
+    private static IReadOnlyList<string>? Audiences(IConfigurationSection section)
+    {
+        var values = section.GetChildren().Select(child => child.Value ?? string.Empty).ToList();
+        if (!string.IsNullOrWhiteSpace(section.Value))
+        {
+            values.Add(section.Value);
+        }
+
+        var audiences = values
+            .SelectMany(value => value.Split([',', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        return audiences.Count > MaxAudiences || audiences.Any(a => a.Length > MaxAudienceLength) ? null : audiences;
     }
 
     /// <summary>

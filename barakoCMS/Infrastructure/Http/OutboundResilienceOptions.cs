@@ -81,6 +81,34 @@ internal sealed record OutboundResilienceOptions
     public TimeSpan BreakerOpen { get; init; } = TimeSpan.FromSeconds(30);
 
     /// <summary>
+    /// <c>Jobs:LeaseSeconds</c>, kept so an email's tries can be fitted to the lease when the send
+    /// runs. See <see cref="EmailRetries"/>.
+    /// </summary>
+    public int JobLeaseSeconds { get; init; } = barakoCMS.Infrastructure.Jobs.JobOptions.DefaultLeaseSeconds;
+
+    /// <summary>
+    /// Tries after the first for an email whose provider ends every not-sent try within
+    /// <paramref name="maxNotSentDuration"/>: <see cref="Retries"/>, or fewer so that every try
+    /// running that long, plus the waits between them, stays within <see cref="LeaseShare"/> of the
+    /// shortest lease.
+    /// </summary>
+    /// <remarks>
+    /// Zero when the provider gives no bound, since nothing then says how long the tries take. With
+    /// <see cref="EmailSendTimeout"/> set, that limit covers every try and is checked against the
+    /// lease at startup, so all of <see cref="Retries"/> is used.
+    /// </remarks>
+    public int EmailRetries(TimeSpan? maxNotSentDuration)
+    {
+        if (EmailSendTimeout is not null) return Retries;
+        if (maxNotSentDuration is not { } bound || bound <= TimeSpan.Zero || JobLeaseSeconds < 1) return 0;
+
+        var budget = ShortestLease(JobLeaseSeconds) * LeaseShare;
+        var retries = Retries;
+        while (retries > 0 && bound * (retries + 1) + MaxDelay * retries > budget) retries--;
+        return retries;
+    }
+
+    /// <summary>
     /// The longest one HTTP call can spend in this layer: every try running to its timeout, every
     /// wait between them at the jitter ceiling, and every wait honouring the longest Retry-After.
     /// </summary>
@@ -123,6 +151,7 @@ internal sealed record OutboundResilienceOptions
         return new OutboundResilienceOptions
         {
             Retries = configuration.GetValue(RetriesKey, defaults.Retries),
+            JobLeaseSeconds = configuration.GetValue(barakoCMS.Infrastructure.Jobs.JobOptions.LeaseSecondsKey, defaults.JobLeaseSeconds),
             AttemptTimeout = Seconds(configuration, AttemptTimeoutSecondsKey, defaults.AttemptTimeout),
             EmailSendTimeout = emailSeconds == 0 ? null : TimeSpan.FromSeconds(emailSeconds),
             BaseDelay = TimeSpan.FromMilliseconds(configuration.GetValue(BaseDelayMillisecondsKey, defaults.BaseDelay.TotalMilliseconds)),

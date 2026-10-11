@@ -51,7 +51,8 @@ internal sealed class ResolveRedirectEndpoint(IQuerySession session) : EndpointW
             .SetVaryByQuery("path")
             .VaryByValue(context => new KeyValuePair<string, string>(
                 "tenant",
-                context.RequestServices.GetRequiredService<barakoCMS.Infrastructure.Multitenancy.TenantContext>().Slug))));
+                context.RequestServices.GetRequiredService<barakoCMS.Infrastructure.Multitenancy.TenantContext>().Slug)))
+            .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators));
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -77,6 +78,13 @@ internal sealed class ResolveRedirectEndpoint(IQuerySession session) : EndpointW
             await Send.NotFoundAsync(ct);
             return;
         }
+
+        // Short, with no Cache-Control, as before: the output cache above holds it on the server.
+        // Tagged by the redirect map rather than the rule, since a rule's id is not public.
+        barakoCMS.Infrastructure.Caching.DeliveryCache.Shared(
+            HttpContext,
+            barakoCMS.Infrastructure.Caching.DeliveryCacheClass.Short,
+            [barakoCMS.Infrastructure.Caching.CacheScope.Named("redirects")]);
 
         // Normalised on the way out as well as on save. A rule can be older than the save path's
         // handling of backslashes and control characters and still hold "/\evil.com", and serving

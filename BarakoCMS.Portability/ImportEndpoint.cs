@@ -165,6 +165,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
                 match.IsSingleton = type.IsSingleton;
                 // Kept when the bundle carries none, for the reason KeepStoredPresentation gives.
                 match.RouteTemplate = type.RouteTemplate ?? match.RouteTemplate;
+                match.StructuredDataType = type.StructuredDataType ?? match.StructuredDataType;
                 match.UpdatedAt = DateTimeOffset.UtcNow;
                 toStore.Add(match);
             }
@@ -186,6 +187,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
                     IsPubliclyDeliverable = type.IsPubliclyDeliverable,
                     IsSingleton = type.IsSingleton,
                     RouteTemplate = type.RouteTemplate,
+                    StructuredDataType = type.StructuredDataType,
                     Uniqueness = type.Uniqueness is { Count: > 0 } ? type.Uniqueness : null,
                     CreatedAt = DateTimeOffset.UtcNow,
                     UpdatedAt = DateTimeOffset.UtcNow,
@@ -463,6 +465,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
                 .ToList();
 
         errors.AddRange(validator.ValidateRouteTemplate(type.RouteTemplate).Errors);
+        errors.AddRange(validator.ValidateStructuredDataType(type.StructuredDataType).Errors);
 
         // Checked only for a type this import creates. A stored type keeps its rules, below.
         if (stored is null)

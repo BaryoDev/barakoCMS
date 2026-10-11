@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -247,11 +248,14 @@ public static class FieldTypeRegistry
 
     private static bool IsString(object value) => AsString(value) is not null;
 
+    // An int field holds any 64-bit integer (#706). A request body reaches this as a long, from
+    // ObjectJsonConverter, and a raw JsonElement or numeric text reaches it from a module or a
+    // stored value, so all three take the same range. A fraction, or a number past Int64, is refused.
     private static bool IsInteger(object value)
     {
-        if (value is int or long or short or byte) return true;
-        if (value is JsonElement { ValueKind: JsonValueKind.Number } je) return je.TryGetInt32(out _);
-        if (value is string s) return int.TryParse(s, out _);
+        if (value is int or long or short or byte or sbyte or ushort or uint) return true;
+        if (value is JsonElement { ValueKind: JsonValueKind.Number } je) return je.TryGetInt64(out _);
+        if (value is string s) return long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out _);
         return false;
     }
 

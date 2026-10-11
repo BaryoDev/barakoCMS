@@ -154,6 +154,12 @@ internal class WorkflowEngine(
                 if (result.Succeeded)
                 {
                     debugger.LogActionSuccess(run, action.Type, timer, resolvedParams);
+
+                    // The same note the runner records: a loop that stopped at its cap.
+                    if (variableExtractor.Notes is { Count: > 0 } notes && run.Actions.Count > 0)
+                    {
+                        run.Actions[^1].ErrorMessage = string.Join(" ", notes);
+                    }
                 }
                 else
                 {

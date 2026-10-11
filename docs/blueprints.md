@@ -28,10 +28,10 @@ gives.
 
 The audit log records `contenttype.blueprint_applied` with the names created.
 
-## The built-in six
+## The built-in seven
 
 Every addressable type has a `Slug` field of type `slug`, which is what makes
-`/api/public/{type}/{slug}` exist, and every type is publicly deliverable. The `site` type is the
+`/api/public/{type}/{slug}` exist, and every type but the two `email` ones is publicly deliverable. The `site` type is the
 exception to the slug: it is a singleton, one entry per tenant, read from the list. Fields that are for the
 team and not the public are marked `Sensitive` (masked on the way out) or `Hidden` (removed).
 
@@ -42,6 +42,7 @@ team and not the public are marked `Sensitive` (masked on the way out) or `Hidde
 | `portfolio` | `project`, `client` | Project has a client reference, a gallery array, a live URL and a testimonial. Client contact name and email are Sensitive, internal notes are Hidden. |
 | `docs` | `article`, `section` | Article has a markdown body, a required section reference and an order within it. Section can nest under a parent section. |
 | `site` | `site` | A singleton holding the site's identity, theme and chrome, read by the renderer from `/api/public/site`. The theme and chrome fields are JSON; [site-settings.md](site-settings.md) gives their shapes. |
+| `email` | `email-template`, `email-layout` | Templates a workflow's Email action names instead of writing its own subject and body, and the layout wrapped around them. Not publicly deliverable. See [email-templates.md](email-templates.md). |
 | `devsite` | `page`, `post`, `category`, `author`, `doc`, `package`, `release`, `contributor`, `up-for-grabs`, `milestone` | A product site: the blog types under their own names, plus a flat `doc` type carrying its own section, order and parent fields for a documentation tree, and five types meant to be filled by collection syncs (#794) rather than typed by hand: `package` (NuGet), `release` and `contributor` (GitHub), `up-for-grabs` (open issues), `milestone` (open GitHub milestones, one per product). The shape barakocms.com runs on (BaryoDev/barakoCMS#959); see below for wiring it into a site's `Collections` setting. Its `page` has the same optional `HideTitle` as `blog`. |
 
 The blueprints carry no SEO fields. Run `POST /api/content-types/{name}/seo-fields` on the types a

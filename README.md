@@ -130,7 +130,7 @@ project, through the same `IBarakoModule` contract you can implement yourself.
 | **Email.Resend** | [`BarakoCMS.Email.Resend`](https://www.nuget.org/packages/BarakoCMS.Email.Resend) | An `IEmailService` over the [Resend](https://resend.com) API, plus a delivery webhook and an **email-events** feed (bounces/complaints). |
 | **Email.Smtp** | [`BarakoCMS.Email.Smtp`](https://www.nuget.org/packages/BarakoCMS.Email.Smtp) | An `IEmailService` over any **SMTP** relay (your host, Google Workspace, SES, a corporate relay) using MailKit. Registers itself only once a host is configured. |
 | **DeviceTrust** | [`BarakoCMS.DeviceTrust`](https://www.nuget.org/packages/BarakoCMS.DeviceTrust) | Remembers trusted devices; step-up OTP when a new one signs in. |
-| **ExternalAuth** | [`BarakoCMS.ExternalAuth`](https://www.nuget.org/packages/BarakoCMS.ExternalAuth) | "Continue with Google / GitHub / Facebook / LinkedIn" via OAuth, and any OpenID Connect provider by configuration, behind one master switch. |
+| **ExternalAuth** | [`BarakoCMS.ExternalAuth`](https://www.nuget.org/packages/BarakoCMS.ExternalAuth) | "Continue with Google / GitHub / Facebook / LinkedIn" via OAuth, and any OpenID Connect provider by configuration (Apple included), plus an id token grant for native apps, behind one master switch. |
 | **FeatureFlags** | [`BarakoCMS.FeatureFlags`](https://www.nuget.org/packages/BarakoCMS.FeatureFlags) | Create, toggle, and target flags by tenant, user, or percentage: viewable/toggleable in the admin. |
 | **Portability** | [`BarakoCMS.Portability`](https://www.nuget.org/packages/BarakoCMS.Portability) | Export/import content-type definitions and data as a JSON bundle, for backup, migration, and seeding. |
 | **Diagnostics** | [`BarakoCMS.Diagnostics`](https://www.nuget.org/packages/BarakoCMS.Diagnostics) | Captures client-side (browser) errors and shows a deduped, resolvable **error log** in the admin. |
@@ -414,11 +414,13 @@ credentials, including OAuth 2.0 client credentials), [idempotency on the author
 [blueprints](docs/blueprints.md) (content types for a blog, events, a portfolio, docs, a product
 site and site settings in one call), [site settings](docs/site-settings.md) (the `site` entry a
 renderer reads its identity and theme from), [choice fields](docs/choice-fields.md),
+[int fields](docs/int-fields.md) (any 64-bit whole number),
 [money fields](docs/money-fields.md) (a currency on the field, and amounts held to its decimal places),
 [file fields](docs/file-fields.md) (a stored file on an entry, resolved to its address and alt text on delivery),
 [inline image fields](docs/inline-image-fields.md) (a small image kept in the entry as a data URI),
 [field hints, sections and roles](docs/field-hints-and-roles.md) (which editor a field wants, which
 field is the title, and where a type's entries live on the site),
+[structured data](docs/structured-data.md) (schema.org JSON-LD on a read by slug, from the field roles),
 [token fields](docs/token-fields.md) (a random value the server generates and no caller can write),
 [uniqueness rules](docs/uniqueness-rules.md) (values only one entry may hold at a time, such as one
 open time entry per teacher),

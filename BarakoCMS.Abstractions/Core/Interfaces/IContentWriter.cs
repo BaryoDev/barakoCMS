@@ -23,6 +23,8 @@ namespace barakoCMS.Core.Interfaces;
 /// <see cref="ContentUniquenessException"/> for a write that would leave two entries holding values
 /// a rule allows one entry to hold. The obsolete synchronous members cannot take the lock the rule
 /// needs and do not apply them.
+///
+/// A module cannot replace this. Core's registration wins, and a module that registers one is named in a startup warning.
 /// </remarks>
 public interface IContentWriter
 {

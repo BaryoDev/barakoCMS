@@ -178,6 +178,12 @@ The delivery API (`docs/delivery-api.md`) marks its responses `Cache-Control: pu
 which is an invitation to put a CDN in front of it. Whether that is safe depends on how tenants are
 routed (`docs/multi-tenancy.md`), because the response is cacheable per tenant, not globally.
 
+Each read also carries a weak ETag for revalidation and `Surrogate-Key` and `Cache-Tag` headers
+whose tags all start with the tenant, so a CDN that purges by tag can drop exactly what an entry
+appears in. Most CDNs strip both tag headers before the browser. The tag headers stay under 1024
+bytes each, inside a default nginx `proxy_buffer_size`. See "Cache classes, validators and tags" in
+`docs/delivery-api.md`.
+
 This section is about that cacheable majority. `GET /api/public/events`, the change stream, is not
 part of it: it sends `no-store` and must never be cached, for reasons that have nothing to do with
 tenancy. See the "Change events" section of `docs/delivery-api.md` for what a proxy in front of it
@@ -440,8 +446,9 @@ exactly as in configuration, case included. A name with a dash or a dot cannot b
 environment variable from a POSIX shell, so keep to letters, digits and underscores if that is how
 you set it.
 
-The core's own names are reserved: `auth`, `telemetry`, `registration`, `site-share`, `logout` and,
-new in this release, `delivery`. They cannot be defined under `Policies`; the sections above set
+The core's own names are reserved: `auth`, `telemetry`, `registration`, `site-share`, `logout`,
+`tls-ask`, `delivery` and `email-preview` (30 email template previews a minute per signed-in user,
+fixed). They cannot be defined under `Policies`; the sections above set
 them. A host or a module that registers its own policy named `delivery` in code stops at startup
 with a message saying to rename it. A name under `Policies` that a module already registers in code
 (`forms`, with the Forms module on) stops the host the same way, naming the setting. Any route
