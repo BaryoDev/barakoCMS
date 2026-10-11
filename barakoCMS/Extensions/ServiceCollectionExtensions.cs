@@ -837,6 +837,12 @@ public static class ServiceCollectionExtensions
             .Index(x => x.UserId)
             .Index(x => x.TenantSlug);
 
+        options.Schema.For<Station>()
+            .SingleTenanted() // credentials are global, like API keys; the tenant is kept as data
+            .DocumentAlias("stations")
+            .Index(x => x.KeyHash, idx => idx.IsUnique = true)
+            .Index(x => x.TenantSlug);
+
         options.Schema.For<ExternalNumberUse>()
             .MultiTenanted()
             .DocumentAlias("external_number_uses")

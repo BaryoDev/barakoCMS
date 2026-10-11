@@ -315,6 +315,9 @@ public static class SystemCapabilities
     /// </summary>
     public const string ViewNumberGaps = "view_number_gaps";
 
+    /// <summary>Create, list and revoke station keys for kiosks and display boards.</summary>
+    public const string ManageStations = "manage_stations";
+
     public static readonly IReadOnlySet<string> Known = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         All, ManageRoles, ManageTenants, ManageTenantMembers, ManageUsers, ManageUserMembership, ManageUserGroups,
@@ -322,7 +325,7 @@ public static class SystemCapabilities
         ViewMonitoring, ManageRedirects, ManageQueries, ManageRequests, ViewConnectors, ManageConnectors,
         ManageWorkflows, ViewWorkflowRuns, RetryWorkflowActions, RollbackContent, EraseContent, ViewModules,
         ViewJobs, ViewWebhookResponseBodies, ManageCollectionSyncs, ViewSensitive, ViewHidden,
-        ViewNumberGaps,
+        ViewNumberGaps, ManageStations,
     };
 
     public static bool IsKnown(string capability) =>
@@ -355,6 +358,8 @@ public static class SystemCapabilities
         ManageCollectionSyncs,
         // #584: new with the external number ledger, no gate to preserve.
         ViewNumberGaps,
+        // New with stations, no gate to preserve.
+        ManageStations,
     ];
 
     /// <summary>
