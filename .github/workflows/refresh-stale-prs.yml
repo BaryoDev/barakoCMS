@@ -25,8 +25,17 @@ on:
     - cron: "17 7 * * *"
   workflow_dispatch:
 
-# Every call below uses REFRESH_PR_TOKEN, not GITHUB_TOKEN, so the workflow's own token needs nothing.
-permissions: {}
+# GITHUB_TOKEN only. A branch it updates gets no CI from the push, since GitHub starts no workflow
+# for a push made with GITHUB_TOKEN (#1068, #1112), so the job starts ci.yml itself through
+# workflow_dispatch, the one event that token may trigger. The dispatched run reports its checks on
+# the updated head under the same names a pull_request run uses, which is what the required checks
+# read. No token to create, store, scope or renew.
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+  checks: read
+  statuses: read
 
 concurrency:
   group: refresh-stale-prs
@@ -37,25 +46,9 @@ jobs:
     name: Update branches that are behind and failing
     runs-on: ubuntu-latest
     steps:
-      # GitHub starts no workflow for a push made with GITHUB_TOKEN, so a branch this job updated
-      # with it sat at action_required with no CI (#1068, #1112). The update needs a token that is
-      # not the workflow's own: a fine-grained personal access token or a GitHub App token, limited
-      # to this repository, with Contents, Pull requests and Workflows read and write and Commit
-      # statuses read, stored as the REFRESH_PR_TOKEN repository secret. Workflows is needed
-      # because an update that brings in a change under .github/workflows/ is refused without it. Without it the job fails here
-      # rather than doing an update that starts nothing.
-      - name: Check the REFRESH_PR_TOKEN secret is set
-        env:
-          REFRESH_PR_TOKEN: ${{ secrets.REFRESH_PR_TOKEN }}
-        run: |
-          if [ -z "$REFRESH_PR_TOKEN" ]; then
-            echo "::error::The REFRESH_PR_TOKEN repository secret is not set. It must hold a fine-grained token or GitHub App token for this repository with Contents, Pull requests and Workflows read and write and Commit statuses read. GITHUB_TOKEN is not used: a branch it updates gets no CI run."
-            exit 1
-          fi
-
       - name: Update every pull request that is behind master and red
         env:
-          GH_TOKEN: ${{ secrets.REFRESH_PR_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           BASE: master
           # A ceiling, so a bad day cannot start thirty CI runs at once.
@@ -119,15 +112,50 @@ jobs:
               printf '| #%s | %s | %s failing | deferred, hit the per-run ceiling of %s |\n' "$N" "$BEHIND" "$FAILING" "$MAX" >> summary.md; continue
             fi
 
-            # 422 here means the branch conflicts with master, which a person has to resolve. Not a
-            # failure of this job: it reports it and moves on.
-            if OUT=$(gh api --method PUT "repos/$REPO/pulls/$N/update-branch" 2>&1); then
-              acted=$((acted + 1))
-              printf '| #%s | %s | %s failing | **updated onto %s** |\n' "$N" "$BEHIND" "$FAILING" "$BASE" >> summary.md
-              echo "updated #$N ($BRANCH), was $BEHIND behind with $FAILING failing"
-            else
+            # GITHUB_TOKEN may never write under .github/workflows/, and update-branch accepts such an
+            # update before refusing it, so asking would only wait out the poll below. Asked first.
+            if ! WORKFLOWS=$(gh api "repos/$REPO/compare/$BRANCH...$BASE" --jq '[.files[]?.filename | select(startswith(".github/workflows/"))] | length' 2>/dev/null); then
+              printf '| #%s | %s | %s failing | could not compare with %s, skipped |\n' "$N" "$BEHIND" "$FAILING" "$BASE" >> summary.md
+              continue
+            fi
+            if [ "$WORKFLOWS" -gt 0 ]; then
+              printf '| #%s | %s | %s failing | needs a hand, %s brings in workflow changes |\n' "$N" "$BEHIND" "$FAILING" "$BASE" >> summary.md
+              continue
+            fi
+
+            # A conflict with master is refused here and needs a person. Not a failure of this job:
+            # it reports the pull request and moves on.
+            if ! OLD_HEAD=$(gh api "repos/$REPO/pulls/$N" --jq '.head.sha' 2>/dev/null); then
+              printf '| #%s | %s | %s failing | could not read its head, skipped |\n' "$N" "$BEHIND" "$FAILING" >> summary.md
+              continue
+            fi
+            if ! OUT=$(gh api --method PUT "repos/$REPO/pulls/$N/update-branch" -f expected_head_sha="$OLD_HEAD" 2>&1); then
               printf '| #%s | %s | %s failing | could not update, needs a hand |\n' "$N" "$BEHIND" "$FAILING" >> summary.md
               echo "could not update #$N: $(printf '%s' "$OUT" | tail -2)"
+              continue
+            fi
+            acted=$((acted + 1))
+
+            # The update is accepted before it happens. Dispatching first would run CI on the old
+            # head, so wait for the branch to move.
+            NEW_HEAD=$OLD_HEAD
+            for _ in $(seq 1 30); do
+              NEW_HEAD=$(gh api "repos/$REPO/pulls/$N" --jq '.head.sha' 2>/dev/null || echo "$OLD_HEAD")
+              [ "$NEW_HEAD" != "$OLD_HEAD" ] && break
+              sleep 4
+            done
+            if [ "$NEW_HEAD" = "$OLD_HEAD" ]; then
+              printf '| #%s | %s | %s failing | update accepted, branch had not moved after 2 minutes, no CI started |\n' "$N" "$BEHIND" "$FAILING" >> summary.md
+              echo "::warning::#$N: the update was accepted but $BRANCH did not move, so CI was not started"
+              continue
+            fi
+
+            if gh workflow run ci.yml --repo "$REPO" --ref "$BRANCH" > /dev/null 2>&1; then
+              printf '| #%s | %s | %s failing | **updated onto %s, CI started** |\n' "$N" "$BEHIND" "$FAILING" "$BASE" >> summary.md
+              echo "updated #$N ($BRANCH), head now $NEW_HEAD, started CI, was $BEHIND behind with $FAILING failing"
+            else
+              printf '| #%s | %s | %s failing | updated onto %s, could not start CI |\n' "$N" "$BEHIND" "$FAILING" "$BASE" >> summary.md
+              echo "::warning::#$N: updated to $NEW_HEAD, but dispatching ci.yml on $BRANCH failed"
             fi
           done
 
