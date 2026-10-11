@@ -31,6 +31,15 @@ public sealed class StepUpProcessor(IConfiguration config) : IGlobalPreProcessor
         if (http.Response.HasStarted) return;
         if (http.GetEndpoint()?.Metadata.GetMetadata<StepUpRequired>() is null) return;
 
+        // Stations and API keys have no second factor to prove. Refuse them outright, without the
+        // retry header, which would tell them to do something they can never do.
+        if (http.User.HasClaim("auth_method", "apikey") || http.User.HasClaim("auth_method", "station"))
+        {
+            http.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await http.Response.WriteAsync("This credential cannot be used for a step-up action.", ct);
+            return;
+        }
+
         var caller = http.User.FindFirst("UserId")?.Value;
         var proven = StepUpToken.ValidatedUserId(config, http.Request.Headers[StepUp.Header].ToString());
         if (caller is not null && proven is { } id && id.ToString() == caller) return;

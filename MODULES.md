@@ -355,7 +355,7 @@ public override void Configure()
 }
 ```
 
-Without a valid `X-Step-Up` header the call gets 403 with `X-Step-Up-Required: true`. The client asks for a code, posts it to `POST /api/auth/mfa/step-up`, and retries with the returned token, which lasts `Auth:StepUp:Seconds` (default 300). The user must have MFA turned on. Stations can never pass a step-up endpoint.
+Without a valid `X-Step-Up` header the call gets 403 with `X-Step-Up-Required: true`. The client asks for a code, posts it to `POST /api/auth/mfa/step-up`, and retries with the returned token, which lasts `Auth:StepUp:Seconds` (default 300). The setting is clamped to 30 to 3600 seconds, and a non-numeric value falls back to 300. The user must have MFA turned on. Stations and API keys can never pass a step-up endpoint, and get 403 without the retry header. The token is not tied to a tenant or a session, and stays valid until it expires even if the user turns MFA off. A TOTP already used at sign-in is refused until the next 30 second step, so have the client ask for a fresh code rather than reuse the one just typed.
 
 A role with `RequireMfa` makes MFA mandatory for everyone holding it. Until they enroll, their token reaches only the MFA setup endpoints, and other calls get 403 with `X-Mfa-Enrollment-Required: true`. An endpoint that must stay reachable during enrollment calls `Definition.AllowDuringMfaEnrollment()`.
 

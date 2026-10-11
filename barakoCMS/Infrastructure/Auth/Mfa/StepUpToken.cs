@@ -9,6 +9,8 @@ namespace barakoCMS.Infrastructure.Auth.Mfa;
 /// Proof that this user entered a fresh second-factor code a few minutes ago. Signed with the access
 /// token key under a distinct <c>:stepup</c> audience, so it is not an access token and an access token
 /// is not one of these. Same construction as <see cref="MfaChallengeToken"/>.
+/// It carries no tenant and no session binding, and it lasts until it expires even if the user turns
+/// MFA off meanwhile. The access token it travels with still has to be valid.
 /// </summary>
 public static class StepUpToken
 {
@@ -18,8 +20,17 @@ public static class StepUpToken
 
     private static string Audience(IConfiguration config) => (config["JWT:Audience"] ?? string.Empty) + ":stepup";
 
+    private const int DefaultSeconds = 300;
+
+    /// <summary>
+    /// <c>Auth:StepUp:Seconds</c> clamped to 30..3600. A missing or non-numeric value gives 300 and
+    /// never throws, so a bad setting cannot fail a request after its code was spent.
+    /// </summary>
     public static TimeSpan Lifetime(IConfiguration config) =>
-        TimeSpan.FromSeconds(Math.Clamp(config.GetValue("Auth:StepUp:Seconds", 300), 30, 3600));
+        TimeSpan.FromSeconds(Math.Clamp(
+            int.TryParse(config["Auth:StepUp:Seconds"], System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out var seconds) ? seconds : DefaultSeconds,
+            30, 3600));
 
     public static (string Token, DateTime ExpiresAt) Create(IConfiguration config, Guid userId)
     {

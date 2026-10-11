@@ -1,6 +1,5 @@
 using FastEndpoints;
 using Marten;
-using Marten.Patching;
 using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Auth.Mfa;
 using barakoCMS.Models;
@@ -48,35 +47,22 @@ internal class StepUpEndpoint(
             return;
         }
 
-        if (user.LockoutUntil is { } until && until > DateTime.UtcNow)
+        if (barakoCMS.Infrastructure.Auth.AccountLockout.LockedMessage(user) is { } locked)
         {
-            var remaining = (int)(until - DateTime.UtcNow).TotalMinutes + 1;
-            ThrowError($"Account is locked due to multiple failed attempts. Please try again in {remaining} minute(s).");
+            ThrowError(locked);
             return;
         }
 
         if (!await mfa.VerifyCodeAsync(user.Id, req.Code, ct))
         {
-            session.Patch<User>(user.Id).Increment(x => x.FailedLoginAttempts);
-            await session.SaveChangesAsync(ct);
-
-            var attempts = (await query.LoadAsync<User>(user.Id, ct))?.FailedLoginAttempts ?? 0;
-            if (attempts >= barakoCMS.Infrastructure.Auth.AccountLockout.MaxFailedAttempts
-                && await lockout.TryLockAsync(user, ct))
-            {
-                await AuditLog.RecordAsync(session, tenant.Slug, "auth.account.locked", user.Id, user.Username,
-                    metadata: new() { ["attempts"] = attempts, ["factor"] = "stepup" }, ipAddress: device.IpAddress, ct: ct);
-            }
-            await AuditLog.RecordAsync(session, tenant.Slug, "auth.stepup.failed", user.Id, user.Username,
-                metadata: new() { ["attempts"] = attempts }, ipAddress: device.IpAddress, ct: ct);
-            await session.SaveChangesAsync(ct);
+            await lockout.RecordWrongCodeAsync(session, query, tenant.Slug, user, "stepup", "auth.stepup.failed",
+                device.IpAddress, ct);
 
             ThrowError("Invalid code.");
             return;
         }
 
-        if (user.FailedLoginAttempts > 0)
-            session.Patch<User>(user.Id).Set(x => x.FailedLoginAttempts, 0);
+        barakoCMS.Infrastructure.Auth.AccountLockout.ClearFailures(session, user);
 
         var (token, expiresAt) = StepUpToken.Create(config, user.Id);
         await AuditLog.RecordAsync(session, tenant.Slug, "auth.stepup.succeeded", user.Id, user.Username,

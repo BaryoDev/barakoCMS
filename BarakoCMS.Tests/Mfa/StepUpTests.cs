@@ -233,4 +233,33 @@ public class StepUpTests
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
         response.Headers.GetValues("X-Mfa-Enrollment-Required").Should().ContainSingle("true");
     }
+
+    [Fact]
+    public async Task StepUp_ValidCodeAfterFailures_ResetsTheCount()
+    {
+        var (id, recovery) = await EnrolledUserAsync();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Patch<User>(id).Set(x => x.FailedLoginAttempts, 3);
+            await session.SaveChangesAsync();
+        }
+
+        await StepUpAsync(Client(id), recovery[0]);
+
+        using var check = _factory.Services.CreateScope();
+        var user = await check.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<User>(id);
+        user!.FailedLoginAttempts.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task StepUp_DefaultLifetime_IsAboutFiveMinutes()
+    {
+        var (id, recovery) = await EnrolledUserAsync();
+
+        var response = await Client(id).PostAsJsonAsync("/api/auth/mfa/step-up", new MfaModels.CodeRequest { Code = recovery[0] });
+
+        var body = (await response.Content.ReadFromJsonAsync<MfaModels.StepUpResponse>())!;
+        (body.ExpiresAt.ToUniversalTime() - DateTime.UtcNow).TotalSeconds.Should().BeInRange(280, 305);
+    }
 }

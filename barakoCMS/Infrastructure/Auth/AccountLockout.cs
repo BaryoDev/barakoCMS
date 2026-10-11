@@ -2,6 +2,8 @@ using System.Threading.Channels;
 using Marten;
 using NpgsqlTypes;
 using barakoCMS.Core.Interfaces;
+using barakoCMS.Infrastructure.Audit;
+using Marten.Patching;
 using barakoCMS.Models;
 
 namespace barakoCMS.Infrastructure.Auth;
@@ -39,6 +41,55 @@ internal sealed class AccountLockout(IDocumentStore store, LockoutNoticeSender n
     public const int MaxFailedAttempts = 5;
 
     public static readonly TimeSpan LockoutDuration = TimeSpan.FromMinutes(15);
+
+    /// <summary>
+    /// The refusal to show when <paramref name="user"/> is locked, otherwise null. Shared by the MFA
+    /// verify and step-up endpoints so a second factor cannot be brute-forced on a locked account.
+    /// </summary>
+    public static string? LockedMessage(User user)
+    {
+        if (user.LockoutUntil is not { } until || until <= DateTime.UtcNow)
+        {
+            return null;
+        }
+
+        var remaining = (int)(until - DateTime.UtcNow).TotalMinutes + 1;
+        return $"Account is locked due to multiple failed attempts. Please try again in {remaining} minute(s).";
+    }
+
+    /// <summary>
+    /// Counts a wrong second-factor code: bumps the counter, locks the account at the threshold, and
+    /// writes the audit records. <paramref name="factor"/> names the flow in the lock record.
+    /// </summary>
+    /// <returns>The failure count after this attempt.</returns>
+    public async Task<int> RecordWrongCodeAsync(
+        IDocumentSession session, IQuerySession query, string tenantSlug, User user,
+        string factor, string failedAction, string? ipAddress, CancellationToken ct)
+    {
+        session.Patch<User>(user.Id).Increment(x => x.FailedLoginAttempts);
+        await session.SaveChangesAsync(ct);
+
+        var attempts = (await query.LoadAsync<User>(user.Id, ct))?.FailedLoginAttempts ?? 0;
+        if (attempts >= MaxFailedAttempts && await TryLockAsync(user, ct))
+        {
+            await AuditLog.RecordAsync(session, tenantSlug, "auth.account.locked", user.Id, user.Username,
+                metadata: new() { ["attempts"] = attempts, ["factor"] = factor }, ipAddress: ipAddress, ct: ct);
+        }
+        await AuditLog.RecordAsync(session, tenantSlug, failedAction, user.Id, user.Username,
+            metadata: new() { ["attempts"] = attempts }, ipAddress: ipAddress, ct: ct);
+        await session.SaveChangesAsync(ct);
+        return attempts;
+    }
+
+    /// <summary>Clears the failure counter and any expired lock after a correct code.</summary>
+    public static void ClearFailures(IDocumentSession session, User user)
+    {
+        if (user.FailedLoginAttempts > 0 || user.LockoutUntil.HasValue)
+        {
+            session.Patch<User>(user.Id).Set(x => x.FailedLoginAttempts, 0);
+            session.Patch<User>(user.Id).Set(x => x.LockoutUntil, (DateTime?)null);
+        }
+    }
 
     /// <summary>
     /// Locks <paramref name="user"/> for <see cref="LockoutDuration"/> and resets its failure counter,
