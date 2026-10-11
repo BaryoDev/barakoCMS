@@ -304,6 +304,29 @@ Migrating is two edits:
   }
 ```
 
+#### Events and projections
+
+A module registers its own event types and projections through the same `IModuleSchema`:
+
+```csharp
+public void ConfigureSchema(IModuleSchema schema)
+{
+    schema.For<Ticket>().MultiTenanted();
+    schema.AddEventType<TicketIssued>();
+    schema.AddProjection<TicketProjection>(ProjectionLifecycle.Inline);
+}
+```
+
+The ownership rule is the one `For<T>()` follows: the event type, the projection and the document
+the projection writes must all come from the module's own assemblies. Events are stored under the
+alias `{module}.{event}` (module name in kebab case, class name in snake case), so `TicketIssued`
+in a module named `Queue` is `queue.ticket_issued`. Renaming the class changes the alias, so treat
+an event class name as part of your stored data.
+
+Events are partitioned per tenant. Mark a projected document `MultiTenanted()` so it is too.
+
+A host older than 4.7 throws `NotSupportedException` from both methods.
+
 ### Migrations
 
 `CreateOnly` creates your tables on a database that does not have them and never alters them

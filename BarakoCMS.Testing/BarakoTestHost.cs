@@ -292,6 +292,43 @@ public class BarakoTestHost : IAsyncLifetime
         return await ClientForAsync(user, Tenant.DefaultSlug, ct);
     }
 
+    /// <summary>
+    /// A client signed in as a new user holding the named roles in <paramref name="tenantSlug"/>,
+    /// sending <c>X-Tenant</c>. The tenant must exist (see <see cref="CreateTenantAsync"/>).
+    /// </summary>
+    public async Task<HttpClient> CreateClientAsync(string[] roleNames, string tenantSlug, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(roleNames);
+        var slug = NormaliseSlug(tenantSlug);
+
+        var userId = Guid.NewGuid();
+        await using (var session = OpenSession())
+        {
+            var roleIds = new List<Guid>();
+            foreach (var name in roleNames)
+            {
+                var role = await session.Query<Role>().FirstOrDefaultAsync(r => r.Name == name, ct);
+                if (role is not null)
+                    roleIds.Add(role.Id);
+            }
+
+            session.Store(new User
+            {
+                Id = userId,
+                Username = $"test-{userId:N}"[..20],
+                Email = $"test-{userId:N}@example.com",
+                RoleIds = roleIds,
+            });
+            await session.SaveChangesAsync(ct);
+        }
+
+        var user = await LoadUserAsync(userId, ct);
+        if (slug != Tenant.DefaultSlug)
+            await EnsureMembershipAsync(user, slug, ct);
+
+        return await ClientForAsync(user, slug, ct);
+    }
+
     /// <summary>The same, for a single role.</summary>
     public Task<HttpClient> CreateClientAsync(string roleName, CancellationToken ct = default) =>
         CreateClientAsync([roleName], ct);
