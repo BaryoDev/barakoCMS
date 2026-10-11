@@ -968,6 +968,10 @@ public static class ServiceCollectionExtensions
 #pragma warning restore CS0618
             }
 
+            // Gapless counters for INumberAllocator (#584).
+            options.Storage.ExtendedSchemaObjects.Add(
+                barakoCMS.Infrastructure.Numbering.NumberCounterTable.Build(options.DatabaseSchemaName));
+
             return options;
         })
         .BuildSessionsWith<barakoCMS.Infrastructure.Multitenancy.TenantSessionFactory>(Microsoft.Extensions.DependencyInjection.ServiceLifetime.Scoped)
@@ -1137,6 +1141,8 @@ public static class ServiceCollectionExtensions
         // rather than the one passed in here, so a host that layers settings on after this call
         // (the test fixtures do) is read as configured.
         services.AddSingleton<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>();
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddSingleton<barakoCMS.Core.Interfaces.INumberAllocator, barakoCMS.Infrastructure.Numbering.GaplessNumberAllocator>();
         services.AddSingleton(sp => barakoCMS.Features.Public.Events.ContentEventsOptions.FromConfiguration(
             sp.GetRequiredService<IConfiguration>()));
     }
