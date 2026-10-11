@@ -283,4 +283,38 @@ public class MfaPolicyTests
         var role = await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<Role>(roleId);
         role!.RequireMfa.Should().BeTrue();
     }
+
+    [Fact]
+    public async Task UpdateRole_WithRequireMfa_StoresIt()
+    {
+        var roleId = await StoreRoleAsync(requireMfa: false);
+        var admin = Client(await _factory.StoredUserTokenAsync("SuperAdmin"));
+
+        var response = await admin.PutAsJsonAsync($"/api/roles/{roleId}", new
+        {
+            Id = roleId,
+            Name = $"strict-{Guid.NewGuid():N}"[..20],
+            Description = "strict",
+            Permissions = Array.Empty<object>(),
+            SystemCapabilities = new[] { "manage_roles" },
+            RequireMfa = true,
+        });
+
+        response.IsSuccessStatusCode.Should().BeTrue(await response.Content.ReadAsStringAsync());
+        using var scope = _factory.Services.CreateScope();
+        var role = await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<Role>(roleId);
+        role!.RequireMfa.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task EnrollmentToken_RefreshSentWithTheLimitedBearer_StillAnswers()
+    {
+        // A client that attaches its current token to the refresh call must not be turned away.
+        var login = await LoginAsync(await SeedUserAsync(await StoreRoleAsync(requireMfa: true)));
+
+        var refreshed = await Client(login.Token).PostAsJsonAsync("/api/auth/refresh",
+            new barakoCMS.Features.Auth.Refresh.Request { RefreshToken = login.RefreshToken });
+
+        refreshed.StatusCode.Should().Be(HttpStatusCode.OK, await refreshed.Content.ReadAsStringAsync());
+    }
 }
