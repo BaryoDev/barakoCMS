@@ -121,6 +121,7 @@ public class OpenApiTagTests
             "DeviceTrust",
             "Diagnostics",
             "Email.Resend",
+            "EmailTemplates",
             "ExternalAuth",
             "FeatureFlags",
             "Files",
