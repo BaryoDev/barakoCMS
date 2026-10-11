@@ -30,7 +30,7 @@ public sealed partial record NumberSeries(
     NumberReset Reset = NumberReset.Never,
     string? TimeZoneId = null)
 {
-    [GeneratedRegex("^[a-z0-9][a-z0-9._-]{0,63}$")]
+    [GeneratedRegex("^[a-z0-9][a-z0-9._-]{0,63}\\z")]
     private static partial Regex NamePattern();
 
     public void Validate()
@@ -49,7 +49,7 @@ public sealed partial record NumberSeries(
             {
                 TimeZoneInfo.FindSystemTimeZoneById(TimeZoneId);
             }
-            catch (TimeZoneNotFoundException)
+            catch (Exception e) when (e is TimeZoneNotFoundException or InvalidTimeZoneException)
             {
                 throw new ArgumentException($"Time zone '{TimeZoneId}' is not known on this server.", nameof(TimeZoneId));
             }

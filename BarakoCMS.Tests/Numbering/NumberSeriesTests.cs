@@ -59,6 +59,7 @@ public class NumberSeriesTests
     [InlineData("Has Space")]
     [InlineData("UPPER")]
     [InlineData("a/b")]
+    [InlineData("a\n")]
     public void Validate_BadName_Throws(string name)
     {
         var act = () => new NumberSeries(name).Validate();
