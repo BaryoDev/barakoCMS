@@ -18,6 +18,7 @@ internal class Endpoint(
         // Anonymous so the refresh cookie alone can sign out once the access token has expired.
         // Without a valid bearer or a refresh cookie the handler still answers 401.
         AllowAnonymous();
+        barakoCMS.Infrastructure.Auth.Mfa.MfaEnrollment.AllowDuringMfaEnrollment(Definition);
         // Its own bucket, not the auth one: signing out must not be refused because sign-ins and
         // refreshes from the same address used up the password-guessing limit.
         Options(x => x.RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.LogoutPolicy));

@@ -16,6 +16,7 @@ internal class SetupEndpoint(IMfaService mfa, IQuerySession session) : EndpointW
     {
         Post("/api/auth/mfa/setup");
         Claims("UserId");
+        barakoCMS.Infrastructure.Auth.Mfa.MfaEnrollment.AllowDuringMfaEnrollment(Definition);
     }
 
     public override async Task HandleAsync(CancellationToken ct)

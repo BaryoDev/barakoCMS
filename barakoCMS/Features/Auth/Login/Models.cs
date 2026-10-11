@@ -47,4 +47,10 @@ internal class Response
 
     /// <summary>Short-lived token that authorizes completing the MFA step for this account.</summary>
     public string? MfaChallengeToken { get; set; }
+
+    /// <summary>
+    /// The account holds a role that requires MFA and has not set it up. The token works only for
+    /// <c>/api/auth/mfa/setup</c>, <c>/enable</c>, <c>/status</c>, refresh and logout until it does.
+    /// </summary>
+    public bool MfaEnrollmentRequired { get; set; }
 }

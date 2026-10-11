@@ -1276,6 +1276,10 @@ public static class ServiceCollectionExtensions
 
     private static void AddGlobalProcessors(IServiceCollection services)
     {
+        // Holds a token that still has to enroll in MFA to the setup endpoints. First, so it runs
+        // before every other gate.
+        services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Auth.Mfa.MfaEnrollmentProcessor>();
+
         // Confines API-key callers to the content surface and enforces their scopes. A no-op for JWT
         // callers (they carry no scope claims).
         services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Auth.ApiKeyScopeProcessor>();

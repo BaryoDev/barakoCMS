@@ -10,6 +10,7 @@ internal class StatusEndpoint(IMfaService mfa) : EndpointWithoutRequest<StatusRe
     {
         Get("/api/auth/mfa/status");
         Claims("UserId");
+        barakoCMS.Infrastructure.Auth.Mfa.MfaEnrollment.AllowDuringMfaEnrollment(Definition);
     }
 
     public override async Task HandleAsync(CancellationToken ct)

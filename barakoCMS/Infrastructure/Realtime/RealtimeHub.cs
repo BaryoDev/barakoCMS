@@ -52,6 +52,10 @@ public sealed class RealtimeHub(TopicRegistry topics, TenantContext tenant, ISer
         if (IsApiKey())
             throw new HubException("API keys cannot use the realtime hub.");
 
+        // Before the topic lookup and any group join: a token that must enroll in MFA hears nothing.
+        if (barakoCMS.Infrastructure.Auth.Mfa.MfaEnrollment.MustEnroll(Context.User))
+            throw new HubException("Set up MFA before subscribing.");
+
         var found = topics.Find(topic) ?? throw new HubException($"Unknown topic '{topic}'.");
         var slug = UseCallersTenant();
 
