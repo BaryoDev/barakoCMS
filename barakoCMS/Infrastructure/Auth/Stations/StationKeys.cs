@@ -34,7 +34,10 @@ public static class StationKeys
         if (header.StartsWith(bearer + Prefix, StringComparison.Ordinal))
             return header[bearer.Length..].Trim();
 
-        if (request.Path.StartsWithSegments("/hubs")
+        // The query string is a fallback for a transport that cannot send a header. A request that
+        // already carries some other Authorization header keeps that credential.
+        if (header.Length == 0
+            && request.Path.StartsWithSegments("/hubs")
             && request.Query["access_token"].ToString() is { } query
             && query.StartsWith(Prefix, StringComparison.Ordinal))
             return query;

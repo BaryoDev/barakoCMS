@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Infrastructure.Services;
+using barakoCMS.Models;
 
 namespace barakoCMS.Infrastructure.Auth;
 
@@ -13,6 +14,14 @@ internal sealed class CallerCapabilities(IPermissionResolver resolver) : ICaller
     public async Task<bool> HoldsAsync(ClaimsPrincipal caller, string capability, CancellationToken ct = default)
     {
         if (caller.Identity?.IsAuthenticated != true) return false;
+
+        // A station holds exactly the list on its key. It has no user id and no roles to resolve.
+        // Its key is checked against the store on every HTTP request; the hub checks it again at
+        // Subscribe, because a hub principal is built once when the connection opens.
+        if (caller.HasClaim("auth_method", "station"))
+            return SystemCapabilities.Satisfies(
+                caller.FindAll(Stations.StationAuthenticationHandler.CapabilityClaim).Select(c => c.Value),
+                capability);
 
         if (!Guid.TryParse(caller.FindFirst("UserId")?.Value, out var userId)) return false;
 

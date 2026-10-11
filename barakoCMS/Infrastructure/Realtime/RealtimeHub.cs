@@ -1,5 +1,6 @@
 using barakoCMS.Core.Interfaces;
 using System.IdentityModel.Tokens.Jwt;
+using barakoCMS.Infrastructure.Auth.Stations;
 using barakoCMS.Infrastructure.Middleware;
 using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Infrastructure.Services;
@@ -59,6 +60,12 @@ public sealed class RealtimeHub(TopicRegistry topics, TenantContext tenant, ISer
             throw new HubException($"This caller is missing the '{found.Capability}' capability.");
 
         var user = Context.User!;
+
+        // A station principal is built once, when the connection opens, so a revoke is read from the
+        // store here. A station has no jti and no UserId, so the two checks below pass it by.
+        if (await user.IsRevokedStationAsync(services.GetRequiredService<Marten.IDocumentStore>(), Context.ConnectionAborted))
+            throw new HubException("This station key has been revoked.");
+
         var jti = user.FindFirst(JwtRegisteredClaimNames.Jti)?.Value;
         if (jti is not null
             && await services.GetRequiredService<ITokenRevocationService>().IsTokenRevokedAsync(jti, Context.ConnectionAborted))

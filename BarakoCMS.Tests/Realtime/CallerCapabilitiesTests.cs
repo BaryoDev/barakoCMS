@@ -41,4 +41,14 @@ public class CallerCapabilitiesTests
 
         holds.Should().BeFalse();
     }
+
+    [Fact]
+    public async Task HoldsAsync_StationHoldingCapability_TrueWithoutAskingResolver()
+    {
+        var station = Signed(new Claim("auth_method", "station"), new Claim("station_cap", "read_x"));
+
+        (await new CallerCapabilities(_resolver).HoldsAsync(station, "read_x")).Should().BeTrue();
+        (await new CallerCapabilities(_resolver).HoldsAsync(station, "read_y")).Should().BeFalse();
+        await _resolver.DidNotReceiveWithAnyArgs().HasCapabilityAsync(default, default!, default);
+    }
 }

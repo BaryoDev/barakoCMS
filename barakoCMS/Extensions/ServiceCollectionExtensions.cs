@@ -452,10 +452,16 @@ public static class ServiceCollectionExtensions
             })
             .AddScheme<barakoCMS.Infrastructure.Auth.ApiKeyAuthenticationOptions, barakoCMS.Infrastructure.Auth.ApiKeyAuthenticationHandler>(
                 barakoCMS.Infrastructure.Auth.ApiKeyAuthenticationHandler.SchemeName, _ => { })
+            .AddScheme<barakoCMS.Infrastructure.Auth.Stations.StationAuthenticationOptions, barakoCMS.Infrastructure.Auth.Stations.StationAuthenticationHandler>(
+                barakoCMS.Infrastructure.Auth.Stations.StationAuthenticationHandler.SchemeName, _ => { })
             .AddPolicyScheme(smartScheme, smartScheme, options =>
             {
                 options.ForwardDefaultSelector = ctx =>
                 {
+                    // A station key in the header, or in the query string on a hub path only.
+                    if (barakoCMS.Infrastructure.Auth.Stations.StationKeys.Presented(ctx.Request) is not null)
+                        return barakoCMS.Infrastructure.Auth.Stations.StationAuthenticationHandler.SchemeName;
+
                     var header = ctx.Request.Headers.Authorization.ToString();
                     return header.StartsWith("Bearer " + barakoCMS.Infrastructure.Auth.ApiKeyService.Prefix, StringComparison.Ordinal)
                         ? barakoCMS.Infrastructure.Auth.ApiKeyAuthenticationHandler.SchemeName
@@ -1273,6 +1279,10 @@ public static class ServiceCollectionExtensions
         // Confines API-key callers to the content surface and enforces their scopes. A no-op for JWT
         // callers (they carry no scope claims).
         services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Auth.ApiKeyScopeProcessor>();
+
+        // Confines station keys to endpoints that opt in with Definition.AllowStations(). Before the
+        // capability gate, so a station never reaches it on a closed endpoint.
+        services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Auth.Stations.StationScopeProcessor>();
 
         // Enforces the capability an endpoint declares with Definition.RequireCapability(...). A
         // no-op for endpoints that still gate on Roles(...).

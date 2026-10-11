@@ -1,4 +1,5 @@
 using barakoCMS.Core.Interfaces;
+using barakoCMS.Infrastructure.Auth.Stations;
 using barakoCMS.Infrastructure.Realtime;
 using FastEndpoints;
 using Marten;
@@ -63,6 +64,7 @@ internal sealed class ChangesEndpoint(
     public override void Configure()
     {
         Get("/api/changes");
+        Definition.AllowStations();
         Description(b => b.WithTags("Changes"));
         Summary(s => s.Summary = "Events after a sequence for the topics the caller holds.");
     }
