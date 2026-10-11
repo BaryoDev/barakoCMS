@@ -325,7 +325,7 @@ an event class name as part of your stored data.
 
 Events are partitioned per tenant. Mark a projected document `MultiTenanted()` so it is too.
 
-A host older than 4.7 throws `NotSupportedException` from both methods.
+A host older than 4.8 throws `NotSupportedException` from both methods.
 
 ### Migrations
 

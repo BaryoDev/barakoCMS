@@ -40,7 +40,7 @@ public interface IModuleSchema
     /// <exception cref="InvalidOperationException">The type belongs to core or to another module.</exception>
     void AddEventType<TEvent>() where TEvent : class =>
         throw new NotSupportedException(
-            "This host does not let modules register event types. It needs barakoCMS 4.7 or later.");
+            "This host does not let modules register event types. It needs barakoCMS 4.8 or later.");
 
     /// <summary>
     /// Register one of the module's own projections. The projection and the document it writes must
@@ -52,5 +52,5 @@ public interface IModuleSchema
     void AddProjection<TProjection>(ProjectionLifecycle lifecycle)
         where TProjection : ProjectionBase, IProjectionSource<IDocumentOperations, IQuerySession>, new() =>
         throw new NotSupportedException(
-            "This host does not let modules register projections. It needs barakoCMS 4.7 or later.");
+            "This host does not let modules register projections. It needs barakoCMS 4.8 or later.");
 }
