@@ -19,9 +19,11 @@ internal sealed class CallerCapabilities(IPermissionResolver resolver) : ICaller
         // Its key is checked against the store on every HTTP request; the hub checks it again at
         // Subscribe, because a hub principal is built once when the connection opens.
         if (caller.HasClaim("auth_method", "station"))
-            return SystemCapabilities.Satisfies(
-                caller.FindAll(Stations.StationAuthenticationHandler.CapabilityClaim).Select(c => c.Value),
-                capability);
+            // Names only. "*" is never a wildcard here, so a hand-edited station document cannot
+            // become all-powerful: creation refuses it, and this does not honour it either.
+            return caller.FindAll(Stations.StationAuthenticationHandler.CapabilityClaim)
+                .Any(c => c.Value != SystemCapabilities.All
+                          && string.Equals(c.Value, capability, StringComparison.OrdinalIgnoreCase));
 
         if (!Guid.TryParse(caller.FindFirst("UserId")?.Value, out var userId)) return false;
 

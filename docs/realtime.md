@@ -34,5 +34,6 @@ A notice goes out as soon as the write commits, but the feed stops at the high-w
 - Until then, a connection whose capability was revoked after it subscribed keeps hearing notices. Those notices carry no record data, and the feed checks the capability on every read, so the read that follows is refused. Revocation takes effect at the feed, not at the hub.
 - API keys are refused. The hub is for signed-in users. A connection that authenticates with an API key is aborted when it opens, and `Subscribe` refuses it too.
 - Device trust is not applied on the hub. With `DeviceTrust:Enforce=true`, a token bound to a device that is no longer approved can still connect and subscribe. Notices carry metadata only (topic, sequence, stream id, event type), and the feed applies the device check on every read.
+- A revoked station stays in the groups it already joined until its 15 minute ticket expires and the connection closes. `Subscribe` refuses it at once, and the reconnect is refused at sign-in.
 
 Notices come from the server instance that committed the write. On reconnect, read the feed from the last stored sequence; a missed notice never loses data.

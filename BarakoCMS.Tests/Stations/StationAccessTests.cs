@@ -11,6 +11,7 @@ using FluentAssertions;
 using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.SignalR.Client;
+using Marten;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -120,16 +121,58 @@ public class StationAccessTests(ClinicProbeHost host) : IClassFixture<ClinicProb
 
         var response = await client.GetAsync("/api/changes?after=0&topics=probe.tickets&limit=1000");
 
-        // Either refused for the mismatch or served from the station's own tenant. Never the default tenant's events.
-        if (response.StatusCode == HttpStatusCode.OK)
+        // The handler sets the tenant from the station document after resolution read the header,
+        // so the request is served from the station's own tenant.
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var page = (await response.Content.ReadFromJsonAsync<ChangesResponse>())!;
+        page.Items.Select(i => i.StreamId).Should().Contain(mine).And.NotContain(other);
+    }
+
+    [Theory]
+    [InlineData("bsta_")]
+    [InlineData("bsta_not-a-real-key")]
+    [InlineData("bsta_   ")]
+    public async Task Station_EmptyOrMalformedKey_Returns401(string key)
+    {
+        var response = await StationClient(key).GetAsync("/api/changes?after=0&topics=probe.tickets");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Station_TenantInactive_Returns401()
+    {
+        var tenant = await host.CreateTenantAsync();
+        var station = await CreateStationAsync(tenant);
+        var client = StationClient(station.Key);
+        (await client.GetAsync("/api/changes?after=0&topics=probe.tickets&limit=1")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        await using (var session = host.OpenSession())
         {
-            var page = (await response.Content.ReadFromJsonAsync<ChangesResponse>())!;
-            page.Items.Select(i => i.StreamId).Should().Contain(mine).And.NotContain(other);
+            var row = await session.Query<barakoCMS.Models.Tenant>().FirstAsync(t => t.Slug == tenant, TestContext.Current.CancellationToken);
+            row.IsActive = false;
+            session.Store(row);
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
-        else
-        {
-            response.StatusCode.Should().BeOneOf(HttpStatusCode.Forbidden, HttpStatusCode.Unauthorized);
-        }
+
+        (await client.GetAsync("/api/changes?after=0&topics=probe.tickets&limit=1")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Station_Ticket_ExpiresAboutFifteenMinutesAfterIssue()
+    {
+        var station = await CreateStationAsync();
+        using var scope = host.Services.CreateScope();
+        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext { RequestServices = scope.ServiceProvider };
+        http.Request.Headers.Authorization = $"Bearer {station.Key}";
+
+        var result = await Microsoft.AspNetCore.Authentication.AuthenticationHttpContextExtensions
+            .AuthenticateAsync(http, StationAuthenticationHandler.SchemeName);
+
+        result.Succeeded.Should().BeTrue();
+        var props = result.Properties!;
+        (props.ExpiresUtc!.Value - props.IssuedUtc!.Value).Should().Be(TimeSpan.FromMinutes(15));
+        props.ExpiresUtc.Value.Should().BeCloseTo(DateTimeOffset.UtcNow.AddMinutes(15), TimeSpan.FromSeconds(30));
     }
 
     [Fact]
