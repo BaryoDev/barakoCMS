@@ -114,6 +114,12 @@ public interface IBarakoModule
     void ConfigureSchema(IModuleSchema schema) { }
 
     /// <summary>
+    /// Name the realtime topics this module offers. Optional. Event types listed here must also be
+    /// registered with <see cref="IModuleSchema.AddEventType{TEvent}"/>.
+    /// </summary>
+    void ConfigureTopics(IModuleTopics topics) { }
+
+    /// <summary>
     /// Register document types directly on the shared Marten store.
     /// </summary>
     /// <remarks>

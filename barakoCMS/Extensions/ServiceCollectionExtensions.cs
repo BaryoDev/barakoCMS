@@ -1254,6 +1254,7 @@ public static class ServiceCollectionExtensions
         // and a role write checks against it.
         services.AddSingleton<barakoCMS.Infrastructure.Auth.CapabilityVocabulary>();
         services.AddScoped<barakoCMS.Core.Interfaces.ICallerCapabilities, barakoCMS.Infrastructure.Auth.CallerCapabilities>();
+        services.AddSingleton(sp => new barakoCMS.Infrastructure.Realtime.TopicRegistry(sp.GetServices<IBarakoModule>()));
 
         // Read from the container's configuration at first use, for the reason AddJobQueue gives, and
         // asked for in UseBarakoCMS so an out-of-range setting stops startup.
@@ -1497,6 +1498,9 @@ public static class ServiceCollectionExtensions
 
     public static IApplicationBuilder UseBarakoCMS(this IApplicationBuilder app)
     {
+        // Built here so a module that declares a bad topic stops the host at startup, not on the
+        // first feed request.
+        app.ApplicationServices.GetRequiredService<barakoCMS.Infrastructure.Realtime.TopicRegistry>();
         var configuration = app.ApplicationServices.GetRequiredService<IConfiguration>();
         var env = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
 

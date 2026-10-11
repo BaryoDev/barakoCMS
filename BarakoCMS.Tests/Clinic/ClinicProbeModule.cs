@@ -43,4 +43,10 @@ public sealed class ClinicProbeModule : IBarakoModule
         schema.AddEventType<ProbeSecretNoted>();
         schema.AddProjection<ProbeTicketProjection>(ProjectionLifecycle.Inline);
     }
+
+    public void ConfigureTopics(IModuleTopics topics)
+    {
+        topics.Add("probe.tickets", "read_probe_tickets", typeof(ProbeTicketIssued), typeof(ProbeTicketCalled));
+        topics.Add("probe.secrets", "read_probe_secrets", typeof(ProbeSecretNoted));
+    }
 }
