@@ -84,7 +84,7 @@ public sealed record TokenIssueResult
 
     /// <summary>
     /// The user holds a role that requires MFA and has not turned it on. The token carries
-    /// <c>mfa_enroll=required</c> and reaches only the MFA setup endpoints.
+    /// <c>mfa_enroll=required</c> and reaches only MFA setup, enable and status, refresh, and logout.
     /// </summary>
     public bool MfaEnrollmentRequired { get; private init; }
 

@@ -37,13 +37,14 @@ public class MfaPolicyTests
         _ip = $"198.51.100.{(n + 120) % 250 + 1}"; // offset from MfaTests so the buckets do not collide
     }
 
-    internal HttpClient Client(string? bearer = null)
+    internal HttpClient Client(string? bearer = null, string? tenant = null)
     {
         var c = _factory
             .WithWebHostBuilder(b => b.ConfigureServices(s =>
                 s.AddSingleton<Microsoft.AspNetCore.Hosting.IStartupFilter, TestRemoteIpFilter>()))
             .CreateClient();
         c.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, _ip);
+        if (tenant is not null) c.DefaultRequestHeaders.Add("X-Tenant", tenant);
         if (bearer is not null) c.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
         return c;
     }
@@ -146,6 +147,58 @@ public class MfaPolicyTests
 
         again.RequiresMfa.Should().BeTrue();
         again.MfaEnrollmentRequired.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Login_SetupStartedButNotEnabled_StillFlagsEnrollment()
+    {
+        var username = await SeedUserAsync(await StoreRoleAsync(requireMfa: true));
+        var client = Client((await LoginAsync(username)).Token);
+        (await client.PostAsync("/api/auth/mfa/setup", null)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var again = await LoginAsync(username);
+
+        again.RequiresMfa.Should().BeFalse();
+        again.MfaEnrollmentRequired.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Login_RequireMfaRoleHeldOnlyInOtherTenant_NotLimited()
+    {
+        var tenantA = $"club-{Guid.NewGuid():N}";
+        var tenantB = $"club-{Guid.NewGuid():N}";
+        var strictRole = await StoreRoleAsync(requireMfa: true);
+        var plainRole = await StoreRoleAsync(requireMfa: false);
+        var username = await SeedUserAsync(plainRole);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var userId = (await s.Query<User>().FirstAsync(u => u.Username == username)).Id;
+            foreach (var slug in new[] { tenantA, tenantB })
+                s.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug, IsActive = true });
+            s.Store(new Membership
+            {
+                Id = Guid.NewGuid(), UserId = userId, TenantSlug = tenantA,
+                Status = MembershipStatus.Active, RoleIds = [strictRole],
+            });
+            s.Store(new Membership
+            {
+                Id = Guid.NewGuid(), UserId = userId, TenantSlug = tenantB,
+                Status = MembershipStatus.Active, RoleIds = [],
+            });
+            await s.SaveChangesAsync();
+        }
+
+        async Task<LoginResponse> LoginIn(string tenant)
+        {
+            var res = await Client(tenant: tenant).PostAsJsonAsync("/api/auth/login",
+                new barakoCMS.Features.Auth.Login.Request { Username = username, Password = Password });
+            res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+            return (await res.Content.ReadFromJsonAsync<LoginResponse>())!;
+        }
+
+        (await LoginIn(tenantA)).MfaEnrollmentRequired.Should().BeTrue();
+        (await LoginIn(tenantB)).MfaEnrollmentRequired.Should().BeFalse();
     }
 
     [Fact]
