@@ -1,4 +1,9 @@
+using System.Net;
+using System.Net.Http.Json;
 using System.Text.Json;
+using barakoCMS.Features.Changes;
+using barakoCMS.Infrastructure.Realtime;
+using Microsoft.Extensions.DependencyInjection;
 using System.Threading.Channels;
 using BarakoCMS.Tests.Clinic;
 using FluentAssertions;
@@ -56,6 +61,38 @@ public class RealtimeNoticeTests(ClinicProbeHost host) : IClassFixture<ClinicPro
         notice.GetProperty("topic").GetString().Should().Be("probe.tickets");
         notice.GetProperty("sequence").GetInt64().Should().Be(sequence);
         notice.GetProperty("type").GetString().Should().Be("clinic-probe.probe_ticket_issued");
+    }
+
+    [Fact]
+    public async Task Hub_NoticeThenFeedPolling_ReachesTheAnnouncedSequence()
+    {
+        // The notice goes out at commit, the feed stops at the high-water mark, which the daemon
+        // advances later. A client that reads once on the notice may see next below the sequence, so
+        // it reads again after a short delay until next reaches it. This pins that contract.
+        var caller = await host.CallerHoldingAsync(Tickets);
+        await using var listening = await Listening.StartAsync(host, caller.Token, "probe.tickets");
+        var start = await host.Services.GetRequiredService<IHighWaterMark>().CurrentAsync();
+        var id = Guid.NewGuid();
+
+        await host.AppendAsync(new ProbeTicketIssued(id, "POLL-1"), id);
+
+        var notice = (await listening.UntilStreamAsync(id)).Last();
+        var sequence = notice.GetProperty("sequence").GetInt64();
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        var delay = TimeSpan.FromMilliseconds(50);
+        ChangesResponse page;
+        while (true)
+        {
+            var response = await caller.Client.GetAsync($"/api/changes?after={start}&topics=probe.tickets");
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+            page = (await response.Content.ReadFromJsonAsync<ChangesResponse>())!;
+            if (page.Next >= sequence) break;
+            DateTime.UtcNow.Should().BeBefore(deadline, "the feed must reach the announced sequence");
+            await Task.Delay(delay);
+            delay = TimeSpan.FromMilliseconds(Math.Min(delay.TotalMilliseconds * 2, 500));
+        }
+
+        page.Items.Should().Contain(i => i.StreamId == id && i.Sequence == sequence);
     }
 
     [Fact]

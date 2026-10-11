@@ -33,8 +33,24 @@ public sealed class RealtimeHub(TopicRegistry topics, TenantContext tenant, ISer
 
     public static string GroupName(string tenantSlug, string topic) => $"{tenantSlug}:{topic}";
 
+    public override Task OnConnectedAsync()
+    {
+        if (IsApiKey())
+            Context.Abort();
+        return base.OnConnectedAsync();
+    }
+
+    // API keys stay on the content API. ApiKeyScopeProcessor confines them there, but it only sees
+    // FastEndpoints routes. A key has no jti or issue time and its ticket never expires, so a revoked
+    // key would also keep a live connection. The hub refuses the principal outright.
+    private bool IsApiKey() =>
+        string.Equals(Context.User?.FindFirst("auth_method")?.Value, "apikey", StringComparison.Ordinal);
+
     public async Task Subscribe(string topic)
     {
+        if (IsApiKey())
+            throw new HubException("API keys cannot use the realtime hub.");
+
         var found = topics.Find(topic) ?? throw new HubException($"Unknown topic '{topic}'.");
         var slug = UseCallersTenant();
 

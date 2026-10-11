@@ -1,5 +1,7 @@
 using System.Net;
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Multitenancy;
+using barakoCMS.Models;
 using barakoCMS.Infrastructure.Realtime;
 using BarakoCMS.Tests.Clinic;
 using FluentAssertions;
@@ -65,6 +67,45 @@ public class RealtimeHubTests(ClinicProbeHost host) : IClassFixture<ClinicProbeH
         var act = () => connection.InvokeAsync("Subscribe", "no.such");
 
         await act.Should().ThrowAsync<HubException>().WithMessage("*Unknown topic 'no.such'*");
+    }
+
+    [Fact]
+    public async Task Hub_ApiKey_SubscribeRefused()
+    {
+        // The key's owner holds the topic, so only the key itself can be the reason for the refusal.
+        var caller = await host.CallerHoldingAsync(Tickets);
+        var secret = "bcms_" + Guid.NewGuid().ToString("N");
+        await using (var session = host.OpenSession())
+        {
+            var userId = Guid.NewGuid();
+            session.Store(new User
+            {
+                Id = userId,
+                Username = $"key-owner-{userId}",
+                Email = $"key-owner-{userId}@example.com",
+                RoleIds = [caller.RoleId],
+            });
+            session.Store(new ApiKey
+            {
+                Id = Guid.NewGuid(),
+                Name = "hub-test",
+                KeyHash = ApiKeyService.Hash(secret),
+                Prefix = secret[..12],
+                UserId = userId,
+                TenantSlug = Tenant.DefaultSlug,
+                Scopes = ["content:read"],
+            });
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        // The hub aborts the connection when it opens, so either the start or the subscribe fails.
+        var act = async () =>
+        {
+            await using var connection = await ConnectAsync(host, secret);
+            await connection.InvokeAsync("Subscribe", "probe.tickets");
+        };
+
+        await act.Should().ThrowAsync<Exception>();
     }
 
     [Fact]
