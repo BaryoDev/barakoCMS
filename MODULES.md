@@ -342,6 +342,23 @@ Topic names are lower case words joined by dots or dashes, unique across all mod
 
 Clients read a topic through `GET /api/changes` and hear about new events through the realtime hub. See `docs/realtime.md`.
 
+#### Sensitive actions
+
+Mark an endpoint that should need a fresh authenticator code, such as voiding a receipt:
+
+```csharp
+public override void Configure()
+{
+    Post("/api/billing/receipts/{id}/void");
+    Definition.RequireCapability("void_receipts");
+    Definition.RequireStepUp();
+}
+```
+
+Without a valid `X-Step-Up` header the call gets 403 with `X-Step-Up-Required: true`. The client asks for a code, posts it to `POST /api/auth/mfa/step-up`, and retries with the returned token, which lasts `Auth:StepUp:Seconds` (default 300). The user must have MFA turned on. Stations can never pass a step-up endpoint.
+
+A role with `RequireMfa` makes MFA mandatory for everyone holding it. Until they enroll, their token reaches only the MFA setup endpoints, and other calls get 403 with `X-Mfa-Enrollment-Required: true`. An endpoint that must stay reachable during enrollment calls `Definition.AllowDuringMfaEnrollment()`.
+
 ### Migrations
 
 `CreateOnly` creates your tables on a database that does not have them and never alters them

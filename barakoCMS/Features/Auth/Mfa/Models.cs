@@ -65,3 +65,11 @@ internal class VerifyResponse
     public string RefreshToken { get; set; } = string.Empty;
     public DateTime RefreshTokenExpiry { get; set; }
 }
+
+internal class StepUpResponse
+{
+    /// <summary>Send as <c>X-Step-Up</c> on endpoints that require step-up.</summary>
+    public string StepUpToken { get; set; } = string.Empty;
+
+    public DateTime ExpiresAt { get; set; }
+}

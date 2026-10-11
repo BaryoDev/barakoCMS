@@ -1292,6 +1292,10 @@ public static class ServiceCollectionExtensions
         // no-op for endpoints that still gate on Roles(...).
         services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Auth.CapabilityGateProcessor>();
 
+        // Needs a valid X-Step-Up token on endpoints marked Definition.RequireStepUp(). After the
+        // capability gate, so a caller without the capability hears that first.
+        services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Auth.Mfa.StepUpProcessor>();
+
         // The names those gates ask for, read off the routing table. GET /api/capabilities lists it
         // and a role write checks against it.
         services.AddSingleton<barakoCMS.Infrastructure.Auth.CapabilityVocabulary>();
