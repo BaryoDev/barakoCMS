@@ -83,6 +83,63 @@ public class ExternalNumberLedgerTests(ClinicProbeHost host) : IClassFixture<Cli
         await act.Should().ThrowAsync<ArgumentOutOfRangeException>();
     }
 
+    [Theory]
+    [InlineData(long.MinValue, long.MaxValue)]
+    [InlineData(-1L, 5L)]
+    [InlineData(0L, 100_000L)]
+    public async Task Gaps_RangeNegativeOrOverflowing_Throws(long from, long to)
+    {
+        await using var session = host.OpenSession();
+        var act = () => Ledger.GapsAsync(session, "s", from, to);
+        await act.Should().ThrowAsync<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public async Task Gaps_RangeEndingAtLongMax_Completes()
+    {
+        var series = FreshSeries();
+        await RecordAsync(series, null, long.MaxValue - 1);
+
+        await using var session = host.OpenSession();
+        var report = await Ledger.GapsAsync(session, series, long.MaxValue - 5, long.MaxValue);
+
+        report.Recorded.Should().Be(1);
+        report.Missing.Should().Equal(new NumberRange(long.MaxValue - 5, long.MaxValue - 2), new NumberRange(long.MaxValue, long.MaxValue));
+    }
+
+    [Fact]
+    public async Task Gaps_StartingAtZero_Works()
+    {
+        var series = FreshSeries();
+        await RecordAsync(series, null, 0);
+
+        await using var session = host.OpenSession();
+        (await Ledger.GapsAsync(session, series, 0, 1)).Missing.Should().Equal(new NumberRange(1, 1));
+    }
+
+    [Fact]
+    public async Task Record_NegativeNumber_Throws()
+    {
+        await using var session = host.OpenSession();
+        var act = () => Ledger.Record(session, FreshSeries(), -1, "ref");
+        act.Should().Throw<ArgumentOutOfRangeException>();
+        await Task.CompletedTask;
+    }
+
+    [Fact]
+    public async Task Gaps_NumbersRecordedInAnotherTenant_AreNotCounted()
+    {
+        var series = FreshSeries();
+        var tenant = await host.CreateTenantAsync();
+        await RecordAsync(series, null, 1, 2, 3);
+
+        await using var session = host.OpenSession(tenant);
+        var report = await Ledger.GapsAsync(session, series, 1, 3);
+
+        report.Recorded.Should().Be(0);
+        report.Missing.Should().Equal(new NumberRange(1, 3));
+    }
+
     [Fact]
     public async Task GapsEndpoint_WithCapability_ReturnsReport()
     {

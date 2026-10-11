@@ -15,6 +15,7 @@ internal sealed class ExternalNumberLedger(TimeProvider clock) : IExternalNumber
     {
         ArgumentNullException.ThrowIfNull(session);
         new NumberSeries(series).Validate();
+        ArgumentOutOfRangeException.ThrowIfNegative(number);
 
         // Insert, not Store: Store would quietly overwrite the first use of a number.
         session.Insert(new ExternalNumberUse
@@ -30,10 +31,7 @@ internal sealed class ExternalNumberLedger(TimeProvider clock) : IExternalNumber
 
     public async Task<NumberGapReport> GapsAsync(IQuerySession session, string series, long from, long to, CancellationToken ct = default)
     {
-        if (to < from)
-            throw new ArgumentOutOfRangeException(nameof(to), $"'to' ({to}) is before 'from' ({from}).");
-        if (to - from + 1 > MaxRange)
-            throw new ArgumentOutOfRangeException(nameof(to), $"Ask for at most {MaxRange:N0} numbers at once.");
+        ValidateRange(series, from, to);
 
         var recorded = await session.Query<ExternalNumberUse>()
             .Where(x => x.Series == series && x.Number >= from && x.Number <= to)
@@ -43,8 +41,10 @@ internal sealed class ExternalNumberLedger(TimeProvider clock) : IExternalNumber
         var seen = recorded.ToHashSet();
         var missing = new List<NumberRange>();
         long? start = null;
-        for (var n = from; n <= to; n++)
+        // Walk an offset, not the number itself: with to == long.MaxValue, n++ would wrap and never end.
+        for (long i = 0, len = to - from; i <= len; i++)
         {
+            var n = from + i;
             if (!seen.Contains(n))
             {
                 start ??= n;
@@ -62,6 +62,29 @@ internal sealed class ExternalNumberLedger(TimeProvider clock) : IExternalNumber
             missing.Add(new NumberRange(tail, to));
 
         return new NumberGapReport(series, from, to, seen.Count, missing);
+    }
+
+    /// <summary>The one place a gap request is checked. Throws <see cref="ArgumentException"/>.</summary>
+    internal static void ValidateRange(string series, long from, long to)
+    {
+        new NumberSeries(series).Validate();
+        if (RangeProblem(from, to) is { } problem)
+            throw new ArgumentOutOfRangeException(nameof(to), problem);
+    }
+
+    /// <summary>
+    /// What is wrong with a range, or null. Numbers are non-negative, which also keeps
+    /// <c>to - from</c> from overflowing once <c>to &gt;= from</c>.
+    /// </summary>
+    internal static string? RangeProblem(long from, long to)
+    {
+        if (from < 0)
+            return $"'from' ({from}) must not be negative.";
+        if (to < from)
+            return $"'to' ({to}) is before 'from' ({from}).";
+        if (to - from >= MaxRange)
+            return $"Ask for at most {MaxRange:N0} numbers at once.";
+        return null;
     }
 
     // The tenant is part of the id, so the same number can be used once in each tenant.

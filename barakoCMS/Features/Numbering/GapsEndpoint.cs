@@ -31,10 +31,8 @@ internal sealed class GapsEndpoint(IExternalNumberLedger ledger, IQuerySession s
 
     public override async Task HandleAsync(GapsRequest req, CancellationToken ct)
     {
-        if (req.To < req.From)
-            ThrowError("'to' must not be before 'from'.");
-        if (req.To - req.From + 1 > ExternalNumberLedger.MaxRange)
-            ThrowError($"Ask for at most {ExternalNumberLedger.MaxRange:N0} numbers at once.");
+        if (ExternalNumberLedger.RangeProblem(req.From, req.To) is { } problem)
+            ThrowError(problem);
 
         try
         {
