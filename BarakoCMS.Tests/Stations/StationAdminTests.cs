@@ -113,4 +113,77 @@ public class StationAdminTests(ClinicProbeHost host) : IClassFixture<ClinicProbe
         var list = (await client.GetFromJsonAsync<List<StationSummary>>("/api/stations"))!;
         list.Single(s => s.Id == created.Id).Revoked.Should().BeTrue();
     }
+
+    private async Task<List<AuditEvent>> AuditAsync(string action, Guid stationId)
+    {
+        await using var session = host.OpenSession();
+        return (await session.Query<AuditEvent>().Where(e => e.Action == action && e.TargetId == stationId.ToString()).ToListAsync()).ToList();
+    }
+
+    [Fact]
+    public async Task Station_Revoke_SetsRevokedAt()
+    {
+        var client = await host.ClientHoldingAsync(Manager);
+        var created = (await (await CreateAsync(client, "read_probe_tickets")).Content.ReadFromJsonAsync<CreatedStation>())!;
+
+        await client.PostAsync($"/api/stations/{created.Id}/revoke", null);
+
+        await using var session = host.OpenSession();
+        (await session.LoadAsync<Station>(created.Id))!.RevokedAt.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task Station_RevokeTwice_KeepsFirstRevokedAtAndAuditsOnce()
+    {
+        var client = await host.ClientHoldingAsync(Manager);
+        var created = (await (await CreateAsync(client, "read_probe_tickets")).Content.ReadFromJsonAsync<CreatedStation>())!;
+
+        await client.PostAsync($"/api/stations/{created.Id}/revoke", null);
+        DateTime? first;
+        await using (var session = host.OpenSession())
+            first = (await session.LoadAsync<Station>(created.Id))!.RevokedAt;
+
+        (await client.PostAsync($"/api/stations/{created.Id}/revoke", null)).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        await using var again = host.OpenSession();
+        (await again.LoadAsync<Station>(created.Id))!.RevokedAt.Should().Be(first);
+        (await AuditAsync("station.revoked", created.Id)).Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task Station_Create_AuditsWithoutThePlainKey()
+    {
+        var client = await host.ClientHoldingAsync(Manager);
+        var created = (await (await CreateAsync(client, "read_probe_tickets")).Content.ReadFromJsonAsync<CreatedStation>())!;
+
+        var rows = await AuditAsync("station.created", created.Id);
+
+        rows.Should().HaveCount(1);
+        System.Text.Json.JsonSerializer.Serialize(rows[0]).Should().NotContain(created.Key);
+    }
+
+    [Fact]
+    public async Task Station_CapabilityInOtherCase_StoredCanonical()
+    {
+        var client = await host.ClientHoldingAsync(Manager);
+
+        var response = await CreateAsync(client, "READ_PROBE_TICKETS", "read_probe_tickets");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        var created = (await response.Content.ReadFromJsonAsync<CreatedStation>())!;
+        created.Capabilities.Should().Equal("read_probe_tickets");
+        var list = (await client.GetFromJsonAsync<List<StationSummary>>("/api/stations"))!;
+        list.Single(s => s.Id == created.Id).Capabilities.Should().Equal("read_probe_tickets");
+    }
+
+    [Fact]
+    public async Task Station_ManageStations_Returns400()
+    {
+        var client = await host.ClientHoldingAsync(Manager);
+
+        var response = await CreateAsync(client, "manage_stations");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("manage_stations");
+    }
 }
