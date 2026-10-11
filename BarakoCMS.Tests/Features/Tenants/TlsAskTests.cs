@@ -125,6 +125,7 @@ public class TlsAskTests
     [Fact]
     public async Task The_sixty_first_question_about_one_name_in_a_minute_is_refused_from_any_address()
     {
+        using var resolver = FastEndpointsResolver.Keep();
         using var host = _fixture.WithWebHostBuilder(_ => { });
         var client = From(host);
         var unknown = Domain();
