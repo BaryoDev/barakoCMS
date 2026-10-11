@@ -1510,6 +1510,12 @@ public static class ServiceCollectionExtensions
         // inside whichever module's ConfigureApp first asked for the store.
         _ = app.ApplicationServices.GetRequiredService<IDocumentStore>();
 
+        // The store knows every event type a module registered. A topic naming one it does not
+        // know would never match, so refuse it now.
+        app.ApplicationServices.GetRequiredService<barakoCMS.Infrastructure.Realtime.TopicRegistry>()
+            .EnsureRegistered(((Marten.Events.EventGraph)app.ApplicationServices
+                .GetRequiredService<IDocumentStore>().Options.Events).AllKnownEventTypes().Select(e => e.EventType));
+
         _ = app.ApplicationServices.GetRequiredService<barakoCMS.Infrastructure.Filters.IdempotencyOptions>();
 
         UseExceptionHandling(app);

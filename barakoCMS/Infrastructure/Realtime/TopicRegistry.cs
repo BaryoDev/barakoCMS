@@ -31,6 +31,24 @@ public sealed partial class TopicRegistry
     public IReadOnlyList<RealtimeTopic> TopicsFor(Type eventType) =>
         _byType.TryGetValue(eventType, out var topics) ? topics : [];
 
+    /// <summary>
+    /// Refuses a topic that names an event type its module never registered with
+    /// <c>AddEventType</c>. Such a topic would pass every other check and then never match an event.
+    /// </summary>
+    /// <param name="registeredEventTypes">The event types the store knows.</param>
+    public void EnsureRegistered(IEnumerable<Type> registeredEventTypes)
+    {
+        var known = registeredEventTypes.ToHashSet();
+        foreach (var topic in _byName.Values)
+        foreach (var type in topic.EventTypes)
+        {
+            if (known.Contains(type)) continue;
+            throw new InvalidOperationException(
+                $"Module '{topic.Module}' topic '{topic.Name}' names event type {type.FullName}, "
+                + "which the module never registered with AddEventType.");
+        }
+    }
+
     private void Add(IBarakoModule module, string name, string capability, Type[] eventTypes)
     {
         if (string.IsNullOrEmpty(name) || !NamePattern().IsMatch(name))

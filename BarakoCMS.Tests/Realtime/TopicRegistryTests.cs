@@ -60,6 +60,25 @@ public class TopicRegistryTests
         act.Should().Throw<InvalidOperationException>().WithMessage("*Thief*barakoCMS.Models.User*own assemblies*");
     }
 
+    [Fact]
+    public void Registry_TopicEventTypeNeverRegistered_FailsEnsureRegistered()
+    {
+        var registry = new TopicRegistry([new ClinicProbeModule()]);
+
+        var act = () => registry.EnsureRegistered([typeof(ProbeTicketIssued), typeof(ProbeTicketCalled)]);
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*'ClinicProbe'*'probe.secrets'*ProbeSecretNoted*never registered*AddEventType*");
+    }
+
+    [Fact]
+    public void Registry_AllEventTypesRegistered_PassesEnsureRegistered()
+    {
+        var registry = new TopicRegistry([new ClinicProbeModule()]);
+
+        registry.EnsureRegistered([typeof(ProbeTicketIssued), typeof(ProbeTicketCalled), typeof(ProbeSecretNoted)]);
+    }
+
     [Theory]
     [InlineData("Upper.Case")]
     [InlineData("has space")]
