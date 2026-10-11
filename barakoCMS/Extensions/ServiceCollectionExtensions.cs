@@ -821,6 +821,12 @@ public static class ServiceCollectionExtensions
             .Index(x => x.UserId)
             .Index(x => x.TenantSlug);
 
+        options.Schema.For<ExternalNumberUse>()
+            .MultiTenanted()
+            .DocumentAlias("external_number_uses")
+            .Index(x => x.Series)
+            .Index(x => x.Number);
+
         options.Schema.For<Models.AuditEvent>()
             .SingleTenanted() // one global chain per tenant, kept as data like ApiKey.TenantSlug
             .DocumentAlias("audit_events")
@@ -1143,6 +1149,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>();
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<barakoCMS.Core.Interfaces.INumberAllocator, barakoCMS.Infrastructure.Numbering.GaplessNumberAllocator>();
+        services.AddSingleton<barakoCMS.Core.Interfaces.IExternalNumberLedger, barakoCMS.Infrastructure.Numbering.ExternalNumberLedger>();
         services.AddSingleton(sp => barakoCMS.Features.Public.Events.ContentEventsOptions.FromConfiguration(
             sp.GetRequiredService<IConfiguration>()));
     }

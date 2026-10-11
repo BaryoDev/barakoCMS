@@ -1,0 +1,2 @@
+- **Gapless numbering.** `INumberAllocator` hands out gapless numbers per tenant and series, with yearly, monthly or daily reset at local midnight in a chosen time zone. The counter row stays locked until the caller's session commits, and a rolled back session gives its number to the next caller.
+- **External number ledger.** `IExternalNumberLedger` records numbers issued outside barakoCMS, and `GET /api/numbering/external/{series}/gaps` (capability `view_number_gaps`, granted to Admin) lists the ones in a range that were never recorded.
