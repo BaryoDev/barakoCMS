@@ -35,6 +35,10 @@ internal sealed class GaplessNumberAllocator(TimeProvider clock) : INumberAlloca
         var rows = await session.QueryAsync<long>(sql, ct, session.TenantId, series.Name, period);
         var value = rows.Single();
 
+        // Marten commits only when the session has queued work, so a save with no other change
+        // would roll the increment back and hand the number out twice. Queue a no-op to force it.
+        session.QueueSqlCommand("select 1");
+
         return new AllocatedNumber(series.Name, period, value, series.Format(value, period));
     }
 }

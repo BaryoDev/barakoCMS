@@ -20,10 +20,6 @@ public class NumberAllocatorTests(ClinicProbeHost host) : IClassFixture<ClinicPr
     {
         await using var session = host.OpenSession(tenant);
         var number = await (allocator ?? Allocator).NextAsync(session, series);
-        // Marten only commits its transaction when the session has something to write, and the
-        // number is meant to commit together with the record it names, so write one.
-        var id = Guid.NewGuid();
-        session.Events.StartStream(id, new ProbeTicketIssued(id, number.Formatted));
         await session.SaveChangesAsync();
         return number;
     }
@@ -91,6 +87,26 @@ public class NumberAllocatorTests(ClinicProbeHost host) : IClassFixture<ClinicPr
         (await TakeAsync(series)).Value.Should().Be(1);
         (await TakeAsync(series)).Value.Should().Be(2);
         (await TakeAsync(series, tenant)).Value.Should().Be(1);
+        (await TakeAsync(series, tenant)).Value.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Allocator_SecondSessionOnSameSeries_WaitsForFirstToEnd()
+    {
+        var series = Fresh();
+
+        var first = host.OpenSession();
+        (await Allocator.NextAsync(first, series)).Value.Should().Be(1);
+
+        var second = host.OpenSession();
+        var pending = Allocator.NextAsync(second, series);
+
+        var finishedEarly = await Task.WhenAny(pending, Task.Delay(500)) == pending;
+        finishedEarly.Should().BeFalse("the counter row stays locked until the first session ends");
+
+        await first.DisposeAsync();
+        (await pending).Value.Should().Be(1);
+        await second.DisposeAsync();
     }
 
     [Fact]
