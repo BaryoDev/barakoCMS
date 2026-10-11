@@ -106,7 +106,7 @@ Upgrading from 4.7 takes three steps. The API contract stays at 7, so barakoBrew
   most 32 tags and 1024 bytes per header, with `X-Barako-Cache-Tags-Dropped` counting any left
   out. A preview read stays `no-store` with no tag or ETag, and so does a 404 for a public file
   whose bytes are missing. Covers the public routes, the feed, the sitemap, the type description,
-  redirect lookup, public files and their metadata (BarakoCMS.Files 4.5.0) and semantic search
+  redirect lookup, public files and their metadata (BarakoCMS.Files 4.6.0) and semantic search
   (BarakoCMS.AI 4.4.0). See "Cache classes, validators and tags" in `docs/delivery-api.md` (#973,
   #561).
 
@@ -125,6 +125,8 @@ Upgrading from 4.7 takes three steps. The API contract stays at 7, so barakoBrew
   MailKit's limit on each exchange with the relay, which was 120 s, and one limit over the connect
   and login together. A relay that accepts the connection and never answers now fails as not sent
   within it (#1114).
+- **BarakoCMS.Forms 4.5.1 and BarakoCMS.Import 4.4.3 are rebuilt against BarakoCMS.Abstractions
+  4.8.0.** Their source is the same as in 4.7.0.
 
 ### Fixed
 
@@ -139,10 +141,11 @@ Upgrading from 4.7 takes three steps. The API contract stays at 7, so barakoBrew
   the interface (#697).
 - **An int field takes any 64-bit integer on every input path.** A request body already did. Numeric
   text and a raw JSON number stopped at Int32, so the same value was accepted on one path and
-  refused on another. A page's order in the Pages module now reads past Int32. A fraction or a
-  number past Int64 is still refused with a 400 naming the field, and stored values read as before.
-  Collection syncs are unchanged: a field declared `int` gets a whole number, and one declared
-  `integer` or `number` keeps the cell text as it always has. See `docs/int-fields.md` (#706).
+  refused on another. A page's order in the Pages module now reads past Int32 (BarakoCMS.Pages
+  4.3.2). A fraction or a number past Int64 is still refused with a 400 naming the field, and stored
+  values read as before. Collection syncs are unchanged: a field declared `int` gets a whole number,
+  and one declared `integer` or `number` keeps the cell text as it always has. See
+  `docs/int-fields.md` (#706).
 
 ## [4.7.0] - 2026-10-08
 

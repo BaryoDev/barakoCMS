@@ -772,7 +772,7 @@
         "dependencies": {
           "AWSSDK.S3": "[3.7.511.8, )",
           "BarakoCMS.Abstractions": "[4.8.0, )",
-          "BarakoCMS.Files": "[4.5.0, )",
+          "BarakoCMS.Files": "[4.6.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
