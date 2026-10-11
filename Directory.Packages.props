@@ -94,6 +94,7 @@
     <PackageVersion Include="FastEndpoints.Testing" Version="8.3.0" />
     <PackageVersion Include="FluentAssertions" Version="8.11.0" />
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.12" />
     <!-- BarakoCMS.Testing hosts a real barakoCMS over TestServer without a Program.cs to point
          WebApplicationFactory at, so it takes the TestHost package directly. Same version line as
          Mvc.Testing, which depends on it. -->

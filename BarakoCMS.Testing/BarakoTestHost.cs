@@ -230,6 +230,12 @@ public class BarakoTestHost : IAsyncLifetime
     /// <summary>An anonymous client.</summary>
     public HttpClient CreateClient() => App.GetTestClient();
 
+    /// <summary>
+    /// The in-memory server's handler, for clients that build their own HTTP stack, such as a
+    /// SignalR <c>HubConnection</c> (set it as <c>HttpMessageHandlerFactory</c>).
+    /// </summary>
+    public HttpMessageHandler CreateHandler() => App.GetTestServer().CreateHandler();
+
     /// <summary>A client signed in as the seeded admin on the default tenant.</summary>
     public Task<HttpClient> CreateAdminClientAsync(CancellationToken ct = default) =>
         CreateAdminClientAsync(Tenant.DefaultSlug, ct);

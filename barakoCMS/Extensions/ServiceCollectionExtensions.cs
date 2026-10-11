@@ -422,6 +422,22 @@ public static class ServiceCollectionExtensions
 
                 // Strict token expiration - no clock skew tolerance
                 p.ClockSkew = TimeSpan.Zero;
+
+                // SignalR sends the token as access_token in the query string when the transport
+                // cannot carry a header (WebSockets from a browser). Read there for hub paths only,
+                // so a token pasted into any other URL is not accepted.
+                o.Events ??= new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents();
+                var prior = o.Events.OnMessageReceived;
+                o.Events.OnMessageReceived = async ctx =>
+                {
+                    await prior(ctx);
+                    if (string.IsNullOrEmpty(ctx.Token)
+                        && ctx.HttpContext.Request.Path.StartsWithSegments("/hubs")
+                        && ctx.Request.Query["access_token"].ToString() is { Length: > 0 } fromQuery)
+                    {
+                        ctx.Token = fromQuery;
+                    }
+                };
             });
 
         // Second auth scheme for machine callers: `Authorization: Bearer bcms_...` API keys. A policy
@@ -1255,6 +1271,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<barakoCMS.Infrastructure.Auth.CapabilityVocabulary>();
         services.AddScoped<barakoCMS.Core.Interfaces.ICallerCapabilities, barakoCMS.Infrastructure.Auth.CallerCapabilities>();
         services.AddSingleton(sp => new barakoCMS.Infrastructure.Realtime.TopicRegistry(sp.GetServices<IBarakoModule>()));
+        services.AddSignalR();
         services.AddSingleton<barakoCMS.Infrastructure.Realtime.IHighWaterMark, barakoCMS.Infrastructure.Realtime.MartenHighWaterMark>();
 
         // Read from the container's configuration at first use, for the reason AddJobQueue gives, and
@@ -1542,6 +1559,10 @@ public static class ServiceCollectionExtensions
         UseOutputCaching(app);
 
         UseFastEndpointsPipeline(app);
+
+        // The host is a WebApplication in every supported setup, which is also the route builder.
+        if (app is Microsoft.AspNetCore.Routing.IEndpointRouteBuilder routes)
+            routes.MapHub<barakoCMS.Infrastructure.Realtime.RealtimeHub>(barakoCMS.Infrastructure.Realtime.RealtimeHub.Path);
 
         UseJobWorkers(app);
 
