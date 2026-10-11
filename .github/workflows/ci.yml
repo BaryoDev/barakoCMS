@@ -58,6 +58,10 @@ jobs:
       - name: Check for conflict markers
         run: bash scripts/check-conflict-markers.sh
 
+      # The failed-test list below is only worth having if it names the test, so it is proven here.
+      - name: Prove the failed-test list names each failure
+        run: bash scripts/test-report-trx-failures.sh
+
       # Fragments are validated where a mistake is cheap to fix. Assembly happens at release time.
       - name: Check changelog fragments
         run: bash scripts/changelog-assemble.sh --check
@@ -145,6 +149,24 @@ jobs:
         env:
           # TestContainers needs Docker to be available
           DOCKER_HOST: unix:///var/run/docker.sock
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: backend-test-results
+          path: testresults/*.trx
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # The line naming a failed test is buried mid-log among 40,000 others. This puts the names last,
+      # where a reader of the log tail sees them first, and keeps the report for anyone who wants it.
+      - name: List failed tests
+        if: failure()
+        run: |
+          TRX=$(find ./testresults -name '*.trx' | head -1)
+          [ -n "$TRX" ] || { echo "No .trx was produced, so there is nothing to list."; exit 0; }
+          python3 scripts/report-trx-failures.py "$TRX" || true
 
       - name: Test Summary
         if: always()

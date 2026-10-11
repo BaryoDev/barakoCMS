@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Results>
+    <UnitTestResult testName="Routes.Refuse(path: &quot;/a&quot;, expected: 403)" outcome="Failed">
+      <Output><ErrorInfo><Message>Expected 403, but found 200.</Message></ErrorInfo></Output>
+    </UnitTestResult>
+  </Results>
+</TestRun>
