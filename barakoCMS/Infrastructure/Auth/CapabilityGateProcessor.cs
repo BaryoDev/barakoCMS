@@ -81,10 +81,8 @@ public sealed class CapabilityGateProcessor : IGlobalPreProcessor
 
         if (required.LegacyRoles.Any(principal.IsInRole) && LegacyRoleFallback(http)) return true;
 
-        if (!Guid.TryParse(principal.FindFirst("UserId")?.Value, out var userId)) return false;
-
-        var resolver = http.RequestServices.GetRequiredService<IPermissionResolver>();
-        return await resolver.HasCapabilityAsync(userId, required.Capability, ct);
+        var callers = http.RequestServices.GetRequiredService<barakoCMS.Core.Interfaces.ICallerCapabilities>();
+        return await callers.HoldsAsync(principal, required.Capability, ct);
     }
 
     private static async Task Deny(HttpContext http, string capability, CancellationToken ct)

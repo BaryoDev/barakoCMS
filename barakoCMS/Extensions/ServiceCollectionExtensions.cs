@@ -1253,6 +1253,7 @@ public static class ServiceCollectionExtensions
         // The names those gates ask for, read off the routing table. GET /api/capabilities lists it
         // and a role write checks against it.
         services.AddSingleton<barakoCMS.Infrastructure.Auth.CapabilityVocabulary>();
+        services.AddScoped<barakoCMS.Core.Interfaces.ICallerCapabilities, barakoCMS.Infrastructure.Auth.CallerCapabilities>();
 
         // Read from the container's configuration at first use, for the reason AddJobQueue gives, and
         // asked for in UseBarakoCMS so an out-of-range setting stops startup.
