@@ -263,34 +263,8 @@ public class BarakoTestHost : IAsyncLifetime
     /// seeder did not create is left out rather than invented, so a caller with an unseeded role
     /// reaches nothing, which is the right answer when a test asks what a stranger can do.
     /// </remarks>
-    public async Task<HttpClient> CreateClientAsync(string[] roleNames, CancellationToken ct = default)
-    {
-        ArgumentNullException.ThrowIfNull(roleNames);
-
-        var userId = Guid.NewGuid();
-        await using (var session = OpenSession())
-        {
-            var roleIds = new List<Guid>();
-            foreach (var name in roleNames)
-            {
-                var role = await session.Query<Role>().FirstOrDefaultAsync(r => r.Name == name, ct);
-                if (role is not null)
-                    roleIds.Add(role.Id);
-            }
-
-            session.Store(new User
-            {
-                Id = userId,
-                Username = $"test-{userId:N}"[..20],
-                Email = $"test-{userId:N}@example.com",
-                RoleIds = roleIds,
-            });
-            await session.SaveChangesAsync(ct);
-        }
-
-        var user = await LoadUserAsync(userId, ct);
-        return await ClientForAsync(user, Tenant.DefaultSlug, ct);
-    }
+    public Task<HttpClient> CreateClientAsync(string[] roleNames, CancellationToken ct = default) =>
+        CreateClientAsync(roleNames, Tenant.DefaultSlug, ct);
 
     /// <summary>
     /// A client signed in as a new user holding the named roles in <paramref name="tenantSlug"/>,
