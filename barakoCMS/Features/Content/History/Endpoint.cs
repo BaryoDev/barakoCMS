@@ -101,16 +101,42 @@ internal class Endpoint(
         })
         .ToList();
 
-        // 3. Apply the same document- and field-level sensitivity as Get/List to every historical
-        // version that carries a document, based on the current content's sensitivity level and
-        // schema. The entries with no data have nothing to mask.
+        await Send.ResponseAsync(await ScrubAndRecordAsync(content, versions, req, ct));
+    }
+
+    /// <summary>
+    /// The page of versions as the caller may read them, after writing the audit row for what of it
+    /// is above Public.
+    /// </summary>
+    /// <remarks>
+    /// The same document- and field-level sensitivity as Get and List, applied to every historical
+    /// version that carries a document, based on the current entry's level and schema. The entries
+    /// with no data have nothing to mask. Past values count as a read, recorded once for the page.
+    /// </remarks>
+    private async Task<barakoCMS.Models.PaginatedResponse<VersionResponse>> ScrubAndRecordAsync(
+        barakoCMS.Models.Content content, List<VersionResponse> versions, Request req, CancellationToken ct)
+    {
         var sensitivity = Resolve<barakoCMS.Core.Interfaces.ISensitivityService>();
+        var stored = new Dictionary<VersionResponse, Dictionary<string, object>>(ReferenceEqualityComparer.Instance);
         foreach (var version in versions.Where(v => v.Data != null))
         {
+            stored[version] = new Dictionary<string, object>(version.Data!);
             await sensitivity.ApplyAsync(content, version.Data!, HttpContext, ct);
         }
 
-        await Send.ResponseAsync(versions.ToPagedResponse(req));
+        var page = versions.ToPagedResponse(req);
+        var sent = page.Items
+            .Where(v => v.Data != null && stored.ContainsKey(v))
+            .Select(v => (stored[v], v.Data!))
+            .ToList();
+        var type = content.ContentType;
+        var definition = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
+        await barakoCMS.Infrastructure.Audit.SensitiveReadAudit.RecordAsync(
+            HttpContext,
+            [await barakoCMS.Infrastructure.Audit.SensitiveReadAudit.DescribeVersionsAsync(
+                content, definition, sent, sensitivity, HttpContext, ct)],
+            ct);
+        return page;
     }
 
     /// <summary>The wire name for an event, decided here rather than reflected from the CLR type.</summary>

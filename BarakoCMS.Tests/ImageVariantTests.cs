@@ -120,11 +120,14 @@ public class ImageVariantTests
         var original = await SeedDirectAsync(storage, isPublic: parentIsPublic, Png(1200, 800));
 
         using var scope = _factory.Services.CreateScope();
+        // One storage for everything, so the bytes it captures are the ones under test.
+#pragma warning disable CS0618
         var variants = new ImageVariants(
             scope.ServiceProvider.GetRequiredService<IDocumentSession>(),
             storage,
             new SkiaImageResizer(new ConfigurationBuilder().Build(), NullLogger<SkiaImageResizer>.Instance),
             new ConfigurationBuilder().Build());
+#pragma warning restore CS0618
 
         var resolved = await variants.ResolveAsync(original, 320, TestContext.Current.CancellationToken);
 
@@ -192,11 +195,14 @@ public class ImageVariantTests
             new ConfigurationBuilder().Build(), NullLogger<SkiaImageResizer>.Instance));
 
         using var scope = _factory.Services.CreateScope();
+        // One storage for everything, so the bytes it captures are the ones under test.
+#pragma warning disable CS0618
         var variants = new ImageVariants(
             scope.ServiceProvider.GetRequiredService<IDocumentSession>(),
             storage,
             counter,
             new ConfigurationBuilder().Build());
+#pragma warning restore CS0618
 
         var mislabelled = await SeedDirectAsync(storage, isPublic: true, FileSamples.Noise(1200, 800, SKEncodedImageFormat.Jpeg));
         var served = await variants.ResolveAsync(mislabelled, 320, TestContext.Current.CancellationToken);

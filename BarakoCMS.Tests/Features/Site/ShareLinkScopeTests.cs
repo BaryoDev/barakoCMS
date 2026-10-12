@@ -628,7 +628,8 @@ public class ShareLinkScopeTests
         var audits = await session.Query<AuditEvent>()
             .Where(e => e.TenantSlug == tenant && e.Action.StartsWith("site.share_link."))
             .ToListAsync(Ct);
-        audits.Select(a => a.Action).Should().BeEquivalentTo(["site.share_link.created", "site.share_link.revoked"]);
+        audits.Select(a => a.Action).Should().BeEquivalentTo(
+            ["site.share_link.created", "site.share_link.redeemed", "site.share_link.revoked"]);
         var auditText = JsonSerializer.Serialize(audits);
         auditText.Should().Contain("Audited entry link").And.Contain(wip.ToString());
         auditText.Should().NotContain(hash).And.NotContain(key).And.NotContain(ShareLinkTestHost.Sha256Hex(key));

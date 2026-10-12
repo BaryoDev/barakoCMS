@@ -182,6 +182,14 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       BACKUP_CRON_SCHEDULE: "${BACKUP_CRON_SCHEDULE:-0 2 * * *}"
       BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+      # An optional copy of each checked backup to S3-compatible storage, off this host. Off while
+      # BACKUP_S3_BUCKET is empty. See docs/backup-and-restore.md for the write-only key to use.
+      BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:-}
+      BACKUP_S3_PREFIX: ${BACKUP_S3_PREFIX:-barako-backups/}
+      BACKUP_S3_REGION: ${BACKUP_S3_REGION:-us-east-1}
+      BACKUP_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:-}
+      BACKUP_S3_ACCESS_KEY: ${BACKUP_S3_ACCESS_KEY:-}
+      BACKUP_S3_SECRET_KEY: ${BACKUP_S3_SECRET_KEY:-}
     entrypoint: ["/bin/sh", "/scripts/backup-cron.sh"]
 
 networks:

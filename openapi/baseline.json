@@ -708,6 +708,81 @@
         "additionalProperties": false,
         "type": "object"
       },
+      "BarakoCMSDiagnosticsFeaturesIncidentsIncidentGroup": {
+        "additionalProperties": false,
+        "description": "One fault, grouped across every occurrence the sources returned for it.",
+        "properties": {
+          "count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "detail": {
+            "nullable": true,
+            "type": "string"
+          },
+          "fingerprint": {
+            "type": "string"
+          },
+          "firstSeenAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "lastSeenAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "releases": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "resolutionNote": {
+            "nullable": true,
+            "type": "string"
+          },
+          "resolutionReference": {
+            "nullable": true,
+            "type": "string"
+          },
+          "resolved": {
+            "type": "boolean"
+          },
+          "resolvedAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "resolvedBy": {
+            "nullable": true,
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "tenants": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSDiagnosticsFeaturesIncidentsIncidentsRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BarakoCMSModelsPaginatedRequest"
+          },
+          {
+            "additionalProperties": false,
+            "type": "object"
+          }
+        ]
+      },
       "BarakoCMSDiagnosticsFeaturesListClientErrorDto": {
         "additionalProperties": false,
         "properties": {
@@ -1010,6 +1085,62 @@
       },
       "BarakoCMSFeatureFlagsKeyRequest": {
         "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSFeatureFlagsOfrepOfrepBulkResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "flags": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeatureFlagsOfrepOfrepFlag"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeatureFlagsOfrepOfrepFlag": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "value": {
+            "type": "boolean"
+          },
+          "variant": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeatureFlagsOfrepOfrepKeyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "context": {
+            "additionalProperties": {},
+            "nullable": true,
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeatureFlagsOfrepOfrepRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "context": {
+            "additionalProperties": {},
+            "nullable": true,
+            "type": "object"
+          }
+        },
         "type": "object"
       },
       "BarakoCMSFeatureFlagsUpsertFlagRequest": {
@@ -6284,6 +6415,12 @@
           "fileName": {
             "type": "string"
           },
+          "height": {
+            "description": "Height in pixels as shown. Null whenever Width is.",
+            "format": "int32",
+            "nullable": true,
+            "type": "integer"
+          },
           "id": {
             "format": "guid",
             "type": "string"
@@ -6295,6 +6432,183 @@
           "size": {
             "format": "int64",
             "type": "integer"
+          },
+          "width": {
+            "description": "Width in pixels as shown, so an img can reserve its space. Null when unknown.",
+            "format": "int32",
+            "nullable": true,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFilesFeaturesStorageSettingsS3SettingsRequest": {
+        "additionalProperties": false,
+        "description": "A bucket as a caller writes it. The secret is write-only.",
+        "properties": {
+          "accessKey": {
+            "maxLength": 256,
+            "minLength": 0,
+            "type": "string"
+          },
+          "bucket": {
+            "maxLength": 255,
+            "minLength": 0,
+            "type": "string"
+          },
+          "forcePathStyle": {
+            "type": "boolean"
+          },
+          "publicBaseUrl": {
+            "nullable": true,
+            "type": "string"
+          },
+          "region": {
+            "maxLength": 64,
+            "minLength": 0,
+            "pattern": "^[a-z0-9-]+$",
+            "type": "string"
+          },
+          "secretKey": {
+            "description": "Null keeps the stored secret, empty clears it, anything else replaces it.",
+            "maxLength": 1024,
+            "minLength": 0,
+            "nullable": true,
+            "type": "string"
+          },
+          "serviceUrl": {
+            "nullable": true,
+            "type": "string"
+          },
+          "usePublicReadAcl": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFilesFeaturesStorageSettingsS3SettingsResponse": {
+        "additionalProperties": false,
+        "description": "A bucket as the API describes it: whether a secret is set, never the secret.",
+        "properties": {
+          "accessKey": {
+            "type": "string"
+          },
+          "bucket": {
+            "type": "string"
+          },
+          "forcePathStyle": {
+            "type": "boolean"
+          },
+          "publicBaseUrl": {
+            "nullable": true,
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          },
+          "secretSet": {
+            "type": "boolean"
+          },
+          "secretUnreadable": {
+            "description": "A secret is stored but cannot be decrypted, which happens when the deployment's key changes.\nNew uploads then go to Postgres until the secret is sent again.",
+            "type": "boolean"
+          },
+          "serviceUrl": {
+            "nullable": true,
+            "type": "string"
+          },
+          "usePublicReadAcl": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFilesFeaturesStorageSettingsStorageSettingsRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "provider": {
+            "description": "postgres or s3: where new uploads go.",
+            "type": "string"
+          },
+          "s3": {
+            "description": "The bucket. Required for s3; kept when switching back to postgres if left out.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSFilesFeaturesStorageSettingsS3SettingsRequest"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFilesFeaturesStorageSettingsStorageSettingsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "activeProvider": {
+            "description": "Where new uploads go right now, which differs from Provider when configuration decides.",
+            "type": "string"
+          },
+          "availableProviders": {
+            "description": "Which providers this deployment can build from a saved setting.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "environmentKeys": {
+            "description": "The Files:S3 keys set in configuration, such as Bucket.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "provider": {
+            "description": "What the tenant saved: postgres or s3.",
+            "type": "string"
+          },
+          "readOnly": {
+            "description": "Whether configuration sets storage, so PUT is refused.",
+            "type": "boolean"
+          },
+          "s3": {
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSFilesFeaturesStorageSettingsS3SettingsResponse"
+              }
+            ]
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "updatedBy": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFilesFeaturesStorageSettingsStorageTestResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "errorCode": {
+            "description": "The provider's error code, such as InvalidAccessKeyId or NoSuchBucket.",
+            "nullable": true,
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "step": {
+            "description": "The step that failed: put, get or delete. Null when it worked.",
+            "nullable": true,
+            "type": "string"
           }
         },
         "type": "object"
@@ -6328,6 +6642,12 @@
           "fileName": {
             "type": "string"
           },
+          "height": {
+            "description": "Height in pixels as shown. Null whenever Width is.",
+            "format": "int32",
+            "nullable": true,
+            "type": "integer"
+          },
           "id": {
             "format": "guid",
             "type": "string"
@@ -6342,6 +6662,12 @@
           },
           "size": {
             "format": "int64",
+            "type": "integer"
+          },
+          "width": {
+            "description": "Width in pixels as shown, for an image whose size could be read. Null otherwise.",
+            "format": "int32",
+            "nullable": true,
             "type": "integer"
           }
         },
@@ -6380,6 +6706,12 @@
           "fileName": {
             "type": "string"
           },
+          "height": {
+            "description": "Height in pixels as shown. Null whenever Width is.",
+            "format": "int32",
+            "nullable": true,
+            "type": "integer"
+          },
           "id": {
             "format": "guid",
             "type": "string"
@@ -6398,6 +6730,12 @@
           "uploadedBy": {
             "format": "guid",
             "type": "string"
+          },
+          "width": {
+            "description": "Width in pixels as shown, for an image whose size was read. Null otherwise.",
+            "format": "int32",
+            "nullable": true,
+            "type": "integer"
           }
         },
         "type": "object"
@@ -8025,6 +8363,48 @@
             "description": "Items for the current page",
             "items": {
               "$ref": "#/components/schemas/BarakoCMSFormsFeaturesManageFormResponse"
+            },
+            "type": "array"
+          },
+          "page": {
+            "description": "Current page number (1-indexed)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "pageSize": {
+            "description": "Number of items per page",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalItems": {
+            "description": "Total number of items across all pages",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalPages": {
+            "description": "Total number of pages",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSModelsPaginatedResponseOfIncidentGroup": {
+        "additionalProperties": false,
+        "description": "Generic paginated response with metadata.",
+        "properties": {
+          "hasNextPage": {
+            "description": "Whether there is a next page",
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "description": "Whether there is a previous page",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Items for the current page",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSDiagnosticsFeaturesIncidentsIncidentGroup"
             },
             "type": "array"
           },
@@ -14440,6 +14820,7 @@
     },
     "/api/feature-flags": {
       "get": {
+        "description": "Superseded by the OFREP routes under /ofrep/v1/evaluate/flags (#628),\nwhich an OpenFeature SDK reads with no client of ours. This route keeps answering through 5.x;\nevery response names its successor in a Link header.",
         "operationId": "BarakoCMSFeatureFlagsEvaluateFlagsEndpoint",
         "responses": {
           "200": {
@@ -15143,6 +15524,101 @@
         "summary": "POST /api/import/content \u2014 bulk-create content items from mapped records (typically the output of\n/api/import/analyze after column mapping). Reuses the CMS's content-type validation, per-type\ncreate permission, and event-sourced creation; all creates commit in one transaction.",
         "tags": [
           "Import"
+        ]
+      }
+    },
+    "/api/incidents": {
+      "get": {
+        "operationId": "BarakoCMSDiagnosticsFeaturesIncidentsEndpoint",
+        "parameters": [
+          {
+            "description": "Only this source, for example client-errors. Null reads every source the caller may read.",
+            "in": "query",
+            "name": "source",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by resolved state. Null means both.",
+            "in": "query",
+            "name": "resolved",
+            "schema": {
+              "nullable": true,
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "How far back to look, in days. 30 when unset.",
+            "in": "query",
+            "name": "days",
+            "schema": {
+              "format": "int32",
+              "nullable": true,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfIncidentGroup"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/incidents: one paged list across client errors, dead-lettered jobs, failed workflow\nactions and failed deliveries, grouped by fingerprint and redacted here, so no client has to\nregroup or re-redact and nothing personal leaves the API on the way (#893).",
+        "tags": [
+          "Diagnostics"
         ]
       }
     },
@@ -15914,6 +16390,16 @@
               "format": "guid",
               "type": "string"
             }
+          },
+          {
+            "description": "A width in pixels, as ?w=640 on the download. The size, width and height answered are\nthen those of the copy that download serves, which is a narrower variant or the original. A\nwidth the download refuses is ignored.",
+            "in": "query",
+            "name": "w",
+            "schema": {
+              "format": "int32",
+              "nullable": true,
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -15928,7 +16414,7 @@
             "description": "Success"
           }
         },
-        "summary": "GET /api/public/files/{id}/meta. Anonymous, for a PUBLIC file only, so an <img> can\ncarry the alt text an editor wrote. Anything not public is a 404, indistinguishable from\nmissing, exactly as the bytes next door: metadata is not less private than the file it describes.",
+        "summary": "GET /api/public/files/{id}/meta. Anonymous, for a PUBLIC file only, so an <img> can\ncarry the alt text an editor wrote. Anything not public is a 404, indistinguishable from\nmissing, exactly as the bytes next door: metadata is not less private than the file it describes.\nWith ?w= it describes the copy the download would serve at that width, so a frontend can\nwrite a srcset with each variant's own width and height.",
         "tags": [
           "Files"
         ]
@@ -16260,6 +16746,16 @@
             }
           },
           {
+            "description": "Only entries updated after this instant. Optional.",
+            "in": "query",
+            "name": "changedSince",
+            "schema": {
+              "format": "date-time",
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
             "in": "query",
             "name": "page",
             "required": true,
@@ -16322,7 +16818,7 @@
             "description": "No Content"
           }
         },
-        "summary": "GET /api/public/{type}/feed.xml \u2014 an RSS 2.0 feed of the newest Published, document-Public entries of\na content type. It reuses the same projection as the rest of public delivery, so drafts, Sensitive\ndocuments, and non-Public fields never appear. The literal \"feed.xml\" segment wins over the {slug}\nroute. Anonymous and cacheable.\n            \nItem links point at the caller's frontend (the CMS is headless, so it can't know the URL): set\nFeeds:SiteUrl and, per type, the type's route template or Feeds:Paths:{type} (a\ntemplate like /blog/{slug}; defaults to /{type}/{slug}). An item's title,\ndescription and date come from the fields the type gives the title, summary and date roles,\nand from the field names guessed before roles existed when it gives none or the field is empty.\nWith neither Feeds:SiteUrl nor App:BaseUrl set,\nthe feed answers 503 unless AllowedHosts makes the request host trustworthy, because a feed\nis fetched by aggregators and its links must not come from a header the caller wrote (#147).",
+        "summary": "GET /api/public/{type}/feed.xml \u2014 an RSS 2.0 feed of the newest Published, document-Public entries of\na content type. It reuses the same projection as the rest of public delivery, so drafts, Sensitive\ndocuments, and non-Public fields never appear. The literal \"feed.xml\" segment wins over the {slug}\nroute. Anonymous and cacheable.\n            \nItem links point at the tenant's site: the Url of its published site entry, else\nFeeds:SiteUrl (see EntryUrls), and per type\nthe type's route template or Feeds:Paths:{type} (a template like /blog/{slug};\ndefaults to /{type}/{slug}). An item's title,\ndescription and date come from the fields the type gives the title, summary and date roles,\nand from the field names guessed before roles existed when it gives none or the field is empty.\nWith no site entry Url and neither Feeds:SiteUrl nor App:BaseUrl set,\nthe feed answers 503 unless AllowedHosts makes the request host trustworthy, because a feed\nis fetched by aggregators and its links must not come from a header the caller wrote (#147).",
         "tags": [
           "Public"
         ]
@@ -17636,6 +18132,139 @@
         "summary": "Sends one email to the caller's own address, so a configuration screen can say whether it worked.",
         "tags": [
           "Settings"
+        ]
+      }
+    },
+    "/api/settings/storage": {
+      "get": {
+        "operationId": "BarakoCMSFilesFeaturesStorageSettingsGetStorageSettingsEndpoint",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFilesFeaturesStorageSettingsStorageSettingsResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/settings/storage: where this tenant's files go, and whether it can be changed here.",
+        "tags": [
+          "Files"
+        ]
+      },
+      "put": {
+        "description": "Moves no file. Files already stored stay where they are and keep downloading, because each read\nfollows the provider its file records. Refused with a 409 naming the keys while configuration\nsets storage, since configuration would win anyway and a setting that does nothing should not\nlook saved.",
+        "operationId": "BarakoCMSFilesFeaturesStorageSettingsUpdateStorageSettingsEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFilesFeaturesStorageSettingsStorageSettingsRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "StorageSettingsRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFilesFeaturesStorageSettingsStorageSettingsResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "PUT /api/settings/storage: where this tenant's new uploads go, from the next request on.",
+        "tags": [
+          "Files"
+        ]
+      }
+    },
+    "/api/settings/storage/test": {
+      "post": {
+        "description": "A secret left out is taken from the stored setting, so a screen can test a corrected region\nwithout asking for the secret again. Nothing is saved whatever the outcome, and the secret is in\nno answer, including the provider's error message, which never quotes it.",
+        "operationId": "BarakoCMSFilesFeaturesStorageSettingsTestStorageSettingsEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFilesFeaturesStorageSettingsStorageSettingsRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "StorageSettingsRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFilesFeaturesStorageSettingsStorageTestResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/settings/storage/test: puts, reads and deletes a small object with the settings sent,\nwithout saving them, and says which step failed.",
+        "tags": [
+          "Files"
         ]
       }
     },
@@ -19769,6 +20398,77 @@
         "summary": "Switches one workflow on or off.",
         "tags": [
           "Workflows"
+        ]
+      }
+    },
+    "/ofrep/v1/evaluate/flags": {
+      "post": {
+        "operationId": "BarakoCMSFeatureFlagsOfrepOfrepEvaluateAllEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeatureFlagsOfrepOfrepRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "OfrepRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeatureFlagsOfrepOfrepBulkResponse"
+                }
+              }
+            },
+            "description": "Success"
+          }
+        },
+        "summary": "POST /ofrep/v1/evaluate/flags: every flag the caller may see, evaluated. Carries\nan ETag, and answers 304 to a matching If-None-Match, so a client-side provider can poll cheaply.",
+        "tags": [
+          "FeatureFlags"
+        ]
+      }
+    },
+    "/ofrep/v1/evaluate/flags/{key}": {
+      "post": {
+        "operationId": "BarakoCMSFeatureFlagsOfrepOfrepEvaluateFlagEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeatureFlagsOfrepOfrepKeyRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "OfrepKeyRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "summary": "POST /ofrep/v1/evaluate/flags/{key}: one flag, evaluated for the caller.",
+        "tags": [
+          "FeatureFlags"
         ]
       }
     }
