@@ -95,10 +95,13 @@ internal class SitemapEndpoint(IQuerySession session, IConfiguration config) : E
 
         // The sitemap tag is what a purge relies on: every publish purges t:<tenant>:sitemap. The
         // type tags after it are best effort and fall off past the bound on a tenant with many
-        // types. No entry tags: a sitemap holds up to 50,000 entries.
+        // types. No entry tags: a sitemap holds up to 50,000 entries. The site type comes right after
+        // the sitemap tag, since every loc takes its origin from the site entry.
         PublicDelivery.SetCache(
             HttpContext,
             deliverableTypes.Select(barakoCMS.Infrastructure.Caching.CacheScope.Type)
+                .Prepend(barakoCMS.Infrastructure.Caching.CacheScope.Type(
+                    barakoCMS.Features.Site.ShareLinks.ShareLinkKeys.SiteType))
                 .Prepend(barakoCMS.Infrastructure.Caching.CacheScope.Named("sitemap")));
         await Send.StringAsync(
             sb.ToString(),

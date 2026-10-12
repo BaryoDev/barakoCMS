@@ -109,6 +109,28 @@ public class TenantSiteOriginTests
     }
 
     [Fact]
+    public async Task The_feed_and_the_sitemap_carry_the_site_type_tag_so_a_site_change_purges_them()
+    {
+        var type = $"news{Guid.NewGuid():n}"[..12];
+        var bakery = await TenantAsync(type, "https://bakery.example");
+        var siteTag = $"t:{bakery}:type:site";
+
+        foreach (var path in new[] { $"/api/public/{type}/feed.xml", "/api/public/sitemap.xml" })
+        {
+            var client = _fixture.CreateClient();
+            var n = Interlocked.Increment(ref _ipCounter);
+            client.DefaultRequestHeaders.Add("X-Tenant", bakery);
+            client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"198.19.{n / 250 % 250}.{n % 250 + 1}");
+            var response = await client.GetAsync(path, Ct);
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+            var tags = response.Headers.GetValues("Cache-Tag").Single().Split(' ');
+            tags.Should().NotBeEmpty();
+            tags.Should().Contain(siteTag, $"{path} links to the site entry's Url");
+        }
+    }
+
+    [Fact]
     public async Task A_tenant_without_a_usable_site_url_links_to_the_configured_fallback()
     {
         var type = $"news{Guid.NewGuid():n}"[..12];

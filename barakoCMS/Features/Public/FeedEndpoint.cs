@@ -111,7 +111,12 @@ internal class FeedEndpoint(IQuerySession session, IConfiguration config) : Endp
 
         sb.Append("  </channel>\n</rss>\n");
 
-        PublicDelivery.SetCache(HttpContext, PublicDelivery.Scopes(type, delivered, def));
+        // The links take their origin from the site entry, so a change to it has to reach this
+        // response too. Second, after the feed's own type, so the tag bounds keep it.
+        var scopes = PublicDelivery.Scopes(type, delivered, def).ToList();
+        scopes.Insert(1, barakoCMS.Infrastructure.Caching.CacheScope.Type(
+            barakoCMS.Features.Site.ShareLinks.ShareLinkKeys.SiteType));
+        PublicDelivery.SetCache(HttpContext, scopes);
         await Send.StringAsync(sb.ToString(), 200, "application/rss+xml; charset=utf-8", ct);
     }
 

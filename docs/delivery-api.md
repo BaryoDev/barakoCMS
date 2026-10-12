@@ -63,6 +63,11 @@ http or https URL without a query, links at `Feeds:SiteUrl` and then `App:BaseUr
 every tenant got before, so a deployment that only sets `Feeds:SiteUrl` serves the same feed it
 did. The `{{links.public}}` template placeholder builds the same address.
 
+A site entry's `Url` takes precedence over `Feeds:SiteUrl`. A deployment that set both, with the
+site entry pointing somewhere else (a staging host, say), now links its feed and sitemap at the site
+entry's address. Check that the two agree before upgrading. The feed and the sitemap carry the
+`site` type's cache tag, so a purge for a change to the site entry reaches them.
+
 A read by slug of a type that declares a `structuredDataType` also carries `structuredData`, the
 entry as schema.org JSON-LD built from its field roles. See [structured-data.md](structured-data.md).
 
