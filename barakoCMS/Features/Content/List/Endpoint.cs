@@ -206,6 +206,7 @@ internal class Endpoint(
         // produce a short or empty page while permitted items exist further down the raw ordering.
         var sensitivity = Resolve<barakoCMS.Core.Interfaces.ISensitivityService>();
         var permittedItems = new List<ContentResponse>();
+        var storedById = new Dictionary<Guid, barakoCMS.Models.Content>();
         foreach (var item in candidates)
         {
             if (await permissionResolver.CanPerformActionAsync(user, item.ContentType, "read", item, ct))
@@ -234,6 +235,7 @@ internal class Endpoint(
                     continue;
 
                 permittedItems.Add(response);
+                storedById[item.Id] = item;
             }
         }
 
@@ -254,6 +256,7 @@ internal class Endpoint(
             ? permittedItems
             : permittedItems.Skip(req.Skip).Take(req.Take).ToList();
 
+        await RecordSensitiveReadsAsync(pagedItems, storedById, sensitivity, ct);
         await FillVersionsAsync(pagedItems, ct);
         await FillFilesAsync(pagedItems, ct);
 
@@ -272,6 +275,36 @@ internal class Endpoint(
             PageSize = req.PageSize,
             TotalItems = permittedTotal // Honest: counts only what this user can see.
         }, cancellation: ct);
+    }
+
+    /// <summary>One audit row for the page, naming each entry's fields above Public that it sends.</summary>
+    private async Task RecordSensitiveReadsAsync(
+        IReadOnlyList<ContentResponse> page,
+        IReadOnlyDictionary<Guid, barakoCMS.Models.Content> stored,
+        barakoCMS.Core.Interfaces.ISensitivityService sensitivity,
+        CancellationToken ct)
+    {
+        if (page.Count == 0)
+        {
+            return;
+        }
+
+        var typeNames = page.Select(i => stored[i.Id].ContentType).Distinct().ToArray();
+        var definitions = (await session.Query<ContentTypeDefinition>()
+                .Where(d => d.Name.In(typeNames))
+                .ToListAsync(ct))
+            .GroupBy(d => d.Name, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+
+        var reads = new List<barakoCMS.Infrastructure.Audit.SensitiveRead>();
+        foreach (var item in page)
+        {
+            var entry = stored[item.Id];
+            reads.Add(await barakoCMS.Infrastructure.Audit.SensitiveReadAudit.DescribeAsync(
+                entry, definitions.GetValueOrDefault(entry.ContentType), item.Data, sensitivity, HttpContext, ct));
+        }
+
+        await barakoCMS.Infrastructure.Audit.SensitiveReadAudit.RecordAsync(HttpContext, reads, ct);
     }
 
     /// <summary>
