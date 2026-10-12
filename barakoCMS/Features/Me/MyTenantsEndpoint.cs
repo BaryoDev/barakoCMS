@@ -60,13 +60,10 @@ internal class MyTenantsEndpoint(IQuerySession session, IDocumentStore store) : 
             .GroupBy(m => m.TenantSlug, StringComparer.Ordinal)
             .ToDictionary(
                 g => g.Key,
-                g => g.SelectMany(m => m.RoleIds ?? []).Select(id => (Id: id, Global: false))
-                    .Concat(global.Select(id => (Id: id, Global: true)))
-                    .ToList(),
+                g => g.SelectMany(m => m.RoleIds ?? []).Union(global).ToList(),
                 StringComparer.Ordinal);
         var onPage = page.Items
             .SelectMany(t => roleIdsBySlug.GetValueOrDefault(t.Slug) ?? [])
-            .Select(held => held.Id)
             .Distinct()
             .ToList();
         var roles = onPage.Count == 0
@@ -81,10 +78,9 @@ internal class MyTenantsEndpoint(IQuerySession session, IDocumentStore store) : 
             // A membership's role owned by another tenant grants nothing here, the rule
             // MembershipRoles applies, so it is not listed either. A global role always is.
             var held = (roleIdsBySlug.GetValueOrDefault(tenant.Slug) ?? [])
-                .Select(h => (Role: roles.GetValueOrDefault(h.Id), h.Global))
-                .Where(h => h.Role is not null && (h.Global || !OwnedElsewhere(h.Role, tenant.Slug)))
-                .Select(h => h.Role!)
-                .DistinctBy(r => r.Id)
+                .Select(id => roles.GetValueOrDefault(id))
+                .OfType<Role>()
+                .Where(r => global.Contains(r.Id) || !OwnedElsewhere(r, tenant.Slug))
                 .OrderBy(r => r.Name, StringComparer.Ordinal)
                 .Select(r => new MyRole(r.Id, r.Name))
                 .ToList();
