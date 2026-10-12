@@ -222,30 +222,7 @@ internal static class WebhookSigning
 
             if (LooksProtected(value))
             {
-                // What follows the prefix (and the key id, when a ring wrote it) on anything the
-                // protector wrote is base64 of at least a nonce and a tag. A value with the prefix and
-                // not that shape was typed that way and stored in clear.
-                if (AesGcmEnvelope.IsWellFormed(AesGcmEnvelope.Split(value).Envelope))
-                {
-                    // One with the shape that will not decrypt cannot be told from ciphertext under
-                    // another key, so it is left alone, as it always was, and reported. One that
-                    // opens under an older key in the ring moves to the current key.
-                    var opened = protector.Unprotect(value);
-                    if (opened is null)
-                    {
-                        undecryptableSecret(name);
-                    }
-                    else if (!IsCurrent(protector, value))
-                    {
-                        parameters[name] = protector.Protect(opened);
-                        changed = true;
-                    }
-
-                    continue;
-                }
-
-                parameters[name] = protector.Protect(name == SecretParameter ? value.Trim() : value);
-                changed = true;
+                changed |= MigratePrefixed(parameters, name, value, protector, undecryptableSecret);
                 continue;
             }
 
@@ -284,6 +261,38 @@ internal static class WebhookSigning
             unreadableBranch);
 
         return changed;
+    }
+
+    private static bool MigratePrefixed(
+        Dictionary<string, string> parameters, string name, string value, ISecretProtector protector,
+        Action<string> undecryptableSecret)
+    {
+        // What follows the prefix (and the key id, when a ring wrote it) on anything the protector
+        // wrote is base64 of at least a nonce and a tag. A value with the prefix and not that shape
+        // was typed that way and stored in clear.
+        if (!AesGcmEnvelope.IsWellFormed(AesGcmEnvelope.Split(value).Envelope))
+        {
+            parameters[name] = protector.Protect(name == SecretParameter ? value.Trim() : value);
+            return true;
+        }
+
+        // One with the shape that will not decrypt cannot be told from ciphertext under another key,
+        // so it is left alone, as it always was, and reported. One that opens under an older key in
+        // the ring moves to the current key.
+        var opened = protector.Unprotect(value);
+        if (opened is null)
+        {
+            undecryptableSecret(name);
+            return false;
+        }
+
+        if (IsCurrent(protector, value))
+        {
+            return false;
+        }
+
+        parameters[name] = protector.Protect(opened);
+        return true;
     }
 
     // A protector with no ring behind it writes one way only, so whatever opens is current.

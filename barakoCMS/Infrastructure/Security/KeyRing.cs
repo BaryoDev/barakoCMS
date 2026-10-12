@@ -66,42 +66,7 @@ internal sealed partial class KeyRing
     public static KeyRing FromConfiguration(
         IConfiguration config, string section, string? legacyMaterial, bool prefixUnkeyedWrites)
     {
-        var keys = new Dictionary<string, byte[]>(StringComparer.Ordinal);
-        var jwtKey = config["JWT:Key"];
-
-        foreach (var entry in config.GetSection($"{section}:Keys").GetChildren())
-        {
-            if (!KeyIdPattern().IsMatch(entry.Key))
-            {
-                throw new InvalidOperationException(
-                    $"{section}:Keys has an entry named '{entry.Key}'. A key id is 1 to 32 letters, digits, "
-                    + "'-' or '_', because it is written into every value the key encrypts.");
-            }
-
-            // Skipping an empty entry would leave the legacy key writing new values with no id, and
-            // nobody would be told: a vault reference that resolved to nothing must stop startup.
-            if (string.IsNullOrEmpty(entry.Value))
-            {
-                throw new InvalidOperationException(
-                    $"{section}:Keys:{entry.Key} is empty. Give it key material, or remove the entry.");
-            }
-
-            if (entry.Value.Length < MinimumKeyLength)
-            {
-                throw new InvalidOperationException(
-                    $"{section}:Keys:{entry.Key} is {entry.Value.Length} characters. It needs at least {MinimumKeyLength}.");
-            }
-
-            if (string.Equals(entry.Value, jwtKey, StringComparison.Ordinal))
-            {
-                throw new InvalidOperationException(
-                    $"{section}:Keys:{entry.Key} is the same value as JWT:Key. Rotating the signing key would "
-                    + "then retire every stored secret under it. Give the ring its own key: a value written "
-                    + "under the JWT key before the ring still reads, and is re-wrapped to the current key.");
-            }
-
-            keys[entry.Key] = AesGcmEnvelope.DeriveKey(entry.Value);
-        }
+        var keys = ReadKeys(config, section);
 
         var legacy = string.IsNullOrEmpty(legacyMaterial) ? null : AesGcmEnvelope.DeriveKey(legacyMaterial);
         var unkeyed = new List<byte[]>();
@@ -140,6 +105,48 @@ internal sealed partial class KeyRing
         }
 
         return new KeyRing(keys, currentId, currentKey, unkeyed, prefixUnkeyedWrites);
+    }
+
+    private static Dictionary<string, byte[]> ReadKeys(IConfiguration config, string section)
+    {
+        var keys = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        var jwtKey = config["JWT:Key"];
+
+        foreach (var entry in config.GetSection($"{section}:Keys").GetChildren())
+        {
+            if (!KeyIdPattern().IsMatch(entry.Key))
+            {
+                throw new InvalidOperationException(
+                    $"{section}:Keys has an entry named '{entry.Key}'. A key id is 1 to 32 letters, digits, "
+                    + "'-' or '_', because it is written into every value the key encrypts.");
+            }
+
+            // Skipping an empty entry would leave the legacy key writing new values with no id, and
+            // nobody would be told: a vault reference that resolved to nothing must stop startup.
+            if (string.IsNullOrEmpty(entry.Value))
+            {
+                throw new InvalidOperationException(
+                    $"{section}:Keys:{entry.Key} is empty. Give it key material, or remove the entry.");
+            }
+
+            if (entry.Value.Length < MinimumKeyLength)
+            {
+                throw new InvalidOperationException(
+                    $"{section}:Keys:{entry.Key} is {entry.Value.Length} characters. It needs at least {MinimumKeyLength}.");
+            }
+
+            if (string.Equals(entry.Value, jwtKey, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"{section}:Keys:{entry.Key} is the same value as JWT:Key. Rotating the signing key would "
+                    + "then retire every stored secret under it. Give the ring its own key: a value written "
+                    + "under the JWT key before the ring still reads, and is re-wrapped to the current key.");
+            }
+
+            keys[entry.Key] = AesGcmEnvelope.DeriveKey(entry.Value);
+        }
+
+        return keys;
     }
 
     public string Protect(string plaintext)
