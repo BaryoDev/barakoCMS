@@ -71,6 +71,7 @@ public static class SocialSignIn
         var normalized = email.Trim().ToLowerInvariant();
         var signUp = await SignUpPolicy.DecideAsync(session, club, ct);
         var user = await session.Query<User>().FirstOrDefaultAsync(u => u.Email.ToLower() == normalized, ct);
+        var created = user is null;
         if (user is null)
         {
             // A new account is a sign-up, so the tenant's policy decides. An existing one is a
@@ -84,7 +85,8 @@ public static class SocialSignIn
             session.Store(user);
         }
 
-        return await IssueForUserAsync(session, config, deviceGate, tokenIssuer, mfa, http, user, club, signUp, ct, profile, null);
+        return await IssueForUserAsync(
+            session, config, deviceGate, tokenIssuer, mfa, http, user, club, created ? signUp : null, ct, profile, null);
     }
 
     /// <summary>
@@ -121,6 +123,7 @@ public static class SocialSignIn
         // would lock its provider identity out for good, with nothing an administrator could undo.
         var user = link is null ? null : await session.LoadAsync<User>(link.UserId, ct);
         var signUp = await SignUpPolicy.DecideAsync(session, club, ct);
+        var created = false;
 
         if (user is null)
         {
@@ -144,6 +147,7 @@ public static class SocialSignIn
                     : email;
                 user = new User { Id = Guid.NewGuid(), Email = email, Username = username, PasswordHash = "" };
                 session.Store(user);
+                created = true;
             }
 
             session.Store(new ExternalIdentity
@@ -159,7 +163,7 @@ public static class SocialSignIn
 
         var profile = new ProfileData(identity.Name, identity.Picture, null, null, provider);
         return (await IssueForUserAsync(
-            session, config, deviceGate, tokenIssuer, mfa, http, user, club, signUp, ct, profile, beforeFinalCommit), false);
+            session, config, deviceGate, tokenIssuer, mfa, http, user, club, created ? signUp : null, ct, profile, beforeFinalCommit), false);
     }
 
     /// <summary>
@@ -174,7 +178,11 @@ public static class SocialSignIn
     /// <param name="http">The request, for the device.</param>
     /// <param name="user">Who the provider proved this is.</param>
     /// <param name="club">The tenant asked for.</param>
-    /// <param name="signUp">The tenant's sign-up decision, which an Open tenant acts on here.</param>
+    /// <param name="signUp">
+    /// The tenant's sign-up decision when this request created the account, which an Open tenant
+    /// acts on here. Null for an existing account: that is a sign-in, the same as registering with an
+    /// address that already has an account, and the issuer's membership check decides it.
+    /// </param>
     /// <param name="ct">Cancellation token.</param>
     /// <param name="profile">What the provider shared, merged into the stored profile.</param>
     /// <param name="beforeFinalCommit">
@@ -191,7 +199,7 @@ public static class SocialSignIn
         HttpContext http,
         User user,
         string club,
-        SignUpDecision signUp,
+        SignUpDecision? signUp,
         CancellationToken ct,
         ProfileData? profile,
         Action<IDocumentSession>? beforeFinalCommit)
@@ -199,7 +207,7 @@ public static class SocialSignIn
         // Open sign-up makes this person a member before the issuer looks for one. Committed now,
         // with the account it may have just created, because the issuer reads memberships from
         // the database and nothing queued by beforeFinalCommit is in the session yet.
-        if (await SignUpPolicy.StageJoinAsync(session, signUp, user, ct))
+        if (signUp is not null && await SignUpPolicy.StageJoinAsync(session, signUp, user, ct))
         {
             await session.SaveChangesAsync(ct);
         }

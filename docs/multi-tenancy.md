@@ -351,10 +351,10 @@ or carry a platform capability, since anyone with an email address can sign up. 
 and a slug nobody registered have no policy and behave as before. A tenant that is not Active takes
 no sign-ups whatever its policy.
 
-Social sign-in of an account that already exists is a sign-in, not a sign-up: on an `Open` tenant it
-joins the tenant when the account has no membership row there, and elsewhere the issuer's
-membership check decides as before. A member an administrator removed or suspended keeps that row,
-so signing up again does not bring them back.
+Social sign-in of an account that already exists is a sign-in, not a sign-up, on every tenant: it
+joins nothing, and the issuer's membership check decides, the same as registering with an address
+that already has an account. Only an account the sign-in creates joins an `Open` tenant. A member an
+administrator removed or suspended keeps that row, so signing up again does not bring them back.
 
 A registration that has to be verified records the tenant on the pending row, and verification
 reads the policy again: a tenant that stopped taking sign-ups in between spends the token and

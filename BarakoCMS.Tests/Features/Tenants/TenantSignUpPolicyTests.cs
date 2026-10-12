@@ -276,6 +276,26 @@ public class TenantSignUpPolicyTests
         memberships[0].Status.Should().Be(MembershipStatus.Removed);
     }
 
+    [Fact]
+    public async Task Social_sign_in_does_not_make_an_existing_account_a_member_of_an_open_tenant()
+    {
+        var role = await MemberRoleAsync();
+        var slug = await TenantAsync(TenantSignUp.Open, role.Id);
+        var (username, email) = Identity();
+        var existing = new User { Id = Guid.NewGuid(), Username = username, Email = email, PasswordHash = "" };
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(existing);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var tokens = await SocialAsync(email, slug);
+
+        tokens.Allowed.Should().BeFalse("an existing account signs in, and it is not a member here");
+        (await MembershipsAsync(existing.Id, slug)).Should().BeEmpty();
+    }
+
     private async Task<HttpResponseMessage> InviteAsync(string slug, string email)
     {
         var admin = await TenantProfileSeed.AdminInAsync(_fixture, slug, Ct);
