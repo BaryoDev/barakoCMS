@@ -21,7 +21,7 @@ public class Request
 /// bytes. The literal "files" segment wins over the /api/public/{type}/{slug} content route.
 /// Add <c>?w=400</c> for a narrower copy of an image; see <c>docs/image-variants.md</c>.
 /// </summary>
-public class Endpoint(IQuerySession session, IFileStorage storage, ImageVariants variants) : Endpoint<Request>
+public class Endpoint(IQuerySession session, BarakoCMS.Files.Storage.FileStorageResolver storage, ImageVariants variants) : Endpoint<Request>
 {
     public override void Configure()
     {
@@ -86,7 +86,7 @@ public class Endpoint(IQuerySession session, IFileStorage storage, ImageVariants
             return;
         }
 
-        var bytes = await storage.GetAsync(served.StorageKey, ct);
+        var bytes = await (await storage.ForAsync(served, ct)).GetAsync(served.StorageKey, ct);
         if (bytes is null)
         {
             // A missing object is not the file, so nothing may keep this 404 for a day under its tag.

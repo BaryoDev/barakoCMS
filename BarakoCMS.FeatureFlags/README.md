@@ -35,7 +35,8 @@ the repository.
 
 | Method & path | Purpose | Access |
 |---|---|---|
-| `GET    /api/feature-flags` | Flags as evaluated for the caller | Anyone (public flags only until signed in) |
+| `GET    /api/feature-flags` | Flags as evaluated for the caller (superseded by OFREP, below) | Anyone (public flags only until signed in) |
+| `POST   /ofrep/v1/evaluate/flags[/{key}]` | OpenFeature evaluation (see below) | Anyone (public flags only until signed in) |
 | `GET    /api/feature-flags/admin` | Every flag with its targeting rules | `Admin` / `SuperAdmin` held as a global role |
 | `POST   /api/feature-flags/admin` | Create or update a flag | `Admin` / `SuperAdmin` held as a global role |
 | `POST   /api/feature-flags/admin/{key}/toggle` | Flip a flag | `Admin` / `SuperAdmin` held as a global role |
@@ -46,6 +47,35 @@ role comes only from a tenant membership.
 
 `GET /api/feature-flags` returns decisions, not rules — the client never learns why it was included,
 and cannot flip itself in by editing a response.
+
+## OpenFeature (OFREP)
+
+The module speaks the [OpenFeature Remote Evaluation Protocol](https://openfeature.dev/specification/appendix-c),
+so an OpenFeature SDK with its stock OFREP provider reads these flags with no client of ours.
+Give the provider the API's origin, `https://your-api`, as its base URL. Providers append the
+protocol's own path to the host, which is where the routes are:
+
+| Method & path | Purpose | Access |
+|---|---|---|
+| `POST /ofrep/v1/evaluate/flags/{key}` | One flag, evaluated for the caller | Anyone (public flags only until signed in) |
+| `POST /ofrep/v1/evaluate/flags` | Every flag the caller may see, with an `ETag`; a matching `If-None-Match` answers 304 | Anyone (public flags only until signed in) |
+
+The subset covered, stated rather than implied:
+
+- **Boolean flags only.** `value` is `true` or `false`, `variant` is `on` or `off`. A string, number or
+  object request for a key answers with the boolean, which an SDK reports as a type mismatch.
+- **Reason:** always `STATIC`. The protocol's other reasons (`TARGETING_MATCH`, `SPLIT`,
+  `DISABLED`) would say why a caller got its value, and this module returns decisions, not rules.
+- **Errors:** `FLAG_NOT_FOUND` with 404, for a key that does not exist and, to an anonymous caller,
+  for a private one, so the key is not disclosed.
+- **Context:** only `targetingKey` is read, only from an anonymous caller, and only to choose the
+  rollout bucket. The tenant and the user always come from the request. A context naming another
+  tenant or user changes nothing, so it cannot be used to read someone else's flags.
+- **Not covered:** context-based targeting rules, flag metadata, and the provider-side cache
+  configuration endpoint.
+
+`GET /api/feature-flags` keeps answering through 5.x. It is superseded by the routes above, and
+every response says so with `Link: </ofrep/v1/evaluate/flags>; rel="successor-version"`.
 
 ## Public flags
 
