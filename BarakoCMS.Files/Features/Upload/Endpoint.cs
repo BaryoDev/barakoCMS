@@ -99,32 +99,9 @@ public class Endpoint(
 
         var key = FileKeys.ForUpload(isPublic, UploadTypes.Extension(contentType));
 
-        if (scanner.Configured)
+        if (await RefusedByScannerAsync(file, contentType, userId, ct))
         {
-            // Its own read of the file, finished before storage opens its own. The stream is
-            // forward-only, so scanning and storing cannot share one, and buffering ten megabytes per
-            // request to avoid a second open is the worse trade.
-            ScanResult scan;
-            await using (var forScanning = file.OpenReadStream())
-            {
-                scan = await scanner.ScanAsync(forScanning, ct);
-            }
-
-            if (scan.Verdict != ScanVerdict.Clean)
-            {
-                await RecordRefusalAsync(file, contentType, userId, scan, ct);
-
-                // Refused either way, and the two are told apart in the message rather than in the
-                // outcome. An unreachable scanner is the operator's problem and a person waiting on
-                // it should be able to say which happened, but neither is a reason to store the file:
-                // "the scanner was down" is not evidence that a file is safe.
-                AddError(scan.Verdict == ScanVerdict.Infected
-                    ? $"This file was refused by the virus scanner ({scan.Signature})."
-                    : "This file could not be scanned, so it was not stored. Try again shortly.");
-
-                await Send.ErrorsAsync(scan.Verdict == ScanVerdict.Infected ? 422 : 503, ct);
-                return;
-            }
+            return;
         }
 
         ImageSize? size = null;
@@ -165,6 +142,42 @@ public class Endpoint(
             Width = record.Width,
             Height = record.Height,
         }, 201, ct);
+    }
+
+    /// <summary>Scans the upload when a scanner is configured; true when it was refused and answered.</summary>
+    private async Task<bool> RefusedByScannerAsync(IFormFile file, string contentType, Guid userId, CancellationToken ct)
+    {
+        if (!scanner.Configured)
+        {
+            return false;
+        }
+
+        // Its own read of the file, finished before storage opens its own. The stream is
+        // forward-only, so scanning and storing cannot share one, and buffering ten megabytes per
+        // request to avoid a second open is the worse trade.
+        ScanResult scan;
+        await using (var forScanning = file.OpenReadStream())
+        {
+            scan = await scanner.ScanAsync(forScanning, ct);
+        }
+
+        if (scan.Verdict != ScanVerdict.Clean)
+        {
+            await RecordRefusalAsync(file, contentType, userId, scan, ct);
+
+            // Refused either way, and the two are told apart in the message rather than in the
+            // outcome. An unreachable scanner is the operator's problem and a person waiting on
+            // it should be able to say which happened, but neither is a reason to store the file:
+            // "the scanner was down" is not evidence that a file is safe.
+            AddError(scan.Verdict == ScanVerdict.Infected
+                ? $"This file was refused by the virus scanner ({scan.Signature})."
+                : "This file could not be scanned, so it was not stored. Try again shortly.");
+
+            await Send.ErrorsAsync(scan.Verdict == ScanVerdict.Infected ? 422 : 503, ct);
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>

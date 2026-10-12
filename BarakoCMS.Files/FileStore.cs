@@ -188,24 +188,9 @@ internal sealed class FileStore(
 
         var fileName = Path.GetFileName(file.FileName ?? string.Empty);
 
-        if (scanner.Configured)
+        if (await ScanAsync(file, fileName, contentType, buffer, size, cancellationToken) is { } refused)
         {
-            ScanResult scan;
-            using (var forScanning = new MemoryStream(buffer, 0, size, writable: false))
-            {
-                scan = await scanner.ScanAsync(forScanning, cancellationToken);
-            }
-
-            if (scan.Verdict != ScanVerdict.Clean)
-            {
-                await RecordRefusalAsync(fileName, contentType, size, file, scan, cancellationToken);
-
-                // An unreachable scanner is not evidence that a file is safe, so it is refused as
-                // an infected one is. Only the scanner's silence can change on a later attempt.
-                return scan.Verdict == ScanVerdict.Infected
-                    ? Refuse($"This file was refused by the virus scanner ({scan.Signature}).")
-                    : Refuse("This file could not be scanned, so it was not stored. Try again shortly.", canRetry: true);
-            }
+            return refused;
         }
 
         var key = FileKeys.ForUpload(file.IsPublic, UploadTypes.Extension(contentType));
@@ -235,6 +220,35 @@ internal sealed class FileStore(
         await session.SaveChangesAsync(cancellationToken);
 
         return new FileSaveResult { File = Info(record) };
+    }
+
+    /// <summary>The refusal a configured scanner's verdict calls for, or null to store the file.</summary>
+    private async Task<FileSaveResult?> ScanAsync(
+        FileToStore file, string fileName, string contentType, byte[] buffer, int size, CancellationToken cancellationToken)
+    {
+        if (!scanner.Configured)
+        {
+            return null;
+        }
+
+        ScanResult scan;
+        using (var forScanning = new MemoryStream(buffer, 0, size, writable: false))
+        {
+            scan = await scanner.ScanAsync(forScanning, cancellationToken);
+        }
+
+        if (scan.Verdict == ScanVerdict.Clean)
+        {
+            return null;
+        }
+
+        await RecordRefusalAsync(fileName, contentType, size, file, scan, cancellationToken);
+
+        // An unreachable scanner is not evidence that a file is safe, so it is refused as an
+        // infected one is. Only the scanner's silence can change on a later attempt.
+        return scan.Verdict == ScanVerdict.Infected
+            ? Refuse($"This file was refused by the virus scanner ({scan.Signature}).")
+            : Refuse("This file could not be scanned, so it was not stored. Try again shortly.", canRetry: true);
     }
 
     public async Task<FileDeleteResult> DeleteAsync(

@@ -114,7 +114,13 @@ public sealed class ImageVariants
             return new VariantResult(original, null);
         }
 
-        var key = FileKeys.ForVariant(original, width.Value);
+        return new VariantResult(await StoreVariantAsync(original, id, width.Value, resized, ct), null);
+    }
+
+    private async Task<StoredFile> StoreVariantAsync(
+        StoredFile original, Guid id, int width, byte[] resized, CancellationToken ct)
+    {
+        var key = FileKeys.ForVariant(original, width);
         var target = _storages is null ? _storage! : await _storages.ForNewFilesAsync(ct);
         var stored = await target.PutAsync(
             new MemoryStream(resized), key, original.ContentType, original.IsPublic, ct);
@@ -127,8 +133,8 @@ public sealed class ImageVariants
             // id rather than a query.
             Id = id,
             ParentFileId = original.Id,
-            VariantWidth = width.Value,
-            FileName = VariantName(original.FileName, width.Value),
+            VariantWidth = width,
+            FileName = VariantName(original.FileName, width),
             ContentType = original.ContentType,
             Size = resized.Length,
             Width = dimensions?.Width,
@@ -146,7 +152,7 @@ public sealed class ImageVariants
         _session.Store(variant);
         await _session.SaveChangesAsync(ct);
 
-        return new VariantResult(variant, null);
+        return variant;
     }
 
     /// <summary>The same parent and width always give the same id.</summary>
