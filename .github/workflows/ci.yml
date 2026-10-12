@@ -303,6 +303,12 @@ jobs:
       - name: A copied quickstart folder takes a backup
         run: bash scripts/quickstart-backup-check.sh
 
+      # The nightly backup's optional copy off the host (#780), against SeaweedFS, the S3 server
+      # the Files.S3 tests use: uploaded, restored from the uploaded copy, and a refused upload
+      # failing the run without deleting the local archive.
+      - name: The offsite backup copy uploads and restores
+        run: bash scripts/offsite-backup-check.sh
+
       # The production file deliberately has no defaults for the secrets, so it is checked twice:
       # once with a filled env, and once without, where it has to fail rather than boot on a blank.
       - name: The production file resolves with a filled env
