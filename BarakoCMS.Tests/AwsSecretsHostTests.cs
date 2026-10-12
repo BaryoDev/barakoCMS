@@ -14,15 +14,18 @@ namespace BarakoCMS.Tests;
 /// The AWS source end to end: the host starts on the key from the store and signs with it.
 /// </summary>
 /// <remarks>
-/// In the shared collection because FastEndpoints creates a token through its process-wide service
-/// resolver, which the fixture's host sets. This class only reads it.
+/// FastEndpoints creates a token through its process-wide service resolver. Whatever ran before
+/// this class may have left it on a disposed provider, so the test starts a host of its own for a
+/// live one and puts the previous resolver back when it ends.
 /// </remarks>
 [Collection("Sequential")]
 public class AwsSecretsHostTests
 {
     private const string StoreJwtKey = "jwt-key-from-the-store-that-is-at-least-32-chars";
 
-    public AwsSecretsHostTests(IntegrationTestFixture fixture) => _ = fixture;
+    private readonly IntegrationTestFixture _fixture;
+
+    public AwsSecretsHostTests(IntegrationTestFixture fixture) => _fixture = fixture;
 
     /// <summary>
     /// The ticket's done-when: JWT:Key absent from the configuration the host was given, and tokens
@@ -44,6 +47,10 @@ public class AwsSecretsHostTests
         configuration.AddBarakoAwsSecrets((id, _) => Task.FromResult<string?>(id == "barakocms-jwt-key" ? StoreJwtKey : null));
         var start = () => Host.AddBarakoCMS(new ServiceCollection(), configuration, configureModules: null);
         start.Should().NotThrow("the JWT key guard passes on the key the store supplied");
+
+        using var resolver = FastEndpointsResolver.Keep();
+        using var host = _fixture.WithWebHostBuilder(_ => { });
+        _ = host.Server;
 
         var (token, _) = barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Create(configuration, Guid.NewGuid());
 
