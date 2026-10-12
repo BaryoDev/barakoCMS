@@ -1,0 +1,5 @@
+response-optional-property-removed err
+response-property-enum-value-removed err
+api-path-removed-with-deprecation err
+api-removed-with-deprecation err
+request-parameter-removed-with-deprecation err
