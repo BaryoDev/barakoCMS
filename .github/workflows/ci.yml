@@ -548,7 +548,9 @@ jobs:
 
       # A branch push and a dispatch (refresh-stale-prs.yml starts one) carry no base ref, so they
       # compare the baseline with the default branch's, which is what the pull request merges into
-      # unless it says otherwise.
+      # unless it says otherwise. A dispatch on a pull request into another branch (release/*) is
+      # still compared with the default branch; its pull_request and merge_group runs use the real
+      # base.
       - name: The served API does not break the reviewed baseline
         env:
           OPENAPI_OUT: ${{ runner.temp }}/openapi

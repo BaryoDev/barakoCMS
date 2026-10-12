@@ -37,6 +37,7 @@ fail() { printf '\nFAILED: %s\n' "$1" >&2; echo "::error::$1"; exit 1; }
 
 step "the gate refuses the known-bad fixtures"
 bash scripts/test-openapi-gate.sh || fail "the OpenAPI gate passed a known-bad document, so it is not working"
+bash scripts/test-contract-versions.sh || fail "the contract version check answered wrongly on its fixtures"
 
 step "fetching the document the Suite serves"
 bash scripts/openapi-fetch.sh "$CURRENT" || fail "could not fetch the OpenAPI document from the Suite"
@@ -61,7 +62,7 @@ if [ -n "$BASE_REF" ]; then
             if ! bash scripts/openapi-diff.sh "$OUT_DIR/base-baseline.json" "$BASELINE" >/dev/null 2>&1; then
                 # CLAUDE.md section 6: a breaking HTTP change moves ApiContract.Version (or the
                 # delivery number beside it), or the HttpContractVersion of the module that broke.
-                # The number has to go up: a re-commented line or a constant in a test does not count.
+                # The number has to go up; see scripts/contract-versions.py for which ones count.
                 python3 scripts/contract-versions.py "$merge_base" \
                     || fail "the baseline accepts a breaking change, but no HTTP contract version went up (CLAUDE.md section 6)"
                 echo "the baseline accepts a breaking change, and a contract version moved with it"

@@ -16,7 +16,8 @@ One process, one machine, one change at a time.
   collector from the CPUs it can see, so an unpinned container measures the machine, not the code.
   The Kubernetes manifest's limit is lower again (`cpu: 500m`, `memory: 512Mi`).
 - **Settings:** Production, Swagger off, demo content off, and the global rate limit raised so one
-  client address can load it. Nothing else differs from a quickstart install.
+  client address can load it. The lever runs also set a metrics scrape key, to see whether
+  `/metrics` answers. Nothing else differs from a quickstart install.
 - **Sequence per run:** start, time to the first 200 from `/health/ready`; idle 60 seconds; read
   resident memory and thread count from `/proc/1/status`, and 20 seconds of `System.Runtime`
   counters (`dotnet-counters`, run inside the container); create the blog and site blueprints, 20
@@ -57,9 +58,10 @@ One process, one machine, one change at a time.
 
 Every request in every run answered 2xx (480 of each kind per run).
 
-Where the resident memory is, read from `/proc/1/smaps` after 30 seconds idle (233.7 MB in that
-run): 113.4 MB is mapped assemblies and native libraries, 59.5 MB anonymous memory (the GC heap,
-JIT-compiled code, runtime data), 53.3 MB other mappings, and 7.6 MB is `Microsoft.CodeAnalysis`.
+Where the resident memory is, read from `/proc/1/smaps` in a separate run of the same image after
+30 seconds idle (232.6 MB resident in that run): 113.0 MB is mapped assemblies and native libraries,
+58.8 MB anonymous memory (the GC heap, JIT-compiled code, runtime data), 53.0 MB other mappings, and
+7.8 MB is `Microsoft.CodeAnalysis`.
 
 What the baseline says before any lever is pulled:
 
@@ -68,12 +70,14 @@ What the baseline says before any lever is pulled:
   native libraries are the largest share (113 MB), so GC settings move the smaller part and
   assembly weight moves the larger one.
 - **Roslyn is loaded at idle.** `Microsoft.CodeAnalysis` is mapped into the process before any
-  request arrives, 7.6 MB of it resident. Marten generates and compiles its storage code at runtime unless code is
-  generated ahead of time, and no `TypeLoadMode` is set (`ServiceCollectionExtensions.AddMartenStore`).
-  This is the Roslyn stack #746 counted, with Entity Framework, in 19.5 MB on disk.
-- **The idle process is not idle.** About 5% of the two CPUs at rest, from a dozen polling hosted
-  services (retention sweeps, the workflow runner, scheduled content, collection syncs, the job
-  worker) and the HotCold projection daemon.
+  request arrives, 7.8 MB of it resident. Marten 9 does not need it: in the Suite's lock file the
+  only package depending on `Microsoft.CodeAnalysis.*` is `Microsoft.EntityFrameworkCore.Design`,
+  which the HealthChecks UI packages bring in. That is the weight #746 measured (19.5 MB on disk
+  with Entity Framework) and plans to move out of the image in 5.0.
+- **The idle process is not idle.** About 5% of the two CPUs at rest. Not profiled: the likely
+  sources are the dozen polling hosted services (retention sweeps, the workflow runner, scheduled
+  content, collection syncs, the job worker), the HotCold projection daemon, and tiered compilation
+  still recompiling (about 39 methods a second at idle).
 - **Under load the cost is allocation, not threads.** 40 requests a second allocated about
   5.5 MB/s, collected about 35 times a minute, and the thread count rose from 20 to 27. The
   connection pool settled at 6 connections.
@@ -108,17 +112,19 @@ stands out of that noise:
   does not have; a large one can set it back.
 - **DATAS is doing real work and must stay on.** Without it Server GC's peak went to 501.4 MB:
   it collected almost never (1.1 a minute) and let the heap grow instead.
-- **A heap limit doubles the collections for 10 MB less peak.** Not worth a setting.
+- **A heap limit nearly doubles the collections (62 a minute against 35) for 10 MB less peak.** Not worth a setting.
 - **TieredPGO off** used less CPU in the first minute of load (37.6% against 50.4%), which is the
   instrumentation phase being skipped, not a steady-state saving; the run is too short to say
   more. Not recommended without a longer run.
 - **Invariant globalization** saves about 8 MB idle and 12 MB peak, but changes culture-aware
   formatting (a site's `Locale`, money and dates), so it is a behavioural change.
 - **ReadyToRun** starts about 1.2 seconds faster (6.7 s) but costs 128 MB of image (589 MB against
-  461 MB uncompressed) and 32 MB of resident memory, because precompiled code is mapped whether it
+  461 MB as `docker images` reports them, decimal megabytes; 461 MB is the 439.6 MiB the budget
+  uses) and 32 MB of resident memory, because precompiled code is mapped whether it
   runs or not. For a project budgeting image size and memory (#853), the trade goes the wrong way.
 
-The list response for 20 posts was 32.7 KB and gzips to 6.6 KB (5 times smaller).
+In the lever runs the list response for 20 posts was 35.3 KB (bodies of repeated characters). With
+bodies of ordinary words it was 32.7 KB and gzipped to 6.6 KB, 5 times smaller.
 
 ## Areas surveyed
 
@@ -136,41 +142,43 @@ The list response for 20 posts was 32.7 KB and gzips to 6.6 KB (5 times smaller)
   are restored without a runtime identifier, and a RID-specific publish restores in unlocked mode
   (the run above had to), so adopting it needs `RuntimeIdentifiers` in the projects and regenerated
   lock files.
-- **Native AOT: not reachable.** Marten generates and compiles code at runtime with Roslyn,
-  FastEndpoints discovers endpoints and validators by reflection, and System.Text.Json is used with
-  reflection-based contracts throughout. Each would need replacing before AOT could even be tried.
-  Rejected.
+- **Native AOT: not tried, and not close.** FastEndpoints discovers endpoints and validators by
+  reflection, modules are discovered from the dependency context at startup, and System.Text.Json is
+  used with reflection-based contracts throughout. Each would need replacing first. Marten 9 itself
+  no longer generates code at runtime (#746), so it is not the blocker it was. Rejected for now.
 
 ### Thread pool and concurrency
 
 - No `ThreadPool.SetMinThreads` anywhere, and none needed at these rates: the pool stayed small and
   the process peaked at 27 threads.
-- **Sync over async:** two places block on async. `WorkflowActionSet.Dispose` calls
-  `DisposeAsync().AsTask().GetAwaiter().GetResult()` for an action that is only async-disposable,
-  once per action per run. `ContentBatchRunner` returns `outcome.Result` after awaiting it, which
-  does not block. No `.Wait()` and no other `.Result` on a task in `Features/*`.
+- **Sync over async:** one place can block. `WorkflowActionSet.Dispose` calls
+  `DisposeAsync().AsTask().GetAwaiter().GetResult()` for an async-only action, but the type is also
+  `IAsyncDisposable` and both direct uses are `await using`; the blocking path runs only when a DI
+  scope holding it is disposed synchronously. `ContentBatchRunner`'s `outcome.Result` reads a value
+  already awaited. No `.Wait()` on a task in `Features/*`.
 - **`ConfigureAwait`:** not used, and not needed: ASP.NET Core has no synchronization context.
 
 ### Kestrel
 
 - HTTP/1.1 only on the plain-HTTP listener the image exposes; HTTP/2 needs TLS or explicit h2c.
   The deployment guide terminates TLS at a proxy, so HTTP/2 to the client is the proxy's job.
-- Request body size is the only limit configured (`ServiceCollectionExtensions`, line 300).
-- **No response compression.** The public list response for 20 posts was 32.7 KB and gzips to
-  6.6 KB. Delivery is
-  normally behind a CDN or a reverse proxy that compresses, and compressing in the process costs
+- Request body size is the only limit configured (the `KestrelServerOptions` block in
+  `ServiceCollectionExtensions`).
+- **No response compression.** The public list response for 20 posts gzips about 5 times smaller
+  (see the lever notes). Delivery is normally behind a CDN or a reverse proxy that compresses, and compressing in the process costs
   CPU on every cache miss, so this is a proxy setting before it is an application one.
 
 ### Marten and Npgsql
 
-- **Sessions:** 30 `LightweightSession` uses and 26 `QuerySession` uses; the request-scoped
+- **Sessions:** 26 lines opening a `LightweightSession` and 24 `QuerySession(` call sites outside the
+  tests; the request-scoped
   session comes from `TenantSessionFactory`, also lightweight. No identity-map sessions on the
   request path.
 - **Pool:** Npgsql's default of 100 connections per data source, and the quickstart's Postgres
   allows 100. One instance used 6 under this load. Several instances behind a load balancer with the
   async daemon each could reach the server's limit; that is a deployment note, not a code change.
-- **Code generation:** see "Roslyn is loaded at idle" above. This is the largest single lever found
-  and is the first follow-up.
+- **Code generation:** Marten 9 generates no code at runtime. The Roslyn found loaded comes from
+  Entity Framework Core Design, see above.
 - **Unbounded caches:** `FieldRules` caps its compiled-pattern cache at 1,000.
   `CachedPermissionResolver` keeps one `CancellationTokenSource` per user it has resolved, removed
   only on invalidation, so it grows with distinct users over the process lifetime; a few hundred
@@ -180,7 +188,7 @@ The list response for 20 posts was 32.7 KB and gzips to 6.6 KB (5 times smaller)
 ### FastEndpoints
 
 - Discovery scans the core and every module assembly at startup. It is part of the startup time
-  above and was not separated from Marten's code generation in these runs.
+  above and was not separated from the rest of startup in these runs.
 
 ### Serilog and prometheus-net
 
@@ -212,12 +220,11 @@ config-only or behavioural.
 1. **Run the image on Workstation GC.** `ENV DOTNET_gcServer=0` in `Dockerfile.suite` and
    `Dockerfile`, documented so a large install can set it back. 11% lower peak memory, slightly lower
    idle, no latency change measured. Config only, low risk; the #853 budget will show the effect.
-2. **Pre-generate Marten's code** (`TypeLoadMode.Static` with `codegen write` at build) so Roslyn is
-   not loaded at runtime. Removes 7.6 MB resident, Roslyn's part of the 19.5 MB on disk #746
-   measured (with Entity Framework), and the
-   runtime compilation at startup. Behavioural: generated code has to be regenerated when a
-   document type or a module's schema changes, and the build has to prove it is current. Medium risk;
-   pairs with #746.
+2. **Take Entity Framework Core Design and HealthChecks UI out of the image** (#746, already planned
+   for 5.0). Removes Roslyn from the process (7.8 MB resident) and 19.5 MB from the image, and
+   the assemblies that come with them, which is where most resident memory is. Behavioural only for
+   installs that use the HealthChecks UI, which #746 moves to an optional module. Medium risk,
+   already scheduled; the #853 budget will show the effect.
 3. **Serve `/metrics` from the Suite**, behind the existing scrape key, as the core host does. Not a
    cost lever, but the image cannot be measured in production without it, and this survey could
    not read it there. Additive route; low risk.
@@ -227,17 +234,15 @@ config-only or behavioural.
    medium risk.
 5. **Bound `CachedPermissionResolver`'s per-user token map**, or drop an entry when its cache entry
    expires. Grows with distinct users for the life of the process. Low impact today, low risk.
-6. **Make `WorkflowActionSet` asynchronously disposable**, so the runner stops blocking a thread on
-   `DisposeAsync` for async-only actions. Low impact, low risk.
-7. **Audit culture use, then decide on invariant globalization.** 8 to 12 MB, but only safe if no
+6. **Audit culture use, then decide on invariant globalization.** 8 to 12 MB, but only safe if no
    path formats by culture; the site `Locale` and money fields suggest some do. Investigation first.
 
 None of these changes the HTTP or package surface.
 
 ## Investigated and rejected
 
-- **Native AOT:** not reachable with Marten's runtime code generation, FastEndpoints' reflection
-  discovery and reflection-based JSON. See above.
+- **Native AOT:** FastEndpoints' reflection discovery, module discovery and reflection-based JSON
+  stand in the way. See above.
 - **Response compression in the process:** a proxy or CDN does it for delivery; in-process it adds
   CPU to every cache miss.
 - **Thread pool minimums:** the pool never needed more than it had.
