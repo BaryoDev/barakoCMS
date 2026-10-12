@@ -23,19 +23,24 @@ k8s/, scripts/          Deployment
 
 Modules depend on the core, never the reverse. If a module needs something from the core, the core
 exposes it; do not add a reference back from `barakoCMS/` to a module.
+Enforced by `ArchitectureTests.The_core_references_no_module_assembly`.
 
 ## 1a. Architecture
 
 **Vertical slices, not technical layers.** Code is organised by feature:
 `Features/<FeatureName>/<Action>/`, for example `Features/Content/Create/`. A slice holds its own
 `Endpoint.cs`, `Models.cs` (request and response records) and `Validator.cs`. Resist the urge to
-add a shared `Services/` or `Handlers/` folder that every feature reaches into.
+add a shared `Services/` or `Handlers/` folder that every feature reaches into. Enforced by
+`ArchitectureTests.No_feature_namespace_is_a_shared_Services_or_Handlers_folder` and
+`Every_feature_endpoint_is_internal_and_lives_in_a_feature_and_action_namespace`; the features that
+predate the layout are allowlisted there and the list only shrinks.
 
 **REPR, not controllers.** Endpoints follow Request-Endpoint-Response via FastEndpoints. There are
-no MVC controllers here.
+no MVC controllers here. Enforced by `ArchitectureTests.No_type_is_an_MVC_controller`.
 
 **No repository pattern.** Inject Marten's `IDocumentSession` directly in the endpoint. Introduce a
 service only when logic is genuinely shared or complex enough to test on its own, not reflexively.
+Enforced by `ArchitectureTests.No_type_is_named_Repository_outside_the_allowlist`.
 
 ```csharp
 session.Store(entity);                    // save
@@ -44,10 +49,12 @@ await session.SaveChangesAsync(ct);       // commit
 ```
 
 **Validation** uses FluentValidation through the FastEndpoints `Validator<T>` base class, not
-hand-rolled checks inside `HandleAsync`.
+hand-rolled checks inside `HandleAsync`. Enforced by
+`ArchitectureTests.Every_validator_is_a_FastEndpoints_Validator`.
 
 **A list endpoint is bounded.** Take `PaginatedRequest` (or cap the result), always. An unbounded
-query on an anonymous endpoint is an availability problem anyone can trigger.
+query on an anonymous endpoint is an availability problem anyone can trigger. Enforced by
+`ArchitectureTests.Every_list_endpoint_takes_a_PaginatedRequest_or_is_allowlisted_with_a_reason`.
 
 **Prefer an existing pattern over a new one.** If a neighbouring endpoint solves the same problem,
 match it or say in the pull request why not. Check the pattern first: a pattern being existing is
