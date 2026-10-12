@@ -130,6 +130,9 @@ echo "rows: original $original, restored $restored"
 
 step "a failed upload fails the run, keeps the archive and rotates nothing"
 docker exec "$BACKUP" sh -c 'touch -d "@$(( $(date +%s) - 30 * 86400 ))" /backups/barako_backup_2000-01-01_00-00-00.sql.gz'
+# An archive is named to the second. On a fast runner the initial backup and this run can share a
+# second, and this run's archive then replaces that one instead of joining it.
+sleep 1
 before=$(docker exec "$BACKUP" sh -c 'ls -1 /backups/barako_backup_*.sql.gz | wc -l')
 set +e
 failed_output=$(docker exec -e BACKUP_S3_SECRET_KEY=wrong-secret "$BACKUP" /backup_job.sh 2>&1)
