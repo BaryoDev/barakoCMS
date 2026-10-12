@@ -111,13 +111,22 @@ internal class FeedEndpoint(IQuerySession session, IConfiguration config) : Endp
 
         sb.Append("  </channel>\n</rss>\n");
 
-        // The links take their origin from the site entry, so a change to it has to reach this
-        // response too. Second, after the feed's own type, so the tag bounds keep it.
+        PublicDelivery.SetCache(HttpContext, FeedScopes(type, delivered, def));
+        await Send.StringAsync(sb.ToString(), 200, "application/rss+xml; charset=utf-8", ct);
+    }
+
+    /// <summary>The delivery scopes, with the site type second, after the feed's own type.</summary>
+    /// <remarks>
+    /// The links take their origin from the site entry, so a purge for a change to it has to reach
+    /// the feed too. Second, so the tag bounds keep it.
+    /// </remarks>
+    private static List<barakoCMS.Infrastructure.Caching.CacheScope> FeedScopes(
+        string type, IEnumerable<PublicContentResponse> delivered, ContentTypeDefinition? def)
+    {
         var scopes = PublicDelivery.Scopes(type, delivered, def).ToList();
         scopes.Insert(1, barakoCMS.Infrastructure.Caching.CacheScope.Type(
             barakoCMS.Features.Site.ShareLinks.ShareLinkKeys.SiteType));
-        PublicDelivery.SetCache(HttpContext, scopes);
-        await Send.StringAsync(sb.ToString(), 200, "application/rss+xml; charset=utf-8", ct);
+        return scopes;
     }
 
     private static string Field(IReadOnlyDictionary<string, object> data, params string[] names)

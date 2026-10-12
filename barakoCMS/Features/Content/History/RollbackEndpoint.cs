@@ -188,22 +188,34 @@ internal class RollbackEndpoint(
         // 8. Return the new state, through the read rules a GET applies: the caller is shown what
         // they may read of it and nothing more. Rollback asks for update, not read, so a caller no
         // Read rule grants this entry gets it back with no data, as a GET would refuse them.
-        var response = RollbackResponse.From(content);
-        response.Data = new Dictionary<string, object>();
-        if (await permissionResolver.CanPerformActionAsync(actor, content.ContentType, "read", content, ct))
-        {
-            response.Data = new Dictionary<string, object>(content.Data);
-            var sensitivity = Resolve<barakoCMS.Core.Interfaces.ISensitivityService>();
-            if (await sensitivity.ApplyAsync(content, response.Data, HttpContext, ct))
-                response.ContentType = "HIDDEN";
-
-            await barakoCMS.Infrastructure.Audit.SensitiveReadAudit.RecordAsync(
-                HttpContext,
-                [await barakoCMS.Infrastructure.Audit.SensitiveReadAudit.DescribeAsync(
-                    content, definition, response.Data, sensitivity, HttpContext, ct)],
-                ct);
-        }
+        var response = await ReadBackAsync(actor, content, definition, ct);
 
         await Send.ResponseAsync(response, cancellation: ct);
+    }
+
+    /// <summary>The restored entry as a read by this caller would show it, recorded as a read when it shows anything above Public.</summary>
+    private async Task<RollbackResponse> ReadBackAsync(
+        barakoCMS.Models.User actor, barakoCMS.Models.Content content, ContentTypeDefinition? definition, CancellationToken ct)
+    {
+        var response = RollbackResponse.From(content);
+        response.Data = new Dictionary<string, object>();
+        if (!await permissionResolver.CanPerformActionAsync(actor, content.ContentType, "read", content, ct))
+        {
+            return response;
+        }
+
+        response.Data = new Dictionary<string, object>(content.Data);
+        var sensitivity = Resolve<barakoCMS.Core.Interfaces.ISensitivityService>();
+        if (await sensitivity.ApplyAsync(content, response.Data, HttpContext, ct))
+        {
+            response.ContentType = "HIDDEN";
+        }
+
+        await barakoCMS.Infrastructure.Audit.SensitiveReadAudit.RecordAsync(
+            HttpContext,
+            [await barakoCMS.Infrastructure.Audit.SensitiveReadAudit.DescribeAsync(
+                content, definition, response.Data, sensitivity, HttpContext, ct)],
+            ct);
+        return response;
     }
 }

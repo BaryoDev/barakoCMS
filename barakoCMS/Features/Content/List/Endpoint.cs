@@ -206,7 +206,6 @@ internal class Endpoint(
         // produce a short or empty page while permitted items exist further down the raw ordering.
         var sensitivity = Resolve<barakoCMS.Core.Interfaces.ISensitivityService>();
         var permittedItems = new List<ContentResponse>();
-        var storedById = new Dictionary<Guid, barakoCMS.Models.Content>();
         foreach (var item in candidates)
         {
             if (await permissionResolver.CanPerformActionAsync(user, item.ContentType, "read", item, ct))
@@ -235,7 +234,6 @@ internal class Endpoint(
                     continue;
 
                 permittedItems.Add(response);
-                storedById[item.Id] = item;
             }
         }
 
@@ -256,9 +254,7 @@ internal class Endpoint(
             ? permittedItems
             : permittedItems.Skip(req.Skip).Take(req.Take).ToList();
 
-        await RecordSensitiveReadsAsync(pagedItems, storedById, sensitivity, ct);
-        await FillVersionsAsync(pagedItems, ct);
-        await FillFilesAsync(pagedItems, ct);
+        await CompletePageAsync(pagedItems, candidates, sensitivity, ct);
 
         if (permittedTotal < 0) permittedTotal = permittedItems.Count;
 
@@ -275,6 +271,18 @@ internal class Endpoint(
             PageSize = req.PageSize,
             TotalItems = permittedTotal // Honest: counts only what this user can see.
         }, cancellation: ct);
+    }
+
+    /// <summary>Records the page's read, then fills in each item's version and files.</summary>
+    private async Task CompletePageAsync(
+        List<ContentResponse> page,
+        IReadOnlyList<barakoCMS.Models.Content> candidates,
+        barakoCMS.Core.Interfaces.ISensitivityService sensitivity,
+        CancellationToken ct)
+    {
+        await RecordSensitiveReadsAsync(page, candidates.ToDictionary(c => c.Id), sensitivity, ct);
+        await FillVersionsAsync(page, ct);
+        await FillFilesAsync(page, ct);
     }
 
     /// <summary>One audit row for the page, naming each entry's fields above Public that it sends.</summary>
