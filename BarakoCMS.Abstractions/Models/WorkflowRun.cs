@@ -375,6 +375,16 @@ public class WorkflowActionAttempt
     public DateTimeOffset? CompletedAt { get; set; }
 
     public long? DurationMs { get; set; }
+
+    /// <summary>Which outputs of this action are kept, copied from the workflow when the run was queued.</summary>
+    /// <remarks>Empty on an attempt stored before outputs existed, which keeps nothing.</remarks>
+    public List<string> Capture { get; set; } = new();
+
+    /// <summary>
+    /// The outputs the action produced that <see cref="Capture"/> names, once it has succeeded. Null
+    /// until then, and when it produced none of them.
+    /// </summary>
+    public Dictionary<string, string>? Outputs { get; set; }
 }
 
 /// <summary>

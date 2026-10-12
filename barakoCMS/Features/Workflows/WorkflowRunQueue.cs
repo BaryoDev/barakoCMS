@@ -222,6 +222,7 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
                 // edited it is not expecting to have rewritten yesterday's outbox.
                 Parameters = new Dictionary<string, string>(workflow.Actions[i].Parameters),
                 OnFailure = workflow.Actions[i].OnFailure ?? WorkflowFailurePolicy.Continue,
+                Capture = workflow.Actions[i].Capture is { } capture ? [.. capture] : [],
                 IdempotencyKey = $"{run.Id:N}-{i}",
             });
         }

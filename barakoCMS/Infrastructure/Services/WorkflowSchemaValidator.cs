@@ -177,9 +177,49 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
             {
                 AddPlaceholderWarnings(workflow.Actions[i], $"actions[{i}]", onTransition, result, depth: 0);
             }
+
+            AddOutputWarnings(workflow.Actions, result);
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Warns about every <c>{{actions.N.name}}</c> that cannot be filled: an action at or after the
+    /// one reading it, one that does not exist, or a name that action does not capture.
+    /// </summary>
+    /// <remarks>
+    /// Warnings and not errors. Before step outputs existed the same text was a placeholder the
+    /// engine sent as written, which saved with a warning, and a workflow that saved then must
+    /// still save. At run time an unfilled reference fails the action rather than sending it.
+    /// </remarks>
+    private static void AddOutputWarnings(List<WorkflowAction> actions, WorkflowValidationResult result)
+    {
+        for (var i = 0; i < actions.Count; i++)
+        {
+            var action = actions[i];
+            if (action?.Parameters is null) continue;
+
+            foreach (var (name, template) in action.Parameters)
+            {
+                var field = $"actions[{i}].parameters.{name}";
+                var resolvedByTheAction = ActionParameters.IsResolvedByTheAction(action.Type ?? string.Empty, name);
+
+                foreach (var (ordinal, output) in ActionOutputs.References(template))
+                {
+                    if (result.Warnings.Count >= MaxPlaceholderWarnings) return;
+
+                    string? message =
+                        resolvedByTheAction ? $"Step outputs are not read inside this parameter, so {{{{actions.{ordinal}.{output}}}}} is sent as written."
+                        : ordinal >= i ? $"{{{{actions.{ordinal}.{output}}}}} reads action {ordinal}, which does not run before this one, so this action fails until it is fixed."
+                        : actions[ordinal]?.Capture?.Contains(output, StringComparer.Ordinal) != true
+                            ? $"{{{{actions.{ordinal}.{output}}}}} reads '{output}', which action {ordinal} does not capture, so this action fails until it is added to that action's capture."
+                        : null;
+
+                    if (message is not null) result.Warnings.Add(new ValidationError { Field = field, Message = message });
+                }
+            }
+        }
     }
 
     /// <summary>How many placeholder warnings one validation lists. The last entry says when there are more.</summary>
@@ -584,6 +624,41 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
         }
 
         RefuseChildPolicies(action, fieldPrefix, result);
+
+        if (action.Capture is { } capture)
+        {
+            if (capture.Count > ActionOutputs.MaxCaptured)
+            {
+                result.Errors.Add(new ValidationError
+                {
+                    Field = $"{fieldPrefix}.capture",
+                    Message = $"An action keeps at most {ActionOutputs.MaxCaptured} outputs"
+                });
+                result.IsValid = false;
+            }
+
+            for (var c = 0; c < capture.Count; c++)
+            {
+                if (!ActionOutputs.IsValidName(capture[c]))
+                {
+                    result.Errors.Add(new ValidationError
+                    {
+                        Field = $"{fieldPrefix}.capture[{c}]",
+                        Message = $"An output name is letters, digits and underscores, at most {ActionOutputs.MaxNameLength} characters"
+                    });
+                    result.IsValid = false;
+                }
+                else if (capture.IndexOf(capture[c]) < c)
+                {
+                    result.Errors.Add(new ValidationError
+                    {
+                        Field = $"{fieldPrefix}.capture[{c}]",
+                        Message = $"'{capture[c]}' is listed twice"
+                    });
+                    result.IsValid = false;
+                }
+            }
+        }
 
         // A warning and not a refusal: a workflow saved before the cap must still save. The engine
         // sends a parameter past it as written, so the warning says so now rather than at the run.

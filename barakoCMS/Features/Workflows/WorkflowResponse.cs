@@ -87,6 +87,9 @@ internal sealed class WorkflowActionResponse
     /// </summary>
     public List<string> UnreadableBranches { get; init; } = new();
 
+    /// <summary>The outputs of this action kept on a run. Empty when it keeps none.</summary>
+    public List<string> Capture { get; init; } = new();
+
     public static WorkflowActionResponse From(WorkflowAction a)
     {
         var parameters = WebhookSigning.WithoutSecret(a.Type, a.Parameters, out var unreadableBranches);
@@ -98,6 +101,7 @@ internal sealed class WorkflowActionResponse
             SecretSet = WebhookSigning.HasSecret(a.Parameters),
             OnFailure = a.OnFailure ?? WorkflowFailurePolicy.Continue,
             UnreadableBranches = unreadableBranches,
+            Capture = a.Capture ?? [],
         };
     }
 }

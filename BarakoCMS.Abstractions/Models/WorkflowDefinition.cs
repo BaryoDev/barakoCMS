@@ -56,6 +56,19 @@ public class WorkflowAction
     /// Continue, the same as leaving it out.
     /// </remarks>
     public WorkflowFailurePolicy? OnFailure { get; set; } = WorkflowFailurePolicy.Continue;
+
+    /// <summary>
+    /// The outputs of this action that are kept on the run, by name. Nothing is kept when it is
+    /// empty or null.
+    /// </summary>
+    /// <remarks>
+    /// An allowlist, because an output is usually a third party's response, and the run record is
+    /// stored and served over the API. A name not listed here is dropped when the outcome is
+    /// recorded and never reaches the database. A later action reads a kept one as
+    /// <c>{{actions.N.name}}</c>, N being this action's position counting from zero. Copied onto a
+    /// run when it is queued, like the parameters.
+    /// </remarks>
+    public List<string>? Capture { get; set; }
 }
 
 /// <summary>Whether the actions after a failed one still run.</summary>

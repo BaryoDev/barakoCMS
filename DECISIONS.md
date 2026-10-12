@@ -1278,3 +1278,20 @@ forgot it. The same reasoning applies to the next setting of this shape.
 integration test ran in Development, so no test could reach the other branch. It moved into
 `ResolveCorsOrigins`, which takes the environment as an argument and can be asserted without a host.
 A decision that only one environment can execute is a decision nothing tests.
+
+## D37. A workflow keeps an action's outputs by allowlist
+
+**Decided:** 12 Oct 2026. **Status:** accepted. Tracked in #575.
+
+An action can now return outputs, and a later action of the same run reads them as
+`{{actions.N.name}}`. Outputs are usually a third party's response, which can hold personal data or
+a credential, and the run they are kept on is stored, kept for the retention window and served over
+the API. So the workflow names, per action, which outputs are kept (`capture`), and everything else
+is dropped before the run is written. Only a kept output can be read by a later action.
+
+Two cheaper shapes were rejected. Keeping everything and redacting on read still stores the data, so
+a database leak has it. Keeping everything and expiring it quickly stores it too, for less time.
+
+**Why it is recorded.** This is the one part of outputs that is a one-way door. Shipping "keep
+everything" and tightening it later would break run records people had started reading. The same
+rule as `QueryDefinition.Fields`: name what may move, refuse the rest.

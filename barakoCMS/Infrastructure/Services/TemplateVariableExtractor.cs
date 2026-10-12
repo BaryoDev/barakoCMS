@@ -691,7 +691,7 @@ public class TemplateVariableExtractor(
 
     private static readonly Regex LineBreaks = new(@"[\r\n\u0085\u2028\u2029]+", RegexOptions.Compiled);
 
-    private static string Encode(string value, TemplateValueEncoding encoding) => encoding switch
+    internal static string Encode(string value, TemplateValueEncoding encoding) => encoding switch
     {
         TemplateValueEncoding.Html => System.Net.WebUtility.HtmlEncode(value),
         TemplateValueEncoding.HtmlAndBraces => System.Net.WebUtility.HtmlEncode(value)

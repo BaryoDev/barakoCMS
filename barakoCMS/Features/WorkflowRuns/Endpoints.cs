@@ -84,6 +84,12 @@ internal sealed class AttemptResponse
     /// </summary>
     public int? HaltedBy { get; init; }
 
+    /// <summary>
+    /// The outputs the action produced that the workflow captures, once it has succeeded. Null
+    /// otherwise. Nothing the workflow did not name is ever stored, so nothing else can be here.
+    /// </summary>
+    public Dictionary<string, string>? Outputs { get; init; }
+
     public static AttemptResponse From(WorkflowActionAttempt a) => new()
     {
         Ordinal = a.Ordinal,
@@ -98,6 +104,7 @@ internal sealed class AttemptResponse
         DurationMs = a.DurationMs,
         OnFailure = a.OnFailure.ToString(),
         HaltedBy = a.HaltedBy,
+        Outputs = a.Outputs,
     };
 }
 

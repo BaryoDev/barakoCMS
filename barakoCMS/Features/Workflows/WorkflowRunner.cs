@@ -903,6 +903,14 @@ internal sealed class WorkflowRunner(
             var resolved = await ActionParameters.ResolveAsync(
                 variables, attempt.ActionType, parameters, content, run.TriggerEvent, run.TriggeringEventSequence, ct);
 
+            var outputs = ActionOutputs.Kept(run);
+            if (ActionOutputs.Substitute(attempt.ActionType, resolved, outputs) is { } missing)
+            {
+                // Retryable: with Continue, an earlier action can still be waiting on its own retry.
+                timer.Stop();
+                return new Outcome(AttemptStatus.Failed, missing, timer.ElapsedMilliseconds, Retryable: true);
+            }
+
             resolved["IdempotencyKey"] = attempt.IdempotencyKey;
 
             // What the delivery log needs to say which run a delivery belonged to. Same channel as
@@ -912,16 +920,28 @@ internal sealed class WorkflowRunner(
             resolved["TriggerEvent"] = run.TriggerEvent;
             resolved["Attempt"] = (attempt.Attempts + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
 
-            var result = await handler.RunAsync(resolved, content, ct);
+            var result = await handler.RunAsync(new WorkflowContext
+            {
+                Parameters = resolved,
+                Content = content,
+                TriggerEvent = run.TriggerEvent,
+                TenantId = TenantScopes.SlugFor(tenantId),
+                Outputs = outputs,
+            }, ct);
             timer.Stop();
 
             if (result.Succeeded)
             {
+                // Only what the workflow captured is kept. The rest of what the action returned is
+                // dropped here, before anything is written.
+                var (kept, dropped) = ActionOutputs.Keep(result.Outputs, attempt.Capture);
+
                 // What the templates left out on purpose, such as a loop stopped at its cap, is
                 // recorded on the attempt so a message that is short of entries says why.
-                var notes = variables.Notes;
+                var notes = variables.Notes.Concat(dropped is null ? [] : [dropped]).ToList();
                 return new Outcome(
-                    AttemptStatus.Succeeded, notes.Count == 0 ? null : string.Join(" ", notes), timer.ElapsedMilliseconds);
+                    AttemptStatus.Succeeded, notes.Count == 0 ? null : string.Join(" ", notes), timer.ElapsedMilliseconds,
+                    Outputs: kept);
             }
 
             return new Outcome(AttemptStatus.Failed, result.Error, timer.ElapsedMilliseconds, result.Retryable);
@@ -970,6 +990,7 @@ internal sealed class WorkflowRunner(
         }
 
         attempt.Status = outcome.Status;
+        attempt.Outputs = outcome.Status == AttemptStatus.Succeeded ? outcome.Outputs : null;
         attempt.Retryable = outcome.Status == AttemptStatus.Failed ? outcome.Retryable : null;
         attempt.NextAttemptAt = null;
         attempt.CompletedAt = DateTimeOffset.UtcNow;
@@ -978,7 +999,14 @@ internal sealed class WorkflowRunner(
     private static string Truncate(string value) =>
         value.Length <= 500 ? value : value[..500] + "...";
 
+    /// <summary>How one attempt went, before it is written onto the run.</summary>
+    /// <param name="Status">The attempt's status, before a retryable failure is queued again.</param>
+    /// <param name="Error">Why it failed, or a note on a success. Never a response body.</param>
+    /// <param name="ElapsedMs">How long the action took.</param>
+    /// <param name="Retryable">For a failure, whether trying again could change the answer.</param>
+    /// <param name="Outputs">On a success, the outputs the workflow captures, already filtered.</param>
     /// <param name="Registered">Whether a handler was found for the action type. Only then is the type used as a metric label.</param>
     private readonly record struct Outcome(
-        AttemptStatus Status, string? Error, long ElapsedMs, bool Retryable = true, bool Registered = true);
+        AttemptStatus Status, string? Error, long ElapsedMs, bool Retryable = true, bool Registered = true,
+        Dictionary<string, string>? Outputs = null);
 }

@@ -235,6 +235,42 @@ during a rolling upgrade and after a rollback alike. Finish the rollout before s
 that uses `Halt`, and before rolling back past this version, change those workflows back or wait
 for their runs to finish.
 
+## Passing a value from one action to the next
+
+An action can return outputs, and a later action of the same run can read them. A custom action
+returns them from `RunAsync(WorkflowContext, ct)` with `WorkflowActionResult.Success(outputs)`; none
+of the built-in actions returns any yet.
+
+The workflow says which outputs are kept, per action, in `capture`:
+
+```json
+{
+  "actions": [
+    { "type": "Lookup", "capture": ["total", "reference"] },
+    { "type": "Email", "parameters": { "To": "{{data.Email}}", "Subject": "Order {{actions.0.reference}}", "Body": "Total {{actions.0.total}}" } }
+  ]
+}
+```
+
+`{{actions.N.name}}` reads the output `name` of the action at position N, counting from zero. Only
+outputs named in that action's `capture` are kept on the run, and only those can be read. Everything
+else the action returned is dropped before the run is written, so a credential or an address in a
+provider's response never reaches the database (D37). An action keeps at most 20 outputs, a name is
+letters, digits and underscores, and a value longer than 2000 characters is not kept: the attempt's
+`error` says which.
+
+A kept output is substituted after the action's own placeholders are resolved, encoded the way the
+parameter it lands in is encoded, and it is never read as a placeholder itself. It is read only as
+it is: a format such as `| upper` is not applied. It is not read inside a `Conditional`'s branches.
+
+When the output is not there, because the earlier action has not succeeded or does not capture that
+name, the reading action fails and is retried like any other failure, so an action set to `Continue`
+can wait for an earlier one still on its own retry. Saving a workflow warns about a reference to an
+action that does not run first or a name it does not capture.
+
+Kept outputs are served on each attempt as `outputs` in `GET /api/workflow-runs`, and are deleted
+with the run when its retention window ends.
+
 ## Stopping a workflow or a run
 
 Three requests, all behind `manage_workflows`, each written to the audit log.
