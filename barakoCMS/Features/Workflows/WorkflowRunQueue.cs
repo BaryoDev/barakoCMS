@@ -68,6 +68,17 @@ internal interface IWorkflowRunQueue
     /// <returns>How many runs were queued.</returns>
     Task<int> QueueDeletedAsync(Guid contentId, string contentType, CancellationToken ct);
 
+    /// <summary>
+    /// Records the runs for a trigger a module fired, and commits them.
+    /// </summary>
+    /// <remarks>
+    /// Not checked for an earlier run of the same entry, unlike <see cref="EnqueueAsync"/>. That
+    /// check is for a projection rebuild replaying stored events, and a module's trigger is not a
+    /// stored event, so it is never replayed. Two fires are two things that happened.
+    /// </remarks>
+    /// <returns>How many runs were queued.</returns>
+    Task<int> FireAsync(barakoCMS.Models.Content content, string trigger, CancellationToken ct);
+
     /// <summary>Whether any workflow fires on this event for this content type.</summary>
     Task<bool> ListensAsync(string contentType, string eventType, CancellationToken ct);
 }
@@ -144,6 +155,36 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
             session.Store(NewRun(workflow, contentId, contentType, WorkflowEvents.Deleted, eventSequence: 0));
             queued++;
         }
+
+        return queued;
+    }
+
+    public async Task<int> FireAsync(barakoCMS.Models.Content content, string trigger, CancellationToken ct)
+    {
+        var workflows = WorkflowTriggers.SwitchedOn(await session.Query<WorkflowDefinition>()
+            .Where(WorkflowTriggers.FiredBy(content.ContentType, trigger))
+            .ToListAsync(ct));
+
+        var queued = 0;
+
+        foreach (var workflow in workflows)
+        {
+            if (!WorkflowConditions.Matches(workflow, content))
+            {
+                continue;
+            }
+
+            // Sequence zero, as for an erasure: no stored event caused this run.
+            session.Store(NewRun(workflow, content.Id, content.ContentType, trigger, eventSequence: 0));
+            queued++;
+        }
+
+        if (queued > 0)
+        {
+            await session.SaveChangesAsync(ct);
+        }
+
+        WorkflowMetrics.Default.Queued(trigger, queued);
 
         return queued;
     }

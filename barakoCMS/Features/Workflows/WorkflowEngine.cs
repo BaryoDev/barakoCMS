@@ -8,6 +8,7 @@ using Marten;
 
 namespace barakoCMS.Features.Workflows;
 
+#pragma warning disable CS0618 // the implementation of the obsolete interface, kept until 6.0
 internal class WorkflowEngine(
     IDocumentSession session,
     IEnumerable<IWorkflowAction> actions,
@@ -15,6 +16,7 @@ internal class WorkflowEngine(
     IWorkflowDebugger debugger,
     ISecretProtector protector,
     ILogger<WorkflowEngine> logger) : IWorkflowEngine
+#pragma warning restore CS0618
 {
     public async Task ProcessEventAsync(string contentType, string eventType, barakoCMS.Models.Content content, CancellationToken ct)
     {

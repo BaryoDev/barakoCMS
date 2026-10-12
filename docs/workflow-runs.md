@@ -223,7 +223,8 @@ children of a `Conditional` have no policy of their own: the `Conditional` succe
 action, and its own `onFailure` decides what follows. A workflow that puts `onFailure` on a child
 is refused when it is saved.
 
-The engine a host can call in line through `IWorkflowEngine` follows the policy too. It retries
+The engine a host can call in line through `IWorkflowEngine` follows the policy too. That
+interface is obsolete in 5.0 and is removed in 6.0: nothing in the host calls it. It retries
 nothing, so any failure of a `Halt` action ends the workflow there, and the actions after it are
 written to the execution log as not run.
 

@@ -39,7 +39,9 @@ public class WorkflowTests
         }
     }
 
+#pragma warning disable CS0618 // IWorkflowEngine is obsolete and still tested until it is removed in 6.0
     private async Task<(barakoCMS.Features.Workflows.IWorkflowEngine Engine, SpyAction Spy, IServiceScope Scope)> EngineAsync()
+#pragma warning restore CS0618
     {
         var scope = _factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();

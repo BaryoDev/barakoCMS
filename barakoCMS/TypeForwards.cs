@@ -34,7 +34,9 @@ using System.Runtime.CompilerServices;
 [assembly: TypeForwardedTo(typeof(global::barakoCMS.Events.ContentUpdated))]
 [assembly: TypeForwardedTo(typeof(global::barakoCMS.Events.IContentEvent))]
 [assembly: TypeForwardedTo(typeof(global::barakoCMS.Features.Workflows.IWorkflowAction))]
+#pragma warning disable CS0618 // forwarded until it is removed in 6.0
 [assembly: TypeForwardedTo(typeof(global::barakoCMS.Features.Workflows.IWorkflowEngine))]
+#pragma warning restore CS0618
 [assembly: TypeForwardedTo(typeof(global::barakoCMS.Features.Workflows.WorkflowActionResult))]
 [assembly: TypeForwardedTo(typeof(global::barakoCMS.Infrastructure.DeviceContext))]
 [assembly: TypeForwardedTo(typeof(global::barakoCMS.Models.ActionExecutionLog))]

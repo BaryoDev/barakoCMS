@@ -120,6 +120,17 @@ public interface IBarakoModule
     void ConfigureTopics(IModuleTopics topics) { }
 
     /// <summary>
+    /// Name the workflow triggers this module fires. Optional. A workflow can only be saved on a
+    /// trigger that core or a module registered.
+    /// </summary>
+    /// <remarks>
+    /// Called once, when the host builds its trigger registry at startup. A bad or duplicate name
+    /// stops the host with an error naming this module. Fire a registered trigger with
+    /// <see cref="barakoCMS.Core.Interfaces.IWorkflowTriggers"/>.
+    /// </remarks>
+    void ConfigureWorkflowTriggers(IModuleWorkflowTriggers triggers) { }
+
+    /// <summary>
     /// Register document types directly on the shared Marten store.
     /// </summary>
     /// <remarks>

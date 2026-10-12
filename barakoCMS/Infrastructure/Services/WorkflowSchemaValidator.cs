@@ -42,6 +42,7 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
     private readonly IWorkflowPluginRegistry _pluginRegistry;
     private readonly IQuerySession _session;
     private readonly bool _allowInsecureSignedUrls;
+    private readonly WorkflowTriggerRegistry _triggers;
 
     public WorkflowSchemaValidator(IWorkflowPluginRegistry pluginRegistry, IQuerySession session)
         : this(pluginRegistry, session, configuration: null)
@@ -49,11 +50,21 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
     }
 
     public WorkflowSchemaValidator(IWorkflowPluginRegistry pluginRegistry, IQuerySession session, IConfiguration? configuration)
+        : this(pluginRegistry, session, configuration, WorkflowTriggerRegistry.BuiltIn)
+    {
+    }
+
+    /// <summary>The validator the host builds, which also accepts the triggers modules registered.</summary>
+    internal WorkflowSchemaValidator(
+        IWorkflowPluginRegistry pluginRegistry, IQuerySession session, IConfiguration? configuration, WorkflowTriggerRegistry triggers)
     {
         _pluginRegistry = pluginRegistry;
         _session = session;
         _allowInsecureSignedUrls = WebhookSigning.AllowsInsecureSignedUrls(configuration);
+        _triggers = triggers;
     }
+
+    private string TriggerChoices => $"Trigger event must be one of: {string.Join(", ", _triggers.Names)}";
 
     public WorkflowValidationResult Validate(WorkflowDefinition workflow, CancellationToken ct = default)
     {
@@ -112,12 +123,12 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
                 });
                 result.IsValid = false;
             }
-            else if (!WorkflowEvents.IsValid(listedEvents[i]))
+            else if (!_triggers.IsRegistered(listedEvents[i]))
             {
                 result.Errors.Add(new ValidationError
                 {
                     Field = $"triggerEvents[{i}]",
-                    Message = $"Trigger event must be one of: {string.Join(", ", WorkflowEvents.All)}"
+                    Message = TriggerChoices
                 });
                 result.IsValid = false;
             }
@@ -134,12 +145,12 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
         }
 
         // Validate trigger event is a known value
-        if (!string.IsNullOrWhiteSpace(workflow.TriggerEvent) && !WorkflowEvents.IsValid(workflow.TriggerEvent))
+        if (!string.IsNullOrWhiteSpace(workflow.TriggerEvent) && !_triggers.IsRegistered(workflow.TriggerEvent))
         {
             result.Errors.Add(new ValidationError
             {
                 Field = "triggerEvent",
-                Message = $"Trigger event must be one of: {string.Join(", ", WorkflowEvents.All)}"
+                Message = TriggerChoices
             });
             result.IsValid = false;
         }
