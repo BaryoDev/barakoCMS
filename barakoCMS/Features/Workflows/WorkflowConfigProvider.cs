@@ -152,8 +152,8 @@ internal sealed class WorkflowConfigProvider(
         for (var i = 0; i < workflow.Actions.Count; i++)
         {
             var action = workflow.Actions[i];
-            var parameters = WebhookSigning.WithoutSecret(action.Type, action.Parameters, out var unreadable);
-            if (!ConfigJson.Same(parameters, action.Parameters))
+            var parameters = Shown(action, out var unreadable);
+            if (WebhookSigning.HasCredential(action.Type, action.Parameters))
             {
                 held.Add($"action {i} ({action.Type}) holds a credential, which is not exported. Set it again where the document is applied.");
             }
@@ -190,10 +190,18 @@ internal sealed class WorkflowConfigProvider(
             action.Parameters ??= [];
         }
 
-        if (workflow.Actions.Any(a => !ConfigJson.Same(WebhookSigning.WithoutSecret(a.Type, a.Parameters), a.Parameters)))
+        if (workflow.Actions.Any(a => WebhookSigning.HasCredential(a.Type, a.Parameters)))
         {
-            errors.Add($"'{name}': an action carries a credential. A configuration document holds none; set it on the workflow after it is applied.");
+            errors.Add($"'{name}': an action carries a credential, or a branch that cannot be read and so cannot be checked for one. "
+                       + "A configuration document holds none; set it on the workflow after it is applied.");
             return null;
+        }
+
+        // Holds no credential now, so this only takes off the flags a read response writes onto a
+        // branch's children, which are not the workflow's to store.
+        foreach (var action in workflow.Actions)
+        {
+            action.Parameters = Shown(action, out _);
         }
 
         WorkflowTriggers.Normalise(workflow);
@@ -297,12 +305,19 @@ internal sealed class WorkflowConfigProvider(
     }
 
     private static bool HoldsCredential(WorkflowAction action) =>
-        !ConfigJson.Same(WebhookSigning.WithoutSecret(action.Type, action.Parameters), action.Parameters);
+        WebhookSigning.HasCredential(action.Type, action.Parameters);
 
-    /// <summary>Same type, and every parameter but the credentials the same as the stored action shows them.</summary>
+    /// <summary>
+    /// Same type, and every parameter but the credentials the same, a Conditional's branch children
+    /// included, with the read response's flags off both sides.
+    /// </summary>
     private static bool Unchanged(WorkflowAction desired, WorkflowAction stored) =>
         string.Equals(desired.Type, stored.Type, StringComparison.Ordinal)
-        && ConfigJson.Same(WebhookSigning.WithoutSecret(stored.Type, stored.Parameters), desired.Parameters);
+        && ConfigJson.Same(Shown(stored, out _), Shown(desired, out _));
+
+    /// <summary>An action's parameters as a document carries them: no credential and no response flag.</summary>
+    private static Dictionary<string, string> Shown(WorkflowAction action, out List<string> unreadable) =>
+        WebhookSigning.WithoutSecretOrFlags(action.Type, action.Parameters ?? [], out unreadable);
 
     /// <summary>Deletes a workflow the way <c>DELETE /api/workflows/{id}</c> does, or says why it will not.</summary>
     private async Task<string?> DeleteAsync(WorkflowDefinition workflow, ClaimsPrincipal actor, CancellationToken ct)

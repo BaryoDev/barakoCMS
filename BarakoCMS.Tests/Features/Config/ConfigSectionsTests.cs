@@ -364,6 +364,104 @@ public class ConfigSectionsTests
         stored.Should().OnlyContain(a => !a.Parameters.ContainsKey("Secret"), "neither secret follows its position onto the other address");
     }
 
+    private static string Branch(string url, string? secret = null)
+    {
+        var parameters = new Dictionary<string, string> { ["Url"] = url };
+        if (secret is not null)
+        {
+            parameters["Secret"] = secret;
+        }
+
+        return JsonSerializer.Serialize(new[] { new { Type = "Webhook", Parameters = parameters } });
+    }
+
+    private static object Conditional(string thenActions) => new
+    {
+        type = "Conditional",
+        parameters = new Dictionary<string, string> { ["Condition"] = "{{status}} == Published", ["ThenActions"] = thenActions },
+    };
+
+    /// <summary>A tenant holding one workflow whose Conditional sends to a signed webhook in its Then branch.</summary>
+    private async Task<(string Tenant, string Name, HttpClient Client)> SignedConditionalAsync(string url)
+    {
+        var tenant = await _callers.TenantAsync();
+        var type = Unique("order");
+        var name = Unique("branch-");
+        await _callers.StoreInTenantAsync(tenant, Type(type, ("Title", "string")));
+        var client = await _callers.SuperAdminAsync(tenant);
+        await OkAsync(await client.PostAsJsonAsync("/api/workflows", new
+        {
+            name, triggerContentType = type, triggerEvent = "Created",
+            actions = new[] { Conditional(Branch(url, "whsec_" + Guid.NewGuid().ToString("N"))) },
+        }, Ct));
+        return (tenant, name, client);
+    }
+
+    private async Task<string> StoredThenActionsAsync(string tenant, string name) =>
+        (await StoredWorkflowAsync(tenant, name)).Actions.Single().Parameters["ThenActions"];
+
+    [Fact]
+    public async Task A_conditional_whose_child_holds_a_secret_round_trips_and_keeps_it()
+    {
+        var (tenant, name, client) = await SignedConditionalAsync("https://hooks.example.com/branch");
+        var before = await StoredThenActionsAsync(tenant, name);
+        before.Should().Contain("\"Secret\"", "the child's secret is stored, as ciphertext");
+        var (_, export) = await ExportAsync(client, "workflows");
+        export.GetProperty("workflows").ToString().Should().NotContain("Secret");
+
+        var (applied, plan) = await ApplyAsync(client, new { version = 1, workflows = export.GetProperty("workflows") });
+
+        applied.StatusCode.Should().Be(HttpStatusCode.OK, plan.ToString());
+        Changes(plan).Should().BeEmpty("nothing in the document differs from what is stored");
+        var (_, again) = await PlanAsync(client, new { version = 1, workflows = export.GetProperty("workflows") });
+        Changes(again).Should().BeEmpty();
+        (await StoredThenActionsAsync(tenant, name)).Should().Be(before, "an unchanged child keeps its stored secret");
+    }
+
+    [Fact]
+    public async Task A_conditional_whose_child_carries_a_secret_value_is_refused()
+    {
+        var tenant = await _callers.TenantAsync();
+        var type = Unique("order");
+        await _callers.StoreInTenantAsync(tenant, Type(type, ("Title", "string")));
+        var client = await _callers.SuperAdminAsync(tenant);
+        var name = Unique("leak-");
+        var document = new
+        {
+            version = 1,
+            workflows = new Dictionary<string, object>
+            {
+                [name] = new
+                {
+                    triggerContentTypes = new[] { type }, triggerEvents = new[] { "Created" },
+                    actions = new[] { Conditional(Branch("https://hooks.example.com/branch", "whsec-plain-in-a-file")) },
+                },
+            },
+        };
+
+        var (response, body) = await ApplyAsync(client, document);
+
+        response.IsSuccessStatusCode.Should().BeFalse();
+        body.ToString().Should().Contain("carries a credential").And.NotContain("whsec-plain-in-a-file");
+        (await _callers.InTenantAsync(tenant, s => s.Query<WorkflowDefinition>().AnyAsync(w => w.Name == name, Ct))).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_conditional_child_whose_url_changed_drops_its_secret_destructively()
+    {
+        var (tenant, name, client) = await SignedConditionalAsync("https://hooks.example.com/branch");
+        var workflows = await ExportedWorkflowsAsync(client);
+        workflows[name]["actions"] = JsonSerializer.SerializeToElement(new[] { Conditional(Branch("https://attacker.example.net/collect")) });
+        var document = new { version = 1, workflows };
+
+        var (_, plan) = await PlanAsync(client, document);
+        Changes(plan).Should().Equal($"workflows/{name} destructive");
+
+        (await ApplyAsync(client, document, allowDestructive: true)).Response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var stored = await StoredThenActionsAsync(tenant, name);
+        stored.Should().Contain("attacker.example.net").And.NotContain("Secret", "the child's secret is not carried to the new address");
+    }
+
     [Fact]
     public async Task Removing_a_rule_whose_type_another_tenant_also_has_says_so()
     {

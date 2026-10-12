@@ -661,7 +661,46 @@ internal static class WebhookSigning
     /// named here instead of returned.
     /// </param>
     public static Dictionary<string, string> WithoutSecret(
-        string? type, IReadOnlyDictionary<string, string> parameters, out List<string> unreadableBranches)
+        string? type, IReadOnlyDictionary<string, string> parameters, out List<string> unreadableBranches) =>
+        Redact(type, parameters, flags: true, out unreadableBranches);
+
+    /// <summary>
+    /// The same, without the flags a read response writes onto a child, and with any such flag that
+    /// was sent removed: the parameters as they compare between a stored action and one sent back.
+    /// </summary>
+    /// <remarks>
+    /// The response form cannot be compared with itself. A stored child holding a secret reads with
+    /// <c>SecretSet</c> true, and the same child sent back without its secret reads with it false.
+    /// </remarks>
+    public static Dictionary<string, string> WithoutSecretOrFlags(
+        string? type, IReadOnlyDictionary<string, string> parameters, out List<string> unreadableBranches) =>
+        Redact(type, parameters, flags: false, out unreadableBranches);
+
+    /// <summary>
+    /// Whether the parameters hold a credential value anywhere an action could read one: a
+    /// credential-named parameter that is not blank, or, on a Conditional, one on any child of any
+    /// branch, the child itself and its <c>Parameters</c> both, at every depth.
+    /// </summary>
+    /// <remarks>
+    /// The flags a read response writes onto a child are not credentials. A branch that is not
+    /// readable counts as holding one, since nothing can tell that it does not.
+    /// </remarks>
+    public static bool HasCredential(string? type, IReadOnlyDictionary<string, string> parameters)
+    {
+        var found = false;
+        Inspect(type, new Dictionary<string, string>(parameters));
+        return found;
+
+        bool Inspect(string? actionType, Dictionary<string, string> strings)
+        {
+            found |= strings.Any(p => IsSensitiveParameterName(p.Key) && !string.IsNullOrWhiteSpace(p.Value));
+            RewriteBranches(actionType, strings, Inspect, _ => found = true);
+            return false;
+        }
+    }
+
+    private static Dictionary<string, string> Redact(
+        string? type, IReadOnlyDictionary<string, string> parameters, bool flags, out List<string> unreadableBranches)
     {
         unreadableBranches = [];
 
@@ -673,7 +712,7 @@ internal static class WebhookSigning
             var json = copy[branch];
             if (string.IsNullOrWhiteSpace(json)) continue;
 
-            if (!TryRewriteBranch(json, WithoutChildSecrets, out var redacted))
+            if (!TryRewriteBranch(json, child => WithoutChildSecrets(child, flags), out var redacted))
             {
                 copy.Remove(branch);
                 unreadableBranches.Add(branch);
@@ -686,7 +725,7 @@ internal static class WebhookSigning
         return copy;
     }
 
-    private static bool WithoutChildSecrets(JsonObject child)
+    private static bool WithoutChildSecrets(JsonObject child, bool flags)
     {
         var nestsBranches = NestsBranches(child);
         var secretSet = false;
@@ -716,7 +755,7 @@ internal static class WebhookSigning
                 var json = StringOf(parameters[branch]);
                 if (string.IsNullOrWhiteSpace(json)) continue;
 
-                if (!TryRewriteBranch(json, WithoutChildSecrets, out var redacted))
+                if (!TryRewriteBranch(json, nested => WithoutChildSecrets(nested, flags), out var redacted))
                 {
                     parameters.Remove(branch);
                     unreadable.Add((JsonNode?)JsonValue.Create(branch));
@@ -726,6 +765,8 @@ internal static class WebhookSigning
                 if (redacted is not null) parameters[branch] = JsonValue.Create(redacted);
             }
         }
+
+        if (!flags) return true;
 
         child[ChildSecretSetProperty] = JsonValue.Create(secretSet);
         if (unreadable.Count > 0) child[ChildUnreadableBranchesProperty] = unreadable;
