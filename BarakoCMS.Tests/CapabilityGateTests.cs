@@ -971,6 +971,7 @@ public class CapabilityGateTests
         ("GET", $"/api/workflow-runs/{NotAGuid}", HttpStatusCode.BadRequest),
         ("POST", $"/api/workflow-runs/{NotAGuid}/actions/0/retry", HttpStatusCode.BadRequest),
         ("POST", $"/api/workflow-runs/{NotAGuid}/cancel", HttpStatusCode.BadRequest),
+        ("POST", $"/api/workflow-runs/{NotAGuid}/abandon", HttpStatusCode.BadRequest),
         ("POST", $"/api/contents/{NotAGuid}/rollback/{NotAGuid}", HttpStatusCode.BadRequest),
     ];
 
