@@ -1,0 +1,15 @@
+{
+  "arch": "amd64",
+  "metrics": {
+    "build_seconds": 112.5,
+    "image_uncompressed_mb": 439.6,
+    "image_compressed_mb": 120.7,
+    "memory_at_rest_mb": 233.7,
+    "delivery_list_p50_ms": 8.6,
+    "delivery_list_p95_ms": 10.3,
+    "delivery_slug_p50_ms": 6.7,
+    "delivery_slug_p95_ms": 11.1,
+    "delivery_site_p50_ms": 8.2,
+    "delivery_site_p95_ms": 11.4
+  }
+}
