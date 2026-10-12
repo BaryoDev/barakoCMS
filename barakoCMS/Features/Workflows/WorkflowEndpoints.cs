@@ -382,9 +382,9 @@ internal sealed class UpdateWorkflowEndpoint(
         }
 
         WebhookSigning.ProtectSecrets(workflow, protector);
-        foreach (var (index, name, value) in kept)
+        foreach (var (target, name, value) in kept)
         {
-            workflow.Actions[index].Parameters[name] = value;
+            target[name] = value;
         }
 
         workflow.Id = stored.Id;
@@ -419,59 +419,88 @@ internal sealed class UpdateWorkflowEndpoint(
     /// whose URL changed, or on a second webhook moved into the first one's place, it would sign
     /// requests to a destination nobody gave it to.
     /// </remarks>
-    private static (List<(int Index, string Name, string Value)> Kept, string? Refusal) StoredValuesToKeep(
+    private static (List<(Dictionary<string, string> Target, string Name, string Value)> Kept, string? Refusal) StoredValuesToKeep(
         WorkflowDefinition incoming, WorkflowDefinition stored)
     {
-        var kept = new List<(int, string, string)>();
-        for (var i = 0; i < incoming.Actions.Count && i < stored.Actions.Count; i++)
+        var kept = new List<(Dictionary<string, string>, string, string)>();
+        var storedActions = stored.Actions ?? [];
+        for (var i = 0; i < incoming.Actions.Count && i < storedActions.Count; i++)
         {
             var next = incoming.Actions[i];
-            var before = stored.Actions[i];
-            if (next is null || before is null
-                || !string.Equals(next.Type, before.Type, StringComparison.OrdinalIgnoreCase))
+            var before = storedActions[i];
+            if (next is null || before is null)
             {
                 continue;
             }
 
             next.Parameters ??= new Dictionary<string, string>();
-            var storedParameters = before.Parameters ?? [];
-            var shown = WebhookSigning.WithoutSecret(before.Type, storedParameters);
-            var unchanged = SameParameters(WebhookSigning.WithoutSecret(next.Parameters), shown);
+            var refusal = KeepFrom(next.Type, next.Parameters, before.Type, before.Parameters, $"actions[{i}]", kept);
 
-            foreach (var (name, value) in storedParameters)
+            // A compensation is shown with its credentials left out as an action is, and kept or
+            // refused on the same rule, against the compensation stored in the same position.
+            if (refusal is null && next.Compensate is { } undo && before.Compensate is { } storedUndo)
             {
-                if (!WebhookSigning.IsSensitiveParameterName(name)
-                    || next.Parameters.Keys.Any(k => string.Equals(k, name, StringComparison.OrdinalIgnoreCase)))
-                {
-                    continue;
-                }
-
-                if (!unchanged)
-                {
-                    return ([], $"actions[{i}] ({before.Type}) changed, so its {name} is not kept. "
-                        + "Send it again, or send it blank to clear it.");
-                }
-
-                kept.Add((i, name, value));
+                undo.Parameters ??= new Dictionary<string, string>();
+                refusal = KeepFrom(undo.Type, undo.Parameters, storedUndo.Type, storedUndo.Parameters,
+                    $"actions[{i}].compensate", kept);
             }
 
-            if (!unchanged)
+            if (refusal is not null)
             {
-                continue;
-            }
-
-            // A Conditional's branches are shown with their children's credentials left out, so an
-            // unchanged branch is put back as stored, credentials and all.
-            foreach (var (name, value) in shown)
-            {
-                if (storedParameters.TryGetValue(name, out var original) && original != value)
-                {
-                    kept.Add((i, name, original));
-                }
+                return ([], refusal);
             }
         }
 
         return (kept, null);
+    }
+
+    /// <summary>Adds what to keep of one stored parameter set, or returns why a credential cannot be kept.</summary>
+    private static string? KeepFrom(
+        string? type, Dictionary<string, string> sent, string? storedType, Dictionary<string, string>? storedParameters,
+        string where, List<(Dictionary<string, string>, string, string)> kept)
+    {
+        if (!string.Equals(type, storedType, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        storedParameters ??= [];
+        var shown = WebhookSigning.WithoutSecret(storedType, storedParameters);
+        var unchanged = SameParameters(WebhookSigning.WithoutSecret(sent), shown);
+
+        foreach (var (name, value) in storedParameters)
+        {
+            if (!WebhookSigning.IsSensitiveParameterName(name)
+                || sent.Keys.Any(k => string.Equals(k, name, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            if (!unchanged)
+            {
+                return $"{where} ({storedType}) changed, so its {name} is not kept. "
+                    + "Send it again, or send it blank to clear it.";
+            }
+
+            kept.Add((sent, name, value));
+        }
+
+        if (!unchanged)
+        {
+            return null;
+        }
+
+        // A Conditional's branches are shown with their children's credentials left out, so an
+        // unchanged branch is put back as stored, credentials and all.
+        foreach (var (name, value) in shown)
+        {
+            if (storedParameters.TryGetValue(name, out var original) && original != value)
+            {
+                kept.Add((sent, name, original));
+            }
+        }
+
+        return null;
     }
 
     private static bool SameParameters(Dictionary<string, string> sent, Dictionary<string, string> shown) =>

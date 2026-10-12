@@ -100,6 +100,23 @@ public class WorkflowOutputTests
     }
 
     [Fact]
+    public async Task An_entry_value_that_looks_like_an_output_reference_is_sent_as_text()
+    {
+        var contentId = await _harness.StoreContentAsync(new()
+        {
+            ["Message"] = "leak {{actions.0.reference}} {{actions.7.nothing}}",
+        });
+        var run = await DrainAsync(contentId,
+            Produces("reference"), Reads(new() { ["Body"] = "{{data.Message}} [{{actions.0.reference}}]" }));
+
+        run.Actions.Select(a => a.Status).Should().Equal(AttemptStatus.Succeeded, AttemptStatus.Succeeded);
+        var seen = RecordingRunnerAction.Seen[run.Actions[1].IdempotencyKey];
+        seen.Parameters["Body"].Should().Be(
+            $"leak {{{{actions.0.reference}}}} {{{{actions.7.nothing}}}} [ref-{run.Actions[0].IdempotencyKey}]",
+            "only a reference written in the workflow reads an output, never one an entry supplies");
+    }
+
+    [Fact]
     public async Task A_queued_run_copies_the_capture_list_and_the_run_endpoint_serves_the_outputs()
     {
         var admin = await _harness.AdminAsync();

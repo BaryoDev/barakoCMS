@@ -112,6 +112,40 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
             result.IsValid = false;
         }
 
+        ValidateTriggerEvents(workflow, result);
+        ValidateExecutor(workflow, result);
+
+        // Validate actions
+        if (workflow.Actions == null || workflow.Actions.Count == 0)
+        {
+            result.Errors.Add(new ValidationError
+            {
+                Field = "actions",
+                Message = "At least one action is required"
+            });
+            result.IsValid = false;
+        }
+        else
+        {
+            for (int i = 0; i < workflow.Actions.Count; i++)
+            {
+                ValidateActionAt(workflow.Actions[i], i, result);
+            }
+
+            var onTransition = WorkflowTriggers.Events(workflow).Any(WorkflowEvents.IsTransition);
+            for (int i = 0; i < workflow.Actions.Count; i++)
+            {
+                AddPlaceholderWarnings(workflow.Actions[i], $"actions[{i}]", onTransition, result, depth: 0);
+            }
+
+            AddOutputWarnings(workflow.Actions, result);
+        }
+
+        return result;
+    }
+
+    private void ValidateTriggerEvents(WorkflowDefinition workflow, WorkflowValidationResult result)
+    {
         // The same reading as the content types: TriggerEvent and TriggerEvents together name the
         // events, either one is enough, and a blank or unknown entry in the list is refused.
         var listedEvents = workflow.TriggerEvents ?? [];
@@ -157,7 +191,10 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
             });
             result.IsValid = false;
         }
+    }
 
+    private void ValidateExecutor(WorkflowDefinition workflow, WorkflowValidationResult result)
+    {
         if (!_executors.IsKnown(workflow.Executor))
         {
             result.Errors.Add(new ValidationError
@@ -167,34 +204,6 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
             });
             result.IsValid = false;
         }
-
-        // Validate actions
-        if (workflow.Actions == null || workflow.Actions.Count == 0)
-        {
-            result.Errors.Add(new ValidationError
-            {
-                Field = "actions",
-                Message = "At least one action is required"
-            });
-            result.IsValid = false;
-        }
-        else
-        {
-            for (int i = 0; i < workflow.Actions.Count; i++)
-            {
-                ValidateAction(workflow.Actions[i], i, result);
-            }
-
-            var onTransition = WorkflowTriggers.Events(workflow).Any(WorkflowEvents.IsTransition);
-            for (int i = 0; i < workflow.Actions.Count; i++)
-            {
-                AddPlaceholderWarnings(workflow.Actions[i], $"actions[{i}]", onTransition, result, depth: 0);
-            }
-
-            AddOutputWarnings(workflow.Actions, result);
-        }
-
-        return result;
     }
 
     /// <summary>
@@ -630,7 +639,47 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
         }
     }
 
-    private void ValidateAction(WorkflowAction action, int index, WorkflowValidationResult result)
+    private static void ValidateCapture(List<string>? capture, string fieldPrefix, WorkflowValidationResult result)
+    {
+        if (capture is null)
+        {
+            return;
+        }
+
+        if (capture.Count > ActionOutputs.MaxCaptured)
+        {
+            result.Errors.Add(new ValidationError
+            {
+                Field = $"{fieldPrefix}.capture",
+                Message = $"An action keeps at most {ActionOutputs.MaxCaptured} outputs"
+            });
+            result.IsValid = false;
+        }
+
+        for (var c = 0; c < capture.Count; c++)
+        {
+            if (!ActionOutputs.IsValidName(capture[c]))
+            {
+                result.Errors.Add(new ValidationError
+                {
+                    Field = $"{fieldPrefix}.capture[{c}]",
+                    Message = $"An output name is letters, digits and underscores, at most {ActionOutputs.MaxNameLength} characters"
+                });
+                result.IsValid = false;
+            }
+            else if (capture.IndexOf(capture[c]) < c)
+            {
+                result.Errors.Add(new ValidationError
+                {
+                    Field = $"{fieldPrefix}.capture[{c}]",
+                    Message = $"'{capture[c]}' is listed twice"
+                });
+                result.IsValid = false;
+            }
+        }
+    }
+
+    private void ValidateActionAt(WorkflowAction action, int index, WorkflowValidationResult result)
     {
         var fieldPrefix = $"actions[{index}]";
         ValidateAction(action, fieldPrefix, result);
@@ -659,7 +708,6 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
 
     private void ValidateAction(WorkflowAction action, string fieldPrefix, WorkflowValidationResult result)
     {
-
         // Check if action type is registered
         if (string.IsNullOrWhiteSpace(action.Type))
         {
@@ -697,40 +745,7 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
 
         RefuseChildPolicies(action, fieldPrefix, result);
 
-        if (action.Capture is { } capture)
-        {
-            if (capture.Count > ActionOutputs.MaxCaptured)
-            {
-                result.Errors.Add(new ValidationError
-                {
-                    Field = $"{fieldPrefix}.capture",
-                    Message = $"An action keeps at most {ActionOutputs.MaxCaptured} outputs"
-                });
-                result.IsValid = false;
-            }
-
-            for (var c = 0; c < capture.Count; c++)
-            {
-                if (!ActionOutputs.IsValidName(capture[c]))
-                {
-                    result.Errors.Add(new ValidationError
-                    {
-                        Field = $"{fieldPrefix}.capture[{c}]",
-                        Message = $"An output name is letters, digits and underscores, at most {ActionOutputs.MaxNameLength} characters"
-                    });
-                    result.IsValid = false;
-                }
-                else if (capture.IndexOf(capture[c]) < c)
-                {
-                    result.Errors.Add(new ValidationError
-                    {
-                        Field = $"{fieldPrefix}.capture[{c}]",
-                        Message = $"'{capture[c]}' is listed twice"
-                    });
-                    result.IsValid = false;
-                }
-            }
-        }
+        ValidateCapture(action.Capture, fieldPrefix, result);
 
         // A warning and not a refusal: a workflow saved before the cap must still save. The engine
         // sends a parameter past it as written, so the warning says so now rather than at the run.

@@ -253,6 +253,22 @@ public class WorkflowCompensationTests
         storedSecret.Should().NotContain("whsec_compensation_secret");
     }
 
+    [Fact]
+    public async Task A_run_that_finished_with_every_action_succeeded_is_not_abandoned()
+    {
+        var admin = await _harness.AdminAsync();
+        var workflowId = await _harness.StoreWorkflowAsync();
+        var contentId = await _harness.StoreContentAsync();
+
+        var finished = await _harness.SeedRunAsync(workflowId, contentId,
+            [Undone(WorkflowStopHarness.Finished(AttemptStatus.Succeeded), new() { ["Body"] = "undo" })]);
+        finished.Status.Should().Be(RunStatus.Succeeded);
+
+        var res = await admin.PostAsync($"/api/workflow-runs/{finished.Id}/abandon", null, Ct);
+        res.StatusCode.Should().Be(HttpStatusCode.Conflict, await res.Content.ReadAsStringAsync(Ct));
+        (await _harness.LoadRunAsync(finished.Id)).CompensationStartedAt.Should().BeNull();
+    }
+
     private static Task<HttpResponseMessage> SaveAsync(HttpClient client, object compensate) =>
         client.PostAsJsonAsync("/api/workflows", new
         {

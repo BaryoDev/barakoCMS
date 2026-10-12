@@ -212,19 +212,23 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
             TraceParent = barakoCMS.Infrastructure.Tracing.Correlation.Cause,
         };
 
-        for (var i = 0; i < workflow.Actions.Count; i++)
+        // A document stored or imported with no actions list, or an action with no parameters, is
+        // read as none, as null conditions are: throwing here would lose the run of every other
+        // workflow on the same event.
+        var actions = workflow.Actions ?? [];
+        for (var i = 0; i < actions.Count; i++)
         {
             run.Actions.Add(new WorkflowActionAttempt
             {
                 Ordinal = i,
-                ActionType = workflow.Actions[i].Type,
+                ActionType = actions[i].Type,
                 // Copied rather than referenced. A definition edited between queueing and
                 // running would otherwise change what a queued run sends, and the operator who
                 // edited it is not expecting to have rewritten yesterday's outbox.
-                Parameters = new Dictionary<string, string>(workflow.Actions[i].Parameters),
-                OnFailure = workflow.Actions[i].OnFailure ?? WorkflowFailurePolicy.Continue,
-                Capture = workflow.Actions[i].Capture is { } capture ? [.. capture] : [],
-                Compensate = workflow.Actions[i].Compensate is { } undo
+                Parameters = new Dictionary<string, string>(actions[i].Parameters ?? []),
+                OnFailure = actions[i].OnFailure ?? WorkflowFailurePolicy.Continue,
+                Capture = actions[i].Capture is { } capture ? [.. capture] : [],
+                Compensate = actions[i].Compensate is { } undo
                     ? new WorkflowCompensation { Type = undo.Type, Parameters = new Dictionary<string, string>(undo.Parameters ?? []) }
                     : null,
                 IdempotencyKey = $"{run.Id:N}-{i}",

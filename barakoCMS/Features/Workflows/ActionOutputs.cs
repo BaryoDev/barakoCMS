@@ -14,8 +14,9 @@ namespace barakoCMS.Features.Workflows;
 /// before the run is written. A provider's response is third-party data that can hold personal
 /// data or a credential, and the run is stored and served over the API.
 ///
-/// A reference is substituted after the action's templates are resolved, never before, so an output
-/// that holds <c>{{createdBy.email}}</c> is sent as that text and is not read as a placeholder.
+/// A reference is taken out of the template before the entry's placeholders are resolved and its
+/// output is put back after, so an output that holds <c>{{createdBy.email}}</c> is sent as that
+/// text, and so is an entry value that holds <c>{{actions.0.token}}</c>.
 /// </remarks>
 internal static partial class ActionOutputs
 {
@@ -98,8 +99,37 @@ internal static partial class ActionOutputs
     }
 
     /// <summary>
-    /// Replaces each <c>{{actions.N.name}}</c> in the resolved parameters with the kept output,
-    /// encoded for where the parameter goes.
+    /// Swaps each <c>{{actions.N.name}}</c> written in the workflow for a token only this resolve
+    /// knows, before the entry's placeholders are resolved.
+    /// </summary>
+    /// <remarks>
+    /// A reference is read from the template and never from what resolving it produced, so an entry
+    /// value holding <c>{{actions.0.token}}</c> is sent as that text and cannot pull in another
+    /// action's output. The token is letters, digits and underscores, which no encoding changes, and
+    /// carries a fresh random part, so an entry cannot write one either.
+    /// </remarks>
+    internal static (Dictionary<string, string> Masked, OutputSlots Slots) Mask(
+        string actionType, IReadOnlyDictionary<string, string> parameters)
+    {
+        var slots = new OutputSlots(Guid.NewGuid().ToString("N"));
+        var masked = new Dictionary<string, string>(parameters.Count);
+
+        foreach (var (key, value) in parameters)
+        {
+            masked[key] = string.IsNullOrEmpty(value) || ActionParameters.IsResolvedByTheAction(actionType, key)
+                ? value
+                : Reference().Replace(value, match => slots.Add(
+                    key,
+                    int.Parse(match.Groups["ordinal"].Value, CultureInfo.InvariantCulture),
+                    match.Groups["name"].Value));
+        }
+
+        return (masked, slots);
+    }
+
+    /// <summary>
+    /// Puts the kept output in place of each token <see cref="Mask"/> left, encoded for where the
+    /// parameter goes.
     /// </summary>
     /// <returns>Null when every reference was found, otherwise what is missing.</returns>
     /// <remarks>
@@ -107,36 +137,44 @@ internal static partial class ActionOutputs
     /// branches are JSON, and a value written into them could rewrite it.
     /// </remarks>
     internal static string? Substitute(
-        string actionType, Dictionary<string, string> parameters, IReadOnlyDictionary<int, IReadOnlyDictionary<string, string>> outputs)
+        string actionType, Dictionary<string, string> parameters, OutputSlots slots,
+        IReadOnlyDictionary<int, IReadOnlyDictionary<string, string>> outputs)
     {
         string? missing = null;
 
-        foreach (var key in parameters.Keys.ToList())
+        foreach (var (token, key, ordinal, name) in slots.All)
         {
-            var value = parameters[key];
-            if (string.IsNullOrEmpty(value) || ActionParameters.IsResolvedByTheAction(actionType, key))
+            if (!parameters.TryGetValue(key, out var value) || string.IsNullOrEmpty(value))
             {
                 continue;
             }
 
-            var encoding = ActionParameters.EncodingFor(actionType, key);
-
-            parameters[key] = Reference().Replace(value, match =>
+            if (outputs.TryGetValue(ordinal, out var kept) && kept.TryGetValue(name, out var output))
             {
-                var ordinal = int.Parse(match.Groups["ordinal"].Value, CultureInfo.InvariantCulture);
-                var name = match.Groups["name"].Value;
+                parameters[key] = value.Replace(token, TemplateVariableExtractor.Encode(output, ActionParameters.EncodingFor(actionType, key)), StringComparison.Ordinal);
+                continue;
+            }
 
-                if (outputs.TryGetValue(ordinal, out var kept) && kept.TryGetValue(name, out var output))
-                {
-                    return TemplateVariableExtractor.Encode(output, encoding);
-                }
-
-                missing ??= $"Parameter '{key}' reads {{{{actions.{ordinal}.{name}}}}}, and action {ordinal} has not "
-                          + "succeeded with that output captured. It is tried again once it has.";
-                return match.Value;
-            });
+            missing ??= $"Parameter '{key}' reads {{{{actions.{ordinal}.{name}}}}}, and action {ordinal} has not "
+                      + "succeeded with that output captured. It is tried again once it has.";
+            parameters[key] = value.Replace(token, $"{{{{actions.{ordinal}.{name}}}}}", StringComparison.Ordinal);
         }
 
         return missing;
+    }
+}
+
+/// <summary>The output references <see cref="ActionOutputs.Mask"/> took out of one action's parameters.</summary>
+internal sealed class OutputSlots(string nonce)
+{
+    private readonly List<(string Token, string Key, int Ordinal, string Name)> _slots = [];
+
+    internal IReadOnlyList<(string Token, string Key, int Ordinal, string Name)> All => _slots;
+
+    internal string Add(string key, int ordinal, string name)
+    {
+        var token = $"__barako_output_{nonce}_{_slots.Count}__";
+        _slots.Add((token, key, ordinal, name));
+        return token;
     }
 }

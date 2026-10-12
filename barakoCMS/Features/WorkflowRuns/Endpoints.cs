@@ -308,40 +308,9 @@ internal sealed class RetryAttemptEndpoint(
             return;
         }
 
-        // Refused for the whole run, not only its cancelled actions. The runner starts nothing on a
-        // run that was stopped, so an attempt queued here would be cancelled again at the next
-        // claim, and the workflow behind it may be switched off or gone.
-        if (run.CancelledAt is not null)
+        if (Refusal(run, attempt) is { } refusal)
         {
-            ThrowError("That run was cancelled, and a cancelled run is not started again.", 409);
-            return;
-        }
-
-        if (attempt.Status == AttemptStatus.Succeeded)
-        {
-            ThrowError("That action already succeeded. Retrying it would send it a second time.", 409);
-            return;
-        }
-
-        // Going forward again would redo what the rollback is undoing.
-        if (run.CompensationStartedAt is not null)
-        {
-            ThrowError("That run is being rolled back, or was, so its actions are not run again.", 409);
-            return;
-        }
-
-        if (attempt.Status == AttemptStatus.Running && attempt.LeaseExpiresAt > DateTimeOffset.UtcNow)
-        {
-            ThrowError("That action is running now. Wait for it to finish or for its lease to expire.", 409);
-            return;
-        }
-
-        if (attempt.Status == AttemptStatus.Skipped && attempt.HaltedBy is { } haltedBy)
-        {
-            ThrowError(
-                $"That action was skipped because action {haltedBy} failed and is set to halt the run. "
-              + "Retry that action, and this one runs after it.",
-                409);
+            ThrowError(refusal, 409);
             return;
         }
 
@@ -439,6 +408,24 @@ internal sealed class RetryAttemptEndpoint(
 
         await Send.ResponseAsync(RunResponse.From(run), cancellation: ct);
     }
+
+    /// <summary>Why this attempt of the run cannot be retried as it stands, or null when it can.</summary>
+    /// <remarks>
+    /// A cancelled run is refused as a whole, not only its cancelled actions. The runner starts
+    /// nothing on a run that was stopped, so an attempt queued here would be cancelled again at the
+    /// next claim, and the workflow behind it may be switched off or gone. A run being rolled back
+    /// is refused because going forward again would redo what the rollback is undoing.
+    /// </remarks>
+    private static string? Refusal(WorkflowRun run, WorkflowActionAttempt attempt) =>
+        run.CancelledAt is not null ? "That run was cancelled, and a cancelled run is not started again."
+        : attempt.Status == AttemptStatus.Succeeded ? "That action already succeeded. Retrying it would send it a second time."
+        : run.CompensationStartedAt is not null ? "That run is being rolled back, or was, so its actions are not run again."
+        : attempt.Status == AttemptStatus.Running && attempt.LeaseExpiresAt > DateTimeOffset.UtcNow
+            ? "That action is running now. Wait for it to finish or for its lease to expire."
+        : attempt.Status == AttemptStatus.Skipped && attempt.HaltedBy is { } haltedBy
+            ? $"That action was skipped because action {haltedBy} failed and is set to halt the run. "
+              + "Retry that action, and this one runs after it."
+        : null;
 }
 
 /// <summary>
@@ -539,9 +526,9 @@ internal sealed class CancelRunEndpoint(
 /// compensation is reported as not undone, and the run then reads Incomplete.
 ///
 /// Refused while an action is in flight under a live lease, since the run cannot be undone around
-/// a request that may still arrive; for a run already stopped or already rolled back; and for a
-/// workflow that is switched off or deleted, the same as a retry, because a compensation is an
-/// action that goes out.
+/// a request that may still arrive; for a run already stopped, already rolled back, or finished
+/// with every action succeeded; and for a workflow that is switched off or deleted, the same as a
+/// retry, because a compensation is an action that goes out.
 /// </remarks>
 internal sealed class AbandonRunEndpoint(
     IDocumentSession session,
@@ -569,28 +556,10 @@ internal sealed class AbandonRunEndpoint(
             return;
         }
 
-        if (run.CompensationStartedAt is not null)
-        {
-            ThrowError("That run is already being rolled back, or was.", 409);
-            return;
-        }
-
-        if (run.CancelledAt is not null)
-        {
-            ThrowError("That run was cancelled, and a cancelled run is not started again.", 409);
-            return;
-        }
-
         var now = DateTimeOffset.UtcNow;
-        if (run.Actions.Any(a => a.Status == AttemptStatus.Running && a.LeaseExpiresAt > now))
+        if (Refusal(run, now) is { } refusal)
         {
-            ThrowError("An action of that run is running now. Wait for it to finish or for its lease to expire.", 409);
-            return;
-        }
-
-        if (!run.Actions.Any(a => a.Status == AttemptStatus.Succeeded))
-        {
-            ThrowError("Nothing in that run succeeded, so there is nothing to undo. Cancel it instead.", 409);
+            ThrowError(refusal, 409);
             return;
         }
 
@@ -624,16 +593,7 @@ internal sealed class AbandonRunEndpoint(
         run.Recompute();
         session.Update(run);
 
-        var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
-        await AuditLog.RecordAsync(session, tenant.Slug, "workflow.run.abandoned", actorId,
-            User.FindFirst("Username")?.Value,
-            targetType: nameof(WorkflowRun), targetId: run.Id.ToString(),
-            metadata: new Dictionary<string, object>
-            {
-                ["workflow"] = run.WorkflowName,
-                ["compensations"] = queued,
-                ["notDeclared"] = run.Actions.Count(a => a.Compensation?.Status == CompensationStatus.NotDeclared),
-            }, ct: ct);
+        await RecordAsync(run, queued, ct);
 
         try
         {
@@ -647,5 +607,34 @@ internal sealed class AbandonRunEndpoint(
         }
 
         await Send.ResponseAsync(RunResponse.From(run), cancellation: ct);
+    }
+
+    /// <summary>Why the run cannot be abandoned as it stands, or null when it can.</summary>
+    /// <remarks>
+    /// A run that finished with every action succeeded was meant to finish, and undoing it weeks
+    /// later is not what abandoning is for.
+    /// </remarks>
+    private static string? Refusal(WorkflowRun run, DateTimeOffset now) =>
+        run.CompensationStartedAt is not null ? "That run is already being rolled back, or was."
+        : run.CancelledAt is not null ? "That run was cancelled, and a cancelled run is not started again."
+        : run.Status == RunStatus.Succeeded ? "That run finished and every action of it succeeded, so it is not abandoned."
+        : run.Actions.Any(a => a.Status == AttemptStatus.Running && a.LeaseExpiresAt > now)
+            ? "An action of that run is running now. Wait for it to finish or for its lease to expire."
+        : !run.Actions.Any(a => a.Status == AttemptStatus.Succeeded)
+            ? "Nothing in that run succeeded, so there is nothing to undo. Cancel it instead."
+        : null;
+
+    private Task RecordAsync(WorkflowRun run, int queued, CancellationToken ct)
+    {
+        var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
+        return AuditLog.RecordAsync(session, tenant.Slug, "workflow.run.abandoned", actorId,
+            User.FindFirst("Username")?.Value,
+            targetType: nameof(WorkflowRun), targetId: run.Id.ToString(),
+            metadata: new Dictionary<string, object>
+            {
+                ["workflow"] = run.WorkflowName,
+                ["compensations"] = queued,
+                ["notDeclared"] = run.Actions.Count(a => a.Compensation?.Status == CompensationStatus.NotDeclared),
+            }, ct: ct);
     }
 }

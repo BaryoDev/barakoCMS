@@ -170,6 +170,37 @@ public class WorkflowNullConditionsTests
         }
     }
 
+    [Fact]
+    public async Task A_workflow_stored_with_null_actions_or_parameters_does_not_stop_the_others_being_queued()
+    {
+        var contentType = WorkflowStopHarness.NewName("post");
+        var noActions = await StoreForAsync(contentType, w => w.Actions = null!);
+        var noParameters = await StoreForAsync(contentType, w => w.Actions =
+            [new WorkflowAction { Type = WorkflowStopHarness.Counting, Parameters = null! }]);
+
+        try
+        {
+            var plain = await StoreForAsync(contentType, _ => { });
+
+            (await EnqueueAsync(Entry(Guid.NewGuid(), contentType, new Dictionary<string, object>()))).Should().Be(3);
+
+            (await _harness.RunsOfAsync(plain)).Should().HaveCount(1, "the twin is queued");
+            var empty = await _harness.RunsOfAsync(noActions);
+            empty.Should().HaveCount(1);
+            empty[0].Actions.Should().BeEmpty("no actions list is read as none");
+            var bare = await _harness.RunsOfAsync(noParameters);
+            bare.Should().HaveCount(1);
+            bare[0].Actions.Should().ContainSingle().Which.Parameters.Should().NotBeNull().And.BeEmpty();
+        }
+        finally
+        {
+            await using var session = _harness.Store.LightweightSession();
+            session.Delete<WorkflowDefinition>(noActions);
+            session.Delete<WorkflowDefinition>(noParameters);
+            await session.SaveChangesAsync(Ct);
+        }
+    }
+
     private Task<Guid> StoreForAsync(string contentType, Action<WorkflowDefinition> shape) =>
         _harness.StoreWorkflowAsync(w =>
         {

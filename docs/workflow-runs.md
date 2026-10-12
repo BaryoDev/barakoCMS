@@ -260,7 +260,8 @@ letters, digits and underscores, and a value longer than 2000 characters is not 
 `error` says which.
 
 A kept output is substituted after the action's own placeholders are resolved, encoded the way the
-parameter it lands in is encoded, and it is never read as a placeholder itself. It is read only as
+parameter it lands in is encoded, and it is never read as a placeholder itself. Only a reference
+written in the workflow is read: an entry value that holds `{{actions.0.name}}` is sent as that text. It is read only as
 it is: a format such as `| upper` is not applied. It is not read inside a `Conditional`'s branches.
 
 When the output is not there, because the earlier action has not succeeded or does not capture that
@@ -302,8 +303,8 @@ declares nothing that undoes it. The run carries `compensation`: `Compensating` 
 or in flight, `Compensated` when every action that succeeded was undone, and `Incomplete` when any
 was not, so a run that is half applied says so. A run being rolled back reads `Running`, and its
 actions cannot be retried. Cancelling it stops the compensations that have not started, and leaves
-it `Incomplete`. Abandon is refused with 409 for a run nothing of which succeeded, while an action is
-in flight, for a run already rolled back or cancelled, and for a workflow switched off or deleted.
+it `Incomplete`. Abandon is refused with 409 for a run nothing of which succeeded, for one that finished
+with every action succeeded, while an action is in flight, for a run already rolled back or cancelled, and for a workflow switched off or deleted.
 
 The obsolete `IWorkflowEngine` path does not compensate.
 
@@ -338,7 +339,9 @@ keeps its stored credentials (`Secret`, `ApiKey`, a password, a token), and an u
 Conditional keeps its children's too. A credential stays with the destination it was given for, so
 an action that changed (a new URL, or another action moved into its place) and leaves a credential
 out is refused with a 400 naming it: send it again, or send it blank to clear it. A changed
-Conditional branch is taken as sent. Runs already queued keep the actions they were queued with.
+Conditional branch is taken as sent. An action's `compensate` is kept or refused on the same rule,
+against the compensation stored in the same position. Runs already queued keep the actions they were
+queued with.
 
 ## Stopping a workflow or a run
 
