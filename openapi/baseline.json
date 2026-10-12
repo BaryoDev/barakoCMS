@@ -4433,6 +4433,10 @@
           "description": {
             "type": "string"
           },
+          "isPlatform": {
+            "description": "Make a platform role every tenant shares, rather than a role of the caller's tenant. Needs the\nmanage_platform_roles capability.",
+            "type": "boolean"
+          },
           "name": {
             "type": "string"
           },
@@ -4517,6 +4521,10 @@
             "format": "guid",
             "type": "string"
           },
+          "isPlatform": {
+            "description": "A role every tenant shares. Changing it needs manage_platform_roles.",
+            "type": "boolean"
+          },
           "isSystem": {
             "description": "Whether the server refuses to delete this role. Not stored, derived per request.",
             "type": "boolean"
@@ -4538,6 +4546,11 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "tenantSlug": {
+            "description": "The tenant that owns the role, or null for a platform role.",
+            "nullable": true,
+            "type": "string"
           }
         },
         "type": "object"
@@ -5237,13 +5250,58 @@
             "type": "string"
           },
           "isActive": {
+            "description": "True when Status is Active. Kept for clients written before it.",
             "type": "boolean"
           },
           "name": {
             "type": "string"
           },
+          "signIn": {
+            "$ref": "#/components/schemas/BarakoCMSFeaturesTenantsTenantSignInBody"
+          },
+          "signUp": {
+            "$ref": "#/components/schemas/BarakoCMSModelsTenantSignUp"
+          },
+          "signUpRoleId": {
+            "format": "guid",
+            "nullable": true,
+            "type": "string"
+          },
           "slug": {
             "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/BarakoCMSModelsTenantStatus"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesTenantsTenantSignInBody": {
+        "additionalProperties": false,
+        "description": "A tenant's sign-in rules as the API reads and writes them. See TenantSignInPolicy.",
+        "properties": {
+          "methods": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "mfaRoleIds": {
+            "items": {
+              "format": "guid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "requireMfa": {
+            "type": "boolean"
+          },
+          "sessionMinutes": {
+            "format": "int32",
+            "maximum": 10080.0,
+            "minimum": 5.0,
+            "nullable": true,
+            "type": "integer"
           }
         },
         "type": "object"
@@ -5272,6 +5330,8 @@
             "type": "string"
           },
           "isActive": {
+            "description": "The flag clients sent before Status: true is Active, false Suspended.",
+            "nullable": true,
             "type": "boolean"
           },
           "location": {
@@ -5289,9 +5349,42 @@
           "name": {
             "type": "string"
           },
+          "signIn": {
+            "description": "The tenant's sign-in rules, replaced whole. Null on an update leaves them as they are.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesTenantsTenantSignInBody"
+              }
+            ]
+          },
+          "signUp": {
+            "description": "Who may join by signing up. Null on an update leaves the policy, and its role, as they are.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsTenantSignUp"
+              }
+            ]
+          },
+          "signUpRoleId": {
+            "description": "The role an Open sign-up gives. Required with Open, refused with anything else.",
+            "format": "guid",
+            "nullable": true,
+            "type": "string"
+          },
           "socialHandle": {
             "nullable": true,
             "type": "string"
+          },
+          "status": {
+            "description": "Whether the tenant is served. Leaving it and IsActive out makes it Active, as\nbefore, also on an update: a write that sends only other fields reactivates a suspended\ntenant, so send the current status to keep it.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsTenantStatus"
+              }
+            ]
           }
         },
         "type": "object"
@@ -8821,6 +8914,36 @@
         },
         "type": "object"
       },
+      "BarakoCMSModelsTenantSignUp": {
+        "description": "Who may join a tenant through registration, social sign-in or an invitation.",
+        "enum": [
+          "NotSet",
+          "Closed",
+          "InviteOnly",
+          "Open"
+        ],
+        "type": "string",
+        "x-enumNames": [
+          "NotSet",
+          "Closed",
+          "InviteOnly",
+          "Open"
+        ]
+      },
+      "BarakoCMSModelsTenantStatus": {
+        "description": "Whether a tenant is served.",
+        "enum": [
+          "Active",
+          "Suspended",
+          "Archived"
+        ],
+        "type": "string",
+        "x-enumNames": [
+          "Active",
+          "Suspended",
+          "Archived"
+        ]
+      },
       "BarakoCMSModelsUniquenessRule": {
         "additionalProperties": false,
         "description": "One set of fields whose values, taken together, only one entry of a type may hold.",
@@ -10864,6 +10987,7 @@
     },
     "/api/auth/otp/request": {
       "post": {
+        "description": "A tenant that does not allow sign-in codes answers 403 to everybody, before any address is read.\nThe code a password sign-in sends to approve a new device does not come through here, so it\nstill works on such a tenant.",
         "operationId": "barakoCMSFeaturesAuthOtpRequestEndpoint",
         "requestBody": {
           "content": {
@@ -10989,7 +11113,7 @@
     },
     "/api/auth/register": {
       "post": {
-        "description": "The account appears at /api/auth/register/verify, when the address named here hands back\nthe token that was emailed to it. Until then there is no user document, so there is nothing to\nsign in to, nothing holding the username, and nothing for an external provider to match against.\nThe third of those is why this is a security fix rather than a spam control. External sign-in\njoins a provider's verified email to a local account by address alone (see\nSocialSignIn.IssueAsync, which refuses any provider that has not asserted the address is\nverified). Writing an arbitrary unproven address into User.Email undid that from the other\nside: register as somebody else's address, wait for them to sign in with Google, and the provider\nputs them into the account you control. Refusing to sign in until verified would not have closed\nit, because that path never checks a password or a flag on the way in. Only the absence of the\nrow closes it. See DECISIONS.md D10.\nEverything below answers identically whether or not the address is already registered. The one\ndifference a caller can see is the password policy, which is about their own input and discloses\nnothing about anybody else.",
+        "description": "The account appears at /api/auth/register/verify, when the address named here hands back\nthe token that was emailed to it. Until then there is no user document, so there is nothing to\nsign in to, nothing holding the username, and nothing for an external provider to match against.\nThe third of those is why this is a security fix rather than a spam control. External sign-in\njoins a provider's verified email to a local account by address alone (see\nSocialSignIn.IssueAsync, which refuses any provider that has not asserted the address is\nverified). Writing an arbitrary unproven address into User.Email undid that from the other\nside: register as somebody else's address, wait for them to sign in with Google, and the provider\nputs them into the account you control. Refusing to sign in until verified would not have closed\nit, because that path never checks a password or a flag on the way in. Only the absence of the\nrow closes it. See DECISIONS.md D10.\nEverything below answers identically whether or not the address is already registered. The one\ndifference a caller can see is the password policy, which is about their own input and discloses\nnothing about anybody else.\nThe resolved tenant's sign-up policy is read first (SignUpPolicy).\nA tenant that takes no sign-ups answers 403 to everybody, which says something about the tenant\nand nothing about any address. An Open tenant's registration joins it with the policy's role and\ngets no global role; anywhere else the account gets the global User role, as before.",
         "operationId": "barakoCMSFeaturesAuthRegisterEndpoint",
         "requestBody": {
           "content": {
@@ -16573,6 +16697,7 @@
             "JWTBearerAuth": []
           }
         ],
+        "summary": "GET /api/roles: the caller's tenant's roles and the platform roles, or every role for a platform caller.",
         "tags": [
           "Roles"
         ]
@@ -17746,7 +17871,7 @@
             "JWTBearerAuth": []
           }
         ],
-        "summary": "PUT /api/tenants/{handle}: update a tenant's name, domains and active flag (platform admin).",
+        "summary": "PUT /api/tenants/{handle}: update a tenant's name, domains and status (platform admin).",
         "tags": [
           "Tenants"
         ]
