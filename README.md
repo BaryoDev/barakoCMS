@@ -139,6 +139,8 @@ project, through the same `IBarakoModule` contract you can implement yourself.
 | **Pages** | [`BarakoCMS.Pages`](https://www.nuget.org/packages/BarakoCMS.Pages) | A **page tree** over a content type: refuses parent loops, over-deep pages and reserved top-level slugs, and serves the nested menu, path resolution with breadcrumbs, and a drafts-included tree for the console. |
 | **Pwa** | [`BarakoCMS.Pwa`](https://www.nuget.org/packages/BarakoCMS.Pwa) | Tracks PWA installs / installed-app launches (anonymous or tied to the signed-in user) so the admin shows **who** installed the app. |
 | **AI** | [`BarakoCMS.AI`](https://www.nuget.org/packages/BarakoCMS.AI) | **Semantic search** over published content using a self-hosted embedding model ([Ollama](https://ollama.com) by default), with no third-party API key. Indexes only public fields; results are re-checked as published + public at query time. |
+| **Secrets.Aws** | [`BarakoCMS.Secrets.Aws`](https://www.nuget.org/packages/BarakoCMS.Secrets.Aws) | Reads `JWT:Key`, `Secrets:Key` and other keys and credentials from AWS Secrets Manager at startup, as the instance's role. A configuration source, not a module. |
+| **Secrets.Gcp** | [`BarakoCMS.Secrets.Gcp`](https://www.nuget.org/packages/BarakoCMS.Secrets.Gcp) | The same from Google Secret Manager, as the instance's service account. |
 
 Reference the packages you want and register the CMS. `AddBarakoCMS` finds every module in the
 application's dependency context, so adding one is `dotnet add package` and a restart:

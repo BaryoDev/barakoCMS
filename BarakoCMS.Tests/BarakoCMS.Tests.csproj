@@ -42,6 +42,7 @@
     <ProjectReference Include="..\BarakoCMS.Pages\BarakoCMS.Pages.csproj" />
     <ProjectReference Include="..\BarakoCMS.Forms\BarakoCMS.Forms.csproj" />
     <ProjectReference Include="..\BarakoCMS.Secrets.Aws\BarakoCMS.Secrets.Aws.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Secrets.Gcp\BarakoCMS.Secrets.Gcp.csproj" />
     <ProjectReference Include="..\BarakoCMS.FeatureFlags\BarakoCMS.FeatureFlags.csproj" />
     <ProjectReference Include="..\BarakoCMS.Email.Resend\BarakoCMS.Email.Resend.csproj" />
     <!-- The SMTP module registers a provider only when a host is configured, and it is the

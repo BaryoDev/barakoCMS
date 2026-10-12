@@ -36,6 +36,10 @@
     <!-- BarakoCMS.Secrets.Aws (#785). The 3.7 line, not 4.x: AWSSDK.S3 above is 3.7, both need the
          same AWSSDK.Core, and the Suite carries both modules. They move to 4.x together. -->
     <PackageVersion Include="AWSSDK.SecretsManager" Version="3.7.504.43" />
+    <!-- BarakoCMS.Secrets.Gcp (#785). Apache-2.0. Brings the gRPC client stack and Google's
+         application default credentials, which is how it authenticates as the instance's service
+         account without a stored key. -->
+    <PackageVersion Include="Google.Cloud.SecretManager.V1" Version="2.8.0" />
     <PackageVersion Include="Talaan" Version="0.2.0" />
   </ItemGroup>
 

@@ -102,6 +102,12 @@ When deploying BarakoCMS:
   `Secrets:Key`, or the API refuses to start. Rotating it makes stored connector credentials
   undecryptable, so they have to be entered again.
 - Enable MFA on admin accounts. Every sign-in path (password, email code, social) honors it.
+- Keep those keys out of the environment of the machine that holds the database. With
+  `BarakoCMS.Secrets.Aws` or `BarakoCMS.Secrets.Gcp`, both in the published image, the host reads
+  `JWT:Key`, `Secrets:Key`, `Connectors:Key`, `Mfa:Key` and module credentials from AWS Secrets
+  Manager or Google Secret Manager at startup, as the instance's own role or service account, and
+  refuses to start when a mapped secret cannot be read. Loading a key from a vault does not make
+  rotating it any safer: the warnings above still apply.
 
 ## Known advisories we accept
 
