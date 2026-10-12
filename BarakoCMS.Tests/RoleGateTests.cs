@@ -160,6 +160,7 @@ public class RoleGateTests
         new("POST", "/api/workflows/dry-run", "/api/workflows/dry-run"),
         new("POST", "/api/email-templates/{id}/preview", $"/api/email-templates/{NotASlug}/preview"),
         new("GET", "/api/workflows/{id}/debug", $"/api/workflows/{NotAGuid}/debug"),
+        new("PUT", "/api/workflows/{id}", $"/api/workflows/{NotAGuid}"),
         new("PUT", "/api/workflows/{id}/enabled", $"/api/workflows/{NotAGuid}/enabled"),
         new("DELETE", "/api/workflows/{id}", $"/api/workflows/{NotAGuid}"),
     ];
