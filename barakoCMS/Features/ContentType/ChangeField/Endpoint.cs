@@ -12,8 +12,9 @@ namespace barakoCMS.Features.ContentType.ChangeField;
 /// already hold entries, and says what kind of change it was.
 /// </summary>
 /// <remarks>
-/// A label is additive: it touches no entry and is applied at once (200). A rename touches every
-/// entry, so it is a <see cref="FieldChange"/> applied by a job (202), whose progress
+/// A label is additive: it touches no entry and is applied at once (200). A rename, a convert (a
+/// new type, with a mapping for the stored values) and a remove touch every entry, so each is a
+/// <see cref="FieldChange"/> applied by a job (202), whose progress
 /// <c>GET /api/content-types/field-changes/{id}</c> reports and which
 /// <c>POST /api/content-types/field-changes/{id}/resume</c> runs again after it stopped.
 ///
@@ -21,6 +22,10 @@ namespace barakoCMS.Features.ContentType.ChangeField;
 /// new name first, then renames the field, then drops the old key. Entry writes to the type are
 /// refused until it completes, so no write lands between two batches in a shape the job has
 /// already passed. One change at a time per type.
+///
+/// A change that drops stored values is destructive: a remove always, and a convert when some value
+/// neither maps to nor reads as a value of the new type. It is refused unless the request says
+/// <c>allowDestructive</c>, and the refusal names how many entries hold a value it would drop.
 /// </remarks>
 internal sealed class Endpoint(
     IDocumentSession session,
@@ -54,6 +59,12 @@ internal sealed class Endpoint(
         if (req.NewName is not null)
         {
             await RenameAsync(definition, field, req.NewName.Trim(), ct);
+            return;
+        }
+
+        if (req.Remove || req.ToType is not null)
+        {
+            await ReshapeAsync(definition, field, req, ct);
             return;
         }
 
@@ -106,6 +117,75 @@ internal sealed class Endpoint(
         await Send.ResponseAsync(new Response { Classification = "rename", Change = FieldChangeResponse.From(change) }, 202, ct);
     }
 
+    /// <summary>A convert or a remove: refused while the type's rules name the field, and when it drops values, unless allowed.</summary>
+    private async Task ReshapeAsync(ContentTypeDefinition definition, FieldDefinition field, Request req, CancellationToken ct)
+    {
+        if (barakoCMS.Core.Validation.FieldNames.NamedBy(definition, field.Name) is { Count: > 0 } named)
+        {
+            AddError($"'{field.Name}' is named by {string.Join(", ", named)}. Take it out of them first.");
+            ThrowIfAnyErrors();
+        }
+
+        var change = new FieldChange
+        {
+            ContentType = definition.Name,
+            Field = field.Name,
+            Kind = req.Remove ? FieldChangeKind.Remove : FieldChangeKind.Convert,
+            ToType = req.ToType?.Trim().ToLowerInvariant(),
+            Options = req.Options,
+            Mapping = req.Mapping,
+            RequestedBy = ActorId(),
+        };
+
+        if (change.Kind == FieldChangeKind.Convert)
+        {
+            ConvertErrors(definition, field, change);
+        }
+
+        change.ValuesLost = await ChangeFieldValues.LostAsync(session, definition, change, ct);
+        var destructive = change.Kind == FieldChangeKind.Remove || change.ValuesLost > 0;
+        if (destructive && !req.AllowDestructive)
+        {
+            var what = change.Kind == FieldChangeKind.Remove ? $"Removing '{field.Name}'" : $"Converting '{field.Name}' to {change.ToType}";
+            AddError($"{what} drops the value {change.ValuesLost} {(change.ValuesLost == 1 ? "entry holds" : "entries hold")}. "
+                + "Resend with allowDestructive set to true to go ahead.");
+            ThrowIfAnyErrors();
+        }
+
+        var classification = destructive ? "destructive" : "convert";
+        await FieldChanges.StartAsync(session, change, ct);
+        await AuditAsync(definition, field.Name, classification, change, ct);
+        await session.SaveChangesAsync(ct);
+        await Send.ResponseAsync(new Response { Classification = classification, Change = FieldChangeResponse.From(change) }, 202, ct);
+    }
+
+    /// <summary>Refuses a convert the field or its target cannot take, through the validator create runs.</summary>
+    private void ConvertErrors(ContentTypeDefinition definition, FieldDefinition field, FieldChange change)
+    {
+        if (!barakoCMS.Core.Validation.FieldConversion.Targets.Contains(change.ToType!))
+        {
+            AddError($"A field converts to one of {string.Join(", ", barakoCMS.Core.Validation.FieldConversion.Targets)}.");
+        }
+        else if (!barakoCMS.Core.Validation.FieldConversion.Sources.Contains(field.Type.ToLowerInvariant()) || field.Multiple)
+        {
+            AddError($"'{field.Name}' is a {field.Type}{(field.Multiple ? " holding a list" : string.Empty)}, which does not convert. "
+                + "A field holding one plain value does.");
+        }
+        else
+        {
+            var target = new FieldDefinition { Name = field.Name, DisplayName = field.DisplayName, Sensitivity = field.Sensitivity };
+            barakoCMS.Core.Validation.FieldConversion.Retype(target, change);
+            var fields = definition.Fields.Select(f => f == field ? target : f).ToList();
+            var (valid, errors) = validator.Validate(definition.Name, definition.DisplayName, fields, definition.Fields);
+            foreach (var error in valid ? [] : errors.Where(e => e.Contains($"'{field.Name}'", StringComparison.OrdinalIgnoreCase)))
+            {
+                AddError(error);
+            }
+        }
+
+        ThrowIfAnyErrors();
+    }
+
     private Guid ActorId() => Guid.TryParse(User.FindFirst("UserId")?.Value, out var id) ? id : Guid.Empty;
 
     private Task AuditAsync(ContentTypeDefinition definition, string field, string classification, FieldChange? change, CancellationToken ct)
@@ -118,6 +198,16 @@ internal sealed class Endpoint(
             if (change.NewName is not null)
             {
                 metadata["newName"] = change.NewName;
+            }
+
+            if (change.ToType is not null)
+            {
+                metadata["toType"] = change.ToType;
+            }
+
+            if (change.Kind is FieldChangeKind.Remove or FieldChangeKind.Convert)
+            {
+                metadata["valuesLost"] = change.ValuesLost;
             }
         }
 

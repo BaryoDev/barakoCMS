@@ -166,6 +166,110 @@ public class ChangeFieldTests : IAsyncLifetime
         (await ChangeAsync(NewName(), "Doctor", new { newName = "Other" })).StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
+    private async Task<string> GradesAsync(params string[] grades)
+    {
+        var type = await TypeWithEntriesAsync(0, new { name = "Grade", type = "string" });
+        foreach (var grade in grades)
+        {
+            (await _client.PostAsJsonAsync("/api/contents", new
+            {
+                contentType = type, data = new Dictionary<string, object> { ["Title"] = grade, ["Grade"] = grade },
+            }, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+
+        return type;
+    }
+
+    private static readonly object[] Levels =
+    [
+        new { value = "beginner", label = "Beginner" },
+        new { value = "advanced", label = "Advanced" },
+    ];
+
+    [Fact]
+    public async Task Converting_a_string_to_a_choice_through_a_mapping_rewrites_every_value()
+    {
+        var type = await GradesAsync("Grade 1", "grade 1", "Grade 6");
+
+        var res = await ChangeAsync(type, "Grade", new
+        {
+            toType = "choice", options = Levels,
+            mapping = new Dictionary<string, string> { ["Grade 1"] = "beginner", ["grade 1"] = "beginner", ["Grade 6"] = "advanced" },
+        });
+
+        res.StatusCode.Should().Be(HttpStatusCode.Accepted, await res.Content.ReadAsStringAsync(Ct));
+        var body = await res.Content.ReadFromJsonAsync<JsonElement>(Ct);
+        body.GetProperty("classification").GetString().Should().Be("convert");
+        await CompletedAsync(body.GetProperty("change").GetProperty("id").GetGuid());
+
+        var grades = (await EntriesAsync(type)).Select(e => e.Data["Grade"]!.ToString()).ToList();
+        grades.Should().HaveCount(3);
+        grades.Should().BeEquivalentTo(["beginner", "beginner", "advanced"]);
+        var field = (await DefinitionAsync(type)).Fields.Single(f => f.Name == "Grade");
+        field.Type.Should().Be("choice");
+        field.Options!.Select(o => o.Value).Should().Equal("beginner", "advanced");
+    }
+
+    [Fact]
+    public async Task A_convert_that_drops_values_is_refused_with_the_count_unless_allowed()
+    {
+        var type = await GradesAsync("Grade 1", "Grade 7", "Grade 8");
+        var mapping = new Dictionary<string, string> { ["Grade 1"] = "beginner" };
+
+        var refused = await ChangeAsync(type, "Grade", new { toType = "choice", options = Levels, mapping });
+
+        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain("drops the value 2 entries hold");
+        (await DefinitionAsync(type)).Fields.Single(f => f.Name == "Grade").Type.Should().Be("string", "a refusal changes nothing");
+
+        var allowed = await ChangeAsync(type, "Grade", new { toType = "choice", options = Levels, mapping, allowDestructive = true });
+        allowed.StatusCode.Should().Be(HttpStatusCode.Accepted, await allowed.Content.ReadAsStringAsync(Ct));
+        var body = await allowed.Content.ReadFromJsonAsync<JsonElement>(Ct);
+        body.GetProperty("classification").GetString().Should().Be("destructive");
+        body.GetProperty("change").GetProperty("valuesLost").GetInt32().Should().Be(2);
+        await CompletedAsync(body.GetProperty("change").GetProperty("id").GetGuid());
+
+        var entries = await EntriesAsync(type);
+        entries.Should().HaveCount(3);
+        entries.Count(e => e.Data.ContainsKey("Grade")).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Removing_a_field_without_the_destructive_flag_is_refused_with_the_count()
+    {
+        var type = await TypeWithEntriesAsync(3);
+
+        var refused = await ChangeAsync(type, "Doctor", new { remove = true });
+
+        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain("drops the value 3 entries hold");
+        (await DefinitionAsync(type)).Fields.Select(f => f.Name).Should().Contain("Doctor");
+
+        var allowed = await ChangeAsync(type, "Doctor", new { remove = true, allowDestructive = true });
+        allowed.StatusCode.Should().Be(HttpStatusCode.Accepted, await allowed.Content.ReadAsStringAsync(Ct));
+        await CompletedAsync((await allowed.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("change").GetProperty("id").GetGuid());
+
+        (await DefinitionAsync(type)).Fields.Select(f => f.Name).Should().Equal("Title");
+        var entries = await EntriesAsync(type);
+        entries.Should().HaveCount(3);
+        entries.Should().OnlyContain(e => !e.Data.ContainsKey("Doctor"));
+    }
+
+    [Theory]
+    [InlineData("""{ "toType": "geopoint" }""", "converts to one of")]
+    [InlineData("""{ "toType": "choice" }""", "options")]
+    [InlineData("""{ "newName": "Other", "remove": true }""", "one change at a time")]
+    public async Task A_convert_the_field_cannot_take_is_refused(string json, string expected)
+    {
+        var type = await TypeWithEntriesAsync(0);
+
+        var res = await _client.PostAsync($"/api/content-types/{type}/fields/Doctor/change",
+            new StringContent(json, System.Text.Encoding.UTF8, "application/json"), Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await res.Content.ReadAsStringAsync(Ct)).Should().Contain(expected);
+    }
+
     /// <summary>A change stored and not queued, as one whose job stopped before it ran.</summary>
     private async Task<Guid> StalledRenameAsync(string type)
     {

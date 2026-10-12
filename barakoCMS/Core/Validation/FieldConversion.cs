@@ -18,6 +18,11 @@ internal static class FieldConversion
     public static IReadOnlyList<string> Targets { get; } =
         ["string", "text", "markdown", "int", "decimal", "bool", "date", "datetime", "email", "url", "slug", "choice"];
 
+    /// <summary>The types a field may be converted from: those holding one plain value.</summary>
+    public static IReadOnlyList<string> Sources { get; } =
+        ["string", "text", "markdown", "int", "integer", "number", "decimal", "money", "bool", "boolean", "date", "datetime",
+         "time", "email", "url", "slug", "uuid", "choice"];
+
     /// <summary>The value a stored one becomes, or null when it does not survive the convert.</summary>
     public static object? Convert(object? value, FieldChange change)
     {

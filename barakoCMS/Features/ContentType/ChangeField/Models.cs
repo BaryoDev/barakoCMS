@@ -7,6 +7,21 @@ namespace barakoCMS.Features.ContentType.ChangeField;
 /// <summary>One change to one field. Send one of newName, toType or remove, or only displayName.</summary>
 internal sealed class Request
 {
+    /// <summary>A new type. Every entry's value is converted, through <see cref="Mapping"/> first.</summary>
+    public string? ToType { get; set; }
+
+    /// <summary>For a convert to a choice, the options the field takes.</summary>
+    public List<FieldOption>? Options { get; set; }
+
+    /// <summary>For a convert, stored values as text and what each becomes.</summary>
+    public Dictionary<string, string>? Mapping { get; set; }
+
+    /// <summary>Takes the field off the type, and its value off every entry.</summary>
+    public bool Remove { get; set; }
+
+    /// <summary>Says yes to a change that drops stored values: a remove, or a convert some values do not survive.</summary>
+    public bool AllowDestructive { get; set; }
+
     /// <summary>A new label. On its own, applied at once: no entry changes.</summary>
     public string? DisplayName { get; set; }
 
@@ -16,7 +31,10 @@ internal sealed class Request
 
 internal sealed class Response
 {
-    /// <summary><c>additive</c>, applied at once, or <c>rename</c>, applied by the job in <see cref="Change"/>.</summary>
+    /// <summary>
+    /// <c>additive</c>, applied at once, or <c>rename</c>, <c>convert</c> or <c>destructive</c>,
+    /// applied by the job in <see cref="Change"/>.
+    /// </summary>
     public string Classification { get; init; } = string.Empty;
 
     /// <summary>The job applying the change, or null for a change applied at once.</summary>
@@ -72,9 +90,15 @@ internal sealed class FieldChangeResponse
 
 internal sealed class Validator : Validator<Request>
 {
+    public const int MaxMapping = 500;
+
     public Validator()
     {
         RuleFor(r => r.DisplayName).MaximumLength(200);
         RuleFor(r => r.NewName).MaximumLength(100);
+        RuleFor(r => r.Mapping).Must(m => m is null || m.Count <= MaxMapping)
+            .WithMessage($"A mapping holds at most {MaxMapping} values.");
+        RuleFor(r => r).Must(r => new[] { r.NewName is not null, r.ToType is not null, r.Remove }.Count(x => x) <= 1)
+            .WithMessage("Send one of newName, toType or remove: one change at a time.");
     }
 }

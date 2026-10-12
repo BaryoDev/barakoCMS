@@ -13,6 +13,8 @@ It needs `manage_content_types`. Send one change at a time.
 | :--- | :--- | :--- |
 | `{ "displayName": "Attending" }` | `additive` | At once, 200. No entry changes |
 | `{ "newName": "Practitioner" }` | `rename` | By a job, 202 |
+| `{ "toType": "choice", "options": [...], "mapping": { "Grade 1": "beginner" } }` | `convert`, or `destructive` when a value is dropped | By a job, 202 |
+| `{ "remove": true, "allowDestructive": true }` | `destructive` | By a job, 202 |
 
 A change that touches entries answers 202 with the job that applies it:
 
@@ -22,6 +24,23 @@ A change that touches entries answers 202 with the job that applies it:
     "state": "running", "step": 0, "steps": 3, "processed": 0, "total": 1200, "valuesLost": 0,
     "error": null, "startedAt": "...", "completedAt": null } }
 ```
+
+## Convert and remove
+
+A convert gives the field a new type: `string`, `text`, `markdown`, `int`, `decimal`, `bool`,
+`date`, `datetime`, `email`, `url`, `slug` or `choice` (with `options`). A field holding one plain
+value converts; a list, a file, a token, an object or a location does not. Each stored value is
+read as text, looked up in `mapping` (up to 500 values), and kept when what comes out is a value of
+the new type, an option for a choice. Anything else is dropped.
+
+A change that drops stored values is destructive: a remove always, and a convert when some value
+does not survive. It is refused unless the request says `"allowDestructive": true`, and the refusal
+names the count: `Converting 'Grade' to choice drops the value 2 entries hold.` The count is
+recorded on the change as `valuesLost`. A field a uniqueness rule or a transition names is refused
+until it is taken out of them.
+
+A convert rewrites every value, then retypes the field. A remove takes the field off the type
+first, so nobody reads it, then drops every value.
 
 ## The job
 
