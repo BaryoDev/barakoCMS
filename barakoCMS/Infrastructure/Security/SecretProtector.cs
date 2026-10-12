@@ -10,10 +10,10 @@ namespace barakoCMS.Infrastructure.Security;
 /// and derives its key from <c>Mfa:Key</c>. They are kept apart so rotating one does not make the
 /// other undecryptable, which is the failure mode SECURITY.md warns about.
 ///
-/// The same warning applies here. The key is derived from <c>Secrets:Key</c>, falling back to
-/// <c>JWT:Key</c>, and changing whichever one is in use makes every value already stored
-/// undecryptable. There is no recovery for that beyond entering the credential again, which for
-/// this feature means an operator retyping their email API key.
+/// The key is derived from <c>Secrets:Key</c>, falling back to <c>JWT:Key</c>. Changing whichever
+/// one is in use makes every value already stored undecryptable, unless the old material stays
+/// readable in a key ring (<c>Secrets:Keys</c>, see <see cref="KeyRing"/>), which is how a key is
+/// rotated without anybody retyping a credential.
 /// </remarks>
 public interface ISecretProtector
 {
@@ -29,37 +29,23 @@ public interface ISecretProtector
     string? Unprotect(string protectedValue);
 }
 
-public sealed class SecretProtector : ISecretProtector
+public sealed class SecretProtector : ISecretProtector, IKeyRingProtector
 {
-    private readonly byte[] _key;
+    private readonly KeyRing _ring;
 
     public SecretProtector(IConfiguration config)
     {
         var material = config["Secrets:Key"];
         if (string.IsNullOrEmpty(material)) material = config["JWT:Key"];
-        if (string.IsNullOrEmpty(material))
-            throw new InvalidOperationException("Secrets:Key or JWT:Key must be configured to protect stored secrets.");
 
-        _key = AesGcmEnvelope.DeriveKey(material);
+        _ring = KeyRing.FromConfiguration(config, "Secrets", material, prefixUnkeyedWrites: true);
+        if (!_ring.CanProtect)
+            throw new InvalidOperationException("Secrets:Keys, Secrets:Key or JWT:Key must be configured to protect stored secrets.");
     }
 
-    public string Protect(string plaintext) => AesGcmEnvelope.VersionPrefix + AesGcmEnvelope.Protect(_key, plaintext);
+    KeyRing IKeyRingProtector.Ring => _ring;
 
-    public string? Unprotect(string protectedValue)
-    {
-        if (string.IsNullOrEmpty(protectedValue)) return null;
+    public string Protect(string plaintext) => _ring.Protect(plaintext);
 
-        try
-        {
-            // An envelope written before the prefix existed has none, and still decrypts.
-            var envelope = AesGcmEnvelope.HasVersionPrefix(protectedValue)
-                ? protectedValue[AesGcmEnvelope.VersionPrefix.Length..]
-                : protectedValue;
-            return AesGcmEnvelope.Unprotect(_key, envelope);
-        }
-        catch (Exception ex) when (ex is System.Security.Cryptography.CryptographicException or FormatException)
-        {
-            return null;
-        }
-    }
+    public string? Unprotect(string protectedValue) => _ring.Unprotect(protectedValue);
 }
