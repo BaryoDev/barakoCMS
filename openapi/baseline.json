@@ -17322,6 +17322,16 @@
             }
           },
           {
+            "description": "Only entries updated after this instant. Optional.",
+            "in": "query",
+            "name": "changedSince",
+            "schema": {
+              "format": "date-time",
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
             "in": "query",
             "name": "page",
             "required": true,
@@ -17384,7 +17394,7 @@
             "description": "No Content"
           }
         },
-        "summary": "GET /api/public/{type}/feed.xml \u2014 an RSS 2.0 feed of the newest Published, document-Public entries of\na content type. It reuses the same projection as the rest of public delivery, so drafts, Sensitive\ndocuments, and non-Public fields never appear. The literal \"feed.xml\" segment wins over the {slug}\nroute. Anonymous and cacheable.\n            \nItem links point at the caller's frontend (the CMS is headless, so it can't know the URL): set\nFeeds:SiteUrl and, per type, the type's route template or Feeds:Paths:{type} (a\ntemplate like /blog/{slug}; defaults to /{type}/{slug}). An item's title,\ndescription and date come from the fields the type gives the title, summary and date roles,\nand from the field names guessed before roles existed when it gives none or the field is empty.\nWith neither Feeds:SiteUrl nor App:BaseUrl set,\nthe feed answers 503 unless AllowedHosts makes the request host trustworthy, because a feed\nis fetched by aggregators and its links must not come from a header the caller wrote (#147).",
+        "summary": "GET /api/public/{type}/feed.xml \u2014 an RSS 2.0 feed of the newest Published, document-Public entries of\na content type. It reuses the same projection as the rest of public delivery, so drafts, Sensitive\ndocuments, and non-Public fields never appear. The literal \"feed.xml\" segment wins over the {slug}\nroute. Anonymous and cacheable.\n            \nItem links point at the tenant's site: the Url of its published site entry, else\nFeeds:SiteUrl (see EntryUrls), and per type\nthe type's route template or Feeds:Paths:{type} (a template like /blog/{slug};\ndefaults to /{type}/{slug}). An item's title,\ndescription and date come from the fields the type gives the title, summary and date roles,\nand from the field names guessed before roles existed when it gives none or the field is empty.\nWith no site entry Url and neither Feeds:SiteUrl nor App:BaseUrl set,\nthe feed answers 503 unless AllowedHosts makes the request host trustworthy, because a feed\nis fetched by aggregators and its links must not come from a header the caller wrote (#147).",
         "tags": [
           "Public"
         ]

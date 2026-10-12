@@ -51,8 +51,8 @@
 94 barakoCMS/Features/Collections/Validator.cs::SaveCollectionSyncValidator.SaveCollectionSyncValidator
 143 barakoCMS/Features/Connectors/Endpoints.cs::UpdateConnectorEndpoint.HandleAsync
 118 barakoCMS/Features/Content/ChangeStatus/Endpoint.cs::Endpoint.HandleAsync
-171 barakoCMS/Features/Content/History/RollbackEndpoint.cs::RollbackEndpoint.HandleAsync
-193 barakoCMS/Features/Content/List/Endpoint.cs::Endpoint.HandleAsync
+164 barakoCMS/Features/Content/History/RollbackEndpoint.cs::RollbackEndpoint.HandleAsync
+192 barakoCMS/Features/Content/List/Endpoint.cs::Endpoint.HandleAsync
 85 barakoCMS/Features/Content/Schedule/Endpoint.cs::Endpoint.HandleAsync
 242 barakoCMS/Features/Content/Update/Endpoint.cs::Endpoint.HandleAsync
 118 barakoCMS/Features/ContentType/AddField/Endpoint.cs::Endpoint.HandleAsync
@@ -69,11 +69,11 @@
 82 barakoCMS/Features/EmailTemplates/Preview/Endpoint.cs::Endpoint.HandleAsync
 151 barakoCMS/Features/Public/DeliveryQuery.cs::DeliveryQuery.Parse
 111 barakoCMS/Features/Public/Endpoints.cs::GetBySlugEndpoint.HandleAsync
-111 barakoCMS/Features/Public/Endpoints.cs::ListPublishedEndpoint.HandleAsync
+79 barakoCMS/Features/Public/Endpoints.cs::ListPublishedEndpoint.HandleAsync
 75 barakoCMS/Features/Public/Endpoints.cs::PublicDelivery.ResolveIncludesAsync
 99 barakoCMS/Features/Public/Events/ContentChangeListener.cs::ContentChangeListener.BroadcastAsync
-78 barakoCMS/Features/Public/FeedEndpoint.cs::FeedEndpoint.HandleAsync
-97 barakoCMS/Features/Public/SitemapEndpoint.cs::SitemapEndpoint.HandleAsync
+77 barakoCMS/Features/Public/FeedEndpoint.cs::FeedEndpoint.HandleAsync
+93 barakoCMS/Features/Public/SitemapEndpoint.cs::SitemapEndpoint.HandleAsync
 126 barakoCMS/Features/Redirects/ImportEndpoint.cs::ImportRedirectsEndpoint.HandleAsync
 74 barakoCMS/Features/Roles/Delete/Endpoint.cs::Endpoint.HandleAsync
 72 barakoCMS/Features/Roles/Update/Endpoint.cs::Endpoint.HandleAsync
@@ -113,7 +113,6 @@
 88 barakoCMS/Infrastructure/Services/PermissionResolver.References.cs::PermissionResolver.ResolveAsync
 111 barakoCMS/Infrastructure/Services/ScheduledContentService.cs::ScheduledContentService.SweepTenantAsync
 98 barakoCMS/Infrastructure/Services/SensitivityService.cs::SensitivityService.GuardWriteAsync
-111 barakoCMS/Infrastructure/Services/TemplateVariableExtractor.cs::TemplateVariableExtractor.GetSystemVariables
 115 barakoCMS/Infrastructure/Services/WorkflowSchemaValidator.cs::WorkflowSchemaValidator.Validate
 110 barakoCMS/Infrastructure/Services/WorkflowSchemaValidator.cs::WorkflowSchemaValidator.ValidateAction
 134 barakoCMS/Infrastructure/Sync/CollectionSyncRunner.cs::CollectionSyncRunner.ApplyAsync
