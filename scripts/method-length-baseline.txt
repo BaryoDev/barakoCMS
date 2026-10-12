@@ -117,7 +117,7 @@
 111 barakoCMS/Infrastructure/Services/ScheduledContentService.cs::ScheduledContentService.SweepTenantAsync
 98 barakoCMS/Infrastructure/Services/SensitivityService.cs::SensitivityService.GuardWriteAsync
 111 barakoCMS/Infrastructure/Services/TemplateVariableExtractor.cs::TemplateVariableExtractor.GetSystemVariables
-74 barakoCMS/Infrastructure/Services/WorkflowSchemaValidator.cs::WorkflowSchemaValidator.Validate
+113 barakoCMS/Infrastructure/Services/WorkflowSchemaValidator.cs::WorkflowSchemaValidator.Validate
 110 barakoCMS/Infrastructure/Services/WorkflowSchemaValidator.cs::WorkflowSchemaValidator.ValidateAction
 134 barakoCMS/Infrastructure/Sync/CollectionSyncRunner.cs::CollectionSyncRunner.ApplyAsync
 99 barakoCMS/Infrastructure/Sync/CollectionSyncRunner.cs::CollectionSyncRunner.Map
