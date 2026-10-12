@@ -36,7 +36,7 @@ namespace BarakoCMS.Files;
 /// </remarks>
 internal sealed class FileStore(
     IDocumentSession session,
-    IFileStorage storage,
+    BarakoCMS.Files.Storage.FileStorageResolver storage,
     IFileScanner scanner,
     IPermissionResolver permissions,
     IConfiguration configuration,
@@ -116,7 +116,7 @@ internal sealed class FileStore(
 
         // The storage hands back the whole object as one array, so the array is exposed and a
         // caller that wants the bytes does not copy them out of the stream.
-        var bytes = await storage.GetAsync(file.StorageKey, cancellationToken);
+        var bytes = await (await storage.ForAsync(file, cancellationToken)).GetAsync(file.StorageKey, cancellationToken);
         return bytes is null ? null : new MemoryStream(bytes, 0, bytes.Length, writable: false, publiclyVisible: true);
     }
 
@@ -151,7 +151,7 @@ internal sealed class FileStore(
             return null;
         }
 
-        var bytes = await storage.GetAsync(file.StorageKey, cancellationToken);
+        var bytes = await (await storage.ForAsync(file, cancellationToken)).GetAsync(file.StorageKey, cancellationToken);
         return bytes is null ? null : new MemoryStream(bytes, 0, bytes.Length, writable: false, publiclyVisible: true);
     }
 
@@ -210,10 +210,11 @@ internal sealed class FileStore(
 
         var key = FileKeys.ForUpload(file.IsPublic, UploadTypes.Extension(contentType));
 
+        var target = await storage.ForNewFilesAsync(cancellationToken);
         StoredObjectRef stored;
         using (var content = new MemoryStream(buffer, 0, size, writable: false))
         {
-            stored = await storage.PutAsync(content, key, contentType, file.IsPublic, cancellationToken);
+            stored = await target.PutAsync(content, key, contentType, file.IsPublic, cancellationToken);
         }
 
         var dimensions = ImageDimensions.Read(contentType, buffer, size);
@@ -224,7 +225,7 @@ internal sealed class FileStore(
             Size = size,
             Width = dimensions?.Width,
             Height = dimensions?.Height,
-            Provider = storage.Provider,
+            Provider = target.Provider,
             StorageKey = stored.Key,
             IsPublic = file.IsPublic,
             PublicUrl = stored.PublicUrl,

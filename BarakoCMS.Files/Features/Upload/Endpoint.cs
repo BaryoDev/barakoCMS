@@ -31,7 +31,7 @@ public class Response
 /// </summary>
 public class Endpoint(
     IDocumentSession session,
-    IFileStorage storage,
+    BarakoCMS.Files.Storage.FileStorageResolver storages,
     IFileScanner scanner,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : EndpointWithoutRequest<Response>
 {
@@ -134,6 +134,7 @@ public class Endpoint(
             size = ImageDimensions.Read(contentType, forSize);
         }
 
+        var storage = await storages.ForNewFilesAsync(ct);
         await using var stream = file.OpenReadStream();
         var stored = await storage.PutAsync(stream, key, contentType, isPublic, ct);
 

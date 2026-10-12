@@ -77,6 +77,13 @@ bucket" rather than as an error.
 
 Keys belong in environment variables or a secret store, never in a checked-in `appsettings.json`.
 
+### Choosing a bucket per tenant
+
+With no `Files:S3` key set, this module stays dormant for configuration and lets each tenant pick a
+bucket through `/api/settings/storage` (see the Files module's README). Setting any key here makes
+that choice read-only for every tenant. A bucket chosen through the API may only be at a public
+address unless `Modules:Files.S3:AllowPrivateServiceUrl` is `true`.
+
 ### Retries and the job lease
 
 A file read or write inside a background job or a workflow action has to finish inside its lease,

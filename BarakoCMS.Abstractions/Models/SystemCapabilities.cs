@@ -318,6 +318,13 @@ public static class SystemCapabilities
     /// <summary>Create, list and revoke station keys for kiosks and display boards.</summary>
     public const string ManageStations = "manage_stations";
 
+    /// <summary>
+    /// Read, change and test where a tenant's uploaded files are stored (GET, PUT and POST under
+    /// /api/settings/storage). New with #781, no gate to preserve. Admin gets it: the setting is
+    /// the tenant's own, and nothing it reaches is outside the tenant.
+    /// </summary>
+    public const string ManageStorage = "manage_storage";
+
     public static readonly IReadOnlySet<string> Known = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         All, ManageRoles, ManageTenants, ManageTenantMembers, ManageUsers, ManageUserMembership, ManageUserGroups,
@@ -325,7 +332,7 @@ public static class SystemCapabilities
         ViewMonitoring, ManageRedirects, ManageQueries, ManageRequests, ViewConnectors, ManageConnectors,
         ManageWorkflows, ViewWorkflowRuns, RetryWorkflowActions, RollbackContent, EraseContent, ViewModules,
         ViewJobs, ViewWebhookResponseBodies, ManageCollectionSyncs, ViewSensitive, ViewHidden,
-        ViewNumberGaps, ManageStations,
+        ViewNumberGaps, ManageStations, ManageStorage,
     };
 
     public static bool IsKnown(string capability) =>
@@ -360,6 +367,8 @@ public static class SystemCapabilities
         ViewNumberGaps,
         // New with stations, no gate to preserve.
         ManageStations,
+        // #781: new with storage settings, no gate to preserve.
+        ManageStorage,
     ];
 
     /// <summary>
