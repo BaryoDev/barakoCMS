@@ -53,8 +53,8 @@ internal sealed class WorkflowResponse
         TriggerContentTypes = WorkflowTriggers.ContentTypes(w),
         TriggerEvent = w.TriggerEvent,
         TriggerEvents = WorkflowTriggers.Events(w),
-        Conditions = w.Conditions,
-        Actions = w.Actions.Select(WorkflowActionResponse.From).ToList(),
+        Conditions = w.Conditions ?? [],
+        Actions = (w.Actions ?? []).Select(WorkflowActionResponse.From).ToList(),
         Enabled = w.Enabled,
     };
 }

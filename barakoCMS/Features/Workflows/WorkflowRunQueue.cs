@@ -11,9 +11,14 @@ namespace barakoCMS.Features.Workflows;
 /// </remarks>
 internal static class WorkflowConditions
 {
+    /// <remarks>
+    /// A definition stored or imported with <c>conditions: null</c> reads back as null, and an entry
+    /// stored without data has none. Both are read as empty: a null used to throw here, which threw
+    /// the whole event away, so the other workflows on it were lost along with this one.
+    /// </remarks>
     internal static bool Matches(WorkflowDefinition workflow, barakoCMS.Models.Content content)
     {
-        foreach (var condition in workflow.Conditions)
+        foreach (var condition in workflow.Conditions ?? [])
         {
             // Status is answered from the document before the data bag is consulted, and the order
             // is the whole of it. An entry with its own "Status" field, which is an ordinary thing to
@@ -24,7 +29,7 @@ internal static class WorkflowConditions
             {
                 if (content.Status.ToString() != condition.Value) return false;
             }
-            else if (content.Data.TryGetValue(condition.Key, out var value))
+            else if (content.Data?.TryGetValue(condition.Key, out var value) == true)
             {
                 if (value?.ToString() != condition.Value) return false;
             }

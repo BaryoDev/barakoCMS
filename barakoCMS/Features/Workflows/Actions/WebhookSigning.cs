@@ -181,6 +181,13 @@ internal static class WebhookSigning
     {
         var changed = false;
 
+        // A document stored or imported with no actions list has nothing to migrate, and must not
+        // stop the pass for the workflows after it.
+        if (workflow.Actions is null)
+        {
+            return false;
+        }
+
         for (var index = 0; index < workflow.Actions.Count; index++)
         {
             var action = workflow.Actions[index];

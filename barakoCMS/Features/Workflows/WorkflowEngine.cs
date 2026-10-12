@@ -63,9 +63,9 @@ internal class WorkflowEngine(
 
     private bool MatchesConditions(WorkflowDefinition workflow, barakoCMS.Models.Content content)
     {
-        foreach (var condition in workflow.Conditions)
+        foreach (var condition in workflow.Conditions ?? [])
         {
-            if (content.Data.TryGetValue(condition.Key, out var value))
+            if (content.Data?.TryGetValue(condition.Key, out var value) == true)
             {
                 if (value?.ToString() != condition.Value)
                 {
