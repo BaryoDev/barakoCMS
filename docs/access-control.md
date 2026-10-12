@@ -412,13 +412,18 @@ the same reading for the caller, so a console can decide the way the API does:
   "username": "ana",
   "tenant": "clinic",
   "roles": [ { "id": "4f2a...", "name": "Nurse" } ],
-  "capabilities": ["view_sensitive"]
+  "capabilities": ["view_sensitive"],
+  "legacyRoleFallback": false
 }
 ```
 
 `roles` is the caller's global roles and their active membership's roles in the
 tenant, and `capabilities` is every capability those roles carry, with `*`
-reported as `*` rather than expanded. The tenant is the token's own, or the
+reported as `*` rather than expanded. `legacyRoleFallback` is `true` when the
+deployment runs with `Auth:LegacyRoleFallback` on (see below), where the legacy role
+names still open the gates they used to whatever capabilities the role carries, so a
+console that decides its navigation by capability should also offer those screens to
+an Admin-named role. It describes the deployment, not the caller. The tenant is the token's own, or the
 resolved one for a token without a tenant claim. The route takes no parameters,
 so it only ever describes the caller. It is sent `Cache-Control: no-store`, and
 an API key gets a 403, as on every route outside the content API. Taking a capability off
