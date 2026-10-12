@@ -1,3 +1,5 @@
+using barakoCMS.Features.Roles;
+using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Models;
 using Marten;
 
@@ -19,7 +21,9 @@ namespace barakoCMS.Core;
 /// with names before and a client sends back what it was given, and an id means nothing to the
 /// instance a bundle is imported into.
 ///
-/// Names are matched exactly, case included, the way the role claim was.
+/// Names are matched exactly, case included, the way the role claim was. A name is unique only
+/// within one owner, so it is looked up among the roles the session's tenant reaches, and the
+/// tenant's own role wins over a platform role of the same name.
 /// </remarks>
 public static class RoleReferences
 {
@@ -42,11 +46,14 @@ public static class RoleReferences
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
+        var tenantSlug = TenantScopes.SlugFor(session.TenantId);
         var ids = new Dictionary<string, Guid>(StringComparer.Ordinal);
         foreach (var chunk in names.Chunk(NamesPerQuery))
         {
-            var roles = await session.Query<Role>().Where(r => r.Name.In(chunk)).ToListAsync(ct);
-            foreach (var role in roles)
+            var roles = await RoleScope.In(session.Query<Role>(), tenantSlug)
+                .Where(r => r.Name.In(chunk))
+                .ToListAsync(ct);
+            foreach (var role in roles.OrderBy(r => r.IsPlatform))
                 ids.TryAdd(role.Name, role.Id);
         }
 
