@@ -1873,6 +1873,13 @@ public static class ServiceCollectionExtensions
         var globalPreProcessors = app.ApplicationServices.GetServices<FastEndpoints.IGlobalPreProcessor>().ToArray();
         var globalPostProcessors = app.ApplicationServices.GetServices<FastEndpoints.IGlobalPostProcessor>().ToArray();
 
+        // Inside the output cache, so the metrics can tell a response it served from one that ran.
+        app.Use((context, next) =>
+        {
+            context.Items[barakoCMS.Infrastructure.Middleware.RequestResponseLoggingMiddleware.ReachedEndpointsKey] = true;
+            return next(context);
+        });
+
         // Lets IdempotencyFilter hash a keyed write's body after FastEndpoints has bound it.
         app.UseMiddleware<barakoCMS.Infrastructure.Filters.IdempotencyRequestBuffering>();
 

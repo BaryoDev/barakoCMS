@@ -392,6 +392,32 @@
         },
         "type": "object"
       },
+      "BarakoCMSAnalyticsUmamiFeaturesPreviousSeries": {
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "pageviews": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSAnalyticsUmamiFeaturesSeriesPointDto"
+            },
+            "type": "array"
+          },
+          "sessions": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSAnalyticsUmamiFeaturesSeriesPointDto"
+            },
+            "type": "array"
+          },
+          "to": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSAnalyticsUmamiFeaturesSeriesPointDto": {
         "additionalProperties": false,
         "properties": {
@@ -408,17 +434,36 @@
       "BarakoCMSAnalyticsUmamiFeaturesSeriesResponse": {
         "additionalProperties": false,
         "properties": {
+          "from": {
+            "description": "The window these points cover, so a caller can ask for the one before it.",
+            "format": "date-time",
+            "type": "string"
+          },
           "pageviews": {
             "items": {
               "$ref": "#/components/schemas/BarakoCMSAnalyticsUmamiFeaturesSeriesPointDto"
             },
             "type": "array"
           },
+          "previous": {
+            "description": "The window of the same length just before this one, with the same unit. Only with\ncompare=previous, and left out otherwise.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSAnalyticsUmamiFeaturesPreviousSeries"
+              }
+            ]
+          },
           "sessions": {
             "items": {
               "$ref": "#/components/schemas/BarakoCMSAnalyticsUmamiFeaturesSeriesPointDto"
             },
             "type": "array"
+          },
+          "to": {
+            "description": "The end of that window.",
+            "format": "date-time",
+            "type": "string"
           },
           "unit": {
             "type": "string"
@@ -2159,6 +2204,48 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesContentCountsRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentCountsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "archived": {
+            "description": "Entries in Archived.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "draft": {
+            "description": "Entries in Draft.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "published": {
+            "description": "Entries in Published.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "scheduled": {
+            "description": "Entries in Scheduled, waiting for their publish time.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Every entry counted, in any status.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "uncountedTypes": {
+            "description": "Types the caller may read some of, left out of every number above because their read rules\ndepend on the entry in a way only a per-entry check can answer. Counting those would mean loading the whole\ntype, so they are named instead of guessed. Empty for most callers.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesContentCreateRequest": {
         "additionalProperties": false,
         "properties": {
@@ -3558,6 +3645,10 @@
             },
             "type": "array"
           },
+          "legacyRoleFallback": {
+            "description": "Whether this deployment runs with Auth:LegacyRoleFallback on, so the pre-capability role\nnames (Admin, Editor and the like) still open the gates they used to whatever capabilities the\nrole carries. A console that decides navigation by capability alone would otherwise hide screens\nsuch a role can still use. It describes the deployment, not the caller.",
+            "type": "boolean"
+          },
           "roles": {
             "description": "The stored roles the caller holds there: global roles and the active membership's.",
             "items": {
@@ -3637,16 +3728,27 @@
             "additionalProperties": {
               "type": "string"
             },
+            "description": "The tenant's branding values.",
             "type": "object"
           },
           "logoUrl": {
+            "description": "The logo of the tenant's published site entry, if it has one.",
             "nullable": true,
             "type": "string"
           },
           "name": {
+            "description": "The tenant's display name.",
             "type": "string"
           },
+          "roles": {
+            "description": "The roles the caller holds in that tenant, read the way GET /api/me reads them there: the\nmembership's roles and the caller's global roles, sorted by name. A role can differ per tenant,\nwhich is why a switcher shows it beside each one.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesMeMyRole"
+            },
+            "type": "array"
+          },
           "slug": {
+            "description": "The tenant's slug.",
             "type": "string"
           }
         },
@@ -5970,6 +6072,17 @@
         ],
         "type": "object"
       },
+      "BarakoCMSFeaturesWorkflowsUpdateWorkflowRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BarakoCMSFeaturesWorkflowsCreateWorkflowRequest"
+          },
+          {
+            "additionalProperties": false,
+            "type": "object"
+          }
+        ]
+      },
       "BarakoCMSFeaturesWorkflowsValidateWorkflowRequest": {
         "additionalProperties": false,
         "description": "Request to validate a workflow definition.",
@@ -6674,11 +6787,67 @@
             "format": "double",
             "type": "number"
           },
+          "last24Hours": {
+            "description": "The same numbers over the last 24 hours, plus the ones only a window can give.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSInfrastructureServicesMetricsWindow"
+              }
+            ]
+          },
+          "startedAt": {
+            "description": "When this process started counting, which is when the API started.",
+            "format": "date-time",
+            "type": "string"
+          },
           "totalErrors": {
             "format": "int64",
             "type": "integer"
           },
           "totalRequests": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "uptimeSeconds": {
+            "description": "Whole seconds since StartedAt.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSInfrastructureServicesMetricsWindow": {
+        "additionalProperties": false,
+        "description": "Requests over a trailing window, kept per minute. The totals above are since the process started,\nwhich on a host that has run for a month says nothing about this morning.",
+        "properties": {
+          "averageResponseTime": {
+            "format": "double",
+            "type": "number"
+          },
+          "cacheHitRate": {
+            "description": "The share of successful GET and HEAD requests answered from a cache: a 304 Not Modified\nto a client holding the current ETag, or a response the output cache served without running\nthe endpoint. Health probes and the Prometheus scrape are not counted. Zero with no such reads.",
+            "format": "double",
+            "type": "number"
+          },
+          "cacheHits": {
+            "description": "How many reads CacheHitRate counts as answered from a cache.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "errorRate": {
+            "format": "double",
+            "type": "number"
+          },
+          "errors": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "p95ResponseTime": {
+            "description": "The 95th percentile response time in milliseconds, as the upper bound of the histogram bucket\nit falls in (see LatencyBoundsMs), so it can overstate by up to\none bucket. Past the last bound it reads as that bound, so above 10 seconds it understates.\nZero with no requests.",
+            "format": "double",
+            "type": "number"
+          },
+          "requests": {
             "format": "int64",
             "type": "integer"
           }
@@ -10020,6 +10189,26 @@
             }
           },
           {
+            "description": "The start of an explicit window. Set together with To, or not at all.",
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "format": "date-time",
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "The end of an explicit window.",
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "format": "date-time",
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
             "description": "Umami metric type: path | referrer | country | browser | os | device.",
             "in": "query",
             "name": "type",
@@ -10052,6 +10241,16 @@
             },
             "description": "Success"
           },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
           "401": {
             "description": "Unauthorized"
           }
@@ -10080,11 +10279,40 @@
             }
           },
           {
-            "description": "\"24h\" | \"7d\" (default) | \"30d\" | \"90d\".",
+            "description": "\"24h\" | \"7d\" (default) | \"30d\" | \"90d\". Not read when From and To are set.",
             "in": "query",
             "name": "range",
             "required": true,
             "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The start of an explicit window. Set together with To, or not at all.",
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "format": "date-time",
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "The end of an explicit window.",
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "format": "date-time",
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "previous adds the window of the same length just before this one to a series, for\ndrawing behind the current line. Read by the series route only, and any other value is\nignored as it was before the parameter existed.",
+            "in": "query",
+            "name": "compare",
+            "schema": {
+              "nullable": true,
               "type": "string"
             }
           }
@@ -10100,6 +10328,16 @@
             },
             "description": "Success"
           },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
           "401": {
             "description": "Unauthorized"
           }
@@ -10109,7 +10347,7 @@
             "JWTBearerAuth": []
           }
         ],
-        "summary": "GET /api/analytics/{websiteId}/series?range=7d \u2014 pageviews/sessions over time, for the trend chart.",
+        "summary": "GET /api/analytics/{websiteId}/series?range=7d: pageviews and sessions over time, for the trend chart.\n            from and to name any window instead, and compare=previous adds the window before it.",
         "tags": [
           "Analytics.Umami"
         ]
@@ -10134,6 +10372,32 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "format": "date-time",
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "format": "date-time",
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "compare",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -10146,6 +10410,16 @@
               }
             },
             "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
           },
           "401": {
             "description": "Unauthorized"
@@ -10181,6 +10455,32 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "format": "date-time",
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "format": "date-time",
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "compare",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -10193,6 +10493,16 @@
               }
             },
             "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
           },
           "401": {
             "description": "Unauthorized"
@@ -13320,6 +13630,50 @@
         ]
       }
     },
+    "/api/contents/counts": {
+      "get": {
+        "description": "Each type is counted under the read predicate ReadPredicateAsync\ncompiles for the caller, the one the list endpoint pages with, so the numbers agree with what\nGET /api/contents would list. A type whose rules do not compile is named in\nUncountedTypes rather than loaded row by row: the cost of the answer stays a handful of\ncounts however large the collection is.\nTypes the caller reads unconditionally are counted together, so a caller who reads everything\ncosts four queries whatever the number of types. Across types, the types are the stored content\ntype definitions, so an entry whose type has no definition is not counted.",
+        "operationId": "barakoCMSFeaturesContentCountsEndpoint",
+        "parameters": [
+          {
+            "description": "One content type, or null for every type the caller may read.",
+            "in": "query",
+            "name": "contentType",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesContentCountsResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/contents/counts, how many entries the caller may read, by status, so an overview card\ncan say \"121 published, 27 draft\" without paging the whole collection.",
+        "tags": [
+          "Content"
+        ]
+      }
+    },
     "/api/contents/{id}": {
       "get": {
         "operationId": "barakoCMSFeaturesContentGetEndpoint",
@@ -15021,7 +15375,7 @@
     },
     "/api/me/tenants": {
       "get": {
-        "description": "LogoUrl is the Logo of each tenant's published site entry, which costs two reads\nfor every tenant on the page and none for the rest, so at most two hundred for a full page.",
+        "description": "LogoUrl is the Logo of each tenant's published site entry, which costs two reads\nfor every tenant on the page and none for the rest, so at most two hundred for a full page.\nThe roles cost one more read for the whole page, since the memberships are already loaded.",
         "operationId": "barakoCMSFeaturesMeMyTenantsEndpoint",
         "parameters": [
           {
@@ -19245,6 +19599,58 @@
           }
         ],
         "summary": "Deletes one workflow, cancelling the runs it still has queued.",
+        "tags": [
+          "Workflows"
+        ]
+      },
+      "put": {
+        "description": "A full update: every field the create takes is replaced, and a field left out takes the create's\ndefault, so leaving out enabled switches the workflow on as it would a new one. The id is\nthe route's.\nCredentials are write-only, so a caller holding a workflow read back from the API never has\nthem to send again. An action sent back unchanged, in the same position with the same type and\nevery shown parameter as the API returned it, keeps its stored credentials, its Conditional\nchildren's included. A changed action that leaves a credential out is refused with a 400 naming\nit: a credential stays with the destination it was given for. Sending one blank clears it, and\nsending a value replaces it. A changed Conditional branch is taken as sent.\nRuns already queued keep the copy of the actions they were queued with. The change applies to\nruns queued from here on.",
+        "operationId": "barakoCMSFeaturesWorkflowsUpdateWorkflowEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesWorkflowsUpdateWorkflowRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "UpdateWorkflowRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesWorkflowsWorkflowResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "Replaces one workflow with the definition sent, validated the way a create is.",
         "tags": [
           "Workflows"
         ]

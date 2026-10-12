@@ -234,6 +234,23 @@ during a rolling upgrade and after a rollback alike. Finish the rollout before s
 that uses `Halt`, and before rolling back past this version, change those workflows back or wait
 for their runs to finish.
 
+## Changing a workflow
+
+`PUT /api/workflows/{id}` (capability `manage_workflows`) replaces a workflow with the definition
+sent, in the same shape `POST /api/workflows` takes, and validates it the same way: an unknown action
+type, a missing required parameter or a trigger the content type does not declare is a 400 and
+nothing is saved. It is a full update, so a field left out takes the create's default (`enabled`
+left out switches the workflow on). The response carries `warnings` as a create does, and the change
+is written to the audit log as `workflow.updated`.
+
+Credentials are write-only, so a console never has them to send back. An action sent back
+unchanged, in the same position, of the same type and with every parameter as the API returned it,
+keeps its stored credentials (`Secret`, `ApiKey`, a password, a token), and an unchanged
+Conditional keeps its children's too. A credential stays with the destination it was given for, so
+an action that changed (a new URL, or another action moved into its place) and leaves a credential
+out is refused with a 400 naming it: send it again, or send it blank to clear it. A changed
+Conditional branch is taken as sent. Runs already queued keep the actions they were queued with.
+
 ## Stopping a workflow or a run
 
 Three requests, all behind `manage_workflows`, each written to the audit log.
