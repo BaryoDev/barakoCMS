@@ -24,9 +24,9 @@ public class MyTenantsRolesTests
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private async Task<Role> RoleAsync(string prefix)
+    private async Task<Role> RoleAsync(string prefix, string? tenantSlug = null)
     {
-        var role = new Role { Id = Guid.NewGuid(), Name = $"{prefix} {Guid.NewGuid():N}" };
+        var role = new Role { Id = Guid.NewGuid(), Name = $"{prefix} {Guid.NewGuid():N}", TenantSlug = tenantSlug };
         using var scope = _factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         session.Store(role);
@@ -39,7 +39,7 @@ public class MyTenantsRolesTests
         var slug = $"mt-{Guid.NewGuid():N}"[..14];
         using var scope = _factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug, IsActive = true });
+        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug, Status = TenantStatus.Active });
         await session.SaveChangesAsync(Ct);
         return slug;
     }
@@ -124,6 +124,30 @@ public class MyTenantsRolesTests
 
         roles.Keys.Should().Equal(clinic);
         roles[clinic].Should().Equal(nurse.Name);
+    }
+
+    [Fact]
+    public async Task A_role_another_tenant_owns_is_not_listed_where_it_grants_nothing()
+    {
+        var clinic = await TenantAsync();
+        var school = await TenantAsync();
+        var nurse = await RoleAsync("Nurse", clinic);
+        var teacher = await RoleAsync("Teacher", school);
+        var userId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new User { Id = userId, Username = $"mt-{userId:n}", Email = $"mt-{userId:n}@example.com" });
+            session.Store(new Membership
+            {
+                Id = Guid.NewGuid(), UserId = userId, TenantSlug = clinic, Status = MembershipStatus.Active, RoleIds = [nurse.Id, teacher.Id],
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var roles = await RolesByTenantAsync(userId);
+
+        roles[clinic].Should().Equal([nurse.Name], "the school's role grants nothing in the clinic, the rule MembershipRoles applies");
     }
 
     [Fact]

@@ -60,10 +60,13 @@ internal class MyTenantsEndpoint(IQuerySession session, IDocumentStore store) : 
             .GroupBy(m => m.TenantSlug, StringComparer.Ordinal)
             .ToDictionary(
                 g => g.Key,
-                g => g.SelectMany(m => m.RoleIds ?? []).Union(global).ToList(),
+                g => g.SelectMany(m => m.RoleIds ?? []).Select(id => (Id: id, Global: false))
+                    .Concat(global.Select(id => (Id: id, Global: true)))
+                    .ToList(),
                 StringComparer.Ordinal);
         var onPage = page.Items
             .SelectMany(t => roleIdsBySlug.GetValueOrDefault(t.Slug) ?? [])
+            .Select(held => held.Id)
             .Distinct()
             .ToList();
         var roles = onPage.Count == 0
@@ -75,9 +78,13 @@ internal class MyTenantsEndpoint(IQuerySession session, IDocumentStore store) : 
         {
             var profile = await barakoCMS.Features.Tenants.TenantProfiles.ReadAsync(store, tenant, ct);
 #pragma warning disable CS0618 // still returned until the member goes, since nothing replaced it
+            // A membership's role owned by another tenant grants nothing here, the rule
+            // MembershipRoles applies, so it is not listed either. A global role always is.
             var held = (roleIdsBySlug.GetValueOrDefault(tenant.Slug) ?? [])
-                .Select(id => roles.GetValueOrDefault(id))
-                .OfType<Role>()
+                .Select(h => (Role: roles.GetValueOrDefault(h.Id), h.Global))
+                .Where(h => h.Role is not null && (h.Global || !OwnedElsewhere(h.Role, tenant.Slug)))
+                .Select(h => h.Role!)
+                .DistinctBy(r => r.Id)
                 .OrderBy(r => r.Name, StringComparer.Ordinal)
                 .Select(r => new MyRole(r.Id, r.Name))
                 .ToList();
@@ -93,4 +100,7 @@ internal class MyTenantsEndpoint(IQuerySession session, IDocumentStore store) : 
             TotalItems = page.TotalItems,
         }, ct);
     }
+
+    private static bool OwnedElsewhere(Role role, string slug) =>
+        !role.IsPlatform && role.TenantSlug is not null && role.TenantSlug != slug;
 }
