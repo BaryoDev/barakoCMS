@@ -192,6 +192,6 @@ search on nuget.org returns the whole set.
 Contributions are welcome — including a module icon or other design work. See
 [CONTRIBUTING.md](https://github.com/BaryoDev/barakoCMS/blob/master/CONTRIBUTING.md).
 
-Licensed under MPL-2.0.
+Licensed under [MIT](LICENSE).
 
 If barakoCMS is useful to you, a star on the [repository](https://github.com/BaryoDev/barakoCMS) helps other people find it.

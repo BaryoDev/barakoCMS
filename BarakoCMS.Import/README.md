@@ -88,6 +88,6 @@ BarakoCMS.Abstractions. Targets .NET 10.
 
 ## License
 
-[MPL-2.0](LICENSE) © BaryoDev
+[MIT](LICENSE) © BaryoDev
 
 If barakoCMS is useful to you, a star on the [repository](https://github.com/BaryoDev/barakoCMS) helps other people find it.

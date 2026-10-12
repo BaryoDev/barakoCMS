@@ -135,6 +135,12 @@ jobs:
       - name: Build
         run: dotnet build --no-restore --configuration Release
 
+      # D24: the engine is MPL-2.0 and every other package MIT (#816). The licence is set by rule in
+      # Directory.Build.props, so this asks MSBuild what each project evaluates to, which is what
+      # the package carries, and checks the LICENSE beside it.
+      - name: Check package licences
+        run: bash scripts/check-licences.sh
+
       - name: Test BarakoCMS.Tests
         run: >
           dotnet test --project BarakoCMS.Tests/BarakoCMS.Tests.csproj --no-build --configuration Release

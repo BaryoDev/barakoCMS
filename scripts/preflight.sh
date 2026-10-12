@@ -135,6 +135,9 @@ bash scripts/changelog-assemble.sh --check || fail "changelog-assemble --check f
 echo "== module versions =="
 bash scripts/check-module-versions.sh || fail "check-module-versions.sh failed"
 
+echo "== package licences =="
+bash scripts/check-licences.sh >/dev/null || fail "check-licences.sh failed; run it on its own to see which package"
+
 echo "== upgrade plan =="
 bash scripts/test-upgrade-plan.sh || fail "test-upgrade-plan.sh failed"
 
