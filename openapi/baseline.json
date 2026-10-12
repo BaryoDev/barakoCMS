@@ -708,6 +708,81 @@
         "additionalProperties": false,
         "type": "object"
       },
+      "BarakoCMSDiagnosticsFeaturesIncidentsIncidentGroup": {
+        "additionalProperties": false,
+        "description": "One fault, grouped across every occurrence the sources returned for it.",
+        "properties": {
+          "count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "detail": {
+            "nullable": true,
+            "type": "string"
+          },
+          "fingerprint": {
+            "type": "string"
+          },
+          "firstSeenAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "lastSeenAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "releases": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "resolutionNote": {
+            "nullable": true,
+            "type": "string"
+          },
+          "resolutionReference": {
+            "nullable": true,
+            "type": "string"
+          },
+          "resolved": {
+            "type": "boolean"
+          },
+          "resolvedAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "resolvedBy": {
+            "nullable": true,
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "tenants": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSDiagnosticsFeaturesIncidentsIncidentsRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BarakoCMSModelsPaginatedRequest"
+          },
+          {
+            "additionalProperties": false,
+            "type": "object"
+          }
+        ]
+      },
       "BarakoCMSDiagnosticsFeaturesListClientErrorDto": {
         "additionalProperties": false,
         "properties": {
@@ -1010,6 +1085,62 @@
       },
       "BarakoCMSFeatureFlagsKeyRequest": {
         "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSFeatureFlagsOfrepOfrepBulkResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "flags": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeatureFlagsOfrepOfrepFlag"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeatureFlagsOfrepOfrepFlag": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "value": {
+            "type": "boolean"
+          },
+          "variant": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeatureFlagsOfrepOfrepKeyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "context": {
+            "additionalProperties": {},
+            "nullable": true,
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeatureFlagsOfrepOfrepRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "context": {
+            "additionalProperties": {},
+            "nullable": true,
+            "type": "object"
+          }
+        },
         "type": "object"
       },
       "BarakoCMSFeatureFlagsUpsertFlagRequest": {
@@ -8051,6 +8182,48 @@
         },
         "type": "object"
       },
+      "BarakoCMSModelsPaginatedResponseOfIncidentGroup": {
+        "additionalProperties": false,
+        "description": "Generic paginated response with metadata.",
+        "properties": {
+          "hasNextPage": {
+            "description": "Whether there is a next page",
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "description": "Whether there is a previous page",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Items for the current page",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSDiagnosticsFeaturesIncidentsIncidentGroup"
+            },
+            "type": "array"
+          },
+          "page": {
+            "description": "Current page number (1-indexed)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "pageSize": {
+            "description": "Number of items per page",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalItems": {
+            "description": "Total number of items across all pages",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalPages": {
+            "description": "Total number of pages",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSModelsPaginatedResponseOfInstallDto": {
         "additionalProperties": false,
         "description": "Generic paginated response with metadata.",
@@ -14440,6 +14613,7 @@
     },
     "/api/feature-flags": {
       "get": {
+        "description": "Superseded by the OFREP routes under /ofrep/v1/evaluate/flags (#628),\nwhich an OpenFeature SDK reads with no client of ours. This route keeps answering through 5.x;\nevery response names its successor in a Link header.",
         "operationId": "BarakoCMSFeatureFlagsEvaluateFlagsEndpoint",
         "responses": {
           "200": {
@@ -15143,6 +15317,101 @@
         "summary": "POST /api/import/content \u2014 bulk-create content items from mapped records (typically the output of\n/api/import/analyze after column mapping). Reuses the CMS's content-type validation, per-type\ncreate permission, and event-sourced creation; all creates commit in one transaction.",
         "tags": [
           "Import"
+        ]
+      }
+    },
+    "/api/incidents": {
+      "get": {
+        "operationId": "BarakoCMSDiagnosticsFeaturesIncidentsEndpoint",
+        "parameters": [
+          {
+            "description": "Only this source, for example client-errors. Null reads every source the caller may read.",
+            "in": "query",
+            "name": "source",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by resolved state. Null means both.",
+            "in": "query",
+            "name": "resolved",
+            "schema": {
+              "nullable": true,
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "How far back to look, in days. 30 when unset.",
+            "in": "query",
+            "name": "days",
+            "schema": {
+              "format": "int32",
+              "nullable": true,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfIncidentGroup"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/incidents: one paged list across client errors, dead-lettered jobs, failed workflow\nactions and failed deliveries, grouped by fingerprint and redacted here, so no client has to\nregroup or re-redact and nothing personal leaves the API on the way (#893).",
+        "tags": [
+          "Diagnostics"
         ]
       }
     },
@@ -19769,6 +20038,77 @@
         "summary": "Switches one workflow on or off.",
         "tags": [
           "Workflows"
+        ]
+      }
+    },
+    "/ofrep/v1/evaluate/flags": {
+      "post": {
+        "operationId": "BarakoCMSFeatureFlagsOfrepOfrepEvaluateAllEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeatureFlagsOfrepOfrepRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "OfrepRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeatureFlagsOfrepOfrepBulkResponse"
+                }
+              }
+            },
+            "description": "Success"
+          }
+        },
+        "summary": "POST /ofrep/v1/evaluate/flags: every flag the caller may see, evaluated. Carries\nan ETag, and answers 304 to a matching If-None-Match, so a client-side provider can poll cheaply.",
+        "tags": [
+          "FeatureFlags"
+        ]
+      }
+    },
+    "/ofrep/v1/evaluate/flags/{key}": {
+      "post": {
+        "operationId": "BarakoCMSFeatureFlagsOfrepOfrepEvaluateFlagEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeatureFlagsOfrepOfrepKeyRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "OfrepKeyRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "summary": "POST /ofrep/v1/evaluate/flags/{key}: one flag, evaluated for the caller.",
+        "tags": [
+          "FeatureFlags"
         ]
       }
     }

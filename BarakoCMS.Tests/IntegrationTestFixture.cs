@@ -279,6 +279,11 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             new BarakoCMS.Forms.FormsModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Forms"));
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Forms.FormsModule(), opts));
 
+            // Diagnostics: the incidents view reads its sources from the container, and the report
+            // endpoint hands reports to the forwarder, which stays off unless a test turns it on.
+            // Scoped to its own section, as the host scopes it.
+            new BarakoCMS.Diagnostics.DiagnosticsModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Diagnostics"));
+
             // FeatureFlags: /api/feature-flags is anonymous, so which keys it hands out is a test
             // this project has to be able to run.
             new BarakoCMS.FeatureFlags.FeatureFlagsModule().ConfigureServices(services, ctx.Configuration);
