@@ -138,6 +138,9 @@ bash scripts/check-module-versions.sh || fail "check-module-versions.sh failed"
 echo "== package licences =="
 bash scripts/check-licences.sh >/dev/null || fail "check-licences.sh failed; run it on its own to see which package"
 
+echo "== released packages =="
+bash scripts/check-release-packages.sh || fail "check-release-packages.sh failed"
+
 echo "== upgrade plan =="
 bash scripts/test-upgrade-plan.sh || fail "test-upgrade-plan.sh failed"
 

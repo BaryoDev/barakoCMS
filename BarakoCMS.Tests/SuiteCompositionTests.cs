@@ -77,6 +77,29 @@ public class SuiteCompositionTests
         ]);
     }
 
+    /// <summary>
+    /// The published image reads keys from AWS or Google secret stores only because the Suite host
+    /// adds both configuration sources, and only usefully if it adds them before AddBarakoCMS reads
+    /// JWT:Key (#785). The host is top-level code nothing here can call, so its source is read.
+    /// </summary>
+    [Fact]
+    public void The_suite_adds_both_secret_store_sources_before_the_core_reads_its_configuration()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Directory.Build.props")))
+            dir = dir.Parent;
+        dir.Should().NotBeNull("the repository root holds the Suite's Program.cs");
+        var program = File.ReadAllText(Path.Combine(dir!.FullName, "BarakoCMS.Suite", "Program.cs"));
+
+        var core = program.IndexOf("builder.Services.AddBarakoCMS(builder.Configuration)", StringComparison.Ordinal);
+        var aws = program.IndexOf("builder.Configuration.AddBarakoAwsSecrets();", StringComparison.Ordinal);
+        var gcp = program.IndexOf("builder.Configuration.AddBarakoGcpSecrets();", StringComparison.Ordinal);
+
+        core.Should().BePositive("the Suite registers the core");
+        aws.Should().BeInRange(0, core - 1, "the AWS source must be in place before the core reads JWT:Key");
+        gcp.Should().BeInRange(0, core - 1, "the Google source must be in place before the core reads JWT:Key");
+    }
+
     [Fact]
     public void S3_stays_dormant_until_a_bucket_is_configured()
     {

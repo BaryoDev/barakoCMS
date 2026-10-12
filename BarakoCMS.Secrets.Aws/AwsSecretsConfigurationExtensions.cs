@@ -56,11 +56,16 @@ public static class AwsSecretsConfigurationExtensions
             ? new AmazonSecretsManagerClient()
             : new AmazonSecretsManagerClient(RegionEndpoint.GetBySystemName(region));
 
-    private static async Task<string?> ReadAsync(IAmazonSecretsManager client, string secretId, CancellationToken ct)
+    internal static async Task<string?> ReadAsync(IAmazonSecretsManager client, string secretId, CancellationToken ct)
     {
         try
         {
             var response = await client.GetSecretValueAsync(new GetSecretValueRequest { SecretId = secretId }, ct);
+            if (response.SecretString is null && response.SecretBinary is not null)
+            {
+                throw new SecretUnreadableException("it holds binary data, and only a text secret can be a configuration value");
+            }
+
             return response.SecretString;
         }
         catch (ResourceNotFoundException)

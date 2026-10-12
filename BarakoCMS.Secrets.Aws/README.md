@@ -38,7 +38,8 @@ Secrets__Aws__Map__Secrets__Key=barakocms/secrets-key
 Secrets__Aws__Map__Modules__Files.S3__SecretKey=barakocms/s3-secret-key
 ```
 
-Each secret is read as a plain string (`SecretString`) and becomes the value of its key. A mapped
+Each secret is read as a plain string (`SecretString`) and becomes the value of its key; a secret
+stored as binary stops startup. A mapped
 value wins over the same key set anywhere else, since naming it in the map is the request to take it
 from the store. The role needs `secretsmanager:GetSecretValue` on those secrets, and `kms:Decrypt`
 when they use a customer managed key.

@@ -73,7 +73,7 @@ public static class GcpSecretsConfigurationExtensions
     private static IConfiguration CurrentConfiguration(IConfigurationBuilder builder) =>
         builder as IConfiguration ?? builder.Build();
 
-    private static async Task<string?> ReadAsync(SecretManagerServiceClient client, string name, CancellationToken ct)
+    internal static async Task<string?> ReadAsync(SecretManagerServiceClient client, string name, CancellationToken ct)
     {
         try
         {

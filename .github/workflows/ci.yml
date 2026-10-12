@@ -141,6 +141,11 @@ jobs:
       - name: Check package licences
         run: bash scripts/check-licences.sh
 
+      # The release publishes exactly PACKAGE_PROJECTS in release.yml. A packable project missing
+      # from it is built and tested and never reaches NuGet.
+      - name: Check every package is released
+        run: bash scripts/check-release-packages.sh
+
       - name: Test BarakoCMS.Tests
         run: >
           dotnet test --project BarakoCMS.Tests/BarakoCMS.Tests.csproj --no-build --configuration Release

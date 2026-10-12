@@ -58,7 +58,8 @@ internal sealed class MappedSecretsProvider(
             }
             catch (Exception ex)
             {
-                // The store failed before it returned anything, so its message holds no secret value.
+                // No reader puts a secret value into an exception: it fails before the store answers, or
+                // with a message of its own that names the problem, never the payload.
                 throw Refused(secret, key, $"could not be read: {ex.Message}", ex);
             }
 

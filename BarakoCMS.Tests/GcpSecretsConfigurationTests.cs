@@ -1,6 +1,10 @@
 using BarakoCMS.Secrets.Gcp;
+using Google.Cloud.SecretManager.V1;
+using Google.Protobuf;
+using Grpc.Core;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
+using NSubstitute;
 using Xunit;
 
 namespace BarakoCMS.Tests;
@@ -102,5 +106,53 @@ public class GcpSecretsConfigurationTests
 
         act.Should().Throw<InvalidOperationException>()
             .WithMessage("*'projects/clinic/secrets/barakocms-missing/versions/latest'*JWT:Key*does not exist*");
+    }
+
+    // The adapter over the real client, against a stub of it.
+
+    private static SecretManagerServiceClient Answering(string payload)
+    {
+        var client = Substitute.For<SecretManagerServiceClient>();
+        client.AccessSecretVersionAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new AccessSecretVersionResponse { Payload = new SecretPayload { Data = ByteString.CopyFromUtf8(payload) } });
+        return client;
+    }
+
+    private static SecretManagerServiceClient Throwing(StatusCode code)
+    {
+        var client = Substitute.For<SecretManagerServiceClient>();
+        client.AccessSecretVersionAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<AccessSecretVersionResponse>(new RpcException(new Status(code, "detail from the server"))));
+        return client;
+    }
+
+    [Fact]
+    public async Task The_adapter_returns_the_payload_of_the_version_it_asked_for()
+    {
+        var client = Answering("from-the-store");
+
+        var value = await GcpSecretsConfigurationExtensions.ReadAsync(
+            client, "projects/clinic/secrets/jwt/versions/latest", CancellationToken.None);
+
+        value.Should().Be("from-the-store");
+        await client.Received(1).AccessSecretVersionAsync("projects/clinic/secrets/jwt/versions/latest", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task The_adapter_reads_not_found_as_absent()
+    {
+        var value = await GcpSecretsConfigurationExtensions.ReadAsync(
+            Throwing(StatusCode.NotFound), "projects/clinic/secrets/missing/versions/latest", CancellationToken.None);
+
+        value.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task The_adapter_reduces_any_other_refusal_to_the_status_code()
+    {
+        var act = () => GcpSecretsConfigurationExtensions.ReadAsync(
+            Throwing(StatusCode.PermissionDenied), "projects/clinic/secrets/jwt/versions/latest", CancellationToken.None);
+
+        (await act.Should().ThrowAsync<SecretUnreadableException>()).Which.Message.Should().Be("Google answered PermissionDenied");
     }
 }

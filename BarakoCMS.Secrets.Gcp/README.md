@@ -41,8 +41,9 @@ Secrets__Gcp__Map__Mfa__Key=projects/shared-keys/secrets/mfa/versions/3
 A short name reads the latest version of that secret in `Secrets:Gcp:Project`. A full name,
 `projects/<project>/secrets/<secret>` or with `/versions/<n>`, is used as it is, so a pinned version
 or another project works without the project setting. The payload is read as UTF-8 text and becomes
-the value of its key. A mapped value wins over the same key set anywhere else. The service account
-needs `roles/secretmanager.secretAccessor` on those secrets.
+the value of its key. A mapped value wins over the same key set anywhere else, and in the published
+image a key mapped under both `Secrets:Aws:Map` and `Secrets:Gcp:Map` takes the Google value, the
+source added second. The service account needs `roles/secretmanager.secretAccessor` on those secrets.
 
 ## When a secret cannot be read
 
