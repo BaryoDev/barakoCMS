@@ -108,6 +108,32 @@ public class SecretKeyRingTests
     }
 
     [Fact]
+    public void A_current_key_with_no_usable_key_in_the_ring_is_refused_rather_than_falling_back_to_the_jwt_key()
+    {
+        var act = () => new SecretProtector(Config(("JWT:Key", JwtKey), ("Secrets:CurrentKey", "k2026")));
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*Secrets:CurrentKey*");
+    }
+
+    [Fact]
+    public void An_empty_ring_entry_is_refused_rather_than_skipped()
+    {
+        var act = () => new SecretProtector(Config(
+            ("JWT:Key", JwtKey), ("Secrets:Keys:k2026", ""), ("Secrets:CurrentKey", "k2026")));
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*Secrets:Keys:k2026*empty*");
+    }
+
+    [Fact]
+    public void An_empty_ring_entry_beside_a_usable_one_is_still_refused()
+    {
+        var act = () => new MfaSecretProtector(Config(
+            ("JWT:Key", JwtKey), ("Mfa:Keys:a", KeyA), ("Mfa:Keys:b", ""), ("Mfa:CurrentKey", "a")));
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*Mfa:Keys:b*empty*");
+    }
+
+    [Fact]
     public void A_short_ring_key_is_refused()
     {
         var act = () => new SecretProtector(Config(("Secrets:Keys:a", "too-short")));

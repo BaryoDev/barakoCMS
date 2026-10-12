@@ -71,13 +71,19 @@ internal sealed partial class KeyRing
 
         foreach (var entry in config.GetSection($"{section}:Keys").GetChildren())
         {
-            if (string.IsNullOrEmpty(entry.Value)) continue;
-
             if (!KeyIdPattern().IsMatch(entry.Key))
             {
                 throw new InvalidOperationException(
                     $"{section}:Keys has an entry named '{entry.Key}'. A key id is 1 to 32 letters, digits, "
                     + "'-' or '_', because it is written into every value the key encrypts.");
+            }
+
+            // Skipping an empty entry would leave the legacy key writing new values with no id, and
+            // nobody would be told: a vault reference that resolved to nothing must stop startup.
+            if (string.IsNullOrEmpty(entry.Value))
+            {
+                throw new InvalidOperationException(
+                    $"{section}:Keys:{entry.Key} is empty. Give it key material, or remove the entry.");
             }
 
             if (entry.Value.Length < MinimumKeyLength)
@@ -102,12 +108,19 @@ internal sealed partial class KeyRing
         if (legacy is not null) unkeyed.Add(legacy);
         unkeyed.AddRange(keys.Values);
 
+        var currentId = config[$"{section}:CurrentKey"];
+
         if (keys.Count == 0)
         {
+            if (!string.IsNullOrEmpty(currentId))
+            {
+                throw new InvalidOperationException(
+                    $"{section}:CurrentKey is '{currentId}', but there are no keys under {section}:Keys.");
+            }
+
             return new KeyRing(keys, currentId: null, legacy, unkeyed, prefixUnkeyedWrites);
         }
 
-        var currentId = config[$"{section}:CurrentKey"];
         if (string.IsNullOrEmpty(currentId))
         {
             if (keys.Count > 1)

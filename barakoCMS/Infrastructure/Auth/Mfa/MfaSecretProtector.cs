@@ -4,10 +4,12 @@ using System.Text;
 namespace barakoCMS.Infrastructure.Auth.Mfa;
 
 /// <summary>
-/// Encrypts/decrypts a user's TOTP secret at rest with AES-GCM (authenticated encryption). The key is
-/// derived (SHA-256) from <c>Mfa:Key</c> if set, otherwise from the JWT signing key — which startup
-/// already guarantees is at least 32 chars — so a database dump alone does not yield working second
-/// factors. Wire format: base64(nonce[12] | tag[16] | ciphertext).
+/// Encrypts/decrypts a user's TOTP secret at rest with AES-GCM (authenticated encryption), so a
+/// database dump alone does not yield working second factors. With a key ring (<c>Mfa:Keys:{id}</c>
+/// and <c>Mfa:CurrentKey</c>) a value is written as <c>enc:v1:{id}:{envelope}</c> under the current
+/// key. Without one it is written as the bare envelope, base64(nonce[12] | tag[16] | ciphertext),
+/// under a key derived from <c>Mfa:Key</c> or else the JWT signing key; once a ring exists that
+/// single key only reads values written before it.
 /// </summary>
 public interface IMfaSecretProtector
 {
