@@ -121,6 +121,32 @@ else
     bad "from 4.6.0 only newer folders are listed"
 fi
 
+# The 5.0 files CI has proved from 4.9.0, the start the upgrade job runs besides 4.1.0. A later 5.0
+# file joins the plan beside these, and the comparison below ignores it, as above.
+proven_50=$(cat <<'EOF'
+core migrations/5.0.0/marten-9-49-quick-append-events.sql
+rollback migrations/5.0.0/rollback-marten-9-49-quick-append-events.sql
+EOF
+)
+
+plan "$ROOT" 4.9.0
+if [ "$code" = 0 ]; then ok "the plan from 4.9.0 builds"; else bad "the plan from 4.9.0 builds"; fi
+expect "from 4.9.0 the 5.0.0 files run in the order CI proved" \
+    "$proven_50" "$(grep -xF -f <(printf '%s\n' "$proven_50") <<< "$out" || true)"
+if grep -q ' migrations/4\.' <<< "$out"; then
+    bad "from 4.9.0 no 4.x folder is listed"
+else
+    ok "from 4.9.0 no 4.x folder is listed"
+fi
+
+plan "$ROOT" 4.1.0
+if [ "$(grep '^core ' <<< "$out" | tail -1)" = "core migrations/5.0.0/marten-9-49-quick-append-events.sql" ] \
+    && [ "$(grep '^rollback ' <<< "$out" | head -1)" = "rollback migrations/5.0.0/rollback-marten-9-49-quick-append-events.sql" ]; then
+    ok "from 4.1.0 the 5.0.0 core file runs last among core and its rollback first"
+else
+    bad "from 4.1.0 the 5.0.0 core file runs last among core and its rollback first"
+fi
+
 psql_lines "$ROOT" 3.21.0
 if grep -qxF 'psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/4.2.0/stored-files-parent-index.sql' <<< "$out" \
     && grep -qxF 'psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.2.0/forms-public-forms.sql' <<< "$out"; then
@@ -172,8 +198,10 @@ echo "== nothing else lists the files by hand =="
 hand=$(grep -nE '^[^#]*docker cp migrations/[0-9]' "$ROOT/scripts/upgrade-check.sh" | grep -v 'event-correlation-early' || true)
 out=$hand
 if [ -z "$hand" ]; then ok "upgrade-check.sh copies no named file but the early 4.6.0 one"; else bad "upgrade-check.sh copies no named file but the early 4.6.0 one"; fi
-out=$(grep -nE -- '-f migrations/[0-9]' "$ROOT/docs/upgrading-to-4.0.md" || true)
-if [ -z "$out" ]; then ok "docs/upgrading-to-4.0.md has no hand list of psql lines"; else bad "docs/upgrading-to-4.0.md has no hand list of psql lines"; fi
+for guide in docs/upgrading-to-4.0.md docs/upgrading-to-5.0.md; do
+    out=$(grep -nE -- '-f migrations/[0-9]' "$ROOT/$guide" 2>&1 || true)
+    if [ -f "$ROOT/$guide" ] && [ -z "$out" ]; then ok "$guide has no hand list of psql lines"; else bad "$guide has no hand list of psql lines"; fi
+done
 
 echo
 echo "$pass passed, $fail failed"
