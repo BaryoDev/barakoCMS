@@ -40,10 +40,9 @@
 --
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/5.0.0/role-tenancy.sql
 --
--- No rollback file. An earlier release ignores TenantSlug and IsPlatform and reads every role as
--- global, which is what it did. A copy is a second role with the same name, which an earlier
--- release's unique index on the name refuses, so before going back delete the copies (roles with
--- the same name as another) after moving their holders back, and recreate mt_doc_roles_uidx_name.
+-- rollback-role-tenancy.sql undoes it: it folds each unchanged copy back into its role, renames any
+-- other role that shares a name, and puts back the unique index on the name an earlier release
+-- declares. Its header has the rules.
 --
 -- Safe to run twice: a role with an owner is skipped, and a copy is found under its derived id.
 -- barako:rerunnable

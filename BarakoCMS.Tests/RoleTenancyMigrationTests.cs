@@ -166,9 +166,9 @@ public class RoleTenancyMigrationTests
         await command.ExecuteNonQueryAsync(Ct);
     }
 
-    private static async Task<List<string>> RunAsync(MigrationScratchDatabase db)
+    private static async Task<List<string>> RunAsync(MigrationScratchDatabase db, string file = "role-tenancy.sql")
     {
-        var sql = await File.ReadAllTextAsync(Path.Combine(RepositoryRoot(), "migrations", "5.0.0", "role-tenancy.sql"), Ct);
+        var sql = await File.ReadAllTextAsync(Path.Combine(RepositoryRoot(), "migrations", "5.0.0", file), Ct);
         var notices = new List<string>();
         await using var connection = new NpgsqlConnection(db.ConnectionString);
         connection.Notice += (_, e) => notices.Add(e.Notice.MessageText);
@@ -314,6 +314,132 @@ public class RoleTenancyMigrationTests
 
         (await IndexDefinitionAsync(db.ConnectionString, "mt_doc_roles_uidx_tenant_slug_name")).Should().Be(declared);
         (await IndexDefinitionAsync(db.ConnectionString, "mt_doc_roles_uidx_name")).Should().BeNull();
+    }
+
+    private static Task<List<string>> RollBackAsync(MigrationScratchDatabase db) => RunAsync(db, "rollback-role-tenancy.sql");
+
+    private static async Task<Dictionary<string, string>> TablesAsync(MigrationScratchDatabase db, bool ownerless = false)
+    {
+        var tables = new Dictionary<string, string>();
+        foreach (var table in new[] { "mt_doc_roles", "mt_doc_memberships", "mt_doc_users", "mt_doc_contenttypedefinition" })
+        {
+            var rows = (await RowsAsync(db, table)).OrderBy(r => r.Key).Select(r =>
+            {
+                if (ownerless && table == "mt_doc_roles")
+                {
+                    r.Value.Remove(nameof(Role.TenantSlug));
+                    r.Value.Remove(nameof(Role.IsPlatform));
+                }
+                return r.Value.ToJsonString();
+            });
+            tables[table] = JsonSerializer.Serialize(rows);
+        }
+        return tables;
+    }
+
+    [Fact]
+    public async Task Rolling_back_folds_every_copy_into_its_role_and_puts_back_the_name_index_an_earlier_release_declares()
+    {
+        var world = await WorldAsync();
+        await using var db = world.Database;
+        var original = await IndexDefinitionAsync(db.ConnectionString, "mt_doc_roles_uidx_name");
+        original.Should().NotBeNull("the control: 4.9's index is there");
+        var before = await TablesAsync(db);
+        var effective = await EffectiveAsync(db);
+        effective.Should().HaveCount(4);
+
+        await RunAsync(db);
+        (await RowsAsync(db, "mt_doc_roles")).Should().HaveCount(8, "the control: the copies were written");
+
+        var notices = await RollBackAsync(db);
+
+        notices.Should().Contain(n => n.Contains("folded 3 copy(ies) back into their role, renamed 0 role(s)"));
+        (await IndexDefinitionAsync(db.ConnectionString, "mt_doc_roles_uidx_name")).Should().Be(original);
+        (await IndexDefinitionAsync(db.ConnectionString, "mt_doc_roles_uidx_tenant_slug_name")).Should().BeNull();
+
+        var roles = await RowsAsync(db, "mt_doc_roles");
+        roles.Should().HaveCount(5);
+        foreach (var custom in new[] { world.Shared, world.Global, world.Unheld })
+        {
+            roles[custom].ContainsKey(nameof(Role.TenantSlug)).Should().BeFalse("running role-tenancy.sql again works the owner out afresh");
+            roles[custom].ContainsKey(nameof(Role.IsPlatform)).Should().BeFalse();
+        }
+        roles[SystemRoles.AdminRoleId]["IsPlatform"]!.GetValue<bool>().Should().BeTrue("a platform role stays one");
+
+        (await TablesAsync(db, ownerless: true)).Should().BeEquivalentTo(before,
+            "every membership, account and field role list points at the role it held before the upgrade");
+        (await EffectiveAsync(db)).Should().BeEquivalentTo(effective, o => o.WithStrictOrdering());
+    }
+
+    [Fact]
+    public async Task Rolling_back_renames_a_role_that_shares_a_name_and_it_keeps_its_holders_and_permissions()
+    {
+        var world = await WorldAsync();
+        await using var db = world.Database;
+        await RunAsync(db);
+
+        var sharedInB = CopyId(world.Shared, world.B);
+        await db.ExecuteAsync(
+            $"update public.mt_doc_roles set data = jsonb_set(data, '{{SystemCapabilities}}', '[\"view_audit_log\", \"manage_users\"]') where id = '{sharedInB}'");
+        var made = Guid.NewGuid();
+        await InsertAsync(db, "mt_doc_roles", made, Json(new Role { Id = made, Name = "Auditor", TenantSlug = world.C }),
+            extra: ("mt_dotnet_type", "barakoCMS.Models.Role"));
+        var memberC = Guid.NewGuid();
+        await MemberAsync(db, memberC, world.C, MembershipStatus.Active, made);
+        var typeC = Guid.NewGuid();
+        await TypeAsync(db, world.C, typeC, made);
+        await db.ExecuteAsync(
+            $"update public.mt_doc_contenttypedefinition set data = jsonb_set(data, '{{Fields,1,VisibleToRoles}}', '[\"Auditor\"]') where id = '{typeC}'");
+        var effective = await EffectiveAsync(db);
+        effective.Should().HaveCount(5);
+
+        var notices = await RollBackAsync(db);
+
+        notices.Should().Contain(n => n.Contains("folded 2 copy(ies) back into their role, renamed 2 role(s)"));
+        var roles = await RowsAsync(db, "mt_doc_roles");
+        roles.Should().HaveCount(7, "five roles, the edited copy and the role made after the upgrade");
+        roles.Values.Select(r => r["Name"]!.GetValue<string>()).Should().OnlyHaveUniqueItems();
+        roles[sharedInB]["Name"]!.GetValue<string>().Should().Be($"Nurse ({world.B})");
+        roles[made]["Name"]!.GetValue<string>().Should().Be($"Auditor ({world.C})");
+        roles[world.Shared]["Name"]!.GetValue<string>().Should().Be("Nurse", "the role the copy came from keeps the name");
+        roles[world.Global]["Name"]!.GetValue<string>().Should().Be("Auditor", "the default tenant's role keeps the name");
+
+        var memberships = await RowsAsync(db, "mt_doc_memberships");
+        Ids(memberships[world.MemberB]).Should().Equal(SystemRoles.AdminRoleId, sharedInB);
+        Ids(memberships[memberC]).Should().Equal(made);
+        VisibleTo((await RowsAsync(db, "mt_doc_contenttypedefinition"))[typeC]).Should().Equal($"Auditor ({world.C})");
+
+        (await EffectiveAsync(db)).Keys.Should().BeEquivalentTo(effective.Keys);
+        foreach (var (membership, held) in await EffectiveAsync(db))
+        {
+            held.Select(WithoutName).Should().BeEquivalentTo(effective[membership].Select(WithoutName),
+                "a renamed role keeps every permission it had");
+        }
+
+        (await IndexDefinitionAsync(db.ConnectionString, "mt_doc_roles_uidx_name")).Should().NotBeNull();
+    }
+
+    private static string WithoutName(string role)
+    {
+        var node = JsonNode.Parse(role)!.AsObject();
+        node.Remove("Name");
+        return node.ToJsonString();
+    }
+
+    [Fact]
+    public async Task Rolling_back_twice_changes_nothing_the_second_time()
+    {
+        var world = await WorldAsync();
+        await using var db = world.Database;
+        await RunAsync(db);
+        await RollBackAsync(db);
+        var first = await TablesAsync(db);
+        first["mt_doc_roles"].Should().Contain("Nurse");
+
+        var notices = await RollBackAsync(db);
+
+        notices.Should().Contain(n => n.Contains("folded 0 copy(ies) back into their role, renamed 0 role(s) that shared a name, and took the owner off 0 role(s)"));
+        (await TablesAsync(db)).Should().BeEquivalentTo(first);
     }
 
     private static async Task<string?> IndexDefinitionAsync(string connectionString, string name)

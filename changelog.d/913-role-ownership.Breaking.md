@@ -7,5 +7,8 @@
   a derived id with that tenant's memberships and field role lists rewritten to the copy, and one
   held by nobody, or as a global role on an account, stays with the default tenant. Nobody's
   permissions change. The unique index on a role's name becomes one on the tenant and the name, so
-  the file must run before 5.0.0 starts. The new `manage_platform_roles` capability covers platform
-  roles; only SuperAdmin holds it by default (#913).
+  the file must run before 5.0.0 starts. `migrations/5.0.0/rollback-role-tenancy.sql` undoes it
+  for a rollback: an unchanged copy is folded back into its role, any other role sharing a name is
+  renamed `<name> (<tenant>)` and keeps its holders, and the index on the name alone comes back.
+  The new `manage_platform_roles` capability covers platform roles; only SuperAdmin holds it by
+  default (#913).
