@@ -105,6 +105,21 @@
           "Castle.Core": "5.1.1"
         }
       },
+      "OpenFeature": {
+        "type": "Direct",
+        "requested": "[2.14.1, )",
+        "resolved": "2.14.1",
+        "contentHash": "ubw4ACEyAcHzeRNepzStTE0DgIJHpsYqRNcvdghUpPFXIf9whYiZlYLgBU6jdI2qdoVMXBrzqP6y9w9iDOuEDQ=="
+      },
+      "OpenFeature.Providers.Ofrep": {
+        "type": "Direct",
+        "requested": "[0.1.5, )",
+        "resolved": "0.1.5",
+        "contentHash": "wlC5jE2Xc17LmhrtB4uqMLmYSmcR2F6K+ZS2E6k/8efLO5tjHQJeKbloBUXWt+EA+YvWW0oYuFA5hcN9HCUmeA==",
+        "dependencies": {
+          "OpenFeature.Hosting": "[2.9.0, 2.99999.0]"
+        }
+      },
       "SkiaSharp": {
         "type": "Direct",
         "requested": "[4.153.1, )",
@@ -683,6 +698,14 @@
           "NSwag.Generation": "14.7.1",
           "Namotion.Reflection": "3.5.0",
           "Newtonsoft.Json": "13.0.3"
+        }
+      },
+      "OpenFeature.Hosting": {
+        "type": "Transitive",
+        "resolved": "2.9.0",
+        "contentHash": "TPKwbmYLaSam4W5nXTi/bDGAeJDXKJ8poevnpgfS2xIptE+uoqlgDs79ld3qG5c6IzqfWxmOHkIwL5FeT/81VA==",
+        "dependencies": {
+          "OpenFeature": "2.9.0"
         }
       },
       "OpenTelemetry": {
