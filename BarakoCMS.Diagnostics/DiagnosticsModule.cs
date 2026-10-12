@@ -33,7 +33,9 @@ public sealed class DiagnosticsModule : IBarakoModule
 
         services.Configure<ForwardingOptions>(configuration.GetSection(ForwardingOptions.SectionName));
         services.TryAddSingleton<ClientErrorForwarder>();
-        services.AddHttpClient<SentryForwardClient>();
+        // No redirects: a receiver that answers 3xx does not get to send the report somewhere else.
+        services.AddHttpClient<SentryForwardClient>()
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
         services.AddHostedService<ClientErrorForwardingService>();
     }
 

@@ -57,7 +57,7 @@ fingerprint, so a person looking for "what is broken" reads one list instead of 
 | Source | What it reads | Also needs |
 |---|---|---|
 | `client-errors` | Browser errors reported to `POST /api/client-errors` | |
-| `dead-letters` | Background jobs that used every attempt | `view_jobs` |
+| `dead-letters` | Background jobs that used every attempt, dated by when they gave up | `view_jobs` |
 | `failed-runs` | Workflow actions that failed for good | `view_workflow_runs` |
 | `failed-deliveries` | Webhook and connector sends with no answer or a non-2xx one | `view_workflow_runs` |
 
@@ -81,9 +81,16 @@ through one set of rules on the server:
 - the value after a key named like a credential: password, secret, token, api key, access key,
   private key, auth, session, cookie, signature, otp
 - the value after the name of a content field marked Sensitive or Hidden, written as
-  `Name: value`, `Name=value` or `"Name": "value"`
+  `Name: value`, `Name=value`, `"Name": "value"` or escaped as `\"Name\":\"value\"`. A quoted
+  value goes whole, escapes included; an unquoted one goes up to the next comma, semicolon,
+  ampersand, bracket or line end, spaces and all
 - email addresses, and any run of 32 or more letters, digits, `-` or `_` holding both a letter and
   a digit, which is what an API key or session id looks like
+
+The dead-letter, failed-run and failed-delivery sources also cut every URL in their text to its
+scheme and host, as `/api/jobs` and the workflow-run list do, because a webhook URL can carry its
+secret in the path. Browser errors keep their paths, since the script or page is what a reader
+needs, with every query value removed.
 
 These are patterns. A Sensitive value that appears with no field name in front of it is not
 recognisable as one and stays. The stored error and `GET /api/client-errors` are unchanged: they

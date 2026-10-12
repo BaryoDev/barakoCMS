@@ -33,7 +33,10 @@ public sealed class ForwardingOptions
 }
 
 /// <summary>A Sentry DSN taken apart: where to send, and the public key that goes in the auth header.</summary>
-internal sealed record SentryDsn(Uri EnvelopeEndpoint, string PublicKey, string Raw)
+/// <param name="EnvelopeEndpoint">Where envelopes are posted.</param>
+/// <param name="PublicKey">The key the auth header names.</param>
+/// <param name="Public">The DSN without a secret key, which is what goes in the envelope header.</param>
+internal sealed record SentryDsn(Uri EnvelopeEndpoint, string PublicKey, string Public)
 {
     public static SentryDsn? TryParse(string? dsn)
     {
@@ -48,10 +51,14 @@ internal sealed record SentryDsn(Uri EnvelopeEndpoint, string PublicKey, string 
         var path = uri.AbsolutePath.TrimEnd('/');
         var slash = path.LastIndexOf('/');
         var project = slash >= 0 ? path[(slash + 1)..] : path;
-        if (string.IsNullOrEmpty(key) || string.IsNullOrEmpty(project)) return null;
+        if (string.IsNullOrEmpty(key) || string.IsNullOrEmpty(project))
+        {
+            return null;
+        }
 
         var prefix = slash > 0 ? path[..slash] : string.Empty;
         var endpoint = new UriBuilder(uri.Scheme, uri.Host, uri.Port, $"{prefix}/api/{project}/envelope/").Uri;
-        return new SentryDsn(endpoint, key, dsn.Trim());
+        var withoutSecret = new UriBuilder(uri) { UserName = key, Password = string.Empty }.Uri.ToString().TrimEnd('/');
+        return new SentryDsn(endpoint, key, withoutSecret);
     }
 }

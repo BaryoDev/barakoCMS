@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Models;
+using BarakoCMS.Diagnostics.Redaction;
 using Marten;
 
 namespace BarakoCMS.Diagnostics.Incidents;
@@ -18,7 +19,10 @@ internal static class IncidentFingerprint
     /// <summary>The exception type a stored error starts with, so the same failure with a different id still groups.</summary>
     public static string Kind(string? error)
     {
-        if (string.IsNullOrWhiteSpace(error)) return "unknown";
+        if (string.IsNullOrWhiteSpace(error))
+        {
+            return "unknown";
+        }
         var colon = error.IndexOf(':');
         var head = colon > 0 ? error[..colon] : error;
         return head.Length <= 120 ? head.Trim() : head[..120];
@@ -43,7 +47,12 @@ internal sealed class ClientErrorIncidentSource(IQuerySession session) : IIncide
             rows = rows.Where(e => e.Tenant == slug);
         }
 
-        var errors = await rows.OrderByDescending(e => e.LastSeenAt).Take(query.Limit).ToListAsync(ct);
+        // Projected, so a page of 1,000 does not load each row's stack and user agent.
+        var errors = await rows.OrderByDescending(e => e.LastSeenAt).Take(query.Limit)
+            .Select(e => new ClientErrorRow(
+                e.Fingerprint, e.Message, e.Source, e.Tenant, e.AppVersion, e.Count, e.FirstSeenAt, e.LastSeenAt,
+                e.Resolved, e.ResolvedAt, e.ResolvedBy, e.ResolutionReference, e.ResolutionNote))
+            .ToListAsync(ct);
         return errors.Select(e => new IncidentOccurrence
         {
             Fingerprint = e.Fingerprint,
@@ -61,6 +70,11 @@ internal sealed class ClientErrorIncidentSource(IQuerySession session) : IIncide
             ResolutionNote = e.ResolutionNote,
         }).ToList();
     }
+
+    private sealed record ClientErrorRow(
+        string Fingerprint, string Message, string? Source, string? Tenant, string? AppVersion, int Count,
+        DateTime FirstSeenAt, DateTime LastSeenAt, bool Resolved, DateTime? ResolvedAt, string? ResolvedBy,
+        string? ResolutionReference, string? ResolutionNote);
 }
 
 /// <summary>Background jobs that used every attempt and were dead-lettered, in the current tenant.</summary>
@@ -72,11 +86,15 @@ internal sealed class DeadLetteredJobIncidentSource(IQuerySession session) : IIn
 
     public async Task<IReadOnlyList<IncidentOccurrence>> ReadAsync(IncidentQuery query, CancellationToken ct)
     {
+        // Dated by when it gave up, as the dead-letter retention sweep dates it, not by when it was
+        // queued: a scheduled job can wait weeks before it fails.
         var since = query.Since.UtcDateTime;
         var jobs = await session.Query<JobRecord>()
-            .Where(j => j.State == JobState.DeadLettered && j.CreatedAt >= since)
-            .OrderByDescending(j => j.CreatedAt)
+            .Where(j => j.State == JobState.DeadLettered
+                && (j.CompletedAt >= since || (j.CompletedAt == null && j.CreatedAt >= since)))
+            .OrderByDescending(j => j.CompletedAt)
             .Take(query.Limit)
+            .Select(j => new JobRow(j.CommandType, j.AttemptCount, j.LastError, j.CreatedAt, j.CompletedAt))
             .ToListAsync(ct);
 
         return jobs.Select(j =>
@@ -88,13 +106,15 @@ internal sealed class DeadLetteredJobIncidentSource(IQuerySession session) : IIn
             {
                 Fingerprint = IncidentFingerprint.Of("job", command, kind),
                 Title = $"{command[(command.LastIndexOf('.') + 1)..]} gave up after {j.AttemptCount} attempts",
-                Detail = j.LastError,
+                Detail = DiagnosticRedactor.CutUrls(j.LastError),
                 Tenant = query.Tenant,
                 FirstSeenAt = new DateTimeOffset(DateTime.SpecifyKind(j.CreatedAt, DateTimeKind.Utc)),
                 LastSeenAt = last,
             };
         }).ToList();
     }
+
+    private sealed record JobRow(string CommandType, int AttemptCount, string? LastError, DateTime CreatedAt, DateTime? CompletedAt);
 }
 
 /// <summary>Workflow actions that failed for good: their run ended Failed or PartiallyFailed.</summary>
@@ -119,7 +139,7 @@ internal sealed class FailedWorkflowRunIncidentSource(IQuerySession session) : I
             {
                 Fingerprint = IncidentFingerprint.Of("run", r.WorkflowName, a.ActionType, IncidentFingerprint.Kind(a.Error)),
                 Title = $"{r.WorkflowName}: {a.ActionType} failed",
-                Detail = a.Error,
+                Detail = DiagnosticRedactor.CutUrls(a.Error),
                 Tenant = query.Tenant,
                 FirstSeenAt = r.CreatedAt,
                 LastSeenAt = a.CompletedAt ?? r.CompletedAt ?? r.CreatedAt,
@@ -156,7 +176,7 @@ internal sealed class FailedDeliveryIncidentSource(IQuerySession session) : IInc
             {
                 Fingerprint = IncidentFingerprint.Of("delivery", kind, d.Url, d.ResponseStatus?.ToString(), IncidentFingerprint.Kind(d.Error)),
                 Title = $"{kind} to {d.Url} {outcome}",
-                Detail = d.Error,
+                Detail = DiagnosticRedactor.CutUrls(d.Error),
                 Tenant = query.Tenant,
                 FirstSeenAt = d.CreatedAt,
                 LastSeenAt = d.CreatedAt,

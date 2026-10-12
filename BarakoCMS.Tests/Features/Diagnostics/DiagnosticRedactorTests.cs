@@ -35,10 +35,29 @@ public class DiagnosticRedactorTests
 
         DiagnosticRedactor.Redact("save failed {\"MobileNumber\": \"+63 917 555 0101\"}", fields)
             .Should().NotContain("917 555 0101");
-        DiagnosticRedactor.Redact("save failed MobileNumber=09175550101 rejected", fields)
+        DiagnosticRedactor.Redact("save failed MobileNumber=09175550101; rejected", fields)
             .Should().NotContain("09175550101").And.Contain("rejected");
+        DiagnosticRedactor.Redact("save failed {\\\"MobileNumber\\\":\\\"09175550101\\\"} in body", fields)
+            .Should().NotContain("09175550101", "a key inside escaped JSON counts too");
         DiagnosticRedactor.Redact("save failed mobilenumber: 09175550101", fields)
             .Should().NotContain("09175550101");
+    }
+
+    [Theory]
+    [InlineData("{\"password\":\"p\\\"ss word\"} rejected", "ss word")]
+    [InlineData("phone_number: +1 555 123 4567, then", "555 123 4567")]
+    [InlineData("Authorization: Token abcdefghij", "abcdefghij")]
+    [InlineData("api key: \"abc def\" refused", "abc def")]
+    public void A_value_with_escapes_or_spaces_goes_whole(string text, string secret)
+    {
+        DiagnosticRedactor.Redact(text, ["phone_number"]).Should().NotContain(secret);
+    }
+
+    [Fact]
+    public void A_server_side_url_is_cut_to_its_host()
+    {
+        DiagnosticRedactor.CutUrls("403 from https://hooks.example.com/services/abcdefghijkl?x=1 then")
+            .Should().Be("403 from https://hooks.example.com then");
     }
 
     [Fact]

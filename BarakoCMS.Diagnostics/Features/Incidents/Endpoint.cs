@@ -84,34 +84,60 @@ internal sealed class Endpoint(
         foreach (var source in sources)
         {
             if (req.Source is not null && !string.Equals(req.Source, source.Name, StringComparison.OrdinalIgnoreCase))
+            {
                 continue;
+            }
+
             // A source is read only by a caller who could read its records directly.
             if (source.RequiredCapability is { } needed && !await capabilities.HoldsAsync(User, needed, ct))
+            {
                 continue;
-            foreach (var row in await source.ReadAsync(query, ct))
-                occurrences.Add((source.Name, row));
-        }
+            }
 
-        var sensitive = await SensitiveFieldNames.LoadAsync(session, allTenants, ct);
+            foreach (var row in await source.ReadAsync(query, ct))
+            {
+                occurrences.Add((source.Name, row));
+            }
+        }
 
         var groups = occurrences
             .GroupBy(o => (o.Source, o.Row.Fingerprint))
-            .Select(g => Group(g.Key.Source, g.Key.Fingerprint, g.Select(o => o.Row).ToList(), sensitive))
+            .Select(g => Group(g.Key.Source, g.Key.Fingerprint, g.Select(o => o.Row).ToList()))
             .Where(g => req.Resolved is not bool resolved || g.Resolved == resolved)
             .OrderByDescending(g => g.LastSeenAt)
             .ToList();
 
+        // Only the page is redacted: the rules cost time per character, and a caller is never
+        // sent the rest.
+        var redactor = new DiagnosticRedactor(await SensitiveFieldNames.LoadAsync(session, allTenants, ct));
         await Send.ResponseAsync(new PaginatedResponse<IncidentGroup>
         {
-            Items = groups.Skip(req.Skip).Take(req.Take).ToList(),
+            Items = groups.Skip(req.Skip).Take(req.Take).Select(g => Redacted(g, redactor)).ToList(),
             Page = req.Page,
             PageSize = req.PageSize,
             TotalItems = groups.Count,
         }, cancellation: ct);
     }
 
-    private static IncidentGroup Group(
-        string source, string fingerprint, List<IncidentOccurrence> rows, IReadOnlyCollection<string> sensitive)
+    private static IncidentGroup Redacted(IncidentGroup g, DiagnosticRedactor redactor) => new()
+    {
+        Source = g.Source,
+        Fingerprint = g.Fingerprint,
+        Title = redactor.Apply(g.Title) ?? string.Empty,
+        Detail = redactor.Apply(g.Detail),
+        Count = g.Count,
+        FirstSeenAt = g.FirstSeenAt,
+        LastSeenAt = g.LastSeenAt,
+        Tenants = g.Tenants,
+        Releases = g.Releases,
+        Resolved = g.Resolved,
+        ResolvedAt = g.ResolvedAt,
+        ResolvedBy = g.ResolvedBy,
+        ResolutionReference = redactor.Apply(g.ResolutionReference),
+        ResolutionNote = redactor.Apply(g.ResolutionNote),
+    };
+
+    private static IncidentGroup Group(string source, string fingerprint, List<IncidentOccurrence> rows)
     {
         var latest = rows.MaxBy(r => r.LastSeenAt)!;
         var resolved = rows.All(r => r.Resolved);
@@ -120,8 +146,8 @@ internal sealed class Endpoint(
         {
             Source = source,
             Fingerprint = fingerprint,
-            Title = DiagnosticRedactor.Redact(latest.Title, sensitive) ?? string.Empty,
-            Detail = DiagnosticRedactor.Redact(latest.Detail, sensitive),
+            Title = latest.Title,
+            Detail = latest.Detail,
             Count = rows.Sum(r => Math.Max(1, r.Count)),
             FirstSeenAt = rows.Min(r => r.FirstSeenAt),
             LastSeenAt = latest.LastSeenAt,
@@ -130,8 +156,8 @@ internal sealed class Endpoint(
             Resolved = resolved,
             ResolvedAt = resolution?.ResolvedAt,
             ResolvedBy = resolution?.ResolvedBy,
-            ResolutionReference = DiagnosticRedactor.Redact(resolution?.ResolutionReference, sensitive),
-            ResolutionNote = DiagnosticRedactor.Redact(resolution?.ResolutionNote, sensitive),
+            ResolutionReference = resolution?.ResolutionReference,
+            ResolutionNote = resolution?.ResolutionNote,
         };
     }
 }

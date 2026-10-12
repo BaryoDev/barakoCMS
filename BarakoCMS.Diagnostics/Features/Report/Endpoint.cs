@@ -66,7 +66,10 @@ public class Endpoint(IDocumentSession session, TenantContext tenant) : Endpoint
         {
             foreach (var item in items)
             {
-                if (ClientErrorRecorder.ForwardableFrom(item) is { } forwarded) forwarder.TryEnqueue(forwarded);
+                if (ClientErrorRecorder.ForwardableFrom(item) is { } forwarded)
+                {
+                    forwarder.TryEnqueue(forwarded);
+                }
             }
         }
 

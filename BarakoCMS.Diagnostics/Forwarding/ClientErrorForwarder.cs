@@ -30,7 +30,10 @@ internal sealed class ClientErrorForwarder
     {
         var o = options.Value;
         Dsn = o.ParsedDsn;
-        if (Dsn is null) return;
+        if (Dsn is null)
+        {
+            return;
+        }
 
         _queue = Channel.CreateBounded<ForwardedError>(new BoundedChannelOptions(Math.Max(1, o.QueueCapacity))
         {
@@ -52,8 +55,14 @@ internal sealed class ClientErrorForwarder
 
     public bool TryEnqueue(ForwardedError error)
     {
-        if (_queue is null) return false;
-        if (_queue.Writer.TryWrite(error)) return true;
+        if (_queue is null)
+        {
+            return false;
+        }
+        if (_queue.Writer.TryWrite(error))
+        {
+            return true;
+        }
         Interlocked.Increment(ref _dropped);
         return false;
     }

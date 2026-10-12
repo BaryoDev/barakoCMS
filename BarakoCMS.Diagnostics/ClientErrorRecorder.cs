@@ -77,7 +77,11 @@ public static class ClientErrorRecorder
     internal static ForwardedError? ForwardableFrom(ReportItem item)
     {
         var message = ClientErrorText.Trim(item.Message, MaxMessage);
-        if (string.IsNullOrWhiteSpace(message)) return null;
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return null;
+        }
+
         var kind = ClientErrorText.Trim(item.Kind, 40) ?? "error";
         var source = ClientErrorText.Trim(item.Source, MaxField);
         return new ForwardedError(

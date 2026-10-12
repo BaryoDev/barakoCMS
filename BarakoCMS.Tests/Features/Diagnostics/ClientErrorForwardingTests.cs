@@ -34,7 +34,8 @@ public class ClientErrorForwardingTests(IntegrationTestFixture factory)
         }
     }
 
-    private Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> HostWith(StubReceiver receiver, bool enabled = true) =>
+    private Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> HostWith(
+        StubReceiver receiver, bool enabled = true, int timeoutSeconds = 1) =>
         factory.WithWebHostBuilder(b =>
         {
             b.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
@@ -42,7 +43,7 @@ public class ClientErrorForwardingTests(IntegrationTestFixture factory)
                 ["Modules:Diagnostics:Forwarding:Enabled"] = enabled ? "true" : "false",
                 ["Modules:Diagnostics:Forwarding:Dsn"] = Dsn,
                 ["Modules:Diagnostics:Forwarding:Environment"] = "test",
-                ["Modules:Diagnostics:Forwarding:TimeoutSeconds"] = "1",
+                ["Modules:Diagnostics:Forwarding:TimeoutSeconds"] = timeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
             }));
             b.ConfigureTestServices(services =>
                 services.AddHttpClient<SentryForwardClient>().ConfigurePrimaryHttpMessageHandler(() => receiver));
@@ -74,7 +75,7 @@ public class ClientErrorForwardingTests(IntegrationTestFixture factory)
     {
         var receiver = new StubReceiver((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)));
         using var resolver = FastEndpointsResolver.Keep();
-        var host = HostWith(receiver);
+        await using var host = HostWith(receiver);
         var marker = $"forward-{Guid.NewGuid():N}"[..20];
         var bearer = $"b{Guid.NewGuid():N}";
 
@@ -89,31 +90,55 @@ public class ClientErrorForwardingTests(IntegrationTestFixture factory)
         body.Should().NotContain("abc123secret", "a query string value never leaves the process");
     }
 
-    [Theory]
-    [InlineData("down")]
-    [InlineData("slow")]
-    [InlineData("wrong")]
-    public async Task A_receiver_that_is_down_slow_or_wrong_does_not_affect_the_ingest_response(string failure)
+    [Fact]
+    public async Task Ingest_answers_while_the_receiver_is_still_holding_the_send()
     {
-        var receiver = new StubReceiver(async (_, ct) => failure switch
+        // The receiver does not answer until the test lets it, and the send timeout is longer than
+        // the test, so an ingest that waited on the send could not answer at all.
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var receiver = new StubReceiver(async (_, ct) =>
         {
-            "down" => throw new HttpRequestException("connection refused"),
-            "slow" => await Task.Delay(TimeSpan.FromSeconds(30), ct).ContinueWith(_ => new HttpResponseMessage(HttpStatusCode.OK), CancellationToken.None),
-            _ => new HttpResponseMessage(HttpStatusCode.InternalServerError),
+            entered.TrySetResult();
+            await release.Task.WaitAsync(ct);
+            return new HttpResponseMessage(HttpStatusCode.OK);
         });
         using var resolver = FastEndpointsResolver.Keep();
-        var host = HostWith(receiver);
+        await using var host = HostWith(receiver, timeoutSeconds: 60);
+        var client = host.CreateClient();
+        client.Timeout = TimeSpan.FromSeconds(15);
+
+        try
+        {
+            (await ReportAsync(client, $"forward-held-{Guid.NewGuid():N}")).StatusCode.Should().Be(HttpStatusCode.OK);
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            release.Task.IsCompleted.Should().BeFalse("the response came back while the receiver still held the send");
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
+    }
+
+    [Theory]
+    [InlineData("down")]
+    [InlineData("wrong")]
+    public async Task A_receiver_that_is_down_or_wrong_does_not_affect_the_ingest_response(string failure)
+    {
+        var receiver = new StubReceiver((_, _) => failure == "down"
+            ? throw new HttpRequestException("connection refused")
+            : Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError)));
+        using var resolver = FastEndpointsResolver.Keep();
+        await using var host = HostWith(receiver);
         var client = host.CreateClient();
 
-        var watch = Stopwatch.StartNew();
         for (var i = 0; i < 3; i++)
         {
             (await ReportAsync(client, $"forward-{failure}-{i}-{Guid.NewGuid():N}")).StatusCode.Should().Be(HttpStatusCode.OK);
         }
-        watch.Stop();
 
-        (await EventuallyAsync(() => !receiver.Received.IsEmpty)).Should().BeTrue("the control: the receiver was actually called");
-        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10), "ingest never waits on the receiver");
+        (await EventuallyAsync(() => receiver.Received.Count >= 3)).Should().BeTrue(
+            "the control: every report reached the receiver, and the sender kept going after each failure");
     }
 
     [Fact]
@@ -121,7 +146,7 @@ public class ClientErrorForwardingTests(IntegrationTestFixture factory)
     {
         var receiver = new StubReceiver((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)));
         using var resolver = FastEndpointsResolver.Keep();
-        var host = HostWith(receiver, enabled: false);
+        await using var host = HostWith(receiver, enabled: false);
 
         host.Services.GetRequiredService<ClientErrorForwarder>().Enabled.Should().BeFalse();
         (await ReportAsync(host.CreateClient(), $"forward-off-{Guid.NewGuid():N}")).StatusCode.Should().Be(HttpStatusCode.OK);
@@ -151,6 +176,7 @@ public class ClientErrorForwardingTests(IntegrationTestFixture factory)
         parsed.Should().NotBeNull();
         parsed!.EnvelopeEndpoint.Should().Be(new Uri(endpoint));
         parsed.PublicKey.Should().Be(key);
+        parsed.Public.Should().NotContain("secret", "the envelope header never carries a secret key");
     }
 
     [Theory]

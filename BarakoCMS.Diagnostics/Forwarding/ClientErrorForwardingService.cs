@@ -28,12 +28,15 @@ internal sealed class ClientErrorForwardingService(
 {
     private static readonly TimeSpan SensitiveNamesFor = TimeSpan.FromMinutes(1);
 
-    private IReadOnlyCollection<string> _sensitive = [];
-    private DateTimeOffset _sensitiveLoadedAt = DateTimeOffset.MinValue;
+    private DiagnosticRedactor _redactor = new();
+    private DateTimeOffset _redactorBuiltAt = DateTimeOffset.MinValue;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (forwarder.Reader is not { } reader || forwarder.Dsn is not { } dsn) return;
+        if (forwarder.Reader is not { } reader || forwarder.Dsn is not { } dsn)
+        {
+            return;
+        }
 
         await foreach (var error in reader.ReadAllAsync(stoppingToken))
         {
@@ -56,8 +59,8 @@ internal sealed class ClientErrorForwardingService(
     private async Task SendAsync(SentryDsn dsn, ForwardedError error, CancellationToken ct)
     {
         using var scope = scopes.CreateScope();
-        var sensitive = await SensitiveAsync(scope.ServiceProvider, ct);
-        var body = Envelope(dsn, error, options.Value.Environment, sensitive);
+        var redactor = await RedactorAsync(scope.ServiceProvider, ct);
+        var body = Envelope(dsn, error, options.Value.Environment, redactor);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, dsn.EnvelopeEndpoint)
         {
@@ -72,28 +75,39 @@ internal sealed class ClientErrorForwardingService(
         var client = scope.ServiceProvider.GetRequiredService<SentryForwardClient>();
         using var response = await client.Http.SendAsync(request, timeout.Token);
         if (!response.IsSuccessStatusCode)
+        {
             logger.LogWarning("The error receiver answered {Status}; the report was dropped.", (int)response.StatusCode);
+        }
     }
 
-    private async Task<IReadOnlyCollection<string>> SensitiveAsync(IServiceProvider services, CancellationToken ct)
+    private async Task<DiagnosticRedactor> RedactorAsync(IServiceProvider services, CancellationToken ct)
     {
-        if (DateTimeOffset.UtcNow - _sensitiveLoadedAt < SensitiveNamesFor) return _sensitive;
+        if (DateTimeOffset.UtcNow - _redactorBuiltAt < SensitiveNamesFor)
+        {
+            return _redactor;
+        }
         await using var session = services.GetRequiredService<IDocumentStore>().QuerySession();
-        _sensitive = await SensitiveFieldNames.LoadAsync(session, allTenants: true, ct);
-        _sensitiveLoadedAt = DateTimeOffset.UtcNow;
-        return _sensitive;
+        _redactor = new DiagnosticRedactor(await SensitiveFieldNames.LoadAsync(session, allTenants: true, ct));
+        _redactorBuiltAt = DateTimeOffset.UtcNow;
+        return _redactor;
     }
 
     /// <summary>
     /// The envelope sent for one report. Every field that leaves the process is set here, and the
     /// module README lists the same set: anything not named here is not sent.
     /// </summary>
-    internal static string Envelope(SentryDsn dsn, ForwardedError e, string? environment, IReadOnlyCollection<string> sensitive)
+    internal static string Envelope(SentryDsn dsn, ForwardedError e, string? environment, DiagnosticRedactor redactor)
     {
         var eventId = Guid.NewGuid().ToString("N");
         var tags = new Dictionary<string, string> { ["kind"] = e.Kind };
-        if (e.Tenant is not null) tags["tenant"] = e.Tenant;
-        if (e.Status is { } status) tags["status"] = status.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (e.Tenant is not null)
+        {
+            tags["tenant"] = e.Tenant;
+        }
+        if (e.Status is { } status)
+        {
+            tags["status"] = status.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
 
         var evt = new Dictionary<string, object?>
         {
@@ -102,16 +116,25 @@ internal sealed class ClientErrorForwardingService(
             ["platform"] = "javascript",
             ["level"] = e.Severity == "warning" ? "warning" : "error",
             ["logger"] = "barakocms.client-errors",
-            ["message"] = new { formatted = DiagnosticRedactor.Redact(e.Message, sensitive) },
-            ["culprit"] = DiagnosticRedactor.Redact(e.Source, sensitive),
+            ["message"] = new { formatted = redactor.Apply(e.Message) },
+            ["culprit"] = redactor.Apply(e.Source),
             ["fingerprint"] = new[] { e.Fingerprint },
             ["tags"] = tags,
         };
-        if (e.AppVersion is not null) evt["release"] = e.AppVersion;
-        if (!string.IsNullOrWhiteSpace(environment)) evt["environment"] = environment;
-        if (e.Url is not null) evt["request"] = new { url = DiagnosticRedactor.Redact(e.Url, sensitive) };
+        if (e.AppVersion is not null)
+        {
+            evt["release"] = e.AppVersion;
+        }
+        if (!string.IsNullOrWhiteSpace(environment))
+        {
+            evt["environment"] = environment;
+        }
+        if (e.Url is not null)
+        {
+            evt["request"] = new { url = redactor.Apply(e.Url) };
+        }
 
-        var header = JsonSerializer.Serialize(new { event_id = eventId, sent_at = DateTimeOffset.UtcNow.ToString("O"), dsn = dsn.Raw });
+        var header = JsonSerializer.Serialize(new { event_id = eventId, sent_at = DateTimeOffset.UtcNow.ToString("O"), dsn = dsn.Public });
         var item = JsonSerializer.Serialize(new { type = "event", content_type = "application/json" });
         return $"{header}\n{item}\n{JsonSerializer.Serialize(evt)}\n";
     }
