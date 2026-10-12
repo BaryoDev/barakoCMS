@@ -125,9 +125,6 @@ public class SystemCapabilitiesTests
             // Station keys are new, no gate to preserve. They are tenant credentials like API keys,
             // which Admin already manages.
             SystemCapabilities.ManageStations,
-            // #781: storage settings are new, no gate to preserve. They are the tenant's own, the
-            // way its connectors are.
-            SystemCapabilities.ManageStorage,
         });
         admin.Should().NotContain(SystemCapabilities.ManageRoles);
         admin.Should().NotContain(SystemCapabilities.ManageTenants);

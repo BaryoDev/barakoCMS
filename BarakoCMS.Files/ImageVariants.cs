@@ -49,7 +49,7 @@ public sealed class ImageVariants
     }
 
     /// <summary>The same, reading and writing through one storage whatever a file records.</summary>
-    [Obsolete("Reads now follow each file's own provider. Use the constructor taking FileStorageResolver. Removed in 6.0.")]
+    [Obsolete("Reads now follow each file's own provider. Use the constructor taking FileStorageResolver. Removal planned for barakoCMS 6.0.")]
     public ImageVariants(
         IDocumentSession session,
         IFileStorage storage,

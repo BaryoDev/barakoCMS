@@ -141,7 +141,7 @@ internal sealed class StorageSettingsResponse
 internal static class StorageSettingsGate
 {
     public static void Apply(EndpointDefinition definition) =>
-        definition.RequireCapability(SystemCapabilities.ManageStorage, "SuperAdmin", "Admin");
+        definition.RequireCapability(FileCapabilities.ManageStorage, "SuperAdmin", "Admin");
 }
 
 /// <summary>GET /api/settings/storage: where this tenant's files go, and whether it can be changed here.</summary>
