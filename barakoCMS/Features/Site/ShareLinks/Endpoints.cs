@@ -180,6 +180,45 @@ internal static class ShareLinkKeys
     public static void RecordUse(IDocumentSession session, SiteShareLink link, DateTimeOffset now) =>
         session.Patch<SiteShareLink>(link.Id).Set(x => x.LastUsedAt, now);
 
+    public const string RedeemedAction = "site.share_link.redeemed";
+
+    /// <summary>
+    /// Records a redemption and its audit row in <paramref name="session"/>, for the caller to commit.
+    /// <paramref name="via"/> names the route that took the key: <c>redeem</c> or <c>open</c>.
+    /// </summary>
+    /// <remarks>
+    /// The row names the link by id, never by key or hash, and the caller by address only: whoever
+    /// holds a key has no account.
+    /// </remarks>
+    public static async Task RecordRedeemAsync(
+        IDocumentSession session, SiteShareLink link, string via, DateTimeOffset now, HttpContext http, CancellationToken ct)
+    {
+        RecordUse(session, link, now);
+
+        var metadata = new Dictionary<string, object>
+        {
+            ["label"] = link.Label,
+            ["scope"] = ShareLinkScope.Of(link),
+            ["via"] = via,
+        };
+        if (link.EntryId is { } entryId)
+        {
+            metadata["entryId"] = entryId.ToString();
+        }
+
+        await AuditLog.RecordAsync(
+            session,
+            http.RequestServices.GetRequiredService<TenantContext>().Slug,
+            RedeemedAction,
+            actorUserId: null,
+            actorUsername: null,
+            targetType: nameof(SiteShareLink),
+            targetId: link.Id.ToString(),
+            metadata: metadata,
+            ipAddress: barakoCMS.Infrastructure.DeviceContext.From(http).IpAddress,
+            ct: ct);
+    }
+
     /// <summary>Revokes by patching RevokedAt alone, so a redeem landing after the load keeps its LastUsedAt.</summary>
     public static void Revoke(IDocumentSession session, SiteShareLink link, DateTimeOffset now)
     {
@@ -467,7 +506,7 @@ internal sealed class RedeemShareLinkEndpoint(
             return;
         }
 
-        ShareLinkKeys.RecordUse(session, link, now);
+        await ShareLinkKeys.RecordRedeemAsync(session, link, "redeem", now, HttpContext, ct);
         await session.SaveChangesAsync(ct);
 
         await Send.OkAsync(new RedeemShareLinkResponse { ExpiresAt = link.ExpiresAt }, ct);

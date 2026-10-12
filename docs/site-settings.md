@@ -354,7 +354,8 @@ a margin.
 **Redeeming.** The frontend posts `{ "key": "..." }` with the tenant resolved the same way as
 `GET /api/public/site`. A live link answers 200 with its `expiresAt` and records `lastUsedAt`. A
 wrong key, an expired or revoked link, another tenant's key and the key of a link to one entry or
-page (below) all answer the same 404. Both answers carry `Cache-Control: no-store`. Redeeming is
+page (below) all answer the same 404. A 200 is audited as `site.share_link.redeemed`, with no
+actor and the caller's address. Both answers carry `Cache-Control: no-store`. Redeeming is
 rate limited per tenant and visitor (`RateLimiting:SiteShare`, 10 a minute by default). The key is
 never logged.
 
@@ -411,7 +412,8 @@ What an entry or page link opens is that one entry and nothing else:
 A wrong key, an expired or revoked link, another tenant's key, a preview token (below) and a link
 that opens nothing all answer the same 404 with the same body. Every answer from redeem and open carries
 `Cache-Control: no-store`, a 429 included, so no shared cache holds an entry a link opened. Open
-shares redeem's rate limit. `lastUsedAt` is recorded on a 200 only.
+shares redeem's rate limit. `lastUsedAt` and a `site.share_link.redeemed` row are recorded on a 200
+only.
 
 **Managing.** Listing and revoking go through the entry, and need update on it. A link to the site
 is not listed or revoked there, and an entry's link is not listed or revoked under
@@ -448,7 +450,8 @@ Because `read` is all it takes and the route used to store nothing, a token leav
 
 - It is not in `GET /api/contents/{id}/share-links` and cannot be revoked there. It is gone in 30
   minutes.
-- Minting writes no audit row.
+- Minting writes no audit row, and neither does a read through `?preview=`. Opening and redeeming
+  a link do, and a preview token cannot be opened or redeemed.
 - Its stored label is fixed, so the row holds nothing of the entry but its id.
 - An entry keeps at most 20 live tokens. A mint past that deletes the entry's oldest to make room,
   so the oldest of 21 previews stops working early. Each mint also deletes the tenant's expired

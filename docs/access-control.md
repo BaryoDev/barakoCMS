@@ -1219,4 +1219,46 @@ as it did before these rows existed.
 - A portability import adding a new Sensitive or Hidden field to an existing type. Its row holds
   counts only. An import cannot change the level, role list or mask of a field that already exists.
 - An entry's own sensitivity level changing. That is on the entry's event stream.
-- Reads of Sensitive and Hidden fields.
+
+## What the audit log records about reads
+
+A request to `GET /api/contents/{id}`, `GET /api/contents/by-slug/{type}/{slug}`,
+`GET /api/contents` or `GET /api/contents/{id}/history`, or a rollback
+(`POST /api/contents/{id}/rollback/{versionId}`) whose response sends a Sensitive or Hidden value,
+writes one `content.sensitive.read` row, however many entries or versions it returns. A history
+read names every field that any version on the page sent. A value counts when it went out as stored: a field the caller sees
+redacted, as its last four characters or not at all was not read and is not named. An entry whose
+own level is Sensitive or Hidden counts when its data went out. A read that sends nothing above
+Public writes no row.
+
+| Key | Holds |
+|---|---|
+| `route` | the route template, such as `/api/contents/by-slug/{type}/{slug}`, never the path, since a slug can be a Sensitive value |
+| `apiKeyId` | for a read made with an API key, the key's id; the actor is the key's owner |
+| `entries` | `items`, `count` and `truncated`; each item is `id`, `contentType`, `sensitivity` and `fields` |
+| `contentType`, `fields`, `sensitivity` | for a read of one entry, the same three again, and the row's `targetId` is the entry's id |
+
+`fields` holds field names, never values. The row is written before the response goes out, in its
+own transaction, and a read whose row cannot be written answers 500 rather than going out
+unrecorded. A `Sensitivity:Mode` of `Off` masks nothing, so every Sensitive or Hidden value read is
+recorded.
+
+Public delivery sends Public fields only and writes no read row. Opening a share link does, below.
+
+Not recorded: `POST /api/email-templates/{id}/preview`. It needs `manage_workflows` as well as read
+on the entry, and renders only the placeholders the template names, but a Sensitive field the caller
+may see does render into its output, and no row says so.
+
+### Share links
+
+| Event | Action | Metadata |
+|---|---|---|
+| Link created | `site.share_link.created` | `label`, `expiresAt`; `scope` and `entryId` for an entry or page link |
+| Link revoked | `site.share_link.revoked` | `label`; `scope` and `entryId` for an entry or page link |
+| Link redeemed or opened | `site.share_link.redeemed` | `label`, `scope`, `via` (`redeem` or `open`); `entryId` for an entry or page link |
+
+A redemption row has no actor, since whoever holds a key has no account, and carries the caller's
+address. It names the link by id, never by key or hash. It is written in the same transaction as
+`lastUsedAt`, so a 404 writes neither. A preview token from `POST /api/preview` writes no row when
+it is minted or read through `?preview=`: it lasts 30 minutes and is meant to leave little behind
+(see `docs/site-settings.md`).
