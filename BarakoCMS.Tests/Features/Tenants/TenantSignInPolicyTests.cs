@@ -191,6 +191,36 @@ public class TenantSignInPolicyTests
         social.Allowed.Should().BeFalse("the tenant does not allow social sign-in");
     }
 
+    private async Task<string> CodeForAsync(User user)
+    {
+        const string code = "246810";
+        await StoreAsync(new OtpCode
+        {
+            Email = user.Email.ToLowerInvariant(),
+            CodeHash = BCrypt.Net.BCrypt.HashPassword(code),
+            ExpiresAt = DateTime.UtcNow.AddMinutes(10),
+        });
+        return code;
+    }
+
+    [Fact]
+    public async Task A_code_requested_elsewhere_does_not_sign_in_to_a_tenant_that_refuses_codes()
+    {
+        var role = await RoleAsync();
+        var passwordOnly = await TenantAsync(new TenantSignInPolicy { Methods = [TenantSignInPolicy.Password] });
+        var codesAllowed = await TenantAsync(new TenantSignInPolicy());
+        var user = await MemberAsync(role.Id, passwordOnly, codesAllowed);
+
+        var control = await Client(codesAllowed).PostAsJsonAsync("/api/auth/otp/verify",
+            new { email = user.Email, code = await CodeForAsync(user) }, Ct);
+        control.StatusCode.Should().Be(HttpStatusCode.OK, "the control: " + await control.Content.ReadAsStringAsync(Ct));
+
+        var refused = await Client(passwordOnly).PostAsJsonAsync("/api/auth/otp/verify",
+            new { email = user.Email, code = await CodeForAsync(user) }, Ct);
+        var body = await refused.Content.ReadAsStringAsync(Ct);
+        refused.StatusCode.Should().Be(HttpStatusCode.Forbidden, body);
+    }
+
     private async Task<HttpResponseMessage> SetAsync(string slug, object signIn)
     {
         var admin = _fixture.CreateClient();

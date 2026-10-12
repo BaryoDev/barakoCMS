@@ -375,15 +375,20 @@ the strictest applies, and leaving them unset is what a tenant did before they e
   already gives (`mfaEnrollmentRequired` on the sign-in answer). A role whose own `RequireMfa` is set
   requires MFA in every tenant; this is how one tenant requires it of a role another does not.
 - `methods` names the ways a sign-in may start: `password` (`POST /api/auth/login`), `otp`
-  (`POST /api/auth/otp/request`) and `social`. Empty allows all three. A method the tenant does not
-  allow answers 403 before any account is read, and social sign-in is refused. The code a password
+  (`POST /api/auth/otp/request` and `POST /api/auth/otp/verify`, both, since a code records no
+  tenant and one requested elsewhere could otherwise be spent here) and `social`. Empty allows all
+  three. A method the tenant does not allow answers 403 before any account is read, and social
+  sign-in is refused. The code a password
   sign-in emails to approve a new device is not a sign-in method, so it still works.
 - `sessionMinutes`, between 5 and 10080, caps the refresh token minted for the tenant at sign-in and
   at every refresh, and the access token when it is shorter than fifteen minutes. A refresh is
   capped from the moment it happens, so a session that keeps refreshing within the length keeps going.
 
 Switching tenants with `POST /api/me/switch` reads the MFA rules of the tenant switched to, and not
-the methods, since the caller has already signed in.
+the methods, since the caller has already signed in. So `methods` limits how a session starts on this
+tenant, not how a member who also belongs elsewhere reaches it: one who signs in to another tenant
+by a method this one refuses can still switch here. Use `requireMfa` or `mfaRoleIds` for a rule that
+holds on every path.
 
 ## Roles at request time
 
