@@ -139,9 +139,15 @@ else
     ok "from 4.9.0 no 4.x folder is listed"
 fi
 
+# A module's own 5.0.0 file is undone before any core file, so the first core rollback is the one
+# compared: the rollback of a file a module embeds is skipped, whatever the module.
+module_files=$(cd "$ROOT" && . "$LIB" && module_migration_paths)
 plan "$ROOT" 4.1.0
+first_core_rollback=$(grep '^rollback ' <<< "$out" | while read -r _ path; do
+    grep -qxF "${path%/*}/${path##*/rollback-}" <<< "$module_files" || { echo "rollback $path"; break; }
+done)
 if [ "$(grep '^core ' <<< "$out" | tail -1)" = "core migrations/5.0.0/marten-9-49-quick-append-events.sql" ] \
-    && [ "$(grep '^rollback ' <<< "$out" | head -1)" = "rollback migrations/5.0.0/rollback-marten-9-49-quick-append-events.sql" ]; then
+    && [ "$first_core_rollback" = "rollback migrations/5.0.0/rollback-marten-9-49-quick-append-events.sql" ]; then
     ok "from 4.1.0 the 5.0.0 core file runs last among core and its rollback first"
 else
     bad "from 4.1.0 the 5.0.0 core file runs last among core and its rollback first"
