@@ -83,6 +83,26 @@ internal class Endpoint(
             return;
         }
 
+        // A tenant's sign-up role and MFA roles are stored by id too. Deleting one would leave Open
+        // sign-up handing out a role that grants nothing, and an MFA rule that matches nobody.
+        var roleId = req.Id;
+        var tenantsNamingRole = (await session.Query<Tenant>()
+                .Where(t => t.SignUpRoleId == roleId || t.SignIn.MfaRoleIds.Contains(roleId))
+                .Select(t => t.Slug)
+                .ToListAsync(ct))
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (tenantsNamingRole.Count > 0)
+        {
+            await Send.ResponseAsync(new Response
+            {
+                Message = "Cannot delete role: it is the sign-up or MFA role of "
+                    + $"{string.Join(", ", tenantsNamingRole)}. Change those tenants' settings first."
+            }, 409, ct);
+            return;
+        }
+
         session.Delete(role);
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
         await AuditLog.RecordAsync(session, tenant.Slug, "role.deleted", actorId, User.FindFirst("Username")?.Value,

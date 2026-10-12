@@ -225,6 +225,33 @@ public class TenantRoleScopeTests
     }
 
     [Fact]
+    public async Task A_role_a_tenant_names_for_sign_up_or_MFA_cannot_be_deleted()
+    {
+        var slug = Slug("rd");
+        var signUpRole = await RoleAsync(slug);
+        var mfaRole = await RoleAsync(slug);
+        var unused = await RoleAsync(slug);
+        await StoreAsync(new Tenant
+        {
+            Id = Guid.NewGuid(), Slug = slug, Name = slug,
+            SignUp = TenantSignUp.Open, SignUpRoleId = signUpRole.Id,
+            SignIn = new TenantSignInPolicy { MfaRoleIds = [mfaRole.Id] },
+        });
+        var admin = await PlatformAdminAsync();
+
+        (await admin.DeleteAsync($"/api/roles/{unused.Id}", Ct)).StatusCode.Should().Be(HttpStatusCode.OK, "the control");
+
+        foreach (var role in new[] { signUpRole, mfaRole })
+        {
+            var refused = await admin.DeleteAsync($"/api/roles/{role.Id}", Ct);
+            var body = await refused.Content.ReadAsStringAsync(Ct);
+            refused.StatusCode.Should().Be(HttpStatusCode.Conflict, body);
+            body.Should().Contain(slug, "the tenant to change is named");
+            (await LoadAsync(role.Id)).Id.Should().Be(role.Id);
+        }
+    }
+
+    [Fact]
     public async Task A_membership_holding_another_tenants_role_gets_nothing_from_it()
     {
         var (a, b, _, _) = await TenantsAsync();
