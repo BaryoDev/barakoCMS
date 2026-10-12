@@ -758,7 +758,7 @@ same registries the API checks requests against, so a client does not keep its o
 
 ```json
 {
-  "apiContractVersion": 7,
+  "apiContractVersion": 8,
   "fieldTypes": [
     { "name": "int", "aliases": ["integer", "number"], "editorHint": "number", "ruleNames": ["min", "max", "requiredWhen"] }
   ],
@@ -769,12 +769,16 @@ same registries the API checks requests against, so a client does not keep its o
   "credentialNameParts": ["secret", "password", "token"],
   "capabilities": [ { "name": "manage_roles", "source": "core", "note": null } ],
   "workflowActions": [ { "type": "Webhook", "requiredParameters": ["Url"], "optionalParameters": ["Secret"], "secretParameters": ["Secret"] } ],
-  "modules": [ { "name": "Pages", "httpContractVersion": 2 } ]
+  "modules": [ { "name": "Pages", "httpContractVersion": 2 } ],
+  "jsonSchemaKeywords": ["type", "properties", "required", "items", "enum"],
+  "arrayItemTypes": ["string", "int", "url"]
 }
 ```
 
-`fieldTypes`, `rules`, `fieldEditors`, `fieldRoles`, `structuredDataTypes` and `credentialNameParts`
-go to every signed-in caller. `fieldEditors` and `fieldRoles` are the values a field's `editor` and `role` may hold, see
+`fieldTypes`, `rules`, `fieldEditors`, `fieldRoles`, `structuredDataTypes`, `credentialNameParts`,
+`jsonSchemaKeywords` and `arrayItemTypes` go to every signed-in caller. `jsonSchemaKeywords` is
+every keyword a `json` field's `jsonSchema` may use (see [json-field-schemas.md](json-field-schemas.md))
+and `arrayItemTypes` every `itemType` an `array` field may declare; both examples are shortened. `fieldEditors` and `fieldRoles` are the values a field's `editor` and `role` may hold, see
 [field-hints-and-roles.md](field-hints-and-roles.md). `credentialNameParts` is the whole list of
 words that make a setting key or a workflow action parameter read as a credential when its name
 contains one, ignoring case (the example above is shortened). It is read from the list the API
