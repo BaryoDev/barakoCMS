@@ -226,7 +226,8 @@ public class ContentTypeValidatorService : IContentTypeValidatorService
         MoneyFields.DefinitionErrors(field)
             .Concat(TokenFields.DefinitionErrors(field))
             .Concat(FieldPresentation.DefinitionErrors(field))
-            .Concat(ArrayItems.DefinitionErrors(field));
+            .Concat(ArrayItems.DefinitionErrors(field))
+            .Concat(JsonFieldSchemas.DefinitionErrors(field));
 
     /// <inheritdoc />
     public (bool IsValid, List<string> Errors) ValidateLifecycle(LifecycleDefinition? lifecycle)

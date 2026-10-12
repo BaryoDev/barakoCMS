@@ -30,6 +30,9 @@ internal sealed class Request
     /// <summary>For an array field, the type every item is. Refused on any other type.</summary>
     public string? ItemType { get; set; }
 
+    /// <summary>For a json field, the JSON Schema a value has to match. Refused on any other type.</summary>
+    public System.Text.Json.JsonElement? JsonSchema { get; set; }
+
     /// <summary>For a money field, the ISO 4217 code its amounts are in. Refused on any other type.</summary>
     public string? Currency { get; set; }
 
@@ -136,6 +139,7 @@ internal sealed class Endpoint(
             Options = req.Options,
             Multiple = req.Multiple,
             ItemType = req.ItemType,
+            JsonSchema = req.JsonSchema,
             Currency = req.Currency,
             Scale = req.Scale,
             Editor = req.Editor,

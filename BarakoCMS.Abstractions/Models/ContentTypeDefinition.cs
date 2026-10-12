@@ -243,6 +243,20 @@ public class FieldDefinition
     public string? ItemType { get; set; }
 
     /// <summary>
+    /// For a <c>json</c> field, the JSON Schema every value written to it has to match, or null for
+    /// none.
+    /// </summary>
+    /// <remarks>
+    /// Null, the default, is every json field stored before this existed, and such a field accepts
+    /// any object or array, as it always has. Set, an entry write whose value does not match is a
+    /// 400 naming the path that failed. A subset of JSON Schema 2020-12: the keywords
+    /// <c>GET /api/meta/describe</c> lists under <c>jsonSchemaKeywords</c>, and any other keyword is
+    /// refused when the type is saved. A value an entry already holds is not checked again. Refused
+    /// on a field of any other type.
+    /// </remarks>
+    public System.Text.Json.JsonElement? JsonSchema { get; set; }
+
+    /// <summary>
     /// For a <c>money</c> field, the ISO 4217 code every amount in it is in, for example <c>USD</c>.
     /// </summary>
     /// <remarks>

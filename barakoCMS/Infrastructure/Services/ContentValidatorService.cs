@@ -193,7 +193,7 @@ public class ContentValidatorService(
         Models.Content? existing,
         System.Security.Claims.ClaimsPrincipal? caller)
     {
-        var errors = new List<string>();
+        var errors = UndeclaredFieldErrors(schema, contentType, data, existing);
 
         // 3. Validate Fields
         foreach (var field in schema.Fields)
@@ -294,11 +294,43 @@ public class ContentValidatorService(
         if (expectedType == "choice")
             return StoredValues.IsUnchanged(field.Name, value, existing) ? [] : One(ValidateChoice(field, value));
 
+        if (JsonFieldSchemas.Declares(field))
+            return JsonFieldSchemas.ValueErrors(field, value, existing);
+
         var typed = ArrayItems.ValueError(field, value, existing) ?? MoneyFields.ValueError(field, value);
         return typed is not null ? [typed] : FieldRules.ValueErrors(field, value);
     }
 
     private static IEnumerable<string> One(string? error) => error is null ? [] : [error];
+
+    /// <summary>
+    /// Refuses a key the type does not declare as a field, so nothing is stored that no field
+    /// describes, no validator checked and no sensitivity setting covers.
+    /// </summary>
+    /// <remarks>
+    /// Names are matched ignoring case, as every other reader of a field does. A key the entry
+    /// already holds with the same value is let through: an entry stored before this check, or before
+    /// a field was removed from its type, can still be edited without first being cleaned.
+    /// </remarks>
+    private static List<string> UndeclaredFieldErrors(
+        ContentTypeDefinition schema,
+        string contentType,
+        Dictionary<string, object> data,
+        Models.Content? existing)
+    {
+        var undeclared = data
+            .Where(kv => !schema.Fields.Any(f => string.Equals(f.Name, kv.Key, StringComparison.OrdinalIgnoreCase))
+                && !StoredValues.IsUnchanged(kv.Key, kv.Value, existing))
+            .Select(kv => kv.Key)
+            .ToList();
+
+        if (undeclared.Count == 0)
+            return [];
+
+        var named = string.Join(", ", undeclared.Take(5).Select(k => $"'{k}'"))
+            + (undeclared.Count > 5 ? $" and {undeclared.Count - 5} more" : string.Empty);
+        return [$"'{contentType}' does not declare {named}. Add each to the type as a field, or leave it out."];
+    }
 
     /// <summary>
     /// Checks that no other entry of this type already holds this entry's slug.
