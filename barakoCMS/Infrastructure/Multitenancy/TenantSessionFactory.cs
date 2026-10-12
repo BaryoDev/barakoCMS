@@ -83,10 +83,10 @@ public sealed class BatchTransaction
     /// Holds a write that appends to an existing stream until the batch commits, for the reason a new
     /// stream waits. Run by <see cref="RunDeferredAppendsAsync"/>, and never for a batch that rolls back.
     /// </summary>
-    public void DeferAppend(Func<Marten.IDocumentSession, CancellationToken, Task> append) => _appends.Add(append);
+    internal void DeferAppend(Func<Marten.IDocumentSession, CancellationToken, Task> append) => _appends.Add(append);
 
     /// <summary>Runs every deferred append on <paramref name="session"/>, in the order they were deferred.</summary>
-    public async Task RunDeferredAppendsAsync(Marten.IDocumentSession session, CancellationToken ct)
+    internal async Task RunDeferredAppendsAsync(Marten.IDocumentSession session, CancellationToken ct)
     {
         foreach (var append in _appends)
         {

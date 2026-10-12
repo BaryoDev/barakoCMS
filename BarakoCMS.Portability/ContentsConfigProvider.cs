@@ -63,16 +63,17 @@ internal sealed class ContentsConfigProvider(
         }
 
         var types = (await session.Query<ContentTypeDefinition>().ToListAsync(ct)).ToList();
-        var contents = await session.Query<Content>().ToListAsync(ct);
-        var (records, withheld) = await BundleEntries.ExportAsync(contents, types, user, context, permissions, sensitivity, ct);
-        var gaps = withheld == 0 ? new List<string>() : [$"{withheld} entries are left out because this caller may read none of them."];
 
-        // No more than an apply takes, so what this exports can always be applied back.
+        // No more than an apply takes, so what this exports can always be applied back, and read no
+        // more than that either: one over the limit is enough to know there are more.
         var max = PortabilityLimits.MaxImportRecords(configuration);
-        if (records.Count > max)
+        var contents = await session.Query<Content>().OrderBy(c => c.Id).Take(max + 1).ToListAsync(ct);
+        var more = contents.Count > max;
+        var (records, withheld) = await BundleEntries.ExportAsync(contents.Take(max).ToList(), types, user, context, permissions, sensitivity, ct);
+        var gaps = withheld == 0 ? new List<string>() : [$"{withheld} entries are left out because this caller may read none of them."];
+        if (more)
         {
-            gaps.Add($"{records.Count - max} entries beyond the {max} an apply takes are left out. Raise Portability:MaxImportRecords, or move them in parts.");
-            records = records.Take(max).ToList();
+            gaps.Add($"Only the first {max} entries are read, the most an apply takes, and more are stored. Raise Portability:MaxImportRecords, or move them in parts.");
         }
 
         return new ConfigSectionExport

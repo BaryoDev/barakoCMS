@@ -281,7 +281,14 @@ internal sealed class ConfigEngine(
             {
                 plan = WithoutDestructive(plan);
             }
-            staging &= plan.Errors.Count == 0 && plan.Refusals.Count == 0 && writable.Contains(provider.Section);
+            staging &= plan.Errors.Count == 0 && plan.Refusals.Count == 0;
+            if (staging && plan.Changes.Count > 0 && !writable.Contains(provider.Section))
+            {
+                // Skipped on its own: the sections after it are still staged, planned as if its
+                // changes were not made.
+                plans.Add(WithNote(plan, UnstagedNote));
+                continue;
+            }
 
             var aborted = false;
             if (staging && plan.Changes.Count > 0)
@@ -318,6 +325,18 @@ internal sealed class ConfigEngine(
 
         return plans;
     }
+
+    private const string UnstagedNote =
+        "Planned and not staged, since this caller cannot write this section, so the sections after it are planned as if these changes were not made.";
+
+    private static ConfigSectionPlan WithNote(ConfigSectionPlan plan, string note) => new()
+    {
+        Section = plan.Section,
+        Changes = plan.Changes,
+        Errors = plan.Errors,
+        Refusals = plan.Refusals,
+        Notes = [.. plan.Notes, note],
+    };
 
     /// <summary>The plan without its destructive changes, each named in a note instead.</summary>
     private static ConfigSectionPlan WithoutDestructive(ConfigSectionPlan plan) => new()
