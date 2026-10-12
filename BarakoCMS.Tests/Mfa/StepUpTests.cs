@@ -181,6 +181,8 @@ public class StepUpTests
     public async Task StepUp_ExpiredToken_Returns403WithNoClockSkew()
     {
         var (id, _) = await EnrolledUserAsync();
+        // The client first: building it starts a host, which can take longer than the token lives.
+        var client = Client(id);
         var token = FastEndpoints.Security.JwtBearer.CreateToken(o =>
         {
             o.SigningKey = "test-super-secret-key-that-is-at-least-32-chars-long";
@@ -190,7 +192,6 @@ public class StepUpTests
             o.User.Claims.Add(new("purpose", "stepup"));
             o.User.Claims.Add(new("uid", id.ToString()));
         });
-        var client = Client(id);
         client.DefaultRequestHeaders.Add("X-Step-Up", token);
         (await client.PostAsync("/api/_test/step-up", null)).StatusCode.Should().Be(HttpStatusCode.NoContent);
 
