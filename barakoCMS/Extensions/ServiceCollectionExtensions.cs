@@ -1382,6 +1382,8 @@ public static class ServiceCollectionExtensions
         // test host's settings arrive after this method has run. In production both reads see the
         // same values.
         services.AddRateLimiter(_ => { });
+        services.AddSingleton(sp => new barakoCMS.Infrastructure.Security.LookupReferenceThrottle(
+            barakoCMS.Infrastructure.Security.RateLimitSetup.Read(sp.GetRequiredService<IConfiguration>()).LookupReference));
         services.AddOptions<Microsoft.AspNetCore.RateLimiting.RateLimiterOptions>()
             .Configure<IConfiguration>((options, current) =>
                 barakoCMS.Infrastructure.Security.RateLimitSetup.Configure(

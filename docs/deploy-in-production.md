@@ -345,6 +345,8 @@ changes nothing until you set one. Each has `PermitLimit` (requests), `WindowSec
 | `RateLimiting:Batch` | 20 in 60 seconds, queue 0 | anonymous telemetry batches, per client IP |
 | `RateLimiting:Registration` | 5 in 3600 seconds, queue 0 | registration and its verification, per client IP |
 | `RateLimiting:SiteShare` | 10 in 60 seconds, queue 0 | anonymous share link redemption, per tenant and visitor |
+| `RateLimiting:Lookup` | 10 in 60 seconds, queue 0 | anonymous lookups (`POST /api/public/{type}/lookup`), per tenant and visitor |
+| `RateLimiting:LookupReference` | 5 in 900 seconds | anonymous lookups of one reference, from any address |
 
 As environment variables on the `app` service, the colon becomes a double underscore:
 
