@@ -154,6 +154,21 @@ public class TenantStatusTests
     }
 
     [Fact]
+    public async Task A_token_with_no_tenant_claim_learns_nothing_about_a_suspended_tenant()
+    {
+        var suspended = await TenantWithSiteAsync();
+        await SetStatusOkAsync(suspended, "Suspended");
+
+        var client = _fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", _fixture.CreateToken(["Admin"]));
+        client.DefaultRequestHeaders.Add("X-Tenant", suspended);
+        var response = await client.GetAsync("/api/contents", Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound, await response.Content.ReadAsStringAsync(Ct));
+    }
+
+    [Fact]
     public async Task Status_is_written_and_returned_with_IsActive_derived_from_it()
     {
         var slug = await TenantProfileSeed.TenantAsync(_fixture, Ct);

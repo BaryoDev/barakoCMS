@@ -79,7 +79,11 @@ internal sealed class TenantWriteRequest
     public string? Email { get; set; }
     public string? ContactUrl { get; set; }
 
-    /// <summary>Whether the tenant is served. Leaving it and <see cref="IsActive"/> out makes it Active, as before.</summary>
+    /// <summary>
+    /// Whether the tenant is served. Leaving it and <see cref="IsActive"/> out makes it Active, as
+    /// before, also on an update: a write that sends only other fields reactivates a suspended
+    /// tenant, so send the current status to keep it.
+    /// </summary>
     public TenantStatus? Status { get; set; }
 
     /// <summary>The flag clients sent before <see cref="Status"/>: true is Active, false Suspended.</summary>

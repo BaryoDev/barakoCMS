@@ -91,13 +91,15 @@ public class TenantAccessMiddleware(RequestDelegate next, ILogger<TenantAccessMi
     /// <remarks>
     /// Only the tenant's own sessions learn its status. Anyone else gets what a slug nobody
     /// registered gets: in Multi the same 404 and body resolution writes, and in Single a bare 404.
-    /// A token for another tenant would have been refused anyway, so it is not told why.
+    /// A token for another tenant would have been refused anyway, so it is not told why, and a token
+    /// with no tenant claim cannot show it is one of the tenant's own.
     /// </remarks>
     private async Task RefusePausedAsync(HttpContext context, string slug, TenantStatus paused)
     {
         var claimed = context.User.FindFirst("tenant")?.Value;
         var ownSession = context.User.Identity is { IsAuthenticated: true }
-            && (string.IsNullOrEmpty(claimed) || string.Equals(claimed.Trim(), slug, StringComparison.OrdinalIgnoreCase));
+            && !string.IsNullOrEmpty(claimed)
+            && string.Equals(claimed.Trim(), slug, StringComparison.OrdinalIgnoreCase);
         var delivery = context.Request.Path.StartsWithSegments("/api/public", StringComparison.OrdinalIgnoreCase);
 
         logger.LogInformation(

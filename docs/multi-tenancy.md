@@ -113,14 +113,16 @@ A tenant has a `Status`: `Active`, `Suspended` or `Archived`, set with `PUT /api
 Archived says the data is kept and nothing more. `isActive` is still accepted and returned: true is
 Active, false is Suspended, and false leaves an Archived tenant Archived. Sending both with
 different meanings is a 400. Leaving both out makes the tenant Active, as leaving `isActive` out
-always did.
+always did. That holds on every `PUT`, unlike `signUp` and `signIn`, which are left as they are when
+left out: a client that saves only a suspended tenant's policy reactivates it unless it sends the
+current `status` too.
 
 The status is read once, at resolution, in every mode. A request that resolves to such a tenant, by
 header, subdomain or one of its domains, gets:
 
 - `404` on delivery (`/api/public/*`), whoever asks;
 - `403` with the body `This tenant is suspended.` (or `archived.`) on any other route, when the
-  caller is signed in to that tenant;
+  caller's token names that tenant;
 - `404` on any other route for everyone else, with no body in `Single` and the body below in
   `Multi`, so a caller who is not the tenant's own learns nothing a slug nobody registered would not
   tell them.
