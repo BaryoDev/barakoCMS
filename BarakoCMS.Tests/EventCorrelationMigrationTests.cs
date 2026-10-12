@@ -14,7 +14,8 @@ namespace BarakoCMS.Tests;
 /// <remarks>
 /// Production runs <c>AutoCreate.CreateOnly</c>, so an upgraded database gets the two columns on
 /// <c>mt_events</c> and the new <c>mt_quick_append_events</c> only from
-/// <c>migrations/4.6.0/event-correlation-metadata.sql</c>. The function is the part that can go
+/// <c>migrations/4.6.0/event-correlation-metadata.sql</c>, followed by the 5.0.0 file that moves the
+/// function body to Marten 9.49's. The function is the part that can go
 /// wrong quietly: Marten compares its text, so a body that differs by one space is a schema the
 /// host refuses to start on.
 ///
@@ -51,6 +52,12 @@ public class EventCorrelationMigrationTests
             await ExecuteAsync(connection, up, ct);
             await ExecuteAsync(connection, up, ct);
 
+            // The 5.0.0 Marten file replaces the body again on the same argument list, and an upgrade
+            // runs it after this one, so the function Marten builds today is what the two leave.
+            var marten = await ScopedAsync("5.0.0", "marten-9-49-quick-append-events.sql", scratch, ct);
+            await ExecuteAsync(connection, marten, ct);
+            await ExecuteAsync(connection, marten, ct);
+
             var expectedColumns = await MetadataColumnsAsync(connection, "public", ct);
             expectedColumns.Should().HaveCount(2, "the core turns on the correlation id and the causation id");
             (await MetadataColumnsAsync(connection, scratch, ct)).Should().Equal(expectedColumns,
@@ -65,7 +72,7 @@ public class EventCorrelationMigrationTests
             actualFunction.Should().HaveCount(1,
                 "the file drops the function under the old argument list, and leaving it would be a second overload");
             actualFunction[0].Replace(scratch + ".", "public.").Should().Be(expectedFunction[0],
-                "Marten compares the function as text, so the file has to produce it exactly");
+                "Marten compares the function as text, so the files have to produce it exactly");
         }
         finally
         {
