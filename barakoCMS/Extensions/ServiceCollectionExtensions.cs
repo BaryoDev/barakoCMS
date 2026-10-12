@@ -1174,6 +1174,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowRunQueue, barakoCMS.Features.Workflows.WorkflowRunQueue>();
         services.AddSingleton(sp => new barakoCMS.Features.Workflows.WorkflowTriggerRegistry(sp.GetServices<IBarakoModule>()));
         services.AddScoped<barakoCMS.Core.Interfaces.IWorkflowTriggers, barakoCMS.Features.Workflows.WorkflowTriggerSource>();
+        services.AddSingleton<barakoCMS.Features.Workflows.IWorkflowExecutor, barakoCMS.Features.Workflows.BuiltInWorkflowExecutor>();
+        services.AddSingleton<barakoCMS.Features.Workflows.WorkflowExecutors>();
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowRunner>();
     }
 
@@ -1261,7 +1263,8 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<IWorkflowPluginRegistry>(),
             sp.GetRequiredService<Marten.IQuerySession>(),
             sp.GetService<IConfiguration>(),
-            sp.GetRequiredService<barakoCMS.Features.Workflows.WorkflowTriggerRegistry>()));
+            sp.GetRequiredService<barakoCMS.Features.Workflows.WorkflowTriggerRegistry>(),
+            sp.GetRequiredService<barakoCMS.Features.Workflows.WorkflowExecutors>()));
         services.AddScoped<ITemplateVariableExtractor, TemplateVariableExtractor>();
         services.AddScoped<IWorkflowDebugger, WorkflowDebugger>();
     }

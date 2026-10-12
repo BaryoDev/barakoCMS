@@ -413,9 +413,9 @@ internal sealed class WorkflowRunner(
 
     /// <summary>The runs a pass would be offered at this moment.</summary>
     /// <remarks>One expression for the claim and for the count, so the count is of what the claim reads.</remarks>
+    /// <remarks>Only the runs routed to this runner: a run whose workflow names another executor is that executor's.</remarks>
     private static System.Linq.Expressions.Expression<Func<WorkflowRun, bool>> DueAt(DateTimeOffset now) =>
-        r => (r.Status == RunStatus.Pending || r.Status == RunStatus.Running)
-            && (r.NextDueAt == null || r.NextDueAt <= now);
+        WorkflowExecutors.DueFor(WorkflowExecutors.BuiltIn, now);
 
     private async Task MeasureBacklogWhenDueAsync(CancellationToken ct)
     {

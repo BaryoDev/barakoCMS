@@ -95,7 +95,7 @@ public class WorkflowTriggerRegistryTests
         plugins.GetAllActions().Returns([]);
 
         var validator = new WorkflowSchemaValidator(plugins, Substitute.For<IQuerySession>(), null,
-            new WorkflowTriggerRegistry([new ClinicProbeModule()]));
+            new WorkflowTriggerRegistry([new ClinicProbeModule()]), new WorkflowExecutors([]));
 
         validator.Validate(Workflow(ClinicProbeModule.TicketCalledTrigger), TestContext.Current.CancellationToken).IsValid.Should().BeTrue();
 

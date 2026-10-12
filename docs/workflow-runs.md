@@ -307,6 +307,22 @@ in flight, for a run already rolled back or cancelled, and for a workflow switch
 
 The obsolete `IWorkflowEngine` path does not compensate.
 
+## What runs a workflow
+
+A workflow can name its executor in `executor`. Left out, or null, it is the built-in runner, which is
+what every workflow has always used, and a workflow and its runs read exactly as before. Only the
+built-in runner exists in this release, so a save naming anything else is refused with 400. The field
+is there so a later executor can take only the workflows pointed at it and leave every other one
+alone: routing, not replacement.
+
+A run copies the executor when it is queued and shows it as `executor` in `GET /api/workflow-runs`,
+null for the built-in runner. The built-in runner claims only its own runs. Whatever another
+executor does, it keeps the run document current under the invariants the built-in runner keeps:
+attempts advance in `ordinal` order, only the holder of a lease writes an outcome, a timeout is
+`Unknown` and is not retried on its own, the idempotency key of an attempt is stable across retries,
+only captured outputs are written, compensations run last first, and a cancelled or switched off run
+starts nothing more.
+
 ## Stopping a workflow or a run
 
 Three requests, all behind `manage_workflows`, each written to the audit log.

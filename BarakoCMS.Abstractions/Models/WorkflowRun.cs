@@ -30,6 +30,9 @@ public class WorkflowRun
 
     public string TriggerEvent { get; set; } = string.Empty;
 
+    /// <summary>What runs this run, copied from the workflow when it was queued. Null for the built-in runner.</summary>
+    public string? Executor { get; set; }
+
     /// <summary>
     /// The sequence of the event that caused this run.
     /// </summary>

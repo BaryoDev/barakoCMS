@@ -14,6 +14,10 @@ internal sealed class RunResponse
     public Guid ContentId { get; init; }
     public string ContentType { get; init; } = string.Empty;
     public string TriggerEvent { get; init; } = string.Empty;
+
+    /// <summary>What runs it. Null for the built-in runner.</summary>
+    public string? Executor { get; init; }
+
     /// <summary>The name of a <see cref="RunStatus"/>.</summary>
     /// <remarks>
     /// A string on the wire. The attribute tells the OpenAPI document which names it can be, which
@@ -52,6 +56,7 @@ internal sealed class RunResponse
         ContentId = r.ContentId,
         ContentType = r.ContentType,
         TriggerEvent = r.TriggerEvent,
+        Executor = r.Executor,
         Status = r.Status.ToString(),
         CreatedAt = r.CreatedAt,
         CompletedAt = r.CompletedAt,

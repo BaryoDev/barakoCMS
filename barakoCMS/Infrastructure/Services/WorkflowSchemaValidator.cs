@@ -43,6 +43,7 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
     private readonly IQuerySession _session;
     private readonly bool _allowInsecureSignedUrls;
     private readonly WorkflowTriggerRegistry _triggers;
+    private readonly WorkflowExecutors _executors;
 
     public WorkflowSchemaValidator(IWorkflowPluginRegistry pluginRegistry, IQuerySession session)
         : this(pluginRegistry, session, configuration: null)
@@ -50,14 +51,16 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
     }
 
     public WorkflowSchemaValidator(IWorkflowPluginRegistry pluginRegistry, IQuerySession session, IConfiguration? configuration)
-        : this(pluginRegistry, session, configuration, WorkflowTriggerRegistry.BuiltIn)
+        : this(pluginRegistry, session, configuration, WorkflowTriggerRegistry.BuiltIn, new WorkflowExecutors([]))
     {
     }
 
     /// <summary>The validator the host builds, which also accepts the triggers modules registered.</summary>
     internal WorkflowSchemaValidator(
-        IWorkflowPluginRegistry pluginRegistry, IQuerySession session, IConfiguration? configuration, WorkflowTriggerRegistry triggers)
+        IWorkflowPluginRegistry pluginRegistry, IQuerySession session, IConfiguration? configuration, WorkflowTriggerRegistry triggers,
+        WorkflowExecutors executors)
     {
+        _executors = executors;
         _pluginRegistry = pluginRegistry;
         _session = session;
         _allowInsecureSignedUrls = WebhookSigning.AllowsInsecureSignedUrls(configuration);
@@ -151,6 +154,16 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
             {
                 Field = "triggerEvent",
                 Message = TriggerChoices
+            });
+            result.IsValid = false;
+        }
+
+        if (!_executors.IsKnown(workflow.Executor))
+        {
+            result.Errors.Add(new ValidationError
+            {
+                Field = "executor",
+                Message = $"Executor must be left out or one of: {string.Join(", ", _executors.Names)}"
             });
             result.IsValid = false;
         }

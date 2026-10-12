@@ -27,6 +27,9 @@ internal sealed class WorkflowResponse
     /// <summary>Whether the workflow fires. True for a workflow saved before it could be switched off.</summary>
     public bool Enabled { get; init; } = true;
 
+    /// <summary>What runs the workflow. Null for the built-in runner.</summary>
+    public string? Executor { get; init; }
+
     /// <summary>
     /// The placeholder warnings, on the response to a save: an array, empty when there are none.
     /// </summary>
@@ -56,6 +59,7 @@ internal sealed class WorkflowResponse
         Conditions = w.Conditions ?? [],
         Actions = (w.Actions ?? []).Select(WorkflowActionResponse.From).ToList(),
         Enabled = w.Enabled,
+        Executor = WorkflowExecutors.ForRun(w),
     };
 }
 

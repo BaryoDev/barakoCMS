@@ -40,6 +40,14 @@ public class WorkflowDefinition
     /// already queued when it reaches it, so switching it back on does not send what was waiting.
     /// </remarks>
     public bool Enabled { get; set; } = true;
+
+    /// <summary>What runs this workflow. Null for the built-in runner, which is every workflow's default.</summary>
+    /// <remarks>
+    /// Routing and not replacement: a run goes to the executor its workflow names, and every other
+    /// workflow is untouched. Only the built-in runner exists today, so a save naming anything else
+    /// is refused. Copied onto a run when it is queued.
+    /// </remarks>
+    public string? Executor { get; set; }
 }
 
 public class WorkflowAction
