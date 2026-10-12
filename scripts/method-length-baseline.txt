@@ -27,9 +27,7 @@
 73 BarakoCMS.Import/Features/Analyze/Endpoint.cs::Endpoint.HandleAsync
 157 BarakoCMS.Import/Features/BulkCreate/Endpoint.cs::Endpoint.HandleAsync
 77 BarakoCMS.Pages/Features/Tree/Endpoint.cs::Endpoint.HandleAsync
-92 BarakoCMS.Portability/ExportEndpoint.cs::ExportEndpoint.HandleAsync
-286 BarakoCMS.Portability/ImportEndpoint.cs::ImportEndpoint.HandleAsync
-150 BarakoCMS.Portability/ImportEndpoint.cs::ImportEndpoint.TypeErrorsAsync
+87 BarakoCMS.Portability/ImportEndpoint.cs::ImportEndpoint.HandleAsync
 96 barakoCMS/Core/Validation/FieldRules.cs::FieldRules.DefinitionErrors
 90 barakoCMS/Core/Validation/FieldRules.cs::FieldRules.ValueErrors
 93 barakoCMS/Core/Validation/UniquenessRules.cs::UniquenessRules.Problems

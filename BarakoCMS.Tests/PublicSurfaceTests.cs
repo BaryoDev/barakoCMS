@@ -455,6 +455,8 @@ public class PublicSurfaceTests
             "IConfigProvider.Int32 Order { get; }",
             "IConfigProvider.String ReadCapability { get; }",
             "IConfigProvider.String WriteCapability { get; }",
+            "IConfigProvider.Boolean ExportsByDefault { get; }",
+            "IConfigProvider.Boolean AppliesAsHost { get; }",
             "IConfigProvider.ExportAsync(ConfigCaller caller, CancellationToken cancellationToken): Task<ConfigSectionExport>",
             "IConfigProvider.PlanAsync(IReadOnlyDictionary<String, JsonElement> desired, ConfigCaller caller, CancellationToken cancellationToken): Task<ConfigSectionPlan>",
             "IConfigProvider.ApplyAsync(ConfigSectionPlan plan, ConfigCaller caller, CancellationToken cancellationToken): Task<IReadOnlyList<String>>",

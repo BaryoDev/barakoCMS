@@ -44,7 +44,7 @@ internal sealed class ConfigEngine(
 
         foreach (var provider in Ordered(providers))
         {
-            if (only is not null && !only.Contains(provider.Section))
+            if (only is null ? !provider.ExportsByDefault : !only.Contains(provider.Section))
             {
                 continue;
             }
@@ -85,6 +85,52 @@ internal sealed class ConfigEngine(
     public async Task<ConfigRunResult> RunAsync(
         JsonElement document, ConfigCaller caller, bool apply, bool allowDestructive, CancellationToken ct)
     {
+        var result = await RunUnauditedAsync(document, caller, apply, allowDestructive, skipDestructive: false, ct);
+        if (apply && !result.Response.Applied)
+        {
+            await RecordRefusalAsync(caller, result, ct);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Applies <paramref name="document"/> as the host, for a seed file: a section the host cannot apply
+    /// and every destructive change are skipped and named, and the rest is applied.
+    /// </summary>
+    /// <returns>The run, and a line for each section and change skipped.</returns>
+    public async Task<(ConfigRunResult Result, List<string> Skipped)> ApplyAsHostAsync(JsonElement document, CancellationToken ct)
+    {
+        var skipped = new List<string>();
+        var hostOnly = new System.Text.Json.Nodes.JsonObject();
+        foreach (var property in document.EnumerateObject())
+        {
+            if (Ordered(providers).FirstOrDefault(p => p.Section == property.Name) is { AppliesAsHost: false })
+            {
+                skipped.Add($"{property.Name}: written for a signed-in caller, so it is applied with POST /api/config/apply");
+                continue;
+            }
+
+            hostOnly[property.Name] = System.Text.Json.Nodes.JsonNode.Parse(property.Value.GetRawText());
+        }
+
+        var result = await RunUnauditedAsync(
+            JsonSerializer.SerializeToElement(hostOnly), ConfigCaller.System, apply: true, allowDestructive: false, skipDestructive: true, ct);
+        if (!result.Response.Applied)
+        {
+            await RecordRefusalAsync(ConfigCaller.System, result, ct);
+        }
+
+        skipped.AddRange(result.Response.Sections.SelectMany(s => s.Notes.Where(n => n.StartsWith(SkippedPrefix, StringComparison.Ordinal))
+            .Select(n => $"{s.Section}: {n[SkippedPrefix.Length..]}")));
+        return (result, skipped);
+    }
+
+    private const string SkippedPrefix = "Skipped as destructive: ";
+
+    private async Task<ConfigRunResult> RunUnauditedAsync(
+        JsonElement document, ConfigCaller caller, bool apply, bool allowDestructive, bool skipDestructive, CancellationToken ct)
+    {
         var parsed = ConfigDocument.Parse(document, Sections);
         if (parsed.Errors.Count > 0)
         {
@@ -97,18 +143,55 @@ internal sealed class ConfigEngine(
             return new ConfigRunResult(403, new ConfigPlanResponse { Refusals = missing });
         }
 
+        var writable = await WritableSectionsAsync(parsed, caller, ct);
         var response = await runner.RunAsync(
-            (scope, token) => RunInScopeAsync(scope, parsed, caller, apply, allowDestructive, token), ct);
+            (scope, token) => RunInScopeAsync(scope, parsed, writable, caller, (apply, allowDestructive, skipDestructive), token), ct);
 
-        if (response.Applied)
+        if (response.Sections.Any(s => s.Changes.Count > 0))
         {
-            // A role or a rule changed, or a deliverable type did: cached decisions and the
-            // delivery document would otherwise answer from before the apply.
+            // Whether or not it committed. A committed apply changed roles, rules or deliverable
+            // types, and cached answers predate it. A plan or a refused apply staged them in a
+            // transaction it rolled back, and a decision cached while they were staged would keep
+            // granting what was never stored.
             permissions.InvalidateAllPermissions();
             deliveryDocuments.Invalidate(tenant.Slug);
         }
 
         return new ConfigRunResult(StatusFor(response, apply, allowDestructive), response);
+    }
+
+    /// <summary>An apply that wrote nothing is recorded too, with why, the way a refused route call shows in the log.</summary>
+    private async Task RecordRefusalAsync(ConfigCaller caller, ConfigRunResult result, CancellationToken ct)
+    {
+        var response = result.Response;
+        await AuditLog.RecordAsync(session, tenant.Slug, "config.refused", UserId(caller), Username(caller),
+            metadata: new Dictionary<string, object>
+            {
+                ["status"] = result.StatusCode,
+                ["sections"] = string.Join(", ", response.Sections.Select(s => s.Section)),
+                ["errors"] = response.Errors.Count + response.Sections.Sum(s => s.Errors.Count),
+                ["refusals"] = response.Refusals.Count + response.Sections.Sum(s => s.Refusals.Count),
+                ["destructive"] = response.Sections.Sum(s => s.Changes.Count(c => c.Kind == ConfigChangeResponse.DestructiveKind)),
+            }, ct: ct);
+        await session.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// The sections this caller may also write. Only those are staged while planning: a caller who may
+    /// read a section and not write it gets its plan without its write path ever running.
+    /// </summary>
+    private async Task<HashSet<string>> WritableSectionsAsync(ParsedConfig parsed, ConfigCaller caller, CancellationToken ct)
+    {
+        var writable = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var provider in Ordered(providers).Where(p => parsed.Sections.ContainsKey(p.Section)))
+        {
+            if (await HoldsAsync(caller, provider.WriteCapability, ct))
+            {
+                writable.Add(provider.Section);
+            }
+        }
+
+        return writable;
     }
 
     private static int StatusFor(ConfigPlanResponse response, bool apply, bool allowDestructive)
@@ -132,11 +215,12 @@ internal sealed class ConfigEngine(
     }
 
     private async Task<ContentBatchOutcome<ConfigPlanResponse>> RunInScopeAsync(
-        IServiceProvider scope, ParsedConfig parsed, ConfigCaller caller, bool apply, bool allowDestructive,
-        CancellationToken ct)
+        IServiceProvider scope, ParsedConfig parsed, IReadOnlySet<string> writable, ConfigCaller caller,
+        (bool Apply, bool AllowDestructive, bool SkipDestructive) options, CancellationToken ct)
     {
+        var (apply, allowDestructive, skipDestructive) = options;
         var scoped = scope.GetRequiredService<IDocumentSession>();
-        var plans = await PlanAndStageAsync(scope, scoped, parsed, caller, ct);
+        var plans = await PlanAndStageAsync(scope, scoped, parsed, writable, caller, skipDestructive, ct);
 
         var response = new ConfigPlanResponse { Sections = plans.Select(ConfigSectionPlanResponse.From).ToList() };
         var commit = apply
@@ -161,7 +245,8 @@ internal sealed class ConfigEngine(
     /// it are still planned, against what was staged before it, so one review shows every problem.
     /// </summary>
     private static async Task<List<ConfigSectionPlan>> PlanAndStageAsync(
-        IServiceProvider scope, IDocumentSession scoped, ParsedConfig parsed, ConfigCaller caller, CancellationToken ct)
+        IServiceProvider scope, IDocumentSession scoped, ParsedConfig parsed, IReadOnlySet<string> writable,
+        ConfigCaller caller, bool skipDestructive, CancellationToken ct)
     {
         var plans = new List<ConfigSectionPlan>();
         var staging = true;
@@ -169,7 +254,11 @@ internal sealed class ConfigEngine(
         foreach (var provider in Ordered(scope.GetServices<IConfigProvider>()).Where(p => parsed.Sections.ContainsKey(p.Section)))
         {
             var plan = await provider.PlanAsync(parsed.Sections[provider.Section], caller, ct);
-            staging &= plan.Errors.Count == 0 && plan.Refusals.Count == 0;
+            if (skipDestructive)
+            {
+                plan = WithoutDestructive(plan);
+            }
+            staging &= plan.Errors.Count == 0 && plan.Refusals.Count == 0 && writable.Contains(provider.Section);
 
             var aborted = false;
             if (staging && plan.Changes.Count > 0)
@@ -206,6 +295,16 @@ internal sealed class ConfigEngine(
 
         return plans;
     }
+
+    /// <summary>The plan without its destructive changes, each named in a note instead.</summary>
+    private static ConfigSectionPlan WithoutDestructive(ConfigSectionPlan plan) => new()
+    {
+        Section = plan.Section,
+        Changes = plan.Changes.Where(c => c.Kind != ConfigChangeKind.Destructive).ToList(),
+        Errors = plan.Errors,
+        Refusals = plan.Refusals,
+        Notes = [.. plan.Notes, .. plan.Changes.Where(c => c.Kind == ConfigChangeKind.Destructive).Select(c => SkippedPrefix + c.Summary)],
+    };
 
     /// <summary>Saves what a section staged, or says why the database refused it.</summary>
     private static async Task<string?> SaveAsync(IDocumentSession scoped, CancellationToken ct)

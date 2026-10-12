@@ -248,8 +248,15 @@ public class ConfigEngineTests
 
         var roleWriter = await _callers.ClientAsync(null,
             [await _callers.RoleAsync(SystemCapabilities.ManageConfig, SystemCapabilities.ManageRoles)]);
+
+        var plain = Unique("Plain ");
+        var (control, controlBody) = await ApplyAsync(roleWriter,
+            new { version = 1, roles = new Dictionary<string, object> { [plain] = new { systemCapabilities = new[] { "view_audit_log" } } } });
+        control.StatusCode.Should().Be(HttpStatusCode.OK, "the positive control: the same caller writes a role with no platform capability. " + controlBody);
+
         var (refused, body) = await ApplyAsync(roleWriter, document);
         refused.StatusCode.Should().Be(HttpStatusCode.Forbidden, body.ToString());
+        body.ToString().Should().Contain("carries a platform capability", "the refusal is the platform role rule, not another gate");
         (await _callers.InTenantAsync(null, s => s.Query<Role>().AnyAsync(r => r.Name == name, Ct))).Should().BeFalse();
 
         var (allowed, allowedBody) = await ApplyAsync(await _callers.SuperAdminAsync(null), document);
@@ -272,5 +279,96 @@ public class ConfigEngineTests
         var (tenants, tenantsBody) = await ApplyAsync(client, new { version = 1, tenants = new { } });
         tenants.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         tenantsBody.ToString().Should().Contain("Seed:File");
+    }
+
+    /// <summary>A role holding a rule on a type of a fresh tenant, and the document that changes the rule.</summary>
+    private async Task<(string Tenant, string Role, object Document)> RuleChangeAsync(params string[] roleCapabilities)
+    {
+        var tenant = await _callers.TenantAsync();
+        var type = Unique("ledger");
+        await _callers.StoreInTenantAsync(tenant, Type(type, ("Title", "string")));
+        var role = Unique("Ruled ");
+        await _callers.StoreInTenantAsync(null, new Role { Id = Guid.NewGuid(), Name = role, SystemCapabilities = roleCapabilities.ToList() });
+        var document = new
+        {
+            version = 1,
+            permissionRules = new Dictionary<string, object> { [$"{role}/{type}"] = new { read = new { enabled = true } } },
+        };
+        return (tenant, role, document);
+    }
+
+    [Fact]
+    public async Task Rules_take_manage_roles_from_a_global_role_and_not_from_a_membership()
+    {
+        var (tenant, role, document) = await RuleChangeAsync();
+        var grants = await _callers.RoleAsync(SystemCapabilities.ManageConfig, SystemCapabilities.ManageRoles);
+
+        var global = await _callers.ClientAsync(tenant, [grants]);
+        var (_, plan) = await PlanAsync(global, document);
+        plan.GetProperty("sections")[0].GetProperty("refusals").GetArrayLength().Should().Be(0, "the positive control. " + plan);
+
+        var memberOnly = await _callers.ClientAsync(tenant, [], memberRoles: [grants]);
+        var (applied, body) = await ApplyAsync(memberOnly, document);
+
+        applied.StatusCode.Should().Be(HttpStatusCode.Forbidden, body.ToString());
+        body.ToString().Should().Contain("global roles");
+        (await _callers.InTenantAsync(null, s => s.Query<Role>().SingleAsync(r => r.Name == role, Ct)))!.Permissions.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_rule_on_a_role_carrying_a_platform_capability_is_written_only_by_a_SuperAdmin()
+    {
+        var (tenant, role, document) = await RuleChangeAsync(SystemCapabilities.ManageUsers);
+        var writer = await _callers.ClientAsync(tenant, [await _callers.RoleAsync(SystemCapabilities.ManageConfig, SystemCapabilities.ManageRoles)]);
+
+        var (refused, body) = await ApplyAsync(writer, document);
+        refused.StatusCode.Should().Be(HttpStatusCode.Forbidden, body.ToString());
+        body.ToString().Should().Contain("carries a platform capability");
+        (await _callers.InTenantAsync(null, s => s.Query<Role>().SingleAsync(r => r.Name == role, Ct)))!.Permissions.Should().BeEmpty();
+
+        var (allowed, allowedBody) = await ApplyAsync(await _callers.SuperAdminAsync(tenant), document);
+        allowed.StatusCode.Should().Be(HttpStatusCode.OK, allowedBody.ToString());
+        (await _callers.InTenantAsync(null, s => s.Query<Role>().SingleAsync(r => r.Name == role, Ct)))!.Permissions.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Taking_a_capability_away_from_a_role_is_destructive()
+    {
+        var name = Unique("Shrinking ");
+        await _callers.StoreInTenantAsync(null, new Role { Id = Guid.NewGuid(), Name = name, SystemCapabilities = ["view_audit_log", "view_jobs"] });
+        var client = await _callers.SuperAdminAsync(null);
+
+        var (_, grows) = await PlanAsync(client, new { version = 1, roles = new Dictionary<string, object> { [name] = new { systemCapabilities = new[] { "view_audit_log", "view_jobs", "view_modules" } } } });
+        Changes(grows).Should().Equal(new[] { $"roles/{name} change" }, "the control: granting more takes nothing away");
+
+        var (_, shrinks) = await PlanAsync(client, new { version = 1, roles = new Dictionary<string, object> { [name] = new { systemCapabilities = new[] { "view_audit_log" } } } });
+        Changes(shrinks).Should().Equal($"roles/{name} destructive");
+    }
+
+    [Fact]
+    public async Task An_unknown_section_named_on_export_is_refused_by_the_validator()
+    {
+        var client = await _callers.SuperAdminAsync(await _callers.TenantAsync());
+
+        (await ExportAsync(client, "contentTypes")).Response.StatusCode.Should().Be(HttpStatusCode.OK, "the control");
+        var (refused, body) = await ExportAsync(client, "contentTypes,portal");
+
+        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        body.ToString().Should().Contain("'portal' is not a section");
+    }
+
+    [Fact]
+    public void Section_names_that_clash_or_take_a_reserved_key_stop_the_host()
+    {
+        var act = () => barakoCMS.Features.Config.ConfigSectionCheck.Check(["contentTypes", "roles"]);
+        act.Should().NotThrow("the control: distinct, unreserved names");
+
+        ((Action)(() => barakoCMS.Features.Config.ConfigSectionCheck.Check(["roles", "roles"]))).Should().Throw<InvalidOperationException>()
+            .WithMessage("*'roles' is registered by 2*");
+        foreach (var reserved in new[] { "version", "gaps", "withheld", "exportedAt", "contentsWithheld", "tenants" })
+        {
+            ((Action)(() => barakoCMS.Features.Config.ConfigSectionCheck.Check([reserved]))).Should().Throw<InvalidOperationException>()
+                .WithMessage($"*'{reserved}' is a reserved key*");
+        }
     }
 }

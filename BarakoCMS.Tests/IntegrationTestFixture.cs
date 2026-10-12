@@ -279,6 +279,10 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             new BarakoCMS.Forms.FormsModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Forms"));
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Forms.FormsModule(), opts));
 
+            // Portability: its contents section, so a bundle applies through the config engine. Called
+            // through IBarakoModule, the way the host calls every module's ConfigureServices.
+            ((barakoCMS.Modules.IBarakoModule)new BarakoCMS.Portability.PortabilityModule()).ConfigureServices(services, ctx.Configuration);
+
             // FeatureFlags: /api/feature-flags is anonymous, so which keys it hands out is a test
             // this project has to be able to run.
             new BarakoCMS.FeatureFlags.FeatureFlagsModule().ConfigureServices(services, ctx.Configuration);
@@ -362,8 +366,8 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
 
         typeof(BarakoCMS.Forms.FormsModule).Assembly,
         typeof(BarakoCMS.FeatureFlags.FeatureFlagsModule).Assembly,
-        // Portability owns no documents of its own and registers no services, so its
-        // endpoints only need discovering.
+        // Portability owns no documents of its own, so beside its endpoints it needs only the
+        // config section it registers, which ConfigureWebHost adds.
         typeof(BarakoCMS.Portability.PortabilityModule).Assembly,
         typeof(BarakoCMS.ExternalAuth.ExternalAuthModule).Assembly,
         typeof(BarakoCMS.DeviceTrust.DeviceTrustModule).Assembly,

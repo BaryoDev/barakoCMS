@@ -5,9 +5,13 @@ using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
 
+// The bundle types are obsolete for callers outside the module, and this is the module.
+#pragma warning disable CS0618
+
 namespace BarakoCMS.Portability;
 
 /// <summary>GET /api/portability/export?types=member,event — download a content bundle (all types if omitted).</summary>
+[Obsolete(PortabilityObsolete.Message)]
 public class ExportEndpoint(
     IQuerySession session,
     IDocumentSession documentSession,
@@ -24,8 +28,7 @@ public class ExportEndpoint(
 
     public override async Task HandleAsync(Req req, CancellationToken ct)
     {
-        // The same identity check and per-entry read rule as the content List endpoint. The export
-        // capability decides who may take a bundle, not which rows they may read.
+        // The same identity check as the content List endpoint.
         if (!Guid.TryParse(User.FindFirst("UserId")?.Value, out var callerId)
             || await session.LoadAsync<barakoCMS.Models.User>(callerId, ct) is not { } caller)
         {
@@ -44,54 +47,9 @@ public class ExportEndpoint(
         var contents = await session.Query<barakoCMS.Models.Content>().ToListAsync(ct);
         if (filter != null) contents = contents.Where(c => filter.Contains(c.ContentType.ToLowerInvariant())).ToList();
 
-        var records = new List<ContentRecord>();
-        var withheld = 0;
-        var permissions = Resolve<barakoCMS.Infrastructure.Services.IPermissionResolver>();
-        var sensitivity = Resolve<ISensitivityService>();
-        foreach (var c in contents)
-        {
-            if (!await permissions.CanPerformActionAsync(caller, c.ContentType, "read", c, ct))
-            {
-                withheld++;
-                continue;
-            }
-
-            var data = new Dictionary<string, object>(c.Data);
-            var hidden = await sensitivity.ApplyAsync(c.ContentType, c.Sensitivity, data, HttpContext, ct);
-
-            // The read endpoints show an entry the caller may read nothing of as empty or HIDDEN. An
-            // import would turn that into a real, empty entry, so it is left out and counted instead.
-            if (hidden || (data.Count == 0 && c.Data.Count > 0))
-            {
-                withheld++;
-                continue;
-            }
-
-            // A token is generated where an entry is created, and an import creates entries, so a
-            // token in a bundle is discarded on the way in. It is left out here for every caller,
-            // those who may read it included: a bundle is a file, and a file gets passed on.
-            var definition = types.FirstOrDefault(
-                t => string.Equals(t.Name, c.ContentType, StringComparison.OrdinalIgnoreCase));
-            foreach (var field in (definition?.Fields ?? [])
-                         .Where(f => f is not null && barakoCMS.Core.Validation.FieldTypeRegistry.IsServerGenerated(f)))
-            {
-                foreach (var key in data.Keys.Where(k => string.Equals(k, field.Name, StringComparison.OrdinalIgnoreCase)).ToList())
-                    data.Remove(key);
-            }
-
-            records.Add(new ContentRecord
-            {
-                Id = c.Id,
-                ContentType = c.ContentType,
-                Data = data,
-                Status = c.Status.ToString(),
-                Sensitivity = c.Sensitivity,
-                MaskedFields = data
-                    .Where(kv => !ReferenceEquals(kv.Value, c.Data[kv.Key]))
-                    .Select(kv => kv.Key)
-                    .ToList(),
-            });
-        }
+        var (records, withheld) = await BundleEntries.ExportAsync(
+            contents, types, caller, HttpContext,
+            Resolve<barakoCMS.Infrastructure.Services.IPermissionResolver>(), Resolve<ISensitivityService>(), ct);
 
         await AuditLog.RecordAsync(documentSession, tenant.Slug, "portability.exported", callerId, User.FindFirst("Username")?.Value,
             metadata: new()

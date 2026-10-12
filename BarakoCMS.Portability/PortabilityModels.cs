@@ -3,6 +3,7 @@ using barakoCMS.Models;
 namespace BarakoCMS.Portability;
 
 /// <summary>A portable snapshot of content-type definitions and their content data.</summary>
+[Obsolete(PortabilityObsolete.Message)]
 public class PortabilityBundle
 {
     public int Version { get; set; } = 1;
@@ -18,6 +19,7 @@ public class PortabilityBundle
 }
 
 /// <summary>One content item, recreated under a new id wherever it is imported.</summary>
+[Obsolete(PortabilityObsolete.Message)]
 public class ContentRecord
 {
     /// <summary>
@@ -45,6 +47,7 @@ public class ContentRecord
     public SensitivityLevel? Sensitivity { get; set; }
 }
 
+[Obsolete(PortabilityObsolete.Message)]
 public class ImportRequest
 {
     /// <summary>When true, report what would happen without writing anything.</summary>
@@ -53,6 +56,7 @@ public class ImportRequest
     public List<ContentRecord> Contents { get; set; } = new();
 }
 
+[Obsolete(PortabilityObsolete.Message)]
 public class ImportReport
 {
     public bool DryRun { get; set; }

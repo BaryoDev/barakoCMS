@@ -31,7 +31,7 @@ internal static class ConfigDocument
 {
     public const int CurrentVersion = 1;
 
-    public const int MaxDocumentsPerSection = 1000;
+    public const int MaxDocumentsPerSection = 5000;
 
     /// <summary>The section only the seeder applies, from <c>Seed:File</c>.</summary>
     public const string TenantsSection = "tenants";

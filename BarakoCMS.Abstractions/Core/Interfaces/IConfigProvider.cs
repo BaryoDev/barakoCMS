@@ -46,6 +46,18 @@ public interface IConfigProvider
     string WriteCapability { get; }
 
     /// <summary>
+    /// Whether an export that names no sections includes this one. False for a section that is
+    /// content rather than configuration, which an export carries only when it is asked for by name.
+    /// </summary>
+    bool ExportsByDefault => true;
+
+    /// <summary>
+    /// Whether the host can apply this section as <see cref="ConfigCaller.System"/>, from a file it
+    /// starts with. False for a section written for a signed-in caller, which a seed file skips.
+    /// </summary>
+    bool AppliesAsHost => true;
+
+    /// <summary>
     /// The section's documents as they are stored, or null when the section has nothing to export.
     /// </summary>
     Task<ConfigSectionExport?> ExportAsync(ConfigCaller caller, CancellationToken cancellationToken);
