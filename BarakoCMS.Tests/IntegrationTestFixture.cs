@@ -248,6 +248,12 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             new BarakoCMS.Files.FilesModule().ConfigureServices(services, ctx.Configuration);
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Files.FilesModule(), opts));
 
+            // Files.S3 after Files, as a host registers it. Dormant with no bucket configured, so
+            // every other test still stores in Postgres; it is here for the S3 provider a tenant can
+            // choose through /api/settings/storage, and for the keys a derived host sets.
+            new BarakoCMS.Files.S3.S3FilesModule().ConfigureServices(
+                services, ctx.Configuration.GetSection("Modules:Files.S3"));
+
             // AI module: register its schema/endpoints, but swap the Ollama client for a deterministic
             // fake so the search tests run without an embedding backend.
             new BarakoCMS.AI.AiModule().ConfigureServices(services, ctx.Configuration);

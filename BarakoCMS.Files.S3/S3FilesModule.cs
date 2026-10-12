@@ -5,6 +5,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using BarakoCMS.Files.Storage;
 
 namespace BarakoCMS.Files.S3;
 
@@ -37,6 +38,13 @@ public sealed class S3FilesModule : IBarakoModule
         // `configuration` is already this module's own section (Modules:Files.S3).
         var section = configuration;
 
+        // Always, configured or not: a tenant can choose a bucket through the API, and whatever
+        // configuration sets makes that choice read-only.
+        services.AddSingleton<IObjectStorageProvider>(new S3ObjectStorageProvider(
+            section.GetValue(S3ObjectStorageProvider.AllowPrivateServiceUrlSetting, false)));
+        services.RemoveAll<IStorageEnvironment>();
+        services.AddSingleton<IStorageEnvironment>(new ConfiguredStorageKeys(ConfiguredKeys(section)));
+
         /* Only take over when actually configured. This lets the Suite always include the module; with
          * no Files:S3:Bucket set it stays dormant and the Postgres default keeps serving. */
         if (string.IsNullOrWhiteSpace(section["Bucket"]))
@@ -65,6 +73,21 @@ public sealed class S3FilesModule : IBarakoModule
         /* Replace the Postgres default (runs after FilesModule's TryAdd). */
         services.RemoveAll<IFileStorage>();
         services.AddScoped<IFileStorage, S3FileStorage>();
+    }
+
+    /// <summary>
+    /// The storage keys set in this module's section. The retry and timeout bounds and the private
+    /// address switch tune the client rather than choose storage, so they are not among them.
+    /// </summary>
+    internal static IReadOnlyList<string> ConfiguredKeys(IConfiguration section)
+    {
+        string[] storageKeys =
+        [
+            nameof(S3StorageOptions.Bucket), nameof(S3StorageOptions.Region), nameof(S3StorageOptions.ServiceUrl),
+            nameof(S3StorageOptions.PublicBaseUrl), nameof(S3StorageOptions.UsePublicReadAcl),
+            nameof(S3StorageOptions.ForcePathStyle), nameof(S3StorageOptions.AccessKey), nameof(S3StorageOptions.SecretKey),
+        ];
+        return storageKeys.Where(k => !string.IsNullOrWhiteSpace(section[k])).ToList();
     }
 }
 

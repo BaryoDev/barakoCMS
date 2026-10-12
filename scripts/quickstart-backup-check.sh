@@ -75,6 +75,9 @@ for p in "${PROJECTS[@]}"; do
     done
     printf '%s\n' "$logs" | tail -20
     [ "$ok" = 1 ] || fail "the backup container in $p did not log a successful backup"
+    if printf '%s' "$logs" | grep -qi "offsite"; then
+        fail "the backup in $p mentions an offsite copy with BACKUP_S3_BUCKET unset; that run must be unchanged"
+    fi
 
     state=$(cd "$WORK/$p" && docker compose -p "$p" ps --format '{{.Name}} {{.State}}' db-backup)
     echo "$state"
