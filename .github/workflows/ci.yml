@@ -112,6 +112,15 @@ jobs:
           fi
           echo "Unwatched lockfile was caught. The check is live."
 
+      # A pass found 53 methods over 70 lines, one of them 974, and nothing stopped the next one
+      # (#969). A ratchet rather than a rewrite: the baseline lists today's long methods, none may
+      # grow and no new one may join. The check is proven against fixtures before it is trusted.
+      - name: Prove the method-length check can fail
+        run: bash scripts/test-method-length.sh
+
+      - name: Methods over 70 lines do not grow
+        run: python3 scripts/check-method-length.py
+
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
