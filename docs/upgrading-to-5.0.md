@@ -23,10 +23,11 @@ object ships a SQL file for it, and the host refuses to start until the file has
 [migrations.md](migrations.md) explains the files, the ledger and `db-migrate`.
 
 5.0 moves Marten from 9.40.0 to 9.49.0 and JasperFx from 2.75.2 to 2.84.1. Marten changed the body
-of one function, `mt_quick_append_events`, which appends events to a stream. The new body no longer
-writes a stale version back onto a stream after an append of zero events, which in 9.40 could leave
-every later append to that stream failing (Marten #5539). That is
-`migrations/5.0.0/marten-9-49-quick-append-events.sql`: a function replacement, no data touched.
+of one database function, `mt_quick_append_events`. barakoCMS does not call it: it appends events in
+Marten's Rich mode, with its own `INSERT`. But the host's start-up check compares every Marten object
+with what the build declares, the function body included, so the new body has to be in the database.
+That is `migrations/5.0.0/marten-9-49-quick-append-events.sql`: a function replacement, no data
+touched.
 Other 5.0 changes add their own files under `migrations/5.0.0/`, each explained in its header.
 
 ## Before you start
@@ -54,8 +55,8 @@ The service is `app` in `docker-compose.prod.yml` and `api` in `quickstart/docke
 ([migrations.md](migrations.md#what-a-run-does) says what it prints). `db-assert` exits 0 when the
 schema is what 5.0 declares, and otherwise prints the statements still outstanding.
 
-The Marten file can go in while 4.x still serves: 4.x calls the function with the same arguments
-and gets the same result for every append that writes an event. When it is the only pending file,
+The Marten file can go in while 4.x still serves: no barakoCMS build calls the function it
+replaces. When it is the only pending file,
 `db-migrate` can run under the serving 4.x, then deploy. Do not leave long between the two: a 4.x
 instance that restarts after the file fails its own start-up schema check.
 
@@ -84,8 +85,8 @@ docker compose run --rm --no-deps app db-migrate --forget core/5.0.0/marten-9-49
 ```
 
 The Marten rollback puts back the 9.40 body of `mt_quick_append_events`, which every 4.x release
-from 4.6.0 declares. Nothing is lost: both bodies write the same rows for an append of one or more
-events, and events appended while 5.0 ran stay on their streams and read fine under 4.x.
+from 4.6.0 declares. Nothing is lost: no build calls the function, and events appended while 5.0 ran
+stay on their streams and read fine under 4.x.
 
 ## Other 5.0 notes
 

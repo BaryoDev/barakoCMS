@@ -1,18 +1,16 @@
 -- Marten 9.40.0 to 9.49.0 (barakoCMS 5.0) replaces the body of mt_quick_append_events. The
 -- signature is unchanged.
 --
--- The 9.40 body wrote the stream's version back after every append to an existing stream, even an
--- append of zero events. Under READ COMMITTED that blind write-back could land behind a concurrent
--- appender's commit and leave mt_streams.version below the stream's own events, after which every
--- append to that stream failed on pk_mt_events_stream_and_version until the row was repaired by
--- hand (Marten #5539). The new body skips the write-back when nothing was appended and never lowers
--- a version.
+-- The new body skips the stream version write-back when an append wrote nothing and never lowers a
+-- version (Marten #5539). barakoCMS does not call this function: it runs Marten's Rich append mode
+-- (RestoreV8Defaults in ServiceCollectionExtensions, held by MartenV8DefaultsTests), which writes
+-- events with its own INSERT. So the bug the new body fixes never reached a barakoCMS install.
 --
--- Why this file has to exist: the app runs AutoCreate.CreateOnly in production and on playground,
--- which never replaces a function that is already there. An upgraded install keeps the 9.40 body,
--- the start-up assertion reports the difference, and the host does not start. This can be applied
--- while the 4.x build is still serving, then deploy: 4.x calls the function with the same arguments
--- and gets the same result for every append that writes at least one event.
+-- Why this file has to exist anyway: the app runs AutoCreate.CreateOnly in production and on
+-- playground, which never replaces a function that is already there, and the start-up assertion
+-- compares the function body as text. An upgraded install keeps the 9.40 body, the assertion reports
+-- the difference, and the host does not start. Since no barakoCMS build calls the function, this can
+-- be applied while the 4.x build is still serving, then deploy.
 --
 -- Cost: a function replacement, no data touched.
 --

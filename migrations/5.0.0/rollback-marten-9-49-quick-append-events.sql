@@ -2,7 +2,8 @@
 -- asserts its own function body and refuses to start against the 9.49 one.
 --
 -- This puts back the 9.40 body, which is what every 4.x release from 4.6.0 declares. Nothing is
--- lost: it is a function, and both bodies write the same rows for an append of one or more events.
+-- lost: it is a function no barakoCMS build calls (they append in Marten's Rich mode), and no data
+-- is touched.
 -- The function below is what db-patch writes as the rollback for this upgrade, verbatim: it is the
 -- body a 4.9.0 database holds, and 4.x compares it as text. The DROP line is not db-patch's: that
 -- one carries the parameter default inside the argument list, which PostgreSQL refuses, so this
