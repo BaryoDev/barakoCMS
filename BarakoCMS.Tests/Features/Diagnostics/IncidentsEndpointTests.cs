@@ -338,8 +338,8 @@ public class IncidentsEndpointTests(IntegrationTestFixture factory)
         var adminId = Guid.NewGuid();
         await StoreAsync(s =>
         {
-            s.Store(new Tenant { Id = Guid.NewGuid(), Slug = tenantA, Name = tenantA, IsActive = true });
-            s.Store(new Tenant { Id = Guid.NewGuid(), Slug = tenantB, Name = tenantB, IsActive = true });
+            s.Store(new Tenant { Id = Guid.NewGuid(), Slug = tenantA, Name = tenantA, Status = TenantStatus.Active });
+            s.Store(new Tenant { Id = Guid.NewGuid(), Slug = tenantB, Name = tenantB, Status = TenantStatus.Active });
             s.Store(new User { Id = adminId, Username = $"u{adminId:N}", Email = $"u{adminId:N}@example.com" });
             s.Store(new Membership
             {

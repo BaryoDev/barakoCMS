@@ -133,7 +133,7 @@ public class StorageSettingsTests : IAsyncLifetime
                 Email = $"storage-{userId:N}@example.com",
                 RoleIds = [barakoCMS.Models.SystemRoles.SuperAdminRoleId],
             });
-            session.Store(new barakoCMS.Models.Tenant { Id = Guid.NewGuid(), Slug = tenant, Name = tenant, IsActive = true });
+            session.Store(new barakoCMS.Models.Tenant { Id = Guid.NewGuid(), Slug = tenant, Name = tenant, Status = barakoCMS.Models.TenantStatus.Active });
             await session.SaveChangesAsync(Ct);
         }
 
