@@ -766,7 +766,10 @@ internal static class WebhookSigning
             }
         }
 
-        if (!flags) return true;
+        if (!flags)
+        {
+            return true;
+        }
 
         child[ChildSecretSetProperty] = JsonValue.Create(secretSet);
         if (unreadable.Count > 0) child[ChildUnreadableBranchesProperty] = unreadable;
