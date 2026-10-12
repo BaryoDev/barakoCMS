@@ -3,7 +3,7 @@ using barakoCMS.Models;
 namespace BarakoCMS.Portability;
 
 /// <summary>A portable snapshot of content-type definitions and their content data.</summary>
-[Obsolete(PortabilityObsolete.Message)]
+[Obsolete("Use the config engine instead: GET /api/config/export, and POST /api/config/plan and /api/config/apply, which accept a Portability bundle as a document. Removal planned for barakoCMS 6.0.")]
 public class PortabilityBundle
 {
     public int Version { get; set; } = 1;
@@ -19,7 +19,7 @@ public class PortabilityBundle
 }
 
 /// <summary>One content item, recreated under a new id wherever it is imported.</summary>
-[Obsolete(PortabilityObsolete.Message)]
+[Obsolete("Use the config engine instead: GET /api/config/export, and POST /api/config/plan and /api/config/apply, which accept a Portability bundle as a document. Removal planned for barakoCMS 6.0.")]
 public class ContentRecord
 {
     /// <summary>
@@ -47,7 +47,7 @@ public class ContentRecord
     public SensitivityLevel? Sensitivity { get; set; }
 }
 
-[Obsolete(PortabilityObsolete.Message)]
+[Obsolete("Use the config engine instead: GET /api/config/export, and POST /api/config/plan and /api/config/apply, which accept a Portability bundle as a document. Removal planned for barakoCMS 6.0.")]
 public class ImportRequest
 {
     /// <summary>When true, report what would happen without writing anything.</summary>
@@ -56,7 +56,7 @@ public class ImportRequest
     public List<ContentRecord> Contents { get; set; } = new();
 }
 
-[Obsolete(PortabilityObsolete.Message)]
+[Obsolete("Use the config engine instead: GET /api/config/export, and POST /api/config/plan and /api/config/apply, which accept a Portability bundle as a document. Removal planned for barakoCMS 6.0.")]
 public class ImportReport
 {
     public bool DryRun { get; set; }

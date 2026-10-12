@@ -13,6 +13,7 @@ namespace barakoCMS.Features.Config.Apply;
 /// caller may not make a change it asks for, and 409 when it holds a destructive change and
 /// <c>allowDestructive</c> was not sent. In each of those nothing is written.
 /// </remarks>
+[barakoCMS.Infrastructure.Filters.NoIdempotentReplay]
 internal sealed class Endpoint(ConfigEngine engine) : Endpoint<Request, ConfigPlanResponse>
 {
     public override void Configure()

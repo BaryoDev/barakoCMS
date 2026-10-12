@@ -29,7 +29,7 @@ namespace BarakoCMS.Portability;
 /// half-applied bundle after fixing it would duplicate everything that landed the first time. A dry
 /// run refuses exactly what the real run would.
 /// </remarks>
-[Obsolete(PortabilityObsolete.Message)]
+[Obsolete("Use the config engine instead: GET /api/config/export, and POST /api/config/plan and /api/config/apply, which accept a Portability bundle as a document. Removal planned for barakoCMS 6.0.")]
 public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
 {
     private readonly IDocumentSession _session;

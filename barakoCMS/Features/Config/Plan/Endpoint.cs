@@ -9,6 +9,7 @@ namespace barakoCMS.Features.Config.Plan;
 /// POST /api/config/plan: what applying a document to the caller's tenant would change, refuse or
 /// need. Writes nothing.
 /// </summary>
+[barakoCMS.Infrastructure.Filters.NoIdempotentReplay]
 internal sealed class Endpoint(ConfigEngine engine) : Endpoint<Request, ConfigPlanResponse>
 {
     public override void Configure()

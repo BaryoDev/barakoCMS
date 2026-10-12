@@ -11,7 +11,7 @@ using Marten;
 namespace BarakoCMS.Portability;
 
 /// <summary>GET /api/portability/export?types=member,event — download a content bundle (all types if omitted).</summary>
-[Obsolete(PortabilityObsolete.Message)]
+[Obsolete("Use the config engine instead: GET /api/config/export, and POST /api/config/plan and /api/config/apply, which accept a Portability bundle as a document. Removal planned for barakoCMS 6.0.")]
 public class ExportEndpoint(
     IQuerySession session,
     IDocumentSession documentSession,
