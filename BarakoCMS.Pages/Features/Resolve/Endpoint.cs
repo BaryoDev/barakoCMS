@@ -7,9 +7,8 @@ namespace BarakoCMS.Pages.Features.Resolve;
 
 internal sealed record Breadcrumb(Guid Id, string? Title, string Slug, string Path);
 
-/// <param name="BoundBlocks">
-/// The entries each block of the page that names a binding selects. Empty for a page with none.
-/// </param>
+// BoundBlocks: the entries each block of the page that names a binding selects, empty for a page
+// with none.
 internal sealed record ResolveResponse(
     int Contract,
     string Path,

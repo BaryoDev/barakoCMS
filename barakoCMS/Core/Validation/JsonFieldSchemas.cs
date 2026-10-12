@@ -46,14 +46,20 @@ internal static class JsonFieldSchemas
     public static IEnumerable<string> DefinitionErrors(FieldDefinition field)
     {
         if (!Declares(field))
+        {
             return [];
+        }
 
         if (!string.Equals(field.Type, "json", StringComparison.OrdinalIgnoreCase))
+        {
             return [$"Field '{field.Name}' declares jsonSchema but is of type '{field.Type}', not json."];
+        }
 
         var schema = field.JsonSchema!.Value;
         if (schema.GetRawText().Length > MaxSchemaLength)
+        {
             return [$"Field '{field.Name}' declares a jsonSchema longer than {MaxSchemaLength} characters."];
+        }
 
         var errors = new List<string>();
         SchemaErrors(schema, "#", 1, errors);
@@ -65,9 +71,14 @@ internal static class JsonFieldSchemas
     {
         var errors = new List<string>();
         if (schema.GetRawText().Length > MaxSchemaLength)
+        {
             errors.Add($"is longer than {MaxSchemaLength} characters.");
+        }
         else
+        {
             SchemaErrors(schema, "#", 1, errors);
+        }
+
         return errors.Take(MaxErrors).ToList();
     }
 
@@ -82,7 +93,10 @@ internal static class JsonFieldSchemas
     private static void SchemaErrors(JsonElement schema, string at, int depth, List<string> errors)
     {
         if (schema.ValueKind == JsonValueKind.True || schema.ValueKind == JsonValueKind.False)
+        {
             return;
+        }
+
         if (schema.ValueKind != JsonValueKind.Object)
         {
             errors.Add($"at {at} is not a schema: a schema is an object, true or false.");
@@ -98,14 +112,24 @@ internal static class JsonFieldSchemas
         {
             var where = $"{at}/{keyword.Name}";
             if (!Keywords.Contains(keyword.Name, StringComparer.Ordinal))
+            {
                 errors.Add($"uses '{keyword.Name}' at {at}, which is not supported. Supported: {string.Join(", ", Keywords)}.");
+            }
             else if (KeywordError(keyword.Name, keyword.Value) is { } error)
+            {
                 errors.Add($"at {where} {error}");
+            }
             else if (keyword.Name == "properties")
+            {
                 foreach (var property in keyword.Value.EnumerateObject())
+                {
                     SchemaErrors(property.Value, $"{where}/{property.Name}", depth + 1, errors);
+                }
+            }
             else if (keyword.Name is "items" or "additionalProperties")
+            {
                 SchemaErrors(keyword.Value, where, depth + 1, errors);
+            }
         }
     }
 
@@ -147,10 +171,14 @@ internal static class JsonFieldSchemas
     public static IEnumerable<string> ValueErrors(FieldDefinition field, object value, Content? existing)
     {
         if (!Declares(field) || !string.Equals(field.Type, "json", StringComparison.OrdinalIgnoreCase))
+        {
             return [];
+        }
 
         if (StoredValues.IsUnchanged(field.Name, value, existing))
+        {
             return [];
+        }
 
         var element = value is JsonElement je ? je : JsonSerializer.SerializeToElement(value);
         var errors = new List<string>();
@@ -163,7 +191,10 @@ internal static class JsonFieldSchemas
     private static void Check(JsonElement schema, JsonElement value, string at, List<string> errors)
     {
         if (errors.Count >= MaxErrors || schema.ValueKind == JsonValueKind.True)
+        {
             return;
+        }
+
         if (schema.ValueKind == JsonValueKind.False)
         {
             errors.Add($"{at} is not allowed.");
@@ -177,10 +208,14 @@ internal static class JsonFieldSchemas
         }
 
         if (schema.TryGetProperty("const", out var constant) && !JsonElement.DeepEquals(constant, value))
+        {
             errors.Add($"{at} should be {constant.GetRawText()}.");
+        }
 
         if (schema.TryGetProperty("enum", out var options) && !options.EnumerateArray().Any(o => JsonElement.DeepEquals(o, value)))
+        {
             errors.Add($"{at} should be one of {options.GetRawText()}.");
+        }
 
         switch (value.ValueKind)
         {
@@ -196,8 +231,12 @@ internal static class JsonFieldSchemas
         if (schema.TryGetProperty("required", out var required))
         {
             foreach (var name in required.EnumerateArray().Select(r => r.GetString()!))
+            {
                 if (!value.TryGetProperty(name, out _))
+                {
                     errors.Add($"{at}.{name} is required.");
+                }
+            }
         }
 
         schema.TryGetProperty("properties", out var properties);
@@ -207,9 +246,13 @@ internal static class JsonFieldSchemas
         {
             var where = $"{at}.{property.Name}";
             if (properties.ValueKind == JsonValueKind.Object && properties.TryGetProperty(property.Name, out var declared))
+            {
                 Check(declared, property.Value, where, errors);
+            }
             else if (hasExtra)
+            {
                 Check(additional, property.Value, where, errors);
+            }
         }
     }
 
@@ -217,28 +260,44 @@ internal static class JsonFieldSchemas
     {
         var count = value.GetArrayLength();
         if (schema.TryGetProperty("minItems", out var min) && count < min.GetInt32())
+        {
             errors.Add($"{at} should hold at least {min.GetInt32()} items and holds {count}.");
+        }
+
         if (schema.TryGetProperty("maxItems", out var max) && count > max.GetInt32())
+        {
             errors.Add($"{at} should hold at most {max.GetInt32()} items and holds {count}.");
+        }
 
         if (!schema.TryGetProperty("items", out var items))
+        {
             return;
+        }
 
         var index = 0;
         foreach (var item in value.EnumerateArray())
+        {
             Check(items, item, $"{at}[{index++}]", errors);
+        }
     }
 
     private static void CheckString(JsonElement schema, string value, string at, List<string> errors)
     {
         var length = value.EnumerateRunes().Count();
         if (schema.TryGetProperty("minLength", out var min) && length < min.GetInt32())
+        {
             errors.Add($"{at} should be at least {min.GetInt32()} characters.");
+        }
+
         if (schema.TryGetProperty("maxLength", out var max) && length > max.GetInt32())
+        {
             errors.Add($"{at} should be at most {max.GetInt32()} characters.");
+        }
 
         if (!schema.TryGetProperty("pattern", out var pattern))
+        {
             return;
+        }
 
         bool matches;
         try
@@ -251,16 +310,23 @@ internal static class JsonFieldSchemas
         }
 
         if (!matches)
+        {
             errors.Add($"{at} does not match the pattern {pattern.GetRawText()}.");
+        }
     }
 
     private static void CheckNumber(JsonElement schema, JsonElement value, string at, List<string> errors)
     {
         var number = value.GetDouble();
         if (schema.TryGetProperty("minimum", out var min) && number < min.GetDouble())
+        {
             errors.Add($"{at} should be at least {min.GetRawText()}.");
+        }
+
         if (schema.TryGetProperty("maximum", out var max) && number > max.GetDouble())
+        {
             errors.Add($"{at} should be at most {max.GetRawText()}.");
+        }
     }
 
     private static bool TypeMatches(JsonElement type, JsonElement value) =>

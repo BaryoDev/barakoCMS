@@ -31,7 +31,9 @@ internal static class ArrayItems
     public static IEnumerable<string> DefinitionErrors(FieldDefinition field)
     {
         if (field.ItemType is null)
+        {
             yield break;
+        }
 
         if (!IsArray(field.Type))
         {
@@ -40,11 +42,15 @@ internal static class ArrayItems
         }
 
         if (string.Equals(field.ItemType, "reference", StringComparison.OrdinalIgnoreCase))
+        {
             yield return $"Field '{field.Name}' declares itemType 'reference'. A list of references is a "
                        + "reference field with multiple set, which checks each id.";
+        }
         else if (!ItemTypes.Contains(field.ItemType, StringComparer.Ordinal))
+        {
             yield return $"Field '{field.Name}' declares itemType '{field.ItemType}'. An array's items may be "
                        + $"{string.Join(", ", ItemTypes)}.";
+        }
     }
 
     /// <summary>What is wrong with a value written to an array field, or null.</summary>
@@ -55,17 +61,24 @@ internal static class ArrayItems
     public static string? ValueError(FieldDefinition field, object value, Content? existing)
     {
         if (field.ItemType is not { } itemType || !IsArray(field.Type))
+        {
             return null;
+        }
 
         if (StoredValues.IsUnchanged(field.Name, value, existing))
+        {
             return null;
+        }
 
         var index = 0;
         foreach (var item in Items(value))
         {
             if (item is null || !FieldTypeRegistry.IsValidValue(itemType, item))
+            {
                 return $"Field '{field.DisplayName}' ({field.Name}) holds items of type '{itemType}', "
                      + $"and the item at index {index} is not one.";
+            }
+
             index++;
         }
 
@@ -77,14 +90,19 @@ internal static class ArrayItems
         if (value is JsonElement { ValueKind: JsonValueKind.Array } je)
         {
             foreach (var item in je.EnumerateArray())
+            {
                 yield return item.ValueKind == JsonValueKind.Null ? null : item;
+            }
+
             yield break;
         }
 
         if (value is System.Collections.IEnumerable list and not string)
         {
             foreach (var item in list)
+            {
                 yield return item is JsonElement { ValueKind: JsonValueKind.Null } ? null : item;
+            }
         }
     }
 }

@@ -3,12 +3,12 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using barakoCMS.Models;
+using BarakoCMS.Tests.Features.Tenants;
 using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
-using BarakoCMS.Tests.Features.Tenants;
-using barakoCMS.Models;
 using Xunit;
 
 namespace BarakoCMS.Tests.Features.Site;
@@ -127,7 +127,10 @@ public class SiteFieldSchemasTests
         var fields = blueprint["contentTypes"]![0]!["fields"]!.AsArray();
         var schemas = new JsonObject();
         foreach (var field in fields.Where(f => f!["jsonSchema"] is not null))
+        {
             schemas[field!["name"]!.GetValue<string>()] = field["jsonSchema"]!.DeepClone();
+        }
+
         schemas.Count.Should().BeGreaterThan(10);
 
         var sql = File.ReadAllText(Path.Combine(RepositoryRoot(), "migrations", "5.0.0", Up));
@@ -261,7 +264,10 @@ public class SiteFieldSchemasTests
         await command.ExecuteNonQueryAsync(Ct);
 
         if (file == Up)
+        {
             notices.Should().Contain(n => n.Contains($"Only {slug} was looked at"));
+        }
+
         return notices;
     }
 
@@ -271,7 +277,9 @@ public class SiteFieldSchemasTests
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "migrations")))
+        {
             directory = directory.Parent;
+        }
 
         directory.Should().NotBeNull("the test binary should sit under the repository");
         return directory!.FullName;

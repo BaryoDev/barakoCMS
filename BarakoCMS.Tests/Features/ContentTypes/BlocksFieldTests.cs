@@ -1,8 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using FluentAssertions;
 using BarakoCMS.Tests.Features.Tenants;
+using FluentAssertions;
 using Xunit;
 
 namespace BarakoCMS.Tests.Features.ContentTypes;
@@ -189,7 +189,10 @@ public class BlocksFieldTests
             var client = host.CreateClient();
             client.DefaultRequestHeaders.Add("X-Tenant", slug);
             if (key is not null)
+            {
                 client.DefaultRequestHeaders.Add("X-Barako-Renderer-Key", key);
+            }
+
             return client;
         }
 

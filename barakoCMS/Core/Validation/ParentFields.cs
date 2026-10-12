@@ -20,19 +20,27 @@ internal static class ParentFields
         var declared = fields.Where(f => f?.Parent is not null).ToList();
 
         if (declared.Count > 1)
+        {
             yield return $"Only one field may be declared the parent, and {string.Join(", ", declared.Select(f => $"'{f.Name}'"))} are.";
+        }
 
         foreach (var field in declared)
         {
             if (!string.Equals(field.Type, "reference", StringComparison.OrdinalIgnoreCase) || field.Multiple)
+            {
                 yield return $"Field '{field.Name}' declares parent but is not a single reference.";
+            }
             else if (!string.Equals(field.ReferenceType, typeName, StringComparison.OrdinalIgnoreCase))
+            {
                 yield return $"Field '{field.Name}' declares parent, so it has to point at '{typeName}' itself, "
                            + $"and points at '{field.ReferenceType}'.";
+            }
 
             if (field.Parent!.MaxDepth is < 1 or > ParentDeclaration.MostDepth)
+            {
                 yield return $"Field '{field.Name}' declares a parent maxDepth of {field.Parent.MaxDepth}, "
                            + $"and it may be 1 to {ParentDeclaration.MostDepth}.";
+            }
         }
     }
 
@@ -48,7 +56,9 @@ internal static class ParentFields
         ContentTypeDefinition? definition, ContentLifecycleContext context, CancellationToken ct)
     {
         if (definition?.Fields.FirstOrDefault(f => f.Parent is not null && IsParentShaped(definition, f)) is not { } field)
+        {
             return [];
+        }
 
         var walked = context.EntryId is null
             ? new ContentLifecycleContext

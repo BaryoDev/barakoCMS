@@ -58,22 +58,35 @@ internal static class BlockFields
     {
         var errors = new List<string>();
         if (blocks is null || blocks.Count == 0)
+        {
             return ["A block schema names at least one block."];
+        }
+
         if (blocks.Count > MaxBlockTypes)
+        {
             return [$"A block schema names at most {MaxBlockTypes} blocks, and this one names {blocks.Count}."];
+        }
 
         foreach (var (name, schema) in blocks)
         {
             if (!BlockName.IsMatch(name))
+            {
                 errors.Add($"Block name '{name}' starts with a letter and holds letters, digits, '-' and '_', at most 64.");
+            }
             else if (schema.ValueKind != JsonValueKind.Object)
+            {
                 errors.Add($"Block '{name}' has to be described by an object schema.");
+            }
             else if (schema.TryGetProperty("properties", out var properties)
                      && properties.ValueKind == JsonValueKind.Object
                      && properties.EnumerateObject().Select(p => p.Name).FirstOrDefault(Envelope.Contains) is { } taken)
+            {
                 errors.Add($"Block '{name}' declares '{taken}', which every block carries and none declares.");
+            }
             else
+            {
                 errors.AddRange(JsonFieldSchemas.SchemaErrors(schema).Select(e => $"Block '{name}' schema {e}"));
+            }
         }
 
         return errors;
@@ -85,13 +98,19 @@ internal static class BlockFields
     {
         var element = value is JsonElement je ? je : JsonSerializer.SerializeToElement(value);
         if (element.GetArrayLength() > MaxBlocks)
+        {
             return [$"Field '{field.DisplayName}' ({field.Name}) holds at most {MaxBlocks} blocks."];
+        }
 
         if (StoredValues.IsUnchanged(field.Name, value, existing))
+        {
             return [];
+        }
 
         if (await session.LoadAsync<BlockSchema>(BlockSchema.RowId) is not { Blocks.Count: > 0 } schema)
+        {
             return [];
+        }
 
         var errors = new List<string>();
         var index = 0;
@@ -99,7 +118,9 @@ internal static class BlockFields
         {
             errors.AddRange(BlockErrors(schema, block, $"{field.Name}[{index++}]"));
             if (errors.Count >= 5)
+            {
                 break;
+            }
         }
 
         return errors.Take(5).Select(e => $"Field '{field.DisplayName}' ({field.Name}): {e}");
@@ -129,7 +150,9 @@ internal static class BlockFields
     private static IEnumerable<string> PropsErrors(BlockSchema schema, string type, JsonElement props, string at)
     {
         if (!schema.Blocks.TryGetValue(type, out var blockSchema))
+        {
             return [$"{at}.type '{type}' is not a block this tenant's renderer registered."];
+        }
 
         blockSchema.TryGetProperty("properties", out var declared);
         var unknown = props.EnumerateObject()
@@ -145,7 +168,10 @@ internal static class BlockFields
     {
         var properties = new System.Text.Json.Nodes.JsonObject();
         foreach (var property in block.EnumerateObject().Where(p => !Envelope.Contains(p.Name)))
+        {
             properties[property.Name] = System.Text.Json.Nodes.JsonNode.Parse(property.Value.GetRawText());
+        }
+
         return JsonSerializer.SerializeToElement(properties);
     }
 }

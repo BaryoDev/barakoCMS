@@ -90,7 +90,10 @@ internal sealed class PutEndpoint(IDocumentSession session) : Endpoint<PutReques
     public override async Task HandleAsync(PutRequest req, CancellationToken ct)
     {
         foreach (var error in await BlockFields.PropsErrorsAsync(session, req.BlockType, req.Props, "props", ct))
+        {
             AddError(error);
+        }
+
         ThrowIfAnyErrors();
 
         var existing = await session.LoadAsync<BlockPreset>(req.Id, ct);

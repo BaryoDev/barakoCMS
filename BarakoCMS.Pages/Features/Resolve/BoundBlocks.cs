@@ -44,12 +44,16 @@ internal static class BoundBlocks
     {
         var wanted = Wanted(pageType, page).Take(MaxBindings).ToList();
         if (wanted.Count == 0)
+        {
             return [];
+        }
 
         var ids = wanted.Select(w => w.Binding).Distinct().ToArray();
         var entries = new Dictionary<Guid, IReadOnlyList<PublicContentProjection>>();
         foreach (var binding in await session.LoadManyAsync<BlockBinding>(ct, ids))
+        {
             entries[binding.Id] = await EntriesAsync(session, projector, binding, ct);
+        }
 
         return wanted
             .Where(w => entries.ContainsKey(w.Binding))
@@ -63,11 +67,15 @@ internal static class BoundBlocks
         {
             var value = page.Data.FirstOrDefault(kv => string.Equals(kv.Key, field.Name, StringComparison.OrdinalIgnoreCase)).Value;
             if (value is null)
+            {
                 continue;
+            }
 
             var element = value is JsonElement je ? je : JsonSerializer.SerializeToElement(value);
             if (element.ValueKind != JsonValueKind.Array)
+            {
                 continue;
+            }
 
             var index = 0;
             foreach (var block in element.EnumerateArray())
@@ -91,12 +99,16 @@ internal static class BoundBlocks
         var lowered = binding.ContentType.ToLower();
         var definition = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct);
         if (!projector.IsDeliverable(definition))
+        {
             return [];
+        }
 
         var sortField = binding.Sort?.TrimStart('-');
         var named = (binding.Where?.Keys ?? Enumerable.Empty<string>()).Concat(sortField is null ? [] : [sortField]);
         if (named.Any(n => PublicField(definition!, n) is null))
+        {
             return [];
+        }
 
         var name = definition!.Name;
         var query = session.Query<Content>()

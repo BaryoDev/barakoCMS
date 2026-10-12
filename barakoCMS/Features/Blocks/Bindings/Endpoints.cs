@@ -95,10 +95,17 @@ internal sealed class PutEndpoint(IDocumentSession session) : Endpoint<PutReques
         var lowered = req.ContentType.Trim().ToLower();
         var definition = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct);
         if (definition is null)
+        {
             AddError(r => r.ContentType, $"There is no content type '{req.ContentType}'.");
+        }
         else
+        {
             foreach (var field in Fields(req).Where(f => !definition.Fields.Any(d => string.Equals(d.Name, f, StringComparison.OrdinalIgnoreCase))))
+            {
                 AddError($"'{definition.Name}' has no field '{field}'.");
+            }
+        }
+
         ThrowIfAnyErrors();
 
         if (await session.LoadAsync<BlockBinding>(req.Id, ct) is null && await session.Query<BlockBinding>().CountAsync(ct) >= MaxBindings)

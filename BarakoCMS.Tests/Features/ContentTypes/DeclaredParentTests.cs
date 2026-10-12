@@ -1,8 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using FluentAssertions;
 using BarakoCMS.Tests.Features.Tenants;
+using FluentAssertions;
 using Xunit;
 
 namespace BarakoCMS.Tests.Features.ContentTypes;
@@ -52,7 +52,10 @@ public class DeclaredParentTests
     {
         var data = new Dictionary<string, object> { ["Title"] = slug, ["Slug"] = slug, ["ShowInNavigation"] = true };
         if (parent is { } p)
+        {
             data["Parent"] = p.ToString();
+        }
+
         var res = await admin.PostAsJsonAsync("/api/contents", new { contentType = type, data, status = "Published" }, Ct);
         res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync(Ct));
         using var body = JsonDocument.Parse(await res.Content.ReadAsStringAsync(Ct));

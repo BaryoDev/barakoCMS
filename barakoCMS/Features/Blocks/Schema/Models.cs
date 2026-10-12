@@ -43,7 +43,9 @@ internal sealed class Validator : Validator<Request>
             }
 
             foreach (var error in barakoCMS.Core.Validation.BlockFields.SchemaErrors(blocks))
+            {
                 context.AddFailure("blocks", error);
+            }
         });
     }
 }

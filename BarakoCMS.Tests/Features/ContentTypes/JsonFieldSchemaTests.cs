@@ -1,9 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
+using barakoCMS.Models;
 using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
-using barakoCMS.Models;
 using Xunit;
 
 namespace BarakoCMS.Tests.Features.ContentTypes;
@@ -201,7 +201,9 @@ public class JsonFieldSchemaTests : IAsyncLifetime
     {
         var schema = "true";
         for (var i = 0; i < 20; i++)
+        {
             schema = $$"""{"type":"array","items":{{schema}}}""";
+        }
 
         var res = await CreateTypeAsync(NewName(), new
         {

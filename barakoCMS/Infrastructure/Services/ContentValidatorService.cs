@@ -262,43 +262,61 @@ public class ContentValidatorService(
         var expectedType = field.Type.ToLower();
 
         if (InlineImageFields.Is(expectedType))
+        {
             return InlineImageFields.IsUnchanged(field, value, existing) ? [] : One(InlineImageFields.ValueError(field, value));
+        }
 
         if (ReferenceFields.IsMultiple(field))
+        {
             return One(await ReferenceFields.ValueErrorAsync(session, field, value));
+        }
 
         // Ahead of the shape check, so text that is not an id is answered in the same words as an
         // id the caller may not use.
         if (expectedType == FileFields.TypeName)
+        {
             return One(await ValidateFileAsync(field, value, existing, caller));
+        }
 
         // An address stored before the email check was tightened is still the entry's own, and an
         // edit of another field keeps it as it is.
         if (expectedType == "email" && StoredValues.IsUnchanged(field.Name, value, existing))
+        {
             return [];
+        }
 
         if (!FieldTypeRegistry.IsValidValue(expectedType, value))
+        {
             return [$"Field '{field.DisplayName}' expects type '{expectedType}' but received '{GetActualTypeName(value)}'"];
+        }
 
         // The registry checked the shape. Whether the target exists, and is the type this field
         // declares, needs the database, which is why it is here and not there. Checked on write
         // rather than on read: a reference that pointed at nothing would otherwise be stored happily
         // and fail for whoever renders it.
         if (expectedType == "reference")
+        {
             return One(await ValidateReferenceAsync(field, value));
+        }
 
         // What the entry already holds is not checked again. The options may have changed since it
         // was stored, and a field the caller may not see is put back to its stored value before this
         // runs, so refusing it would block every edit of the rest of the entry over a value the
         // caller did not send.
         if (expectedType == "choice")
+        {
             return StoredValues.IsUnchanged(field.Name, value, existing) ? [] : One(ValidateChoice(field, value));
+        }
 
         if (BlockFields.Is(expectedType))
+        {
             return await BlockFields.ValueErrorsAsync(session, field, value, existing);
+        }
 
         if (JsonFieldSchemas.Declares(field))
+        {
             return JsonFieldSchemas.ValueErrors(field, value, existing);
+        }
 
         var typed = ArrayItems.ValueError(field, value, existing) ?? MoneyFields.ValueError(field, value);
         return typed is not null ? [typed] : FieldRules.ValueErrors(field, value);
@@ -328,7 +346,9 @@ public class ContentValidatorService(
             .ToList();
 
         if (undeclared.Count == 0)
+        {
             return [];
+        }
 
         var named = string.Join(", ", undeclared.Take(5).Select(k => $"'{k}'"))
             + (undeclared.Count > 5 ? $" and {undeclared.Count - 5} more" : string.Empty);
