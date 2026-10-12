@@ -147,9 +147,12 @@ internal static class WebhookSigning
     /// </summary>
     /// <remarks>
     /// <para>
-    /// A value with the prefix is left alone. One without it is one of three things, told apart by
-    /// trying the current key: an envelope written before the prefix existed (it decrypts, and gains
-    /// the prefix with its ciphertext unchanged), a value stored in clear (it does not decrypt, and is
+    /// A value with the prefix is left alone, unless a key ring is configured and it was written under
+    /// a key other than the current one, when it is re-wrapped under the current key. One with the
+    /// prefix that no key opens is reported through <paramref name="undecryptableSecret"/>. One
+    /// without the prefix is one of three things, told apart by trying the keys: an envelope written
+    /// before the prefix existed (it decrypts, and gains the prefix with its ciphertext unchanged, or
+    /// is re-wrapped when a ring is configured), a value stored in clear (it does not decrypt, and is
     /// encrypted), or a <see cref="SecretParameter"/> that has the envelope's shape and will not
     /// decrypt.
     /// </para>
@@ -166,7 +169,7 @@ internal static class WebhookSigning
     /// </para>
     /// <para>
     /// Safe to run again and on several instances at once: every write produces a prefixed envelope
-    /// of the same plaintext, and a prefixed value is never touched.
+    /// of the same plaintext, and a prefixed value under the current key is never touched.
     /// </para>
     /// </remarks>
     /// <param name="undecryptableSecret">Called with the action's index and the parameter name, never the value.</param>
@@ -219,11 +222,27 @@ internal static class WebhookSigning
 
             if (LooksProtected(value))
             {
-                // What follows the prefix on anything the protector wrote is base64 of at least a
-                // nonce and a tag. A value with the prefix and not that shape was typed that way and
-                // stored in clear. One with the shape that will not decrypt cannot be told from
-                // ciphertext under another key, so it is left alone, as it always was.
-                if (AesGcmEnvelope.IsWellFormed(value[AesGcmEnvelope.VersionPrefix.Length..])) continue;
+                // What follows the prefix (and the key id, when a ring wrote it) on anything the
+                // protector wrote is base64 of at least a nonce and a tag. A value with the prefix and
+                // not that shape was typed that way and stored in clear.
+                if (AesGcmEnvelope.IsWellFormed(AesGcmEnvelope.Split(value).Envelope))
+                {
+                    // One with the shape that will not decrypt cannot be told from ciphertext under
+                    // another key, so it is left alone, as it always was, and reported. One that
+                    // opens under an older key in the ring moves to the current key.
+                    var opened = protector.Unprotect(value);
+                    if (opened is null)
+                    {
+                        undecryptableSecret(name);
+                    }
+                    else if (!IsCurrent(protector, value))
+                    {
+                        parameters[name] = protector.Protect(opened);
+                        changed = true;
+                    }
+
+                    continue;
+                }
 
                 parameters[name] = protector.Protect(name == SecretParameter ? value.Trim() : value);
                 changed = true;
@@ -237,7 +256,10 @@ internal static class WebhookSigning
                 // ciphertext by shape, when both ran against one database. The inner envelope is
                 // the credential; prefixing the outer one would hand the action ciphertext.
                 var inner = LooksProtected(decrypted) && protector.Unprotect(decrypted) is not null;
-                parameters[name] = inner ? decrypted : AesGcmEnvelope.VersionPrefix + value;
+                var prefixed = AesGcmEnvelope.VersionPrefix + value;
+                parameters[name] = inner ? decrypted
+                    : IsCurrent(protector, prefixed) ? prefixed
+                    : protector.Protect(decrypted);
                 changed = true;
                 continue;
             }
@@ -263,6 +285,10 @@ internal static class WebhookSigning
 
         return changed;
     }
+
+    // A protector with no ring behind it writes one way only, so whatever opens is current.
+    private static bool IsCurrent(ISecretProtector protector, string value) =>
+        protector is not IKeyRingProtector keyed || keyed.Ring.IsCurrent(value);
 
     private const string ConditionalType = "Conditional";
     private const string ChildTypeProperty = "Type";

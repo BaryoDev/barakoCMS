@@ -1126,6 +1126,13 @@ public static class ServiceCollectionExtensions
         // refused before the host is built rather than at the first send. An absent key is not an
         // error: it means the feature is off, and the endpoints say so with the setting named.
         barakoCMS.Infrastructure.Connectors.ConnectorOptions.FromConfiguration(configuration).Validate(configuration);
+
+        // A key ring that is ambiguous or weak is refused here too, rather than at the first value
+        // somebody stores or reads.
+        foreach (var section in new[] { "Secrets", "Mfa", "Connectors" })
+        {
+            barakoCMS.Infrastructure.Security.KeyRing.FromConfiguration(configuration, section, legacyMaterial: null, prefixUnkeyedWrites: false);
+        }
         services.AddSingleton(erasure);
         services.AddScoped<barakoCMS.Infrastructure.Erasure.IContentEraser, barakoCMS.Infrastructure.Erasure.ContentEraser>();
     }
@@ -1192,6 +1199,7 @@ public static class ServiceCollectionExtensions
     {
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowRunRetentionService>();
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowCredentialMigrationService>();
+        services.AddHostedService<barakoCMS.Infrastructure.Security.SecretRewrapService>();
         services.AddHostedService<barakoCMS.Infrastructure.Services.StoredValidationRulesNotice>();
         services.AddHostedService<barakoCMS.Infrastructure.Services.StoredReferenceConditionsNotice>();
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowExecutionLogRedactionService>();
