@@ -95,6 +95,63 @@ public class ContentTypeDefinition
     /// at once cannot both pass. See <see cref="UniquenessRule"/>.
     /// </remarks>
     public List<UniquenessRule>? Uniqueness { get; set; }
+
+    /// <summary>
+    /// An anonymous lookup of one entry by a reference plus an identifier, or null for none.
+    /// </summary>
+    /// <remarks>
+    /// Null is every type stored before this existed, and such a type answers no lookup. See
+    /// <see cref="LookupDefinition"/>. Separate from <see cref="IsPubliclyDeliverable"/>: a type can
+    /// answer a lookup without its entries being listed anonymously, which is the usual case for
+    /// registrations.
+    /// </remarks>
+    public LookupDefinition? Lookup { get; set; }
+}
+
+/// <summary>
+/// How <c>POST /api/public/{type}/lookup</c> finds one entry and what it hands back.
+/// </summary>
+/// <remarks>
+/// The caller sends a reference and an identifier. An entry is found when its
+/// <see cref="MatchField"/> equals the reference and any one of its <see cref="VerifyFields"/>
+/// equals the identifier, both compared ignoring case and surrounding spaces. Neither alone returns
+/// anything, and a miss answers exactly as a failed verification does.
+/// </remarks>
+public class LookupDefinition
+{
+    /// <summary>The field the reference is compared with, for example a registration number.</summary>
+    public string MatchField { get; set; } = string.Empty;
+
+    /// <summary>The fields the identifier is compared with; matching any one of them is enough.</summary>
+    public List<string> VerifyFields { get; set; } = new();
+
+    /// <summary>
+    /// The fields a found entry returns. Each must be Public: a Sensitive, Hidden or token field is
+    /// refused when the lookup is set, and left out when it is answered if it changed since.
+    /// </summary>
+    public List<string> ReturnFields { get; set; } = new();
+
+    /// <summary>Further fields returned only while a setting is on, or null for none.</summary>
+    public LookupReveal? Reveal { get; set; }
+}
+
+/// <summary>
+/// Fields a lookup adds to its answer only while a boolean field on a singleton type is true.
+/// </summary>
+/// <remarks>
+/// For a value meant to be handed out from a date an editor decides, such as a claim token once kit
+/// collection opens. A reveal field may be Public or a token, never another Sensitive or Hidden field.
+/// The setting is read from the singleton's entry when it is Published, so a draft cannot open it.
+/// </remarks>
+public class LookupReveal
+{
+    public List<string> Fields { get; set; } = new();
+
+    /// <summary>The singleton content type holding the setting.</summary>
+    public string SettingType { get; set; } = string.Empty;
+
+    /// <summary>The boolean field on that type which turns the reveal on.</summary>
+    public string SettingField { get; set; } = string.Empty;
 }
 
 /// <summary>
