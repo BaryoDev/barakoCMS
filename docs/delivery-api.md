@@ -130,8 +130,18 @@ GET /api/public/post?changedSince=2026-10-01T00:00:00Z&pageSize=100
 
 It combines with filters, sorting and paging, and `totalItems` counts what it kept. It answers
 additions and edits only. An entry that was unpublished, archived, made non-Public or deleted is
-not in a published list, so a build learns of a removal from `GET /api/changes`. A value that is
-not a date is a 400. Leaving it out lists everything, as before.
+not in a published list, so `changedSince` cannot report it. A build learns of a removal from a
+`Webhook` workflow action on the `Unpublished` and `Deleted` triggers ([webhooks.md](webhooks.md)),
+from `content.unpublished` on the event stream below while it is connected, or from a periodic full
+fetch whose ids it compares with what it holds. `GET /api/changes` carries no content topic, so it
+is not a way to learn of one.
+
+A change to the type rather than to an entry does not move `updatedAt`. When a field goes from
+Public to Sensitive, every entry's delivered data loses that field and none of them comes back from
+`changedSince`. After a change to a type's fields, their sensitivity or its route template, fetch
+the type in full.
+
+A value that is not a date is a 400. Leaving it out lists everything, as before.
 
 An entry looks like this:
 

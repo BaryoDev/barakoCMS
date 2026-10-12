@@ -173,6 +173,22 @@ public partial class PublicListRoundTripTests
     }
 
     [Fact]
+    public async Task ChangedSince_with_an_offset_is_read_as_the_instant_it_names()
+    {
+        var now = DateTime.UtcNow;
+        var type = await TypeAsync(now.AddHours(-2), now.AddHours(-1));
+        var instant = new DateTimeOffset(now.AddMinutes(-90)).ToOffset(TimeSpan.FromHours(8));
+        var since = Uri.EscapeDataString(instant.ToString("O"));
+
+        var changed = await OkJsonAsync(await Anonymous().GetAsync($"/api/public/{type}?changedSince={since}", Ct));
+
+        var titles = changed.GetProperty("items").EnumerateArray()
+            .Select(i => i.GetProperty("data").GetProperty("Title").GetString())
+            .ToList();
+        titles.Should().Equal(["entry-1"], "only the entry updated an hour ago is after the instant, in any offset");
+    }
+
+    [Fact]
     public async Task ChangedSince_that_is_not_a_date_is_a_400()
     {
         var type = await TypeAsync(DateTime.UtcNow);
