@@ -813,6 +813,8 @@ public class CapabilityGateTests
         var runs = await client.GetAsync("/api/workflow-runs", TestContext.Current.CancellationToken);
         var retry = await client.SendAsync(
             Probe("POST", $"/api/workflow-runs/{NotAGuid}/actions/0/retry"), TestContext.Current.CancellationToken);
+        var update = await client.SendAsync(
+            Probe("PUT", $"/api/workflows/{NotAGuid}"), TestContext.Current.CancellationToken);
         var enabled = await client.SendAsync(
             Probe("PUT", $"/api/workflows/{NotAGuid}/enabled"), TestContext.Current.CancellationToken);
         var delete = await client.SendAsync(
@@ -824,6 +826,7 @@ public class CapabilityGateTests
         actions.StatusCode.Should().Be(HttpStatusCode.OK);
         validate.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         dryRun.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        update.StatusCode.Should().Be(HttpStatusCode.BadRequest, "rewriting a workflow is authoring it");
         enabled.StatusCode.Should().Be(HttpStatusCode.BadRequest, "switching a workflow off is part of managing it");
         delete.StatusCode.Should().Be(HttpStatusCode.BadRequest, "and so is deleting it");
         cancel.StatusCode.Should().Be(HttpStatusCode.BadRequest,
@@ -981,6 +984,7 @@ public class CapabilityGateTests
         ("POST", $"/api/email-templates/{NotASlug}/preview", HttpStatusCode.BadRequest),
         ("GET", "/api/workflows/variables", HttpStatusCode.OK),
         ("GET", $"/api/workflows/{NotAGuid}/debug", HttpStatusCode.BadRequest),
+        ("PUT", $"/api/workflows/{NotAGuid}", HttpStatusCode.BadRequest),
         ("PUT", $"/api/workflows/{NotAGuid}/enabled", HttpStatusCode.BadRequest),
         ("DELETE", $"/api/workflows/{NotAGuid}", HttpStatusCode.BadRequest),
         ("GET", "/api/workflow-runs", HttpStatusCode.OK),
