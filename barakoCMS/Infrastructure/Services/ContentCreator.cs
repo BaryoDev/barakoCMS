@@ -118,7 +118,8 @@ public sealed class ContentCreator(
     ISensitivityService sensitivity,
     IContentValidatorService validator,
     IContentLifecycleRunner lifecycle,
-    IContentWriter writer) : IContentCreator
+    IContentWriter writer,
+    INumberStrategies? numbering = null) : IContentCreator
 {
     public async Task<IReadOnlyList<string>> CheckAsync(
         ContentCreateRequest request, Guid userId, HttpContext httpContext, ContentCreateBatch? batch, CancellationToken ct)
@@ -184,6 +185,8 @@ public sealed class ContentCreator(
             ?? await session.Query<ContentTypeDefinition>()
                 .FirstOrDefaultAsync(d => d.Name == request.ContentType, ct);
 
+        await NumberAsync(definition, request.Data, ct);
+
         var publicFields = definition?.Fields
             .Where(f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.InlineImageFields.Is(f.Type))
             .Select(f => f.Name)
@@ -219,6 +222,30 @@ public sealed class ContentCreator(
         }
 
         return created;
+    }
+
+    /// <summary>
+    /// Writes the next number of the type's series into the field its rule names, replacing whatever
+    /// the request sent there: the server owns it.
+    /// </summary>
+    /// <remarks>
+    /// Here rather than in the checks, so a request refused, or a dry run, takes no number. A gapless
+    /// number is taken inside this session's transaction and commits or rolls back with the entry.
+    /// </remarks>
+    private async Task NumberAsync(ContentTypeDefinition? definition, Dictionary<string, object> data, CancellationToken ct)
+    {
+        if (numbering is null || definition?.Numbering is not { Field.Length: > 0 } rule)
+        {
+            return;
+        }
+
+        foreach (var key in data.Keys.Where(k => string.Equals(k, rule.Field, StringComparison.OrdinalIgnoreCase)).ToList())
+        {
+            data.Remove(key);
+        }
+
+        var series = barakoCMS.Core.Validation.NumberingRules.SeriesFor(definition, rule);
+        data[rule.Field] = (await numbering.For(rule.Strategy).NextAsync(session, series, ct)).Formatted;
     }
 
     private async Task<bool> HoldsAnEntryAsync(ContentTypeDefinition schema, ContentCreateBatch batch, CancellationToken ct)

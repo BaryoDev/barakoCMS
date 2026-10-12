@@ -43,7 +43,7 @@ public class LedgerService
 {
     private readonly IDocumentSession _session;
     private readonly IContentWriter _contentWriter;
-    private readonly JournalEntryHook _hook = new();
+    private readonly JournalEntryHook _hook;
 
     /// <summary>
     /// The single-argument form this replaces.
@@ -63,10 +63,28 @@ public class LedgerService
     {
     }
 
+    /// <summary>The form before 5.0, which numbers entries from the module's own sequence rows.</summary>
+    /// <remarks>
+    /// Kept for an external caller that constructs the service. It numbers apart from the content
+    /// endpoint, which uses the core allocator from 5.0, so a deployment posting through both would
+    /// hand out a number twice: construct with an <see cref="barakoCMS.Core.Interfaces.INumberAllocator"/>.
+    /// </remarks>
+    [Obsolete("Use the constructor taking INumberAllocator, so posts here and through the content endpoint "
+        + "share one count. Removal planned for barakoCMS 6.0.")]
     public LedgerService(IDocumentSession session, IContentWriter contentWriter)
     {
         _session = session;
         _contentWriter = contentWriter;
+#pragma warning disable CS0618 // the matching legacy numbering, for this legacy constructor
+        _hook = new JournalEntryHook();
+#pragma warning restore CS0618
+    }
+
+    public LedgerService(IDocumentSession session, IContentWriter contentWriter, barakoCMS.Core.Interfaces.INumberAllocator numbers)
+    {
+        _session = session;
+        _contentWriter = contentWriter;
+        _hook = new JournalEntryHook(numbers);
     }
 
     public async Task<PostResult> PostAsync(PostEntryCommand cmd, Guid userId, CancellationToken ct)
