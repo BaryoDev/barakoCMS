@@ -250,6 +250,16 @@ internal static class DeliveryDocument
         "decimal" or "money" => new JsonObject { ["type"] = "number" },
         "bool" => new JsonObject { ["type"] = "boolean" },
         "array" => new JsonObject { ["type"] = "array", ["items"] = new JsonObject() },
+        barakoCMS.Core.Validation.BlockFields.TypeName => new JsonObject
+        {
+            ["type"] = "array",
+            ["items"] = new JsonObject
+            {
+                ["type"] = "object",
+                ["required"] = new JsonArray("type"),
+                ["properties"] = new JsonObject { ["type"] = new JsonObject { ["type"] = "string" } },
+            },
+        },
         "json" or "object" => new JsonObject { ["type"] = "object" },
         barakoCMS.Core.Validation.InlineImageFields.TypeName => new JsonObject
         {

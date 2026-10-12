@@ -294,6 +294,9 @@ public class ContentValidatorService(
         if (expectedType == "choice")
             return StoredValues.IsUnchanged(field.Name, value, existing) ? [] : One(ValidateChoice(field, value));
 
+        if (BlockFields.Is(expectedType))
+            return await BlockFields.ValueErrorsAsync(session, field, value, existing);
+
         if (JsonFieldSchemas.Declares(field))
             return JsonFieldSchemas.ValueErrors(field, value, existing);
 
