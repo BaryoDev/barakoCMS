@@ -81,6 +81,28 @@ internal static class SensitiveReadAudit
             entry.Id, entry.ContentType, entry.Sensitivity, FieldsShown(definition, entry.Data, shown), document);
     }
 
+    /// <summary>
+    /// What a read of several versions of one entry sent above Public: every field any version
+    /// carried unmasked, named once.
+    /// </summary>
+    public static async Task<SensitiveRead> DescribeVersionsAsync(
+        Content entry,
+        ContentTypeDefinition? definition,
+        IReadOnlyList<(Dictionary<string, object> Stored, Dictionary<string, object> Shown)> versions,
+        ISensitivityService sensitivity,
+        HttpContext http,
+        CancellationToken ct)
+    {
+        var fields = versions
+            .SelectMany(v => FieldsShown(definition, v.Stored, v.Shown))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var document = versions.Count > 0
+                       && entry.Sensitivity != SensitivityLevel.Public
+                       && await sensitivity.MaySeeDocumentAsync(entry.Sensitivity, http.User, ct);
+        return new SensitiveRead(entry.Id, entry.ContentType, entry.Sensitivity, fields, document);
+    }
+
     /// <summary>Writes the request's row, or nothing when no entry sent anything above Public.</summary>
     public static async Task RecordAsync(HttpContext http, IReadOnlyList<SensitiveRead> reads, CancellationToken ct)
     {
@@ -97,7 +119,7 @@ internal static class SensitiveReadAudit
 
         var metadata = new Dictionary<string, object>
         {
-            ["route"] = Clip(http.Request.Path.Value),
+            ["route"] = Clip(RouteOf(http)),
             ["entries"] = new Dictionary<string, object>
             {
                 ["items"] = kept.Take(RoleAudit.MaxItems).Select(Describe).ToList(),
@@ -105,6 +127,12 @@ internal static class SensitiveReadAudit
                 ["truncated"] = kept.Count > RoleAudit.MaxItems,
             },
         };
+
+        if (http.User.HasClaim("auth_method", "apikey")
+            && http.User.FindFirst(barakoCMS.Infrastructure.Security.RateLimitAfterAuthentication.ApiKeyClaim)?.Value is { } keyId)
+        {
+            metadata["apiKeyId"] = Clip(keyId);
+        }
 
         var single = kept.Count == 1 ? kept[0] : null;
         if (single is not null)
@@ -126,6 +154,21 @@ internal static class SensitiveReadAudit
             ipAddress: barakoCMS.Infrastructure.DeviceContext.From(http).IpAddress,
             ct: ct);
         await session.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// The route template, not the path: a path holds the slug of a read by slug, and a slug field
+    /// may itself be Sensitive.
+    /// </summary>
+    private static string RouteOf(HttpContext http)
+    {
+        var pattern = (http.GetEndpoint() as Microsoft.AspNetCore.Routing.RouteEndpoint)?.RoutePattern.RawText;
+        if (string.IsNullOrEmpty(pattern))
+        {
+            return string.Empty;
+        }
+
+        return pattern.StartsWith('/') ? pattern : "/" + pattern;
     }
 
     private static Dictionary<string, object> Describe(SensitiveRead read) => new()

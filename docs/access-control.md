@@ -1212,16 +1212,19 @@ as it did before these rows existed.
 
 ## What the audit log records about reads
 
-A request to `GET /api/contents/{id}`, `GET /api/contents/by-slug/{type}/{slug}` or
-`GET /api/contents` that sends a Sensitive or Hidden value writes one `content.sensitive.read` row,
-however many entries it returns. A value counts when it went out as stored: a field the caller sees
+A request to `GET /api/contents/{id}`, `GET /api/contents/by-slug/{type}/{slug}`,
+`GET /api/contents` or `GET /api/contents/{id}/history`, or a rollback
+(`POST /api/contents/{id}/rollback/{versionId}`) whose response sends a Sensitive or Hidden value,
+writes one `content.sensitive.read` row, however many entries or versions it returns. A history
+read names every field that any version on the page sent. A value counts when it went out as stored: a field the caller sees
 redacted, as its last four characters or not at all was not read and is not named. An entry whose
 own level is Sensitive or Hidden counts when its data went out. A read that sends nothing above
 Public writes no row.
 
 | Key | Holds |
 |---|---|
-| `route` | the request path |
+| `route` | the route template, such as `/api/contents/by-slug/{type}/{slug}`, never the path, since a slug can be a Sensitive value |
+| `apiKeyId` | for a read made with an API key, the key's id; the actor is the key's owner |
 | `entries` | `items`, `count` and `truncated`; each item is `id`, `contentType`, `sensitivity` and `fields` |
 | `contentType`, `fields`, `sensitivity` | for a read of one entry, the same three again, and the row's `targetId` is the entry's id |
 
@@ -1231,6 +1234,10 @@ unrecorded. A `Sensitivity:Mode` of `Off` masks nothing, so every Sensitive or H
 recorded.
 
 Public delivery sends Public fields only and writes no read row. Opening a share link does, below.
+
+Not recorded: `POST /api/email-templates/{id}/preview`. It needs `manage_workflows` as well as read
+on the entry, and renders only the placeholders the template names, but a Sensitive field the caller
+may see does render into its output, and no row says so.
 
 ### Share links
 

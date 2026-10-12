@@ -193,8 +193,15 @@ internal class RollbackEndpoint(
         if (await permissionResolver.CanPerformActionAsync(actor, content.ContentType, "read", content, ct))
         {
             response.Data = new Dictionary<string, object>(content.Data);
-            if (await Resolve<barakoCMS.Core.Interfaces.ISensitivityService>().ApplyAsync(content, response.Data, HttpContext, ct))
+            var sensitivity = Resolve<barakoCMS.Core.Interfaces.ISensitivityService>();
+            if (await sensitivity.ApplyAsync(content, response.Data, HttpContext, ct))
                 response.ContentType = "HIDDEN";
+
+            await barakoCMS.Infrastructure.Audit.SensitiveReadAudit.RecordAsync(
+                HttpContext,
+                [await barakoCMS.Infrastructure.Audit.SensitiveReadAudit.DescribeAsync(
+                    content, definition, response.Data, sensitivity, HttpContext, ct)],
+                ct);
         }
 
         await Send.ResponseAsync(response, cancellation: ct);

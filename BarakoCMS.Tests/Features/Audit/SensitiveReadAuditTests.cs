@@ -107,6 +107,7 @@ public class SensitiveReadAuditTests
         rows.Should().HaveCount(1);
         rows[0].TargetId.Should().Be(entry.ToString());
         rows[0].Text("sensitivity").Should().Be("Sensitive");
+        rows[0].Text("route").Should().Contain("{slug}").And.NotContain("/file", "a slug can be a Sensitive value");
     }
 
     [Fact]
@@ -132,6 +133,176 @@ public class SensitiveReadAuditTests
         entries.Should().AllSatisfy(e => e.GetProperty("fields").EnumerateArray()
             .Select(f => f.GetString()).Should().Equal("Secret"));
         rows[0].Json().Should().NotContain(ShareLinkTestHost.SecretValue);
+    }
+
+    /// <summary>An entry with two versions in its stream, created and updated through the API.</summary>
+    private static async Task<Guid> VersionedEntryAsync(HttpClient admin, string type)
+    {
+        var created = await admin.PostAsJsonAsync("/api/contents", new
+        {
+            contentType = type,
+            data = new Dictionary<string, object>
+            {
+                ["Title"] = "first", ["Slug"] = "versioned", ["Secret"] = ShareLinkTestHost.SecretValue,
+            },
+        }, Ct);
+        var id = (await OkOrCreatedJsonAsync(created)).GetProperty("id").GetGuid();
+
+        var updated = await admin.PutAsJsonAsync($"/api/contents/{id}", new
+        {
+            data = new Dictionary<string, object>
+            {
+                ["Title"] = "second", ["Slug"] = "versioned", ["Secret"] = ShareLinkTestHost.SecretValue,
+            },
+        }, Ct);
+        updated.IsSuccessStatusCode.Should().BeTrue(await updated.Content.ReadAsStringAsync(Ct));
+        return id;
+    }
+
+    private static async Task<JsonElement> OkOrCreatedJsonAsync(HttpResponseMessage response)
+    {
+        response.IsSuccessStatusCode.Should().BeTrue(await response.Content.ReadAsStringAsync(Ct));
+        return await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
+    }
+
+    [Fact]
+    public async Task Reading_an_entrys_history_writes_one_row_naming_the_sensitive_field()
+    {
+        var tenant = await _host.TenantAsync();
+        var type = await _host.TypeAsync(tenant);
+        var admin = await _host.SuperAdminInAsync(tenant);
+        var entry = await VersionedEntryAsync(admin, type);
+        var before = (await RowsAsync(tenant, "content.sensitive.read")).Count;
+
+        var history = await OkJsonAsync(await admin.GetAsync($"/api/contents/{entry}/history", Ct));
+        var versions = history.GetProperty("items").EnumerateArray().ToList();
+        versions.Should().HaveCount(2);
+        versions.Should().AllSatisfy(v =>
+            v.GetProperty("data").GetProperty("Secret").GetString().Should().Be(ShareLinkTestHost.SecretValue));
+
+        var rows = await RowsAsync(tenant, "content.sensitive.read");
+        rows.Should().HaveCount(before + 1, "one history read is one row, however many versions it sends");
+        var row = rows.OrderByDescending(r => r.CreatedAt).First();
+        row.TargetId.Should().Be(entry.ToString());
+        row.Strings("fields").Should().Equal("Secret");
+        row.Text("route").Should().Contain("history");
+        row.Json().Should().NotContain(ShareLinkTestHost.SecretValue);
+    }
+
+    [Fact]
+    public async Task A_rollback_that_returns_a_sensitive_field_writes_a_row()
+    {
+        var tenant = await _host.TenantAsync();
+        var type = await _host.TypeAsync(tenant);
+        var admin = await _host.SuperAdminInAsync(tenant);
+        var entry = await VersionedEntryAsync(admin, type);
+        var history = await OkJsonAsync(await admin.GetAsync($"/api/contents/{entry}/history", Ct));
+        var first = history.GetProperty("items")[0].GetProperty("versionId").GetGuid();
+        var before = (await RowsAsync(tenant, "content.sensitive.read")).Count;
+
+        var rollback = await OkOrCreatedJsonAsync(
+            await admin.PostAsync($"/api/contents/{entry}/rollback/{first}", null, Ct));
+        rollback.GetProperty("data").GetProperty("Secret").GetString().Should().Be(ShareLinkTestHost.SecretValue);
+
+        var rows = await RowsAsync(tenant, "content.sensitive.read");
+        rows.Should().HaveCount(before + 1);
+        var row = rows.OrderByDescending(r => r.CreatedAt).First();
+        row.TargetId.Should().Be(entry.ToString());
+        row.Text("route").Should().Contain("rollback");
+        row.Strings("fields").Should().Equal("Secret");
+    }
+
+    [Fact]
+    public async Task A_field_shown_as_its_last_four_characters_is_not_named()
+    {
+        var tenant = await _host.TenantAsync();
+        var type = $"l4{Guid.NewGuid():n}"[..12];
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var id = Guid.NewGuid();
+        await using (var session = store.LightweightSession(tenant))
+        {
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(),
+                Name = type,
+                DisplayName = type,
+                Fields =
+                [
+                    new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" },
+                    new FieldDefinition
+                    {
+                        Name = "Card", DisplayName = "Card", Type = "string",
+                        Sensitivity = SensitivityLevel.Sensitive, Mask = FieldMask.Last4,
+                    },
+                ],
+            });
+            session.Store(new Content
+            {
+                Id = id,
+                ContentType = type,
+                Data = new Dictionary<string, object> { ["Title"] = "card", ["Card"] = "4111111111111234" },
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var reader = await _host.EditorInAsync(tenant, type, mayRead: true, mayUpdate: false);
+        var body = await OkJsonAsync(await reader.GetAsync($"/api/contents/{id}", Ct));
+        body.GetProperty("data").GetProperty("Card").GetString().Should().EndWith("1234").And.NotBe("4111111111111234");
+        (await RowsAsync(tenant, "content.sensitive.read")).Should().BeEmpty("the last four were sent, not the value");
+
+        var admin = await _host.SuperAdminInAsync(tenant);
+        (await admin.GetAsync($"/api/contents/{id}", Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        var rows = await RowsAsync(tenant, "content.sensitive.read");
+        rows.Should().HaveCount(1);
+        rows[0].Strings("fields").Should().Equal("Card");
+    }
+
+    [Fact]
+    public async Task A_read_made_with_an_api_key_names_the_key()
+    {
+        var tenant = await _host.TenantAsync();
+        var type = await _host.TypeAsync(tenant);
+        var entry = await _host.EntryAsync(tenant, type, "keyed");
+        var userId = Guid.NewGuid();
+        var keyId = Guid.NewGuid();
+        var secret = "bcms_" + Guid.NewGuid().ToString("N");
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var username = $"key-{Guid.NewGuid():n}"[..14];
+            session.Store(new User
+            {
+                Id = userId, Username = username, Email = $"{username}@example.com",
+                RoleIds = [SystemRoles.SuperAdminRoleId],
+            });
+            session.Store(new Membership
+            {
+                Id = Guid.NewGuid(), UserId = userId, TenantSlug = tenant,
+                Status = MembershipStatus.Active, RoleIds = [SystemRoles.SuperAdminRoleId],
+            });
+            session.Store(new ApiKey
+            {
+                Id = keyId,
+                Name = "audit",
+                KeyHash = barakoCMS.Infrastructure.Auth.ApiKeyService.Hash(secret),
+                Prefix = secret[..12],
+                UserId = userId,
+                TenantSlug = tenant,
+                Scopes = [ApiKeyScopes.ContentRead],
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var client = _host.AnonymousIn(tenant);
+        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", secret);
+        var body = await OkJsonAsync(await client.GetAsync($"/api/contents/{entry}", Ct));
+        body.GetProperty("data").GetProperty("Secret").GetString().Should().Be(ShareLinkTestHost.SecretValue);
+
+        var rows = await RowsAsync(tenant, "content.sensitive.read");
+        rows.Should().HaveCount(1);
+        rows[0].ActorUserId.Should().Be(userId);
+        rows[0].Text("apiKeyId").Should().Be(keyId.ToString());
+        rows[0].Json().Should().NotContain(secret);
     }
 
     [Fact]
