@@ -91,6 +91,7 @@ public static class ServiceCollectionExtensions
 
         AddWorkflowTooling(services);
         AddValidationAndMonitoring(services);
+        AddConfigEngine(services);
 
         AddGlobalProcessors(services);
 
@@ -1256,6 +1257,17 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IWorkflowSchemaValidator, WorkflowSchemaValidator>();
         services.AddScoped<ITemplateVariableExtractor, TemplateVariableExtractor>();
         services.AddScoped<IWorkflowDebugger, WorkflowDebugger>();
+    }
+
+    /// <summary>
+    /// The config engine and the core's sections. A module adds its own section by registering an
+    /// <see cref="barakoCMS.Core.Interfaces.IConfigProvider"/> the same way, scoped.
+    /// </summary>
+    private static void AddConfigEngine(IServiceCollection services)
+    {
+        services.AddScoped<barakoCMS.Features.Config.ConfigEngine>();
+        services.AddScoped<barakoCMS.Core.Interfaces.IConfigProvider, barakoCMS.Features.ContentType.ContentTypeConfigProvider>();
+        services.AddScoped<barakoCMS.Core.Interfaces.IConfigProvider, barakoCMS.Features.Roles.RoleConfigProvider>();
     }
 
     private static void AddValidationAndMonitoring(IServiceCollection services)

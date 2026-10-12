@@ -409,6 +409,112 @@ public class PublicSurfaceTests
           + "against, which is what the seams exist to prevent");
     }
 
+    // The config provider seam (#921). A module implements IConfigProvider to put its documents in a
+    // configuration document, so the interface and what it is declared in terms of are package
+    // surface from the release that ships them.
+    private static readonly Type[] ConfigSeam =
+    [
+        typeof(barakoCMS.Core.Interfaces.IConfigProvider),
+        typeof(barakoCMS.Core.Interfaces.ConfigCaller),
+        typeof(barakoCMS.Core.Interfaces.ConfigSectionExport),
+        typeof(barakoCMS.Core.Interfaces.ConfigSectionPlan),
+        typeof(barakoCMS.Core.Interfaces.ConfigChange),
+        typeof(barakoCMS.Core.Interfaces.ConfigChangeKind),
+    ];
+
+    [Fact]
+    public void The_config_seam_is_six_public_types_of_the_contract_assembly()
+    {
+        ConfigSeam.Should().HaveCount(6);
+
+        foreach (var type in ConfigSeam)
+        {
+            type.Assembly.Should().BeSameAs(Contract, $"{type.Name} is what a module compiles against");
+            type.IsPublic.Should().BeTrue($"{type.Name} is package surface");
+            type.Namespace.Should().Be("barakoCMS.Core.Interfaces");
+        }
+
+        var config = Contract.GetExportedTypes()
+            .Where(t => t.Namespace == "barakoCMS.Core.Interfaces" && t.Name.Contains("Config", StringComparison.Ordinal))
+            .Select(t => t.FullName!)
+            .ToArray();
+
+        config.Should().HaveCount(6, "a seventh config type is a widening of the contract, to be added here on purpose");
+        config.Should().BeEquivalentTo(ConfigSeam.Select(t => t.FullName!).ToArray());
+    }
+
+    [Fact]
+    public void The_config_seam_has_exactly_the_shape_it_shipped_with()
+    {
+        var shape = ConfigSeam.SelectMany(Shape).ToArray();
+
+        var shipped = new[]
+        {
+            "interface IConfigProvider",
+            "IConfigProvider.String Section { get; }",
+            "IConfigProvider.Int32 Order { get; }",
+            "IConfigProvider.String ReadCapability { get; }",
+            "IConfigProvider.String WriteCapability { get; }",
+            "IConfigProvider.ExportAsync(ConfigCaller caller, CancellationToken cancellationToken): Task<ConfigSectionExport>",
+            "IConfigProvider.PlanAsync(IReadOnlyDictionary<String, JsonElement> desired, ConfigCaller caller, CancellationToken cancellationToken): Task<ConfigSectionPlan>",
+            "IConfigProvider.ApplyAsync(ConfigSectionPlan plan, ConfigCaller caller, CancellationToken cancellationToken): Task<IReadOnlyList<String>>",
+            "sealed class ConfigCaller",
+            "ConfigCaller.ConfigCaller System { get; }",
+            "ConfigCaller.ClaimsPrincipal Principal { get; }",
+            "ConfigCaller.Boolean IsSystem { get; }",
+            "ConfigCaller.static ForUser(ClaimsPrincipal principal): ConfigCaller",
+            "sealed class ConfigSectionExport",
+            "ConfigSectionExport..ctor()",
+            "ConfigSectionExport.required IReadOnlyDictionary<String, JsonElement> Documents { get; init; }",
+            "ConfigSectionExport.IReadOnlyList<String> Gaps { get; init; }",
+            "sealed class ConfigSectionPlan",
+            "ConfigSectionPlan..ctor()",
+            "ConfigSectionPlan.required String Section { get; init; }",
+            "ConfigSectionPlan.IReadOnlyList<ConfigChange> Changes { get; init; }",
+            "ConfigSectionPlan.IReadOnlyList<String> Errors { get; init; }",
+            "ConfigSectionPlan.IReadOnlyList<String> Refusals { get; init; }",
+            "ConfigSectionPlan.IReadOnlyList<String> Notes { get; init; }",
+            "sealed class ConfigChange",
+            "ConfigChange..ctor()",
+            "ConfigChange.required String Key { get; init; }",
+            "ConfigChange.required ConfigChangeKind Kind { get; init; }",
+            "ConfigChange.required String Summary { get; init; }",
+            "ConfigChange.IReadOnlyList<String> Details { get; init; }",
+            "ConfigChange.Nullable<JsonElement> Desired { get; init; }",
+            "sealed class ConfigChangeKind : Enum",
+        };
+
+        shape.Should().HaveCount(shipped.Length);
+        shape.Should().BeEquivalentTo(shipped);
+    }
+
+    // A stored or logged number means what it meant when it was written, and zero is nobody's answer.
+    [Fact]
+    public void The_config_change_kinds_keep_their_names_and_numbers()
+    {
+        var kinds = Enum.GetValues<barakoCMS.Core.Interfaces.ConfigChangeKind>().Select(k => $"{k} = {(int)k}").ToArray();
+
+        kinds.Should().HaveCount(4);
+        kinds.Should().Equal("Unknown = 0", "Create = 1", "Change = 2", "Destructive = 3");
+    }
+
+    // D34 again: what a provider compiles against is the contract and the base library, and the two
+    // base library types beyond CoreLib it names are JSON and claims, neither a framework.
+    [Fact]
+    public void The_config_seam_names_only_contract_and_base_library_types()
+    {
+        var named = ConfigSeam.SelectMany(Named).Distinct().ToArray();
+
+        named.Should().NotBeEmpty("the seam has parameters, so an empty scan is a broken scan");
+        named.Should().Contain(typeof(System.Text.Json.JsonElement), "documents are JSON, so the scan reached them");
+        named.Should().Contain(typeof(CancellationToken));
+
+        var allowed = new[] { Contract, typeof(object).Assembly, typeof(System.Text.Json.JsonElement).Assembly, typeof(System.Security.Claims.ClaimsPrincipal).Assembly };
+        var foreign = named.Where(t => !allowed.Contains(t.Assembly)).Select(t => t.FullName).ToArray();
+
+        foreign.Should().BeEmpty("a provider must not compile against Marten, FastEndpoints or ASP.NET through the seam");
+    }
+
     private static readonly string[] MessagingFrameworks =
     [
         "Wolverine", "MassTransit", "NServiceBus", "Rebus", "Brighter", "Hangfire", "Quartz", "Temporalio",
