@@ -53,8 +53,17 @@ public sealed class ContentLifecycleContext
 /// </summary>
 public interface IContentLifecycleHook
 {
-    /// <summary>The content type this hook guards, matched case-insensitively.</summary>
+    /// <summary>
+    /// The content type this hook guards, matched case-insensitively, or <see cref="AnyType"/> for a
+    /// hook that decides per write which types it guards.
+    /// </summary>
     string ContentType { get; }
+
+    /// <summary>
+    /// The <see cref="ContentType"/> of a hook run for every type, which then returns no errors for
+    /// a type it does not guard. For a rule whose type is tenant data rather than code.
+    /// </summary>
+    const string AnyType = "*";
 
     /// <summary>
     /// Validate and optionally enrich <see cref="ContentLifecycleContext.Data"/>. Return an empty

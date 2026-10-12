@@ -417,6 +417,7 @@ public class MetaDescribeTests
         [
             "apiContractVersion", "fieldTypes", "rules", "fieldEditors", "fieldRoles", "structuredDataTypes",
             "uniqueness", "credentialNameParts", "capabilities", "workflowActions", "modules",
+            "jsonSchemaKeywords", "arrayItemTypes",
         ]);
 
         document.GetProperty("uniqueness").EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(

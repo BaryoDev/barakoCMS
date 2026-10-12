@@ -1703,6 +1703,176 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesBlocksBindingsBindingResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "contentType": {
+            "type": "string"
+          },
+          "id": {
+            "format": "guid",
+            "type": "string"
+          },
+          "limit": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sort": {
+            "nullable": true,
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "where": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "nullable": true,
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesBlocksBindingsDeleteRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSFeaturesBlocksBindingsPutRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "contentType": {
+            "maxLength": 100,
+            "minLength": 0,
+            "nullable": false,
+            "type": "string"
+          },
+          "limit": {
+            "format": "int32",
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "type": "integer"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 0,
+            "nullable": false,
+            "type": "string"
+          },
+          "sort": {
+            "maxLength": 101,
+            "minLength": 0,
+            "nullable": true,
+            "type": "string"
+          },
+          "where": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "nullable": true,
+            "type": "object"
+          }
+        },
+        "required": [
+          "name",
+          "contentType"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSFeaturesBlocksPresetsDeleteRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSFeaturesBlocksPresetsPresetResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "blockType": {
+            "type": "string"
+          },
+          "id": {
+            "format": "guid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "props": {},
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesBlocksPresetsPutRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "blockType": {
+            "maxLength": 64,
+            "minLength": 0,
+            "nullable": false,
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 0,
+            "nullable": false,
+            "type": "string"
+          },
+          "props": {}
+        },
+        "required": [
+          "name",
+          "blockType"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSFeaturesBlocksSchemaRendererRequest": {
+        "additionalProperties": false,
+        "description": "The renderer's request: the same body, judged only once its key has matched.",
+        "properties": {
+          "blocks": {
+            "additionalProperties": {},
+            "nullable": true,
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesBlocksSchemaRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "blocks": {
+            "additionalProperties": {},
+            "description": "Each block type by name, with the JSON Schema of its properties.",
+            "nullable": true,
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesBlocksSchemaResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "blocks": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "registeredBy": {
+            "description": "renderer when the renderer key registered it, else the id of the user who did.",
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesCapabilitiesListListCapabilitiesRequest": {
         "allOf": [
           {
@@ -2941,6 +3111,15 @@
           "isRequired": {
             "type": "boolean"
           },
+          "itemType": {
+            "description": "For an array field, the type every item is. Refused on any other type.",
+            "nullable": true,
+            "type": "string"
+          },
+          "jsonSchema": {
+            "description": "For a json field, the JSON Schema a value has to match. Refused on any other type.",
+            "nullable": true
+          },
           "multiple": {
             "description": "For a choice, whether an entry holds a list of options rather than one.",
             "type": "boolean"
@@ -2952,6 +3131,15 @@
             },
             "nullable": true,
             "type": "array"
+          },
+          "parent": {
+            "description": "For a reference to the type itself, that it names the entry's parent, with the tree's depth.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsParentDeclaration"
+              }
+            ]
           },
           "referenceType": {
             "description": "Required for a reference, meaningless otherwise.",
@@ -4086,6 +4274,13 @@
             "format": "int32",
             "type": "integer"
           },
+          "arrayItemTypes": {
+            "description": "Every type an array field's itemType may name.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "capabilities": {
             "description": "What GET /api/capabilities lists, to a caller who may read that.",
             "items": {
@@ -4118,6 +4313,13 @@
           "fieldTypes": {
             "items": {
               "$ref": "#/components/schemas/BarakoCMSFeaturesMonitoringDescribeDescribedFieldType"
+            },
+            "type": "array"
+          },
+          "jsonSchemaKeywords": {
+            "description": "Every keyword a json field's jsonSchema may use. Any other is refused.",
+            "items": {
+              "type": "string"
             },
             "type": "array"
           },
@@ -7687,6 +7889,15 @@
           "isRequired": {
             "type": "boolean"
           },
+          "itemType": {
+            "description": "For an array field, the type every item in it is, for example url.",
+            "nullable": true,
+            "type": "string"
+          },
+          "jsonSchema": {
+            "description": "For a json field, the JSON Schema every value written to it has to match, or null for\nnone.",
+            "nullable": true
+          },
           "mask": {
             "$ref": "#/components/schemas/BarakoCMSModelsFieldMask"
           },
@@ -7704,6 +7915,15 @@
             },
             "nullable": true,
             "type": "array"
+          },
+          "parent": {
+            "description": "For a reference field pointing at its own type, the declaration that it names the\nentry's parent, or null when it does not.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsParentDeclaration"
+              }
+            ]
           },
           "referenceType": {
             "description": "For a reference field, the content type its value points at.",
@@ -8052,6 +8272,48 @@
             "description": "Items for the current page",
             "items": {
               "$ref": "#/components/schemas/BarakoCMSFeaturesAuditListAuditEventDto"
+            },
+            "type": "array"
+          },
+          "page": {
+            "description": "Current page number (1-indexed)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "pageSize": {
+            "description": "Number of items per page",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalItems": {
+            "description": "Total number of items across all pages",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalPages": {
+            "description": "Total number of pages",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSModelsPaginatedResponseOfBindingResponse": {
+        "additionalProperties": false,
+        "description": "Generic paginated response with metadata.",
+        "properties": {
+          "hasNextPage": {
+            "description": "Whether there is a next page",
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "description": "Whether there is a previous page",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Items for the current page",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesBlocksBindingsBindingResponse"
             },
             "type": "array"
           },
@@ -8792,6 +9054,48 @@
         },
         "type": "object"
       },
+      "BarakoCMSModelsPaginatedResponseOfPresetResponse": {
+        "additionalProperties": false,
+        "description": "Generic paginated response with metadata.",
+        "properties": {
+          "hasNextPage": {
+            "description": "Whether there is a next page",
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "description": "Whether there is a previous page",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Items for the current page",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesBlocksPresetsPresetResponse"
+            },
+            "type": "array"
+          },
+          "page": {
+            "description": "Current page number (1-indexed)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "pageSize": {
+            "description": "Number of items per page",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalItems": {
+            "description": "Total number of items across all pages",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalPages": {
+            "description": "Total number of pages",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSModelsPaginatedResponseOfPublicContentResponse": {
         "additionalProperties": false,
         "description": "Generic paginated response with metadata.",
@@ -9422,6 +9726,18 @@
         },
         "type": "object"
       },
+      "BarakoCMSModelsParentDeclaration": {
+        "additionalProperties": false,
+        "description": "That a reference field names its entry's parent, and how deep the tree may go.",
+        "properties": {
+          "maxDepth": {
+            "description": "The most ancestors an entry may have, from 1 to MostDepth. A root has none.",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSModelsPermissionRule": {
         "additionalProperties": false,
         "description": "Permission rule defining access control with optional conditions",
@@ -9935,6 +10251,30 @@
         },
         "type": "object"
       },
+      "BarakoCMSPagesFeaturesResolveBoundBlock": {
+        "additionalProperties": false,
+        "description": "The entries one block's binding selects, for the block at Index of a blocks field.",
+        "properties": {
+          "binding": {
+            "format": "guid",
+            "type": "string"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSCoreInterfacesPublicContentProjection"
+            },
+            "type": "array"
+          },
+          "field": {
+            "type": "string"
+          },
+          "index": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSPagesFeaturesResolveBreadcrumb": {
         "additionalProperties": false,
         "properties": {
@@ -9958,6 +10298,12 @@
       "BarakoCMSPagesFeaturesResolveResolveResponse": {
         "additionalProperties": false,
         "properties": {
+          "boundBlocks": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSPagesFeaturesResolveBoundBlock"
+            },
+            "type": "array"
+          },
           "breadcrumbs": {
             "items": {
               "$ref": "#/components/schemas/BarakoCMSPagesFeaturesResolveBreadcrumb"
@@ -9973,6 +10319,80 @@
           },
           "path": {
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSPagesFeaturesSettingsSettingsRequest": {
+        "additionalProperties": false,
+        "description": "What a tenant sets. A value left null takes the deployment's.",
+        "properties": {
+          "contentType": {
+            "nullable": true,
+            "type": "string"
+          },
+          "homeSlug": {
+            "maxLength": 100,
+            "minLength": 0,
+            "nullable": true,
+            "type": "string"
+          },
+          "maxDepth": {
+            "format": "int32",
+            "maximum": 64.0,
+            "minimum": 1.0,
+            "nullable": true,
+            "type": "integer"
+          },
+          "orderField": {
+            "nullable": true,
+            "type": "string"
+          },
+          "parentField": {
+            "nullable": true,
+            "type": "string"
+          },
+          "reservedSlugs": {
+            "items": {
+              "type": "string"
+            },
+            "nullable": true,
+            "type": "array"
+          },
+          "showInNavigationField": {
+            "nullable": true,
+            "type": "string"
+          },
+          "titleField": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSPagesFeaturesSettingsSettingsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "contract": {
+            "description": "The module's HTTP contract, as on every Pages body.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "effective": {
+            "description": "What the tree endpoints and the write rules read for this tenant.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSPagesFeaturesSettingsSettingsRequest"
+              }
+            ]
+          },
+          "tenant": {
+            "description": "What the tenant set, each null where it takes the deployment's.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSPagesFeaturesSettingsSettingsRequest"
+              }
+            ]
           }
         },
         "type": "object"
@@ -12079,6 +12499,389 @@
         "summary": "POST /api/auth/register/verify. Turns a pending registration into an account, once.",
         "tags": [
           "Auth"
+        ]
+      }
+    },
+    "/api/blocks/bindings": {
+      "get": {
+        "operationId": "barakoCMSFeaturesBlocksBindingsListEndpoint",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfBindingResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/blocks/bindings: the tenant's data bindings, a page at a time, by name.",
+        "tags": [
+          "Blocks"
+        ]
+      }
+    },
+    "/api/blocks/bindings/{id}": {
+      "delete": {
+        "operationId": "barakoCMSFeaturesBlocksBindingsDeleteEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "DELETE /api/blocks/bindings/{id}: removes a binding. A block naming it then resolves no entries.",
+        "tags": [
+          "Blocks"
+        ]
+      },
+      "put": {
+        "description": "The type has to exist, and the sort and every condition have to name its fields, so a binding\ncannot be saved that page resolve would have to skip. Whether the type is publicly deliverable,\nand whether those fields are Public, is read again on every resolve, since either can change\nafter the binding is saved. A tenant holds at most MaxBindings.",
+        "operationId": "barakoCMSFeaturesBlocksBindingsPutEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesBlocksBindingsPutRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "PutRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesBlocksBindingsBindingResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "PUT /api/blocks/bindings/{id}: creates or replaces a data binding.",
+        "tags": [
+          "Blocks"
+        ]
+      }
+    },
+    "/api/blocks/presets": {
+      "get": {
+        "operationId": "barakoCMSFeaturesBlocksPresetsListEndpoint",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfPresetResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/blocks/presets: the tenant's saved blocks, a page at a time, by name.",
+        "tags": [
+          "Blocks"
+        ]
+      }
+    },
+    "/api/blocks/presets/{id}": {
+      "delete": {
+        "operationId": "barakoCMSFeaturesBlocksPresetsDeleteEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "DELETE /api/blocks/presets/{id}: removes a saved block. A page built from it keeps its own copy.",
+        "tags": [
+          "Blocks"
+        ]
+      },
+      "put": {
+        "description": "The props are checked against the block's schema when the tenant has one, as a block on a page\nis, so a preset cannot hold what a page would refuse. A tenant holds at most\nMaxPresets.",
+        "operationId": "barakoCMSFeaturesBlocksPresetsPutEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesBlocksPresetsPutRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "PutRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesBlocksPresetsPresetResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "PUT /api/blocks/presets/{id}: creates or replaces a saved block.",
+        "tags": [
+          "Blocks"
+        ]
+      }
+    },
+    "/api/blocks/schema": {
+      "get": {
+        "description": "Any signed-in caller of the tenant: it says which blocks a page may hold and nothing about any\nentry. 404 while the tenant's renderer has registered none, which is a console's cue to fall\nback to asking the renderer.",
+        "operationId": "barakoCMSFeaturesBlocksSchemaGetEndpoint",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesBlocksSchemaResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/blocks/schema: the tenant's block schema, for a console editing its pages.",
+        "tags": [
+          "Blocks"
+        ]
+      },
+      "put": {
+        "operationId": "barakoCMSFeaturesBlocksSchemaPutEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesBlocksSchemaRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "Request",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesBlocksSchemaResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "PUT /api/blocks/schema: replaces the tenant's block schema, as someone who manages its types.",
+        "tags": [
+          "Blocks"
         ]
       }
     },
@@ -16494,6 +17297,86 @@
         ]
       }
     },
+    "/api/pages/settings": {
+      "get": {
+        "operationId": "BarakoCMSPagesFeaturesSettingsGetEndpoint",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSPagesFeaturesSettingsSettingsResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/pages/settings: the tenant's page tree settings, and what they come to.",
+        "tags": [
+          "Pages"
+        ]
+      },
+      "put": {
+        "description": "A replace, not a merge: a value left out goes back to the deployment's. Sending every value null\nleaves the tenant reading Modules:Pages alone, as a tenant that never set any does.",
+        "operationId": "BarakoCMSPagesFeaturesSettingsPutEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSPagesFeaturesSettingsSettingsRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "SettingsRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSPagesFeaturesSettingsSettingsResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "PUT /api/pages/settings: replaces the tenant's page tree settings.",
+        "tags": [
+          "Pages"
+        ]
+      }
+    },
     "/api/pages/tree": {
       "get": {
         "description": "Each entry passes the same read check GET /api/contents/{id} applies, and its data is masked\nthe same way before a title or slug is read from it. A page whose parent the caller cannot see, or\nwhose chain loops, is listed at the top level so it can still be found and fixed. path is\nnull for a page whose chain does not reach a root. At most MaxPages\npages are read, oldest first, and truncated says when there were more.",
@@ -17759,6 +18642,50 @@
         ],
         "tags": [
           "Redirects"
+        ]
+      }
+    },
+    "/api/renderer/blocks/schema": {
+      "put": {
+        "description": "The renderer is how a tenant's blocks are known: it registers the blocks of the plugins enabled\nfor the tenant it is serving, named by the request the same way delivery names one. With no\nrenderer key configured the route answers 404, and a missing or wrong key answers 401, compared\nin fixed time. The key is a deployment secret that already lets the renderer skip the per-IP\nlimit, so whoever holds it can rewrite any tenant's block schema; it opens nothing else here.\nThe body is capped at MaxBodyBytes, so what is read before the key is\nchecked is bounded.",
+        "operationId": "barakoCMSFeaturesBlocksSchemaRendererPutEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesBlocksSchemaRendererRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "RendererRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesBlocksSchemaResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        },
+        "summary": "PUT /api/renderer/blocks/schema: replaces the tenant's block schema, as the renderer, which sends\nthe deployment's renderer key in X-Barako-Renderer-Key.",
+        "tags": [
+          "Blocks"
         ]
       }
     },

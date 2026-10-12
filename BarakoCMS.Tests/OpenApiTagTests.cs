@@ -112,6 +112,7 @@ public class OpenApiTagTests
             "ApiKeys",
             "Audit",
             "Auth",
+            "Blocks",
             "Capabilities",
             "Changes",
             "Collections",
