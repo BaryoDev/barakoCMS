@@ -41,8 +41,8 @@ the new type, an option for a choice. Anything else is dropped.
 A change that drops stored values is destructive: a remove always, and a convert when some value
 does not survive. It is refused unless the request says `"allowDestructive": true`, and the refusal
 names the count: `Converting 'Grade' to choice drops the value 2 entries hold.` The count is
-recorded on the change as `valuesLost`. A field a uniqueness rule, a transition or the numbering
-rule names is refused until it is taken out of them.
+recorded on the change as `valuesLost`. A field a uniqueness rule, a transition, the numbering
+rule or the lookup names is refused until it is taken out of them.
 
 A convert rewrites every value, then retypes the field. A remove takes the field off the type
 first, so nobody reads it, then drops every value.
@@ -54,8 +54,8 @@ batches of 200 entries. Each batch commits together with the progress it made, s
 either done and recorded or neither.
 
 A rename runs three steps: it copies every value to the new name while the field is still read
-under its old one, renames the field on the type (and in the type's uniqueness rules, transitions
-and numbering rule), then drops the old key. `processed` counts an entry once, when its old key
+under its old one, renames the field on the type (and in the type's uniqueness rules, transitions,
+numbering rule and lookup), then drops the old key. `processed` counts an entry once, when its old key
 goes. A field is read under its old name until the change
 completes. Each entry's rewrite is a `ContentFieldChanged` event on its stream: it is not an edit,
 so it fires no workflow, leaves `updatedAt` and the last editor alone, and appears in the entry's
@@ -64,7 +64,7 @@ history as `FieldChanged`.
 While a change runs, entry writes to the type answer 400 naming the change, by whichever route
 they come: the API, a batch create or import, a workflow action or a sync. A second change to the
 type answers 409, and so does every edit to the type's definition (a field's options, sensitivity,
-currency or presentation, a new field, uniqueness, numbering, public delivery, the route template,
+currency or presentation, a new field, uniqueness, numbering, the lookup, public delivery, the route template,
 structured data and SEO fields). A write landing between two batches could otherwise leave an
 entry in a shape the job had already passed, and an edit storing the definition it read before the
 change's definition step would undo that step.

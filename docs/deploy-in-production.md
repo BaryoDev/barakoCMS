@@ -94,6 +94,22 @@ nothing while the backlog was never measured, which is why each has its `absent`
 measured every 30 seconds by default (`Workflows__BacklogIntervalSeconds`, 0 switches it off, and
 the last two alerts go with it).
 
+## The summary a console reads
+
+`GET /api/monitoring/metrics` (capability `view_monitoring`) is a small JSON summary for a console,
+not a replacement for `/metrics`. Besides the totals since the process started it carries:
+
+- `startedAt` and `uptimeSeconds`: when this process started and how long it has run.
+- `last24Hours`: `requests`, `errors`, `errorRate` and `averageResponseTime` over the trailing day,
+  kept per minute, plus `p95ResponseTime` and `cacheHitRate` with its count `cacheHits`.
+
+`p95ResponseTime` is the upper bound of the histogram bucket the 95th percentile falls in (1, 2, 5,
+10, 15, 20, 30, 40, 50, 75, 100, 150, 200, 300, 500, 750 ms and up to 10 s), so it can overstate by
+one bucket (a response slower than 10 s reads as 10 s). A cache hit is a `304 Not Modified` to a
+client holding the current ETag, or a response the output cache served without running the
+endpoint, counted against every successful GET and HEAD other than the health probes and
+`/metrics`. Each instance counts its own requests, and a restart starts the window again.
+
 ## Pointing a frontend at it
 
 Your own frontend calls the delivery API directly:
@@ -345,6 +361,8 @@ changes nothing until you set one. Each has `PermitLimit` (requests), `WindowSec
 | `RateLimiting:Batch` | 20 in 60 seconds, queue 0 | anonymous telemetry batches, per client IP |
 | `RateLimiting:Registration` | 5 in 3600 seconds, queue 0 | registration and its verification, per client IP |
 | `RateLimiting:SiteShare` | 10 in 60 seconds, queue 0 | anonymous share link redemption, per tenant and visitor |
+| `RateLimiting:Lookup` | 10 in 60 seconds, queue 0 | anonymous lookups (`POST /api/public/{type}/lookup`), per tenant and visitor |
+| `RateLimiting:LookupReference` | 5 in 900 seconds | anonymous lookups of one reference, from any address |
 
 As environment variables on the `app` service, the colon becomes a double underscore:
 

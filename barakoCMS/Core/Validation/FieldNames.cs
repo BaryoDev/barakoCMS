@@ -4,13 +4,14 @@ namespace barakoCMS.Core.Validation;
 
 /// <summary>Where else a type's definition names one of its fields.</summary>
 /// <remarks>
-/// A uniqueness rule, a transition and a numbering rule name fields by their names. A rename has to
-/// carry them along, or the rule stops comparing the field, the transition demands a field the type
-/// no longer has, and the number is written under a name the type does not declare.
+/// A uniqueness rule, a transition, a numbering rule and a lookup name fields by their names. A
+/// rename has to carry them along, or the rule stops comparing the field, the transition demands a
+/// field the type no longer has, the number is written under a name the type does not declare, and
+/// the lookup matches or returns nothing.
 /// </remarks>
 internal static class FieldNames
 {
-    /// <summary>The uniqueness rules, transitions and numbering rule that name a field, as text for an error.</summary>
+    /// <summary>The uniqueness rules, transitions, numbering rule and lookup that name a field, as text for an error.</summary>
     public static List<string> NamedBy(ContentTypeDefinition definition, string field)
     {
         var named = new List<string>();
@@ -25,10 +26,15 @@ internal static class FieldNames
             named.Add("the numbering rule");
         }
 
+        if (definition.Lookup is { } lookup && LookupNames(lookup).Any(f => Same(f, field)))
+        {
+            named.Add("the lookup");
+        }
+
         return named;
     }
 
-    /// <summary>Renames every mention of a field in the type's rules, transitions and numbering rule.</summary>
+    /// <summary>Renames every mention of a field in the type's rules, transitions, numbering rule and lookup.</summary>
     public static void Rename(ContentTypeDefinition definition, string from, string to)
     {
         foreach (var rule in definition.Uniqueness ?? new List<UniquenessRule>())
@@ -46,7 +52,25 @@ internal static class FieldNames
         {
             numbering.Field = to;
         }
+
+        if (definition.Lookup is { } lookup)
+        {
+            if (Same(lookup.MatchField, from))
+            {
+                lookup.MatchField = to;
+            }
+
+            Replace(lookup.VerifyFields, from, to);
+            Replace(lookup.ReturnFields, from, to);
+            if (lookup.Reveal is { } reveal)
+            {
+                Replace(reveal.Fields, from, to);
+            }
+        }
     }
+
+    private static IEnumerable<string> LookupNames(LookupDefinition lookup) =>
+        new[] { lookup.MatchField }.Concat(lookup.VerifyFields).Concat(lookup.ReturnFields).Concat(lookup.Reveal?.Fields ?? []);
 
     private static void Replace(List<string> names, string from, string to)
     {

@@ -14,7 +14,7 @@ internal static class FileRemoval
 {
     public static async Task RemoveAsync(
         IDocumentSession session,
-        IFileStorage storage,
+        BarakoCMS.Files.Storage.FileStorageResolver storage,
         string tenantSlug,
         StoredFile file,
         Guid actorUserId,
@@ -31,11 +31,11 @@ internal static class FileRemoval
 
         foreach (var variant in variants)
         {
-            await storage.DeleteAsync(variant.StorageKey, ct);
+            await (await storage.ForAsync(variant, ct)).DeleteAsync(variant.StorageKey, ct);
             session.Delete(variant);
         }
 
-        await storage.DeleteAsync(file.StorageKey, ct);
+        await (await storage.ForAsync(file, ct)).DeleteAsync(file.StorageKey, ct);
         session.Delete(file);
 
         await barakoCMS.Infrastructure.Audit.AuditLog.RecordAsync(

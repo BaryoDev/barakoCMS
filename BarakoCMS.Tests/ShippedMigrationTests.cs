@@ -24,6 +24,7 @@ public class ShippedMigrationTests
         "4.7.0/forms-tenant-policy-restore",
         "4.8.0/external-auth-used-nonces",
         "5.0.0/accounting-number-sequences",
+        "5.0.0/files-storage-settings",
     ];
 
     /// <summary>
@@ -127,6 +128,7 @@ public class ShippedMigrationTests
             "ExternalAuth/4.6.0/external-auth-identities",
             "ExternalAuth/4.8.0/external-auth-used-nonces",
             "Files/4.2.0/stored-files-parent-index",
+            "Files/5.0.0/files-storage-settings",
             "Forms/4.2.0/forms-public-forms",
             "Forms/4.6.0/forms-email-verification",
             "Forms/4.7.0/forms-tenant-policy-restore");
