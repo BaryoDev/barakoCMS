@@ -215,6 +215,30 @@ asking:
 - A filter without `contentType`, or on a type with no stored definition, returns 400.
 - `sort` is not read on this route. Order is `sortOrder` over the creation time, as before.
 
+### Counting entries by status
+
+`GET /api/contents/counts` answers how many entries the caller may read, by status, so an overview
+card does not have to page the whole collection:
+
+```text
+GET /api/contents/counts?contentType=article
+```
+
+```json
+{ "total": 154, "draft": 27, "published": 121, "archived": 3, "scheduled": 3, "uncountedTypes": [] }
+```
+
+- Without `contentType` it counts every type with a stored definition that the caller may read;
+  with one, only that type.
+- Each status is its own number and `total` is all four together. `scheduled` is the `Scheduled`
+  status, entries waiting for their publish time.
+- Each type is counted under the same read rules the entries list pages with, so the numbers agree
+  with what `GET /api/contents` would list. A type whose rules for the caller depend on the entry in
+  a way that cannot be turned into a query (a condition on `$status`, or on a value that is not a
+  string) is named in `uncountedTypes` and left out of the numbers, rather than loaded row by row.
+  Only a type the caller has some read rule for is named.
+- It needs a signed-in caller, or an API key with `content:read`.
+
 ## Sorting
 
 ```text
