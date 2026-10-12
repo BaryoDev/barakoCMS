@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
 # Proves scripts/perf-budget.py fails for the reasons it exists and passes an improvement, against
-# the fixtures in scripts/testdata/perf-budget/ and the committed perf-budget.json.
+# the fixtures in scripts/testdata/perf-budget/, budget.json among them: a frozen copy, so raising
+# a real budget in perf-budget.json never breaks this test.
 #
 #   bash scripts/test-perf-budget.sh
 
@@ -16,7 +17,7 @@ fail=0
 expect() { # <description> <pass|fail> <results> [text the output must contain]...
     local what="$1" want="$2" results="$3" out status needle
     shift 3
-    out=$(python3 scripts/perf-budget.py "$results" perf-budget.json 2>&1)
+    out=$(python3 scripts/perf-budget.py "$results" "$FIX/budget.json" 2>&1)
     status=$?
     if { [ "$want" = pass ] && [ "$status" -eq 0 ]; } || { [ "$want" = fail ] && [ "$status" -ne 0 ]; }; then
         for needle in "$@"; do

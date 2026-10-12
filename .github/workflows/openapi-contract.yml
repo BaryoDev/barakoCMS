@@ -13,7 +13,9 @@ permissions: {}
 
 jobs:
   openapi:
-    name: OpenAPI contract
+    # Not "OpenAPI contract": a dispatch of this workflow on a pull request branch must not report
+    # under the name of the pull request job, which also checks the baseline edit.
+    name: OpenAPI contract (scheduled)
     runs-on: ubuntu-latest
     permissions:
       contents: read

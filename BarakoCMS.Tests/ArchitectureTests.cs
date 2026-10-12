@@ -10,7 +10,11 @@ namespace BarakoCMS.Tests;
 /// build instead of by whoever reads the prose.
 /// </summary>
 /// <remarks>
-/// Each rule scans the core assembly, so each one first asserts the scan found what Features/ holds.
+/// The scan covers the core assembly only. Module assemblies are not scanned: the test project
+/// references them, but several of their endpoints are public or sit outside Features/, so scanning
+/// them is a decision with its own allowlists, not a side effect of this file.
+///
+/// Each rule first asserts the scan found what Features/ holds.
 /// A filter that matches nothing passes every rule below, which is the coincidental pass section 4
 /// warns about. Allowlist entries carry their reason, and a test fails when one names a type that
 /// no longer exists, so the lists cannot outlive what they excuse.

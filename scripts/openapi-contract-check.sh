@@ -20,11 +20,12 @@
 
 set -uo pipefail
 
+OUT_DIR="$(realpath -m "${OPENAPI_OUT:-$(mktemp -d)}")"
+
 cd "$(dirname "$0")/.."
 
 BASE_REF="${1:-}"
 BASELINE=openapi/baseline.json
-OUT_DIR="${OPENAPI_OUT:-$(mktemp -d)}"
 mkdir -p "$OUT_DIR"
 CURRENT="$OUT_DIR/current.json"
 SUMMARY="${GITHUB_STEP_SUMMARY:-/dev/null}"
@@ -59,13 +60,10 @@ if [ -n "$BASE_REF" ]; then
             } | tee -a "$SUMMARY"
             if ! bash scripts/openapi-diff.sh "$OUT_DIR/base-baseline.json" "$BASELINE" >/dev/null 2>&1; then
                 # CLAUDE.md section 6: a breaking HTTP change moves ApiContract.Version (or the
-                # delivery number beside it), or the module's HttpContractVersion for a module route.
-                # ApiContract's two numbers, a module's HttpContractVersion, or a module contract
-                # constant it returns (Pages returns PagesContract.Version). ModuleContract is the
-                # package contract, not an HTTP one.
-                moved=$(git diff "$merge_base" -- '*.cs' ':(exclude)BarakoCMS.Abstractions/Modules/ModuleContract.cs' \
-                    | grep -E '^[+-][^+-].*(HttpContractVersion[[:space:]]*=>|const int (Delivery)?Version[[:space:]]*=)' || true)
-                [ -n "$moved" ] || fail "the baseline accepts a breaking change, but neither ApiContract.cs nor a module's HttpContractVersion moved (CLAUDE.md section 6)"
+                # delivery number beside it), or the HttpContractVersion of the module that broke.
+                # The number has to go up: a re-commented line or a constant in a test does not count.
+                python3 scripts/contract-versions.py "$merge_base" \
+                    || fail "the baseline accepts a breaking change, but no HTTP contract version went up (CLAUDE.md section 6)"
                 echo "the baseline accepts a breaking change, and a contract version moved with it"
             fi
         fi

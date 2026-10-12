@@ -15,8 +15,9 @@
 # the runtime sizes its garbage collector from the CPUs it sees: unpinned, memory at rest measures
 # the runner rather than the change.
 #
-# The one setting that differs from the quickstart is the global rate limit, raised so the seeding and
-# the load run, all from one address, measure delivery rather than the limiter's 429s.
+# Beyond the CPU and memory limits, what differs from a quickstart install: demo content and Swagger
+# stay off (their defaults there too), and the global rate limit is raised so the seeding and the
+# load run, all from one address, measure delivery rather than the limiter's 429s.
 #
 # The delivery data (the blog and site blueprints, 20 published posts, a published site entry) is
 # created through the API after memory at rest is read, so the idle number is an empty install's.
@@ -27,11 +28,12 @@
 
 set -euo pipefail
 
+OUT="$(realpath -m "${1:?usage: scripts/perf-measure.sh <output json>}")"
+
 cd "$(dirname "$0")/.."
 
 . scripts/lib-ports.sh
 
-OUT="${1:?usage: scripts/perf-measure.sh <output json>}"
 IDLE_SECONDS="${IDLE_SECONDS:-60}"
 LOAD_SECONDS="${LOAD_SECONDS:-60}"
 DOCKERFILE="${DOCKERFILE:-Dockerfile.suite}"

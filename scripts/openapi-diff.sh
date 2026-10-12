@@ -11,6 +11,9 @@
 #   - Removing an enum value from a response, and removing something after it was deprecated. Both
 #     are named as breaking in #631, and a deprecation notice is not a version move.
 #
+# An operationId change passes on purpose: the ids come from internal class names, which CLAUDE.md
+# section 6 keeps out of the contract, and a client keys on the path and method.
+#
 # --fail-on WARN, so a removed request property or a tightened pattern also fails. Additions are
 # info level and pass: a gate that fires on every new optional field gets routed around.
 #
@@ -19,10 +22,10 @@
 
 set -uo pipefail
 
-cd "$(dirname "$0")/.."
+BASE="$(realpath -m "${1:?usage: scripts/openapi-diff.sh <base> <revision>}")"
+REVISION="$(realpath -m "${2:?usage: scripts/openapi-diff.sh <base> <revision>}")"
 
-BASE="${1:?usage: scripts/openapi-diff.sh <base> <revision>}"
-REVISION="${2:?usage: scripts/openapi-diff.sh <base> <revision>}"
+cd "$(dirname "$0")/.."
 
 command -v oasdiff >/dev/null || { echo "openapi-diff: oasdiff is not installed; run scripts/install-oasdiff.sh" >&2; exit 1; }
 [ -s "$BASE" ] || { echo "openapi-diff: $BASE is missing or empty" >&2; exit 1; }

@@ -17,11 +17,13 @@
 
 set -euo pipefail
 
+# Resolved before the cd below, so a relative path means the caller's directory.
+OUT="$(realpath -m "${1:?usage: scripts/openapi-fetch.sh <output file>}")"
+
 cd "$(dirname "$0")/.."
 
 . scripts/lib-ports.sh
 
-OUT="${1:?usage: scripts/openapi-fetch.sh <output file>}"
 PG_PORT="${PG_PORT:-}"
 DB="barako_openapi"
 JWT_KEY='openapi-contract-key-that-is-at-least-32-chars-long'

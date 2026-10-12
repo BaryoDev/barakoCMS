@@ -56,6 +56,13 @@ hand-rolled checks inside `HandleAsync`. Enforced by
 query on an anonymous endpoint is an availability problem anyone can trigger. Enforced by
 `ArchitectureTests.Every_list_endpoint_takes_a_PaginatedRequest_or_is_allowlisted_with_a_reason`.
 
+The `ArchitectureTests` named above scan the core assembly (`barakoCMS`) only; module assemblies
+are not scanned yet, and several module endpoints are public or sit outside `Features/`.
+`ArchitectureTests.The_scan_finds_the_endpoints_validators_and_list_endpoints_Features_holds` fails
+when a scan finds too little to mean anything, and
+`ArchitectureTests.Every_allowlist_entry_names_a_type_that_still_needs_it` fails when an allowlist
+entry no longer excuses anything.
+
 **Prefer an existing pattern over a new one.** If a neighbouring endpoint solves the same problem,
 match it or say in the pull request why not. Check the pattern first: a pattern being existing is
 not evidence it is correct, and if it looks wrong, say so rather than spreading it.
@@ -240,8 +247,9 @@ explicitly in the pull request, the same as an unavoidable break to the package 
 Suite serves, and the `OpenAPI contract` job (`scripts/openapi-contract-check.sh`) fails when the
 API breaks it, naming each removed or renamed path, response property or enum value. Additions
 pass. To accept a change, run `bash scripts/openapi-fetch.sh openapi/baseline.json` and commit the
-diff; a baseline edit that is itself breaking fails unless `ApiContract.cs` or the module's
-`HttpContractVersion` moves in the same change.
+diff; a baseline edit that is itself breaking fails unless an HTTP contract number goes up in the
+same change (`ApiContract.Version`, `ApiContract.DeliveryVersion`, or a module's
+`HttpContractVersion`, read by `scripts/contract-versions.py`).
 
 ## 7. Comments
 
