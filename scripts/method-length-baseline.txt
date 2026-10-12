@@ -56,11 +56,11 @@
 171 barakoCMS/Features/Content/History/RollbackEndpoint.cs::RollbackEndpoint.HandleAsync
 193 barakoCMS/Features/Content/List/Endpoint.cs::Endpoint.HandleAsync
 85 barakoCMS/Features/Content/Schedule/Endpoint.cs::Endpoint.HandleAsync
-246 barakoCMS/Features/Content/Update/Endpoint.cs::Endpoint.HandleAsync
-131 barakoCMS/Features/ContentType/AddField/Endpoint.cs::Endpoint.HandleAsync
+242 barakoCMS/Features/Content/Update/Endpoint.cs::Endpoint.HandleAsync
+118 barakoCMS/Features/ContentType/AddField/Endpoint.cs::Endpoint.HandleAsync
 111 barakoCMS/Features/ContentType/Blueprints/Apply/Endpoint.cs::Endpoint.HandleAsync
 74 barakoCMS/Features/ContentType/Blueprints/BlueprintCatalog.cs::BlueprintCatalog.ValidateTypes
-204 barakoCMS/Features/ContentType/Create/Endpoint.cs::Endpoint.HandleAsync
+195 barakoCMS/Features/ContentType/Create/Endpoint.cs::Endpoint.HandleAsync
 128 barakoCMS/Features/ContentType/SetFieldCurrency/Endpoint.cs::Endpoint.HandleAsync
 102 barakoCMS/Features/ContentType/SetFieldOptions/Endpoint.cs::Endpoint.HandleAsync
 94 barakoCMS/Features/ContentType/SetFieldPresentation/Endpoint.cs::Endpoint.HandleAsync

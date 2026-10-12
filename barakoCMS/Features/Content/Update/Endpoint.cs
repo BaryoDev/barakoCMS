@@ -92,21 +92,17 @@ internal class Endpoint(
 
             ThrowIfAnyErrors();
         }
-        var definition = await session.Query<ContentTypeDefinition>()
-            .FirstOrDefaultAsync(d => d.Name == existingContent.ContentType, ct);
 
-        var publicFields = definition?.Fields
-            .Where(f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.InlineImageFields.Is(f.Type))
-            .Select(f => f.Name)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase)
-            ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (req.DryRun)
+        {
+            await Send.ResponseAsync(new Response
+            {
+                Id = req.Id, DryRun = true, Changes = barakoCMS.Core.Validation.DryRuns.Between(existingContent.Data, req.Data),
+            });
+            return;
+        }
 
-        var searchText = string.Join(
-            ' ',
-            req.Data
-                .Where(kv => publicFields.Contains(kv.Key))
-                .Select(kv => kv.Value?.ToString())
-                .Where(v => !string.IsNullOrWhiteSpace(v)));
+        var searchText = await SearchTextAsync(existingContent.ContentType, req.Data, ct);
 
         var events = new List<object>();
 
@@ -267,5 +263,24 @@ internal class Endpoint(
             Id = req.Id,
             Version = newVersion,
         });
+    }
+
+    /// <summary>The text anonymous search matches: the entry's Public values, as stored with the write.</summary>
+    private async Task<string> SearchTextAsync(string contentType, Dictionary<string, object> data, CancellationToken ct)
+    {
+        var definition = await session.Query<ContentTypeDefinition>()
+            .FirstOrDefaultAsync(d => d.Name == contentType, ct);
+
+        var publicFields = definition?.Fields
+            .Where(f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.InlineImageFields.Is(f.Type))
+            .Select(f => f.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase)
+            ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        return string.Join(
+            ' ',
+            data.Where(kv => publicFields.Contains(kv.Key))
+                .Select(kv => kv.Value?.ToString())
+                .Where(v => !string.IsNullOrWhiteSpace(v)));
     }
 }

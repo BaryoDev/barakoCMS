@@ -8,6 +8,12 @@ internal class Request
     public Dictionary<string, object> Data { get; set; } = new();
     public barakoCMS.Models.ContentStatus Status { get; set; } = barakoCMS.Models.ContentStatus.Draft;
     public barakoCMS.Models.SensitivityLevel Sensitivity { get; set; } = barakoCMS.Models.SensitivityLevel.Public;
+
+    /// <summary>
+    /// Check the write with everything the real write runs and answer with what it would change,
+    /// storing nothing.
+    /// </summary>
+    public bool DryRun { get; set; }
 }
 
 /// <summary>
@@ -37,4 +43,10 @@ internal class Response
     /// Initial event-stream version (1). Echo it back in an update's Version field for concurrency checks.
     /// </summary>
     public long Version { get; set; }
+
+    /// <summary>True when this answers a dry run: nothing was stored.</summary>
+    public bool DryRun { get; init; }
+
+    /// <summary>For a dry run, what the write would change. Null otherwise.</summary>
+    public List<barakoCMS.Core.Validation.FieldDiff>? Changes { get; init; }
 }
