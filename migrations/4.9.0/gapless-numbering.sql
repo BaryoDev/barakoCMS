@@ -43,10 +43,63 @@ CREATE INDEX IF NOT EXISTS mt_doc_external_number_uses_idx_series
 CREATE INDEX IF NOT EXISTS mt_doc_external_number_uses_idx_number
     ON public.mt_doc_external_number_uses USING btree ((CAST(data ->> 'Number' as bigint)));
 
--- Row level security is off for this table, the same as every other conjoined document type here.
--- Tenancy at the database is opt in (see migrations/tenancy/001-app-role.sql) and db-assert reports
--- a policy this build does not declare, so these three lines are what make the assert pass on a
--- database where something once enabled it.
-DROP POLICY IF EXISTS marten_tenant_isolation ON public.mt_doc_external_number_uses;
-ALTER TABLE public.mt_doc_external_number_uses NO FORCE ROW LEVEL SECURITY;
-ALTER TABLE public.mt_doc_external_number_uses DISABLE ROW LEVEL SECURITY;
+-- Row level security follows the database. Tenancy at the database is opt in (see
+-- migrations/tenancy/001-app-role.sql), and this file is rerunnable, so db-migrate can run it on a
+-- table that already exists. It must never take the tenant policy off a database that enforces
+-- tenancy, the gap migrations/4.7.0/tenant-policy-restore.sql had to close for older files.
+-- Enforcement is read off the database the same way that file does: another table in public carries
+-- marten_tenant_isolation. When one does, this table gets the same policy, copied exactly, with row
+-- level security enabled and forced when that table forces it, and a policy already here is left
+-- alone. When none does, the policy is dropped and row level security turned off, which is what
+-- db-assert expects from a host with Tenancy:DatabaseEnforcement off.
+DO $policy$
+DECLARE
+    target constant text := 'mt_doc_external_number_uses';
+    donor  record;
+    forced boolean;
+    roles  text;
+BEGIN
+    SELECT p.tablename, p.permissive, p.roles, p.cmd, p.qual, p.with_check
+    INTO donor
+    FROM pg_policies p
+    WHERE p.schemaname = 'public'
+      AND p.policyname = 'marten_tenant_isolation'
+      AND p.tablename <> target
+    ORDER BY p.tablename
+    LIMIT 1;
+
+    IF NOT FOUND THEN
+        DROP POLICY IF EXISTS marten_tenant_isolation ON public.mt_doc_external_number_uses;
+        ALTER TABLE public.mt_doc_external_number_uses NO FORCE ROW LEVEL SECURITY;
+        ALTER TABLE public.mt_doc_external_number_uses DISABLE ROW LEVEL SECURITY;
+        RETURN;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies p
+        WHERE p.schemaname = 'public' AND p.tablename = target AND p.policyname = 'marten_tenant_isolation') THEN
+        SELECT string_agg(CASE WHEN r = 'public' THEN 'PUBLIC' ELSE quote_ident(r) END, ', ')
+        INTO roles
+        FROM unnest(donor.roles) AS r;
+
+        EXECUTE format('CREATE POLICY marten_tenant_isolation ON public.%I AS %s FOR %s TO %s%s%s',
+            target,
+            donor.permissive,
+            donor.cmd,
+            roles,
+            CASE WHEN donor.qual IS NULL THEN '' ELSE format(' USING (%s)', donor.qual) END,
+            CASE WHEN donor.with_check IS NULL THEN '' ELSE format(' WITH CHECK (%s)', donor.with_check) END);
+        RAISE NOTICE 'tenant policy: put marten_tenant_isolation on public.%, copied from public.%', target, donor.tablename;
+    END IF;
+
+    SELECT c.relforcerowsecurity INTO forced
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public' AND c.relname = donor.tablename;
+
+    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', target);
+    IF forced THEN
+        EXECUTE format('ALTER TABLE public.%I FORCE ROW LEVEL SECURITY', target);
+    END IF;
+END
+$policy$;
