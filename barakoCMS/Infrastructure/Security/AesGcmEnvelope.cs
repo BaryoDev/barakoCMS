@@ -36,6 +36,23 @@ internal static class AesGcmEnvelope
     internal static bool HasVersionPrefix(string? value) =>
         value is not null && value.StartsWith(VersionPrefix, StringComparison.Ordinal);
 
+    /// <summary>
+    /// Takes a stored value apart into the key id a <see cref="KeyRing"/> wrote into it, if any, and
+    /// the envelope itself.
+    /// </summary>
+    /// <remarks>
+    /// Only a prefixed value can carry an id: <c>enc:v1:{id}:{envelope}</c>. The colon cannot occur in
+    /// base64, so <c>enc:v1:{envelope}</c>, written before rings, splits to no id.
+    /// </remarks>
+    internal static (string? KeyId, string Envelope) Split(string value)
+    {
+        if (!HasVersionPrefix(value)) return (null, value);
+
+        var rest = value[VersionPrefix.Length..];
+        var separator = rest.IndexOf(':');
+        return separator > 0 ? (rest[..separator], rest[(separator + 1)..]) : (null, rest);
+    }
+
     /// <summary>Derives a 32 byte AES-256 key from arbitrary configured key material.</summary>
     internal static byte[] DeriveKey(string material) => SHA256.HashData(Encoding.UTF8.GetBytes(material));
 
