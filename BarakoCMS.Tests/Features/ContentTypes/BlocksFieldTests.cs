@@ -125,6 +125,7 @@ public class BlocksFieldTests
     [InlineData("""[ { "type": "carousel" } ]""", "'carousel' is not a block")]
     [InlineData("""[ { "type": "hero" } ]""", "Blocks[0].heading is required")]
     [InlineData("""[ { "type": "hero", "heading": "Hi", "tone": "loud" } ]""", "Blocks[0].tone should be one of")]
+    [InlineData("""[ { "type": "hero", "heading": "Hi", "binding": "latest" } ]""", "Blocks[0].binding is the id of a binding")]
     public async Task A_page_block_the_schema_refuses_is_a_400_naming_the_path(string blocks, string expected)
     {
         var (_, admin) = await TenantAsync();
@@ -142,7 +143,7 @@ public class BlocksFieldTests
         var type = await PageTypeAsync(admin);
 
         var res = await WritePageAsync(admin, type,
-            """[ { "type": "hero", "id": "b1", "heading": "Hi", "tone": "accent" } ]""");
+            $$"""[ { "type": "hero", "id": "b1", "heading": "Hi", "tone": "accent" }, { "type": "cards", "binding": "{{Guid.NewGuid()}}" } ]""");
 
         res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync(Ct));
     }
@@ -232,5 +233,69 @@ public class BlocksFieldTests
         user.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
             "Bearer", await _fixture.StoredUserTokenAsync("User"));
         (await user.PutAsJsonAsync("/api/blocks/schema", HeroAndCards, Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        foreach (var route in new[] { "/api/blocks/presets/" + Guid.NewGuid(), "/api/blocks/bindings/" + Guid.NewGuid() })
+        {
+            (await user.PutAsJsonAsync(route, new { name = "x" }, Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+            (await user.DeleteAsync(route, Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        }
+    }
+
+    // ---- slice 2: presets and bindings ----------------------------------------------------
+
+    [Fact]
+    public async Task A_preset_is_checked_against_its_block_and_listed_back()
+    {
+        var (_, admin) = await TenantAsync();
+        await admin.PutAsJsonAsync("/api/blocks/schema", HeroAndCards, Ct);
+        var id = Guid.NewGuid();
+
+        var refused = await admin.PutAsJsonAsync($"/api/blocks/presets/{id}", new
+        {
+            name = "Hero", blockType = "hero", props = new { heading = "Hi", colour = "red" },
+        }, Ct);
+        (await RefusedAsync(refused)).Should().Contain("props.colour is not a property of 'hero'");
+
+        var saved = await admin.PutAsJsonAsync($"/api/blocks/presets/{id}", new
+        {
+            name = "Hero", blockType = "hero", props = new { heading = "Hi" },
+        }, Ct);
+        saved.StatusCode.Should().Be(HttpStatusCode.OK, await saved.Content.ReadAsStringAsync(Ct));
+
+        var list = await (await admin.GetAsync("/api/blocks/presets", Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
+        var items = list.GetProperty("items").EnumerateArray().ToList();
+        items.Should().HaveCount(1);
+        items[0].GetProperty("id").GetGuid().Should().Be(id);
+        items[0].GetProperty("props").GetProperty("heading").GetString().Should().Be("Hi");
+
+        (await admin.DeleteAsync($"/api/blocks/presets/{id}", Ct)).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await admin.DeleteAsync($"/api/blocks/presets/{id}", Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task A_binding_names_a_type_and_its_fields_and_stays_in_its_tenant()
+    {
+        var (_, admin) = await TenantAsync();
+        var (_, other) = await TenantAsync();
+        var type = await PageTypeAsync(admin);
+        var id = Guid.NewGuid();
+
+        (await RefusedAsync(await admin.PutAsJsonAsync($"/api/blocks/bindings/{id}", new { name = "x", contentType = "nosuchtype" }, Ct)))
+            .Should().Contain("no content type");
+        (await RefusedAsync(await admin.PutAsJsonAsync($"/api/blocks/bindings/{id}", new { name = "x", contentType = type, sort = "-Nope" }, Ct)))
+            .Should().Contain("no field 'Nope'");
+        (await RefusedAsync(await admin.PutAsJsonAsync($"/api/blocks/bindings/{id}", new { name = "x", contentType = type, limit = 21 }, Ct)))
+            .Should().Contain("limit");
+
+        var saved = await admin.PutAsJsonAsync($"/api/blocks/bindings/{id}", new
+        {
+            name = "Latest", contentType = type, sort = "-Title", limit = 2, where = new Dictionary<string, string> { ["Title"] = "Home" },
+        }, Ct);
+        saved.StatusCode.Should().Be(HttpStatusCode.OK, await saved.Content.ReadAsStringAsync(Ct));
+
+        var mine = await (await admin.GetAsync("/api/blocks/bindings", Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
+        mine.GetProperty("items").GetArrayLength().Should().Be(1);
+        var theirs = await (await other.GetAsync("/api/blocks/bindings", Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
+        theirs.GetProperty("totalItems").GetInt32().Should().Be(0);
+        (await other.DeleteAsync($"/api/blocks/bindings/{id}", Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 }

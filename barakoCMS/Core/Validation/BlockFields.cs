@@ -30,7 +30,12 @@ internal static class BlockFields
     public const int MaxBlockTypes = 200;
 
     /// <summary>The keys every block may carry, which are not its properties.</summary>
-    public static IReadOnlyList<string> Envelope { get; } = ["type", "id"];
+    /// <remarks>
+    /// <c>preset</c> is the id of the <see cref="BlockPreset"/> a block was made from, kept for the
+    /// console. <c>binding</c> is the id of the <see cref="BlockBinding"/> whose entries page resolve
+    /// returns beside the block. Both are ids or absent.
+    /// </remarks>
+    public static IReadOnlyList<string> Envelope { get; } = ["type", "id", "preset", "binding"];
 
 
     private static readonly Regex BlockName = new(@"^[A-Za-z][A-Za-z0-9_-]{0,63}$", RegexOptions.Compiled);
@@ -100,8 +105,26 @@ internal static class BlockFields
         return errors.Take(5).Select(e => $"Field '{field.DisplayName}' ({field.Name}): {e}");
     }
 
-    private static IEnumerable<string> BlockErrors(BlockSchema schema, JsonElement block, string at) =>
-        PropsErrors(schema, block.GetProperty("type").GetString()!, Properties(block), at);
+    /// <summary>
+    /// What is wrong with a block's properties against the tenant's schema, for a writer other than a
+    /// page, such as a preset. Nothing when the tenant has registered no schema.
+    /// </summary>
+    public static async Task<List<string>> PropsErrorsAsync(
+        IQuerySession session, string type, JsonElement props, string at, CancellationToken ct) =>
+        await session.LoadAsync<BlockSchema>(BlockSchema.RowId, ct) is { Blocks.Count: > 0 } schema
+            ? PropsErrors(schema, type, props, at).ToList()
+            : [];
+
+    private static IEnumerable<string> BlockErrors(BlockSchema schema, JsonElement block, string at)
+    {
+        var badIds = new[] { "preset", "binding" }
+            .Where(key => block.TryGetProperty(key, out var v)
+                && !(v.ValueKind == JsonValueKind.String && Guid.TryParse(v.GetString(), out _)))
+            .Select(key => $"{at}.{key} is the id of a {key}.")
+            .ToList();
+
+        return badIds.Count > 0 ? badIds : PropsErrors(schema, block.GetProperty("type").GetString()!, Properties(block), at);
+    }
 
     private static IEnumerable<string> PropsErrors(BlockSchema schema, string type, JsonElement props, string at)
     {

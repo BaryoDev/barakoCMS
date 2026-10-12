@@ -163,6 +163,10 @@ public class RoleGateTests
         new("PUT", "/api/workflows/{id}/enabled", $"/api/workflows/{NotAGuid}/enabled"),
         new("DELETE", "/api/workflows/{id}", $"/api/workflows/{NotAGuid}"),
         new("PUT", "/api/blocks/schema", "/api/blocks/schema"),
+        new("PUT", "/api/blocks/presets/{id}", $"/api/blocks/presets/{NotAGuid}"),
+        new("DELETE", "/api/blocks/presets/{id}", $"/api/blocks/presets/{NotAGuid}"),
+        new("PUT", "/api/blocks/bindings/{id}", $"/api/blocks/bindings/{NotAGuid}"),
+        new("DELETE", "/api/blocks/bindings/{id}", $"/api/blocks/bindings/{NotAGuid}"),
     ];
 
     public static TheoryData<GatedRoute> AllGatedRoutes()
