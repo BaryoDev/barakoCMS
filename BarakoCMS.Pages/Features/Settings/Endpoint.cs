@@ -56,7 +56,7 @@ internal sealed class GetEndpoint(IQuerySession session, IOptions<PagesOptions> 
     public override void Configure()
     {
         Get("/api/pages/settings");
-        Definition.RequireCapability(SystemCapabilities.ManageContentTypes, "SuperAdmin", "Admin");
+        Definition.RequireCapability(PagesCapabilities.ManageSettings, "SuperAdmin", "Admin");
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -77,7 +77,7 @@ internal sealed class PutEndpoint(IDocumentSession session, IOptions<PagesOption
     public override void Configure()
     {
         Put("/api/pages/settings");
-        Definition.RequireCapability(SystemCapabilities.ManageContentTypes, "SuperAdmin", "Admin");
+        Definition.RequireCapability(PagesCapabilities.ManageSettings, "SuperAdmin", "Admin");
     }
 
     public override async Task HandleAsync(SettingsRequest req, CancellationToken ct)
