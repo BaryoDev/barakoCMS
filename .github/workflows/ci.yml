@@ -565,6 +565,48 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  # Lean only stays lean if something notices weight coming back (#853). This builds the image the
+  # quickstart runs, boots it beside Postgres with the quickstart's settings on 2 CPUs, and records
+  # build time, image size, startup to readiness, memory at rest and delivery p50/p95 (#969). Each
+  # is compared with perf-budget.json, and the summary shows the baseline, this run and the budget.
+  # Raising a budget is an edit to that file, so it is reviewed. Both architectures run because
+  # both ship. The numbers are uploaded on every run, so a slow creep across pull requests shows.
+  perf-budget:
+    name: Performance budget (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Prove the budget comparison can fail
+        run: bash scripts/test-perf-budget.sh
+
+      - name: Measure the image and the running API
+        run: bash scripts/perf-measure.sh "$RUNNER_TEMP/perf.json"
+
+      - name: Compare with perf-budget.json
+        run: python3 scripts/perf-budget.py "$RUNNER_TEMP/perf.json" perf-budget.json --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the numbers
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: perf-${{ matrix.arch }}
+          path: ${{ runner.temp }}/perf.json
+          if-no-files-found: ignore
+          retention-days: 90
+
   # The SBOM is generated in the release workflow, which means it had never run: it was added after
   # the last release, so the first time anything executed it would have been the 4.0 release itself.
   # That is the shape this project keeps getting caught by, a gate that can only be tested by
