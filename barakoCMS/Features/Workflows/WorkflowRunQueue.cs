@@ -223,6 +223,9 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
                 Parameters = new Dictionary<string, string>(workflow.Actions[i].Parameters),
                 OnFailure = workflow.Actions[i].OnFailure ?? WorkflowFailurePolicy.Continue,
                 Capture = workflow.Actions[i].Capture is { } capture ? [.. capture] : [],
+                Compensate = workflow.Actions[i].Compensate is { } undo
+                    ? new WorkflowCompensation { Type = undo.Type, Parameters = new Dictionary<string, string>(undo.Parameters ?? []) }
+                    : null,
                 IdempotencyKey = $"{run.Id:N}-{i}",
             });
         }

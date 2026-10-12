@@ -33,6 +33,9 @@ internal sealed class RecordingRunnerAction : IWorkflowAction
 {
     public static readonly System.Collections.Concurrent.ConcurrentDictionary<string, WorkflowContext> Seen = new();
 
+    /// <summary>Every idempotency key in the order the runner handed it over.</summary>
+    public static readonly System.Collections.Concurrent.ConcurrentQueue<string> Order = new();
+
     public string Type => "RecordingRunner";
 
     public Task ExecuteAsync(Dictionary<string, string> parameters, Content content, CancellationToken ct) =>
@@ -40,7 +43,9 @@ internal sealed class RecordingRunnerAction : IWorkflowAction
 
     public Task<WorkflowActionResult> RunAsync(WorkflowContext context, CancellationToken ct)
     {
-        Seen[context.Parameters.GetValueOrDefault("IdempotencyKey") ?? string.Empty] = context;
+        var key = context.Parameters.GetValueOrDefault("IdempotencyKey") ?? string.Empty;
+        Seen[key] = context;
+        Order.Enqueue(key);
         return Task.FromResult(WorkflowActionResult.Success());
     }
 }

@@ -198,7 +198,10 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
         for (var i = 0; i < actions.Count; i++)
         {
             var action = actions[i];
-            if (action?.Parameters is null) continue;
+            if (action?.Parameters is null)
+            {
+                continue;
+            }
 
             foreach (var (name, template) in action.Parameters)
             {
@@ -207,7 +210,10 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
 
                 foreach (var (ordinal, output) in ActionOutputs.References(template))
                 {
-                    if (result.Warnings.Count >= MaxPlaceholderWarnings) return;
+                    if (result.Warnings.Count >= MaxPlaceholderWarnings)
+                    {
+                        return;
+                    }
 
                     string? message =
                         resolvedByTheAction ? $"Step outputs are not read inside this parameter, so {{{{actions.{ordinal}.{output}}}}} is sent as written."
@@ -216,7 +222,34 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
                             ? $"{{{{actions.{ordinal}.{output}}}}} reads '{output}', which action {ordinal} does not capture, so this action fails until it is added to that action's capture."
                         : null;
 
-                    if (message is not null) result.Warnings.Add(new ValidationError { Field = field, Message = message });
+                    if (message is not null)
+                    {
+                        result.Warnings.Add(new ValidationError { Field = field, Message = message });
+                    }
+                }
+            }
+
+            // A compensation runs after the action it undoes, so it may read that action's own
+            // outputs as well as earlier ones.
+            foreach (var (name, template) in action.Compensate?.Parameters ?? [])
+            {
+                foreach (var (ordinal, output) in ActionOutputs.References(template))
+                {
+                    if (result.Warnings.Count >= MaxPlaceholderWarnings)
+                    {
+                        return;
+                    }
+
+                    var message = ordinal > i || ordinal >= actions.Count
+                        ? $"{{{{actions.{ordinal}.{output}}}}} reads action {ordinal}, which runs after the action this undoes, so the compensation fails until it is fixed."
+                        : actions[ordinal]?.Capture?.Contains(output, StringComparer.Ordinal) != true
+                            ? $"{{{{actions.{ordinal}.{output}}}}} reads '{output}', which action {ordinal} does not capture, so the compensation fails until it is added to that action's capture."
+                            : null;
+
+                    if (message is not null)
+                    {
+                        result.Warnings.Add(new ValidationError { Field = $"actions[{i}].compensate.parameters.{name}", Message = message });
+                    }
                 }
             }
         }
@@ -587,6 +620,32 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
     private void ValidateAction(WorkflowAction action, int index, WorkflowValidationResult result)
     {
         var fieldPrefix = $"actions[{index}]";
+        ValidateAction(action, fieldPrefix, result);
+
+        if (action?.Compensate is not { } undo)
+        {
+            return;
+        }
+
+        var undoPrefix = $"{fieldPrefix}.compensate";
+        if (string.Equals(undo.Type, "Conditional", StringComparison.Ordinal))
+        {
+            result.Errors.Add(new ValidationError
+            {
+                Field = $"{undoPrefix}.type",
+                Message = "A compensation is one action, so it cannot be a Conditional"
+            });
+            result.IsValid = false;
+            return;
+        }
+
+        // Checked as an action of its own: a registered type, its required parameters, a signed
+        // webhook on https. It has no capture, policy or compensation of its own to check.
+        ValidateAction(new WorkflowAction { Type = undo.Type, Parameters = undo.Parameters ?? [] }, undoPrefix, result);
+    }
+
+    private void ValidateAction(WorkflowAction action, string fieldPrefix, WorkflowValidationResult result)
+    {
 
         // Check if action type is registered
         if (string.IsNullOrWhiteSpace(action.Type))

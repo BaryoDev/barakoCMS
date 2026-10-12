@@ -271,6 +271,42 @@ action that does not run first or a name it does not capture.
 Kept outputs are served on each attempt as `outputs` in `GET /api/workflow-runs`, and are deleted
 with the run when its retention window ends.
 
+## Undoing what a run did
+
+An action can declare what undoes it, in `compensate`: one action, with its own type and
+parameters, checked on save the way an action is. A `Conditional` is not accepted there. Nothing is
+declared by default, because not everything can be undone: an SMS cannot be unsent. In this example
+both types are custom actions a module registers:
+
+```json
+{ "type": "PostInvoice", "capture": ["invoiceId"], "onFailure": "Halt",
+  "compensate": { "type": "VoidInvoice", "parameters": { "InvoiceId": "{{actions.0.invoiceId}}" } } }
+```
+
+A run is rolled back in two cases. When an action set to `Halt` fails for good, if any action of the
+workflow declares a compensation; a workflow that declares none halts exactly as before, and its
+halted action can still be retried. And when an operator abandons it with
+`POST /api/workflow-runs/{id}/abandon`, which needs `retry_workflow_actions` because the
+compensations go out to third parties. An action that ended `Unknown` starts nothing on its own: it
+may have arrived, so an operator decides between retrying it and abandoning the run.
+
+Rolling back cancels what has not started, then undoes each action that succeeded, one at a time and
+the last first, under the same retries, leases and backoff as an action. A compensation has its own
+idempotency key, the action's key with `-undo` on the end, is handed `CompensationOf` with the
+position of the action it undoes, and can read that action's captured outputs, which is how it names
+the thing to undo. It runs even when the entry has been deleted since.
+
+Each attempt in `GET /api/workflow-runs` carries `compensation` once the run is rolled back:
+`Succeeded`, `Failed`, `Unknown`, `Cancelled`, or `NotDeclared` for an action that succeeded and
+declares nothing that undoes it. The run carries `compensation`: `Compensating` while one is waiting
+or in flight, `Compensated` when every action that succeeded was undone, and `Incomplete` when any
+was not, so a run that is half applied says so. A run being rolled back reads `Running`, and its
+actions cannot be retried. Cancelling it stops the compensations that have not started, and leaves
+it `Incomplete`. Abandon is refused with 409 for a run nothing of which succeeded, while an action is
+in flight, for a run already rolled back or cancelled, and for a workflow switched off or deleted.
+
+The obsolete `IWorkflowEngine` path does not compensate.
+
 ## Stopping a workflow or a run
 
 Three requests, all behind `manage_workflows`, each written to the audit log.

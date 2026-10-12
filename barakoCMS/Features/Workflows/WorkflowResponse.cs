@@ -90,6 +90,9 @@ internal sealed class WorkflowActionResponse
     /// <summary>The outputs of this action kept on a run. Empty when it keeps none.</summary>
     public List<string> Capture { get; init; } = new();
 
+    /// <summary>What undoes this action, with its secret left out the same way. Null when nothing does.</summary>
+    public WorkflowCompensationResponse? Compensate { get; init; }
+
     public static WorkflowActionResponse From(WorkflowAction a)
     {
         var parameters = WebhookSigning.WithoutSecret(a.Type, a.Parameters, out var unreadableBranches);
@@ -102,6 +105,22 @@ internal sealed class WorkflowActionResponse
             OnFailure = a.OnFailure ?? WorkflowFailurePolicy.Continue,
             UnreadableBranches = unreadableBranches,
             Capture = a.Capture ?? [],
+            Compensate = a.Compensate is { } undo
+                ? new WorkflowCompensationResponse
+                {
+                    Type = undo.Type,
+                    Parameters = WebhookSigning.WithoutSecret(undo.Type, undo.Parameters ?? []),
+                    SecretSet = WebhookSigning.HasSecret(undo.Parameters ?? []),
+                }
+                : null,
         };
     }
+}
+
+/// <summary>A compensation as the API describes it: its credentials left out, as on an action.</summary>
+internal sealed class WorkflowCompensationResponse
+{
+    public string Type { get; init; } = string.Empty;
+    public Dictionary<string, string> Parameters { get; init; } = new();
+    public bool SecretSet { get; init; }
 }

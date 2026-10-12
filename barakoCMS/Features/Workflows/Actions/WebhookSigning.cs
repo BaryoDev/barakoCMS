@@ -109,6 +109,12 @@ internal static class WebhookSigning
         foreach (var action in workflow.Actions)
         {
             changed |= ProtectParameters(action.Type, action.Parameters, protector);
+
+            // A compensation is an action too, and stored the same way.
+            if (action.Compensate is { Parameters: { } undo } compensate)
+            {
+                changed |= ProtectParameters(compensate.Type, undo, protector);
+            }
         }
 
         return changed;

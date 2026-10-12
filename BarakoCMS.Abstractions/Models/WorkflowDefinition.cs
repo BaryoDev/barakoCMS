@@ -69,6 +69,28 @@ public class WorkflowAction
     /// run when it is queued, like the parameters.
     /// </remarks>
     public List<string>? Capture { get; set; }
+
+    /// <summary>
+    /// What undoes this action when the run is rolled back. Null when nothing can, which is the
+    /// default and is reported as not compensated rather than as fine.
+    /// </summary>
+    /// <remarks>
+    /// A run is rolled back when an action set to <see cref="WorkflowFailurePolicy.Halt"/> fails for
+    /// good, if any action of the workflow declares a compensation, and when an operator abandons
+    /// it. The actions that succeeded are undone one at a time, the last first. The compensation can
+    /// read this action's captured outputs as <c>{{actions.N.name}}</c>, which is how it names the
+    /// thing it is undoing. Copied onto a run when it is queued, like the parameters.
+    /// </remarks>
+    public WorkflowCompensation? Compensate { get; set; }
+}
+
+/// <summary>The action that undoes another one.</summary>
+public class WorkflowCompensation
+{
+    /// <summary>An action type, as in <see cref="WorkflowAction.Type"/>. A Conditional is not accepted.</summary>
+    public string Type { get; set; } = string.Empty;
+
+    public Dictionary<string, string> Parameters { get; set; } = new();
 }
 
 /// <summary>Whether the actions after a failed one still run.</summary>

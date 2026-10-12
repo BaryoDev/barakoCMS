@@ -259,7 +259,10 @@ internal sealed class WorkflowRunner(
     }
 
     /// <summary>A run that took a slot. With no attempt, it was cancelled in place of being claimed.</summary>
-    private sealed record Claim(WorkflowRun Run, WorkflowActionAttempt? Attempt);
+    /// <param name="Run">The run as the claim saved it.</param>
+    /// <param name="Attempt">The attempt claimed, or null when the run was cancelled instead.</param>
+    /// <param name="Undo">Whether what was claimed is the attempt's compensation and not the action itself.</param>
+    private sealed record Claim(WorkflowRun Run, WorkflowActionAttempt? Attempt, bool Undo = false);
 
     /// <summary>
     /// Fills the slots of one pass, a round of the tenants at a time, then waits for what it started.
@@ -370,8 +373,9 @@ internal sealed class WorkflowRunner(
             if (claim.Attempt is { } attempt)
             {
                 var run = claim.Run;
+                var undo = claim.Undo;
                 pass.Running.Add(Task.Run(
-                    () => RunClaimedAsync(store, run, attempt, tenantId, ct), CancellationToken.None));
+                    () => RunClaimedAsync(store, run, attempt, undo, tenantId, ct), CancellationToken.None));
                 Metrics.Claimed();
             }
             else
@@ -557,6 +561,27 @@ internal sealed class WorkflowRunner(
             }
 
             var claimed = NextDue(run);
+            if (claimed is null && run.NextCompensation(DateTimeOffset.UtcNow) is { Compensation: { } undo } undoing)
+            {
+                undo.Status = CompensationStatus.Running;
+                undo.LeasedBy = _node;
+                undo.LeaseExpiresAt = DateTimeOffset.UtcNow.Add(WorkflowRetryPolicy.LeaseDuration);
+                run.Recompute();
+                session.Update(run);
+
+                try
+                {
+                    await session.SaveChangesAsync(ct);
+                }
+                catch (Exception ex) when (ex is JasperFx.ConcurrencyException
+                    || ex.GetType().Name.Contains("Concurrency"))
+                {
+                    return null;
+                }
+
+                return new Claim(run, undoing, Undo: true);
+            }
+
             if (claimed is null)
             {
                 await RecordNextDueAsync(session, run, ct);
@@ -592,11 +617,11 @@ internal sealed class WorkflowRunner(
     /// attempt is left Running under its lease, and is taken again when the lease ends.
     /// </remarks>
     private async Task RunClaimedAsync(
-        IDocumentStore store, WorkflowRun run, WorkflowActionAttempt claimed, string tenantId, CancellationToken ct)
+        IDocumentStore store, WorkflowRun run, WorkflowActionAttempt claimed, bool undo, string tenantId, CancellationToken ct)
     {
         try
         {
-            await ExecuteAndRecordAsync(store, run, claimed, tenantId, ct);
+            await ExecuteAndRecordAsync(store, run, claimed, undo, tenantId, ct);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -611,17 +636,17 @@ internal sealed class WorkflowRunner(
     }
 
     private async Task ExecuteAndRecordAsync(
-        IDocumentStore store, WorkflowRun run, WorkflowActionAttempt claimed, string tenantId, CancellationToken ct)
+        IDocumentStore store, WorkflowRun run, WorkflowActionAttempt claimed, bool undo, string tenantId, CancellationToken ct)
     {
         var runId = run.Id;
-        var outcome = await ExecuteAsync(store, run, claimed, tenantId, ct);
+        var outcome = await ExecuteAsync(store, run, claimed, undo, tenantId, ct);
 
         // Twice, because a cancel or a delete may write the run between the read and the save here.
         // Either leaves this attempt Running under this node's lease, so a second read can still
         // record what happened. Left unrecorded on a stopped run, the attempt is never run again,
         // and an action that completed would read as one nobody knows the outcome of.
-        if (!await RecordAsync(store, runId, tenantId, claimed, outcome, ct)
-            && !await RecordAsync(store, runId, tenantId, claimed, outcome, ct))
+        if (!await RecordAsync(store, runId, tenantId, claimed, undo, outcome, ct)
+            && !await RecordAsync(store, runId, tenantId, claimed, undo, outcome, ct))
         {
             // The outcome is lost. On a run nobody stopped the lease expires and the attempt runs
             // again, which is why the idempotency key is stable across attempts rather than
@@ -636,7 +661,7 @@ internal sealed class WorkflowRunner(
     /// which includes there being nothing to write: the run or the attempt gone, or the lease lost.
     /// </returns>
     private async Task<bool> RecordAsync(
-        IDocumentStore store, Guid runId, string tenantId, WorkflowActionAttempt claimed, Outcome outcome, CancellationToken ct)
+        IDocumentStore store, Guid runId, string tenantId, WorkflowActionAttempt claimed, bool undo, Outcome outcome, CancellationToken ct)
     {
         await using (var session = store.LightweightSession(tenantId))
         {
@@ -645,6 +670,11 @@ internal sealed class WorkflowRunner(
 
             var attempt = latest.Actions.FirstOrDefault(a => a.Ordinal == claimed.Ordinal);
             if (attempt is null) return true;
+
+            if (undo)
+            {
+                return await RecordUndoAsync(session, latest, attempt, outcome, ct);
+            }
 
             // The lease has to still be ours. A handler that outlives its lease lets another node
             // reclaim the attempt and start it again, and this block would then write the first
@@ -681,6 +711,18 @@ internal sealed class WorkflowRunner(
             // stored and the actions after it can still be claimed.
             latest.HaltAfter(attempt, DateTimeOffset.UtcNow);
 
+            // A halting action that failed for good rolls the run back, when the workflow declares
+            // any compensation at all. One that declares none keeps what it always did, so its
+            // halted action can still be retried. Unknown is not a failure and starts nothing: the
+            // action may have arrived, and an operator decides whether to retry it or abandon.
+            if (attempt.OnFailure == WorkflowFailurePolicy.Halt
+                && attempt.Status == AttemptStatus.Failed
+                && latest.CancelledAt is null
+                && latest.DeclaresCompensation)
+            {
+                latest.StartCompensation(DateTimeOffset.UtcNow);
+            }
+
             latest.Recompute();
             session.Update(latest);
 
@@ -700,6 +742,46 @@ internal sealed class WorkflowRunner(
             if (WorkflowMetrics.HaltedTheRun(latest, attempt)) Metrics.Halted();
         }
 
+        return true;
+    }
+
+    /// <summary>Writes one compensation's outcome onto the run, under the same lease rule as an action.</summary>
+    private async Task<bool> RecordUndoAsync(
+        IDocumentSession session, WorkflowRun latest, WorkflowActionAttempt attempt, Outcome outcome, CancellationToken ct)
+    {
+        var undo = attempt.Compensation;
+
+        if (undo is null || undo.Status != CompensationStatus.Running || undo.LeasedBy != _node)
+        {
+            logger.LogWarning(
+                "Discarding the outcome of the compensation of run {RunId} action {Ordinal}: this node no longer holds its lease.",
+                latest.Id, attempt.Ordinal);
+            return true;
+        }
+
+        ApplyUndo(undo, outcome);
+
+        if (latest.CancelledAt is not null && undo.Status == CompensationStatus.Pending)
+        {
+            undo.Status = CompensationStatus.Failed;
+            undo.NextAttemptAt = null;
+            undo.CompletedAt = DateTimeOffset.UtcNow;
+        }
+
+        latest.Recompute();
+        session.Update(latest);
+
+        try
+        {
+            await session.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (ex is JasperFx.ConcurrencyException
+            || ex.GetType().Name.Contains("Concurrency"))
+        {
+            return false;
+        }
+
+        Metrics.Finished(latest.Status);
         return true;
     }
 
@@ -827,26 +909,33 @@ internal sealed class WorkflowRunner(
     /// last for the whole attempt, because events are stamped when the action saves.
     /// </remarks>
     private async Task<Outcome> ExecuteAsync(
-        IDocumentStore store, WorkflowRun run, WorkflowActionAttempt attempt, string tenantId, CancellationToken ct)
+        IDocumentStore store, WorkflowRun run, WorkflowActionAttempt attempt, bool undo, string tenantId, CancellationToken ct)
     {
         using var span = barakoCMS.Infrastructure.Tracing.BarakoTracing.StartWorkflowAction(
             run, attempt, TenantScopes.SlugFor(tenantId));
         using var correlation = barakoCMS.Infrastructure.Tracing.Correlation.BeginFrom(
             run.CorrelationId, barakoCMS.Infrastructure.Tracing.Correlation.TraceParentOf(span) ?? run.TraceParent);
 
-        var outcome = await ExecuteAttemptAsync(store, run, attempt, tenantId, ct);
+        var outcome = await ExecuteAttemptAsync(run, attempt, undo, tenantId, ct);
         barakoCMS.Infrastructure.Tracing.BarakoTracing.RecordOutcome(span, outcome.Status);
         return outcome;
     }
 
     private async Task<Outcome> ExecuteAttemptAsync(
-        IDocumentStore store, WorkflowRun run, WorkflowActionAttempt attempt, string tenantId, CancellationToken ct)
+        WorkflowRun run, WorkflowActionAttempt attempt, bool undo, string tenantId, CancellationToken ct)
     {
+        // A compensation is its own action with its own parameters and key, run against the same
+        // entry and the same outputs.
+        var actionType = undo ? attempt.Compensate?.Type ?? string.Empty : attempt.ActionType;
+        var stored = undo ? attempt.Compensate?.Parameters ?? [] : attempt.Parameters;
+        var idempotencyKey = undo ? attempt.Compensation!.IdempotencyKey : attempt.IdempotencyKey;
+        var attemptsSoFar = undo ? attempt.Compensation!.Attempts : attempt.Attempts;
+
         using var scope = services.CreateScopeForTenant(tenantId);
         await using var handlers = WorkflowActionSet.Build(scope.ServiceProvider, logger);
-        var handler = handlers.Find(attempt.ActionType);
+        var handler = handlers.Find(actionType);
 
-        if (handler is null && handlers.NotBuiltError(attempt.ActionType) is { } notBuilt)
+        if (handler is null && handlers.NotBuiltError(actionType) is { } notBuilt)
         {
             // Retryable, so the normal attempt limit ends it: the action that could not be built may
             // be this one, and a constructor that failed on a setting can succeed once it is fixed.
@@ -856,7 +945,7 @@ internal sealed class WorkflowRunner(
         if (handler is null)
         {
             // Permanent: no amount of waiting registers a handler that the host was not built with.
-            return new Outcome(AttemptStatus.Failed, $"No handler is registered for action type '{attempt.ActionType}'.", 0, Retryable: false, Registered: false);
+            return new Outcome(AttemptStatus.Failed, $"No handler is registered for action type '{actionType}'.", 0, Retryable: false, Registered: false);
         }
 
         // Resolved from the scope, not a separately opened store.LightweightSession(tenantId), and
@@ -876,6 +965,13 @@ internal sealed class WorkflowRunner(
             ? new ErasedContent(run.ContentId, run.ContentType)
             : await session.LoadAsync<barakoCMS.Models.Content>(run.ContentId, ct);
 
+        // An undo is still owed when the entry has gone since: what it undoes went out to a third
+        // party, and the outputs it reads name that, not the entry.
+        if (undo)
+        {
+            content ??= new ErasedContent(run.ContentId, run.ContentType);
+        }
+
         if (content is null)
         {
             // Skipped rather than failed. The entry was deleted after the run was queued, so there
@@ -891,7 +987,7 @@ internal sealed class WorkflowRunner(
             var variables = scope.ServiceProvider.GetRequiredService<ITemplateVariableExtractor>();
 
             var (parameters, credentialError) = barakoCMS.Features.Workflows.Actions.WebhookSigning.UnprotectCredentials(
-                attempt.Parameters, scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Security.ISecretProtector>());
+                stored, scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Security.ISecretProtector>());
 
             if (credentialError is not null)
             {
@@ -901,24 +997,31 @@ internal sealed class WorkflowRunner(
             }
 
             var resolved = await ActionParameters.ResolveAsync(
-                variables, attempt.ActionType, parameters, content, run.TriggerEvent, run.TriggeringEventSequence, ct);
+                variables, actionType, parameters, content, run.TriggerEvent, run.TriggeringEventSequence, ct);
 
             var outputs = ActionOutputs.Kept(run);
-            if (ActionOutputs.Substitute(attempt.ActionType, resolved, outputs) is { } missing)
+            if (ActionOutputs.Substitute(actionType, resolved, outputs) is { } missing)
             {
                 // Retryable: with Continue, an earlier action can still be waiting on its own retry.
                 timer.Stop();
                 return new Outcome(AttemptStatus.Failed, missing, timer.ElapsedMilliseconds, Retryable: true);
             }
 
-            resolved["IdempotencyKey"] = attempt.IdempotencyKey;
+            resolved["IdempotencyKey"] = idempotencyKey;
 
             // What the delivery log needs to say which run a delivery belonged to. Same channel as
             // the idempotency key, because the parameters are the only thing an action receives.
             resolved["RunId"] = run.Id.ToString();
             resolved["WorkflowId"] = run.WorkflowDefinitionId.ToString();
             resolved["TriggerEvent"] = run.TriggerEvent;
-            resolved["Attempt"] = (attempt.Attempts + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            resolved["Attempt"] = (attemptsSoFar + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+            // Tells an action it is undoing the action at this position rather than doing its own
+            // work, for one type that serves as both.
+            if (undo)
+            {
+                resolved["CompensationOf"] = attempt.Ordinal.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            }
 
             var result = await handler.RunAsync(new WorkflowContext
             {
@@ -934,7 +1037,8 @@ internal sealed class WorkflowRunner(
             {
                 // Only what the workflow captured is kept. The rest of what the action returned is
                 // dropped here, before anything is written.
-                var (kept, dropped) = ActionOutputs.Keep(result.Outputs, attempt.Capture);
+                // A compensation keeps nothing: no action after it reads it.
+                var (kept, dropped) = undo ? (null, null) : ActionOutputs.Keep(result.Outputs, attempt.Capture);
 
                 // What the templates left out on purpose, such as a loop stopped at its cap, is
                 // recorded on the attempt so a message that is short of entries says why.
@@ -966,7 +1070,7 @@ internal sealed class WorkflowRunner(
             // Keep the exception message in logs only. A provider's error body can carry the
             // credential that was sent, so only the exception type reaches the run record; the
             // message stays in the log above.
-            logger.LogWarning(ex, "Workflow action {Type} failed in run {RunId}", attempt.ActionType, run.Id);
+            logger.LogWarning(ex, "Workflow action {Type} failed in run {RunId}", actionType, run.Id);
             return new Outcome(AttemptStatus.Failed, ex.GetType().Name, timer.ElapsedMilliseconds);
         }
     }
@@ -994,6 +1098,33 @@ internal sealed class WorkflowRunner(
         attempt.Retryable = outcome.Status == AttemptStatus.Failed ? outcome.Retryable : null;
         attempt.NextAttemptAt = null;
         attempt.CompletedAt = DateTimeOffset.UtcNow;
+    }
+
+    private static void ApplyUndo(CompensationState undo, Outcome outcome)
+    {
+        undo.Attempts++;
+        undo.LeasedBy = null;
+        undo.LeaseExpiresAt = null;
+        undo.DurationMs = outcome.ElapsedMs;
+        undo.Error = outcome.Error is null ? null : Truncate(outcome.Error);
+
+        if (outcome.Status == AttemptStatus.Failed
+            && outcome.Retryable
+            && undo.Attempts < WorkflowRetryPolicy.MaxAttempts)
+        {
+            undo.Status = CompensationStatus.Pending;
+            undo.NextAttemptAt = DateTimeOffset.UtcNow.Add(WorkflowRetryPolicy.Backoff(undo.Attempts, Random.Shared));
+            return;
+        }
+
+        undo.Status = outcome.Status switch
+        {
+            AttemptStatus.Succeeded => CompensationStatus.Succeeded,
+            AttemptStatus.Unknown => CompensationStatus.Unknown,
+            _ => CompensationStatus.Failed,
+        };
+        undo.NextAttemptAt = null;
+        undo.CompletedAt = DateTimeOffset.UtcNow;
     }
 
     private static string Truncate(string value) =>
