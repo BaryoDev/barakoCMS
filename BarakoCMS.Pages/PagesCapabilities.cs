@@ -1,4 +1,5 @@
 using barakoCMS.Models;
+using barakoCMS.Modules;
 
 namespace BarakoCMS.Pages;
 
@@ -13,4 +14,17 @@ public static class PagesCapabilities
 {
     /// <summary>Read and change the module's per-tenant settings.</summary>
     public const string ManageSettings = SystemCapabilities.ManageContentTypes;
+
+    internal static readonly string[] All = [ManageSettings];
+
+    /// <summary>
+    /// Who starts with these: the seeded Admin role, by its id, which is the role the settings routes
+    /// let in from the start. Core's own defaults already grant Admin this capability on every start,
+    /// so seeding it here adds nothing; it is declared because every module declares its defaults.
+    /// </summary>
+    /// <remarks>
+    /// SuperAdmin holds <c>*</c>, which satisfies any capability, so it is on the legacy list and
+    /// deliberately not granted anything at seed.
+    /// </remarks>
+    internal static readonly CapabilityDefaults Defaults = CapabilityDefaults.For(All).GrantedTo(SystemRoles.Admin);
 }
