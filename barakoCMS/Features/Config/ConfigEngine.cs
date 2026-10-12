@@ -144,21 +144,44 @@ internal sealed class ConfigEngine(
         }
 
         var writable = await WritableSectionsAsync(parsed, caller, ct);
-        var response = await runner.RunAsync(
-            (scope, token) => RunInScopeAsync(scope, parsed, writable, caller, (apply, allowDestructive, skipDestructive), token), ct);
-
-        if (response.Sections.Any(s => s.Changes.Count > 0))
+        ConfigPlanResponse? response = null;
+        try
         {
-            // Whether or not it committed. A committed apply changed roles, rules or deliverable
-            // types, and cached answers predate it. A plan or a refused apply staged them in a
-            // transaction it rolled back, and a decision cached while they were staged would keep
-            // granting what was never stored.
-            permissions.InvalidateAllPermissions();
-            deliveryDocuments.Invalidate(tenant.Slug);
+            response = await runner.RunAsync(
+                (scope, token) => RunInScopeAsync(scope, parsed, writable, caller, (apply, allowDestructive, skipDestructive), token), ct);
+        }
+        catch (Exception ex) when (IsCommitConflict(ex))
+        {
+            return new ConfigRunResult(409, new ConfigPlanResponse { Errors = [CommitConflict] });
+        }
+        finally
+        {
+            // Whether or not it committed, and when the commit itself failed too. A committed apply
+            // changed roles, rules or deliverable types, and cached answers predate it. A plan or a
+            // refused apply staged them in a transaction it rolled back, and a decision cached while
+            // they were staged would keep granting what was never stored.
+            if (response is null || response.Sections.Any(s => s.Changes.Count > 0))
+            {
+                permissions.InvalidateAllPermissions();
+                deliveryDocuments.Invalidate(tenant.Slug);
+            }
         }
 
         return new ConfigRunResult(StatusFor(response, apply, allowDestructive), response);
     }
+
+    private const string CommitConflict =
+        "Something this document changes was changed by another write while it was applied, so nothing was. Plan again.";
+
+    /// <summary>
+    /// A write the commit found changed underneath it: an entry appended to since it was read, a
+    /// document saved since it was loaded, or a name taken in the meantime.
+    /// </summary>
+    private static bool IsCommitConflict(Exception ex) =>
+        ex is StaleContentException or JasperFx.ConcurrencyException
+        || ex.GetType().Name.Contains("Concurrency", StringComparison.Ordinal)
+        || ex.GetType().Name.Contains("UnexpectedMaxEventId", StringComparison.Ordinal)
+        || IsUniqueViolation(ex);
 
     /// <summary>An apply that wrote nothing is recorded too, with why, the way a refused route call shows in the log.</summary>
     private async Task RecordRefusalAsync(ConfigCaller caller, ConfigRunResult result, CancellationToken ct)

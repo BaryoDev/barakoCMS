@@ -114,10 +114,14 @@ internal sealed class SiteSettingsConfigProvider(
         var errors = new List<string>();
         if (plan.Changes.SingleOrDefault() is not { Desired: { } document }
             || Read(document, errors) is not { } config
-            || await CallerAsync(caller, ct) is not { } user
-            || http.HttpContext is not { } context)
+            || await CallerAsync(caller, ct) is not { } user)
         {
             return errors;
+        }
+
+        if (http.HttpContext is not { } context)
+        {
+            return ["siteSettings is written the way the content routes write an entry, which reads the request, and there is none."];
         }
 
         var data = new Dictionary<string, object>(config.Data ?? [], StringComparer.OrdinalIgnoreCase);

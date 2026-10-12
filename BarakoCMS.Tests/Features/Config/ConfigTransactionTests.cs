@@ -136,4 +136,95 @@ public class ConfigTransactionTests
         (await _callers.InTenantAsync(null, s => s.Query<AuditEvent>().AnyAsync(e => e.TenantSlug == tenant && e.Action == "config.refused", Ct)))
             .Should().BeTrue("an apply that wrote nothing is in the log too");
     }
+    /// <summary>The real runner, with another write committed after the work and before the commit.</summary>
+    private sealed class InterleavingRunner(barakoCMS.Infrastructure.Services.IContentBatchRunner inner, Func<Task> between)
+        : barakoCMS.Infrastructure.Services.IContentBatchRunner
+    {
+        public Task<T> RunAsync<T>(
+            Func<IServiceProvider, CancellationToken, Task<barakoCMS.Infrastructure.Services.ContentBatchOutcome<T>>> work, CancellationToken ct) =>
+            inner.RunAsync(async (scope, token) =>
+            {
+                var outcome = await work(scope, token);
+                await between();
+                return outcome;
+            }, ct);
+    }
+
+    private sealed class CountingPermissions(barakoCMS.Infrastructure.Services.IPermissionResolver inner)
+        : barakoCMS.Infrastructure.Services.IPermissionResolver
+    {
+        public int Invalidated { get; private set; }
+
+        public Task<bool> CanPerformActionAsync(User user, string contentTypeSlug, string action, Content? content = null, CancellationToken cancellationToken = default) =>
+            inner.CanPerformActionAsync(user, contentTypeSlug, action, content, cancellationToken);
+
+        public Task<bool> HasCapabilityAsync(Guid userId, string capability, CancellationToken cancellationToken = default) =>
+            inner.HasCapabilityAsync(userId, capability, cancellationToken);
+
+        public void InvalidateUserPermissions(Guid userId) => inner.InvalidateUserPermissions(userId);
+
+        public void InvalidateAllPermissions()
+        {
+            Invalidated++;
+            inner.InvalidateAllPermissions();
+        }
+    }
+
+    [Fact]
+    public async Task A_write_that_lands_between_staging_and_commit_answers_409_commits_nothing_and_is_recorded()
+    {
+        var tenant = await _callers.TenantAsync();
+        await _callers.StoreInTenantAsync(tenant, DeliveredSite());
+        using (var sourcing = _fixture.Services.CreateScope())
+        {
+            // Event sourced, so the entry's stream version is what the commit is bound to. A document
+            // type is last write wins, on the route as here.
+            sourcing.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Multitenancy.TenantContext>().Slug = tenant;
+            await sourcing.ServiceProvider.GetRequiredService<barakoCMS.Core.Interfaces.IContentSourcingPolicy>().DecideAsync("site", true, Ct);
+            await sourcing.ServiceProvider.GetRequiredService<IDocumentSession>().SaveChangesAsync(Ct);
+        }
+
+        var client = await _callers.SuperAdminAsync(tenant);
+        (await client.PostAsJsonAsync("/api/contents", new { contentType = "site", status = "Published", data = new Dictionary<string, object> { ["Name"] = "Clinic", ["Tagline"] = "Before" } }, Ct))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        var entryId = (await _callers.InTenantAsync(tenant, s => s.Query<Content>().SingleAsync(c => c.ContentType == "site", Ct)))!.Id;
+
+        using var scope = _fixture.Services.CreateScope();
+        var services = scope.ServiceProvider;
+        services.GetRequiredService<barakoCMS.Infrastructure.Multitenancy.TenantContext>().Slug = tenant;
+        var permissions = new CountingPermissions(services.GetRequiredService<barakoCMS.Infrastructure.Services.IPermissionResolver>());
+        var runner = new InterleavingRunner(services.GetRequiredService<barakoCMS.Infrastructure.Services.IContentBatchRunner>(), async () =>
+        {
+            var version = await StreamVersionAsync(tenant, entryId);
+            (await client.PutAsJsonAsync($"/api/contents/{entryId}", new { data = new Dictionary<string, object> { ["Name"] = "Clinic", ["Tagline"] = "Concurrent" }, version }, Ct))
+                .StatusCode.Should().Be(HttpStatusCode.OK, "the other write commits while the apply holds its transaction open");
+        });
+        var engine = new barakoCMS.Features.Config.ConfigEngine(
+            services.GetServices<barakoCMS.Core.Interfaces.IConfigProvider>(),
+            services.GetRequiredService<barakoCMS.Core.Interfaces.ICallerCapabilities>(),
+            runner,
+            services.GetRequiredService<IDocumentSession>(),
+            services.GetRequiredService<barakoCMS.Infrastructure.Multitenancy.TenantContext>(),
+            permissions,
+            services.GetRequiredService<barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache>());
+        var userId = (await _callers.InTenantAsync(null, s => s.Query<Membership>().SingleAsync(m => m.TenantSlug == tenant, Ct)))!.UserId;
+        var caller = barakoCMS.Core.Interfaces.ConfigCaller.ForUser(new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(
+            [new System.Security.Claims.Claim("UserId", userId.ToString()), new System.Security.Claims.Claim("Username", $"cfg-{userId:n}"),
+             new System.Security.Claims.Claim("tenant", tenant)], "test")));
+        // The site entry is written the way the route writes it, which reads the request.
+        services.GetRequiredService<Microsoft.AspNetCore.Http.IHttpContextAccessor>().HttpContext =
+            new Microsoft.AspNetCore.Http.DefaultHttpContext { User = caller.Principal!, RequestServices = services };
+
+        var result = await engine.RunAsync(
+            System.Text.Json.JsonSerializer.SerializeToElement(SiteDocument("From the file")), caller, apply: true, allowDestructive: false, Ct);
+
+        result.StatusCode.Should().Be(409, System.Text.Json.JsonSerializer.Serialize(result.Response));
+        result.Response.Applied.Should().BeFalse();
+        result.Response.Errors.Should().ContainSingle(e => e.Contains("changed by another write"));
+        var site = await _callers.InTenantAsync(tenant, s => s.LoadAsync<Content>(entryId, Ct));
+        site!.Data["Tagline"].ToString().Should().Be("Concurrent", "the apply committed nothing");
+        permissions.Invalidated.Should().BeGreaterThan(0, "a decision cached from what was staged does not outlive the failed commit");
+        (await _callers.InTenantAsync(null, s => s.Query<AuditEvent>().AnyAsync(e => e.TenantSlug == tenant && e.Action == "config.refused", Ct)))
+            .Should().BeTrue("the refused apply is in the log");
+    }
 }
