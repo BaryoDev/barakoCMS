@@ -61,10 +61,15 @@ public sealed class AccountingModule : IBarakoModule
     public async Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct)
     {
         // By id before by name: storing a new role under the seeded id would replace a role an
-        // operator renamed, and with it every permission they gave it.
+        // operator renamed, and with it every permission they gave it. By name only among the
+        // deployment's roles: a tenant's own role named Accountant is not this module's.
         var accountant = AccountingCapabilities.Accountant.Name;
         var existing = await session.LoadAsync<Role>(AccountantRoleId, ct)
-                       ?? await session.Query<Role>().FirstOrDefaultAsync(r => r.Name == accountant, ct);
+                       ?? (await session.Query<Role>()
+                               .Where(r => r.Name == accountant && (r.TenantSlug == null || r.TenantSlug == Tenant.DefaultSlug))
+                               .ToListAsync(ct))
+                           .OrderBy(r => r.TenantSlug is null ? 0 : 1)
+                           .FirstOrDefault();
         if (existing is null)
         {
             session.Store(new Role
