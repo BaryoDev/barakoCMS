@@ -681,129 +681,138 @@ public class TemplateVariableExtractor(
     private static List<TemplateVariable> GetSystemVariables() =>
         [.. GetEntryVariables(), .. GetPeopleVariables(), .. GetLinkVariables()];
 
-    private static List<TemplateVariable> GetEntryVariables() =>
-    [
-        new()
+    private static List<TemplateVariable> GetEntryVariables()
+    {
+        return new List<TemplateVariable>
         {
-            Name = "{{id}}",
-            Description = "Content unique identifier",
-            Example = "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-            Type = "string"
-        },
-        new()
-        {
-            Name = "{{contentType}}",
-            Description = "Content type name",
-            Example = "PurchaseOrder",
-            Type = "string"
-        },
-        new()
-        {
-            Name = "{{status}}",
-            Description = "Content status",
-            Example = "Published",
-            Type = "string"
-        },
-        new()
-        {
-            Name = "{{createdAt}}",
-            Description = "When the content was created",
-            Example = "2024-12-16T10:00:00Z",
-            Type = "datetime"
-        },
-        new()
-        {
-            Name = "{{updatedAt}}",
-            Description = "When the content was last updated",
-            Example = "2024-12-16T15:30:00Z",
-            Type = "datetime"
-        },
-    ];
+            new()
+            {
+                Name = "{{id}}",
+                Description = "Content unique identifier",
+                Example = "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                Type = "string"
+            },
+            new()
+            {
+                Name = "{{contentType}}",
+                Description = "Content type name",
+                Example = "PurchaseOrder",
+                Type = "string"
+            },
+            new()
+            {
+                Name = "{{status}}",
+                Description = "Content status",
+                Example = "Published",
+                Type = "string"
+            },
+            new()
+            {
+                Name = "{{createdAt}}",
+                Description = "When the content was created",
+                Example = "2024-12-16T10:00:00Z",
+                Type = "datetime"
+            },
+            new()
+            {
+                Name = "{{updatedAt}}",
+                Description = "When the content was last updated",
+                Example = "2024-12-16T15:30:00Z",
+                Type = "datetime"
+            }
+        };
+    }
 
-    private static List<TemplateVariable> GetPeopleVariables() =>
-    [
-        new()
+    private static List<TemplateVariable> GetPeopleVariables()
+    {
+        return new List<TemplateVariable>
         {
-            Name = "{{createdBy.name}}",
-            Description = "Username of whoever created the content. Empty when no user did",
-            Example = "maria",
-            Type = "string"
-        },
-        new()
-        {
-            Name = "{{createdBy.email}}",
-            Description = "Email address of whoever created the content. Empty when no user did",
-            Example = "maria@example.com",
-            Type = "string"
-        },
-        new()
-        {
-            Name = "{{transition.name}}",
-            Description = "The transition that fired the workflow. Transition triggers only",
-            Example = "Approve",
-            Type = "string"
-        },
-        new()
-        {
-            Name = "{{transition.at}}",
-            Description = "When the transition happened. Transition triggers only",
-            Example = "2024-12-16T15:30:00Z",
-            Type = "datetime"
-        },
-        new()
-        {
-            Name = "{{transition.by.name}}",
-            Description = "Username of whoever made the transition. Transition triggers only",
-            Example = "maria",
-            Type = "string"
-        },
-        new()
-        {
-            Name = "{{transition.by.email}}",
-            Description = "Email address of whoever made the transition. Transition triggers only",
-            Example = "maria@example.com",
-            Type = "string"
-        },
-    ];
+            new()
+            {
+                Name = "{{createdBy.name}}",
+                Description = "Username of whoever created the content. Empty when no user did",
+                Example = "maria",
+                Type = "string"
+            },
+            new()
+            {
+                Name = "{{createdBy.email}}",
+                Description = "Email address of whoever created the content. Empty when no user did",
+                Example = "maria@example.com",
+                Type = "string"
+            },
+            new()
+            {
+                Name = "{{transition.name}}",
+                Description = "The transition that fired the workflow. Transition triggers only",
+                Example = "Approve",
+                Type = "string"
+            },
+            new()
+            {
+                Name = "{{transition.at}}",
+                Description = "When the transition happened. Transition triggers only",
+                Example = "2024-12-16T15:30:00Z",
+                Type = "datetime"
+            },
+            new()
+            {
+                Name = "{{transition.by.name}}",
+                Description = "Username of whoever made the transition. Transition triggers only",
+                Example = "maria",
+                Type = "string"
+            },
+            new()
+            {
+                Name = "{{transition.by.email}}",
+                Description = "Email address of whoever made the transition. Transition triggers only",
+                Example = "maria@example.com",
+                Type = "string"
+            }
+        };
+    }
 
-    private static List<TemplateVariable> GetLinkVariables() =>
-    [
-        new()
+    private static List<TemplateVariable> GetLinkVariables()
+    {
+        return new List<TemplateVariable>
         {
-            Name = "{{links.console}}",
-            Description = "The entry in the console, from App:ConsoleUrl. Empty when that is not set",
-            Example = "https://console.example.com/content/3fa85f64-5717-4562-b3fc-2c963f66afa6",
-            Type = "string"
-        },
-        new()
-        {
-            Name = "{{links.edit}}",
-            Description = "The same as links.console: the console's page for the entry, where it is edited",
-            Example = "https://console.example.com/content/3fa85f64-5717-4562-b3fc-2c963f66afa6",
-            Type = "string"
-        },
-        new()
-        {
-            Name = "{{links.entry}}",
-            Description = "The entry in this API, from App:BaseUrl. Empty when that is not set",
-            Example = "https://api.example.com/api/contents/3fa85f64-5717-4562-b3fc-2c963f66afa6",
-            Type = "string"
-        },
-        new()
-        {
-            Name = "{{links.site}}",
-            Description = "The Url of the site settings. Empty when there is none",
-            Example = "https://example.com",
-            Type = "string"
-        },
-        new()
-        {
-            Name = "{{links.public}}",
-            Description = "The entry on the public site: the site's Url, else Feeds:SiteUrl, then the type's path. Empty unless delivery serves the entry at a slug",
-            Example = "https://example.com/blog/hello-world",
-            Type = "string"
-        },
-    ];
+            new()
+            {
+                Name = "{{links.console}}",
+                Description = "The entry in the console, from App:ConsoleUrl. Empty when that is not set",
+                Example = "https://console.example.com/content/3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                Type = "string"
+            },
+            new()
+            {
+                Name = "{{links.edit}}",
+                Description = "The same as links.console: the console's page for the entry, where it is edited",
+                Example = "https://console.example.com/content/3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                Type = "string"
+            },
+            new()
+            {
+                Name = "{{links.entry}}",
+                Description = "The entry in this API, from App:BaseUrl. Empty when that is not set",
+                Example = "https://api.example.com/api/contents/3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                Type = "string"
+            },
+            new()
+            {
+                Name = "{{links.site}}",
+                Description = "The Url of the site settings. Empty when there is none",
+                Example = "https://example.com",
+                Type = "string"
+            },
+            new()
+            {
+                Name = "{{links.public}}",
+                Description = "The entry on the public site: the site's Url, else Feeds:SiteUrl, then the type's path. Empty unless delivery serves the entry at a slug",
+                Example = "https://example.com/blog/hello-world",
+                Type = "string"
+            }
+        };
+    }
 
     private static List<TemplateVariable> GetFormats() =>
     [
