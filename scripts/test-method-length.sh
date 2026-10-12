@@ -83,6 +83,17 @@ expect "a new method over the limit" fail "$TMP/a" "Sample.Another is 73 lines, 
 write_tree "$TMP/a" 76 "$(printf '    public async System.Threading.Tasks.Task<(bool Ok, string Error)> Tupled(int q)\n    {\n'; for _ in $(seq 1 70); do echo '        System.Console.WriteLine();'; done; printf '        return (true, "");\n    }\n')"
 expect "a new method with a tuple return type" fail "$TMP/a" "Sample.Tupled is 74 lines, over the 70-line limit"
 
+write_tree "$TMP/a" 76 "$(printf '    public void Calls()\n    {\n        Send(new Item(1)\n        {\n'; for _ in $(seq 1 70); do echo '            Name = "x",'; done; printf '        });\n    }\n')"
+expect "an object initializer inside a call is part of its method, not a method" fail "$TMP/a" "Sample.Calls is 76 lines"
+# The output is captured first: the check exits 1 here, and under pipefail that would make a grep
+# that matched read as one that did not.
+out=$(python3 "$CHECK" --root "$TMP/a" --baseline "$TMP/a/baseline.txt" 2>&1)
+if printf '%s\n' "$out" | grep -q "Calls.Item"; then
+    echo "  FAIL  the object initializer was measured as a method of its own"; fail=$((fail + 1))
+else
+    echo "  ok    the object initializer is not measured as a method of its own"; pass=$((pass + 1))
+fi
+
 rm "$TMP/a/barakoCMS/Sample.cs"
 expect "a listed method that no longer exists" fail "$TMP/a" "no longer exists"
 

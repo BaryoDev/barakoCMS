@@ -41,7 +41,7 @@ DEFAULT_BASELINE = "scripts/method-length-baseline.txt"
 NOT_METHODS = {
     "if", "for", "foreach", "while", "switch", "using", "lock", "catch", "fixed", "return", "new",
     "nameof", "typeof", "sizeof", "default", "checked", "unchecked", "when", "await", "throw",
-    "extension", "stackalloc", "is", "and", "or", "not", "base", "this",
+    "extension", "stackalloc", "is", "and", "or", "not", "base", "this", "delegate",
 }
 ACCESSORS = {"get", "set", "init", "add", "remove"}
 TYPE_KEYWORDS = re.compile(r"\b(class|struct|interface|record|enum|namespace)\b")
@@ -175,8 +175,8 @@ def method_name(header):
         return None
 
     # The parameter list is the last top-level parenthesis group, after taking off a trailing
-    # where clause or base/this call. Taking the first group instead misread a tuple return type,
-    # (int a, int b) Foo() or Task<(bool, string)> FooAsync(), as the parameters.
+    # where clause or base/this call, so a tuple return type such as (int a, int b) Foo() or
+    # Task<(bool, string)> FooAsync() is not read as the parameters.
     sig = h.rstrip()
     m_base = re.search(r"\)\s*:\s*(base|this)\s*\(.*\)$", sig, re.S)
     if m_base:
@@ -208,7 +208,8 @@ def method_name(header):
     name = m.group(1)
     if name in NOT_METHODS:
         return None
-    preceding = before[:m.start()].split()
+    # Split on brackets and commas as well as spaces, so `Call(new Foo(x) {` sees the "new".
+    preceding = [w for w in re.split(r"[\s(\[,]+", before[:m.start()]) if w]
     if preceding and preceding[-1] in ("new", "await", "return", "throw", "=", "=>", "in", "is"):
         return None
     if not preceding and name[0].islower():
