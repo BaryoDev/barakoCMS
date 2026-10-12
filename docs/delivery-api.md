@@ -50,6 +50,7 @@ listed, audited and revocable, and its key is posted in a body rather than put i
 | GET | `/api/public/sitemap.xml` | sitemap |
 | GET | `/api/public/types/{type}/description` | the type's route template and its Public fields' roles |
 | GET | `/api/public/events` | a server-sent event stream of changes (off by default, see below) |
+| POST | `/api/public/{type}/lookup` | one entry's named fields, by a reference plus an identifier (see [public-lookup.md](public-lookup.md)) |
 
 The feed takes an item's title, description and date from the fields the type gives the `title`,
 `summary` and `date` roles, and the feed and the sitemap build each link from the type's
@@ -251,6 +252,30 @@ asking:
   blanked value is.
 - A filter without `contentType`, or on a type with no stored definition, returns 400.
 - `sort` is not read on this route. Order is `sortOrder` over the creation time, as before.
+
+### Counting entries by status
+
+`GET /api/contents/counts` answers how many entries the caller may read, by status, so an overview
+card does not have to page the whole collection:
+
+```text
+GET /api/contents/counts?contentType=article
+```
+
+```json
+{ "total": 154, "draft": 27, "published": 121, "archived": 3, "scheduled": 3, "uncountedTypes": [] }
+```
+
+- Without `contentType` it counts every type with a stored definition that the caller may read;
+  with one, only that type.
+- Each status is its own number and `total` is all four together. `scheduled` is the `Scheduled`
+  status, entries waiting for their publish time.
+- Each type is counted under the same read rules the entries list pages with, so the numbers agree
+  with what `GET /api/contents` would list. A type whose rules for the caller depend on the entry in
+  a way that cannot be turned into a query (a condition on `$status`, or on a value that is not a
+  string) is named in `uncountedTypes` and left out of the numbers, rather than loaded row by row.
+  Only a type the caller has some read rule for is named.
+- It needs a signed-in caller, or an API key with `content:read`.
 
 ## Sorting
 
