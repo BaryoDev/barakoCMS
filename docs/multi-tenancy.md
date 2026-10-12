@@ -336,6 +336,31 @@ A registration that has to be verified records the tenant on the pending row, an
 reads the policy again: a tenant that stopped taking sign-ups in between spends the token and
 creates nothing.
 
+## How members sign in
+
+A tenant's `signIn` rules, set whole with `PUT /api/tenants/{handle}`, are read when a token for
+the tenant is issued. Each adds to what the deployment and the member's roles already require, so
+the strictest applies, and leaving them unset is what a tenant did before they existed.
+
+```json
+{ "name": "Clinic", "signIn": { "requireMfa": false, "mfaRoleIds": ["<nurse role id>"], "methods": ["password"], "sessionMinutes": 480 } }
+```
+
+- `requireMfa` asks every member to enrol in MFA, and `mfaRoleIds` asks it of members holding one of
+  those roles here. A member who has not enrolled gets the enrol-only token a role with `RequireMfa`
+  already gives (`mfaEnrollmentRequired` on the sign-in answer). A role whose own `RequireMfa` is set
+  requires MFA in every tenant; this is how one tenant requires it of a role another does not.
+- `methods` names the ways a sign-in may start: `password` (`POST /api/auth/login`), `otp`
+  (`POST /api/auth/otp/request`) and `social`. Empty allows all three. A method the tenant does not
+  allow answers 403 before any account is read, and social sign-in is refused. The code a password
+  sign-in emails to approve a new device is not a sign-in method, so it still works.
+- `sessionMinutes`, between 5 and 10080, caps the refresh token minted for the tenant at sign-in and
+  at every refresh, and the access token when it is shorter than fifteen minutes. A refresh is
+  capped from the moment it happens, so a session that keeps refreshing within the length keeps going.
+
+Switching tenants with `POST /api/me/switch` reads the MFA rules of the tenant switched to, and not
+the methods, since the caller has already signed in.
+
 ## Roles at request time
 
 `PermissionResolver` asks `MembershipRoles.EffectiveRoleIdsAsync` for the caller's roles, which is

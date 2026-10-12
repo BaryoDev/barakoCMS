@@ -95,6 +95,9 @@ internal sealed class TenantWriteRequest
     /// <summary>The role an Open sign-up gives. Required with Open, refused with anything else.</summary>
     public Guid? SignUpRoleId { get; set; }
 
+    /// <summary>The tenant's sign-in rules, replaced whole. Null on an update leaves them as they are.</summary>
+    public TenantSignInBody? SignIn { get; set; }
+
     /// <summary>
     /// The domains the tenant answers on, as bare hosts such as <c>example.com</c>.
     /// </summary>
@@ -104,6 +107,35 @@ internal sealed class TenantWriteRequest
     /// wiping its domains.
     /// </remarks>
     public List<string>? Domains { get; set; }
+}
+
+/// <summary>A tenant's sign-in rules as the API reads and writes them. See <see cref="TenantSignInPolicy"/>.</summary>
+internal sealed class TenantSignInBody
+{
+    public bool RequireMfa { get; set; }
+    public List<Guid> MfaRoleIds { get; set; } = new();
+    public List<string> Methods { get; set; } = new();
+    public int? SessionMinutes { get; set; }
+
+    /// <summary>Shortest and longest session a tenant may set: five minutes, and the deployment's seven days.</summary>
+    public const int MinSessionMinutes = 5;
+    public const int MaxSessionMinutes = 7 * 24 * 60;
+
+    public static TenantSignInBody From(TenantSignInPolicy p) => new()
+    {
+        RequireMfa = p.RequireMfa,
+        MfaRoleIds = p.MfaRoleIds.ToList(),
+        Methods = p.Methods.ToList(),
+        SessionMinutes = p.SessionMinutes,
+    };
+
+    public TenantSignInPolicy ToPolicy() => new()
+    {
+        RequireMfa = RequireMfa,
+        MfaRoleIds = (MfaRoleIds ?? []).Distinct().ToList(),
+        Methods = (Methods ?? []).Select(m => m.Trim().ToLowerInvariant()).Distinct().ToList(),
+        SessionMinutes = SessionMinutes,
+    };
 }
 
 /// <summary>Refuses a tenant write that sets a profile field, naming the site field it moved to.</summary>
@@ -126,6 +158,14 @@ internal sealed class TenantWriteRequestValidator : Validator<TenantWriteRequest
 
         RuleFor(r => r.Status).IsInEnum();
         RuleFor(r => r.SignUp).IsInEnum();
+        RuleForEach(r => r.SignIn!.Methods)
+            .Must(m => TenantSignInPolicy.KnownMethods.Contains((m ?? string.Empty).Trim().ToLowerInvariant()))
+            .When(r => r.SignIn is not null)
+            .WithMessage($"A sign-in method is one of: {string.Join(", ", TenantSignInPolicy.KnownMethods)}.");
+        RuleFor(r => r.SignIn!.SessionMinutes)
+            .InclusiveBetween(TenantSignInBody.MinSessionMinutes, TenantSignInBody.MaxSessionMinutes)
+            .When(r => r.SignIn?.SessionMinutes is not null)
+            .WithMessage($"sessionMinutes is between {TenantSignInBody.MinSessionMinutes} and {TenantSignInBody.MaxSessionMinutes}, or null for the deployment's length.");
         RuleFor(r => r.SignUpRoleId).NotNull().When(r => r.SignUp == TenantSignUp.Open)
             .WithMessage("An Open sign-up policy needs signUpRoleId, the role a person who signs up is given.");
         RuleFor(r => r.SignUpRoleId).Null().When(r => r.SignUp != TenantSignUp.Open)
@@ -168,6 +208,12 @@ internal static class TenantSignUpRole
             return "The sign-up role carries platform access, so it cannot be given to whoever signs up.";
 
         return null;
+    }
+
+    public static async Task<bool> AllExistAsync(IQuerySession session, List<Guid>? roleIds, CancellationToken ct)
+    {
+        var ids = (roleIds ?? []).Distinct().ToList();
+        return ids.Count == 0 || await session.Query<Role>().CountAsync(r => ids.Contains(r.Id), ct) == ids.Count;
     }
 }
 
@@ -240,6 +286,9 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         if (req.SignUpRoleId is { } signUpRole && await TenantSignUpRole.RefusalAsync(_session, signUpRole, ct) is { } refusal)
         { AddError(r => r.SignUpRoleId, refusal); ThrowIfAnyErrors(); }
 
+        if (req.SignIn is not null && !await TenantSignUpRole.AllExistAsync(_session, req.SignIn.MfaRoleIds, ct))
+        { AddError(r => r.SignIn, "One or more MFA roles do not exist."); ThrowIfAnyErrors(); }
+
         if (await TenantDomainClash.FindAsync(_session, domains, exceptSlug: null, ct) is { } clash)
         { ThrowError($"'{clash.Domain}' is already a domain of tenant '{clash.Slug}'. A domain belongs to one tenant.", 409); }
 
@@ -251,6 +300,7 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
             Status = TenantWriteRequestValidator.Requested(req, TenantStatus.Active),
             SignUp = req.SignUp ?? TenantSignUp.NotSet,
             SignUpRoleId = req.SignUpRoleId,
+            SignIn = req.SignIn?.ToPolicy() ?? new TenantSignInPolicy(),
             Domains = domains.ToList(),
         };
         _session.Store(tenant);
@@ -313,6 +363,8 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         }
         if (req.SignUpRoleId is { } signUpRole && await TenantSignUpRole.RefusalAsync(_session, signUpRole, ct) is { } refusal)
             AddError(r => r.SignUpRoleId, refusal);
+        if (req.SignIn is not null && !await TenantSignUpRole.AllExistAsync(_session, req.SignIn.MfaRoleIds, ct))
+            AddError(r => r.SignIn, "One or more MFA roles do not exist.");
         ThrowIfAnyErrors();
 
         if (domains is not null
@@ -354,6 +406,26 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
 
             tenant.SignUp = signUp;
             tenant.SignUpRoleId = req.SignUpRoleId;
+        }
+
+        if (req.SignIn is not null)
+        {
+            var signIn = req.SignIn.ToPolicy();
+            var changed = System.Text.Json.JsonSerializer.Serialize(tenant.SignIn) != System.Text.Json.JsonSerializer.Serialize(signIn);
+            Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
+            if (changed)
+                await barakoCMS.Infrastructure.Audit.AuditLog.RecordAsync(
+                _session, tenant.Slug, "tenant.signin_changed", actorId,
+                User.FindFirst("Username")?.Value, targetType: "Tenant", targetId: tenant.Slug,
+                metadata: new Dictionary<string, object>
+                {
+                    ["requireMfa"] = signIn.RequireMfa,
+                    ["mfaRoleIds"] = signIn.MfaRoleIds.Select(id => id.ToString()).ToList(),
+                    ["methods"] = signIn.Methods,
+                    ["sessionMinutes"] = signIn.SessionMinutes?.ToString() ?? string.Empty,
+                },
+                ct: ct);
+            tenant.SignIn = signIn;
         }
 
         if (domains is not null)

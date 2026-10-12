@@ -97,6 +97,9 @@ public class Tenant
     /// <summary>The role a person who signs up under <see cref="TenantSignUp.Open"/> is given in this tenant.</summary>
     public Guid? SignUpRoleId { get; set; }
 
+    /// <summary>How members of this tenant sign in: a second factor, the methods allowed, the session length.</summary>
+    public TenantSignInPolicy SignIn { get; set; } = new();
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>The implicit tenant that existing single-tenant data and non-handle requests use.</summary>
@@ -138,4 +141,39 @@ public enum TenantSignUp
 
     /// <summary>Anyone who signs up joins as a member with <see cref="Tenant.SignUpRoleId"/>.</summary>
     Open = 3,
+}
+
+/// <summary>
+/// A tenant's rules for signing in. Each is checked when a token for the tenant is issued, on top of
+/// what the deployment and the member's roles already require, so the strictest applies. The
+/// defaults are what a tenant did before the policy existed.
+/// </summary>
+public class TenantSignInPolicy
+{
+    public const string Password = "password";
+    public const string Otp = "otp";
+    public const string Social = "social";
+
+    /// <summary>The methods <see cref="Methods"/> may name.</summary>
+    public static readonly IReadOnlyList<string> KnownMethods = [Password, Otp, Social];
+
+    /// <summary>Every member needs a second factor here, whatever their roles.</summary>
+    public bool RequireMfa { get; set; }
+
+    /// <summary>A member holding one of these roles needs a second factor here, as if the role required it.</summary>
+    public List<Guid> MfaRoleIds { get; set; } = new();
+
+    /// <summary>The ways to start a sign-in here. Empty allows every method.</summary>
+    public List<string> Methods { get; set; } = new();
+
+    /// <summary>
+    /// The longest a refresh token minted for this tenant lives, in minutes, when shorter than the
+    /// deployment's seven days. An access token is cut to it too when it is shorter than fifteen
+    /// minutes. Null is the deployment's length.
+    /// </summary>
+    public int? SessionMinutes { get; set; }
+
+    /// <summary>Whether <paramref name="method"/> may start a sign-in here.</summary>
+    public bool Allows(string method) =>
+        Methods.Count == 0 || Methods.Contains(method, StringComparer.OrdinalIgnoreCase);
 }

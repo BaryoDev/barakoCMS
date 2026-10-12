@@ -83,7 +83,7 @@ internal class VerifyEndpoint(
         }
 
         var refreshTokenString = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
-        var refreshTokenExpiry = DateTime.UtcNow.AddDays(7);
+        var refreshTokenExpiry = DateTime.UtcNow.Add(issued.RefreshLifetime);
         session.Store(new RefreshToken
         {
             Id = Guid.NewGuid(),

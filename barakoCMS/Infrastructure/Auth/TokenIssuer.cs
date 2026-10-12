@@ -60,13 +60,29 @@ public sealed class TokenIssuer(
         // tenant switch cannot differ. Read from the store rather than IMfaService so the issuer keeps
         // its constructor. MfaSecret is keyed by user id, and only an Enabled row counts: a pending
         // setup is not enrolled.
-        var mustEnroll = roleDocs.Any(r => r.RequireMfa)
+        //
+        // The tenant's sign-in policy adds to the roles' own rule and never removes from it: a role
+        // that requires MFA requires it in every tenant.
+        var policy = slug == Tenant.DefaultSlug
+            ? null
+            : (await session.Query<Tenant>().FirstOrDefaultAsync(t => t.Slug == slug, ct))?.SignIn;
+        var mfaRequired = roleDocs.Any(r => r.RequireMfa)
+            || policy is { RequireMfa: true }
+            || (policy is not null && roleIds.Any(policy.MfaRoleIds.Contains));
+        var mustEnroll = mfaRequired
             && await session.LoadAsync<MfaSecret>(user.Id, ct) is not { Enabled: true };
 
+        var refreshLifetime = TokenIssueResult.DefaultRefreshLifetime;
+        if (policy?.SessionMinutes is > 0 and var minutes && TimeSpan.FromMinutes(minutes) < refreshLifetime)
+            refreshLifetime = TimeSpan.FromMinutes(minutes);
+
         var jti = Guid.NewGuid().ToString();
-        var expiresAt = DateTime.UtcNow.AddMinutes(15);
+        var now = DateTime.UtcNow;
+        var expiresAt = now.AddMinutes(15);
         if (notAfter is { } cap && cap < expiresAt)
             expiresAt = cap;
+        if (now.Add(refreshLifetime) < expiresAt)
+            expiresAt = now.Add(refreshLifetime);
 
         var token = JwtBearer.CreateToken(o =>
         {
@@ -105,7 +121,7 @@ public sealed class TokenIssuer(
                     u.Claims.Add(new(barakoCMS.Infrastructure.Auth.Mfa.MfaEnrollment.Claim, "required"));
             });
 
-        return TokenIssueResult.Granted(token, jti, expiresAt, roles, mustEnroll);
+        return TokenIssueResult.Granted(token, jti, expiresAt, roles, mustEnroll, refreshLifetime);
     }
 
     /// <summary>

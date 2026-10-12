@@ -63,6 +63,11 @@ public static class SocialSignIn
             return Tokens.Denied();
         }
 
+        if (!await TenantSignIn.AllowsAsync(session, club, TenantSignInPolicy.Social, ct))
+        {
+            return Tokens.Denied();
+        }
+
         var normalized = email.Trim().ToLowerInvariant();
         var signUp = await SignUpPolicy.DecideAsync(session, club, ct);
         var user = await session.Query<User>().FirstOrDefaultAsync(u => u.Email.ToLower() == normalized, ct);
@@ -102,6 +107,11 @@ public static class SocialSignIn
         CancellationToken ct,
         Action<IDocumentSession>? beforeFinalCommit = null)
     {
+        if (!await TenantSignIn.AllowsAsync(session, club, TenantSignInPolicy.Social, ct))
+        {
+            return (Tokens.Denied(), false);
+        }
+
         var key = ExternalIdentity.KeyOf(identity.Issuer, identity.Subject);
         var link = await session.LoadAsync<ExternalIdentity>(key, ct);
 
@@ -229,7 +239,7 @@ public static class SocialSignIn
             Id = Guid.NewGuid(),
             TokenHash = RefreshToken.HashOf(refresh),
             UserId = user.Id,
-            ExpiresAt = DateTime.UtcNow.AddDays(7),
+            ExpiresAt = DateTime.UtcNow.Add(issued.RefreshLifetime),
             CreatedAt = DateTime.UtcNow,
             IsRevoked = false,
             DeviceId = device.DeviceId,
