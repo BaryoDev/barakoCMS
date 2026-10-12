@@ -63,21 +63,15 @@ public class LedgerService
     {
     }
 
-    /// <summary>The form before 5.0, which numbers entries from the module's own sequence rows.</summary>
+    /// <summary>The form before 5.0, kept for an external caller that constructs the service.</summary>
     /// <remarks>
-    /// Kept for an external caller that constructs the service. It numbers apart from the content
-    /// endpoint, which uses the core allocator from 5.0, so a deployment posting through both would
-    /// hand out a number twice: construct with an <see cref="barakoCMS.Core.Interfaces.INumberAllocator"/>.
+    /// Numbers through the core gapless allocator, as the content endpoint does, so posts made here
+    /// and there share one count.
     /// </remarks>
-    [Obsolete("Use the constructor taking INumberAllocator, so posts here and through the content endpoint "
-        + "share one count. Removal planned for barakoCMS 6.0.")]
+    [Obsolete("Use the constructor taking INumberAllocator. Removal planned for barakoCMS 6.0.")]
     public LedgerService(IDocumentSession session, IContentWriter contentWriter)
+        : this(session, contentWriter, barakoCMS.Infrastructure.Numbering.NumberAllocators.Gapless())
     {
-        _session = session;
-        _contentWriter = contentWriter;
-#pragma warning disable CS0618 // the matching legacy numbering, for this legacy constructor
-        _hook = new JournalEntryHook();
-#pragma warning restore CS0618
     }
 
     public LedgerService(IDocumentSession session, IContentWriter contentWriter, barakoCMS.Core.Interfaces.INumberAllocator numbers)

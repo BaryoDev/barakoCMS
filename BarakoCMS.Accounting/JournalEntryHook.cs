@@ -28,7 +28,7 @@ public sealed class JournalEntryHook : IContentLifecycleHook
     public static readonly barakoCMS.Core.Interfaces.NumberSeries EntryNumbers =
         new("accounting.je", Prefix: "JE-", Padding: 6, Reset: barakoCMS.Core.Interfaces.NumberReset.Yearly);
 
-    private readonly barakoCMS.Core.Interfaces.INumberAllocator? _numbers;
+    private readonly barakoCMS.Core.Interfaces.INumberAllocator _numbers;
 
     /// <summary>Numbers entries with the core gapless allocator.</summary>
     public JournalEntryHook(barakoCMS.Core.Interfaces.INumberAllocator numbers)
@@ -36,10 +36,10 @@ public sealed class JournalEntryHook : IContentLifecycleHook
         _numbers = numbers;
     }
 
-    /// <summary>Numbers entries with the module's own <see cref="NumberSequence"/> rows, as before 5.0.</summary>
-    [Obsolete("Construct with an INumberAllocator, as DI does, so entries are numbered by the core gapless "
-        + "allocator. Removal planned for barakoCMS 6.0.")]
+    /// <summary>The form before 5.0, for a caller that constructs the hook. Numbers with the core gapless allocator too.</summary>
+    [Obsolete("Construct with an INumberAllocator, as DI does. Removal planned for barakoCMS 6.0.")]
     public JournalEntryHook()
+        : this(barakoCMS.Infrastructure.Numbering.NumberAllocators.Gapless())
     {
     }
 
@@ -149,19 +149,8 @@ public sealed class JournalEntryHook : IContentLifecycleHook
         IDocumentSession session, Dictionary<string, object> data, CancellationToken ct)
     {
         var year = ReadDate(ContentData.Get(data, "Date"))?.Year ?? DateTime.UtcNow.Year;
-        if (_numbers is not null)
-        {
-            var at = new DateTimeOffset(year, 6, 30, 12, 0, 0, TimeSpan.Zero);
-            return (await _numbers.NextAsync(session, EntryNumbers, at, ct)).Formatted;
-        }
-
-        var key = $"JE-{year}";
-
-        var seq = await session.LoadAsync<NumberSequence>(key, ct) ?? new NumberSequence { Id = key, Value = 0 };
-        seq.Value += 1;
-        // Stored on the endpoint's session: the increment commits with the entry itself.
-        session.Store(seq);
-        return $"{key}-{seq.Value:000000}";
+        var at = new DateTimeOffset(year, 6, 30, 12, 0, 0, TimeSpan.Zero);
+        return (await _numbers.NextAsync(session, EntryNumbers, at, ct)).Formatted;
     }
 
     /// <summary>

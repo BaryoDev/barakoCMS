@@ -55,6 +55,9 @@ internal sealed class ContentTypeResponse
     /// </remarks>
     public List<UniquenessRule>? Uniqueness { get; init; }
 
+    /// <summary>The rule numbering the type's entries, or null when they are not numbered.</summary>
+    public NumberingRule? Numbering { get; init; }
+
     /// <summary>
     /// Whether the stream is the source of truth for entries of this type, and permanent either way.
     /// </summary>
@@ -81,6 +84,7 @@ internal sealed class ContentTypeResponse
         RouteTemplate = d.RouteTemplate,
         StructuredDataType = d.StructuredDataType,
         Uniqueness = d.Uniqueness,
+        Numbering = d.Numbering,
         EventSourced = eventSourced,
         CreatedAt = d.CreatedAt,
         UpdatedAt = d.UpdatedAt,

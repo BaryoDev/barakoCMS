@@ -75,24 +75,50 @@ internal static class FieldChanges
     };
 
     /// <summary>
-    /// Stores a new change and, unless <paramref name="queue"/> is false, queues the job that runs it,
-    /// both on <paramref name="session"/>, so they commit with the request's other writes or not at
-    /// all.
+    /// How long the job of a change the request runs itself waits before it starts. It finds the
+    /// change completed and does nothing, unless the request was cut short.
     /// </summary>
-    public static async Task StartAsync(IDocumentSession session, FieldChange change, CancellationToken ct, bool queue = true)
+    public static readonly TimeSpan InlineGrace = TimeSpan.FromMinutes(1);
+
+    /// <summary>
+    /// Stores a new change and queues the job that runs it, both on <paramref name="session"/>, so
+    /// they commit with the request's other writes or not at all. Returns the change already running
+    /// on the type instead, storing nothing, when there is one.
+    /// </summary>
+    /// <remarks>
+    /// The check and the store sit under a transaction lock on the type, held until the request's
+    /// session commits, so two requests cannot both find the type free and both start a change.
+    /// With <paramref name="inlineWhenSmall"/>, a change that fits in one batch is the request's to
+    /// run, and its job waits <see cref="InlineGrace"/> as the safety net for a request that stops.
+    /// </remarks>
+    public static async Task<FieldChange?> StartAsync(IDocumentSession session, FieldChange change, CancellationToken ct, bool inlineWhenSmall = false)
     {
         var lowered = change.ContentType.ToLower();
+        await session.BeginTransactionAsync(ct);
+        await session.QueryAsync<int>(
+            "select 1 from pg_advisory_xact_lock(hashtextextended(?, 0))", ct, $"barakocms:field-change:{session.TenantId}:{lowered}");
+        if (await RunningAsync(session, change.ContentType, ct) is { } running)
+        {
+            return running;
+        }
+
         change.Id = Guid.NewGuid();
         change.State = FieldChangeState.Running;
         change.StartedAt = change.UpdatedAt = DateTimeOffset.UtcNow;
         change.Total = await session.Query<Content>().CountAsync(c => c.ContentType.ToLower() == lowered, ct);
         session.Store(change);
 
-        if (queue)
-        {
-            await new FieldChangeCommand { TenantId = session.TenantId, ChangeId = change.Id }.QueueJobAsync(ct: ct);
-        }
+        DateTime? executeAfter = inlineWhenSmall && RunsInline(change) ? DateTime.UtcNow.Add(InlineGrace) : null;
+        await new FieldChangeCommand { TenantId = session.TenantId, ChangeId = change.Id }.QueueJobAsync(executeAfter, ct: ct);
+        return null;
     }
+
+    /// <summary>Whether a change is small enough for the request that asked for it to run.</summary>
+    public static bool RunsInline(FieldChange change) => change.Total <= BatchSize;
+
+    /// <summary>The refusal for a write or an edit to a type while <paramref name="running"/> runs on it.</summary>
+    public static string Busy(FieldChange running) =>
+        $"'{running.ContentType}' has a field change running ({running.Id}). Try again when it completes.";
 
     /// <summary>The change running on a type, if any. Entry writes to the type wait for it.</summary>
     public static Task<FieldChange?> RunningAsync(IQuerySession session, string contentType, CancellationToken ct)
@@ -190,13 +216,18 @@ internal static class FieldChanges
             return;
         }
 
-        var writer = new ContentWriter(session, new ContentSourcingPolicyService(session), configuration);
+        var writer = new ContentWriter(session, new ContentSourcingPolicyService(session), configuration) { WritesForFieldChange = true };
         foreach (var content in batch)
         {
             if (Rewrite(work, change, definition, content) is { } @event)
             {
                 await writer.AppendAsync(content, @event, ct);
-                change.Processed++;
+
+                // A rename touches an entry twice; it is counted once, when its old name goes.
+                if (work != Work.CopyToNewName)
+                {
+                    change.Processed++;
+                }
             }
         }
 
@@ -298,11 +329,10 @@ internal static class FieldChanges
     /// <summary>What the definition step does to the type, by kind.</summary>
     private static void Define(ContentTypeDefinition definition, FieldChange change)
     {
-        var field = definition.Fields.FirstOrDefault(f => string.Equals(f.Name, change.Field, StringComparison.OrdinalIgnoreCase));
-        if (field is null)
-        {
-            return;
-        }
+        // Thrown rather than skipped: a change completing without its definition step would report
+        // a sensitivity raise or a rename that never happened.
+        var field = definition.Fields.FirstOrDefault(f => string.Equals(f.Name, change.Field, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException($"'{definition.Name}' has no field '{change.Field}' left to change.");
 
         switch (change.Kind)
         {

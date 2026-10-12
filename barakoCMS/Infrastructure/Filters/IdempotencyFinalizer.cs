@@ -40,6 +40,9 @@ public class IdempotencyFinalizer : IGlobalPostProcessor
         var status = http.Response.StatusCode;
         var succeeded = Succeeded(status, context.HasExceptionOccurred, context.HasValidationFailures);
 
+        // A dry run stored nothing, so its key is released for the real write to use.
+        var dryRun = context.Response is barakoCMS.Core.Validation.IDryRunResponse { DryRun: true };
+
         var logger = http.RequestServices.GetService<ILogger<IdempotencyFinalizer>>();
         await using var session = store.LightweightSession();
 
@@ -51,7 +54,7 @@ public class IdempotencyFinalizer : IGlobalPostProcessor
             http.Response.Body = capture.Inner;
         }
 
-        if (succeeded)
+        if (succeeded && !dryRun)
         {
             // Only a replayable claim had its response copied. Anonymous callers and routes that
             // return a credential keep the key and nothing else.
@@ -72,7 +75,7 @@ public class IdempotencyFinalizer : IGlobalPostProcessor
         }
         else
         {
-            // The request did not succeed, so release the key and let a retry run.
+            // The request did not succeed, or was a dry run, so release the key and let a retry run.
             await ReleaseAsync(session, scopedKey, claimId, ct);
             logger?.LogDebug("Released idempotency key after a failed request: {Key}", barakoCMS.Infrastructure.Logging.LogSafe.Value(scopedKey));
         }

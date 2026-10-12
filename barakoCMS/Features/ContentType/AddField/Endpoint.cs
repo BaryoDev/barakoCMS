@@ -2,6 +2,7 @@ using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 using FastEndpoints;
+using barakoCMS.Infrastructure.Jobs;
 using FluentValidation;
 using Marten;
 
@@ -60,7 +61,7 @@ internal sealed class Request
     public bool DryRun { get; set; }
 }
 
-internal sealed class Response
+internal sealed class Response : barakoCMS.Core.Validation.IDryRunResponse
 {
     public string ContentType { get; init; } = string.Empty;
 
@@ -133,6 +134,7 @@ internal sealed class Endpoint(
         // Adding a field to a content type is what manage_content_types means. Same gate as the
         // SEO endpoint next door, which does the same thing for a fixed set.
         Definition.RequireCapability(SystemCapabilities.ManageContentTypes, "SuperAdmin", "Admin");
+        Definition.RefusesWhileFieldChangeRuns();
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)

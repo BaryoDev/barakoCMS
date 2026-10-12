@@ -97,7 +97,7 @@ internal class Endpoint(
         {
             await Send.ResponseAsync(new Response
             {
-                Id = req.Id, DryRun = true, Changes = barakoCMS.Core.Validation.DryRuns.Between(existingContent.Data, req.Data),
+                Id = req.Id, DryRun = true, Changes = await DryRunChangesAsync(user, existingContent, req.Data, ct),
             });
             return;
         }
@@ -266,6 +266,37 @@ internal class Endpoint(
     }
 
     /// <summary>The text anonymous search matches: the entry's Public values, as stored with the write.</summary>
+    /// <summary>What a dry run answers the update would change, as far as the caller may read the entry.</summary>
+    /// <remarks>
+    /// A diff of stored values would answer with values the caller is not shown, and an Update rule
+    /// without a Read rule writes blind. So a caller who may read the entry sees each value as its GET
+    /// shows it, with a field it hides left out. A caller who may not is told only what it sent, with
+    /// no "from" and every field listed, since even which fields differ would say what is stored.
+    /// </remarks>
+    private async Task<List<barakoCMS.Core.Validation.FieldDiff>> DryRunChangesAsync(
+        User user, barakoCMS.Models.Content existing, Dictionary<string, object> data, CancellationToken ct)
+    {
+        if (!await permissionResolver.CanPerformActionAsync(user, existing.ContentType, "read", existing, ct))
+        {
+            return data.Select(kv => new barakoCMS.Core.Validation.FieldDiff(kv.Key, null, kv.Value)).ToList();
+        }
+
+        var sensitivity = Resolve<barakoCMS.Core.Interfaces.ISensitivityService>();
+        var before = new Dictionary<string, object>(existing.Data);
+        var after = new Dictionary<string, object>(data);
+        await sensitivity.ApplyAsync(existing, before, HttpContext, ct);
+        await sensitivity.ApplyAsync(existing, after, HttpContext, ct);
+
+        static string? Key(Dictionary<string, object> view, string field) =>
+            barakoCMS.Infrastructure.Jobs.FieldChanges.KeyOf(view, field);
+
+        return barakoCMS.Core.Validation.DryRuns.Between(existing.Data, data)
+            .Where(d => (d.From is null || Key(before, d.Field) is not null) && (d.To is null || Key(after, d.Field) is not null))
+            .Select(d => new barakoCMS.Core.Validation.FieldDiff(
+                d.Field, d.From is null ? null : before[Key(before, d.Field)!], d.To is null ? null : after[Key(after, d.Field)!]))
+            .ToList();
+    }
+
     private async Task<string> SearchTextAsync(string contentType, Dictionary<string, object> data, CancellationToken ct)
     {
         var definition = await session.Query<ContentTypeDefinition>()

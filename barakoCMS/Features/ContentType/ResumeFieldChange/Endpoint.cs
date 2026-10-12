@@ -16,7 +16,8 @@ internal sealed class Request
 /// <remarks>
 /// For a change whose job stopped, for example after the queue gave up on it. The job starts from
 /// the step and entry the change last recorded, so nothing done is done twice. A completed change
-/// is a 409: there is nothing left to run.
+/// is a 409: there is nothing left to run. So is a change whose job is still queued or running, which
+/// would otherwise run beside the new one.
 /// </remarks>
 internal sealed class Endpoint(IDocumentSession session) : Endpoint<Request, FieldChangeResponse>
 {
@@ -37,6 +38,14 @@ internal sealed class Endpoint(IDocumentSession session) : Endpoint<Request, Fie
         if (change.State == FieldChangeState.Completed)
         {
             AddError("This change has completed. There is nothing left to run.");
+            ThrowIfAnyErrors(StatusCodes.Status409Conflict);
+        }
+
+        var id = change.Id.ToString();
+        if (await session.Query<JobRecord>().AnyAsync(
+                j => (j.State == JobState.Pending || j.State == JobState.Running) && j.CommandJson.Contains(id), ct))
+        {
+            AddError("This change's job is still queued or running, and carries on by itself. Resume it once the queue has given up on it.");
             ThrowIfAnyErrors(StatusCodes.Status409Conflict);
         }
 

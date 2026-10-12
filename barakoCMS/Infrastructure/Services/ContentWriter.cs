@@ -118,6 +118,7 @@ public sealed class ContentWriter : IContentWriter
         // one as being in the type's initial state, as a transition does.
         var entry = new Content();
         ApplyToDocument(entry, @event);
+        await RefuseWhileFieldChangeRunsAsync(entry.ContentType, cancellationToken);
         await _uniqueness.EnforceAsync(entry, cancellationToken);
 
         return CreateCore(@event, append);
@@ -196,6 +197,7 @@ public sealed class ContentWriter : IContentWriter
         await _tokens.KeepAsync(content, @event, cancellationToken);
         ApplyToDocument(content, @event);
 
+        await RefuseWhileFieldChangeRunsAsync(content.ContentType, cancellationToken);
         await EnforceUniquenessAsync(content, cancellationToken);
 
         _session.Store(content);
@@ -287,6 +289,7 @@ public sealed class ContentWriter : IContentWriter
             ApplyToDocument(content, @event);
         }
 
+        await RefuseWhileFieldChangeRunsAsync(content.ContentType, cancellationToken);
         await EnforceUniquenessAsync(content, cancellationToken);
 
         _session.Store(content);
@@ -413,6 +416,24 @@ public sealed class ContentWriter : IContentWriter
     /// write them with no matching document. So a refusal ejects the session's pending changes,
     /// every one of them, before it is thrown.
     /// </remarks>
+    /// <summary>Set on the writer the field change job writes with: its writes are the ones the refusal below waits for.</summary>
+    internal bool WritesForFieldChange { get; init; }
+
+    /// <summary>
+    /// Refuses a write to a type while a field change runs on it, whichever path the write came by:
+    /// one landing between two of the change's batches would leave the entry in a shape the job has
+    /// already passed. The validator refuses the same write first, with a message, on the paths
+    /// that run it.
+    /// </summary>
+    private async Task RefuseWhileFieldChangeRunsAsync(string contentType, CancellationToken cancellationToken)
+    {
+        if (!WritesForFieldChange
+            && await barakoCMS.Infrastructure.Jobs.FieldChanges.RunningAsync(_session, contentType, cancellationToken) is { } running)
+        {
+            throw new InvalidOperationException(barakoCMS.Infrastructure.Jobs.FieldChanges.Busy(running));
+        }
+    }
+
     private async Task EnforceUniquenessAsync(Content content, CancellationToken cancellationToken)
     {
         try

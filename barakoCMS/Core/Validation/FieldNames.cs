@@ -4,12 +4,13 @@ namespace barakoCMS.Core.Validation;
 
 /// <summary>Where else a type's definition names one of its fields.</summary>
 /// <remarks>
-/// A uniqueness rule and a transition name fields by their names. A rename has to carry them along,
-/// or the rule stops comparing the field and the transition demands a field the type no longer has.
+/// A uniqueness rule, a transition and a numbering rule name fields by their names. A rename has to
+/// carry them along, or the rule stops comparing the field, the transition demands a field the type
+/// no longer has, and the number is written under a name the type does not declare.
 /// </remarks>
 internal static class FieldNames
 {
-    /// <summary>The uniqueness rules and transitions that name a field, as text for an error.</summary>
+    /// <summary>The uniqueness rules, transitions and numbering rule that name a field, as text for an error.</summary>
     public static List<string> NamedBy(ContentTypeDefinition definition, string field)
     {
         var named = new List<string>();
@@ -19,10 +20,15 @@ internal static class FieldNames
         named.AddRange((definition.Lifecycle?.Transitions ?? new List<StateTransition>())
             .Where(t => t.RequiredFields.Concat(t.OptionalFields).Any(f => Same(f, field)))
             .Select(t => $"transition '{t.Name}'"));
+        if (definition.Numbering is { } numbering && Same(numbering.Field, field))
+        {
+            named.Add("the numbering rule");
+        }
+
         return named;
     }
 
-    /// <summary>Renames every mention of a field in the type's rules and transitions.</summary>
+    /// <summary>Renames every mention of a field in the type's rules, transitions and numbering rule.</summary>
     public static void Rename(ContentTypeDefinition definition, string from, string to)
     {
         foreach (var rule in definition.Uniqueness ?? new List<UniquenessRule>())
@@ -34,6 +40,11 @@ internal static class FieldNames
         {
             Replace(transition.RequiredFields, from, to);
             Replace(transition.OptionalFields, from, to);
+        }
+
+        if (definition.Numbering is { } numbering && Same(numbering.Field, from))
+        {
+            numbering.Field = to;
         }
     }
 

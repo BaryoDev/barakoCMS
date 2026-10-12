@@ -4,6 +4,7 @@ using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 using FastEndpoints;
+using barakoCMS.Infrastructure.Jobs;
 using Marten;
 
 namespace barakoCMS.Features.ContentType.SetNumbering;
@@ -45,6 +46,7 @@ internal sealed class Endpoint(IDocumentSession session, barakoCMS.Infrastructur
     {
         Put("/api/content-types/{name}/numbering");
         Definition.RequireCapability(SystemCapabilities.ManageContentTypes, "SuperAdmin", "Admin");
+        Definition.RefusesWhileFieldChangeRuns();
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)

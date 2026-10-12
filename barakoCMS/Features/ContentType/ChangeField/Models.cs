@@ -95,10 +95,13 @@ internal sealed class Validator : Validator<Request>
     public Validator()
     {
         RuleFor(r => r.DisplayName).MaximumLength(200);
-        RuleFor(r => r.NewName).MaximumLength(100);
+        RuleFor(r => r.NewName).MaximumLength(100)
+            .Must(n => n is null || !string.IsNullOrWhiteSpace(n)).WithMessage("A new name cannot be empty.");
         RuleFor(r => r.Mapping).Must(m => m is null || m.Count <= MaxMapping)
             .WithMessage($"A mapping holds at most {MaxMapping} values.");
         RuleFor(r => r).Must(r => new[] { r.NewName is not null, r.ToType is not null, r.Remove }.Count(x => x) <= 1)
             .WithMessage("Send one of newName, toType or remove: one change at a time.");
+        RuleFor(r => r.DisplayName).Null().When(r => r.NewName is not null || r.ToType is not null || r.Remove)
+            .WithMessage("Send displayName on its own: a label is changed apart from a rename, a convert or a remove.");
     }
 }

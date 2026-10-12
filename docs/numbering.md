@@ -21,7 +21,16 @@ and an `example` of the next number's shape.
 
 Each type counts in its own series, per tenant, so two tenants never share a count or see each
 other's numbers. Entries are numbered when they are created; an entry that already exists keeps
-what it holds. A dry run takes no number.
+what it holds. A dry run takes no number. An update, by any route, keeps the stored number: a
+number sent with it is replaced by the one the entry holds.
+
+Entries are numbered when they are created through `POST /api/contents`, the batch create and an
+import. Four other routes create entries without a number today: a collection push, a form
+submission, a workflow's create-task action and an inbound collection sync. A type whose numbering
+matters should not take entries by those routes until they number too.
+
+A numbering rule moves with its field when the field is renamed, and a field a rule numbers cannot
+be converted or removed until the rule is taken off.
 
 ## Strategies
 

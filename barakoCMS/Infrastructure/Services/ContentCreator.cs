@@ -142,6 +142,13 @@ public sealed class ContentCreator(
                 : await validator.ValidateFieldsAsync(schema, request.ContentType, request.Data, existing: null, caller: httpContext.User);
         }
 
+        // The validator refuses a write while a field change runs on the type; the batch path does not run that check.
+        if (isValid && schema is not null
+            && await barakoCMS.Infrastructure.Jobs.FieldChanges.RunningAsync(session, request.ContentType, ct) is { } running)
+        {
+            errors.Add(barakoCMS.Infrastructure.Jobs.FieldChanges.Busy(running));
+        }
+
         string? slug = null;
         if (isValid && schema is not null && batch is not null)
         {
@@ -185,7 +192,7 @@ public sealed class ContentCreator(
             ?? await session.Query<ContentTypeDefinition>()
                 .FirstOrDefaultAsync(d => d.Name == request.ContentType, ct);
 
-        await NumberAsync(definition, request.Data, ct);
+        await NumberAsync(definition, request.ContentType, request.Data, ct);
 
         var publicFields = definition?.Fields
             .Where(f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.InlineImageFields.Is(f.Type))
@@ -232,9 +239,20 @@ public sealed class ContentCreator(
     /// Here rather than in the checks, so a request refused, or a dry run, takes no number. A gapless
     /// number is taken inside this session's transaction and commits or rolls back with the entry.
     /// </remarks>
-    private async Task NumberAsync(ContentTypeDefinition? definition, Dictionary<string, object> data, CancellationToken ct)
+    /// <remarks>
+    /// The type is matched ignoring case here even where the create's own lookup is exact, so an
+    /// entry created as INVOICE under a type named invoice is still numbered.
+    /// </remarks>
+    private async Task NumberAsync(ContentTypeDefinition? definition, string contentType, Dictionary<string, object> data, CancellationToken ct)
     {
-        if (numbering is null || definition?.Numbering is not { Field.Length: > 0 } rule)
+        if (numbering is null)
+        {
+            return;
+        }
+
+        var lowered = contentType.ToLower();
+        definition ??= await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct);
+        if (definition?.Numbering is not { Field.Length: > 0 } rule)
         {
             return;
         }

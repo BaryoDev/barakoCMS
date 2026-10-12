@@ -65,6 +65,7 @@ internal class Endpoint(
         // Sensitivity is what decides whether a field is scrubbed on the way out to an anonymous
         // caller, so it is a disclosure decision rather than a modelling one.
         Definition.RequireCapability(SystemCapabilities.ManagePublicDelivery, "SuperAdmin", "Admin");
+        Definition.RefusesWhileFieldChangeRuns();
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
@@ -172,19 +173,11 @@ internal class Endpoint(
         var answered = new FieldDefinition { VisibleToRoles = [.. target.VisibleToRoles] };
         var roles = await RoleAudit.RoleListsAsync(session, [field.VisibleToRoles?.ToList() ?? new List<string>(), target.VisibleToRoles], [answered], ct);
 
-        var change = new FieldChange
+        var change = NewChange(def, field, req, target.VisibleToRoles, actorId);
+        if (await FieldChanges.StartAsync(session, change, ct, inlineWhenSmall: true) is { } busy)
         {
-            ContentType = def.Name,
-            Field = field.Name,
-            Kind = FieldChangeKind.Sensitivity,
-            FromSensitivity = from,
-            ToSensitivity = to,
-            VisibleToRoles = target.VisibleToRoles,
-            Mask = to == SensitivityLevel.Public ? FieldMask.Default : req.Mask ?? FieldMask.Default,
-            DefinitionFirst = lowering,
-            RequestedBy = actorId,
-        };
-        await FieldChanges.StartAsync(session, change, ct, queue: false);
+            RefuseBusy(busy);
+        }
 
         // Lowering is a disclosure, so it gets an action of its own. Alerting on it should not mean
         // reading the metadata of every sensitivity change.
@@ -215,7 +208,7 @@ internal class Endpoint(
 
         await session.SaveChangesAsync(ct);
 
-        var applied = await RunOrQueueAsync(change, ct);
+        var applied = await RunInlineAsync(change, ct);
 
         // The delivery OpenAPI document lists only the Public fields of a type, so this changed it.
         openApiCache.Invalidate(tenant.Slug);
@@ -233,9 +226,29 @@ internal class Endpoint(
         }, ct);
     }
 
+    /// <summary>The change this request asks for, carrying the roles as stored.</summary>
+    private static FieldChange NewChange(ContentTypeDefinition def, FieldDefinition field, Request req, List<string> roleIds, Guid actorId) => new()
+    {
+        ContentType = def.Name,
+        Field = field.Name,
+        Kind = FieldChangeKind.Sensitivity,
+        FromSensitivity = field.Sensitivity,
+        ToSensitivity = req.Sensitivity,
+        VisibleToRoles = roleIds,
+        Mask = req.Sensitivity == SensitivityLevel.Public ? FieldMask.Default : req.Mask ?? FieldMask.Default,
+        DefinitionFirst = req.Sensitivity < field.Sensitivity,
+        RequestedBy = actorId,
+    };
+
+    private void RefuseBusy(FieldChange running)
+    {
+        AddError(FieldChanges.Busy(running));
+        ThrowIfAnyErrors(StatusCodes.Status409Conflict);
+    }
+
     /// <summary>
-    /// Applies the change before answering when the type fits in one batch, and otherwise, or when
-    /// that run fails, queues the job that applies it and answers with the change still running.
+    /// Applies the change before answering when the type fits in one batch, and otherwise answers
+    /// with the change still running on its job.
     /// </summary>
     /// <remarks>
     /// The steps are the same either way, and their order is the one this endpoint always had: when
@@ -243,11 +256,13 @@ internal class Endpoint(
     /// the old text is still matchable under the new level; when lowering, the definition changes
     /// first. Inline for a small type, because a client reading the type straight after this answer
     /// expects the new level, and a job for a large one, because rebuilding a whole type used to hold
-    /// the request open for as long as it took.
+    /// the request open for as long as it took. The small change's job was queued with it, to start a
+    /// minute later, so a run cut short here, by a failure or by the client going away, is finished
+    /// by the job rather than leaving the type's writes refused.
     /// </remarks>
-    private async Task<FieldChange> RunOrQueueAsync(FieldChange change, CancellationToken ct)
+    private async Task<FieldChange> RunInlineAsync(FieldChange change, CancellationToken ct)
     {
-        if (change.Total <= FieldChanges.BatchSize)
+        if (FieldChanges.RunsInline(change))
         {
             try
             {
@@ -263,8 +278,6 @@ internal class Endpoint(
             }
         }
 
-        await new FieldChangeCommand { TenantId = session.TenantId, ChangeId = change.Id }.QueueJobAsync(ct: ct);
-        await session.SaveChangesAsync(ct);
         await using var read = store.QuerySession(session.TenantId);
         return await read.LoadAsync<FieldChange>(change.Id, ct) ?? change;
     }

@@ -9,6 +9,16 @@ namespace barakoCMS.Core.Validation;
 /// <param name="To">What it would hold, or null when the write leaves it out.</param>
 internal sealed record FieldDiff(string Field, object? From, object? To);
 
+/// <summary>A response that can answer for a dry run, which stored nothing.</summary>
+/// <remarks>
+/// The idempotency finalizer releases the key of a dry run instead of completing it: the real write
+/// that follows, sent with the same key, is a different request and must not be refused as one.
+/// </remarks>
+internal interface IDryRunResponse
+{
+    bool DryRun { get; }
+}
+
 /// <summary>
 /// What a dry run answers: the write was checked by everything the real write runs, and this is
 /// what it would change. Nothing is stored.

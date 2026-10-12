@@ -1,4 +1,5 @@
 using FastEndpoints;
+using barakoCMS.Infrastructure.Jobs;
 using Marten;
 using barakoCMS.Core.Validation;
 using barakoCMS.Infrastructure.Audit;
@@ -31,6 +32,7 @@ internal class Endpoint(
         Put("/api/content-types/{name}/fields/{field}/presentation");
         // How a field is edited is modelling, the same gate as adding the field.
         Definition.RequireCapability(SystemCapabilities.ManageContentTypes, "SuperAdmin", "Admin");
+        Definition.RefusesWhileFieldChangeRuns();
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)

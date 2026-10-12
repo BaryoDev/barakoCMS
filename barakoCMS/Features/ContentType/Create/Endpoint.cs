@@ -67,7 +67,7 @@ internal class Request
     public bool DryRun { get; set; }
 }
 
-internal class Response
+internal class Response : barakoCMS.Core.Validation.IDryRunResponse
 {
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;

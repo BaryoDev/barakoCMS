@@ -130,6 +130,74 @@ public class DryRunTests : IAsyncLifetime
         (await session.Events.FetchStreamStateAsync(id, Ct))!.Version.Should().Be(1, "no event was appended");
     }
 
+    /// <summary>A client for a stored user whose one role grants Update on the type and nothing else.</summary>
+    private async Task<HttpClient> UpdateOnlyAsync(string type)
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var role = new Role
+        {
+            Id = Guid.NewGuid(), Name = $"UpdateOnly_{Guid.NewGuid():n}",
+            Permissions = [new ContentTypePermission { ContentTypeSlug = type, Update = new PermissionRule { Enabled = true } }],
+        };
+        var userId = Guid.NewGuid();
+        session.Store(role);
+        session.Store(new User { Id = userId, Username = $"updateonly-{userId:n}", Email = $"updateonly-{userId:n}@example.com", RoleIds = [role.Id] });
+        await session.SaveChangesAsync(Ct);
+
+        var client = _fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
+            "Bearer", _fixture.CreateToken([role.Name], userId.ToString(), new Dictionary<string, string> { ["Username"] = $"updateonly-{userId:n}" }));
+        return client;
+    }
+
+    [Fact]
+    public async Task A_dry_run_update_by_a_caller_who_may_not_read_the_entry_tells_them_nothing_stored()
+    {
+        var type = await TypeAsync();
+        var created = await _client.PostAsJsonAsync("/api/contents", new
+        {
+            contentType = type, data = new Dictionary<string, object> { ["Title"] = "Ana", ["Grade"] = 85000 },
+        }, Ct);
+        var id = (await created.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("id").GetGuid();
+        var writer = await UpdateOnlyAsync(type);
+        (await writer.GetAsync($"/api/contents/{id}", Ct)).IsSuccessStatusCode.Should().BeFalse("the role does not read the entry");
+
+        var res = await writer.PutAsJsonAsync($"/api/contents/{id}", new
+        {
+            id, dryRun = true, data = new Dictionary<string, object> { ["Title"] = "Ana", ["Grade"] = 1 },
+        }, Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync(Ct));
+        (await res.Content.ReadAsStringAsync(Ct)).Should().NotContain("85000");
+        var changes = Changes(await res.Content.ReadFromJsonAsync<JsonElement>(Ct));
+        changes.Select(c => c.Field).Should().BeEquivalentTo(["Title", "Grade"], "every field sent, since which ones differ would say what is stored");
+        changes.Should().OnlyContain(c => c.From.ValueKind == JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task A_dry_run_leaves_its_idempotency_key_for_the_real_write()
+    {
+        var type = await TypeAsync();
+        var key = Guid.NewGuid().ToString("n");
+
+        async Task<HttpResponseMessage> CreateAsync(bool dryRun)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/api/contents")
+            {
+                Content = JsonContent.Create(new { contentType = type, dryRun, data = new Dictionary<string, object> { ["Title"] = "Ana" } }),
+            };
+            request.Headers.Add("Idempotency-Key", key);
+            return await _client.SendAsync(request, Ct);
+        }
+
+        (await CreateAsync(dryRun: true)).StatusCode.Should().Be(HttpStatusCode.OK);
+        var real = await CreateAsync(dryRun: false);
+
+        real.StatusCode.Should().Be(HttpStatusCode.OK, await real.Content.ReadAsStringAsync(Ct));
+        (await StoredAsync(type)).Entries.Should().Be(1);
+    }
+
     [Fact]
     public async Task A_dry_run_type_create_lists_its_fields_and_stores_no_type()
     {

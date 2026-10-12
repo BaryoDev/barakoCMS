@@ -26,6 +26,10 @@ public class NumberingRuleTests : IAsyncLifetime
     {
         _fixture = fixture;
         _client = fixture.CreateClient();
+
+        // A bucket of its own under the global per-IP limit: one test here sends fifty creates.
+        var ip = Guid.NewGuid().ToByteArray();
+        _client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"10.{ip[0]}.{ip[1]}.{ip[2]}");
     }
 
     public async ValueTask InitializeAsync() =>
@@ -102,6 +106,70 @@ public class NumberingRuleTests : IAsyncLifetime
         {
             numbers.Select(n => int.Parse(n["INV-".Length..])).Order().Should().Equal(Enumerable.Range(1, 50));
         }
+    }
+
+    [Fact]
+    public async Task An_entry_created_under_a_mis_cased_type_name_is_still_numbered()
+    {
+        var type = await InvoiceTypeAsync("gapless");
+
+        (await CreateAsync(type.ToUpperInvariant(), sent: "MINE-1")).Should().Be("INV-00001");
+    }
+
+    [Fact]
+    public async Task An_update_keeps_the_stored_number()
+    {
+        var type = await InvoiceTypeAsync("gapless");
+        var res = await _client.PostAsJsonAsync("/api/contents", new { contentType = type, data = new Dictionary<string, object> { ["Title"] = "t" } }, Ct);
+        var id = (await res.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("id").GetGuid();
+
+        var update = await _client.PutAsJsonAsync($"/api/contents/{id}", new
+        {
+            id, data = new Dictionary<string, object> { ["Title"] = "renamed", ["Number"] = "INV-99999" },
+        }, Ct);
+
+        update.StatusCode.Should().Be(HttpStatusCode.OK, await update.Content.ReadAsStringAsync(Ct));
+        using var scope = _fixture.Services.CreateScope();
+        var stored = await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<Content>(id, Ct);
+        stored!.Data["Title"].ToString().Should().Be("renamed", "the rest of the update applies");
+        stored.Data["Number"].ToString().Should().Be("INV-00001");
+    }
+
+    [Fact]
+    public async Task A_rename_carries_the_rule_and_a_remove_or_convert_is_refused_while_it_names_the_field()
+    {
+        var type = await InvoiceTypeAsync("gapless");
+        (await CreateAsync(type)).Should().Be("INV-00001");
+
+        foreach (var body in new object[] { new { remove = true, allowDestructive = true }, new { toType = "text" } })
+        {
+            var refused = await _client.PostAsJsonAsync($"/api/content-types/{type}/fields/Number/change", body, Ct);
+            refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain("numbering rule");
+        }
+
+        var renamed = await _client.PostAsJsonAsync($"/api/content-types/{type}/fields/Number/change", new { newName = "InvoiceNo" }, Ct);
+        renamed.StatusCode.Should().Be(HttpStatusCode.Accepted, await renamed.Content.ReadAsStringAsync(Ct));
+        var id = (await renamed.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("change").GetProperty("id").GetGuid();
+        for (var i = 0; i < 150; i++)
+        {
+            var status = await (await _client.GetAsync($"/api/content-types/field-changes/{id}", Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
+            if (status.GetProperty("state").GetString() == "completed")
+            {
+                break;
+            }
+
+            await Task.Delay(200, Ct);
+        }
+
+        var res = await _client.PostAsJsonAsync("/api/contents", new { contentType = type, data = new Dictionary<string, object> { ["Title"] = "t" } }, Ct);
+        var created = (await res.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("id").GetGuid();
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        (await session.Query<ContentTypeDefinition>().SingleAsync(d => d.Name == type, Ct)).Numbering!.Field.Should().Be("InvoiceNo");
+        var stored = await session.LoadAsync<Content>(created, Ct);
+        stored!.Data.Should().ContainKey("InvoiceNo").And.NotContainKey("Number");
+        stored.Data["InvoiceNo"].ToString().Should().Be("INV-00002");
     }
 
     [Fact]
@@ -300,6 +368,28 @@ public class NumberingRuleTests : IAsyncLifetime
         await using var command = new NpgsqlCommand(
             "select last_value from public.barako_number_counters where series = 'accounting.je' and period = '2033' and tenant_id = '*DEFAULT*'", connection);
         ((long)(await command.ExecuteScalarAsync(Ct))!).Should().Be(int.Parse(second[^6..]), "the count lives in the core counter");
+    }
+
+    [Fact]
+    public async Task The_allocator_the_legacy_accounting_constructors_use_shares_the_core_count()
+    {
+        var tenant = "acct-" + Guid.NewGuid().ToString("n")[..8];
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var at = new DateTimeOffset(2034, 3, 1, 0, 0, 0, TimeSpan.Zero);
+
+        async Task<string> NextAsync(INumberAllocator numbers)
+        {
+            await using var session = store.LightweightSession(tenant);
+            var next = await numbers.NextAsync(session, JournalEntryHook.EntryNumbers, at, Ct);
+            await session.SaveChangesAsync(Ct);
+            return next.Formatted;
+        }
+
+        var injected = await NextAsync(_fixture.Services.GetRequiredService<INumberAllocator>());
+        var legacy = await NextAsync(barakoCMS.Infrastructure.Numbering.NumberAllocators.Gapless());
+
+        injected.Should().Be("JE-2034-000001");
+        legacy.Should().Be("JE-2034-000002", "a post through a legacy constructor counts on from the endpoint's number");
     }
 
     private static string RepositoryRoot()

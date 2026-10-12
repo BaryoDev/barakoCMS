@@ -2,6 +2,7 @@ using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Models;
 using FastEndpoints;
+using barakoCMS.Infrastructure.Jobs;
 using Microsoft.Extensions.Configuration;
 using Marten;
 
@@ -45,6 +46,7 @@ internal sealed class AddSeoFieldsEndpoint(
         // Adding fields to a content type is exactly what manage_content_types is, so this asks for
         // that rather than inventing a name for one endpoint.
         Definition.RequireCapability(SystemCapabilities.ManageContentTypes, "SuperAdmin", "Admin");
+        Definition.RefusesWhileFieldChangeRuns();
     }
 
     public override async Task HandleAsync(AddSeoFieldsRequest req, CancellationToken ct)

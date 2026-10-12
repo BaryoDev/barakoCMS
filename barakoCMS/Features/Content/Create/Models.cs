@@ -36,7 +36,7 @@ internal class RequestValidator : FastEndpoints.Validator<Request>
     }
 }
 
-internal class Response
+internal class Response : barakoCMS.Core.Validation.IDryRunResponse
 {
     public Guid Id { get; set; }
     /// <summary>

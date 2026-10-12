@@ -36,6 +36,7 @@ internal sealed class Endpoint(
     {
         Post("/api/content-types/{name}/fields/{field}/change");
         Definition.RequireCapability(SystemCapabilities.ManageContentTypes, "SuperAdmin", "Admin");
+        Definition.RefusesWhileFieldChangeRuns();
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
@@ -50,10 +51,9 @@ internal sealed class Endpoint(
             return;
         }
 
-        if (await FieldChanges.RunningAsync(session, definition.Name, ct) is { } running)
+        if (req.NewName is not null || req.Remove || req.ToType is not null)
         {
-            AddError($"'{definition.Name}' already has a field change running ({running.Id}). Wait for it to complete.");
-            ThrowIfAnyErrors(StatusCodes.Status409Conflict);
+            RefuseUnlessPublic(field);
         }
 
         if (req.NewName is not null)
@@ -95,8 +95,11 @@ internal sealed class Endpoint(
         var renamed = definition.Fields
             .Select(f => f == field ? new FieldDefinition { Name = newName, DisplayName = f.DisplayName, Type = "string" } : f)
             .ToList();
-        var (valid, errors) = validator.Validate(definition.Name, definition.DisplayName, renamed, definition.Fields);
-        foreach (var error in valid ? [] : errors.Where(e => e.Contains($"'{newName}'", StringComparison.OrdinalIgnoreCase)))
+        // Only the errors the rename brings: a type created before some rule existed may break it
+        // already, and that is no reason to refuse a rename.
+        var (_, before) = validator.Validate(definition.Name, definition.DisplayName, definition.Fields, definition.Fields);
+        var (_, after) = validator.Validate(definition.Name, definition.DisplayName, renamed, definition.Fields);
+        foreach (var error in after.Except(before))
         {
             AddError(error);
         }
@@ -111,10 +114,38 @@ internal sealed class Endpoint(
             NewName = newName,
             RequestedBy = ActorId(),
         };
-        await FieldChanges.StartAsync(session, change, ct);
+        if (await FieldChanges.StartAsync(session, change, ct) is { } busy)
+        {
+            RefuseBusy(busy);
+        }
+
         await AuditAsync(definition, field.Name, "rename", change, ct);
         await session.SaveChangesAsync(ct);
         await Send.ResponseAsync(new Response { Classification = "rename", Change = FieldChangeResponse.From(change) }, 202, ct);
+    }
+
+    /// <summary>
+    /// Refuses a rename, a convert or a remove of a field that is not Public, or that holds a token.
+    /// </summary>
+    /// <remarks>
+    /// Reads mask a field by the name the type declares. While a rename or a remove runs, and in
+    /// every history event written before it, the value sits under a name the type no longer
+    /// declares, where nothing masks it. A field has to be Public, so there is nothing to mask,
+    /// before its values move.
+    /// </remarks>
+    private void RefuseUnlessPublic(FieldDefinition field)
+    {
+        if (barakoCMS.Core.Validation.TokenFields.IsToken(field.Type))
+        {
+            AddError($"'{field.Name}' holds a token. A token field is not renamed, converted or removed by a field change.");
+        }
+        else if (field.Sensitivity != SensitivityLevel.Public)
+        {
+            AddError($"'{field.Name}' is {field.Sensitivity}. Its values would sit under a name the type does not declare, "
+                + "where reads do not mask them, so only a Public field is renamed, converted or removed.");
+        }
+
+        ThrowIfAnyErrors();
     }
 
     /// <summary>A convert or a remove: refused while the type's rules name the field, and when it drops values, unless allowed.</summary>
@@ -153,7 +184,11 @@ internal sealed class Endpoint(
         }
 
         var classification = destructive ? "destructive" : "convert";
-        await FieldChanges.StartAsync(session, change, ct);
+        if (await FieldChanges.StartAsync(session, change, ct) is { } busy)
+        {
+            RefuseBusy(busy);
+        }
+
         await AuditAsync(definition, field.Name, classification, change, ct);
         await session.SaveChangesAsync(ct);
         await Send.ResponseAsync(new Response { Classification = classification, Change = FieldChangeResponse.From(change) }, 202, ct);
@@ -184,6 +219,12 @@ internal sealed class Endpoint(
         }
 
         ThrowIfAnyErrors();
+    }
+
+    private void RefuseBusy(FieldChange running)
+    {
+        AddError(FieldChanges.Busy(running));
+        ThrowIfAnyErrors(StatusCodes.Status409Conflict);
     }
 
     private Guid ActorId() => Guid.TryParse(User.FindFirst("UserId")?.Value, out var id) ? id : Guid.Empty;

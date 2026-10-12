@@ -107,6 +107,7 @@ public class ChangeFieldTests : IAsyncLifetime
         body.GetProperty("classification").GetString().Should().Be("rename");
         var status = await CompletedAsync(body.GetProperty("change").GetProperty("id").GetGuid());
         status.GetProperty("total").GetInt32().Should().Be(3);
+        status.GetProperty("processed").GetInt32().Should().Be(3, "an entry is counted once, though a rename touches it twice");
 
         var entries = await EntriesAsync(type);
         entries.Should().HaveCount(3);
@@ -147,6 +148,7 @@ public class ChangeFieldTests : IAsyncLifetime
     [InlineData("practitioner", "PascalCase")]
     [InlineData("Title", "more than once")]
     [InlineData("doctor", "only in case")]
+    [InlineData("  ", "cannot be empty")]
     public async Task A_rename_the_type_could_not_hold_is_refused(string newName, string expected)
     {
         var type = await TypeWithEntriesAsync(0);
@@ -155,6 +157,46 @@ public class ChangeFieldTests : IAsyncLifetime
 
         res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await res.Content.ReadAsStringAsync(Ct)).Should().Contain(expected);
+    }
+
+    [Fact]
+    public async Task A_label_is_sent_on_its_own()
+    {
+        var type = await TypeWithEntriesAsync(0);
+
+        var res = await ChangeAsync(type, "Doctor", new { newName = "Practitioner", displayName = "Practitioner" });
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await res.Content.ReadAsStringAsync(Ct)).Should().Contain("displayName on its own");
+    }
+
+    [Fact]
+    public async Task Only_a_public_field_holding_no_token_is_renamed_converted_or_removed()
+    {
+        var type = await TypeWithEntriesAsync(1,
+            new { name = "Ssn", type = "string", sensitivity = "Hidden" },
+            new { name = "Code", type = "token", sensitivity = "Hidden" });
+
+        foreach (var (field, body, expected) in new (string, object, string)[]
+        {
+            ("Ssn", new { newName = "Tax" }, "is Hidden"),
+            ("Ssn", new { toType = "text" }, "is Hidden"),
+            ("Ssn", new { remove = true, allowDestructive = true }, "is Hidden"),
+            ("Code", new { newName = "Key" }, "holds a token"),
+        })
+        {
+            var refused = await ChangeAsync(type, field, body);
+            refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain(expected);
+        }
+
+        var fields = (await DefinitionAsync(type)).Fields;
+        fields.Select(f => f.Name).Should().Equal("Title", "Doctor", "Ssn", "Code");
+        fields.Single(f => f.Name == "Ssn").Sensitivity.Should().Be(SensitivityLevel.Hidden);
+
+        var allowed = await ChangeAsync(type, "Doctor", new { newName = "Practitioner" });
+        allowed.StatusCode.Should().Be(HttpStatusCode.Accepted, "the positive control: " + await allowed.Content.ReadAsStringAsync(Ct));
+        await CompletedAsync((await allowed.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("change").GetProperty("id").GetGuid());
     }
 
     [Fact]
@@ -299,7 +341,7 @@ public class ChangeFieldTests : IAsyncLifetime
         var partway = await (await _client.GetAsync($"/api/content-types/field-changes/{id}", Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
         partway.GetProperty("state").GetString().Should().Be("running");
         partway.GetProperty("step").GetInt32().Should().Be(0);
-        partway.GetProperty("processed").GetInt32().Should().Be(2);
+        partway.GetProperty("processed").GetInt32().Should().Be(0, "a rename counts an entry when its old key goes, in the last step");
         (await EntriesAsync(type)).Count(e => e.Data.ContainsKey("Practitioner")).Should().Be(2);
         (await DefinitionAsync(type)).Fields.Select(f => f.Name).Should().Contain("Doctor", "the field is read under its old name until the change completes");
 
@@ -337,7 +379,98 @@ public class ChangeFieldTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_sensitivity_change_on_a_type_past_one_batch_runs_on_the_job_queue_and_rebuilds_search_text_first()
+    public async Task Edits_to_the_types_definition_wait_while_a_change_runs()
+    {
+        var type = await TypeWithEntriesAsync(1);
+        var id = await StalledRenameAsync(type);
+
+        var sensitivity = await _client.PutAsJsonAsync($"/api/content-types/{type}/fields/Title/sensitivity", new { sensitivity = "Hidden" }, Ct);
+        sensitivity.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await sensitivity.Content.ReadAsStringAsync(Ct)).Should().Contain("field change running");
+        (await _client.PostAsJsonAsync($"/api/content-types/{type}/fields", new { fieldName = "Notes", type = "text" }, Ct))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await _client.PutAsJsonAsync($"/api/content-types/{type}/numbering", new { field = "Title" }, Ct))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await DefinitionAsync(type)).Fields.Single(f => f.Name == "Title").Sensitivity.Should().Be(SensitivityLevel.Public);
+
+        await _client.PostAsync($"/api/content-types/field-changes/{id}/resume", null, Ct);
+        await CompletedAsync(id);
+        var added = await _client.PostAsJsonAsync($"/api/content-types/{type}/fields", new { fieldName = "Notes", type = "text" }, Ct);
+        added.StatusCode.Should().Be(HttpStatusCode.OK, "the positive control: " + await added.Content.ReadAsStringAsync(Ct));
+    }
+
+    [Fact]
+    public async Task Resuming_a_change_whose_job_is_still_queued_is_refused()
+    {
+        var type = await TypeWithEntriesAsync(1);
+        var id = await StalledRenameAsync(type);
+        var queued = new JobRecord
+        {
+            TrackingID = Guid.NewGuid(), QueueID = "not-a-queue", CommandType = typeof(FieldChangeCommand).FullName!,
+            CommandJson = JsonSerializer.Serialize(new { TenantId = "*DEFAULT*", ChangeId = id }),
+            State = JobState.Pending, CreatedAt = DateTime.UtcNow,
+            ExecuteAfter = DateTime.UtcNow.AddHours(1), DequeueAfter = DateTime.UtcNow.AddHours(1), ExpireOn = DateTime.UtcNow.AddHours(2),
+        };
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(queued);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var refused = await _client.PostAsync($"/api/content-types/field-changes/{id}/resume", null, Ct);
+        refused.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain("still queued or running");
+
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Delete<JobRecord>(queued.TrackingID);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        (await _client.PostAsync($"/api/content-types/field-changes/{id}/resume", null, Ct)).StatusCode.Should().Be(HttpStatusCode.Accepted);
+        await CompletedAsync(id);
+    }
+
+    [Fact]
+    public async Task Two_runs_of_one_change_cannot_both_save_from_the_progress_they_read()
+    {
+        var type = await TypeWithEntriesAsync(0);
+        var id = await StalledRenameAsync(type);
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        await using var first = store.LightweightSession();
+        await using var second = store.LightweightSession();
+        var a = (await first.LoadAsync<FieldChange>(id, Ct))!;
+        var b = (await second.LoadAsync<FieldChange>(id, Ct))!;
+
+        a.Processed++;
+        first.Store(a);
+        await first.SaveChangesAsync(Ct);
+        b.Processed++;
+        second.Store(b);
+
+        await FluentActions.Awaiting(() => second.SaveChangesAsync(Ct)).Should().ThrowAsync<JasperFx.ConcurrencyException>();
+    }
+
+    [Fact]
+    public async Task Another_tenants_change_is_not_found()
+    {
+        var type = await TypeWithEntriesAsync(1);
+        var id = await StalledRenameAsync(type);
+        (await _client.GetAsync($"/api/content-types/field-changes/{id}", Ct)).StatusCode.Should().Be(HttpStatusCode.OK, "the positive control");
+
+        var slug = await Features.Tenants.TenantProfileSeed.TenantAsync(_fixture, Ct);
+        var other = await Features.Tenants.TenantProfileSeed.AdminInAsync(_fixture, slug, Ct);
+        (await other.GetAsync($"/api/content-types/field-changes/{id}", Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await other.PostAsync($"/api/content-types/field-changes/{id}/resume", null, Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        await _client.PostAsync($"/api/content-types/field-changes/{id}/resume", null, Ct);
+        await CompletedAsync(id);
+    }
+
+    [Fact]
+    public async Task A_sensitivity_change_on_a_type_past_one_batch_runs_on_the_job_queue_and_takes_the_value_out_of_search_text()
     {
         var type = await TypeWithEntriesAsync(FieldChanges.BatchSize + 1);
 
@@ -353,7 +486,9 @@ public class ChangeFieldTests : IAsyncLifetime
         (await DefinitionAsync(type)).Fields.Single(f => f.Name == "Doctor").Sensitivity.Should().Be(SensitivityLevel.Hidden);
         var entries = await EntriesAsync(type);
         entries.Should().HaveCount(FieldChanges.BatchSize + 1);
-        entries.Where(e => e.SearchText is not null).Should().OnlyContain(e => !e.SearchText!.Contains("Dr "));
+        var indexed = entries.Where(e => e.SearchText is not null).ToList();
+        indexed.Should().HaveCount(FieldChanges.BatchSize + 1);
+        indexed.Should().OnlyContain(e => !e.SearchText!.Contains("Dr "));
     }
 
     [Fact]

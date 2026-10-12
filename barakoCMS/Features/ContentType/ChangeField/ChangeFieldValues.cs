@@ -1,51 +1,49 @@
 using barakoCMS.Core.Validation;
-using barakoCMS.Infrastructure.Jobs;
 using barakoCMS.Models;
 using Marten;
+using Marten.Linq.MatchesSql;
 
 namespace barakoCMS.Features.ContentType.ChangeField;
 
 /// <summary>How many entries hold a value a convert or a remove would drop.</summary>
 internal static class ChangeFieldValues
 {
+    private const string HoldsValueSql =
+        "exists (select 1 from jsonb_each(d.data -> 'Data') e where lower(e.key) = ? and e.value <> 'null'::jsonb)";
+
     /// <summary>
     /// Counted before anything is changed, so the refusal can name it and the change can record it.
-    /// Read in batches on the id, so the working set stays bounded on a large type.
+    /// One query either way: a remove counts the entries holding a value, and a convert reads each
+    /// distinct stored value once, with how many entries hold it, rather than every entry.
     /// </summary>
     public static async Task<int> LostAsync(IDocumentSession session, ContentTypeDefinition definition, FieldChange change, CancellationToken ct)
     {
         var lowered = definition.Name.ToLower();
-        var lost = 0;
-        Guid? cursor = null;
-
-        while (true)
+        var field = change.Field.ToLower();
+        if (change.Kind == FieldChangeKind.Remove)
         {
-            var query = session.Query<barakoCMS.Models.Content>().Where(c => c.ContentType.ToLower() == lowered);
-            if (cursor is { } after)
-            {
-                query = query.Where(c => c.Id > after);
-            }
-
-            var batch = await query.OrderBy(c => c.Id).Take(FieldChanges.BatchSize).ToListAsync(ct);
-            if (batch.Count == 0)
-            {
-                return lost;
-            }
-
-            cursor = batch[^1].Id;
-            foreach (var content in batch)
-            {
-                var key = FieldChanges.KeyOf(content.Data, change.Field);
-                if (key is null || content.Data[key] is null)
-                {
-                    continue;
-                }
-
-                if (change.Kind == FieldChangeKind.Remove || FieldConversion.Convert(content.Data[key], change) is null)
-                {
-                    lost++;
-                }
-            }
+            return await session.Query<barakoCMS.Models.Content>()
+                .Where(c => c.ContentType.ToLower() == lowered && c.MatchesSql(HoldsValueSql, field))
+                .CountAsync(ct);
         }
+
+        var schema = session.DocumentStore.Options.DatabaseSchemaName;
+        var held = await session.QueryAsync<HeldValue>(
+            "select jsonb_build_object('Value', t.v, 'Entries', t.n) from ("
+            + "select e.value as v, count(*) as n "
+            + $"from {schema}.mt_doc_contents d cross join lateral jsonb_each(d.data -> 'Data') e "
+            + "where d.tenant_id = ? and lower(d.data ->> 'ContentType') = ? and lower(e.key) = ? and e.value <> 'null'::jsonb "
+            + "group by e.value) t",
+            ct, session.TenantId, lowered, field);
+
+        return held.Where(h => h.Value is not null && FieldConversion.Convert(h.Value, change) is null).Sum(h => h.Entries);
+    }
+
+    /// <summary>One distinct stored value of the field, read as an entry's data reads it, and how many entries hold it.</summary>
+    internal sealed class HeldValue
+    {
+        public object? Value { get; set; }
+
+        public int Entries { get; set; }
     }
 }
