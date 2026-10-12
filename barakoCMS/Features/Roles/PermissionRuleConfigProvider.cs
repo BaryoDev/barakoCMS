@@ -19,7 +19,7 @@ namespace barakoCMS.Features.Roles;
 /// not have is another tenant's business: it is neither exported nor removed from here. A rule the
 /// document leaves out, for one of the tenant's types, is removed destructively, and since the rule
 /// names the type by its name, so is it for any other tenant with a type of that name: the plan says
-/// which in a note.
+/// which in a note, to a caller allowed to write the rules and to nobody else.
 /// </para>
 /// <para>
 /// Rules live on the role, which is stored once for the deployment, so writing one asks what
@@ -99,7 +99,10 @@ internal sealed class PermissionRuleConfigProvider(
         }
 
         var refusals = changes.Count == 0 ? [] : await RefusalsAsync(caller, platform, ct);
-        var notes = await SharedRemovalsAsync(changes, ct);
+
+        // Names other tenants, so only for a caller who may write the shared roles anyway. Anyone
+        // else could stage a type name and read back which tenants have it.
+        var notes = refusals.Count == 0 ? await SharedRemovalsAsync(changes, ct) : [];
         return new ConfigSectionPlan { Section = Section, Changes = changes, Errors = errors, Refusals = refusals, Notes = notes };
     }
 

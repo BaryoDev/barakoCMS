@@ -484,4 +484,29 @@ public class ConfigSectionsTests
         notes.Should().ContainSingle(n => n.Contains($"'{role}/{shared}'") && n.Contains(theirs),
             "the rule lives on the shared role, so removing it here removes it for the other tenant too");
     }
+    [Fact]
+    public async Task A_caller_refused_the_rules_is_not_told_which_tenants_have_a_type()
+    {
+        var mine = await _callers.TenantAsync();
+        var theirs = await _callers.TenantAsync();
+        var shared = Unique("probe");
+        await _callers.StoreInTenantAsync(mine, Type(shared, ("Title", "string")));
+        await _callers.StoreInTenantAsync(theirs, Type(shared, ("Title", "string")));
+        var role = Unique("Probed ");
+        await _callers.StoreInTenantAsync(null, new Role
+        {
+            Id = Guid.NewGuid(), Name = role,
+            Permissions = [new ContentTypePermission { ContentTypeSlug = shared, Read = new PermissionRule { Enabled = true } }],
+        });
+        var grants = await _callers.RoleAsync(SystemCapabilities.ManageConfig, SystemCapabilities.ManageRoles);
+        var document = new { version = 1, permissionRules = new Dictionary<string, object>() };
+
+        var (_, allowed) = await PlanAsync(await _callers.ClientAsync(mine, [grants]), document);
+        allowed.ToString().Should().Contain(theirs, "the control: a caller who may write the shared roles is told");
+
+        var (_, plan) = await PlanAsync(await _callers.ClientAsync(mine, [], memberRoles: [grants]), document);
+
+        plan.GetProperty("sections")[0].GetProperty("refusals").GetArrayLength().Should().BeGreaterThan(0, plan.ToString());
+        plan.ToString().Should().NotContain(theirs, "a tenant admin refused the rules does not learn which tenants have the type");
+    }
 }
