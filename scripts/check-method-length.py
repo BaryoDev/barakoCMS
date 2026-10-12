@@ -22,6 +22,12 @@ braces are matched, and a block counts as a method body when the text before it 
 signature (name, parameter list, then nothing, a where clause or a base/this call) or a property or
 event accessor. Length is from the first line of the signature to the closing brace. Local functions
 count on their own as well as inside the method that holds them.
+
+Not measured, because they are not block bodies a scanner can tell apart from expressions without a
+compiler: expression-bodied members (=> ...), including one whose expression is a long lambda, and
+operators. Both branches of an #if are read as code, so a signature duplicated across #if and #else
+confuses the nesting; the check then fails rather than passes, and the fix is to keep the
+signature outside the conditional.
 """
 
 import argparse
@@ -165,29 +171,36 @@ def method_name(header):
     words = h.split()
     if words and words[-1] in ACCESSORS:
         return words[-1]
-    if TYPE_KEYWORDS.search(h.split("(", 1)[0]):
+    if "=>" in h:
         return None
-    if "=>" in h or "=" in h.split("(", 1)[0]:
-        return None
-    open_at = h.find("(")
-    if open_at < 0:
+
+    # The parameter list is the last top-level parenthesis group, after taking off a trailing
+    # where clause or base/this call. Taking the first group instead misread a tuple return type,
+    # (int a, int b) Foo() or Task<(bool, string)> FooAsync(), as the parameters.
+    sig = h.rstrip()
+    m_base = re.search(r"\)\s*:\s*(base|this)\s*\(.*\)$", sig, re.S)
+    if m_base:
+        sig = sig[:m_base.start() + 1]
+    m_where = re.search(r"\)\s*where\b.*$", sig, re.S)
+    if m_where:
+        sig = sig[:m_where.start() + 1]
+    if not sig.endswith(")"):
         return None
     depth = 0
-    close_at = -1
-    for k in range(open_at, len(h)):
-        if h[k] == "(":
+    open_at = -1
+    for k in range(len(sig) - 1, -1, -1):
+        if sig[k] == ")":
             depth += 1
-        elif h[k] == ")":
+        elif sig[k] == "(":
             depth -= 1
             if depth == 0:
-                close_at = k
+                open_at = k
                 break
-    if close_at < 0:
+    if open_at < 0:
         return None
-    rest = h[close_at + 1:].strip()
-    if rest and not re.match(r"^(where\b|:\s*(base|this)\s*\()", rest):
+    before = sig[:open_at].rstrip()
+    if TYPE_KEYWORDS.search(before) or re.search(r"(?<![=!<>])=(?!=)", before):
         return None
-    before = h[:open_at].rstrip()
     before = re.sub(r"<[^()]*>$", "", before).rstrip()
     m = re.search(r"([A-Za-z_]\w*)$", before)
     if not m:

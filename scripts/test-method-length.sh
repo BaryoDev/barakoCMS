@@ -80,6 +80,9 @@ expect "a listed method now within the limit" fail "$TMP/a" "within 70 lines now
 write_tree "$TMP/a" 76 "$(printf '    public void Another()\n    {\n'; for _ in $(seq 1 70); do echo '        System.Console.WriteLine();'; done; printf '    }\n')"
 expect "a new method over the limit" fail "$TMP/a" "Sample.Another is 73 lines, over the 70-line limit and not in the baseline"
 
+write_tree "$TMP/a" 76 "$(printf '    public async System.Threading.Tasks.Task<(bool Ok, string Error)> Tupled(int q)\n    {\n'; for _ in $(seq 1 70); do echo '        System.Console.WriteLine();'; done; printf '        return (true, "");\n    }\n')"
+expect "a new method with a tuple return type" fail "$TMP/a" "Sample.Tupled is 74 lines, over the 70-line limit"
+
 rm "$TMP/a/barakoCMS/Sample.cs"
 expect "a listed method that no longer exists" fail "$TMP/a" "no longer exists"
 

@@ -12,6 +12,7 @@
 84 BarakoCMS.ExternalAuth/GoogleAuthEndpoints.cs::GoogleCallbackEndpoint.HandleAsync
 84 BarakoCMS.ExternalAuth/LinkedInAuthEndpoints.cs::LinkedInCallbackEndpoint.HandleAsync
 97 BarakoCMS.ExternalAuth/OidcAuthEndpoints.cs::OidcCallback.CompleteAsync
+150 BarakoCMS.ExternalAuth/OidcIdToken.cs::OidcIdToken.ValidateAsync
 87 BarakoCMS.ExternalAuth/OidcIdTokenGrant.cs::OidcIdTokenGrantEndpoint.HandleAsync
 97 BarakoCMS.ExternalAuth/OidcProviders.cs::OidcProviders.Read
 75 BarakoCMS.ExternalAuth/SocialSignIn.cs::SocialSignIn.IssueForUserAsync
@@ -37,6 +38,7 @@
 71 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddHstsAndCors
 79 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddJwtAndApiKeyAuth
 144 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddMartenStore
+83 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddModules
 114 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.MapGlobalDocuments
 109 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.MapTenantScopedDocuments
 86 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.ResolveConnectionString
@@ -66,6 +68,7 @@
 170 barakoCMS/Features/ContentType/SetFieldSensitivity/Endpoint.cs::Endpoint.HandleAsync
 80 barakoCMS/Features/ContentType/SetPublicDelivery/Endpoint.cs::Endpoint.HandleAsync
 86 barakoCMS/Features/ContentType/SetUniqueness/Endpoint.cs::Endpoint.HandleAsync
+87 barakoCMS/Features/EmailTemplates/EmailTemplateRenderer.cs::EmailTemplateRenderer.RenderAsync
 82 barakoCMS/Features/EmailTemplates/Preview/Endpoint.cs::Endpoint.HandleAsync
 151 barakoCMS/Features/Public/DeliveryQuery.cs::DeliveryQuery.Parse
 111 barakoCMS/Features/Public/Endpoints.cs::GetBySlugEndpoint.HandleAsync
@@ -104,7 +107,9 @@
 88 barakoCMS/Infrastructure/Migrations/MigrationLedger.cs::MigrationLedger.ApplyLockedAsync
 74 barakoCMS/Infrastructure/Migrations/ShippedMigration.cs::ShippedMigrations.Parse
 355 barakoCMS/Infrastructure/Services/ContentTransitioner.cs::ContentTransitioner.TransitionAsync
+112 barakoCMS/Infrastructure/Services/ContentTypeValidatorService.cs::ContentTypeValidatorService.Validate
 77 barakoCMS/Infrastructure/Services/ContentUniqueness.cs::ContentUniqueness.TryRead
+128 barakoCMS/Infrastructure/Services/ContentValidatorService.cs::ContentValidatorService.ValidateFieldsAsync
 87 barakoCMS/Infrastructure/Services/KubernetesMonitorService.cs::KubernetesMonitorService.GetClusterStatusAsync
 78 barakoCMS/Infrastructure/Services/PermissionPredicateCompiler.cs::PermissionPredicateCompiler.TryCompileOperator
 93 barakoCMS/Infrastructure/Services/PermissionPredicateCompiler.cs::PermissionPredicateCompiler.TryCompileRule

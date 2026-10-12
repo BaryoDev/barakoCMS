@@ -112,9 +112,9 @@ jobs:
           fi
           echo "Unwatched lockfile was caught. The check is live."
 
-      # A pass found 53 methods over 70 lines, one of them 974, and nothing stopped the next one
-      # (#969). A ratchet rather than a rewrite: the baseline lists today's long methods, none may
-      # grow and no new one may join. The check is proven against fixtures before it is trusted.
+      # A ratchet rather than a rewrite (#969): scripts/method-length-baseline.txt lists the methods
+      # over 70 lines, none may grow and no new one may join. The check is proven against fixtures
+      # before it is trusted.
       - name: Prove the method-length check can fail
         run: bash scripts/test-method-length.sh
 
@@ -546,11 +546,13 @@ jobs:
           bash scripts/install-oasdiff.sh "$RUNNER_TEMP/bin"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
-      # A branch push has no base, so it skips only the baseline-edit step; the diff still runs.
+      # A branch push and a dispatch (refresh-stale-prs.yml starts one) carry no base ref, so they
+      # compare the baseline with the default branch's, which is what the pull request merges into
+      # unless it says otherwise.
       - name: The served API does not break the reviewed baseline
         env:
           OPENAPI_OUT: ${{ runner.temp }}/openapi
-          BASE: ${{ github.base_ref || github.event.merge_group.base_ref || '' }}
+          BASE: ${{ github.base_ref || github.event.merge_group.base_ref || github.event.repository.default_branch }}
         run: |
           set -euo pipefail
           ref="${BASE#refs/heads/}"
