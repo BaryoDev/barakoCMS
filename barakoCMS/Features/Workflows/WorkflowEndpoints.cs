@@ -38,9 +38,31 @@ internal class CreateWorkflowEndpoint(
             return;
         }
 
-        // Stored as the content type declares it. The engine matches this with an equality query, so
-        // a workflow saved as "transition:approve" against a transition named "Approve" would be
-        // accepted here and then never fire.
+        WorkflowSave.Normalise(workflow, validation);
+
+        // Encrypted before it is stored, so the definition, the runs that copy its parameters and
+        // the execution log all hold ciphertext. Only the webhook action decrypts it, when sending.
+        WebhookSigning.ProtectSecrets(workflow, protector);
+
+        workflow.Id = Guid.NewGuid();
+        session.Store(workflow);
+        await session.SaveChangesAsync(ct);
+        await Send.ResponseAsync(
+            barakoCMS.Features.Workflows.WorkflowResponse.Saved(workflow, validation.Warnings), cancellation: ct);
+    }
+}
+
+internal static class WorkflowSave
+{
+    /// <summary>Stores the triggers in the form the validator matched them in.</summary>
+    /// <remarks>
+    /// Stored as the content type declares it. The engine matches this with an equality query, so
+    /// a workflow saved as "transition:approve" against a transition named "Approve" would be
+    /// accepted and then never fire.
+    /// </remarks>
+    internal static void Normalise(
+        WorkflowDefinition workflow, WorkflowValidationResult validation)
+    {
         if (validation.NormalisedTriggerEvents is { Count: > 0 } declared)
         {
             workflow.TriggerEvent = declared[0];
@@ -55,16 +77,6 @@ internal class CreateWorkflowEndpoint(
 
         // Stored as none rather than null, so no reader has to tell the two apart.
         workflow.Conditions ??= [];
-
-        // Encrypted before it is stored, so the definition, the runs that copy its parameters and
-        // the execution log all hold ciphertext. Only the webhook action decrypts it, when sending.
-        WebhookSigning.ProtectSecrets(workflow, protector);
-
-        workflow.Id = Guid.NewGuid();
-        session.Store(workflow);
-        await session.SaveChangesAsync(ct);
-        await Send.ResponseAsync(
-            barakoCMS.Features.Workflows.WorkflowResponse.Saved(workflow, validation.Warnings), cancellation: ct);
     }
 }
 
@@ -299,4 +311,170 @@ internal sealed class DeleteWorkflowEndpoint(
 
         await Send.NoContentAsync(ct);
     }
+}
+
+internal sealed class UpdateWorkflowRequest : CreateWorkflowRequest
+{
+    public Guid Id { get; set; }
+}
+
+/// <summary>Replaces one workflow with the definition sent, validated the way a create is.</summary>
+/// <remarks>
+/// <para>
+/// A full update: every field the create takes is replaced, and a field left out takes the create's
+/// default, so leaving out <c>enabled</c> switches the workflow on as it would a new one. The id is
+/// the route's.
+/// </para>
+/// <para>
+/// Credentials are write-only, so a caller holding a workflow read back from the API never has
+/// them to send again. An action sent back unchanged, in the same position with the same type and
+/// every shown parameter as the API returned it, keeps its stored credentials, its Conditional
+/// children's included. A changed action that leaves a credential out is refused with a 400 naming
+/// it: a credential stays with the destination it was given for. Sending one blank clears it, and
+/// sending a value replaces it. A changed Conditional branch is taken as sent.
+/// </para>
+/// <para>
+/// Runs already queued keep the copy of the actions they were queued with. The change applies to
+/// runs queued from here on.
+/// </para>
+/// </remarks>
+internal sealed class UpdateWorkflowEndpoint(
+    IDocumentSession session,
+    barakoCMS.Infrastructure.Services.IWorkflowSchemaValidator validator,
+    ISecretProtector protector,
+    TenantContext tenant) : Endpoint<UpdateWorkflowRequest, WorkflowResponse>
+{
+    public override void Configure()
+    {
+        Put("/api/workflows/{id}");
+        Definition.RequireCapability(SystemCapabilities.ManageWorkflows, "SuperAdmin", "Admin");
+    }
+
+    public override async Task HandleAsync(UpdateWorkflowRequest req, CancellationToken ct)
+    {
+        var stored = await session.LoadAsync<WorkflowDefinition>(req.Id, ct);
+        if (stored is null)
+        {
+            await Send.NotFoundAsync(ct);
+            return;
+        }
+
+        var workflow = req.ToDefinition();
+
+        var validation = await validator.ValidateAsync(workflow, ct);
+        if (!validation.IsValid)
+        {
+            foreach (var error in validation.Errors)
+            {
+                AddError($"{error.Field}: {error.Message}");
+            }
+            await Send.ErrorsAsync(cancellation: ct);
+            return;
+        }
+
+        WorkflowSave.Normalise(workflow, validation);
+        var (kept, refusal) = StoredValuesToKeep(workflow, stored);
+        if (refusal is not null)
+        {
+            AddError(refusal);
+            await Send.ErrorsAsync(cancellation: ct);
+            return;
+        }
+
+        WebhookSigning.ProtectSecrets(workflow, protector);
+        foreach (var (index, name, value) in kept)
+        {
+            workflow.Actions[index].Parameters[name] = value;
+        }
+
+        workflow.Id = stored.Id;
+
+        // An update and not a store, so a delete committed after the load above is not undone by
+        // this inserting the workflow again.
+        session.Update(workflow);
+        await WorkflowAudit.RecordAsync(session, tenant.Slug, "workflow.updated", workflow, User, ct: ct);
+
+        try
+        {
+            await session.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (ex.GetType().Name.Contains("NonExistentDocument"))
+        {
+            await Send.NotFoundAsync(ct);
+            return;
+        }
+
+        await Send.ResponseAsync(WorkflowResponse.Saved(workflow, validation.Warnings), cancellation: ct);
+    }
+
+    /// <summary>
+    /// The stored, already protected values to keep, by action position, or the reason a credential
+    /// cannot be kept.
+    /// </summary>
+    /// <remarks>
+    /// Read before the request's own credentials are protected, so a value sent blank still counts
+    /// as sent. An action is unchanged when its type and every parameter the API shows are what a
+    /// read of the stored action returns, a Conditional's branches included. Only then is a
+    /// credential kept, because a credential follows the action it was given for: kept on a webhook
+    /// whose URL changed, or on a second webhook moved into the first one's place, it would sign
+    /// requests to a destination nobody gave it to.
+    /// </remarks>
+    private static (List<(int Index, string Name, string Value)> Kept, string? Refusal) StoredValuesToKeep(
+        WorkflowDefinition incoming, WorkflowDefinition stored)
+    {
+        var kept = new List<(int, string, string)>();
+        for (var i = 0; i < incoming.Actions.Count && i < stored.Actions.Count; i++)
+        {
+            var next = incoming.Actions[i];
+            var before = stored.Actions[i];
+            if (next is null || before is null
+                || !string.Equals(next.Type, before.Type, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            next.Parameters ??= new Dictionary<string, string>();
+            var storedParameters = before.Parameters ?? [];
+            var shown = WebhookSigning.WithoutSecret(before.Type, storedParameters);
+            var unchanged = SameParameters(WebhookSigning.WithoutSecret(next.Parameters), shown);
+
+            foreach (var (name, value) in storedParameters)
+            {
+                if (!WebhookSigning.IsSensitiveParameterName(name)
+                    || next.Parameters.Keys.Any(k => string.Equals(k, name, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                if (!unchanged)
+                {
+                    return ([], $"actions[{i}] ({before.Type}) changed, so its {name} is not kept. "
+                        + "Send it again, or send it blank to clear it.");
+                }
+
+                kept.Add((i, name, value));
+            }
+
+            if (!unchanged)
+            {
+                continue;
+            }
+
+            // A Conditional's branches are shown with their children's credentials left out, so an
+            // unchanged branch is put back as stored, credentials and all.
+            foreach (var (name, value) in shown)
+            {
+                if (storedParameters.TryGetValue(name, out var original) && original != value)
+                {
+                    kept.Add((i, name, original));
+                }
+            }
+        }
+
+        return (kept, null);
+    }
+
+    private static bool SameParameters(Dictionary<string, string> sent, Dictionary<string, string> shown) =>
+        sent.Count == shown.Count
+        && sent.All(p => shown.TryGetValue(p.Key, out var value) && value == p.Value);
 }

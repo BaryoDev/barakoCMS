@@ -41,12 +41,15 @@ internal sealed record RateLimitSettings(
     RateLimitWindow SiteShare,
     RateLimitWindow? Delivery,
     RateLimitWindow? ApiKey,
-    IReadOnlyList<NamedRateLimit> Policies)
+    IReadOnlyList<NamedRateLimit> Policies,
+    RateLimitWindow Lookup,
+    RateLimitWindow LookupReference)
 {
     public override string ToString() =>
         $"RateLimitSettings {{ Global = {Global}, Auth = {Auth}, Batch = {Batch}, "
       + $"Registration = {Registration}, RendererKey = {(RendererKey is null ? "unset" : "set")}, Renderer = {Renderer}, SiteShare = {SiteShare}, "
-      + $"Delivery = {Delivery?.ToString() ?? "unset"}, ApiKey = {ApiKey?.ToString() ?? "unset"}, Policies = [{string.Join(", ", Policies)}] }}";
+      + $"Delivery = {Delivery?.ToString() ?? "unset"}, ApiKey = {ApiKey?.ToString() ?? "unset"}, Policies = [{string.Join(", ", Policies)}], "
+      + $"Lookup = {Lookup}, LookupReference = {LookupReference} }}";
 }
 
 /// <summary>
@@ -96,6 +99,7 @@ internal static class RateLimitSetup
     public const string DeliveryPolicy = "delivery";
     public const string TlsAskPolicy = "tls-ask";
     public const string EmailPreviewPolicy = "email-preview";
+    public const string LookupPolicy = "public-lookup";
 
     public const int MaxPolicyNameLength = 64;
 
@@ -115,6 +119,7 @@ internal static class RateLimitSetup
         [RegistrationPolicy] = "Registration",
         [SiteSharePolicy] = "SiteShare",
         [DeliveryPolicy] = "Delivery",
+        [LookupPolicy] = "Lookup",
         [LogoutPolicy] = null,
         [TlsAskPolicy] = null,
         [EmailPreviewPolicy] = null,
@@ -128,6 +133,15 @@ internal static class RateLimitSetup
     public static readonly RateLimitWindow DefaultRegistration = new(5, 60 * 60, 0);
     public static readonly RateLimitWindow DefaultRenderer = new(1000, 60, 10);
     public static readonly RateLimitWindow DefaultSiteShare = new(10, 60, 0);
+
+    /// <summary>Anonymous lookups per tenant and visitor. Each one is a guess at a reference and an identifier.</summary>
+    public static readonly RateLimitWindow DefaultLookup = new(10, 60, 0);
+
+    /// <summary>
+    /// Lookups of one reference, from anywhere. Counted by <see cref="LookupReferenceThrottle"/>, since
+    /// the reference is in the body this limiter never reads.
+    /// </summary>
+    public static readonly RateLimitWindow DefaultLookupReference = new(5, 15 * 60, 0);
 
     /// <summary>
     /// Fixed rather than configurable: it bounds lookups, it is not a guessing limit, and sharing the
@@ -182,7 +196,9 @@ internal static class RateLimitSetup
             Window(section, "SiteShare", DefaultSiteShare),
             OptInWindow(section, "Delivery"),
             OptInWindow(section, "ApiKey"),
-            Policies(section));
+            Policies(section),
+            Window(section, "Lookup", DefaultLookup),
+            Window(section, "LookupReference", DefaultLookupReference));
     }
 
     /// <summary>
@@ -247,6 +263,12 @@ internal static class RateLimitSetup
         // limit. The key is 32 random bytes, so this is about load, not about making a guess feasible.
         options.AddPolicy(SiteSharePolicy, context =>
             RateLimitPartition.GetFixedWindowLimiter(SiteSharePartitionKey(context, rendererKeyHash), _ => Options(settings.SiteShare)));
+
+        // Anonymous lookup by reference. Per tenant and visitor, the way share links are, because a
+        // renderer answering a lookup form server side sends every visitor from its one address.
+        options.AddPolicy(LookupPolicy, context =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                "lookup|" + SiteSharePartitionKey(context, rendererKeyHash), _ => Options(settings.Lookup)));
 
         options.OnRejected = async (context, cancellationToken) =>
         {

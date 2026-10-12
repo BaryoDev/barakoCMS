@@ -138,6 +138,10 @@ bash scripts/check-module-versions.sh || fail "check-module-versions.sh failed"
 echo "== upgrade plan =="
 bash scripts/test-upgrade-plan.sh || fail "test-upgrade-plan.sh failed"
 
+echo "== method length =="
+bash scripts/test-method-length.sh >/dev/null || fail "test-method-length.sh failed, so the method-length check cannot be trusted"
+python3 scripts/check-method-length.py || fail "check-method-length.py failed"
+
 echo "== pinned versions agree =="
 bash scripts/check-pinned-versions.sh || fail "check-pinned-versions.sh failed"
 
