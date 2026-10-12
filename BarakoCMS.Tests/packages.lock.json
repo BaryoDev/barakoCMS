@@ -1173,6 +1173,12 @@
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
       },
+      "barakocms.secrets.aws": {
+        "type": "Project",
+        "dependencies": {
+          "AWSSDK.SecretsManager": "[3.7.504.43, )"
+        }
+      },
       "barakocms.testing": {
         "type": "Project",
         "dependencies": {
@@ -1238,6 +1244,15 @@
         "requested": "[3.7.511.8, )",
         "resolved": "3.7.511.8",
         "contentHash": "QLHt7ucegMurWnwB3GomMeP6DiCG033aEittRiabMGnTOMZ5xyu7tbmTkqs3ZU5tBz4AK53Ak8WJkF+kk+s4Tw==",
+        "dependencies": {
+          "AWSSDK.Core": "[3.7.501.1, 4.0.0)"
+        }
+      },
+      "AWSSDK.SecretsManager": {
+        "type": "CentralTransitive",
+        "requested": "[3.7.504.43, )",
+        "resolved": "3.7.504.43",
+        "contentHash": "vfp5mlD52kkrQxhdG7oSqEbAem3nEUqQ+9fPxMbuCZ9CanEEUxk3vqGizQ8mjWU6XHCLA1ZJbL7tbmwNYPu+aQ==",
         "dependencies": {
           "AWSSDK.Core": "[3.7.501.1, 4.0.0)"
         }
