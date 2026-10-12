@@ -36,15 +36,15 @@ internal static class OfrepEvaluation
     public static OfrepFlag Evaluation(FeatureFlag flag, FlagContext ctx)
     {
         var value = FeatureFlagService.Evaluate(flag, ctx);
-        var reason = !flag.Enabled ? "DISABLED"
-            : flag.TenantSlugs.Count > 0 || flag.UserEmails.Count > 0 ? "TARGETING_MATCH"
-            : flag.RolloutPercent < 100 ? "SPLIT"
-            : "STATIC";
+
+        // Always STATIC. TARGETING_MATCH, SPLIT or DISABLED would tell the caller why it got the
+        // value, and this module hands out decisions, not rules: knowing a flag is targeted, split
+        // or switched off is the same disclosure as seeing the targeting.
         return new OfrepFlag
         {
             Key = flag.Key,
             Value = value,
-            Reason = reason,
+            Reason = "STATIC",
             Variant = value ? "on" : "off",
         };
     }
@@ -152,7 +152,7 @@ internal sealed class OfrepEvaluateAllEndpoint(
         var etag = "\"" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
             string.Join('\n', response.Flags.Select(f => $"{f.Key}={f.Value}:{f.Reason}")))))[..32].ToLowerInvariant() + "\"";
         HttpContext.Response.Headers.ETag = etag;
-        if (HttpContext.Request.Headers.IfNoneMatch.Any(v => v == etag))
+        if (Matches(HttpContext.Request.Headers.IfNoneMatch, etag))
         {
             await Send.StatusCodeAsync(StatusCodes.Status304NotModified, ct);
             return;
@@ -160,4 +160,11 @@ internal sealed class OfrepEvaluateAllEndpoint(
 
         await Send.ResponseAsync(response, cancellation: ct);
     }
+
+    /// <summary>If-None-Match may list several tags and mark them weak; any one equal to ours matches.</summary>
+    private static bool Matches(Microsoft.Extensions.Primitives.StringValues header, string etag) =>
+        header.SelectMany(v => (v ?? string.Empty).Split(','))
+            .Select(t => t.Trim())
+            .Select(t => t.StartsWith("W/", StringComparison.Ordinal) ? t[2..] : t)
+            .Any(t => t == etag || t == "*");
 }

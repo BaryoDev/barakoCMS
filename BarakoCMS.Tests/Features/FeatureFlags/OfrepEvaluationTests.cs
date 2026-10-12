@@ -60,16 +60,22 @@ public class OfrepEvaluationTests(IntegrationTestFixture factory)
         await using var provider = services.BuildServiceProvider();
         var lifecycle = provider.GetRequiredService<OpenFeature.Hosting.IFeatureLifecycleManager>();
         await lifecycle.EnsureInitializedAsync(CancellationToken.None);
-        using var scope = provider.CreateScope();
-        var client = scope.ServiceProvider.GetRequiredService<OpenFeature.IFeatureClient>();
+        try
+        {
+            using var scope = provider.CreateScope();
+            var client = scope.ServiceProvider.GetRequiredService<OpenFeature.IFeatureClient>();
 
-        (await client.GetBooleanValueAsync(on, defaultValue: false)).Should().BeTrue();
-        (await client.GetBooleanValueAsync(off, defaultValue: true)).Should().BeFalse("a disabled flag evaluates to false, not to the default");
-        var missing = await client.GetBooleanDetailsAsync($"missing-{Guid.NewGuid():N}", defaultValue: true);
-        missing.Value.Should().BeTrue("a flag that does not exist falls back to the caller's default");
-        missing.ErrorType.Should().Be(OpenFeature.Constant.ErrorType.FlagNotFound);
-
-        await lifecycle.ShutdownAsync(CancellationToken.None);
+            (await client.GetBooleanValueAsync(on, defaultValue: false)).Should().BeTrue();
+            (await client.GetBooleanValueAsync(off, defaultValue: true)).Should().BeFalse("a disabled flag evaluates to false, not to the default");
+            var missing = await client.GetBooleanDetailsAsync($"missing-{Guid.NewGuid():N}", defaultValue: true);
+            missing.Value.Should().BeTrue("a flag that does not exist falls back to the caller's default");
+            missing.ErrorType.Should().Be(OpenFeature.Constant.ErrorType.FlagNotFound);
+        }
+        finally
+        {
+            // The SDK keeps its provider in a process-wide singleton; leave nothing set for the next test.
+            await lifecycle.ShutdownAsync(CancellationToken.None);
+        }
     }
 
     [Fact]
@@ -114,7 +120,7 @@ public class OfrepEvaluationTests(IntegrationTestFixture factory)
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         doc.RootElement.GetProperty("value").GetBoolean().Should().BeFalse("the tenant is the request's, never the context's");
-        doc.RootElement.GetProperty("reason").GetString().Should().Be("TARGETING_MATCH");
+        doc.RootElement.GetProperty("reason").GetString().Should().Be("STATIC", "the reason never discloses that a flag is targeted");
     }
 
     [Fact]
@@ -149,5 +155,45 @@ public class OfrepEvaluationTests(IntegrationTestFixture factory)
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         response.Headers.GetValues("Link").Single().Should().Be($"<{Base}>; rel=\"successor-version\"");
+    }
+
+    [Fact]
+    public async Task A_signed_in_callers_targeting_key_does_not_choose_their_rollout_bucket()
+    {
+        var key = await FlagAsync(enabled: true, isPublic: true, rollout: 50);
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", await factory.StoredUserTokenAsync("User"));
+
+        // Twenty different keys would land on both sides of a 50% split if any of them counted.
+        var values = new List<bool>();
+        for (var i = 0; i < 20; i++)
+        {
+            var response = await EvaluateAsync(client, key, new { targetingKey = $"bucket-{i}" });
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            values.Add(doc.RootElement.GetProperty("value").GetBoolean());
+        }
+
+        values.Should().HaveCount(20);
+        values.Distinct().Should().ContainSingle("a signed-in caller is bucketed by who they are, not by what they send");
+    }
+
+    [Fact]
+    public async Task An_anonymous_callers_targeting_key_does_choose_the_rollout_bucket()
+    {
+        var key = await FlagAsync(enabled: true, isPublic: true, rollout: 50);
+        var client = factory.CreateClient();
+
+        // The control for the test above: the same twenty keys do split when the caller is anonymous.
+        var values = new List<bool>();
+        for (var i = 0; i < 20; i++)
+        {
+            using var doc = JsonDocument.Parse(await (await EvaluateAsync(client, key, new { targetingKey = $"bucket-{i}" })).Content.ReadAsStringAsync());
+            values.Add(doc.RootElement.GetProperty("value").GetBoolean());
+        }
+
+        values.Should().HaveCount(20);
+        values.Distinct().Should().HaveCount(2);
     }
 }

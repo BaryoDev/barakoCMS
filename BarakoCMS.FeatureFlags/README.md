@@ -64,8 +64,8 @@ The subset covered, stated rather than implied:
 
 - **Boolean flags only.** `value` is `true` or `false`, `variant` is `on` or `off`. A string, number or
   object request for a key answers with the boolean, which an SDK reports as a type mismatch.
-- **Reasons:** `DISABLED` (master toggle off), `TARGETING_MATCH` (tenant or user targeting set),
-  `SPLIT` (percentage rollout below 100), `STATIC` otherwise.
+- **Reason:** always `STATIC`. The protocol's other reasons (`TARGETING_MATCH`, `SPLIT`,
+  `DISABLED`) would say why a caller got its value, and this module returns decisions, not rules.
 - **Errors:** `FLAG_NOT_FOUND` with 404, for a key that does not exist and, to an anonymous caller,
   for a private one, so the key is not disclosed.
 - **Context:** only `targetingKey` is read, only from an anonymous caller, and only to choose the
