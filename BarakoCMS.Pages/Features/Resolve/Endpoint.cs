@@ -7,11 +7,15 @@ namespace BarakoCMS.Pages.Features.Resolve;
 
 internal sealed record Breadcrumb(Guid Id, string? Title, string Slug, string Path);
 
+/// <param name="BoundBlocks">
+/// The entries each block of the page that names a binding selects. Empty for a page with none.
+/// </param>
 internal sealed record ResolveResponse(
     int Contract,
     string Path,
     PublicContentProjection Entry,
-    IReadOnlyList<Breadcrumb> Breadcrumbs);
+    IReadOnlyList<Breadcrumb> Breadcrumbs,
+    IReadOnlyList<BoundBlock> BoundBlocks);
 
 /// <summary>
 /// GET /api/public/pages/resolve?path=/about/team: the published page at a path, with its canonical
@@ -107,7 +111,8 @@ internal sealed class Endpoint : EndpointWithoutRequest<ResolveResponse>
                 : entry;
 
             PublishedPages.SetCache(HttpContext);
-            await Send.OkAsync(new ResolveResponse(PagesContract.Version, path, served, breadcrumbs), ct);
+            var bound = await BoundBlocks.MaterializeAsync(_session, _projector, definition!, served, ct);
+            await Send.OkAsync(new ResolveResponse(PagesContract.Version, path, served, breadcrumbs, bound), ct);
             return;
         }
 

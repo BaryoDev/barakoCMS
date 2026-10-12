@@ -298,4 +298,62 @@ public class BlocksFieldTests
         theirs.GetProperty("totalItems").GetInt32().Should().Be(0);
         (await other.DeleteAsync($"/api/blocks/bindings/{id}", Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
+
+    // ---- slice 3: resolve materialises bindings -------------------------------------------
+
+    [Fact]
+    public async Task Resolve_returns_a_blocks_bound_entries_in_the_same_response()
+    {
+        var (slug, admin) = await TenantAsync();
+        var posts = NewName("blockpost");
+        (await admin.PostAsJsonAsync("/api/content-types", new
+        {
+            name = posts, displayName = posts, isPubliclyDeliverable = true,
+            fields = new object[]
+            {
+                new { name = "Title", type = "string" },
+                new { name = "Rank", type = "int" },
+                new { name = "Secret", type = "string", sensitivity = "Hidden" },
+            },
+        }, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        foreach (var (title, rank, status) in new[] { ("one", 1, "Published"), ("two", 2, "Published"), ("three", 3, "Published"), ("draft", 9, "Draft") })
+        {
+            (await admin.PostAsJsonAsync("/api/contents", new
+            {
+                contentType = posts, status, data = new Dictionary<string, object> { ["Title"] = title, ["Rank"] = rank, ["Secret"] = "s" },
+            }, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+
+        var page = await PageTypeAsync(admin);
+        (await admin.PutAsJsonAsync("/api/pages/settings", new { contentType = page, parentField = "Parent" }, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        var top = Guid.NewGuid();
+        var hidden = Guid.NewGuid();
+        (await admin.PutAsJsonAsync($"/api/blocks/bindings/{top}", new { name = "Top two", contentType = posts, sort = "-Rank", limit = 2 }, Ct))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await admin.PutAsJsonAsync($"/api/blocks/bindings/{hidden}", new { name = "By secret", contentType = posts, sort = "Secret" }, Ct))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await admin.PostAsJsonAsync("/api/contents", new
+        {
+            contentType = page, status = "Published",
+            data = new Dictionary<string, object>
+            {
+                ["Title"] = "Home", ["Slug"] = "home",
+                ["Blocks"] = JsonDocument.Parse($$"""[ { "type": "hero" }, { "type": "cards", "binding": "{{top}}" }, { "type": "cards", "binding": "{{hidden}}" } ]""").RootElement,
+            },
+        }, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var res = await TenantProfileSeed.Anonymous(_fixture, slug).GetAsync("/api/public/pages/resolve?path=/", Ct);
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync(Ct));
+        var bound = (await res.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("boundBlocks").EnumerateArray().ToList();
+
+        bound.Should().HaveCount(2);
+        bound[0].GetProperty("index").GetInt32().Should().Be(1);
+        bound[0].GetProperty("field").GetString().Should().Be("Blocks");
+        var titles = bound[0].GetProperty("entries").EnumerateArray().Select(e => e.GetProperty("data").GetProperty("Title").GetString()).ToList();
+        titles.Should().Equal("three", "two");
+        bound[0].GetProperty("entries")[0].GetProperty("data").TryGetProperty("Secret", out _).Should().BeFalse("only Public fields are delivered");
+
+        bound[1].GetProperty("entries").GetArrayLength().Should().Be(0, "a binding ordered by a field no reader may see selects nothing");
+    }
 }

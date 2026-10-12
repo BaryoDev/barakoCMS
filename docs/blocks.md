@@ -66,3 +66,11 @@ content type that exists, an optional `sort` field (`-` first for descending), a
 20, and up to five `where` conditions, each a field the entries have to hold exactly, ignoring
 case. The sort and condition fields have to be fields of the type. A tenant holds at most 500
 presets and 200 bindings.
+
+## Resolve
+
+`GET /api/public/pages/resolve` returns, beside the page, `boundBlocks`: for each block that names
+a `binding`, the published entries the binding selects, delivered as anonymous delivery would
+deliver them (Public fields only). A binding whose type is not publicly deliverable, or whose sort
+or conditions name a field that is not Public, selects nothing. At most 10 bound blocks per page
+are read.

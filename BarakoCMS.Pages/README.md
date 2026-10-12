@@ -131,6 +131,13 @@ sees it.
 
 `entry` is the same shape `GET /api/public/{type}/{slug}` returns.
 
+`boundBlocks` lists, for each block of a `blocks` field that names a `binding`, the entries that
+binding selects: `{ "field": "Blocks", "index": 1, "binding": "...", "entries": [ ... ] }`, each
+entry in the shape above. Only the first 10 such blocks are read, each binding returns at most 20
+entries, and a binding whose type is not publicly deliverable, or whose sort or conditions name a
+field that is not Public, returns none. Empty for a page with no bound blocks. See
+`docs/blocks.md` in the repository.
+
 ```json
 { "contract": 2, "truncated": false,
   "options": { "contentType": "page", "parentField": "ParentPage", "showInNavigationField": "ShowInNavigation",
