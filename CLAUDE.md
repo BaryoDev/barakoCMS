@@ -227,6 +227,13 @@ independently, the same way a module-contract change is independent of the CMS v
 HTTP change can land in any release, but it moves `ApiContract.Version` and gets called out
 explicitly in the pull request, the same as an unavoidable break to the package surface.
 
+**The HTTP surface is diffed in CI.** `openapi/baseline.json` is the reviewed OpenAPI document the
+Suite serves, and the `OpenAPI contract` job (`scripts/openapi-contract-check.sh`) fails when the
+API breaks it, naming each removed or renamed path, response property or enum value. Additions
+pass. To accept a change, run `bash scripts/openapi-fetch.sh openapi/baseline.json` and commit the
+diff; a baseline edit that is itself breaking fails unless `ApiContract.cs` or the module's
+`HttpContractVersion` moves in the same change.
+
 ## 7. Comments
 
 Default to no comment. Names and small methods carry the meaning. A comment earns its place when

@@ -1,0 +1,49 @@
+name: OpenAPI contract (scheduled)
+
+# The same check as the "OpenAPI contract" job in ci.yml, on a schedule. A module or a dependency
+# can change what the Suite serves with no commit that would start ci.yml, and the weekly run is
+# what notices (#631).
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  openapi:
+    name: OpenAPI contract
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install oasdiff
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bin"
+          bash scripts/install-oasdiff.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: The served API does not break the reviewed baseline
+        env:
+          OPENAPI_OUT: ${{ runner.temp }}/openapi
+        run: bash scripts/openapi-contract-check.sh
+
+      - name: Upload the served document
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: openapi-served-document
+          path: ${{ runner.temp }}/openapi/current.json
+          if-no-files-found: ignore
+          retention-days: 14
