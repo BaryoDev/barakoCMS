@@ -618,7 +618,9 @@ Delivery-specific things to get right at this point:
   list makes probes 400 unless you add a `Host` header to the probe.
 - **Set `FEEDS_SITE_URL` to the client's site**, not to the API. The feed prefers `Feeds:SiteUrl`
   over `App:BaseUrl` for the links in each item, and a reader following one should land on the
-  client's page rather than on a JSON endpoint.
+  client's page rather than on a JSON endpoint. A tenant whose published `site` entry has a `Url`
+  links to that instead, so several clients on one API each get feeds and sitemaps pointing at
+  their own site; `Feeds:SiteUrl` is the fallback for a tenant that sets none.
 - **Any current tag runs on amd64 and arm64.** Every image tag from `4.0.0` on carries both, and
   the release workflow refuses to publish a tag that is missing one. The `3.21.0` tags are amd64
   only. Check an older tag with

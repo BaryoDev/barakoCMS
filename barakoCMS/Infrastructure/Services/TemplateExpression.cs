@@ -21,7 +21,8 @@ internal sealed record TemplateTransition(string Name, DateTime At, TemplatePers
 /// <param name="Api">This deployment's public URL (<c>App:BaseUrl</c>).</param>
 /// <param name="Console">The console's URL (<c>App:ConsoleUrl</c>).</param>
 /// <param name="Site">The <c>Url</c> of the tenant's published <c>site</c> entry.</param>
-internal sealed record TemplateLinks(string? Api, string? Console, string? Site)
+/// <param name="Public">The entry's address on the public site, from <see cref="EntryUrls.PublicUrlAsync"/>.</param>
+internal sealed record TemplateLinks(string? Api, string? Console, string? Site, string? Public = null)
 {
     public static readonly TemplateLinks None = new(null, null, null);
 }
@@ -157,7 +158,7 @@ internal static class TemplateExpression
         @"\A[A-Za-z][A-Za-z0-9_+\-]*(?:/[A-Za-z0-9_+\-]+){0,2}\z", RegexOptions.Compiled);
 
     private static readonly Regex SiteFormat = new(
-        @"(?:\||\\u007[cC])(?:\s|\\+[ntr])*(?:date|money)\b|links\.site\b", RegexOptions.Compiled, ScanTimeout);
+        @"(?:\||\\u007[cC])(?:\s|\\+[ntr])*(?:date|money)\b|links\.(?:site|public)\b", RegexOptions.Compiled, ScanTimeout);
 
     private static readonly string[] DateFormats =
     [
@@ -174,7 +175,7 @@ internal static class TemplateExpression
 
     private static readonly HashSet<string> LinkNames = new(StringComparer.Ordinal)
     {
-        "links.entry", "links.console", "links.edit",
+        "links.entry", "links.console", "links.edit", "links.public",
     };
 
     private static readonly HashSet<string> TransitionNames = new(StringComparer.Ordinal)
@@ -672,6 +673,10 @@ internal static class TemplateExpression
 
             case "links.site":
                 value = links.Site ?? string.Empty;
+                return true;
+
+            case "links.public":
+                value = links.Public is null || erased ? string.Empty : links.Public;
                 return true;
 
             default:

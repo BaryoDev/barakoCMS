@@ -14,6 +14,17 @@ public class FeatureFlagService(IQuerySession session)
         return flag is null ? fallback : Evaluate(flag, ctx);
     }
 
+    /// <summary>The flag with this key, or null.</summary>
+    internal Task<FeatureFlag?> FindAsync(string key, CancellationToken ct = default) =>
+        session.Query<FeatureFlag>().FirstOrDefaultAsync(f => f.Key == key, ct);
+
+    /// <summary>Every flag a caller of this audience may be told about.</summary>
+    internal async Task<IReadOnlyList<FeatureFlag>> VisibleAsync(FlagAudience audience, CancellationToken ct = default)
+    {
+        var all = await session.Query<FeatureFlag>().ToListAsync(ct);
+        return audience == FlagAudience.Public ? all.Where(f => f.IsPublic).ToList() : all;
+    }
+
     /// <summary>
     /// Every flag's on/off result for this context, for the UI to gate on. The audience decides
     /// which keys are disclosed at all, which is a separate question from what each one evaluates

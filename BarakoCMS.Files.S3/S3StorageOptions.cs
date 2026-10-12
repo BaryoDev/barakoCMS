@@ -35,8 +35,9 @@ public sealed class S3StorageOptions
     public string? PublicBaseUrl { get; set; }
 
     /// <summary>
-    /// Set a public-read ACL on public objects. AWS applies it on a bucket with ACLs enabled. Cloudflare
-    /// R2, Garage and SeaweedFS do not apply an ACL sent with an upload, so set this false there.
+    /// Set a public-read ACL on public objects. Off by default since 5.0: a new AWS bucket refuses
+    /// ACLs, and Cloudflare R2, Garage and SeaweedFS do not apply one sent with an upload. Turn it on
+    /// only for an AWS bucket with ACLs enabled that serves public files by ACL.
     ///
     /// <para>Do not make the bucket public as a whole instead: every object in it is then readable by
     /// anyone who knows the key, private files included. Public files are stored under
@@ -47,7 +48,7 @@ public sealed class S3StorageOptions
     /// before the prefixes existed sits at the bucket root whatever its visibility, and a grant on
     /// <c>public/*</c> does not cover it.</para>
     /// </summary>
-    public bool UsePublicReadAcl { get; set; } = true;
+    public bool UsePublicReadAcl { get; set; }
 
     public const int MaxErrorRetryLimit = 10;
     public const int DefaultMaxErrorRetry = 2;

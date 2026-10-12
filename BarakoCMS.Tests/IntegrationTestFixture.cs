@@ -248,6 +248,12 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             new BarakoCMS.Files.FilesModule().ConfigureServices(services, ctx.Configuration);
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Files.FilesModule(), opts));
 
+            // Files.S3 after Files, as a host registers it. Dormant with no bucket configured, so
+            // every other test still stores in Postgres; it is here for the S3 provider a tenant can
+            // choose through /api/settings/storage, and for the keys a derived host sets.
+            new BarakoCMS.Files.S3.S3FilesModule().ConfigureServices(
+                services, ctx.Configuration.GetSection("Modules:Files.S3"));
+
             // AI module: register its schema/endpoints, but swap the Ollama client for a deterministic
             // fake so the search tests run without an embedding backend.
             new BarakoCMS.AI.AiModule().ConfigureServices(services, ctx.Configuration);
@@ -282,6 +288,11 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             // Portability: its contents section, so a bundle applies through the config engine. Called
             // through IBarakoModule, the way the host calls every module's ConfigureServices.
             ((barakoCMS.Modules.IBarakoModule)new BarakoCMS.Portability.PortabilityModule()).ConfigureServices(services, ctx.Configuration);
+
+            // Diagnostics: the incidents view reads its sources from the container, and the report
+            // endpoint hands reports to the forwarder, which stays off unless a test turns it on.
+            // Scoped to its own section, as the host scopes it.
+            new BarakoCMS.Diagnostics.DiagnosticsModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Diagnostics"));
 
             // FeatureFlags: /api/feature-flags is anonymous, so which keys it hands out is a test
             // this project has to be able to run.

@@ -187,11 +187,14 @@ public class FileKeyLayoutTests
         session.Store(original);
         await session.SaveChangesAsync(TestContext.Current.CancellationToken);
 
+        // One storage for everything, so the bytes it captures are the ones under test.
+#pragma warning disable CS0618
         var variants = new ImageVariants(
             session,
             storage,
             new SkiaImageResizer(new ConfigurationBuilder().Build(), NullLogger<SkiaImageResizer>.Instance),
             new ConfigurationBuilder().Build());
+#pragma warning restore CS0618
 
         var resolved = await variants.ResolveAsync(original, 320, TestContext.Current.CancellationToken);
 
