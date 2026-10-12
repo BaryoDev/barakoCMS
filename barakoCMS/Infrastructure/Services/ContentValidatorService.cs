@@ -120,7 +120,14 @@ public class ContentValidatorService(
         System.Security.Claims.ClaimsPrincipal? caller)
     {
         var errors = new List<string>();
-        
+
+        // A field change rewrites entries in batches; a write between two would undo its work.
+        if (await barakoCMS.Infrastructure.Jobs.FieldChanges.RunningAsync(session, contentType, CancellationToken.None) is { } change)
+        {
+            errors.Add($"'{change.ContentType}' has a field change running ({change.Id}). Writes to it resume when the change completes.");
+            return (false, errors);
+        }
+
         // 1. Load Schema
         var schema = await session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(x => x.Name == contentType);

@@ -52,53 +52,7 @@ internal class Endpoint(
 
         // Every event becomes an entry, including one this mapper does not recognise: it keeps its
         // type name and carries no data, rather than being dropped where nobody would see it go.
-        var versions = events.Select(e =>
-        {
-            var version = new VersionResponse
-            {
-                Id = req.Id,
-                ChangeType = ChangeTypeOf(e.Data),
-                VersionId = e.Id,
-                Timestamp = e.Timestamp.ToUniversalTime()
-            };
-
-            switch (e.Data)
-            {
-                case barakoCMS.Events.ContentCreated created:
-                    version.Data = created.Data;
-                    version.LastModifiedBy = created.CreatedBy;
-                    version.Status = created.Status;
-                    version.Sensitivity = created.Sensitivity;
-                    break;
-                case barakoCMS.Events.ContentUpdated updated:
-                    version.Data = updated.Data;
-                    version.LastModifiedBy = updated.UpdatedBy;
-                    break;
-                case barakoCMS.Events.ContentStatusChanged statusChanged:
-                    version.LastModifiedBy = statusChanged.UpdatedBy;
-                    version.Status = statusChanged.NewStatus;
-                    break;
-                case barakoCMS.Events.ContentScheduled scheduled:
-                    version.LastModifiedBy = scheduled.UpdatedBy;
-                    version.ScheduledPublishAt = scheduled.ScheduledPublishAt;
-                    version.ScheduledUnpublishAt = scheduled.ScheduledUnpublishAt;
-                    break;
-                case barakoCMS.Events.ContentSensitivityChanged sensitivityChanged:
-                    version.LastModifiedBy = sensitivityChanged.UpdatedBy;
-                    version.Sensitivity = sensitivityChanged.Sensitivity;
-                    break;
-                case barakoCMS.Events.ContentSensitivityScheduled sensitivityScheduled:
-                    version.LastModifiedBy = sensitivityScheduled.UpdatedBy;
-                    version.ScheduledSensitivity = sensitivityScheduled.ScheduledSensitivity;
-                    version.ScheduledSensitivityAt = sensitivityScheduled.ScheduledSensitivityAt;
-                    break;
-                case barakoCMS.Events.ContentFieldSensitivityChanged fieldSensitivityChanged:
-                    version.LastModifiedBy = fieldSensitivityChanged.ChangedBy;
-                    break;
-            }
-
-            return version;
-        })
+        var versions = events.Select(e => VersionOf(e, req.Id))
         .ToList();
 
         // 3. Apply the same document- and field-level sensitivity as Get/List to every historical
@@ -111,6 +65,59 @@ internal class Endpoint(
         }
 
         await Send.ResponseAsync(versions.ToPagedResponse(req));
+    }
+
+    /// <summary>One event of the entry's stream as a version: what it changed, and who changed it.</summary>
+    private static VersionResponse VersionOf(JasperFx.Events.IEvent e, Guid id)
+    {
+        var version = new VersionResponse
+        {
+            Id = id,
+            ChangeType = ChangeTypeOf(e.Data),
+            VersionId = e.Id,
+            Timestamp = e.Timestamp.ToUniversalTime()
+        };
+
+        switch (e.Data)
+        {
+            case barakoCMS.Events.ContentCreated created:
+                version.Data = created.Data;
+                version.LastModifiedBy = created.CreatedBy;
+                version.Status = created.Status;
+                version.Sensitivity = created.Sensitivity;
+                break;
+            case barakoCMS.Events.ContentUpdated updated:
+                version.Data = updated.Data;
+                version.LastModifiedBy = updated.UpdatedBy;
+                break;
+            case barakoCMS.Events.ContentStatusChanged statusChanged:
+                version.LastModifiedBy = statusChanged.UpdatedBy;
+                version.Status = statusChanged.NewStatus;
+                break;
+            case barakoCMS.Events.ContentScheduled scheduled:
+                version.LastModifiedBy = scheduled.UpdatedBy;
+                version.ScheduledPublishAt = scheduled.ScheduledPublishAt;
+                version.ScheduledUnpublishAt = scheduled.ScheduledUnpublishAt;
+                break;
+            case barakoCMS.Events.ContentSensitivityChanged sensitivityChanged:
+                version.LastModifiedBy = sensitivityChanged.UpdatedBy;
+                version.Sensitivity = sensitivityChanged.Sensitivity;
+                break;
+            case barakoCMS.Events.ContentSensitivityScheduled sensitivityScheduled:
+                version.LastModifiedBy = sensitivityScheduled.UpdatedBy;
+                version.ScheduledSensitivity = sensitivityScheduled.ScheduledSensitivity;
+                version.ScheduledSensitivityAt = sensitivityScheduled.ScheduledSensitivityAt;
+                break;
+            case barakoCMS.Events.ContentFieldSensitivityChanged fieldSensitivityChanged:
+                version.LastModifiedBy = fieldSensitivityChanged.ChangedBy;
+                break;
+            case barakoCMS.Events.ContentFieldChanged fieldChanged:
+                version.Data = fieldChanged.Data;
+                version.LastModifiedBy = fieldChanged.ChangedBy;
+                break;
+        }
+
+        return version;
     }
 
     /// <summary>The wire name for an event, decided here rather than reflected from the CLR type.</summary>
@@ -134,6 +141,7 @@ internal class Endpoint(
     {
         barakoCMS.Events.ContentCreated => "Created",
         barakoCMS.Events.ContentUpdated => "Updated",
+        barakoCMS.Events.ContentFieldChanged => "FieldChanged",
         barakoCMS.Events.ContentStatusChanged => "StatusChanged",
         barakoCMS.Events.ContentScheduled => "Scheduled",
         barakoCMS.Events.ContentSensitivityChanged => "SensitivityChanged",

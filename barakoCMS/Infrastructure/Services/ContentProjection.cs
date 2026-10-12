@@ -97,6 +97,9 @@ internal static class ContentProjection
             case ContentFieldSensitivityChanged fieldSensitivityChanged:
                 content.Apply(fieldSensitivityChanged, occurredAt);
                 break;
+            case ContentFieldChanged fieldChanged:
+                content.Apply(fieldChanged, occurredAt);
+                break;
             default:
                 throw new InvalidOperationException(
                     $"{@event.GetType().Name} has no Content.Apply overload, so appending it would leave the "
@@ -108,5 +111,5 @@ internal static class ContentProjection
     public static bool IsProjected(object @event) =>
         @event is ContentCreated or ContentUpdated or ContentStatusChanged
             or ContentScheduled or ContentSensitivityChanged or ContentTransitioned
-            or ContentFieldSensitivityChanged or ContentSensitivityScheduled;
+            or ContentFieldSensitivityChanged or ContentSensitivityScheduled or ContentFieldChanged;
 }
