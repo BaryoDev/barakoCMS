@@ -19,7 +19,8 @@ public class RequestResponseLoggingMiddleware(
             sw.Stop();
 
             var statusCode = context.Response.StatusCode;
-            metrics.TrackRequest(statusCode, sw.Elapsed.TotalMilliseconds);
+            metrics.TrackRequest(statusCode, sw.Elapsed.TotalMilliseconds,
+                CacheableRead(context), ServedFromOutputCache(context));
 
             var level = statusCode >= 500 ? LogLevel.Error : statusCode >= 400 ? LogLevel.Warning : LogLevel.Information;
 
@@ -41,4 +42,20 @@ public class RequestResponseLoggingMiddleware(
             throw; // Re-throw so upstream error handlers catch it
         }
     }
+
+    /// <summary>
+    /// Set on every request that reaches the endpoints, which sit inside the output cache. A cached
+    /// response is written by the output cache without going further, so a request to a cached
+    /// endpoint that never got the mark was answered from the cache.
+    /// </summary>
+    internal const string ReachedEndpointsKey = "barako:reached-endpoints";
+
+    private static bool CacheableRead(HttpContext context) =>
+        (HttpMethods.IsGet(context.Request.Method) || HttpMethods.IsHead(context.Request.Method))
+        && !barakoCMS.Infrastructure.Health.HealthProbePaths.IsHealthPath(context.Request.Path.Value)
+        && !context.Request.Path.StartsWithSegments("/metrics");
+
+    private static bool ServedFromOutputCache(HttpContext context) =>
+        !context.Items.ContainsKey(ReachedEndpointsKey)
+        && context.GetEndpoint()?.Metadata.GetMetadata<Microsoft.AspNetCore.OutputCaching.IOutputCachePolicy>() is not null;
 }

@@ -5,13 +5,25 @@ using FastEndpoints;
 
 namespace BarakoCMS.Analytics.Umami.Features;
 
-public sealed class MetricRequest
+public sealed class MetricRequest : IAnalyticsWindow
 {
     public string WebsiteId { get; set; } = "";
     public string Range { get; set; } = "7d";
+
+    /// <summary>The start of an explicit window. Set together with <see cref="To"/>, or not at all.</summary>
+    public DateTimeOffset? From { get; set; }
+
+    /// <summary>The end of an explicit window.</summary>
+    public DateTimeOffset? To { get; set; }
+
     /// <summary>Umami metric type: path | referrer | country | browser | os | device.</summary>
     public string Type { get; set; } = "path";
     public int Limit { get; set; } = 10;
+}
+
+internal sealed class MetricRequestValidator : Validator<MetricRequest>
+{
+    public MetricRequestValidator() => AnalyticsWindowRules.Apply(this);
 }
 
 public sealed class MetricRow
@@ -47,7 +59,7 @@ public sealed class MetricEndpoint(
 
         var type = Allowed.Contains(req.Type) ? req.Type.ToLowerInvariant() : "path";
         var limit = Math.Clamp(req.Limit, 1, 50);
-        var (startAt, endAt, _) = AnalyticsRange.Resolve(req.Range);
+        var (startAt, endAt, _) = AnalyticsRange.Resolve(req.Range, req.From, req.To);
         var rows = await umami.GetMetricsAsync(req.WebsiteId, type, startAt, endAt, limit, ct);
         await Send.OkAsync(rows.Select(r => new MetricRow { X = r.X, Y = r.Y }).ToList(), ct);
     }

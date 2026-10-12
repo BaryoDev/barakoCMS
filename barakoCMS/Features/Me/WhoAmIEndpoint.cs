@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Models;
 using FastEndpoints;
@@ -14,12 +15,19 @@ internal sealed record MyRole(Guid Id, string Name);
 /// reported with <c>*</c> as stored, not expanded, since <c>*</c> also covers capabilities added
 /// after this build.
 /// </param>
+/// <param name="LegacyRoleFallback">
+/// Whether this deployment runs with <c>Auth:LegacyRoleFallback</c> on, so the pre-capability role
+/// names (Admin, Editor and the like) still open the gates they used to whatever capabilities the
+/// role carries. A console that decides navigation by capability alone would otherwise hide screens
+/// such a role can still use. It describes the deployment, not the caller.
+/// </param>
 internal sealed record MeResponse(
     Guid UserId,
     string Username,
     string Tenant,
     IReadOnlyList<MyRole> Roles,
-    IReadOnlyList<string> Capabilities);
+    IReadOnlyList<string> Capabilities,
+    bool LegacyRoleFallback);
 
 /// <summary>
 /// GET /api/me, the signed-in caller's own roles and capabilities in the current tenant, read from
@@ -44,7 +52,7 @@ internal sealed record MeResponse(
 /// <see cref="barakoCMS.Infrastructure.Security.SecurityHeaders.IsNoStorePath"/>.
 /// </para>
 /// </remarks>
-internal sealed class WhoAmIEndpoint(IQuerySession session, TenantContext tenant) : EndpointWithoutRequest<MeResponse>
+internal sealed class WhoAmIEndpoint(IQuerySession session, TenantContext tenant, IConfiguration configuration) : EndpointWithoutRequest<MeResponse>
 {
     public override void Configure()
     {
@@ -84,6 +92,7 @@ internal sealed class WhoAmIEndpoint(IQuerySession session, TenantContext tenant
             user.Username,
             slug,
             roles.OrderBy(r => r.Name, StringComparer.Ordinal).Select(r => new MyRole(r.Id, r.Name)).ToList(),
-            capabilities), ct);
+            capabilities,
+            configuration.GetValue(CapabilityGateProcessor.LegacyRoleFallbackKey, false)), ct);
     }
 }

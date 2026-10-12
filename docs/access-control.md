@@ -412,13 +412,18 @@ the same reading for the caller, so a console can decide the way the API does:
   "username": "ana",
   "tenant": "clinic",
   "roles": [ { "id": "4f2a...", "name": "Nurse" } ],
-  "capabilities": ["view_sensitive"]
+  "capabilities": ["view_sensitive"],
+  "legacyRoleFallback": false
 }
 ```
 
 `roles` is the caller's global roles and their active membership's roles in the
 tenant, and `capabilities` is every capability those roles carry, with `*`
-reported as `*` rather than expanded. The tenant is the token's own, or the
+reported as `*` rather than expanded. `legacyRoleFallback` is `true` when the
+deployment runs with `Auth:LegacyRoleFallback` on (see below), where the legacy role
+names still open the gates they used to whatever capabilities the role carries, so a
+console that decides its navigation by capability should also offer those screens to
+an Admin-named role. It describes the deployment, not the caller. The tenant is the token's own, or the
 resolved one for a token without a tenant claim. The route takes no parameters,
 so it only ever describes the caller. It is sent `Cache-Control: no-store`, and
 an API key gets a 403, as on every route outside the content API. Taking a capability off
@@ -882,7 +887,7 @@ says.
 | `Features/Requests/*` | `manage_requests` | `/api/requests`, `/api/requests/{slug}`, `POST /api/requests/{slug}/dry-run/{contentId}` | SuperAdmin, Admin |
 | `Features/Connectors/*` | `view_connectors` | `GET /api/connectors`, `GET /api/connectors/{slug}` | SuperAdmin, Admin |
 | `Features/Connectors/*` | `manage_connectors` | `POST /api/connectors`, `PUT` and `DELETE /api/connectors/{slug}`, `POST /api/connectors/{slug}/test` | SuperAdmin, Admin |
-| `Features/Workflows/*` | `manage_workflows` | `/api/workflows`, `/api/workflows/actions`, `/variables`, `/validate`, `/dry-run`, `PUT /api/workflows/{id}/enabled`, `DELETE /api/workflows/{id}`, `POST /api/workflow-runs/{id}/cancel` | SuperAdmin, Admin |
+| `Features/Workflows/*` | `manage_workflows` | `/api/workflows`, `/api/workflows/actions`, `/variables`, `/validate`, `/dry-run`, `PUT /api/workflows/{id}`, `PUT /api/workflows/{id}/enabled`, `DELETE /api/workflows/{id}`, `POST /api/workflow-runs/{id}/cancel` | SuperAdmin, Admin |
 | `Features/EmailTemplates/*` | `manage_workflows` | `POST /api/email-templates/{id}/preview`, which also needs read on the template and the entry ([email-templates.md](email-templates.md#preview)) | SuperAdmin, Admin |
 | `Features/WorkflowRuns/*` | `view_workflow_runs` | `GET /api/workflow-runs`, `GET /api/workflow-runs/{id}`, `GET /api/workflows/{id}/debug`, `GET /api/webhook-deliveries`, `GET /api/connector-deliveries` | SuperAdmin, Admin |
 | `Features/WorkflowRuns/*` | `retry_workflow_actions` | `POST /api/workflow-runs/{id}/actions/{ordinal}/retry` | SuperAdmin, Admin |
