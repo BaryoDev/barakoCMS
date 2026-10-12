@@ -39,6 +39,16 @@ public class StoredFile
     /// <summary>The width a derived record was resized to, in pixels. Null on an upload.</summary>
     public int? VariantWidth { get; set; }
 
+    /// <summary>
+    /// The image's width in pixels as shown, read from its header when it was stored. A variant
+    /// carries its own. Null for a file that is not an image this can read, and for a file stored
+    /// before sizes were recorded.
+    /// </summary>
+    public int? Width { get; set; }
+
+    /// <summary>The image's height in pixels as shown. Null whenever <see cref="Width"/> is.</summary>
+    public int? Height { get; set; }
+
     /// <summary>What a screen reader says for the image. Null until an editor writes one.</summary>
     public string? Alt { get; set; }
 

@@ -216,11 +216,14 @@ internal sealed class FileStore(
             stored = await storage.PutAsync(content, key, contentType, file.IsPublic, cancellationToken);
         }
 
+        var dimensions = ImageDimensions.Read(contentType, buffer, size);
         var record = new StoredFile
         {
             FileName = fileName,
             ContentType = contentType,
             Size = size,
+            Width = dimensions?.Width,
+            Height = dimensions?.Height,
             Provider = storage.Provider,
             StorageKey = stored.Key,
             IsPublic = file.IsPublic,

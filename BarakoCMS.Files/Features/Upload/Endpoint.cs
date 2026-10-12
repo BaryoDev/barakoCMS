@@ -16,6 +16,12 @@ public class Response
     /// <summary>Direct public URL for a public file on an object store; null for Postgres-stored files
     /// (fetch those via GET /api/public/files/{id}).</summary>
     public string? PublicUrl { get; set; }
+
+    /// <summary>Width in pixels as shown, for an image whose size could be read. Null otherwise.</summary>
+    public int? Width { get; set; }
+
+    /// <summary>Height in pixels as shown. Null whenever <see cref="Width"/> is.</summary>
+    public int? Height { get; set; }
 }
 
 /// <summary>
@@ -121,6 +127,13 @@ public class Endpoint(
             }
         }
 
+        ImageSize? size = null;
+        if (ImageDimensions.CanRead(contentType))
+        {
+            await using var forSize = file.OpenReadStream();
+            size = ImageDimensions.Read(contentType, forSize);
+        }
+
         await using var stream = file.OpenReadStream();
         var stored = await storage.PutAsync(stream, key, contentType, isPublic, ct);
 
@@ -133,6 +146,8 @@ public class Endpoint(
             StorageKey = stored.Key,
             IsPublic = isPublic,
             PublicUrl = stored.PublicUrl,
+            Width = size?.Width,
+            Height = size?.Height,
             UploadedBy = userId,
         };
         session.Store(record);
@@ -146,6 +161,8 @@ public class Endpoint(
             Size = record.Size,
             IsPublic = record.IsPublic,
             PublicUrl = record.PublicUrl,
+            Width = record.Width,
+            Height = record.Height,
         }, 201, ct);
     }
 

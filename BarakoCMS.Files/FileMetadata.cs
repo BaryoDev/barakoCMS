@@ -11,6 +11,13 @@ public class FileMetadata
     public long Size { get; set; }
     public bool IsPublic { get; set; }
     public string? PublicUrl { get; set; }
+
+    /// <summary>Width in pixels as shown, for an image whose size was read. Null otherwise.</summary>
+    public int? Width { get; set; }
+
+    /// <summary>Height in pixels as shown. Null whenever <see cref="Width"/> is.</summary>
+    public int? Height { get; set; }
+
     public string? Alt { get; set; }
     public string? Caption { get; set; }
     public Guid UploadedBy { get; set; }
@@ -24,6 +31,8 @@ public class FileMetadata
         Size = file.Size,
         IsPublic = file.IsPublic,
         PublicUrl = file.PublicUrl,
+        Width = file.Width,
+        Height = file.Height,
         Alt = file.Alt,
         Caption = file.Caption,
         UploadedBy = file.UploadedBy,

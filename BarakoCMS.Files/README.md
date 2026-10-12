@@ -36,12 +36,12 @@ the repository.
 | `POST /api/files` | Upload one PNG, JPEG, GIF, WebP, AVIF or PDF (up to 10 MB, multipart). The part's Content-Type must be exactly one of those, and the file must start the way that format does. Returns `{ id, fileName, contentType, size }`. |
 | `GET  /api/files/{id}` | Stream the file back with its original content type. Requires a Bearer token. |
 | `GET  /api/files` | List uploads, newest first, paginated. `?q=` matches a substring of the name, `?contentType=image/` a type or prefix. |
-| `GET  /api/files/{id}/meta` | The record without the bytes: name, type, size, public flag, alt text, caption. |
+| `GET  /api/files/{id}/meta` | The record without the bytes: name, type, size, width and height, public flag, alt text, caption. |
 | `PATCH /api/files/{id}` | Set `alt` and `caption`. A field left out is unchanged; an empty string clears it. |
 | `GET  /api/files/{id}/usage` | The entries whose data references the file, by id or by URL. Paginated. |
 | `DELETE /api/files/{id}` | Remove the file, its cached resizes and their bytes. 409 with the first ten usages while an entry references it; `?force=true` deletes anyway. |
 | `GET  /api/public/files/{id}` | Anonymous download of a public file. Private files are 404. |
-| `GET  /api/public/files/{id}/meta` | Anonymous alt text and caption for a public file. Private files are 404. |
+| `GET  /api/public/files/{id}/meta` | Anonymous alt text, caption, width and height for a public file; `?w=` describes the variant at that width. Private files are 404. |
 
 Attach the returned `id` to your own documents; fetch it later with the download endpoint. Because
 `GET /api/files/{id}` requires authentication, browser `<img>`/`<a>` tags cannot load it directly:

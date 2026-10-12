@@ -103,6 +103,7 @@ public sealed class ImageVariants
         var stored = await _storage.PutAsync(
             new MemoryStream(resized), key, original.ContentType, original.IsPublic, ct);
 
+        var dimensions = ImageDimensions.Read(original.ContentType, resized, resized.Length);
         var variant = new StoredFile
         {
             // Derived from the parent and the width rather than random, so two requests racing for
@@ -114,6 +115,8 @@ public sealed class ImageVariants
             FileName = VariantName(original.FileName, width.Value),
             ContentType = original.ContentType,
             Size = resized.Length,
+            Width = dimensions?.Width,
+            Height = dimensions?.Height,
             Provider = _storage.Provider,
             StorageKey = stored.Key,
             // Mirrors the original so the bytes land with the same public-ness on a store that has
