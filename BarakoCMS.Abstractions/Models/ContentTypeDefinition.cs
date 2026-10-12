@@ -231,6 +231,18 @@ public class FieldDefinition
     public bool Multiple { get; set; }
 
     /// <summary>
+    /// For an <c>array</c> field, the type every item in it is, for example <c>url</c>.
+    /// </summary>
+    /// <remarks>
+    /// Null, the default, is every array stored before this existed, and such an array accepts any
+    /// list, as it always has. Set, an entry write refuses a list holding an item that is not a value
+    /// of this type, naming its index. One of the scalar types whose check needs nothing but the
+    /// value; a list of references is a <c>reference</c> field with <see cref="Multiple"/>. Refused
+    /// on a field of any other type.
+    /// </remarks>
+    public string? ItemType { get; set; }
+
+    /// <summary>
     /// For a <c>money</c> field, the ISO 4217 code every amount in it is in, for example <c>USD</c>.
     /// </summary>
     /// <remarks>

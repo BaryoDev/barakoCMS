@@ -2572,6 +2572,11 @@
           "isRequired": {
             "type": "boolean"
           },
+          "itemType": {
+            "description": "For an array field, the type every item is. Refused on any other type.",
+            "nullable": true,
+            "type": "string"
+          },
           "multiple": {
             "description": "For a choice, whether an entry holds a list of options rather than one.",
             "type": "boolean"
@@ -6943,6 +6948,11 @@
           },
           "isRequired": {
             "type": "boolean"
+          },
+          "itemType": {
+            "description": "For an array field, the type every item in it is, for example url.",
+            "nullable": true,
+            "type": "string"
           },
           "mask": {
             "$ref": "#/components/schemas/BarakoCMSModelsFieldMask"

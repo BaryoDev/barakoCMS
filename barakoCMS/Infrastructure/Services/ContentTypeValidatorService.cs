@@ -194,9 +194,7 @@ public class ContentTypeValidatorService : IContentTypeValidatorService
                     errors.Add($"Field '{field.Name}' declares options but is of type '{field.Type}', not choice.");
                 }
 
-                errors.AddRange(MoneyFields.DefinitionErrors(field));
-                errors.AddRange(TokenFields.DefinitionErrors(field));
-                errors.AddRange(FieldPresentation.DefinitionErrors(field));
+                errors.AddRange(TypeSettingErrors(field));
 
                 if (!stored.Contains(field))
                     errors.AddRange(FieldRules.DefinitionErrors(field));
@@ -222,6 +220,13 @@ public class ContentTypeValidatorService : IContentTypeValidatorService
 
         return (errors.Count == 0, errors);
     }
+
+    /// <summary>What is wrong with the settings a field's type gives meaning to.</summary>
+    private static IEnumerable<string> TypeSettingErrors(FieldDefinition field) =>
+        MoneyFields.DefinitionErrors(field)
+            .Concat(TokenFields.DefinitionErrors(field))
+            .Concat(FieldPresentation.DefinitionErrors(field))
+            .Concat(ArrayItems.DefinitionErrors(field));
 
     /// <inheritdoc />
     public (bool IsValid, List<string> Errors) ValidateLifecycle(LifecycleDefinition? lifecycle)

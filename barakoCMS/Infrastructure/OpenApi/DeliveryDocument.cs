@@ -210,7 +210,9 @@ internal static class DeliveryDocument
         var schema = OpenApiChoice(field)
             ?? (barakoCMS.Core.Validation.ReferenceFields.IsMultiple(field)
                 ? new JsonObject { ["type"] = "array", ["items"] = OpenApiType("reference"), ["uniqueItems"] = true }
-                : OpenApiType(field.Type));
+                : barakoCMS.Core.Validation.ArrayItems.IsArray(field.Type) && field.ItemType is { } itemType
+                    ? new JsonObject { ["type"] = "array", ["items"] = OpenApiType(itemType) }
+                    : OpenApiType(field.Type));
         if (!string.IsNullOrWhiteSpace(field.DisplayName))
             schema["title"] = field.DisplayName;
         return schema;

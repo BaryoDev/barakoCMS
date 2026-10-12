@@ -227,75 +227,8 @@ public class ContentValidatorService(
                 }
             }
 
-            // Check Type - validate the value against the field type via the shared
-            // registry (same source of truth the content-type validator uses).
             if (keyDetails.Key != null && keyDetails.Value != null)
-            {
-                var value = keyDetails.Value;
-                var expectedType = field.Type.ToLower();
-
-                if (InlineImageFields.Is(expectedType))
-                {
-                    if (!InlineImageFields.IsUnchanged(field, value, existing)
-                        && InlineImageFields.ValueError(field, value) is { } imageError)
-                    {
-                        errors.Add(imageError);
-                    }
-                }
-                else if (ReferenceFields.IsMultiple(field))
-                {
-                    if (await ReferenceFields.ValueErrorAsync(session, field, value) is { } referencesError)
-                        errors.Add(referencesError);
-                }
-                else if (expectedType == FileFields.TypeName)
-                {
-                    // Ahead of the shape check, so text that is not an id is answered in the same
-                    // words as an id the caller may not use.
-                    var error = await ValidateFileAsync(field, value, existing, caller);
-                    if (error is not null)
-                        errors.Add(error);
-                }
-                else if (expectedType == "email" && StoredValues.IsUnchanged(field.Name, value, existing))
-                {
-                    // An address stored before the email check was tightened is still the entry's
-                    // own, and an edit of another field keeps it as it is.
-                }
-                else if (!FieldTypeRegistry.IsValidValue(expectedType, value))
-                {
-                    var actualType = GetActualTypeName(value);
-                    errors.Add($"Field '{field.DisplayName}' expects type '{expectedType}' but received '{actualType}'");
-                }
-                else if (expectedType == "reference")
-                {
-                    // The registry checked the shape. Whether the target exists, and is the type
-                    // this field declares, needs the database, which is why it is here and not
-                    // there. Checked on write rather than on read: a reference that pointed at
-                    // nothing would otherwise be stored happily and fail for whoever renders it.
-                    var error = await ValidateReferenceAsync(field, value);
-                    if (error is not null)
-                        errors.Add(error);
-                }
-                else if (expectedType == "choice")
-                {
-                    // What the entry already holds is not checked again. The options may have
-                    // changed since it was stored, and a field the caller may not see is put back
-                    // to its stored value before this runs, so refusing it would block every edit
-                    // of the rest of the entry over a value the caller did not send.
-                    var error = StoredValues.IsUnchanged(field.Name, value, existing)
-                        ? null
-                        : ValidateChoice(field, value);
-                    if (error is not null)
-                        errors.Add(error);
-                }
-                else if (MoneyFields.ValueError(field, value) is { } moneyError)
-                {
-                    errors.Add(moneyError);
-                }
-                else
-                {
-                    errors.AddRange(FieldRules.ValueErrors(field, value));
-                }
-            }
+                errors.AddRange(await ValueErrorsAsync(field, keyDetails.Value, existing, caller));
         }
 
         // Only when everything else passed. This one costs a query the slug route's own comment
@@ -314,6 +247,58 @@ public class ContentValidatorService(
 
         return (errors.Count == 0, errors);
     }
+
+    /// <summary>What is wrong with the value a write sends for one field, by the field's type.</summary>
+    /// <remarks>
+    /// The type's own check first, through the shared registry (the same source of truth the
+    /// content-type validator uses), then whatever the definition adds to it.
+    /// </remarks>
+    private async Task<IEnumerable<string>> ValueErrorsAsync(
+        FieldDefinition field,
+        object value,
+        Models.Content? existing,
+        System.Security.Claims.ClaimsPrincipal? caller)
+    {
+        var expectedType = field.Type.ToLower();
+
+        if (InlineImageFields.Is(expectedType))
+            return InlineImageFields.IsUnchanged(field, value, existing) ? [] : One(InlineImageFields.ValueError(field, value));
+
+        if (ReferenceFields.IsMultiple(field))
+            return One(await ReferenceFields.ValueErrorAsync(session, field, value));
+
+        // Ahead of the shape check, so text that is not an id is answered in the same words as an
+        // id the caller may not use.
+        if (expectedType == FileFields.TypeName)
+            return One(await ValidateFileAsync(field, value, existing, caller));
+
+        // An address stored before the email check was tightened is still the entry's own, and an
+        // edit of another field keeps it as it is.
+        if (expectedType == "email" && StoredValues.IsUnchanged(field.Name, value, existing))
+            return [];
+
+        if (!FieldTypeRegistry.IsValidValue(expectedType, value))
+            return [$"Field '{field.DisplayName}' expects type '{expectedType}' but received '{GetActualTypeName(value)}'"];
+
+        // The registry checked the shape. Whether the target exists, and is the type this field
+        // declares, needs the database, which is why it is here and not there. Checked on write
+        // rather than on read: a reference that pointed at nothing would otherwise be stored happily
+        // and fail for whoever renders it.
+        if (expectedType == "reference")
+            return One(await ValidateReferenceAsync(field, value));
+
+        // What the entry already holds is not checked again. The options may have changed since it
+        // was stored, and a field the caller may not see is put back to its stored value before this
+        // runs, so refusing it would block every edit of the rest of the entry over a value the
+        // caller did not send.
+        if (expectedType == "choice")
+            return StoredValues.IsUnchanged(field.Name, value, existing) ? [] : One(ValidateChoice(field, value));
+
+        var typed = ArrayItems.ValueError(field, value, existing) ?? MoneyFields.ValueError(field, value);
+        return typed is not null ? [typed] : FieldRules.ValueErrors(field, value);
+    }
+
+    private static IEnumerable<string> One(string? error) => error is null ? [] : [error];
 
     /// <summary>
     /// Checks that no other entry of this type already holds this entry's slug.

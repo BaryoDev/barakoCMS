@@ -58,7 +58,7 @@
 193 barakoCMS/Features/Content/List/Endpoint.cs::Endpoint.HandleAsync
 85 barakoCMS/Features/Content/Schedule/Endpoint.cs::Endpoint.HandleAsync
 246 barakoCMS/Features/Content/Update/Endpoint.cs::Endpoint.HandleAsync
-131 barakoCMS/Features/ContentType/AddField/Endpoint.cs::Endpoint.HandleAsync
+112 barakoCMS/Features/ContentType/AddField/Endpoint.cs::Endpoint.HandleAsync
 111 barakoCMS/Features/ContentType/Blueprints/Apply/Endpoint.cs::Endpoint.HandleAsync
 74 barakoCMS/Features/ContentType/Blueprints/BlueprintCatalog.cs::BlueprintCatalog.ValidateTypes
 204 barakoCMS/Features/ContentType/Create/Endpoint.cs::Endpoint.HandleAsync
@@ -107,9 +107,8 @@
 88 barakoCMS/Infrastructure/Migrations/MigrationLedger.cs::MigrationLedger.ApplyLockedAsync
 74 barakoCMS/Infrastructure/Migrations/ShippedMigration.cs::ShippedMigrations.Parse
 355 barakoCMS/Infrastructure/Services/ContentTransitioner.cs::ContentTransitioner.TransitionAsync
-112 barakoCMS/Infrastructure/Services/ContentTypeValidatorService.cs::ContentTypeValidatorService.Validate
+110 barakoCMS/Infrastructure/Services/ContentTypeValidatorService.cs::ContentTypeValidatorService.Validate
 77 barakoCMS/Infrastructure/Services/ContentUniqueness.cs::ContentUniqueness.TryRead
-128 barakoCMS/Infrastructure/Services/ContentValidatorService.cs::ContentValidatorService.ValidateFieldsAsync
 87 barakoCMS/Infrastructure/Services/KubernetesMonitorService.cs::KubernetesMonitorService.GetClusterStatusAsync
 78 barakoCMS/Infrastructure/Services/PermissionPredicateCompiler.cs::PermissionPredicateCompiler.TryCompileOperator
 93 barakoCMS/Infrastructure/Services/PermissionPredicateCompiler.cs::PermissionPredicateCompiler.TryCompileRule

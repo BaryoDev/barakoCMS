@@ -256,6 +256,7 @@ internal sealed class ContentChangeListener(
         ReferenceType = f.ReferenceType,
         Options = f.Options,
         Multiple = f.Multiple,
+        ItemType = f.ItemType,
         Currency = f.Currency,
         Scale = f.Scale,
         Editor = f.Editor,
