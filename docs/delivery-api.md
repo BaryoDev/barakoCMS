@@ -57,6 +57,12 @@ The feed takes an item's title, description and date from the fields the type gi
 `Feeds:Paths:{type}` or `/{type}/{slug}`, as before. See
 [field-hints-and-roles.md](field-hints-and-roles.md).
 
+Each link starts at the tenant's own site: the `Url` of its published `site` entry
+([site-settings.md](site-settings.md)). A tenant that sets none, or sets one that is not an absolute
+http or https URL without a query, links at `Feeds:SiteUrl` and then `App:BaseUrl`, which is what
+every tenant got before, so a deployment that only sets `Feeds:SiteUrl` serves the same feed it
+did. The `{{links.public}}` template placeholder builds the same address.
+
 A read by slug of a type that declares a `structuredDataType` also carries `structuredData`, the
 entry as schema.org JSON-LD built from its field roles. See [structured-data.md](structured-data.md).
 

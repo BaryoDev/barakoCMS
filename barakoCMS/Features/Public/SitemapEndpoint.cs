@@ -36,11 +36,9 @@ internal class SitemapEndpoint(IQuerySession session, IConfiguration config) : E
             .Take(50000)
             .ToListAsync(ct);
 
-        // Resolved the same way the feed resolves it, because they answer the same question. This
-        // read Feeds:SiteUrl on its own and returned a bare 500, so a deployment that set
-        // App:BaseUrl got a working feed and a sitemap that failed with nothing to act on. See #670.
-        var siteUrl = barakoCMS.Infrastructure.Security.CanonicalHost.BaseUrl(
-            config, HttpContext.Request, "Feeds:SiteUrl");
+        // Resolved the same way the feed resolves it, because they answer the same question (#670).
+        var siteUrl = await barakoCMS.Infrastructure.Services.EntryUrls.OriginAsync(
+            session, config, HttpContext.Request, ct);
 
         if (siteUrl is null)
         {
@@ -63,8 +61,6 @@ internal class SitemapEndpoint(IQuerySession session, IConfiguration config) : E
                 .Where(c => c.ContentType == type);
 
 
-            var pathTemplate = PublicDelivery.PathTemplate(def, config);
-
             foreach (var entry in typeEntries)
             {
                 var pub = PublicDelivery.ToPublic(entry, def, slugField);
@@ -86,10 +82,7 @@ internal class SitemapEndpoint(IQuerySession session, IConfiguration config) : E
                 if (barakoCMS.Features.Seo.SeoFields.Resolve(pub.Data).NoIndex)
                     continue;
 
-                var slug = pub.Slug;
-                var link = siteUrl + pathTemplate.Replace(
-                    "{slug}",
-                    Uri.EscapeDataString(slug));
+                var link = barakoCMS.Infrastructure.Services.EntryUrls.EntryUrl(siteUrl, def, pub.Slug, config);
 
                 sb.Append("  <url>\n");
                 sb.Append($"    <loc>{Esc(link)}</loc>\n");

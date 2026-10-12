@@ -14,12 +14,13 @@ namespace barakoCMS.Features.Public;
 /// documents, and non-Public fields never appear. The literal "feed.xml" segment wins over the {slug}
 /// route. Anonymous and cacheable.
 ///
-/// Item links point at the caller's frontend (the CMS is headless, so it can't know the URL): set
-/// <c>Feeds:SiteUrl</c> and, per type, the type's route template or <c>Feeds:Paths:{type}</c> (a
-/// template like <c>/blog/{slug}</c>; defaults to <c>/{type}/{slug}</c>). An item's title,
+/// Item links point at the tenant's site: the <c>Url</c> of its published <c>site</c> entry, else
+/// <c>Feeds:SiteUrl</c> (see <see cref="barakoCMS.Infrastructure.Services.EntryUrls"/>), and per type
+/// the type's route template or <c>Feeds:Paths:{type}</c> (a template like <c>/blog/{slug}</c>;
+/// defaults to <c>/{type}/{slug}</c>). An item's title,
 /// description and date come from the fields the type gives the title, summary and date roles,
 /// and from the field names guessed before roles existed when it gives none or the field is empty.
-/// With neither <c>Feeds:SiteUrl</c> nor <c>App:BaseUrl</c> set,
+/// With no site entry <c>Url</c> and neither <c>Feeds:SiteUrl</c> nor <c>App:BaseUrl</c> set,
 /// the feed answers 503 unless <c>AllowedHosts</c> makes the request host trustworthy, because a feed
 /// is fetched by aggregators and its links must not come from a header the caller wrote (#147).
 /// </summary>
@@ -53,15 +54,14 @@ internal class FeedEndpoint(IQuerySession session, IConfiguration config) : Endp
             .Take(MaxItems)
             .ToListAsync(ct);
 
-        var siteUrl = barakoCMS.Infrastructure.Security.CanonicalHost.BaseUrl(
-            config, HttpContext.Request, "Feeds:SiteUrl");
+        var siteUrl = await barakoCMS.Infrastructure.Services.EntryUrls.OriginAsync(
+            session, config, HttpContext.Request, ct);
 
         if (siteUrl is null)
         {
             throw new barakoCMS.Infrastructure.Security.BaseUrlNotConfiguredException("Feeds:SiteUrl");
         }
 
-        var pathTemplate = PublicDelivery.PathTemplate(def!, config);
         var channelTitle = config[$"Feeds:Titles:{type}"] ?? type;
 
         var sb = new StringBuilder();
@@ -90,7 +90,7 @@ internal class FeedEndpoint(IQuerySession session, IConfiguration config) : Endp
                 def, FieldPresentation.TitleRole, "Title", "Name"));
             var description = Field(pub.Data, FieldPresentation.Candidates(
                 def, FieldPresentation.SummaryRole, "Excerpt", "Summary", "Description", "Body"));
-            var link = siteUrl + pathTemplate.Replace("{slug}", Uri.EscapeDataString(slug));
+            var link = barakoCMS.Infrastructure.Services.EntryUrls.EntryUrl(siteUrl, def!, slug, config);
             var date = ItemDate(pub.Data, pub.CreatedAt, FieldPresentation.Candidates(
                 def, FieldPresentation.DateRole, "Date", "PublishedAt"));
 

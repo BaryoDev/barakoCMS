@@ -218,7 +218,7 @@ public class TemplateVariableExtractor(
             currency,
             needs.Author ? await PersonAsync(content.CreatedBy, ct) : null,
             needs.Transition ? await TransitionAsync(content, triggerEvent, eventSequence, ct) : null,
-            LinksWith(siteUrl),
+            await LinksForAsync(content, siteUrl, list, ct),
             await ReferencesAsync(
                 content, token => ActorAsync(content, triggerEvent, eventSequence, token), TemplateExpression.FollowedFields(list), ct),
             []);
@@ -256,7 +256,7 @@ public class TemplateVariableExtractor(
             currency,
             TemplatePerson.Sample,
             null,
-            LinksWith(siteUrl),
+            await LinksForAsync(content, siteUrl, list, ct),
             await ReferencesAsync(content, _ => Task.FromResult(viewer), TemplateExpression.FollowedFields(list), ct),
             []);
         _preparedFor = content.Id;
@@ -278,7 +278,7 @@ public class TemplateVariableExtractor(
             currency,
             TemplatePerson.Sample,
             transition is { Length: > 0 } ? new TemplateTransition(transition, content.UpdatedAt, TemplatePerson.Sample) : null,
-            LinksWith(siteUrl),
+            await LinksForAsync(content, siteUrl, list, ct),
             References: null,
             []);
         _preparedFor = content.Id;
@@ -290,32 +290,25 @@ public class TemplateVariableExtractor(
     private static readonly (TimeZoneInfo? Zone, string? Currency, string? Url) NoSiteSettings = (TimeZoneInfo.Utc, null, null);
 
     /// <summary>The bases links are built on, or null when this extractor was given no configuration.</summary>
-    private TemplateLinks? LinksWith(string? siteUrl) =>
-        configuration is null
-            ? null
-            : new TemplateLinks(
-                AbsoluteBase(configuration[barakoCMS.Infrastructure.Security.CanonicalHost.BaseUrlKey]),
-                AbsoluteBase(configuration[ConsoleUrlKey]),
-                AbsoluteBase(siteUrl));
-
-    /// <summary>An absolute http or https URL with no trailing slash, or null for anything else.</summary>
-    /// <remarks>
-    /// Null and not an error: a link that cannot be built is left out of the message, and a setting
-    /// that is not a URL must not stop the message going.
-    /// </remarks>
-    private static string? AbsoluteBase(string? value)
+    /// <remarks>The entry's public address is read only when a template names <c>links.public</c>.</remarks>
+    private async Task<TemplateLinks?> LinksForAsync(
+        Content content, string? siteUrl, IReadOnlyCollection<string> templates, CancellationToken ct)
     {
-        var text = value?.Trim();
-        if (string.IsNullOrEmpty(text)
-            || !Uri.TryCreate(text, UriKind.Absolute, out var uri)
-            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
-            || !string.IsNullOrEmpty(uri.Query)
-            || !string.IsNullOrEmpty(uri.Fragment))
+        if (configuration is null)
         {
             return null;
         }
 
-        return text.TrimEnd('/');
+        var publicUrl = templates.Any(t => t?.Contains("links.public", StringComparison.Ordinal) == true)
+                        && content is not barakoCMS.Features.Workflows.ErasedContent
+            ? await EntryUrls.PublicUrlAsync(session, content, siteUrl, configuration, ct)
+            : null;
+
+        return new TemplateLinks(
+            EntryUrls.AbsoluteBase(configuration[barakoCMS.Infrastructure.Security.CanonicalHost.BaseUrlKey]),
+            EntryUrls.AbsoluteBase(configuration[ConsoleUrlKey]),
+            EntryUrls.AbsoluteBase(siteUrl),
+            publicUrl);
     }
 
     /// <summary>The time zone, currency and URL of the tenant's published <c>site</c> entry.</summary>
@@ -333,27 +326,11 @@ public class TemplateVariableExtractor(
             .Take(1)
             .FirstOrDefaultAsync(ct);
 
-        var zone = Setting(site, "TimeZone");
+        var zone = EntryUrls.Setting(site, "TimeZone");
 
         return (zone is null ? TimeZoneInfo.Utc : TemplateExpression.Zone(zone),
-            TemplateExpression.CurrencyCode(Setting(site, "Currency")),
-            Setting(site, "Url"));
-    }
-
-    private static string? Setting(Content? site, string name)
-    {
-        if (site?.Data is null) return null;
-
-        foreach (var (key, value) in site.Data)
-        {
-            if (string.Equals(key, name, StringComparison.OrdinalIgnoreCase))
-            {
-                var text = value?.ToString()?.Trim();
-                return string.IsNullOrEmpty(text) ? null : text;
-            }
-        }
-
-        return null;
+            TemplateExpression.CurrencyCode(EntryUrls.Setting(site, "Currency")),
+            EntryUrls.Setting(site, "Url"));
     }
 
     private bool? _tenantIsRegistered;
@@ -808,6 +785,13 @@ public class TemplateVariableExtractor(
                 Name = "{{links.site}}",
                 Description = "The Url of the site settings. Empty when there is none",
                 Example = "https://example.com",
+                Type = "string"
+            },
+            new()
+            {
+                Name = "{{links.public}}",
+                Description = "The entry on the public site: the site's Url, else Feeds:SiteUrl, then the type's path. Empty unless delivery serves the entry at a slug",
+                Example = "https://example.com/blog/hello-world",
                 Type = "string"
             }
         };

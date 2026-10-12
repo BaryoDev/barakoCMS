@@ -574,6 +574,7 @@ the braces is sent as written. An email template stored as content resolves the 
 | `{{links.transition "Approve"}}` | The same with the transition named: `{App:ConsoleUrl}/content/{id}?transition=Approve` |
 | `{{links.entry}}` | The entry in this API: `{App:BaseUrl}/api/contents/{id}` |
 | `{{links.site}}`, `{{links.site "/approvals/"}}` | The `Url` of the site settings, and a page on it |
+| `{{links.public}}` | The entry on the public site, the same address the feed and the sitemap give it |
 
 The time zone is the `TimeZone` field of the tenant's published `site` entry
 ([site-settings.md](site-settings.md)) and the currency is its `Currency`. With no `site` entry or
@@ -661,6 +662,12 @@ signs in, and the transition's own permission and conditions decide whether it r
 | `links.console`, `links.edit`, `links.transition` | `App:ConsoleUrl`, the console's URL |
 | `links.entry` | `App:BaseUrl`, this API's public URL |
 | `links.site` | The `Url` field of the tenant's published `site` entry |
+| `links.public` | That `Url`, else `Feeds:SiteUrl`, else `App:BaseUrl`, followed by the type's route template (or `Feeds:Paths:{type}`, or `/{type}/{slug}`) |
+
+`links.public` is empty unless public delivery serves the entry at a slug: its type is publicly
+deliverable with a Public slug field, and the entry is Published and Public. A draft, a Sensitive
+entry and a type that is not delivered get no address, so a slug delivery does not serve never
+reaches a message.
 
 A base that is not set, or is not an absolute http or https URL, makes its links render empty. The
 path given to `links.site` starts with one `/` (two would name another host) and is at most 200
