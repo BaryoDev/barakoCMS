@@ -102,9 +102,18 @@ What the seeder does with it:
   `POST /api/config/apply` runs. It is applied by the host rather than a signed-in caller, so the
   capability checks a caller's apply goes through do not apply, and a section written for a caller
   is skipped (below).
-- **Destructive changes are skipped.** A change the engine marks destructive (a removed field, a
-  deleted workflow, a cleared credential) is never made from the file. The seeder logs a warning
-  naming each one and applies the rest; make it with `POST /api/config/apply` and `allowDestructive`.
+- **Destructive changes are skipped, a whole document at a time.** A change the engine marks
+  destructive (a removed field, a deleted workflow, a cleared credential) is never made from the
+  file. A change is one document, so everything else in that document is skipped with it: a type
+  that gains field B and loses field A is not updated at all, a role that gains one capability and
+  loses another is not changed, and a workflow whose webhook URL moves keeps its old triggers and
+  conditions too. The seeder logs a warning naming each skipped document and applies the other
+  documents; make the change with `POST /api/config/apply` and `allowDestructive`.
+- **A section that relies on a skipped change fails.** A rule naming field B, or a workflow
+  triggered by a transition that same skipped type change adds, is checked against what is stored,
+  and refused. That stops the seed for the tenant (below), and editing the failing section does not
+  fix it, because the cause is the skipped one. The error says when a destructive change was skipped
+  in the same tenant. Apply that change with `allowDestructive` first, then restart.
 - **Anything else that cannot be applied stops the seed** and names every reason, and the hash is
   not recorded. What was applied before the refusal stays: the top-level sections, and each tenant
   before the one refused, commit as they go. Fix the file and restart, and the next start applies it

@@ -175,7 +175,14 @@ internal static class SeedFile
 
         if (!result.Response.Applied)
         {
-            throw new InvalidOperationException($"{Key} could not be applied to the {slug ?? Tenant.DefaultSlug} tenant: {Describe(result.Response)}");
+            // A skipped change is the whole document it belongs to, so a later section relying on
+            // any part of it fails here, and editing that section alone does not fix it.
+            var hint = result.Response.Sections.Any(s => s.Notes.Any(n => n.StartsWith(ConfigEngine.SkippedPrefix, StringComparison.Ordinal)))
+                ? " A destructive change was skipped in this tenant (logged above), and a section that relies on what it would have "
+                  + "changed is a likely cause. Make it with POST /api/config/apply and allowDestructive, then restart."
+                : string.Empty;
+            throw new InvalidOperationException(
+                $"{Key} could not be applied to the {slug ?? Tenant.DefaultSlug} tenant: {Describe(result.Response)}{hint}");
         }
     }
 

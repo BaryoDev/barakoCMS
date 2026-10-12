@@ -126,7 +126,7 @@ internal sealed class ConfigEngine(
         return (result, skipped);
     }
 
-    private const string SkippedPrefix = "Skipped as destructive: ";
+    internal const string SkippedPrefix = "Skipped as destructive: ";
 
     private async Task<ConfigRunResult> RunUnauditedAsync(
         JsonElement document, ConfigCaller caller, bool apply, bool allowDestructive, bool skipDestructive, CancellationToken ct)

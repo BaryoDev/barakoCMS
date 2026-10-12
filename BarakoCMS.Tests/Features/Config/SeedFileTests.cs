@@ -214,6 +214,44 @@ public class SeedFileTests
     }
 
     [Fact]
+    public async Task A_section_relying_on_a_skipped_destructive_change_stops_the_seed_and_says_why()
+    {
+        var slug = Unique("seed-");
+        var type = Unique("chart");
+        var role = Unique("Seed Reader ");
+        object File(string field, object? rules) => new
+        {
+            version = 1,
+            roles = new Dictionary<string, object> { [role] = new { description = "Reads charts" } },
+            tenants = new Dictionary<string, object>
+            {
+                [slug] = new
+                {
+                    name = slug,
+                    config = rules is null
+                        ? (object)new { contentTypes = new Dictionary<string, object> { [type] = Type(type, ("Title", "string"), (field, "string")) } }
+                        : new { contentTypes = new Dictionary<string, object> { [type] = Type(type, ("Title", "string"), (field, "string")) }, permissionRules = rules },
+                },
+            },
+        };
+        await StartAsync(await FileAsync(File("Alpha", null)));
+
+        // Beta replaces Alpha: one change to the type, destructive because Alpha goes, so all of it is
+        // skipped, Beta included, and the rule naming Beta has nothing to name.
+        var edited = await FileAsync(File("Beta", new Dictionary<string, object>
+        {
+            [$"{role}/{type}"] = new { read = new { enabled = true, readableFields = new[] { "Beta" } } },
+        }));
+        var seeding = () => StartAsync(edited);
+
+        var message = (await seeding.Should().ThrowAsync<InvalidOperationException>()).Which.Message;
+        message.Should().Contain("'Beta'").And.Contain("A destructive change was skipped in this tenant");
+        (await _callers.InTenantAsync(slug, s => s.Query<ContentTypeDefinition>().SingleAsync(t => t.Name == type, Ct)))!
+            .Fields.Select(f => f.Name).Should().Equal("Title", "Alpha");
+        (await RecordedHashAsync()).Should().NotBe(Sha(edited));
+    }
+
+    [Fact]
     public async Task A_refusal_in_the_middle_keeps_what_went_before_records_no_hash_and_a_fixed_file_converges()
     {
         var first = Unique("seed-");
