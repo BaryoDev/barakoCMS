@@ -76,7 +76,31 @@ internal sealed class WorkflowRunner(
     /// </summary>
     public const int MaxConcurrency = CandidatesPerPass;
 
-    private readonly string _node = $"{Environment.MachineName}-{Guid.NewGuid():N}"[..40];
+    private readonly string _node = NodeId(Environment.MachineName);
+
+    /// <summary>What this runner writes into <c>LeasedBy</c>. Fixed for the life of the runner.</summary>
+    internal string Node => _node;
+
+    /// <summary>The longest <see cref="WorkflowActionAttempt.LeasedBy"/> a runner writes.</summary>
+    internal const int MaxNodeIdLength = 40;
+
+    /// <summary>
+    /// The machine name, cut to what fits, a dash and a new guid: at most
+    /// <see cref="MaxNodeIdLength"/> characters for any name, an empty one included.
+    /// </summary>
+    /// <remarks>
+    /// The name is cut and the guid never is. The guid is what tells two runners on one machine
+    /// apart, so cutting the whole string at 40 gave every runner on a host with a long name the
+    /// same id, and on a host with a short one threw before the runner existed.
+    /// </remarks>
+    internal static string NodeId(string? machineName)
+    {
+        var unique = Guid.NewGuid().ToString("N");
+        var name = machineName ?? string.Empty;
+        var room = MaxNodeIdLength - unique.Length - 1;
+
+        return $"{(name.Length <= room ? name : name[..room])}-{unique}";
+    }
     private readonly int _concurrency = ReadConcurrency(config);
 
     private string[]? _partitions;
