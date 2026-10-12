@@ -13,10 +13,7 @@ namespace barakoCMS.Features.Roles;
 /// <summary>A role as its document. Its content permissions are the <c>permissionRules</c> section.</summary>
 internal sealed record RoleConfig(string? Description, List<string>? SystemCapabilities, bool RequireMfa)
 {
-    public static RoleConfig Of(Role role) => new(
-        role.Description ?? string.Empty,
-        (role.SystemCapabilities ?? []).Order(StringComparer.Ordinal).ToList(),
-        role.RequireMfa);
+    public static RoleConfig Of(Role role) => new RoleConfig(role.Description, role.SystemCapabilities, role.RequireMfa).Normalised();
 
     public RoleConfig Normalised() => new(
         Description ?? string.Empty,
@@ -138,9 +135,9 @@ internal sealed class RoleConfigProvider(
 
     private static RoleConfig? Read(string name, JsonElement document, List<string> errors)
     {
-        if (string.IsNullOrWhiteSpace(name) || name.Trim() != name)
+        if (string.IsNullOrWhiteSpace(name))
         {
-            errors.Add($"'{name}' is not a role name: a name is not blank and has no spaces around it.");
+            errors.Add("A role's name is not blank.");
             return null;
         }
 
@@ -185,7 +182,10 @@ internal sealed class RoleConfigProvider(
 
         return new ConfigChange
         {
-            Key = name, Kind = ConfigChangeKind.Change, Desired = document, Summary = $"change role '{name}'", Details = details,
+            // Taking a capability away takes access from everybody holding the role, so it is destructive.
+            Key = name,
+            Kind = held.SystemCapabilities!.Except(desired.SystemCapabilities!).Any() ? ConfigChangeKind.Destructive : ConfigChangeKind.Change,
+            Desired = document, Summary = $"change role '{name}'", Details = details,
         };
     }
 

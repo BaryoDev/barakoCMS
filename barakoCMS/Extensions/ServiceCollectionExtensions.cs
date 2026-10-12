@@ -1266,8 +1266,13 @@ public static class ServiceCollectionExtensions
     private static void AddConfigEngine(IServiceCollection services)
     {
         services.AddScoped<barakoCMS.Features.Config.ConfigEngine>();
+        services.AddHostedService<barakoCMS.Features.Config.ConfigSectionCheck>();
         services.AddScoped<barakoCMS.Core.Interfaces.IConfigProvider, barakoCMS.Features.ContentType.ContentTypeConfigProvider>();
         services.AddScoped<barakoCMS.Core.Interfaces.IConfigProvider, barakoCMS.Features.Roles.RoleConfigProvider>();
+        services.AddScoped<barakoCMS.Core.Interfaces.IConfigProvider, barakoCMS.Features.Roles.PermissionRuleConfigProvider>();
+        services.AddScoped<barakoCMS.Core.Interfaces.IConfigProvider, barakoCMS.Features.Workflows.WorkflowConfigProvider>();
+        services.AddScoped<barakoCMS.Core.Interfaces.IConfigProvider, barakoCMS.Features.Connectors.ConnectorConfigProvider>();
+        services.AddScoped<barakoCMS.Core.Interfaces.IConfigProvider, barakoCMS.Features.Site.SiteSettingsConfigProvider>();
     }
 
     private static void AddValidationAndMonitoring(IServiceCollection services)

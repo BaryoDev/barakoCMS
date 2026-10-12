@@ -1,0 +1,325 @@
+using System.Security.Claims;
+using System.Text.Json;
+using barakoCMS.Core.Interfaces;
+using barakoCMS.Features.Config;
+using barakoCMS.Features.Workflows.Actions;
+using barakoCMS.Infrastructure.Multitenancy;
+using barakoCMS.Infrastructure.Services;
+using barakoCMS.Models;
+using Marten;
+
+namespace barakoCMS.Features.Workflows;
+
+/// <summary>A workflow as its document: what triggers it and what it does, with no credential.</summary>
+internal sealed record WorkflowConfig(
+    List<string>? TriggerContentTypes,
+    List<string>? TriggerEvents,
+    Dictionary<string, string>? Conditions,
+    List<WorkflowAction>? Actions,
+    bool Enabled = true);
+
+/// <summary>
+/// The <c>workflows</c> section: each workflow of the tenant under its name.
+/// </summary>
+/// <remarks>
+/// <para>
+/// A credential parameter (a webhook <c>Secret</c>, anything <c>CredentialNames</c> reads as
+/// one) is never exported, and a document that carries one is refused: a configuration file is
+/// reviewed and committed, which is exactly where a credential must not be. Applying a change keeps
+/// the credentials a stored action holds only when that action keeps its position, its type and
+/// every other parameter. Any other change to an action holding one drops it, destructively, so a
+/// secret is never carried to an address its owner did not enter it for.
+/// </para>
+/// <para>
+/// A workflow the document leaves out is deleted, destructively. Workflows are keyed by name, so
+/// two stored under one name cannot be told apart: the export carries the first and names the rest
+/// as a gap, and a document naming one is refused until they are renamed.
+/// </para>
+/// </remarks>
+internal sealed class WorkflowConfigProvider(
+    IDocumentSession session,
+    IWorkflowSchemaValidator validator,
+    TenantContext tenant) : IConfigProvider
+{
+    public string Section => "workflows";
+
+    public int Order => 400;
+
+    public string ReadCapability => SystemCapabilities.ManageWorkflows;
+
+    public string WriteCapability => SystemCapabilities.ManageWorkflows;
+
+    public async Task<ConfigSectionExport?> ExportAsync(ConfigCaller caller, CancellationToken ct)
+    {
+        var gaps = new List<string>();
+        var documents = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+
+        foreach (var group in (await session.Query<WorkflowDefinition>().ToListAsync(ct)).GroupBy(w => w.Name, StringComparer.Ordinal))
+        {
+            var ordered = group.OrderBy(w => w.Id).ToList();
+            if (ordered.Count > 1)
+            {
+                gaps.Add($"{ordered.Count} workflows are named '{group.Key}'. A workflow is keyed by its name, so only one is exported.");
+            }
+
+            var (config, held) = Of(ordered[0]);
+            documents[group.Key] = ConfigJson.ToElement(config);
+            gaps.AddRange(held.Select(h => $"'{group.Key}': {h}"));
+        }
+
+        return new ConfigSectionExport { Documents = documents, Gaps = gaps };
+    }
+
+    public async Task<ConfigSectionPlan> PlanAsync(
+        IReadOnlyDictionary<string, JsonElement> desired, ConfigCaller caller, CancellationToken ct)
+    {
+        var errors = new List<string>();
+        var changes = new List<ConfigChange>();
+        var stored = (await session.Query<WorkflowDefinition>().ToListAsync(ct)).GroupBy(w => w.Name, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
+
+        foreach (var (name, document) in desired.OrderBy(d => d.Key, StringComparer.Ordinal))
+        {
+            stored.TryGetValue(name, out var held);
+            if (held is { Count: > 1 })
+            {
+                errors.Add($"'{name}': {held.Count} workflows are stored under this name. Rename or delete all but one first.");
+                continue;
+            }
+
+            if (await ResolveAsync(name, document, errors, ct) is not { } workflow)
+            {
+                continue;
+            }
+
+            if (Plan(name, workflow, held?.Single(), document) is { } change)
+            {
+                changes.Add(change);
+            }
+        }
+
+        changes.AddRange(stored.Keys.Where(name => !desired.ContainsKey(name)).Order(StringComparer.Ordinal).Select(name =>
+            new ConfigChange { Key = name, Kind = ConfigChangeKind.Destructive, Summary = $"delete workflow '{name}'" }));
+
+        return new ConfigSectionPlan { Section = Section, Changes = changes, Errors = errors };
+    }
+
+    public async Task<IReadOnlyList<string>> ApplyAsync(ConfigSectionPlan plan, ConfigCaller caller, CancellationToken ct)
+    {
+        var errors = new List<string>();
+        var actor = caller.Principal ?? new ClaimsPrincipal();
+
+        foreach (var change in plan.Changes)
+        {
+            var current = await session.Query<WorkflowDefinition>().FirstOrDefaultAsync(w => w.Name == change.Key, ct);
+
+            if (change.Desired is not { } document)
+            {
+                if (current is not null && await DeleteAsync(current, actor, ct) is { } refused)
+                {
+                    errors.Add(refused);
+                }
+
+                continue;
+            }
+
+            if (await ResolveAsync(change.Key, document, errors, ct) is not { } workflow)
+            {
+                continue;
+            }
+
+            workflow.Id = current?.Id ?? Guid.NewGuid();
+            if (current is not null)
+            {
+                KeepCredentials(workflow, current);
+            }
+
+            // Not protected here: the document carries no credential, and what was carried over from
+            // the stored workflow is ciphertext already, which protecting again would make unreadable.
+            session.Store(workflow);
+            await WorkflowAudit.RecordAsync(session, tenant.Slug, current is null ? "workflow.created" : "workflow.updated", workflow, actor, ct: ct);
+        }
+
+        return errors;
+    }
+
+    /// <summary>A workflow as its document, and the credentials it holds that the document leaves out.</summary>
+    private static (WorkflowConfig Config, List<string> Held) Of(WorkflowDefinition workflow)
+    {
+        var held = new List<string>();
+        var actions = new List<WorkflowAction>();
+
+        for (var i = 0; i < workflow.Actions.Count; i++)
+        {
+            var action = workflow.Actions[i];
+            var parameters = WebhookSigning.WithoutSecret(action.Type, action.Parameters, out var unreadable);
+            if (!ConfigJson.Same(parameters, action.Parameters))
+            {
+                held.Add($"action {i} ({action.Type}) holds a credential, which is not exported. Set it again where the document is applied.");
+            }
+
+            held.AddRange(unreadable.Select(b => $"action {i} ({action.Type}) has a branch '{b}' that cannot be read, so it is left out."));
+            actions.Add(new WorkflowAction { Type = action.Type, Parameters = parameters, OnFailure = action.OnFailure });
+        }
+
+        var config = new WorkflowConfig(
+            WorkflowTriggers.ContentTypes(workflow), WorkflowTriggers.Events(workflow),
+            new Dictionary<string, string>(workflow.Conditions ?? [], StringComparer.Ordinal), actions, workflow.Enabled);
+        return (config, held);
+    }
+
+    /// <summary>The document as the definition it would store, checked the way the create endpoint checks one.</summary>
+    private async Task<WorkflowDefinition?> ResolveAsync(string name, JsonElement document, List<string> errors, CancellationToken ct)
+    {
+        if (ConfigJson.Read<WorkflowConfig>(name, document, errors) is not { } config)
+        {
+            return null;
+        }
+
+        var workflow = new WorkflowDefinition
+        {
+            Name = name,
+            TriggerContentTypes = config.TriggerContentTypes ?? [],
+            TriggerEvents = config.TriggerEvents ?? [],
+            Conditions = config.Conditions ?? [],
+            Actions = (config.Actions ?? []).Where(a => a is not null).ToList(),
+            Enabled = config.Enabled,
+        };
+        foreach (var action in workflow.Actions)
+        {
+            action.Parameters ??= [];
+        }
+
+        if (workflow.Actions.Any(a => !ConfigJson.Same(WebhookSigning.WithoutSecret(a.Type, a.Parameters), a.Parameters)))
+        {
+            errors.Add($"'{name}': an action carries a credential. A configuration document holds none; set it on the workflow after it is applied.");
+            return null;
+        }
+
+        WorkflowTriggers.Normalise(workflow);
+        var validation = await validator.ValidateAsync(workflow, ct);
+        if (!validation.IsValid)
+        {
+            errors.AddRange(validation.Errors.Select(e => $"'{name}': {e.Field}: {e.Message}"));
+            return null;
+        }
+
+        if (validation.NormalisedTriggerEvents is { Count: > 0 } declared)
+        {
+            workflow.TriggerEvents = declared;
+        }
+        else if (validation.NormalisedTriggerEvent is { Length: > 0 } single)
+        {
+            workflow.TriggerEvents = [single];
+        }
+
+        workflow.TriggerEvent = string.Empty;
+        WorkflowTriggers.Normalise(workflow);
+        return workflow;
+    }
+
+    private static ConfigChange? Plan(string name, WorkflowDefinition workflow, WorkflowDefinition? current, JsonElement document)
+    {
+        var desired = Of(workflow).Config;
+        if (current is null)
+        {
+            return new ConfigChange
+            {
+                Key = name, Kind = ConfigChangeKind.Create, Desired = document,
+                Summary = $"create workflow '{name}' with {workflow.Actions.Count} actions",
+            };
+        }
+
+        var (held, _) = Of(current);
+        if (ConfigJson.Same(held, desired))
+        {
+            return null;
+        }
+
+        var lost = LostCredentials(workflow, current);
+        var details = new List<string>();
+        AddIfChanged(details, "triggers", (held.TriggerContentTypes, held.TriggerEvents), (desired.TriggerContentTypes, desired.TriggerEvents));
+        AddIfChanged(details, "conditions", held.Conditions, desired.Conditions);
+        AddIfChanged(details, "actions", held.Actions, desired.Actions);
+        AddIfChanged(details, held.Enabled ? "is switched off" : "is switched on", held.Enabled, desired.Enabled);
+        details.AddRange(lost.Select(i => $"action {i} changes, so the credential its stored copy held is dropped and has to be set again"));
+
+        return new ConfigChange
+        {
+            Key = name, Kind = lost.Count > 0 ? ConfigChangeKind.Destructive : ConfigChangeKind.Change,
+            Desired = document, Summary = $"change workflow '{name}'", Details = details,
+        };
+    }
+
+    private static void AddIfChanged<T>(List<string> details, string what, T before, T after)
+    {
+        if (!ConfigJson.Same(before, after))
+        {
+            details.Add(what.StartsWith("is ", StringComparison.Ordinal) ? what : $"{what} change");
+        }
+    }
+
+    /// <summary>
+    /// Gives each action the stored action's parameters, credentials included, when the stored
+    /// action at the same position has the same type and every other parameter the same. Any
+    /// difference, a reorder included, drops what the stored action held.
+    /// </summary>
+    /// <remarks>
+    /// The rule a connector follows when its base URL moves: a credential entered for one address
+    /// must not be sent to another by somebody who never saw it. Matching on type alone let a
+    /// changed <c>Url</c> carry a webhook's signing secret to wherever the document pointed it.
+    /// </remarks>
+    private static void KeepCredentials(WorkflowDefinition workflow, WorkflowDefinition current)
+    {
+        for (var i = 0; i < workflow.Actions.Count && i < current.Actions.Count; i++)
+        {
+            if (Unchanged(workflow.Actions[i], current.Actions[i]))
+            {
+                workflow.Actions[i].Parameters = new Dictionary<string, string>(current.Actions[i].Parameters);
+            }
+        }
+    }
+
+    /// <summary>The positions of the stored actions that hold a credential the document does not keep.</summary>
+    private static List<int> LostCredentials(WorkflowDefinition workflow, WorkflowDefinition current)
+    {
+        var lost = new List<int>();
+        for (var i = 0; i < current.Actions.Count; i++)
+        {
+            var stored = current.Actions[i];
+            if (HoldsCredential(stored) && (i >= workflow.Actions.Count || !Unchanged(workflow.Actions[i], stored)))
+            {
+                lost.Add(i);
+            }
+        }
+
+        return lost;
+    }
+
+    private static bool HoldsCredential(WorkflowAction action) =>
+        !ConfigJson.Same(WebhookSigning.WithoutSecret(action.Type, action.Parameters), action.Parameters);
+
+    /// <summary>Same type, and every parameter but the credentials the same as the stored action shows them.</summary>
+    private static bool Unchanged(WorkflowAction desired, WorkflowAction stored) =>
+        string.Equals(desired.Type, stored.Type, StringComparison.Ordinal)
+        && ConfigJson.Same(WebhookSigning.WithoutSecret(stored.Type, stored.Parameters), desired.Parameters);
+
+    /// <summary>Deletes a workflow the way <c>DELETE /api/workflows/{id}</c> does, or says why it will not.</summary>
+    private async Task<string?> DeleteAsync(WorkflowDefinition workflow, ClaimsPrincipal actor, CancellationToken ct)
+    {
+        await WorkflowDefinitionLock.TakeAsync(session, workflow.Id, ct);
+
+        var workflowId = workflow.Id;
+        var queued = await session.Query<WorkflowRun>()
+            .CountAsync(r => r.WorkflowDefinitionId == workflowId && (r.Status == RunStatus.Pending || r.Status == RunStatus.Running), ct);
+        if (queued > 0)
+        {
+            return $"workflow '{workflow.Name}' has {queued} runs queued or running. Switch it off and let them finish, "
+                   + "or delete it with DELETE /api/workflows/{id}, which cancels them.";
+        }
+
+        session.Delete(workflow);
+        await WorkflowAudit.RecordAsync(session, tenant.Slug, "workflow.deleted", workflow, actor, ct: ct);
+        return null;
+    }
+}
