@@ -23,7 +23,7 @@ public class Request
 /// </summary>
 public class Endpoint(
     IQuerySession session,
-    IFileStorage storage,
+    BarakoCMS.Files.Storage.FileStorageResolver storage,
     ImageVariants variants,
     IPermissionResolver permissions,
     IConfiguration configuration,
@@ -94,7 +94,7 @@ public class Endpoint(
             return;
         }
 
-        var bytes = await storage.GetAsync(served.StorageKey, ct);
+        var bytes = await (await storage.ForAsync(served, ct)).GetAsync(served.StorageKey, ct);
         if (bytes is null) { await Send.NotFoundAsync(ct); return; }
 
         await Send.BytesAsync(

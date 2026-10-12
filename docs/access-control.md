@@ -899,6 +899,7 @@ says.
 | `Features/Content/History/*` | `rollback_content` | `POST /api/contents/{id}/rollback/{versionId}` | SuperAdmin, Admin |
 | `Features/Content/Erase/*` | `erase_content` | `DELETE /api/contents/{id}/erase` | SuperAdmin |
 | `Features/Jobs/*` | `view_jobs` | `GET /api/jobs` | SuperAdmin, Admin |
+| `BarakoCMS.Files/Features/StorageSettings` | `manage_storage` | `GET` and `PUT /api/settings/storage`, `POST /api/settings/storage/test` | SuperAdmin, Admin |
 | `Features/Collections/Endpoints.cs` | `manage_collection_syncs` | `/api/collection-syncs`, `/api/collection-syncs/{slug}`, `POST /api/collection-syncs/{slug}/run` | SuperAdmin, Admin |
 | `Infrastructure/Services/SensitivityService.cs` | `view_sensitive` | No route. Sensitive fields that list no roles, and Sensitive entries, wherever content is read or written | SuperAdmin, and HR where it is seeded |
 | `Infrastructure/Services/SensitivityService.cs` | `view_hidden` | No route. Hidden fields that list no roles, and Hidden entries, wherever content is read or written | SuperAdmin |

@@ -85,6 +85,21 @@ Bytes that do not decode are served unchanged too. A download does not fail beca
 So are bytes that do not carry the signature of the type the file was stored as, which only a row
 stored before uploads were checked can have: they never reach a decoder.
 
+## Width and height
+
+An image's width and height are read from its header when it is uploaded, as it is shown, so a
+photo tagged as turned a quarter reports its turned size. They come back as `width` and `height`
+from the upload, from `GET /api/files/{id}/meta` and from `GET /api/public/files/{id}/meta`, so a
+frontend can put them on the `img` and reserve its space. PNG, JPEG, GIF and WebP; any other file,
+and a file uploaded before sizes were recorded, has none.
+
+A variant records its own size when it is made. `GET /api/public/files/{id}/meta?w=640` answers
+`width`, `height` and `size` for the copy `GET /api/public/files/{id}?w=640` serves, which makes the
+variant if it is not made yet, with the same width rules. A width out of range, which the download
+answers with a 400, is ignored here and the answer is the original's.
+A `srcset` can carry each rung's real size that way. Where the original is narrower than asked, the
+answer is the original's.
+
 ## The library
 
 Resizing uses SkiaSharp (MIT) over Skia (BSD-3-Clause), with no licence key. The Files module

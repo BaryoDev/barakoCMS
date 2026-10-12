@@ -1,4 +1,5 @@
 using BarakoCMS.Diagnostics.Features.Report;
+using BarakoCMS.Diagnostics.Forwarding;
 using Marten;
 
 namespace BarakoCMS.Diagnostics;
@@ -70,5 +71,29 @@ public static class ClientErrorRecorder
             UserId = userId,
             Username = username,
         });
+    }
+
+    /// <summary>The report as the forwarder sends it: capped and normalised the way it is stored, or null when it is not stored.</summary>
+    internal static ForwardedError? ForwardableFrom(ReportItem item)
+    {
+        var message = ClientErrorText.Trim(item.Message, MaxMessage);
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return null;
+        }
+
+        var kind = ClientErrorText.Trim(item.Kind, 40) ?? "error";
+        var source = ClientErrorText.Trim(item.Source, MaxField);
+        return new ForwardedError(
+            ClientErrorText.Fingerprint(kind, message, source, item.Status),
+            kind,
+            ClientErrorText.NormalizeSeverity(item.Severity),
+            message,
+            source,
+            item.Status,
+            ClientErrorText.Trim(item.Url, MaxField),
+            ClientErrorText.Trim(item.AppVersion, 100),
+            ClientErrorText.Trim(item.Tenant, 100)?.ToLowerInvariant(),
+            DateTimeOffset.UtcNow);
     }
 }

@@ -32,7 +32,7 @@ public class Refusal
 /// </summary>
 public class Endpoint(
     IDocumentSession session,
-    IFileStorage storage,
+    BarakoCMS.Files.Storage.FileStorageResolver storage,
     IPermissionResolver permissions,
     ISensitivityService sensitivity,
     Microsoft.Extensions.Configuration.IConfiguration configuration,

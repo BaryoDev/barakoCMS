@@ -108,4 +108,31 @@ internal static class FileSamples
         "application/pdf" => Pdf(),
         _ => Image(contentType),
     };
+
+    /// <summary>Inserts an EXIF APP1 segment holding only an orientation tag after the JFIF header.</summary>
+    public static byte[] WithOrientation(byte[] jpeg, ushort orientation)
+    {
+        byte[] exif =
+        [
+            .. "Exif"u8, 0x00, 0x00,
+            // Big-endian TIFF header, first IFD at offset 8.
+            .. "MM"u8, 0x00, 0x2A, 0x00, 0x00, 0x00, 0x08,
+            // One entry: tag 0x0112 (Orientation), type SHORT, count 1, value.
+            0x00, 0x01,
+            0x01, 0x12, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01, (byte)(orientation >> 8), (byte)orientation, 0x00, 0x00,
+            // No next IFD.
+            0x00, 0x00, 0x00, 0x00,
+        ];
+        var length = exif.Length + 2;
+        byte[] segment = [0xFF, 0xE1, (byte)(length >> 8), (byte)length, .. exif];
+
+        // After SOI, and after APP0 when the encoder wrote one.
+        var at = 2;
+        if (jpeg[2] == 0xFF && jpeg[3] == 0xE0)
+        {
+            at += 2 + ((jpeg[4] << 8) | jpeg[5]);
+        }
+
+        return [.. jpeg[..at], .. segment, .. jpeg[at..]];
+    }
 }

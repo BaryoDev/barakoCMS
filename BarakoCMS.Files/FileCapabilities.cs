@@ -29,7 +29,14 @@ public static class FileCapabilities
     /// </remarks>
     public const string ManageAllFiles = "manage_all_files";
 
-    internal static readonly string[] All = [UploadFiles, ManageAllFiles];
+    /// <summary>
+    /// Read, change and test where a tenant's uploaded files are stored (GET, PUT and POST under
+    /// /api/settings/storage). New with #781, no gate to preserve. Admin gets it: the setting is
+    /// the tenant's own, and nothing it reaches is outside the tenant.
+    /// </summary>
+    public const string ManageStorage = "manage_storage";
+
+    internal static readonly string[] All = [UploadFiles, ManageAllFiles, ManageStorage];
 
     /// <summary>
     /// Who starts with these: the seeded Admin role, by its id, which is the role the old
