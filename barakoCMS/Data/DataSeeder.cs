@@ -46,6 +46,9 @@ public static class DataSeeder
         // otherwise not see anything seeded in this run until the next boot.
         await session.SaveChangesAsync();
 
+        // After the roles, which a file's members and rules name. Nothing happens without Seed:File.
+        await SeedFile.ApplyAsync(scope.ServiceProvider, configuration, environment, CancellationToken.None);
+
         // 6. Backfill SearchText for existing content
         await BackfillSearchTextAsync(session);
 
