@@ -75,16 +75,21 @@ internal class VerifyEndpoint(
         }
     }
 
-    public override async Task HandleAsync(OtpVerifyRequest req, CancellationToken ct)
+    /// <summary>
+    /// Refuses a tenant that does not allow codes, here as well as at request: a code records no
+    /// tenant, so one requested under a tenant that allows codes could otherwise be spent on one
+    /// that does not.
+    /// </summary>
+    public override async Task OnBeforeHandleAsync(OtpVerifyRequest req, CancellationToken ct)
     {
-        // Checked here as well as at request: a code records no tenant, so one requested under a
-        // tenant that allows codes could otherwise be spent on one that does not.
         if (!await barakoCMS.Infrastructure.Auth.TenantSignIn.AllowsAsync(session, tenant.Slug, TenantSignInPolicy.Otp, ct))
         {
             ThrowError(barakoCMS.Infrastructure.Auth.TenantSignIn.RefusedMessage(TenantSignInPolicy.Otp), 403);
-            return;
         }
+    }
 
+    public override async Task HandleAsync(OtpVerifyRequest req, CancellationToken ct)
+    {
         var email = (req.Email ?? string.Empty).Trim().ToLowerInvariant();
         var code = (req.Code ?? string.Empty).Trim();
 

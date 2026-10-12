@@ -121,19 +121,22 @@ internal class Endpoint : Endpoint<Request, Response>
         }
     }
 
-    public override async Task HandleAsync(Request req, CancellationToken ct)
+    /// <summary>
+    /// Refuses a tenant that does not allow passwords, before the account is looked at, so the
+    /// answer is the same for every username and says only what the tenant allows.
+    /// </summary>
+    public override async Task OnBeforeHandleAsync(Request req, CancellationToken ct)
     {
-        var device = barakoCMS.Infrastructure.DeviceContext.From(HttpContext);
-
-        // Before the account is looked at, so the answer is the same for every username and says
-        // only what the tenant allows.
         var method = barakoCMS.Models.TenantSignInPolicy.Password;
         if (!await barakoCMS.Infrastructure.Auth.TenantSignIn.AllowsAsync(_session, _tenant.Slug, method, ct))
         {
             ThrowError(barakoCMS.Infrastructure.Auth.TenantSignIn.RefusedMessage(method), 403);
-            return;
         }
+    }
 
+    public override async Task HandleAsync(Request req, CancellationToken ct)
+    {
+        var device = barakoCMS.Infrastructure.DeviceContext.From(HttpContext);
         var user = await _repo.GetByUsernameAsync(req.Username, ct);
 
         if (user == null)

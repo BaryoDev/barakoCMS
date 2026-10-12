@@ -39,7 +39,7 @@
 79 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddJwtAndApiKeyAuth
 144 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddMartenStore
 83 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddModules
-114 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.MapGlobalDocuments
+123 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.MapGlobalDocuments
 109 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.MapTenantScopedDocuments
 86 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.ResolveConnectionString
 72 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.UseHealthEndpoints
@@ -78,8 +78,6 @@
 78 barakoCMS/Features/Public/FeedEndpoint.cs::FeedEndpoint.HandleAsync
 97 barakoCMS/Features/Public/SitemapEndpoint.cs::SitemapEndpoint.HandleAsync
 126 barakoCMS/Features/Redirects/ImportEndpoint.cs::ImportRedirectsEndpoint.HandleAsync
-74 barakoCMS/Features/Roles/Delete/Endpoint.cs::Endpoint.HandleAsync
-72 barakoCMS/Features/Roles/Update/Endpoint.cs::Endpoint.HandleAsync
 72 barakoCMS/Features/Site/ShareLinks/EntryEndpoints.cs::CreateEntryShareLinkEndpoint.HandleAsync
 86 barakoCMS/Features/Tenants/Members/Endpoints.cs::AddMemberEndpoint.HandleAsync
 75 barakoCMS/Features/Users/RemoveRole/Endpoint.cs::Endpoint.HandleAsync
@@ -93,7 +91,7 @@
 105 barakoCMS/Features/Workflows/WorkflowEngine.cs::WorkflowEngine.ExecuteActionsAsync
 111 barakoCMS/Features/Workflows/WorkflowRunner.cs::WorkflowRunner.ExecuteAttemptAsync
 77 barakoCMS/Infrastructure/Auth/ApiKeyAuthenticationHandler.cs::ApiKeyAuthenticationHandler.HandleAuthenticateAsync
-79 barakoCMS/Infrastructure/Auth/TokenIssuer.cs::TokenIssuer.IssueAccessTokenAsync
+77 barakoCMS/Infrastructure/Auth/TokenIssuer.cs::TokenIssuer.IssueAccessTokenAsync
 91 barakoCMS/Infrastructure/Connectors/ConnectorSender.cs::ConnectorSender.FetchAsync
 83 barakoCMS/Infrastructure/Connectors/ConnectorSender.cs::ConnectorSender.TryAttachGrantedTokenAsync
 75 barakoCMS/Infrastructure/Connectors/ConnectorTokens.cs::ClientCredentialsGrant.RequestAsync

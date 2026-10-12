@@ -389,46 +389,8 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         }
 
         tenant.Status = status;
-        if (req.SignUp is { } signUp)
-        {
-            if (tenant.SignUp != signUp || tenant.SignUpRoleId != req.SignUpRoleId)
-            {
-                Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
-                await barakoCMS.Infrastructure.Audit.AuditLog.RecordAsync(
-                    _session, tenant.Slug, "tenant.signup_changed", actorId,
-                    User.FindFirst("Username")?.Value, targetType: "Tenant", targetId: tenant.Slug,
-                    metadata: new Dictionary<string, object>
-                    {
-                        ["from"] = tenant.SignUp.ToString(),
-                        ["to"] = signUp.ToString(),
-                        ["roleId"] = req.SignUpRoleId?.ToString() ?? string.Empty,
-                    },
-                    ct: ct);
-            }
-
-            tenant.SignUp = signUp;
-            tenant.SignUpRoleId = req.SignUpRoleId;
-        }
-
-        if (req.SignIn is not null)
-        {
-            var signIn = req.SignIn.ToPolicy();
-            var changed = System.Text.Json.JsonSerializer.Serialize(tenant.SignIn) != System.Text.Json.JsonSerializer.Serialize(signIn);
-            Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
-            if (changed)
-                await barakoCMS.Infrastructure.Audit.AuditLog.RecordAsync(
-                _session, tenant.Slug, "tenant.signin_changed", actorId,
-                User.FindFirst("Username")?.Value, targetType: "Tenant", targetId: tenant.Slug,
-                metadata: new Dictionary<string, object>
-                {
-                    ["requireMfa"] = signIn.RequireMfa,
-                    ["mfaRoleIds"] = signIn.MfaRoleIds.Select(id => id.ToString()).ToList(),
-                    ["methods"] = signIn.Methods,
-                    ["sessionMinutes"] = signIn.SessionMinutes?.ToString() ?? string.Empty,
-                },
-                ct: ct);
-            tenant.SignIn = signIn;
-        }
+        await ApplySignUpAsync(tenant, req, ct);
+        await ApplySignInAsync(tenant, req, ct);
 
         if (domains is not null)
             tenant.Domains = domains.ToList();
@@ -439,5 +401,61 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         // the map too, and waiting out the cache would keep routing to it for minutes.
         _domains.Invalidate();
         await Send.OkAsync(TenantResponse.From(tenant), ct);
+    }
+
+    /// <summary>Applies a sent sign-up policy, recording a change in the tenant's log.</summary>
+    private async Task ApplySignUpAsync(Tenant tenant, TenantWriteRequest req, CancellationToken ct)
+    {
+        if (req.SignUp is not { } signUp)
+        {
+            return;
+        }
+
+        if (tenant.SignUp != signUp || tenant.SignUpRoleId != req.SignUpRoleId)
+        {
+            Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
+            await barakoCMS.Infrastructure.Audit.AuditLog.RecordAsync(
+                _session, tenant.Slug, "tenant.signup_changed", actorId,
+                User.FindFirst("Username")?.Value, targetType: "Tenant", targetId: tenant.Slug,
+                metadata: new Dictionary<string, object>
+                {
+                    ["from"] = tenant.SignUp.ToString(),
+                    ["to"] = signUp.ToString(),
+                    ["roleId"] = req.SignUpRoleId?.ToString() ?? string.Empty,
+                },
+                ct: ct);
+        }
+
+        tenant.SignUp = signUp;
+        tenant.SignUpRoleId = req.SignUpRoleId;
+    }
+
+    /// <summary>Applies sent sign-in rules, recording a change in the tenant's log.</summary>
+    private async Task ApplySignInAsync(Tenant tenant, TenantWriteRequest req, CancellationToken ct)
+    {
+        if (req.SignIn is null)
+        {
+            return;
+        }
+
+        var signIn = req.SignIn.ToPolicy();
+        var changed = System.Text.Json.JsonSerializer.Serialize(tenant.SignIn) != System.Text.Json.JsonSerializer.Serialize(signIn);
+        if (changed)
+        {
+            Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
+            await barakoCMS.Infrastructure.Audit.AuditLog.RecordAsync(
+                _session, tenant.Slug, "tenant.signin_changed", actorId,
+                User.FindFirst("Username")?.Value, targetType: "Tenant", targetId: tenant.Slug,
+                metadata: new Dictionary<string, object>
+                {
+                    ["requireMfa"] = signIn.RequireMfa,
+                    ["mfaRoleIds"] = signIn.MfaRoleIds.Select(id => id.ToString()).ToList(),
+                    ["methods"] = signIn.Methods,
+                    ["sessionMinutes"] = signIn.SessionMinutes?.ToString() ?? string.Empty,
+                },
+                ct: ct);
+        }
+
+        tenant.SignIn = signIn;
     }
 }

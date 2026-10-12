@@ -54,36 +54,7 @@ internal class Endpoint(
             return;
         }
 
-        // A seeded role keeps its own name; anything else taking a reserved one is the escalation
-        // path SystemRoles.Reserved describes, so it is refused after the load, when the id is known.
-        if (SystemRoles.IsReservedName(req.Name) && !SystemRoles.Contains(role.Id))
-        {
-            AddError(r => r.Name, SystemRoles.ReservedNameMessage(req.Name));
-            ThrowIfAnyErrors();
-        }
-
-        if (role.IsPlatform && !platformCaller)
-        {
-            ThrowError(RoleScope.PlatformRoleMessage, 403);
-            return;
-        }
-
-        // Only capabilities being added count, the rule a member's roles follow: one a platform
-        // administrator gave this role is kept on an unrelated edit.
-        if (!platformCaller && req.SystemCapabilities
-                .Except(role.SystemCapabilities ?? [], StringComparer.OrdinalIgnoreCase)
-                .Any(c => barakoCMS.Features.Users.PlatformRoles.PlatformCapabilities.Contains(c)))
-        {
-            ThrowError(RoleScope.PlatformCapabilityMessage, 403);
-            return;
-        }
-
-        if (!string.Equals(role.Name, req.Name, StringComparison.Ordinal)
-            && await RoleScope.NameTakenAsync(session, req.Name, RoleScope.OwnerOf(role), role.Id, ct))
-        {
-            ThrowError("Another role here already has this name.", 409);
-            return;
-        }
+        await RefuseOutOfReachAsync(req, role, platformCaller, ct);
 
         var before = RoleAudit.Of(role);
 
@@ -117,5 +88,40 @@ internal class Endpoint(
             Message = "Role updated successfully",
             UnknownCapabilities = unknown.ToList(),
         }, ct);
+    }
+
+    /// <summary>
+    /// Throws for an edit past the caller's reach: a reserved name, a platform role or a platform
+    /// capability without manage_platform_roles, or a name another role of the same owner has.
+    /// </summary>
+    private async Task RefuseOutOfReachAsync(Request req, Role role, bool platformCaller, CancellationToken ct)
+    {
+        // A seeded role keeps its own name; anything else taking a reserved one is the escalation
+        // path SystemRoles.Reserved describes, so it is refused after the load, when the id is known.
+        if (SystemRoles.IsReservedName(req.Name) && !SystemRoles.Contains(role.Id))
+        {
+            AddError(r => r.Name, SystemRoles.ReservedNameMessage(req.Name));
+            ThrowIfAnyErrors();
+        }
+
+        if (role.IsPlatform && !platformCaller)
+        {
+            ThrowError(RoleScope.PlatformRoleMessage, 403);
+        }
+
+        // Only capabilities being added count, the rule a member's roles follow: one a platform
+        // administrator gave this role is kept on an unrelated edit.
+        if (!platformCaller && req.SystemCapabilities
+                .Except(role.SystemCapabilities ?? [], StringComparer.OrdinalIgnoreCase)
+                .Any(c => barakoCMS.Features.Users.PlatformRoles.PlatformCapabilities.Contains(c)))
+        {
+            ThrowError(RoleScope.PlatformCapabilityMessage, 403);
+        }
+
+        if (!string.Equals(role.Name, req.Name, StringComparison.Ordinal)
+            && await RoleScope.NameTakenAsync(session, req.Name, RoleScope.OwnerOf(role), role.Id, ct))
+        {
+            ThrowError("Another role here already has this name.", 409);
+        }
     }
 }

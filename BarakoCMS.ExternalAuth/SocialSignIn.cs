@@ -214,16 +214,7 @@ public static class SocialSignIn
 
         if (profile is not null)
         {
-            var sp = await session.Query<SocialProfile>().FirstOrDefaultAsync(p => p.UserId == user.Id, ct)
-                     ?? new SocialProfile { Id = Guid.NewGuid(), UserId = user.Id };
-            // Merge: keep existing values when this provider didn't share a field.
-            sp.Name = profile.Name ?? sp.Name;
-            sp.PhotoUrl = profile.PhotoUrl ?? sp.PhotoUrl;
-            sp.Birthday = profile.Birthday ?? sp.Birthday;
-            sp.Location = profile.Location ?? sp.Location;
-            sp.Source = profile.Source;
-            sp.UpdatedAt = DateTime.UtcNow;
-            session.Store(sp);
+            await StageProfileAsync(session, user, profile, ct);
         }
 
         var tenantSlug = string.IsNullOrEmpty(club) ? Tenant.DefaultSlug : club;
@@ -273,6 +264,20 @@ public static class SocialSignIn
         await session.SaveChangesAsync(ct);
 
         return new Tokens(jwt, refresh);
+    }
+
+    /// <summary>Merges what the provider shared into the stored profile, keeping a field it left out.</summary>
+    private static async Task StageProfileAsync(IDocumentSession session, User user, ProfileData profile, CancellationToken ct)
+    {
+        var sp = await session.Query<SocialProfile>().FirstOrDefaultAsync(p => p.UserId == user.Id, ct)
+                 ?? new SocialProfile { Id = Guid.NewGuid(), UserId = user.Id };
+        sp.Name = profile.Name ?? sp.Name;
+        sp.PhotoUrl = profile.PhotoUrl ?? sp.PhotoUrl;
+        sp.Birthday = profile.Birthday ?? sp.Birthday;
+        sp.Location = profile.Location ?? sp.Location;
+        sp.Source = profile.Source;
+        sp.UpdatedAt = DateTime.UtcNow;
+        session.Store(sp);
     }
 
     /// <summary>The SPA callback URL the provider callbacks redirect to, with tokens in the fragment.</summary>
