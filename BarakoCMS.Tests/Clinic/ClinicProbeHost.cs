@@ -4,9 +4,31 @@ using Marten;
 
 namespace BarakoCMS.Tests.Clinic;
 
-public sealed class ClinicProbeHost : BarakoTestHost
+public sealed class ClinicProbeHost : BarakoTestHost, IAsyncLifetime
 {
-    public ClinicProbeHost() : base(new ClinicProbeModule()) { }
+    // Taken before this host starts and replaces FastEndpoints' process-wide resolver, and put back
+    // once it is disposed, so core code run outside a request afterwards does not reach a disposed
+    // provider. See FastEndpointsResolver.
+    private readonly IDisposable _resolver = FastEndpointsResolver.Keep();
+
+    /// <summary>
+    /// Signs with the fixture's key. FastEndpoints validates through one process-wide key that the
+    /// last host to start overwrites, so a random key here turns every IntegrationTestFixture token
+    /// into a 401 for the rest of the run.
+    /// </summary>
+    public ClinicProbeHost() : base(o =>
+    {
+        o.Modules.Add(new ClinicProbeModule());
+        o.Settings["JWT:Key"] = IntegrationTestFixture.JwtKey;
+    })
+    {
+    }
+
+    async ValueTask IAsyncDisposable.DisposeAsync()
+    {
+        await DisposeAsync();
+        _resolver.Dispose();
+    }
 
     public sealed record ProbeCaller(HttpClient Client, Guid RoleId, string RoleName)
     {

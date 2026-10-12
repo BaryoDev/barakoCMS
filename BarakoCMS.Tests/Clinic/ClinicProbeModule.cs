@@ -27,7 +27,7 @@ public sealed class ProbeTicketProjection : SingleStreamProjection<ProbeTicket, 
     public void Apply(ProbeTicketCalled e, ProbeTicket ticket) => ticket.Counter = e.Counter;
 }
 
-public sealed class ClinicProbeModule : IBarakoModule
+internal sealed class ClinicProbeModule : IBarakoModule
 {
     public string Name => "ClinicProbe";
 
