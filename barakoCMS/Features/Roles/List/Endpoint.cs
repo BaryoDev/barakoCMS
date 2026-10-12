@@ -30,7 +30,9 @@ internal class Endpoint(
     {
         var query = session.Query<Role>().AsQueryable();
         if (!await RoleScope.IsPlatformCallerAsync(HttpContext, ct))
+        {
             query = RoleScope.In(query, tenant.Slug);
+        }
 
         var totalCount = await query.CountAsync(ct);
 

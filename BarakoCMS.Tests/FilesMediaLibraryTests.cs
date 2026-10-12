@@ -541,7 +541,7 @@ public class FilesMediaLibraryTests
         using (var scope = _factory.Services.CreateScope())
         {
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug, IsActive = true });
+            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug });
             session.Store(new User
             {
                 Id = userId,

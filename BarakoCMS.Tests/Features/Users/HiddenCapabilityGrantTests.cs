@@ -77,7 +77,7 @@ public class HiddenCapabilityGrantTests
         using (var scope = _fixture.Services.CreateScope())
         {
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug, IsActive = true });
+            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug });
             session.Store(new Membership
             {
                 Id = Guid.NewGuid(),
@@ -92,7 +92,7 @@ public class HiddenCapabilityGrantTests
         return (userId, ClientFor(userId, ["Admin"], slug), slug);
     }
 
-    private async Task<Guid> RoleHoldingAsync(string capability)
+    private async Task<Guid> RoleHoldingAsync(string capability, string? tenant = null)
     {
         using var scope = _fixture.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
@@ -102,6 +102,7 @@ public class HiddenCapabilityGrantTests
             Id = id,
             Name = $"{capability}-{id:N}",
             SystemCapabilities = [capability],
+            TenantSlug = tenant,
         });
         await session.SaveChangesAsync();
         return id;
@@ -132,8 +133,8 @@ public class HiddenCapabilityGrantTests
     [Fact]
     public async Task A_tenant_admin_cannot_give_a_member_a_role_holding_view_hidden()
     {
-        var (_, client, _) = await TenantAdminAsync();
-        var roleId = await RoleHoldingAsync(SystemCapabilities.ViewHidden);
+        var (_, client, slug) = await TenantAdminAsync();
+        var roleId = await RoleHoldingAsync(SystemCapabilities.ViewHidden, slug);
         var email = $"member-{Guid.NewGuid():N}@example.com";
 
         var res = await client.PostAsJsonAsync("/api/tenants/members", new { email, roleIds = new[] { roleId } });
@@ -146,8 +147,8 @@ public class HiddenCapabilityGrantTests
     [Fact]
     public async Task A_tenant_admin_cannot_update_itself_to_a_role_holding_view_hidden()
     {
-        var (adminId, client, _) = await TenantAdminAsync();
-        var roleId = await RoleHoldingAsync(SystemCapabilities.ViewHidden);
+        var (adminId, client, slug) = await TenantAdminAsync();
+        var roleId = await RoleHoldingAsync(SystemCapabilities.ViewHidden, slug);
 
         var res = await client.PutAsJsonAsync($"/api/tenants/members/{adminId}",
             new { roleIds = new[] { SystemRoles.AdminRoleId, roleId }, status = "Active" });
@@ -188,8 +189,8 @@ public class HiddenCapabilityGrantTests
     [Fact]
     public async Task A_tenant_admin_can_give_a_member_a_role_holding_view_sensitive()
     {
-        var (_, client, _) = await TenantAdminAsync();
-        var roleId = await RoleHoldingAsync(SystemCapabilities.ViewSensitive);
+        var (_, client, slug) = await TenantAdminAsync();
+        var roleId = await RoleHoldingAsync(SystemCapabilities.ViewSensitive, slug);
         var email = $"member-{Guid.NewGuid():N}@example.com";
 
         var res = await client.PostAsJsonAsync("/api/tenants/members", new { email, roleIds = new[] { roleId } });

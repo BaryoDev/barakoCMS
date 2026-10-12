@@ -96,7 +96,7 @@ public class TenantDomainCorsTests
         using (var scope = _fixture.Services.CreateScope())
         {
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = handle, Name = handle, IsActive = true, Domains = [domain] });
+            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = handle, Name = handle, Domains = [domain] });
             await session.SaveChangesAsync(Ct);
         }
 

@@ -110,7 +110,10 @@ public class TenantRoleScopeTests
             var items = (await res.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("items").EnumerateArray()
                 .Select(i => i.GetProperty("id").GetGuid()).ToList();
             ids.AddRange(items);
-            if (items.Count < 100) break;
+            if (items.Count < 100)
+            {
+                break;
+            }
         }
 
         return ids;

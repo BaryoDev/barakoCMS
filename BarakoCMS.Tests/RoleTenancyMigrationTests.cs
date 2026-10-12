@@ -93,7 +93,9 @@ public class RoleTenancyMigrationTests
             Custom(unheld, "Unused"),
         };
         foreach (var role in roles)
+        {
             await InsertAsync(db, "mt_doc_roles", role.Id, OldRole(role), extra: ("mt_dotnet_type", "barakoCMS.Models.Role"));
+        }
 
         var memberA = Guid.NewGuid();
         var memberB = Guid.NewGuid();
@@ -158,7 +160,9 @@ public class RoleTenancyMigrationTests
         command.Parameters.AddWithValue("id", id);
         command.Parameters.AddWithValue("data", json);
         if (extra is { } x)
+        {
             command.Parameters.AddWithValue("extra", x.Value);
+        }
         await command.ExecuteNonQueryAsync(Ct);
     }
 
@@ -171,7 +175,9 @@ public class RoleTenancyMigrationTests
         await connection.OpenAsync(Ct);
         await using var transaction = await connection.BeginTransactionAsync(Ct);
         await using (var command = new NpgsqlCommand(sql, connection, transaction))
+        {
             await command.ExecuteNonQueryAsync(Ct);
+        }
         await transaction.CommitAsync(Ct);
         return notices;
     }
@@ -184,7 +190,9 @@ public class RoleTenancyMigrationTests
         await using var command = new NpgsqlCommand($"select id, data::text from public.{table}", connection);
         await using var reader = await command.ExecuteReaderAsync(Ct);
         while (await reader.ReadAsync(Ct))
+        {
             rows[reader.GetGuid(0)] = JsonNode.Parse(reader.GetString(1))!.AsObject();
+        }
         return rows;
     }
 
@@ -275,15 +283,19 @@ public class RoleTenancyMigrationTests
         var tables = new[] { "mt_doc_roles", "mt_doc_memberships", "mt_doc_contenttypedefinition" };
         var first = new Dictionary<string, string>();
         foreach (var table in tables)
+        {
             first[table] = JsonSerializer.Serialize((await RowsAsync(db, table)).OrderBy(r => r.Key).Select(r => r.Value.ToJsonString()));
+        }
         first["mt_doc_roles"].Should().Contain("TenantSlug");
 
         var notices = await RunAsync(db);
 
         notices.Should().Contain(n => n.Contains("gave 0 role(s) an owner and wrote 0 copy(ies)"));
         foreach (var table in tables)
+        {
             JsonSerializer.Serialize((await RowsAsync(db, table)).OrderBy(r => r.Key).Select(r => r.Value.ToJsonString()))
                 .Should().Be(first[table], "{0} is as the first run left it", table);
+        }
     }
 
     [Fact]
@@ -328,7 +340,9 @@ public class RoleTenancyMigrationTests
         }
 
         await using (var session = store.LightweightSession())
+        {
             await barakoCMS.Data.DataSeeder.SeedRolesAsync(session);
+        }
 
         await using var read = store.QuerySession();
         foreach (var id in new[] { SystemRoles.SuperAdminRoleId, SystemRoles.AdminRoleId, SystemRoles.UserRoleId })
@@ -370,7 +384,9 @@ public class RoleTenancyMigrationTests
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "migrations")))
+        {
             directory = directory.Parent;
+        }
 
         directory.Should().NotBeNull("the test binary should sit under the repository");
         return directory!.FullName;

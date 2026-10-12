@@ -76,7 +76,9 @@ public static class SocialSignIn
             // A new account is a sign-up, so the tenant's policy decides. An existing one is a
             // sign-in, and the issuer's membership check decides.
             if (signUp.Outcome == SignUpOutcome.Refused)
+            {
                 return Tokens.Denied();
+            }
 
             user = new User { Id = Guid.NewGuid(), Email = normalized, Username = normalized, PasswordHash = "" };
             session.Store(user);
@@ -132,7 +134,9 @@ public static class SocialSignIn
             if (user is null)
             {
                 if (signUp.Outcome == SignUpOutcome.Refused)
+                {
                     return (Tokens.Denied(), false);
+                }
 
                 // NormalizedUsername is unique, and somebody may already use this address as a name.
                 var username = await session.Query<User>().AnyAsync(u => u.NormalizedUsername == email, ct)
@@ -162,6 +166,17 @@ public static class SocialSignIn
     /// Everything after the provider has said who this is: the profile merge, the second factor, the
     /// device, and the token from core's issuer, which is where tenant membership is decided.
     /// </summary>
+    /// <param name="session">The request's session, which this commits.</param>
+    /// <param name="config">Where the MFA challenge is signed from.</param>
+    /// <param name="deviceGate">Trusts the device the sign-in came from.</param>
+    /// <param name="tokenIssuer">Core's issuer, which decides tenant membership.</param>
+    /// <param name="mfa">Whether the account has a second factor.</param>
+    /// <param name="http">The request, for the device.</param>
+    /// <param name="user">Who the provider proved this is.</param>
+    /// <param name="club">The tenant asked for.</param>
+    /// <param name="signUp">The tenant's sign-up decision, which an Open tenant acts on here.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <param name="profile">What the provider shared, merged into the stored profile.</param>
     /// <param name="beforeFinalCommit">
     /// Queues writes that must commit with the outcome and with nothing earlier. Trusting a device
     /// commits the session on its own, so work queued before that would commit before the token is
@@ -185,7 +200,9 @@ public static class SocialSignIn
         // with the account it may have just created, because the issuer reads memberships from
         // the database and nothing queued by beforeFinalCommit is in the session yet.
         if (await SignUpPolicy.StageJoinAsync(session, signUp, user, ct))
+        {
             await session.SaveChangesAsync(ct);
+        }
 
         if (profile is not null)
         {

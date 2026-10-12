@@ -108,7 +108,6 @@ public class CrossTenantTokenTests
             Id = Guid.NewGuid(),
             Slug = slug,
             Name = slug,
-            IsActive = true,
         });
         await session.SaveChangesAsync();
         return slug;
@@ -318,7 +317,7 @@ public class CrossTenantTokenTests
         {
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
             var tenant = await session.Query<Tenant>().FirstAsync(t => t.Slug == club);
-            tenant.IsActive = false;
+            tenant.Status = TenantStatus.Suspended;
             session.Update(tenant);
             await session.SaveChangesAsync();
         }

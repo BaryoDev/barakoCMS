@@ -24,7 +24,6 @@ public class TenantAccessMiddleware(RequestDelegate next, ILogger<TenantAccessMi
 {
     private const string GlobalIdentityPrefix = "/api/me";
     private const string PublicSuffix = "/public";
-    private const string DeliveryPrefix = "/api/public";
 
     public async Task InvokeAsync(HttpContext context, TenantContext tenant)
     {
@@ -99,7 +98,7 @@ public class TenantAccessMiddleware(RequestDelegate next, ILogger<TenantAccessMi
         var claimed = context.User.FindFirst("tenant")?.Value;
         var ownSession = context.User.Identity is { IsAuthenticated: true }
             && (string.IsNullOrEmpty(claimed) || string.Equals(claimed.Trim(), slug, StringComparison.OrdinalIgnoreCase));
-        var delivery = context.Request.Path.StartsWithSegments(DeliveryPrefix, StringComparison.OrdinalIgnoreCase);
+        var delivery = context.Request.Path.StartsWithSegments("/api/public", StringComparison.OrdinalIgnoreCase);
 
         logger.LogInformation(
             "Refused {Method} {Path}: tenant '{Tenant}' is {Status}.",

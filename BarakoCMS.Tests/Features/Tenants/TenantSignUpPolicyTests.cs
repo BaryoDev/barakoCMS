@@ -35,7 +35,9 @@ public class TenantSignUpPolicyTests
         var client = _fixture.CreateClient();
         client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, NextIp());
         if (tenant is not null)
+        {
             client.DefaultRequestHeaders.Add("X-Tenant", tenant);
+        }
         return client;
     }
 

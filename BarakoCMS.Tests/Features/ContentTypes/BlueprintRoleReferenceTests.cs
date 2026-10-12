@@ -45,7 +45,7 @@ public class BlueprintRoleReferenceTests
         {
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
             session.Store(role);
-            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = tenant, Name = tenant, IsActive = true });
+            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = tenant, Name = tenant });
             session.Store(new User
             {
                 Id = userId,

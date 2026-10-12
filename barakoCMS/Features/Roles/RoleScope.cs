@@ -45,7 +45,9 @@ internal static class RoleScope
     {
         var ids = roleIds.Distinct().ToList();
         if (ids.Count == 0)
+        {
             return true;
+        }
 
         var found = await session.Query<Role>().Where(r => ids.Contains(r.Id)).ToListAsync(ct);
         return found.Count == ids.Count && found.All(r => Reaches(r, tenantSlug));

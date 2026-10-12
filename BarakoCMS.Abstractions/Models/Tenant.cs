@@ -85,9 +85,13 @@ public class Tenant
         set
         {
             if (value)
+            {
                 Status = TenantStatus.Active;
+            }
             else if (Status == TenantStatus.Active)
+            {
                 Status = TenantStatus.Suspended;
+            }
         }
     }
 

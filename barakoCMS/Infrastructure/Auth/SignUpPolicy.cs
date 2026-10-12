@@ -45,14 +45,20 @@ public static class SignUpPolicy
     {
         var slug = string.IsNullOrWhiteSpace(tenantSlug) ? Tenant.DefaultSlug : tenantSlug.Trim().ToLowerInvariant();
         if (slug == Tenant.DefaultSlug)
+        {
             return new SignUpDecision(SignUpOutcome.AsBefore, slug, null);
+        }
 
         var tenant = await session.Query<Tenant>().FirstOrDefaultAsync(t => t.Slug == slug, ct);
         if (tenant is null)
+        {
             return new SignUpDecision(SignUpOutcome.AsBefore, slug, null);
+        }
 
         if (tenant.Status != TenantStatus.Active)
+        {
             return new SignUpDecision(SignUpOutcome.Refused, slug, null);
+        }
 
         return tenant.SignUp switch
         {
@@ -85,11 +91,15 @@ public static class SignUpPolicy
         IDocumentSession session, SignUpDecision decision, User user, CancellationToken ct)
     {
         if (decision is not { Outcome: SignUpOutcome.Join, RoleId: { } roleId })
+        {
             return false;
+        }
 
         var slug = decision.TenantSlug;
         if (await session.Query<Membership>().AnyAsync(m => m.UserId == user.Id && m.TenantSlug == slug, ct))
+        {
             return false;
+        }
 
         var actor = new ClaimsPrincipal(new ClaimsIdentity(
             [new Claim("UserId", user.Id.ToString()), new Claim("Username", user.Username)], "signup"));

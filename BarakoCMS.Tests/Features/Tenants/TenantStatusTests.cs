@@ -206,7 +206,9 @@ public class TenantStatusTests
         await using var command = new NpgsqlCommand(patch, connection);
         command.Parameters.AddWithValue("id", id);
         if (isActive is not null)
+        {
             command.Parameters.AddWithValue("active", isActive.Value);
+        }
         await command.ExecuteNonQueryAsync(Ct);
         _fixture.Services.GetRequiredService<ITenantDomainSource>().Invalidate();
         return id;
@@ -354,7 +356,9 @@ public class TenantStatusTests
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "migrations")))
+        {
             directory = directory.Parent;
+        }
 
         directory.Should().NotBeNull("the test binary should sit under the repository");
         return directory!.FullName;

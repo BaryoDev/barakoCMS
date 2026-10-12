@@ -14,7 +14,9 @@ public static class TenantSignIn
     {
         var slug = string.IsNullOrWhiteSpace(tenantSlug) ? Tenant.DefaultSlug : tenantSlug.Trim().ToLowerInvariant();
         if (slug == Tenant.DefaultSlug)
+        {
             return true;
+        }
 
         var tenant = await session.Query<Tenant>().FirstOrDefaultAsync(t => t.Slug == slug, ct);
         return tenant is null || tenant.SignIn.Allows(method);
