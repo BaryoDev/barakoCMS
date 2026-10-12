@@ -25,6 +25,7 @@ are wrong.
 
 import argparse
 import http.client
+import json
 import sys
 import threading
 import time
@@ -44,6 +45,7 @@ def parse_args():
     p.add_argument("--workers", type=int, default=16, help="concurrent connections (default: 16)")
     p.add_argument("--timeout", type=float, default=10, help="per-request timeout in seconds (default: 10)")
     p.add_argument("--tenant", help="send this X-Tenant header, for a deployment routed by header")
+    p.add_argument("--json", help="also write each endpoint's ok, errors, p50 and p95 (ms) to this file")
     a = p.parse_args()
     if a.rate <= 0 or a.duration <= 0 or a.workers <= 0:
         p.error("--rate, --duration and --workers must be positive")
@@ -156,6 +158,14 @@ def main():
     mx = all_ok[-1] if all_ok else float("nan")
     print(f"{'all':<10}{len(all_ok):>7}{all_errors:>8}{percentile(all_ok, 50):>10.1f}"
           f"{percentile(all_ok, 95):>10.1f}{mx:>10.1f}")
+    if a.json:
+        report = {}
+        for name, _ in targets:
+            s = sorted(samples[name])
+            report[name] = {"ok": len(s), "errors": sum(errors[name].values()),
+                            "p50_ms": round(percentile(s, 50), 1), "p95_ms": round(percentile(s, 95), 1)}
+        with open(a.json, "w", encoding="utf-8") as f:
+            json.dump(report, f, indent=2)
     print(f"\nachieved {(len(all_ok) + all_errors) / wall:.1f} req/s over {wall:.1f}s")
     for name, _ in targets:
         for key, count in sorted(errors[name].items()):

@@ -1,0 +1,78 @@
+{
+  "components": {
+    "schemas": {
+      "HistoryEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "enum": [
+              "Draft",
+              "Published",
+              "Archived"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "HistoryResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "total": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryEntry"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "known-bad fixture for the OpenAPI gate",
+    "version": "1.0.0"
+  },
+  "openapi": "3.0.0",
+  "paths": {
+    "/api/contents/{id}/history": {
+      "get": {
+        "operationId": "ContentHistory",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryResponse"
+                }
+              }
+            },
+            "description": "Success"
+          }
+        },
+        "tags": [
+          "Content"
+        ]
+      }
+    }
+  }
+}
