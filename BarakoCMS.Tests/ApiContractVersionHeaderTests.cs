@@ -1,6 +1,6 @@
 using System.Net;
+using Alba;
 using barakoCMS.Features.Monitoring.Meta;
-using FluentAssertions;
 using Xunit;
 
 namespace BarakoCMS.Tests;
@@ -11,36 +11,57 @@ namespace BarakoCMS.Tests;
 /// is the only thing that answers "will this console work here" before authentication and again
 /// mid-session if a rolling upgrade moves the contract underneath an open one.
 /// </summary>
+/// <remarks>
+/// The Alba pilot (#1024): these run as Alba scenarios on an <see cref="AlbaHost"/> built with the
+/// shared fixture's own host configuration, against the same database. Building a second host
+/// replaces FastEndpoints' process-wide service resolver, so its lifetime sits inside
+/// <see cref="FastEndpointsResolver.Keep"/>, which puts the fixture's resolver back when it ends.
+/// docs/internal/alba-pilot.md has the comparison and the recommendation.
+/// </remarks>
 [Collection("Sequential")]
-public class ApiContractVersionHeaderTests
+public class ApiContractVersionHeaderTests(IntegrationTestFixture factory) : IAsyncLifetime
 {
-    private readonly IntegrationTestFixture _factory;
+    private IDisposable? _resolver;
+    private IAlbaHost? _host;
 
-    public ApiContractVersionHeaderTests(IntegrationTestFixture factory) => _factory = factory;
+    private IAlbaHost Host => _host ?? throw new InvalidOperationException("The Alba host has not started.");
 
-    [Fact]
-    public async Task An_ordinary_response_carries_the_api_contract_version_header()
+    public async ValueTask InitializeAsync()
     {
-        var response = await _factory.CreateClient().GetAsync("/health");
-
-        response.Headers.TryGetValues(ApiContract.HeaderName, out var values).Should().BeTrue(
-            "a console has to be able to read this from whatever call it makes first, not only from "
-          + "/api/meta");
-        values!.Should().ContainSingle().Which.Should().Be(ApiContract.Version.ToString());
+        _resolver = FastEndpointsResolver.Keep();
+        _host = await AlbaHost.For<Program>(factory.ApplyTestHostConfiguration);
     }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_host is not null)
+        {
+            await _host.DisposeAsync();
+        }
+
+        _resolver?.Dispose();
+    }
+
+    // The status is not part of this claim and never was, so it is ignored rather than left to
+    // Alba's default of expecting a 200.
+    [Fact]
+    public Task An_ordinary_response_carries_the_api_contract_version_header() =>
+        Host.Scenario(s =>
+        {
+            s.Get.Url("/health");
+            s.IgnoreStatusCode();
+            s.Header(ApiContract.HeaderName).SingleValueShouldEqual(ApiContract.Version.ToString());
+        });
 
     // The case the issue is actually about: /api/meta itself answers 401 to an anonymous caller,
     // so if the header were only set on success this would be the one response a console cannot
     // read it from before signing in.
     [Fact]
-    public async Task The_header_is_present_even_on_the_meta_endpoints_own_401()
-    {
-        var response = await _factory.CreateClient().GetAsync("/api/meta");
-
-        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
-        response.Headers.TryGetValues(ApiContract.HeaderName, out var values).Should().BeTrue(
-            "an anonymous caller hitting the one endpoint that reports the contract version in its "
-          + "body is exactly who the header exists for");
-        values!.Should().ContainSingle().Which.Should().Be(ApiContract.Version.ToString());
-    }
+    public Task The_header_is_present_even_on_the_meta_endpoints_own_401() =>
+        Host.Scenario(s =>
+        {
+            s.Get.Url("/api/meta");
+            s.StatusCodeShouldBe(HttpStatusCode.Unauthorized);
+            s.Header(ApiContract.HeaderName).SingleValueShouldEqual(ApiContract.Version.ToString());
+        });
 }
