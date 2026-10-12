@@ -504,7 +504,7 @@ keep the licence they shipped with.*
 BarakoCMS.Files up to 4.4.0 depended on SixLabors.ImageSharp 3.1.12, which is not plain Apache-2.0
 but the Six Labors Split License. BarakoCMS.Files 4.5.0 and later carry no ImageSharp.
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) says what that means if you still run an older
-Files, and lists what the image ships.
+Files, and where the notices for SkiaSharp's native library travel.
 
 **Author:** Arnel Robles · [@arnelirobles](https://github.com/arnelirobles) · [arnelirobles@gmail.com](mailto:arnelirobles@gmail.com)
 

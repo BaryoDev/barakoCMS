@@ -7,8 +7,8 @@ keep your copyright, and barakoCMS is not released as closed source.
 | Where the contribution lands | Licence |
 | --- | --- |
 | `barakoCMS/` (the core) and `BarakoCMS.Abstractions/` (the contract split out of it) | MPL-2.0 |
-| every other `BarakoCMS.*` folder: the modules, `BarakoCMS.Testing`, `BarakoCMS.Suite`, `BarakoCMS.Templates` and the module template | MIT, the `LICENSE` file in that folder |
-| anything else in the repository (docs, scripts, migrations, CI) | MPL-2.0, the root `LICENSE` |
+| the modules (every other `BarakoCMS.*` package folder), `BarakoCMS.Testing`, `BarakoCMS.Suite`, `BarakoCMS.Templates` and the module template | MIT, the `LICENSE` file in that folder (`BarakoCMS.Testing` and `BarakoCMS.Templates` get theirs with their 5.0 release, which is when they move to MIT) |
+| anything else in the repository, `BarakoCMS.Tests/`, docs, scripts, migrations and CI included | MPL-2.0, the root `LICENSE` |
 
 Each package folder that is MIT carries its own `LICENSE`, and `scripts/check-licences.sh` checks
 the licence every package declares against this table.
@@ -60,12 +60,15 @@ contribution. Pointed at rather than restated, because a second definition along
 is a second one to keep in step.
 
 The MIT licence says nothing about patents, so for a contribution that lands under MIT you grant
-the patent licence here: a perpetual, worldwide, royalty-free, irrevocable licence, to everyone who
-receives the software, under any patent claim you can license that your contribution infringes, on
-its own or combined with the package it was contributed to, to make, use, sell, offer for sale,
-import and otherwise transfer the contribution. Anyone who brings a patent claim alleging that the
-contribution infringes a patent loses this licence from the date that claim is filed. The wording
-follows the patent clause of Apache-2.0 section 3, which is the one most legal teams already know.
+the patent licence here: a perpetual, worldwide, no-charge, royalty-free, irrevocable (except as
+stated in this section) licence, to everyone who receives the software, to make, have made, use,
+offer to sell, sell, import and otherwise transfer the contribution, under the patent claims you can
+license that are necessarily infringed by your contribution alone or by its combination with the
+package it was contributed to. If anyone starts patent litigation against any entity, a cross-claim
+or counterclaim included, alleging that the contribution or that package infringes a patent, the
+patent licences granted to them under this section end on the date that litigation is filed. This
+is the patent clause of Apache-2.0 section 3, applied to your contribution and the package it lands
+in, because it is the one most legal teams already know.
 
 Either way the purpose is the same: a contribution cannot become a legal trap for everyone
 downstream.

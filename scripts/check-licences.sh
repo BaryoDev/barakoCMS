@@ -27,10 +27,12 @@ engine() { case "$1" in barakoCMS|BarakoCMS.Abstractions) return 0 ;; *) return 
 # BarakoCMS.Templates and BarakoCMS.Testing are versioned with the core (check-pinned-versions.sh,
 # check-module-versions.sh), and the core's version moves only in a release. A file added to their
 # folders before then is a source change that check-module-versions.sh asks a version bump for,
-# which they cannot have. So their LICENSE lands with the release that moves all three, and until
-# then only their evaluated licence is checked. Once the file is there it is checked like any other.
+# which they cannot have. So their LICENSE lands with the 5.0 release that moves all three. The
+# exception holds only while their <Version> is still a 4.x one: the release that moves them to 5.0
+# without the file fails here.
 licence_file_waits_for_release() {
-    case "$1" in BarakoCMS.Templates|BarakoCMS.Testing) [ ! -f "$1/LICENSE" ] ;; *) return 1 ;; esac
+    case "$1" in BarakoCMS.Templates|BarakoCMS.Testing) ;; *) return 1 ;; esac
+    [ ! -f "$1/LICENSE" ] && grep -qE '<Version>4\.[0-9]+\.[0-9]+</Version>' "$1/$1.csproj"
 }
 
 head -1 LICENSE | grep -q '^Mozilla Public License Version 2.0' \
@@ -38,12 +40,18 @@ head -1 LICENSE | grep -q '^Mozilla Public License Version 2.0' \
 
 # Tracked projects only: a nested worktree or a scratch copy is not this checkout. The template's
 # own content is a project for somebody else's repository and is checked by its default below.
-mapfile -t projects < <(git ls-files '*.csproj' | grep -v '/templates/' | grep -v '^BarakoCMS.Tests/')
+# aspire/ is a spike outside the solution; evaluating it would make the SDK resolver fetch its SDK.
+mapfile -t projects < <(git ls-files '*.csproj' | grep -v '/templates/' | grep -v '^BarakoCMS.Tests/' | grep -v '^aspire/')
 
 for csproj in "${projects[@]}"; do
     name=$(basename "$csproj" .csproj)
     dir=$(dirname "$csproj")
-    packable=$(dotnet msbuild "$csproj" -getProperty:IsPackable 2>/dev/null | tr -d '\r')
+    # A project MSBuild cannot evaluate is a failure, not a skip: skipping it would pass the check
+    # for exactly the package nobody looked at.
+    if ! packable=$(dotnet msbuild "$csproj" -getProperty:IsPackable 2>/dev/null | tr -d '\r') || [ -z "$packable" ]; then
+        bad "$csproj could not be evaluated, so its licence is unknown"
+        continue
+    fi
     [ "$packable" = "true" ] || [ "$name" = "BarakoCMS.Suite" ] || continue
 
     licence=$(dotnet msbuild "$csproj" -getProperty:PackageLicenseExpression 2>/dev/null | tr -d '\r')
