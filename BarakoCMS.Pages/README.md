@@ -31,8 +31,8 @@ application's dependency context, and `BarakoCMS:Modules:Enabled` decides which 
 `modules.Add(new BarakoCMS.Pages.PagesModule())` in the `AddBarakoCMS` callback. See `MODULES.md` in
 the repository.
 
-The module seeds nothing and stores nothing of its own. Create the page type first, for example by
-applying the `blog` blueprint.
+The module seeds nothing. It stores one row per tenant that sets its own page type (see
+[Per tenant](#per-tenant)). Create the page type first, for example by applying the `blog` blueprint.
 
 ## Configuration
 
@@ -51,6 +51,32 @@ Under `Modules:Pages`. The defaults match the `blog` blueprint's `page` type.
 | `MaxPages` | `1000` | Most pages one request reads; navigation and the tree say `truncated` when there were more |
 
 The slug field is the one public delivery already uses: a field of type `slug`, else one named `slug`.
+
+### Per tenant
+
+`Modules:Pages` is the deployment's default. A tenant can name its own type and fields, so two
+tenants on one deployment can each have their own tree:
+
+| Method and path | Purpose | Access |
+|---|---|---|
+| `GET /api/pages/settings` | What the tenant set, and what that comes to over `Modules:Pages` | `manage_content_types` |
+| `PUT /api/pages/settings` | Replaces what the tenant set | `manage_content_types` |
+
+The body takes `contentType`, `parentField`, `showInNavigationField`, `orderField`, `titleField`,
+`maxDepth` (1 to 64), `reservedSlugs` and `homeSlug`. Each one left out, or null, takes the
+deployment's value, so `{}` puts the tenant back on `Modules:Pages`. `MaxPages` stays the
+operator's. The answer is `{ "contract": 2, "tenant": {...}, "effective": {...} }`. A tenant that
+never sets any reads exactly what `Modules:Pages` says, as before.
+
+The rules on write, the three endpoints and the tree's `options` all read the tenant's values.
+
+### Declaring the parent on the type
+
+A reference field pointing at its own type may declare `"parent": { "maxDepth": 8 }` on its
+definition. Core then refuses a loop or a chain too deep on every write to that type, with no
+module or code involved: a docs site's sections or a shop's categories get a guarded tree from
+the definition alone. When the page type declares its parent field this way, the module leaves the
+walk to core and keeps the reserved-slug rule.
 
 ## Rules on write
 
@@ -114,7 +140,7 @@ sees it.
     "showInNavigation": true, "order": 1, "children": [] } ] }
 ```
 
-`options` is the `Modules:Pages` configuration in use, so a console that moves a page writes the
+`options` is the configuration in use for the tenant, so a console that moves a page writes the
 parent and order fields this site's type has, not the defaults. Only the tree carries it; the two
 anonymous bodies do not.
 

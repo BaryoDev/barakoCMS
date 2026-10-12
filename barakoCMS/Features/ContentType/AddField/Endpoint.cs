@@ -33,6 +33,9 @@ internal sealed class Request
     /// <summary>For a json field, the JSON Schema a value has to match. Refused on any other type.</summary>
     public System.Text.Json.JsonElement? JsonSchema { get; set; }
 
+    /// <summary>For a reference to the type itself, that it names the entry's parent, with the tree's depth.</summary>
+    public ParentDeclaration? Parent { get; set; }
+
     /// <summary>For a money field, the ISO 4217 code its amounts are in. Refused on any other type.</summary>
     public string? Currency { get; set; }
 
@@ -140,6 +143,7 @@ internal sealed class Endpoint(
             Multiple = req.Multiple,
             ItemType = req.ItemType,
             JsonSchema = req.JsonSchema,
+            Parent = req.Parent,
             Currency = req.Currency,
             Scale = req.Scale,
             Editor = req.Editor,

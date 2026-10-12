@@ -26,7 +26,6 @@
 79 BarakoCMS.Forms/FormEmailVerifier.cs::FormEmailVerifier.RequestCodeAsync
 73 BarakoCMS.Import/Features/Analyze/Endpoint.cs::Endpoint.HandleAsync
 157 BarakoCMS.Import/Features/BulkCreate/Endpoint.cs::Endpoint.HandleAsync
-77 BarakoCMS.Pages/Features/Tree/Endpoint.cs::Endpoint.HandleAsync
 92 BarakoCMS.Portability/ExportEndpoint.cs::ExportEndpoint.HandleAsync
 286 BarakoCMS.Portability/ImportEndpoint.cs::ImportEndpoint.HandleAsync
 150 BarakoCMS.Portability/ImportEndpoint.cs::ImportEndpoint.TypeErrorsAsync

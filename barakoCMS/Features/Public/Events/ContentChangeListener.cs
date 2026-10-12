@@ -258,6 +258,7 @@ internal sealed class ContentChangeListener(
         Multiple = f.Multiple,
         ItemType = f.ItemType,
         JsonSchema = f.JsonSchema,
+        Parent = f.Parent,
         Currency = f.Currency,
         Scale = f.Scale,
         Editor = f.Editor,

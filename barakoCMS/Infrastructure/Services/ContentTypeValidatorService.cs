@@ -200,7 +200,7 @@ public class ContentTypeValidatorService : IContentTypeValidatorService
                     errors.AddRange(FieldRules.DefinitionErrors(field));
             }
 
-            errors.AddRange(FieldPresentation.RoleErrors(fields));
+            errors.AddRange(FieldPresentation.RoleErrors(fields).Concat(ParentFields.DefinitionErrors(name, fields)));
 
             // Entries, filters, sensitivity and the write rules all find a field by its name
             // ignoring case, so two names that differ only in case are one field read two ways. A

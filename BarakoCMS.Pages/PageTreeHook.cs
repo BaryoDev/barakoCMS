@@ -9,6 +9,8 @@ namespace BarakoCMS.Pages;
 /// <summary>
 /// The rules a page tree needs that a schema cannot state: a page is not its own ancestor, is not
 /// deeper than <see cref="PagesOptions.MaxDepth"/>, and a root page does not take a reserved slug.
+/// Read for the tenant writing, so the type and fields are the ones its <see cref="PagesSettings"/>
+/// name, or <c>Modules:Pages</c> where it names none.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -27,7 +29,7 @@ namespace BarakoCMS.Pages;
 /// </remarks>
 public sealed class PageTreeHook : IContentLifecycleHook
 {
-    private readonly PagesOptions _options;
+    private readonly PagesOptions _deployment;
 
     /// <remarks>
     /// <paramref name="projector"/> is no longer read: the slug check on write uses the authoring
@@ -35,23 +37,42 @@ public sealed class PageTreeHook : IContentLifecycleHook
     /// </remarks>
     public PageTreeHook(IOptions<PagesOptions> options, IPublicContentProjector projector)
     {
-        _options = options.Value;
+        _deployment = options.Value;
         _ = projector;
     }
 
-    public string ContentType => _options.ContentType;
+    /// <summary>
+    /// Every type, <see cref="IContentLifecycleHook.AnyType"/>: which type is the page tree is the
+    /// tenant's to say (<see cref="PagesSettings"/>), so the hook reads it per write and lets any
+    /// other type through.
+    /// </summary>
+    public string ContentType => IContentLifecycleHook.AnyType;
 
     public async Task<IReadOnlyList<string>> OnBeforeSaveAsync(ContentLifecycleContext context, CancellationToken ct)
     {
-        var errors = new List<string>();
-
-        if (PageData.Guid(context.Data, _options.ParentField) is null)
+        var options = await PagesSettings.ResolveAsync(context.Session, _deployment, ct);
+        if (!string.Equals(context.ContentType, options.ContentType, StringComparison.OrdinalIgnoreCase))
         {
-            if (await ReservedRootSlugAsync(context, ct) is { } reserved)
+            return [];
+        }
+
+        var errors = new List<string>();
+        var definition = await DefinitionAsync(context, options, ct);
+
+        if (PageData.Guid(context.Data, options.ParentField) is null)
+        {
+            if (ReservedRootSlug(context, options, definition) is { } reserved)
             {
                 errors.Add($"The slug '{reserved}' is reserved and cannot be used by a top-level page.");
             }
 
+            return errors;
+        }
+
+        // The type declares this field its parent, so core walks the chain on every write to it.
+        if (definition?.Fields.Any(f => f.Parent is not null
+                && string.Equals(f.Name, options.ParentField, StringComparison.OrdinalIgnoreCase)) == true)
+        {
             return errors;
         }
 
@@ -67,29 +88,30 @@ public sealed class PageTreeHook : IContentLifecycleHook
             }
             : context;
 
-        var chain = new ParentReferenceHook(_options.ContentType, _options.ParentField, _options.MaxDepth);
+        var chain = new ParentReferenceHook(options.ContentType, options.ParentField, options.MaxDepth);
         errors.AddRange(await chain.OnBeforeSaveAsync(walked, ct));
         return errors;
     }
 
-    private async Task<string?> ReservedRootSlugAsync(ContentLifecycleContext context, CancellationToken ct)
+    private static Task<ContentTypeDefinition?> DefinitionAsync(
+        ContentLifecycleContext context, PagesOptions options, CancellationToken ct)
     {
-        if (_options.ReservedSlugs.Count == 0)
-        {
-            return null;
-        }
-
-        var lowered = _options.ContentType.ToLower();
-        var definition = await context.Session.Query<ContentTypeDefinition>()
+        var lowered = options.ContentType.ToLower();
+        return context.Session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct);
+    }
 
-        if (AuthoringSlugField(definition) is not { } slugField
+    private static string? ReservedRootSlug(
+        ContentLifecycleContext context, PagesOptions options, ContentTypeDefinition? definition)
+    {
+        if (options.ReservedSlugs.Count == 0
+            || AuthoringSlugField(definition) is not { } slugField
             || PageData.String(context.Data, slugField) is not { Length: > 0 } slug)
         {
             return null;
         }
 
-        return _options.ReservedSlugs.Any(r => string.Equals(r?.Trim(), slug.Trim(), StringComparison.OrdinalIgnoreCase))
+        return options.ReservedSlugs.Any(r => string.Equals(r?.Trim(), slug.Trim(), StringComparison.OrdinalIgnoreCase))
             ? slug
             : null;
     }

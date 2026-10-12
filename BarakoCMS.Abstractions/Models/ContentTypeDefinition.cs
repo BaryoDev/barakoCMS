@@ -257,6 +257,19 @@ public class FieldDefinition
     public System.Text.Json.JsonElement? JsonSchema { get; set; }
 
     /// <summary>
+    /// For a <c>reference</c> field pointing at its own type, the declaration that it names the
+    /// entry's parent, or null when it does not.
+    /// </summary>
+    /// <remarks>
+    /// Null, the default, is every field stored before this existed, and such a reference is
+    /// checked as it always was. Set, every write to the type walks the parent chain and refuses a
+    /// value that would make the entry its own ancestor, or put it, or an entry below it, deeper
+    /// than <see cref="ParentDeclaration.MaxDepth"/>. No code has to register anything for it. One
+    /// field per type, on a single reference whose <see cref="ReferenceType"/> is the type itself.
+    /// </remarks>
+    public ParentDeclaration? Parent { get; set; }
+
+    /// <summary>
     /// For a <c>money</c> field, the ISO 4217 code every amount in it is in, for example <c>USD</c>.
     /// </summary>
     /// <remarks>
@@ -340,6 +353,16 @@ public class FieldDefinition
     /// </remarks>
     public List<string> VisibleToRoles { get; set; } = new();
     public FieldMask Mask { get; set; } = FieldMask.Default;
+}
+
+/// <summary>That a reference field names its entry's parent, and how deep the tree may go.</summary>
+public class ParentDeclaration
+{
+    /// <summary>The most a <see cref="MaxDepth"/> may be.</summary>
+    public const int MostDepth = 64;
+
+    /// <summary>The most ancestors an entry may have, from 1 to <see cref="MostDepth"/>. A root has none.</summary>
+    public int MaxDepth { get; set; } = MostDepth;
 }
 
 /// <summary>One option a <c>choice</c> field accepts.</summary>
