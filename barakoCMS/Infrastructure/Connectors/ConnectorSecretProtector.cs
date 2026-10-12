@@ -29,46 +29,35 @@ public interface IConnectorSecretProtector
     string? Unprotect(string protectedValue);
 }
 
-public sealed class ConnectorSecretProtector : IConnectorSecretProtector
+public sealed class ConnectorSecretProtector : IConnectorSecretProtector, IKeyRingProtector
 {
     /// <summary>Shortest key material accepted, matching what startup already demands of JWT:Key.</summary>
     internal const int MinimumKeyLength = 32;
 
-    private readonly byte[]? _key;
+    private readonly KeyRing _ring;
 
     public ConnectorSecretProtector(IConfiguration config)
     {
-        var material = config["Connectors:Key"];
-        _key = string.IsNullOrEmpty(material) ? null : AesGcmEnvelope.DeriveKey(material);
+        _ring = KeyRing.FromConfiguration(config, "Connectors", config["Connectors:Key"], prefixUnkeyedWrites: false);
     }
 
-    public bool IsConfigured => _key is not null;
+    KeyRing IKeyRingProtector.Ring => _ring;
+
+    public bool IsConfigured => _ring.CanProtect;
 
     public string Protect(string plaintext)
     {
-        if (_key is null)
+        if (!_ring.CanProtect)
         {
             throw new InvalidOperationException(
                 "Connectors:Key is not configured, so a connector credential cannot be encrypted.");
         }
 
-        return AesGcmEnvelope.Protect(_key, plaintext);
+        return _ring.Protect(plaintext);
     }
 
-    public string? Unprotect(string protectedValue)
-    {
-        if (_key is null || string.IsNullOrEmpty(protectedValue)) return null;
-
-        try
-        {
-            return AesGcmEnvelope.Unprotect(_key, protectedValue);
-        }
-        catch (Exception ex) when (ex is System.Security.Cryptography.CryptographicException or FormatException)
-        {
-            // Reachable rather than a bug: the key was rotated. The caller answers as it would for a
-            // credential that was never set, which is to refuse the call and say it needs entering
-            // again, instead of surfacing a stack trace from inside an HTTP send.
-            return null;
-        }
-    }
+    // Null rather than an exception when nothing opens it: a rotated key is reachable, not a bug. The
+    // caller answers as it would for a credential that was never set, which is to refuse the call and
+    // say it needs entering again, instead of surfacing a stack trace from inside an HTTP send.
+    public string? Unprotect(string protectedValue) => _ring.Unprotect(protectedValue);
 }

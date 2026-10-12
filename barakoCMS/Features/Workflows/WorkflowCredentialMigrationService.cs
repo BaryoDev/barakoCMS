@@ -82,17 +82,19 @@ internal sealed class WorkflowCredentialMigrationService : BackgroundService
         var visited = 0;
         var read = 0;
         var changed = 0;
+        var unopenable = 0;
 
         foreach (var tenantId in partitions)
         {
             try
             {
                 await using var session = _store.LightweightSession(tenantId);
-                var (readHere, changedHere) = await ProtectStoredAsync(session, _protector, ct, _logger);
+                var (readHere, changedHere, unopenableHere) = await ProtectStoredAsync(session, _protector, ct, _logger);
 
                 visited++;
                 read += readHere;
                 changed += changedHere;
+                unopenable += unopenableHere;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -119,6 +121,13 @@ internal sealed class WorkflowCredentialMigrationService : BackgroundService
             _logger.LogInformation("Encrypted the credential parameters of {Count} stored workflow(s)", changed);
         }
 
+        if (unopenable > 0)
+        {
+            _logger.LogWarning(
+                "{Count} credential parameter(s) on stored workflows do not decrypt under any configured Secrets key",
+                unopenable);
+        }
+
         return changed;
     }
 
@@ -130,12 +139,16 @@ internal sealed class WorkflowCredentialMigrationService : BackgroundService
             ct);
 
     /// <summary>Encrypts every stored workflow in one partition. Pure over the session, so a test drives it directly.</summary>
-    /// <returns>The number of workflows read, and how many of them were rewritten.</returns>
-    public static async Task<(int Read, int Changed)> ProtectStoredAsync(
+    /// <returns>
+    /// The number of workflows read, how many of them were rewritten, and how many credential
+    /// parameters no configured key decrypts.
+    /// </returns>
+    public static async Task<(int Read, int Changed, int Unopenable)> ProtectStoredAsync(
         IDocumentSession session, ISecretProtector protector, CancellationToken ct, ILogger? logger = null)
     {
         var read = 0;
         var changed = 0;
+        var unopenable = 0;
 
         for (var skip = 0; ; skip += BatchSize)
         {
@@ -151,11 +164,15 @@ internal sealed class WorkflowCredentialMigrationService : BackgroundService
             foreach (var workflow in batch)
             {
                 var changedHere = WebhookSigning.MigrateStoredCredentials(workflow, protector, (index, name) =>
+                {
+                    unopenable++;
+
                     // The name and where it is, never the value: this is the log of a value that
                     // might be a credential.
                     logger?.LogWarning(
-                        "The {Parameter} parameter of action {ActionIndex} on workflow {WorkflowId} could not be decrypted with the current key and was left as it is. Either Secrets:Key changed since it was saved, or it was saved in clear; restore the old key, or recreate the workflow.",
-                        name, index, workflow.Id),
+                        "The {Parameter} parameter of action {ActionIndex} on workflow {WorkflowId} could not be decrypted with any configured key and was left as it is. Either the key it was saved under is no longer configured (Secrets:Key, or an entry under Secrets:Keys), or it was saved in clear; restore the old key, or recreate the workflow.",
+                        name, index, workflow.Id);
+                },
                     (index, branch) =>
                         logger?.LogWarning(
                             "The {Branch} branch of action {ActionIndex} on workflow {WorkflowId} could not be read as a list of actions and was left as it is. It does not run and the API does not return it; recreate the workflow with a valid branch.",
@@ -176,6 +193,6 @@ internal sealed class WorkflowCredentialMigrationService : BackgroundService
             if (batch.Count < BatchSize) break;
         }
 
-        return (read, changed);
+        return (read, changed, unopenable);
     }
 }
