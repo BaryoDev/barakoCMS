@@ -227,4 +227,35 @@ public class ConfigTransactionTests
         (await _callers.InTenantAsync(null, s => s.Query<AuditEvent>().AnyAsync(e => e.TenantSlug == tenant && e.Action == "config.refused", Ct)))
             .Should().BeTrue("the refused apply is in the log");
     }
+    [Fact]
+    public async Task An_apply_touching_two_roles_keeps_the_audit_chain_unbroken()
+    {
+        var tenant = await _callers.TenantAsync();
+        var type = Unique("chain");
+        await _callers.StoreInTenantAsync(tenant, Type(type, ("Title", "string")));
+        var first = Unique("Chain One ");
+        var second = Unique("Chain Two ");
+        await _callers.StoreInTenantAsync(null, new Role { Id = Guid.NewGuid(), Name = first }, new Role { Id = Guid.NewGuid(), Name = second });
+        var client = await _callers.SuperAdminAsync(tenant);
+
+        var (applied, body) = await ApplyAsync(client, new
+        {
+            version = 1,
+            permissionRules = new Dictionary<string, object>
+            {
+                [$"{first}/{type}"] = new { read = new { enabled = true } },
+                [$"{second}/{type}"] = new { read = new { enabled = true } },
+            },
+        });
+        applied.StatusCode.Should().Be(HttpStatusCode.OK, body.ToString());
+
+        var chain = (await _callers.InTenantAsync(null, s => s.Query<AuditEvent>().Where(e => e.TenantSlug == tenant).ToListAsync(Ct)))!
+            .OrderBy(e => e.CreatedAt).ToList();
+        chain.Count(e => e.Action == "role.updated").Should().Be(2, "one entry for each role the apply changed");
+        chain[0].PrevHash.Should().Be(barakoCMS.Infrastructure.Audit.AuditChain.GenesisHash);
+        for (var i = 1; i < chain.Count; i++)
+        {
+            chain[i].PrevHash.Should().Be(chain[i - 1].Hash, $"entry {i} ({chain[i].Action}) follows entry {i - 1} ({chain[i - 1].Action})");
+        }
+    }
 }
