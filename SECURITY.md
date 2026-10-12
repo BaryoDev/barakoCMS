@@ -101,6 +101,23 @@ When deploying BarakoCMS:
   naming the setting. It must be at least 32 characters and must not equal `JWT:Key`, `Mfa:Key` or
   `Secrets:Key`, or the API refuses to start. Rotating it makes stored connector credentials
   undecryptable, so they have to be entered again.
+- Rotate any of those three with a key ring rather than by replacing the key. Each class takes
+  `{Section}:Keys:{id}` entries and a `{Section}:CurrentKey` (`Secrets`, `Mfa` or `Connectors`). A
+  value written under a ring carries its key id (`enc:v1:{id}:...`) and decrypts under that key
+  whatever is current. At startup the API re-wraps every stored value under the current key straight
+  away, so with more than one instance, rotate in two rollouts: first add the new key to every
+  instance's ring with `CurrentKey` unchanged, and only once every instance has it, point
+  `CurrentKey` at it. Switching `CurrentKey` while an instance still lacks the key means the first
+  instance to start moves every value to a key the others cannot open, and they fail MFA sign-ins
+  and connector sends until they restart. With one instance both steps can be one restart. The
+  startup log says how many values were re-wrapped and how many no configured key decrypts; remove
+  an old key only after a start that reports zero of both, since a request in flight during the
+  pass can write a value back under the older key. A ring entry that is empty, or a `CurrentKey`
+  with no keys under it, stops startup.
+  A value written before the ring still reads under `{Section}:Key` (or the JWT key it fell back to),
+  which writes nothing new once a ring is configured. A ring key must be at least 32 characters and
+  must not equal `JWT:Key`. Configure a ring only once every instance runs a release that reads it:
+  an older release cannot read a value that carries a key id.
 - Enable MFA on admin accounts. Every sign-in path (password, email code, social) honors it.
 - Keep those keys out of the environment of the machine that holds the database. With
   `BarakoCMS.Secrets.Aws` or `BarakoCMS.Secrets.Gcp`, both in the published image, the host reads

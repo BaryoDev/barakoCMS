@@ -1126,6 +1126,13 @@ public static class ServiceCollectionExtensions
         // refused before the host is built rather than at the first send. An absent key is not an
         // error: it means the feature is off, and the endpoints say so with the setting named.
         barakoCMS.Infrastructure.Connectors.ConnectorOptions.FromConfiguration(configuration).Validate(configuration);
+
+        // A key ring that is ambiguous or weak is refused here too, rather than at the first value
+        // somebody stores or reads.
+        foreach (var section in new[] { "Secrets", "Mfa", "Connectors" })
+        {
+            barakoCMS.Infrastructure.Security.KeyRing.FromConfiguration(configuration, section, legacyMaterial: null, prefixUnkeyedWrites: false);
+        }
         services.AddSingleton(erasure);
         services.AddScoped<barakoCMS.Infrastructure.Erasure.IContentEraser, barakoCMS.Infrastructure.Erasure.ContentEraser>();
     }
@@ -1192,6 +1199,7 @@ public static class ServiceCollectionExtensions
     {
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowRunRetentionService>();
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowCredentialMigrationService>();
+        services.AddHostedService<barakoCMS.Infrastructure.Security.SecretRewrapService>();
         services.AddHostedService<barakoCMS.Infrastructure.Services.StoredValidationRulesNotice>();
         services.AddHostedService<barakoCMS.Infrastructure.Services.StoredReferenceConditionsNotice>();
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowExecutionLogRedactionService>();
@@ -1374,6 +1382,8 @@ public static class ServiceCollectionExtensions
         // test host's settings arrive after this method has run. In production both reads see the
         // same values.
         services.AddRateLimiter(_ => { });
+        services.AddSingleton(sp => new barakoCMS.Infrastructure.Security.LookupReferenceThrottle(
+            barakoCMS.Infrastructure.Security.RateLimitSetup.Read(sp.GetRequiredService<IConfiguration>()).LookupReference));
         services.AddOptions<Microsoft.AspNetCore.RateLimiting.RateLimiterOptions>()
             .Configure<IConfiguration>((options, current) =>
                 barakoCMS.Infrastructure.Security.RateLimitSetup.Configure(
@@ -1862,6 +1872,13 @@ public static class ServiceCollectionExtensions
         // DeviceTrust enforcement pre-processor) simply by registering IGlobalPreProcessor/PostProcessor.
         var globalPreProcessors = app.ApplicationServices.GetServices<FastEndpoints.IGlobalPreProcessor>().ToArray();
         var globalPostProcessors = app.ApplicationServices.GetServices<FastEndpoints.IGlobalPostProcessor>().ToArray();
+
+        // Inside the output cache, so the metrics can tell a response it served from one that ran.
+        app.Use((context, next) =>
+        {
+            context.Items[barakoCMS.Infrastructure.Middleware.RequestResponseLoggingMiddleware.ReachedEndpointsKey] = true;
+            return next(context);
+        });
 
         // Lets IdempotencyFilter hash a keyed write's body after FastEndpoints has bound it.
         app.UseMiddleware<barakoCMS.Infrastructure.Filters.IdempotencyRequestBuffering>();

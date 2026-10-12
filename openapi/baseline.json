@@ -392,6 +392,32 @@
         },
         "type": "object"
       },
+      "BarakoCMSAnalyticsUmamiFeaturesPreviousSeries": {
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "pageviews": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSAnalyticsUmamiFeaturesSeriesPointDto"
+            },
+            "type": "array"
+          },
+          "sessions": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSAnalyticsUmamiFeaturesSeriesPointDto"
+            },
+            "type": "array"
+          },
+          "to": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSAnalyticsUmamiFeaturesSeriesPointDto": {
         "additionalProperties": false,
         "properties": {
@@ -408,17 +434,36 @@
       "BarakoCMSAnalyticsUmamiFeaturesSeriesResponse": {
         "additionalProperties": false,
         "properties": {
+          "from": {
+            "description": "The window these points cover, so a caller can ask for the one before it.",
+            "format": "date-time",
+            "type": "string"
+          },
           "pageviews": {
             "items": {
               "$ref": "#/components/schemas/BarakoCMSAnalyticsUmamiFeaturesSeriesPointDto"
             },
             "type": "array"
           },
+          "previous": {
+            "description": "The window of the same length just before this one, with the same unit. Only with\ncompare=previous, and left out otherwise.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSAnalyticsUmamiFeaturesPreviousSeries"
+              }
+            ]
+          },
           "sessions": {
             "items": {
               "$ref": "#/components/schemas/BarakoCMSAnalyticsUmamiFeaturesSeriesPointDto"
             },
             "type": "array"
+          },
+          "to": {
+            "description": "The end of that window.",
+            "format": "date-time",
+            "type": "string"
           },
           "unit": {
             "type": "string"
@@ -2159,6 +2204,48 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesContentCountsRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentCountsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "archived": {
+            "description": "Entries in Archived.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "draft": {
+            "description": "Entries in Draft.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "published": {
+            "description": "Entries in Published.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "scheduled": {
+            "description": "Entries in Scheduled, waiting for their publish time.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Every entry counted, in any status.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "uncountedTypes": {
+            "description": "Types the caller may read some of, left out of every number above because their read rules\ndepend on the entry in a way only a per-entry check can answer. Counting those would mean loading the whole\ntype, so they are named instead of guessed. Empty for most callers.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesContentCreateRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2797,6 +2884,15 @@
               }
             ]
           },
+          "lookup": {
+            "description": "The anonymous lookup this type answers, or null when it answers none.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsLookupDefinition"
+              }
+            ]
+          },
           "name": {
             "type": "string"
           },
@@ -3135,6 +3231,38 @@
               "type": "string"
             },
             "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentTypeSetLookupRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "lookup": {
+            "description": "The lookup the type answers from now on, or null to answer none.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsLookupDefinition"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentTypeSetLookupResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "lookup": {
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsLookupDefinition"
+              }
+            ]
+          },
+          "name": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -3517,6 +3645,10 @@
             },
             "type": "array"
           },
+          "legacyRoleFallback": {
+            "description": "Whether this deployment runs with Auth:LegacyRoleFallback on, so the pre-capability role\nnames (Admin, Editor and the like) still open the gates they used to whatever capabilities the\nrole carries. A console that decides navigation by capability alone would otherwise hide screens\nsuch a role can still use. It describes the deployment, not the caller.",
+            "type": "boolean"
+          },
           "roles": {
             "description": "The stored roles the caller holds there: global roles and the active membership's.",
             "items": {
@@ -3596,16 +3728,27 @@
             "additionalProperties": {
               "type": "string"
             },
+            "description": "The tenant's branding values.",
             "type": "object"
           },
           "logoUrl": {
+            "description": "The logo of the tenant's published site entry, if it has one.",
             "nullable": true,
             "type": "string"
           },
           "name": {
+            "description": "The tenant's display name.",
             "type": "string"
           },
+          "roles": {
+            "description": "The roles the caller holds in that tenant, read the way GET /api/me reads them there: the\nmembership's roles and the caller's global roles, sorted by name. A role can differ per tenant,\nwhich is why a switcher shows it beside each one.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesMeMyRole"
+            },
+            "type": "array"
+          },
           "slug": {
+            "description": "The tenant's slug.",
             "type": "string"
           }
         },
@@ -3935,6 +4078,41 @@
           },
           "token": {
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesPublicLookupRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "reference": {
+            "description": "The value of the type's match field, for example a registration number.",
+            "maxLength": 200,
+            "minLength": 0,
+            "nullable": false,
+            "type": "string"
+          },
+          "verify": {
+            "description": "The value of any one of the type's verify fields, for example a last name or an email.",
+            "maxLength": 200,
+            "minLength": 0,
+            "nullable": false,
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference",
+          "verify"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSFeaturesPublicLookupResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "additionalProperties": {},
+            "description": "The fields the lookup returns, plus the reveal fields while the reveal is on.",
+            "type": "object"
           }
         },
         "type": "object"
@@ -5894,6 +6072,17 @@
         ],
         "type": "object"
       },
+      "BarakoCMSFeaturesWorkflowsUpdateWorkflowRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BarakoCMSFeaturesWorkflowsCreateWorkflowRequest"
+          },
+          {
+            "additionalProperties": false,
+            "type": "object"
+          }
+        ]
+      },
       "BarakoCMSFeaturesWorkflowsValidateWorkflowRequest": {
         "additionalProperties": false,
         "description": "Request to validate a workflow definition.",
@@ -6598,11 +6787,67 @@
             "format": "double",
             "type": "number"
           },
+          "last24Hours": {
+            "description": "The same numbers over the last 24 hours, plus the ones only a window can give.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSInfrastructureServicesMetricsWindow"
+              }
+            ]
+          },
+          "startedAt": {
+            "description": "When this process started counting, which is when the API started.",
+            "format": "date-time",
+            "type": "string"
+          },
           "totalErrors": {
             "format": "int64",
             "type": "integer"
           },
           "totalRequests": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "uptimeSeconds": {
+            "description": "Whole seconds since StartedAt.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSInfrastructureServicesMetricsWindow": {
+        "additionalProperties": false,
+        "description": "Requests over a trailing window, kept per minute. The totals above are since the process started,\nwhich on a host that has run for a month says nothing about this morning.",
+        "properties": {
+          "averageResponseTime": {
+            "format": "double",
+            "type": "number"
+          },
+          "cacheHitRate": {
+            "description": "The share of successful GET and HEAD requests answered from a cache: a 304 Not Modified\nto a client holding the current ETag, or a response the output cache served without running\nthe endpoint. Health probes and the Prometheus scrape are not counted. Zero with no such reads.",
+            "format": "double",
+            "type": "number"
+          },
+          "cacheHits": {
+            "description": "How many reads CacheHitRate counts as answered from a cache.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "errorRate": {
+            "format": "double",
+            "type": "number"
+          },
+          "errors": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "p95ResponseTime": {
+            "description": "The 95th percentile response time in milliseconds, as the upper bound of the histogram bucket\nit falls in (see LatencyBoundsMs), so it can overstate by up to\none bucket. Past the last bound it reads as that bound, so above 10 seconds it understates.\nZero with no requests.",
+            "format": "double",
+            "type": "number"
+          },
+          "requests": {
             "format": "int64",
             "type": "integer"
           }
@@ -6844,6 +7089,15 @@
               }
             ]
           },
+          "lookup": {
+            "description": "An anonymous lookup of one entry by a reference plus an identifier, or null for none.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsLookupDefinition"
+              }
+            ]
+          },
           "name": {
             "type": "string"
           },
@@ -7076,6 +7330,77 @@
             "type": "object"
           }
         ]
+      },
+      "BarakoCMSModelsLookupDefinition": {
+        "additionalProperties": false,
+        "description": "How POST /api/public/{type}/lookup finds one entry and what it hands back.",
+        "properties": {
+          "matchField": {
+            "description": "The field the reference is compared with, for example a registration number.",
+            "maxLength": 64,
+            "minLength": 0,
+            "nullable": false,
+            "type": "string"
+          },
+          "returnFields": {
+            "description": "The fields a found entry returns. Each must be Public: a Sensitive, Hidden or token field is\nrefused when the lookup is set, and left out when it is answered if it changed since.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "reveal": {
+            "description": "Further fields returned only while a setting is on, or null for none.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsLookupReveal"
+              }
+            ]
+          },
+          "verifyFields": {
+            "description": "The fields the identifier is compared with; matching any one of them is enough.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "matchField"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSModelsLookupReveal": {
+        "additionalProperties": false,
+        "description": "Fields a lookup adds to its answer only while a boolean field on a singleton type is true.",
+        "properties": {
+          "fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "settingField": {
+            "description": "The boolean field on that type which turns the reveal on.",
+            "maxLength": 64,
+            "minLength": 0,
+            "nullable": false,
+            "type": "string"
+          },
+          "settingType": {
+            "description": "The singleton content type holding the setting.",
+            "maxLength": 64,
+            "minLength": 0,
+            "nullable": false,
+            "type": "string"
+          }
+        },
+        "required": [
+          "settingType",
+          "settingField"
+        ],
+        "type": "object"
       },
       "BarakoCMSModelsMembershipStatus": {
         "description": "",
@@ -9864,6 +10189,26 @@
             }
           },
           {
+            "description": "The start of an explicit window. Set together with To, or not at all.",
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "format": "date-time",
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "The end of an explicit window.",
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "format": "date-time",
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
             "description": "Umami metric type: path | referrer | country | browser | os | device.",
             "in": "query",
             "name": "type",
@@ -9896,6 +10241,16 @@
             },
             "description": "Success"
           },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
           "401": {
             "description": "Unauthorized"
           }
@@ -9924,11 +10279,40 @@
             }
           },
           {
-            "description": "\"24h\" | \"7d\" (default) | \"30d\" | \"90d\".",
+            "description": "\"24h\" | \"7d\" (default) | \"30d\" | \"90d\". Not read when From and To are set.",
             "in": "query",
             "name": "range",
             "required": true,
             "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The start of an explicit window. Set together with To, or not at all.",
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "format": "date-time",
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "The end of an explicit window.",
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "format": "date-time",
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "previous adds the window of the same length just before this one to a series, for\ndrawing behind the current line. Read by the series route only, and any other value is\nignored as it was before the parameter existed.",
+            "in": "query",
+            "name": "compare",
+            "schema": {
+              "nullable": true,
               "type": "string"
             }
           }
@@ -9944,6 +10328,16 @@
             },
             "description": "Success"
           },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
           "401": {
             "description": "Unauthorized"
           }
@@ -9953,7 +10347,7 @@
             "JWTBearerAuth": []
           }
         ],
-        "summary": "GET /api/analytics/{websiteId}/series?range=7d \u2014 pageviews/sessions over time, for the trend chart.",
+        "summary": "GET /api/analytics/{websiteId}/series?range=7d: pageviews and sessions over time, for the trend chart.\n            from and to name any window instead, and compare=previous adds the window before it.",
         "tags": [
           "Analytics.Umami"
         ]
@@ -9978,6 +10372,32 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "format": "date-time",
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "format": "date-time",
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "compare",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -9990,6 +10410,16 @@
               }
             },
             "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
           },
           "401": {
             "description": "Unauthorized"
@@ -10025,6 +10455,32 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "format": "date-time",
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "format": "date-time",
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "compare",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -10037,6 +10493,16 @@
               }
             },
             "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
           },
           "401": {
             "description": "Unauthorized"
@@ -12538,6 +13004,69 @@
         ]
       }
     },
+    "/api/content-types/{name}/lookup": {
+      "put": {
+        "description": "The same gate as turning public delivery on, because it is the same decision: what an anonymous\ncaller can read. A field that is Sensitive, Hidden or a token cannot be in the returned set, and\na reveal may add a token but no other non-Public field.",
+        "operationId": "barakoCMSFeaturesContentTypeSetLookupEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeSetLookupRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "Request",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeSetLookupResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "PUT /api/content-types/{name}/lookup, which sets or removes the anonymous lookup the type answers\nat POST /api/public/{type}/lookup.",
+        "tags": [
+          "ContentType"
+        ]
+      }
+    },
     "/api/content-types/{name}/public-delivery": {
       "put": {
         "description": "This exists because the opt-in would otherwise be a one-way door. Public delivery became opt-in so\nthat modelling members or a ledger as content no longer hands out an anonymous endpoint nobody\nasked for \u2014 but content types have no update endpoint, so on upgrade every existing type stops\nbeing delivered with no supported way to turn it back on. A site serving a blog this way would\nhave needed direct database access to recover.\n            \nDeliberately its own endpoint rather than a general content-type update: enabling anonymous access\nto a whole content type is a decision worth making on purpose, and worth being able to audit,\nrather than something that rides along inside a larger edit.",
@@ -13096,6 +13625,50 @@
           }
         ],
         "summary": "The authoring read of one entry, addressed by type and slug instead of id.",
+        "tags": [
+          "Content"
+        ]
+      }
+    },
+    "/api/contents/counts": {
+      "get": {
+        "description": "Each type is counted under the read predicate ReadPredicateAsync\ncompiles for the caller, the one the list endpoint pages with, so the numbers agree with what\nGET /api/contents would list. A type whose rules do not compile is named in\nUncountedTypes rather than loaded row by row: the cost of the answer stays a handful of\ncounts however large the collection is.\nTypes the caller reads unconditionally are counted together, so a caller who reads everything\ncosts four queries whatever the number of types. Across types, the types are the stored content\ntype definitions, so an entry whose type has no definition is not counted.",
+        "operationId": "barakoCMSFeaturesContentCountsEndpoint",
+        "parameters": [
+          {
+            "description": "One content type, or null for every type the caller may read.",
+            "in": "query",
+            "name": "contentType",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesContentCountsResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/contents/counts, how many entries the caller may read, by status, so an overview card\ncan say \"121 published, 27 draft\" without paging the whole collection.",
         "tags": [
           "Content"
         ]
@@ -14802,7 +15375,7 @@
     },
     "/api/me/tenants": {
       "get": {
-        "description": "LogoUrl is the Logo of each tenant's published site entry, which costs two reads\nfor every tenant on the page and none for the rest, so at most two hundred for a full page.",
+        "description": "LogoUrl is the Logo of each tenant's published site entry, which costs two reads\nfor every tenant on the page and none for the rest, so at most two hundred for a full page.\nThe roles cost one more read for the whole page, since the memberships are already loaded.",
         "operationId": "barakoCMSFeaturesMeMyTenantsEndpoint",
         "parameters": [
           {
@@ -15750,6 +16323,61 @@
           }
         },
         "summary": "GET /api/public/{type}/feed.xml \u2014 an RSS 2.0 feed of the newest Published, document-Public entries of\na content type. It reuses the same projection as the rest of public delivery, so drafts, Sensitive\ndocuments, and non-Public fields never appear. The literal \"feed.xml\" segment wins over the {slug}\nroute. Anonymous and cacheable.\n            \nItem links point at the caller's frontend (the CMS is headless, so it can't know the URL): set\nFeeds:SiteUrl and, per type, the type's route template or Feeds:Paths:{type} (a\ntemplate like /blog/{slug}; defaults to /{type}/{slug}). An item's title,\ndescription and date come from the fields the type gives the title, summary and date roles,\nand from the field names guessed before roles existed when it gives none or the field is empty.\nWith neither Feeds:SiteUrl nor App:BaseUrl set,\nthe feed answers 503 unless AllowedHosts makes the request host trustworthy, because a feed\nis fetched by aggregators and its links must not come from a header the caller wrote (#147).",
+        "tags": [
+          "Public"
+        ]
+      }
+    },
+    "/api/public/{type}/lookup": {
+      "post": {
+        "description": "Every way of not finding an entry answers the same empty 404: a type that does not exist or\nanswers no lookup, a reference nobody holds, and a reference whose identifier does not match. So\nthe route cannot be used to learn that a reference exists. The match runs in Postgres on the\nreference alone and the identifier is compared afterwards, so both misses cost the same query.\nA POST, so the identifier, a last name or an email, is in the body and not in a URL a proxy logs.\nThrottled twice: per tenant and visitor by LookupPolicy, and per\nreference by LookupReferenceThrottle, which is taken before anything is read.\nAny entry of the type but an Archived one is found, whatever its status, because the records a\nlookup is for (registrations, orders) are rarely Published. The answer carries only fields that\nare Public and not tokens at the moment of the read, plus the reveal fields while the setting is\non, and is never cached.",
+        "operationId": "barakoCMSFeaturesPublicLookupEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "type",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesPublicLookupRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "Request",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesPublicLookupResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          }
+        },
+        "summary": "POST /api/public/{type}/lookup: one entry, found by a reference plus an identifier, with only the\nfields the type names.",
         "tags": [
           "Public"
         ]
@@ -18971,6 +19599,58 @@
           }
         ],
         "summary": "Deletes one workflow, cancelling the runs it still has queued.",
+        "tags": [
+          "Workflows"
+        ]
+      },
+      "put": {
+        "description": "A full update: every field the create takes is replaced, and a field left out takes the create's\ndefault, so leaving out enabled switches the workflow on as it would a new one. The id is\nthe route's.\nCredentials are write-only, so a caller holding a workflow read back from the API never has\nthem to send again. An action sent back unchanged, in the same position with the same type and\nevery shown parameter as the API returned it, keeps its stored credentials, its Conditional\nchildren's included. A changed action that leaves a credential out is refused with a 400 naming\nit: a credential stays with the destination it was given for. Sending one blank clears it, and\nsending a value replaces it. A changed Conditional branch is taken as sent.\nRuns already queued keep the copy of the actions they were queued with. The change applies to\nruns queued from here on.",
+        "operationId": "barakoCMSFeaturesWorkflowsUpdateWorkflowEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesWorkflowsUpdateWorkflowRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "UpdateWorkflowRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesWorkflowsWorkflowResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "Replaces one workflow with the definition sent, validated the way a create is.",
         "tags": [
           "Workflows"
         ]

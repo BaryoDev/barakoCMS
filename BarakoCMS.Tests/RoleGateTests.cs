@@ -70,6 +70,7 @@ public class RoleGateTests
         new("PUT", "/api/content-types/{name}/route-template", "/api/content-types/no-such-type/route-template"),
         new("PUT", "/api/content-types/{name}/structured-data", "/api/content-types/no-such-type/structured-data"),
         new("PUT", "/api/content-types/{name}/uniqueness", "/api/content-types/no-such-type/uniqueness"),
+        new("PUT", "/api/content-types/{name}/lookup", "/api/content-types/no-such-type/lookup"),
         new("GET", "/api/content-types/{name}/uniqueness/{rule}/duplicates", "/api/content-types/no-such-type/uniqueness/NoSuchRule/duplicates?page=not-a-number"),
         new("POST", "/api/content-types/{name}/fields", "/api/content-types/no-such-type/fields"),
         new("POST", "/api/content-types/{name}/rebuild", "/api/content-types/no-such-type/rebuild"),
@@ -160,6 +161,7 @@ public class RoleGateTests
         new("POST", "/api/workflows/dry-run", "/api/workflows/dry-run"),
         new("POST", "/api/email-templates/{id}/preview", $"/api/email-templates/{NotASlug}/preview"),
         new("GET", "/api/workflows/{id}/debug", $"/api/workflows/{NotAGuid}/debug"),
+        new("PUT", "/api/workflows/{id}", $"/api/workflows/{NotAGuid}"),
         new("PUT", "/api/workflows/{id}/enabled", $"/api/workflows/{NotAGuid}/enabled"),
         new("DELETE", "/api/workflows/{id}", $"/api/workflows/{NotAGuid}"),
     ];

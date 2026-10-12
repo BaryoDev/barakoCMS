@@ -4,7 +4,21 @@ using Marten;
 
 namespace barakoCMS.Features.Me;
 
-internal sealed record TenantSummary(string Slug, string Name, string? LogoUrl, Dictionary<string, string> Branding);
+/// <param name="Slug">The tenant's slug.</param>
+/// <param name="Name">The tenant's display name.</param>
+/// <param name="LogoUrl">The logo of the tenant's published site entry, if it has one.</param>
+/// <param name="Branding">The tenant's branding values.</param>
+/// <param name="Roles">
+/// The roles the caller holds in that tenant, read the way <c>GET /api/me</c> reads them there: the
+/// membership's roles and the caller's global roles, sorted by name. A role can differ per tenant,
+/// which is why a switcher shows it beside each one.
+/// </param>
+internal sealed record TenantSummary(
+    string Slug,
+    string Name,
+    string? LogoUrl,
+    Dictionary<string, string> Branding,
+    IReadOnlyList<MyRole> Roles);
 
 /// <summary>
 /// GET /api/me/tenants — the tenants the signed-in user belongs to (their active memberships joined
@@ -13,6 +27,7 @@ internal sealed record TenantSummary(string Slug, string Name, string? LogoUrl, 
 /// <remarks>
 /// <c>LogoUrl</c> is the <c>Logo</c> of each tenant's published site entry, which costs two reads
 /// for every tenant on the page and none for the rest, so at most two hundred for a full page.
+/// The roles cost one more read for the whole page, since the memberships are already loaded.
 /// </remarks>
 internal class MyTenantsEndpoint(IQuerySession session, IDocumentStore store) : Endpoint<ListRequest, PaginatedResponse<TenantSummary>>
 {
@@ -38,12 +53,34 @@ internal class MyTenantsEndpoint(IQuerySession session, IDocumentStore store) : 
         // a join the query cannot express, so the set is small and known by this point.
         var page = tenants.OrderBy(t => t.Name).ToList().ToPagedResponse(req);
 
+        var user = await session.LoadAsync<User>(userId, ct);
+        var global = user?.RoleIds ?? [];
+        var roleIdsBySlug = memberships
+            .GroupBy(m => m.TenantSlug, StringComparer.Ordinal)
+            .ToDictionary(
+                g => g.Key,
+                g => g.SelectMany(m => m.RoleIds ?? []).Union(global).ToList(),
+                StringComparer.Ordinal);
+        var onPage = page.Items
+            .SelectMany(t => roleIdsBySlug.GetValueOrDefault(t.Slug) ?? [])
+            .Distinct()
+            .ToList();
+        var roles = onPage.Count == 0
+            ? new Dictionary<Guid, Role>()
+            : (await session.Query<Role>().Where(r => r.Id.In(onPage)).ToListAsync(ct)).ToDictionary(r => r.Id);
+
         var items = new List<TenantSummary>(page.Items.Count);
         foreach (var tenant in page.Items)
         {
             var profile = await barakoCMS.Features.Tenants.TenantProfiles.ReadAsync(store, tenant, ct);
 #pragma warning disable CS0618 // still returned until the member goes, since nothing replaced it
-            items.Add(new TenantSummary(tenant.Slug, tenant.Name, profile.LogoUrl, tenant.Branding));
+            var held = (roleIdsBySlug.GetValueOrDefault(tenant.Slug) ?? [])
+                .Select(id => roles.GetValueOrDefault(id))
+                .OfType<Role>()
+                .OrderBy(r => r.Name, StringComparer.Ordinal)
+                .Select(r => new MyRole(r.Id, r.Name))
+                .ToList();
+            items.Add(new TenantSummary(tenant.Slug, tenant.Name, profile.LogoUrl, tenant.Branding, held));
 #pragma warning restore CS0618
         }
 
