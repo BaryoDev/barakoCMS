@@ -239,6 +239,7 @@ allowed_root_md=(
   MODULES.md
   README.md
   SECURITY.md
+  THIRD-PARTY-NOTICES.md
 )
 
 is_allowed_root_md() {
