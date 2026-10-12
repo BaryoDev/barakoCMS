@@ -456,9 +456,9 @@ internal sealed class ContentTransitioner(
             return null;
         }
 
-        if (!registered.IsActive)
+        if (registered.Status != TenantStatus.Active)
         {
-            return "The tenant is inactive.";
+            return "The tenant is not active.";
         }
 
         var isMember = await session.Query<Membership>()

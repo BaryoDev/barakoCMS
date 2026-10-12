@@ -30,9 +30,10 @@ internal class MyTenantsEndpoint(IQuerySession session, IDocumentStore store) : 
             .ToListAsync(ct);
 
         var slugs = memberships.Select(m => m.TenantSlug).ToList();
-        var tenants = await session.Query<Tenant>()
-            .Where(t => slugs.Contains(t.Slug) && t.IsActive)
+        var registered = await session.Query<Tenant>()
+            .Where(t => slugs.Contains(t.Slug))
             .ToListAsync(ct);
+        var tenants = registered.Where(t => t.Status == TenantStatus.Active).ToList();
 
         // Paged in memory: the tenants are already filtered by the caller's memberships, which is
         // a join the query cannot express, so the set is small and known by this point.

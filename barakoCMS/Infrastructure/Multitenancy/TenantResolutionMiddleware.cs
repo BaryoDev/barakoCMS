@@ -44,7 +44,7 @@ public class TenantResolutionMiddleware(RequestDelegate next)
         if (!string.IsNullOrWhiteSpace(header))
         {
             tenant.Slug = header.Trim().ToLowerInvariant();
-            if (await RefusedInMultiAsync(context, tenant, domains))
+            if (await RefusedAsync(context, tenant, domains))
                 return;
 
             await next(context);
@@ -66,7 +66,7 @@ public class TenantResolutionMiddleware(RequestDelegate next)
             return;
         }
 
-        if (await RefusedInMultiAsync(context, tenant, domains))
+        if (await RefusedAsync(context, tenant, domains))
             return;
 
         await next(context);
@@ -81,7 +81,7 @@ public class TenantResolutionMiddleware(RequestDelegate next)
     /// </remarks>
     public static TenantResolution Resolve(string? host, TenantDomainMap domains)
     {
-        var matched = domains.Find(host);
+        var matched = domains.Find(host) ?? domains.FindPaused(host);
         if (matched is not null)
             return new TenantResolution(matched, false);
 
@@ -134,8 +134,9 @@ public class TenantResolutionMiddleware(RequestDelegate next)
     public const string NoTenantMessage = "This deployment serves registered tenants only.";
 
     /// <summary>
-    /// In Multi, ends a request that names no registered, active tenant, unless its route is one of
-    /// <see cref="TenantlessRoutes"/> or it is a CORS preflight. Does nothing in Single.
+    /// Marks a request to a registered tenant that is not Active, for TenantAccessMiddleware to
+    /// refuse. Then, in Multi, ends a request that names no registered, active tenant, unless its
+    /// route is one of <see cref="TenantlessRoutes"/> or it is a CORS preflight.
     /// </summary>
     /// <remarks>
     /// A request let through without a tenant is put on the default slug, whatever it named. A
@@ -146,17 +147,29 @@ public class TenantResolutionMiddleware(RequestDelegate next)
     /// middleware, which is next, answers it and no endpoint runs.
     /// </remarks>
     /// <returns>True when the response has been written and the pipeline must stop.</returns>
-    private static async Task<bool> RefusedInMultiAsync(
+    private static async Task<bool> RefusedAsync(
         HttpContext context, TenantContext tenant, ITenantDomainSource domains)
     {
+        var map = await domains.GetAsync(context.RequestAborted);
+        var tenantless = TenantlessRoutes.Allows(context.Request.Method, context.Request.Path)
+            || IsCorsPreflight(context.Request);
+
+        // In every mode. The answer depends on who is asking, which is not known yet. A tenantless
+        // route goes on: sign in refuses such a tenant itself, and the registry routes report it
+        // as not found.
+        if (!tenantless && map.PausedStatus(tenant.Slug) is { } paused)
+        {
+            tenant.Paused = paused;
+            return false;
+        }
+
         if (!context.RequestServices.GetRequiredService<TenancyOptions>().IsMulti)
             return false;
 
-        var map = await domains.GetAsync(context.RequestAborted);
         if (!tenant.IsDefault && map.IsActiveTenant(tenant.Slug))
             return false;
 
-        if (TenantlessRoutes.Allows(context.Request.Method, context.Request.Path) || IsCorsPreflight(context.Request))
+        if (tenantless)
         {
             tenant.Slug = Models.Tenant.DefaultSlug;
             return false;

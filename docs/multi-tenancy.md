@@ -82,6 +82,40 @@ every host is legitimately unrecognised.
 Steps 3 and 4 serve whatever they resolve to, registered or not, unless `Tenancy:Mode` is `Multi`.
 The next section is that setting.
 
+### A tenant that is not Active
+
+A tenant has a `Status`: `Active`, `Suspended` or `Archived`, set with `PUT /api/tenants/{handle}`
+(`{ "name": "...", "status": "Suspended" }`). Suspended and Archived are refused the same way;
+Archived says the data is kept and nothing more. `isActive` is still accepted and returned: true is
+Active, false is Suspended, and false leaves an Archived tenant Archived. Sending both with
+different meanings is a 400. Leaving both out makes the tenant Active, as leaving `isActive` out
+always did.
+
+The status is read once, at resolution, in every mode. A request that resolves to such a tenant, by
+header, subdomain or one of its domains, gets:
+
+- `404` on delivery (`/api/public/*`), whoever asks;
+- `403` with the body `This tenant is suspended.` (or `archived.`) on any other route, when the
+  caller is signed in to that tenant;
+- `404` on any other route for everyone else, with no body in `Single` and the body below in
+  `Multi`, so a caller who is not the tenant's own learns nothing a slug nobody registered would not
+  tell them.
+
+The routes listed under Multi as answering without a tenant are not refused here: sign in refuses
+such a tenant itself, and the registry routes answer 404 for it. A tenant's domains keep resolving
+to it while it is not Active, so a request on one is refused rather than served the default
+tenant's content, but CORS and the TLS check treat the domain as nobody's.
+
+Scheduled work waits. The scheduled content sweep and the collection sync do not visit the tenant,
+so nothing it scheduled fires while it is off. When it is Active again, the next sweep applies what
+fell due, with one rule: a publish whose unpublish time has also passed is missed. The entry goes
+straight to `Archived`, where the two would have left it, without being published, and both times
+are cleared, so no `Published` workflow runs for an entry that is already over. The same rule holds
+for an entry whose whole window passed while the service was down.
+
+`migrations/5.0.0/tenant-status.sql` writes `Status` onto tenant documents stored before it existed.
+The API does not need it: a document with only `IsActive` reads back with the right status.
+
 ## Tenancy mode
 
 `Tenancy:Mode` says what kind of deployment this is. It has two values. A value that is neither
@@ -116,7 +150,7 @@ Opt-in. Every request and every token belongs to a registered, active tenant.
 
 - the `default` partition (no header, no registered domain and no subdomain, or `X-Tenant: default`);
 - a slug with no `Tenant` document;
-- a tenant whose `IsActive` is false.
+- a tenant whose `Status` is not `Active`, for anyone who is not signed in to it (see above).
 
 The three get the same status and the same body, so the answer does not say which slugs were ever
 registered. It is given by `TenantResolutionMiddleware`, before authentication and before any
@@ -296,7 +330,7 @@ deployment with no memberships at all behaves exactly as it did before multi-ten
   request that sets both to different tenants is a 400, and so is one that sets neither. Only the
   JSON body is read: a `tenant` or `club` on the query string is ignored.
 - `/api/tenants` creates, lists and updates tenants, gated on `SuperAdmin`. A tenant here is its
-  handle, name, domains and active flag.
+  handle, name, domains and status.
 - `GET /api/tenants/{handle}/public` is the anonymous lookup a sign-in page needs.
 
 ## The tenant profile

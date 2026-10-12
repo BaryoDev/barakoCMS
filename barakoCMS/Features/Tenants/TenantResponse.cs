@@ -19,6 +19,9 @@ internal sealed class TenantResponse
     public string Name { get; init; } = string.Empty;
     public Dictionary<string, string> Branding { get; init; } = new();
     public List<string> Domains { get; init; } = new();
+    public TenantStatus Status { get; init; }
+
+    /// <summary>True when <see cref="Status"/> is Active. Kept for clients written before it.</summary>
     public bool IsActive { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
 
@@ -31,7 +34,8 @@ internal sealed class TenantResponse
         Branding = t.Branding,
 #pragma warning restore CS0618
         Domains = t.Domains,
-        IsActive = t.IsActive,
+        Status = t.Status,
+        IsActive = t.Status == TenantStatus.Active,
         // Stored as DateTime, emitted with a zone, like every other timestamp this API returns.
         CreatedAt = new DateTimeOffset(DateTime.SpecifyKind(t.CreatedAt, DateTimeKind.Utc)),
     };

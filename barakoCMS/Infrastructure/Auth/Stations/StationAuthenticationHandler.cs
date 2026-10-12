@@ -59,7 +59,7 @@ public sealed class StationAuthenticationHandler : AuthenticationHandler<Station
         var slug = station.TenantSlug;
         if (await Context.RequestServices.GetRequiredService<TenancyOptions>().RefusesAsync(lookup, slug, ct))
             return Fail();
-        if (await lookup.Query<Tenant>().FirstOrDefaultAsync(t => t.Slug == slug, ct) is { IsActive: false })
+        if (await lookup.Query<Tenant>().FirstOrDefaultAsync(t => t.Slug == slug, ct) is { Status: not TenantStatus.Active })
             return Fail();
 
         Context.RequestServices.GetRequiredService<TenantContext>().Slug = slug;

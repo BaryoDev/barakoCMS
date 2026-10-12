@@ -28,8 +28,8 @@ internal class PublicTenantEndpoint(IQuerySession session, IDocumentStore store)
     public override async Task HandleAsync(CancellationToken ct)
     {
         var handle = Route<string>("handle")?.ToLowerInvariant();
-        var t = await session.Query<Tenant>().FirstOrDefaultAsync(x => x.Slug == handle && x.IsActive, ct);
-        if (t is null) { await Send.NotFoundAsync(ct); return; }
+        var t = await session.Query<Tenant>().FirstOrDefaultAsync(x => x.Slug == handle, ct);
+        if (t is not { Status: TenantStatus.Active }) { await Send.NotFoundAsync(ct); return; }
         var profile = await TenantProfiles.ReadAsync(store, t, ct);
         await Send.OkAsync(new TenantPublicResponse(
             t.Slug, t.Name, profile.LogoUrl, profile.About, profile.Location, profile.LocationUrl,
@@ -78,7 +78,16 @@ internal sealed class TenantWriteRequest
     public string? SocialHandle { get; set; }
     public string? Email { get; set; }
     public string? ContactUrl { get; set; }
-    public bool IsActive { get; set; } = true;
+
+    /// <summary>Whether the tenant is served. Leaving it and <see cref="IsActive"/> out makes it Active, as before.</summary>
+    public TenantStatus? Status { get; set; }
+
+    /// <summary>The flag clients sent before <see cref="Status"/>: true is Active, false Suspended.</summary>
+    /// <remarks>
+    /// False leaves an Archived tenant Archived, so a client that echoes a tenant back with this
+    /// flag does not move it between the two.
+    /// </remarks>
+    public bool? IsActive { get; set; }
 
     /// <summary>
     /// The domains the tenant answers on, as bare hosts such as <c>example.com</c>.
@@ -108,7 +117,19 @@ internal sealed class TenantWriteRequestValidator : Validator<TenantWriteRequest
         RuleFor(r => r.SocialHandle).Must(BeBlank).WithMessage(Moved("SocialHandle"));
         RuleFor(r => r.Email).Must(BeBlank).WithMessage(Moved("Email"));
         RuleFor(r => r.ContactUrl).Must(BeBlank).WithMessage(Moved("ContactUrl"));
+
+        RuleFor(r => r.Status).IsInEnum();
+        RuleFor(r => r.IsActive)
+            .Must((r, active) => active is null || r.Status is null || active == (r.Status == TenantStatus.Active))
+            .WithMessage("isActive disagrees with status. Send status alone.");
     }
+
+    /// <summary>The status a write asks for: Status if sent, else the IsActive flag, else Active.</summary>
+    public static TenantStatus Requested(TenantWriteRequest r, TenantStatus current) =>
+        r.Status
+        ?? (r.IsActive is false
+            ? (current == TenantStatus.Active ? TenantStatus.Suspended : current)
+            : TenantStatus.Active);
 
     private static bool BeBlank(string? value) => string.IsNullOrWhiteSpace(value);
 
@@ -191,7 +212,7 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
             Id = Guid.NewGuid(),
             Slug = handle,
             Name = req.Name,
-            IsActive = req.IsActive,
+            Status = TenantWriteRequestValidator.Requested(req, TenantStatus.Active),
             Domains = domains.ToList(),
         };
         _session.Store(tenant);
@@ -216,7 +237,7 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
     }
 }
 
-/// <summary>PUT /api/tenants/{handle}: update a tenant's name, domains and active flag (platform admin).</summary>
+/// <summary>PUT /api/tenants/{handle}: update a tenant's name, domains and status (platform admin).</summary>
 /// <remarks>
 /// A profile value still on the stored document is left as it is unless the request sends that
 /// field as an empty string, which blanks it. This used to overwrite all seven with whatever the
@@ -260,17 +281,20 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
 
         tenant.Name = req.Name;
         TenantProfiles.ClearBlanked(tenant, req);
-        // Switching a tenant off stops tokens being issued for it and refuses its API keys, and
-        // switching it on restores both, so either is recorded in that tenant's log.
-        if (tenant.IsActive != req.IsActive)
+        // Switching a tenant off stops it being served, tokens being issued for it and its API keys,
+        // and switching it on restores all three, so any change is recorded in that tenant's log.
+        var status = TenantWriteRequestValidator.Requested(req, tenant.Status);
+        if (tenant.Status != status)
         {
             Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
             await barakoCMS.Infrastructure.Audit.AuditLog.RecordAsync(
-                _session, tenant.Slug, req.IsActive ? "tenant.activated" : "tenant.deactivated", actorId,
-                User.FindFirst("Username")?.Value, targetType: "Tenant", targetId: tenant.Slug, ct: ct);
+                _session, tenant.Slug, status == TenantStatus.Active ? "tenant.activated" : "tenant.deactivated", actorId,
+                User.FindFirst("Username")?.Value, targetType: "Tenant", targetId: tenant.Slug,
+                metadata: new Dictionary<string, object> { ["from"] = tenant.Status.ToString(), ["to"] = status.ToString() },
+                ct: ct);
         }
 
-        tenant.IsActive = req.IsActive;
+        tenant.Status = status;
         if (domains is not null)
             tenant.Domains = domains.ToList();
         _session.Store(tenant);

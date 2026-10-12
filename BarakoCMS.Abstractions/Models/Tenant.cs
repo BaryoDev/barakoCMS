@@ -65,9 +65,51 @@ public class Tenant
     /// </remarks>
     public List<string> Domains { get; set; } = new();
 
-    public bool IsActive { get; set; } = true;
+    /// <summary>
+    /// Whether the tenant is served. Read once, when a request is resolved to this tenant, and by
+    /// every background pass that visits tenants.
+    /// </summary>
+    public TenantStatus Status { get; set; } = TenantStatus.Active;
+
+    /// <summary>True when <see cref="Status"/> is <see cref="TenantStatus.Active"/>.</summary>
+    /// <remarks>
+    /// Still stored, as a copy of <see cref="Status"/>, so a document written by this release reads
+    /// correctly in a release that knows only this flag, and one written by such a release reads
+    /// correctly here: with no <c>Status</c> in it, false comes back as Suspended. Setting false
+    /// leaves an Archived tenant Archived, so the order the two are read in does not matter.
+    /// </remarks>
+    [Obsolete("Read Status. Removal planned for barakoCMS 6.0.")]
+    public bool IsActive
+    {
+        get => Status == TenantStatus.Active;
+        set
+        {
+            if (value)
+                Status = TenantStatus.Active;
+            else if (Status == TenantStatus.Active)
+                Status = TenantStatus.Suspended;
+        }
+    }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>The implicit tenant that existing single-tenant data and non-handle requests use.</summary>
     public const string DefaultSlug = "default";
+}
+
+/// <summary>Whether a tenant is served.</summary>
+/// <remarks>Stored as its number, so the values are fixed.</remarks>
+public enum TenantStatus
+{
+    /// <summary>Served: delivery, authoring, sign in and scheduled work.</summary>
+    Active = 0,
+
+    /// <summary>
+    /// Switched off for now. Delivery answers 404, authoring 403, no token or key is honoured, and
+    /// scheduled work waits until the tenant is Active again.
+    /// </summary>
+    Suspended = 1,
+
+    /// <summary>Refused exactly as Suspended is, kept apart so an operator can say the data is kept and nothing more.</summary>
+    Archived = 2,
 }

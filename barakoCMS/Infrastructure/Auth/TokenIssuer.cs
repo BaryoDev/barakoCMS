@@ -141,8 +141,8 @@ public sealed class TokenIssuer(
         if (tenant is null)
             return null;
 
-        if (!tenant.IsActive)
-            return "tenant is inactive";
+        if (tenant.Status != TenantStatus.Active)
+            return $"tenant is {tenant.Status}";
 
         var isMember = await session.Query<Membership>()
             .AnyAsync(m => m.UserId == user.Id

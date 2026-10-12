@@ -753,7 +753,7 @@ same registries the API checks requests against, so a client does not keep its o
 
 ```json
 {
-  "apiContractVersion": 7,
+  "apiContractVersion": 8,
   "fieldTypes": [
     { "name": "int", "aliases": ["integer", "number"], "editorHint": "number", "ruleNames": ["min", "max", "requiredWhen"] }
   ],
@@ -1103,7 +1103,7 @@ display prefix.
 | Global role given to a user | `user.role.assigned` | `roleId`, `roleName` |
 | Global role taken from a user | `user.role.removed` | `roleId`, `roleName` |
 | Tenant created | `tenant.member.added` in the new tenant's log | `invited` (false), `roleIds`, `roleNames`, `tenantCreated` |
-| Tenant switched off or on | `tenant.deactivated`, `tenant.activated` in that tenant's log | none |
+| Tenant status changed | `tenant.deactivated`, `tenant.activated` in that tenant's log, with `from` and `to` | none |
 | Member added, or added again | `tenant.member.added` | `invited`, `roleIds`, `roleNames`; `previousStatus`, `previousRoleIds`, `previousRoleNames` when the membership already existed |
 | Member's roles or status changed (suspending is this) | `tenant.member.updated` | `status`, `roleIds`, `roleNames`, `previousStatus`, `previousRoleIds`, `previousRoleNames` |
 | Member removed | `tenant.member.removed` | `previousStatus`, `previousRoleIds`, `previousRoleNames` |
