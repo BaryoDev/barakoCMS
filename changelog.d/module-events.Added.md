@@ -1,1 +1,0 @@
-- **Modules can register their own events and projections.** `IModuleSchema.AddEventType<T>()` and `IModuleSchema.AddProjection<T>(lifecycle)` follow the same ownership rule as `For<T>()`, and events are stored under `{module}.{event}`.
