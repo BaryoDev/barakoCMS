@@ -1,4 +1,6 @@
+using JasperFx.Events.Projections;
 using Marten;
+using Marten.Events.Projections;
 
 namespace barakoCMS.Modules;
 
@@ -28,4 +30,27 @@ public interface IModuleSchema
     /// The type belongs to core or to another module.
     /// </exception>
     MartenRegistry.DocumentMappingExpression<T> For<T>();
+
+    /// <summary>
+    /// Register one of the module's own event types. Stored under the alias
+    /// <c>{module}.{event}</c>, for example <c>queue.ticket_issued</c>, so two modules can each
+    /// have a <c>TicketIssued</c> and the name a client sees in the change feed does not move when
+    /// the class is renamed or moved to another namespace.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The type belongs to core or to another module.</exception>
+    void AddEventType<TEvent>() where TEvent : class =>
+        throw new NotSupportedException(
+            "This host does not let modules register event types. It needs barakoCMS 4.9 or later.");
+
+    /// <summary>
+    /// Register one of the module's own projections. The projection and the document it writes must
+    /// both come from the module's own assemblies.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// The projection, or the document it projects into, belongs to core or to another module.
+    /// </exception>
+    void AddProjection<TProjection>(ProjectionLifecycle lifecycle)
+        where TProjection : ProjectionBase, IProjectionSource<IDocumentOperations, IQuerySession>, new() =>
+        throw new NotSupportedException(
+            "This host does not let modules register projections. It needs barakoCMS 4.9 or later.");
 }

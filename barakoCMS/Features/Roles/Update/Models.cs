@@ -7,6 +7,9 @@ internal class Request
     public string Description { get; set; } = string.Empty;
     public List<barakoCMS.Models.ContentTypePermission> Permissions { get; set; } = new();
     public List<string> SystemCapabilities { get; set; } = new();
+
+    /// <summary>Null keeps the stored value, so a client that predates the field cannot clear it.</summary>
+    public bool? RequireMfa { get; set; }
 }
 
 internal class Response

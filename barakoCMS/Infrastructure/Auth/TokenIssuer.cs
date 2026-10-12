@@ -51,10 +51,17 @@ public sealed class TokenIssuer(
         }
 
         var roleIds = await MembershipRoles.EffectiveRoleIdsAsync(session, user, slug, ct);
-        var roles = await session.Query<Role>()
+        var roleDocs = await session.Query<Role>()
             .Where(r => roleIds.Contains(r.Id))
-            .Select(r => r.Name)
             .ToListAsync(ct);
+        var roles = roleDocs.Select(r => r.Name).ToList();
+
+        // Decided here, the one place every access token passes through, so login, OTP, refresh and
+        // tenant switch cannot differ. Read from the store rather than IMfaService so the issuer keeps
+        // its constructor. MfaSecret is keyed by user id, and only an Enabled row counts: a pending
+        // setup is not enrolled.
+        var mustEnroll = roleDocs.Any(r => r.RequireMfa)
+            && await session.LoadAsync<MfaSecret>(user.Id, ct) is not { Enabled: true };
 
         var jti = Guid.NewGuid().ToString();
         var expiresAt = DateTime.UtcNow.AddMinutes(15);
@@ -93,9 +100,12 @@ public sealed class TokenIssuer(
 
                 foreach (var claim in extraClaims ?? Enumerable.Empty<Claim>())
                     u.Claims.Add(claim);
+
+                if (mustEnroll)
+                    u.Claims.Add(new(barakoCMS.Infrastructure.Auth.Mfa.MfaEnrollment.Claim, "required"));
             });
 
-        return TokenIssueResult.Granted(token, jti, expiresAt, roles);
+        return TokenIssueResult.Granted(token, jti, expiresAt, roles, mustEnroll);
     }
 
     /// <summary>

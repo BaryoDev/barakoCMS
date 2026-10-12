@@ -47,6 +47,7 @@ internal class Endpoint(
             Description = req.Description,
             Permissions = req.Permissions,
             SystemCapabilities = req.SystemCapabilities,
+            RequireMfa = req.RequireMfa,
             CreatedAt = DateTime.UtcNow
         };
 

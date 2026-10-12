@@ -304,6 +304,61 @@ Migrating is two edits:
   }
 ```
 
+#### Events and projections
+
+A module registers its own event types and projections through the same `IModuleSchema`:
+
+```csharp
+public void ConfigureSchema(IModuleSchema schema)
+{
+    schema.For<Ticket>().MultiTenanted();
+    schema.AddEventType<TicketIssued>();
+    schema.AddProjection<TicketProjection>(ProjectionLifecycle.Inline);
+}
+```
+
+The ownership rule is the one `For<T>()` follows: the event type, the projection and the document
+the projection writes must all come from the module's own assemblies. Events are stored under the
+alias `{module}.{event}` (module name in kebab case, class name in snake case), so `TicketIssued`
+in a module named `Queue` is `queue.ticket_issued`. Renaming the class changes the alias, so treat
+an event class name as part of your stored data.
+
+Events are partitioned per tenant. Mark a projected document `MultiTenanted()` so it is too.
+
+A host older than 4.9 throws `NotSupportedException` from both methods.
+
+#### Realtime topics
+
+A module names the groups of its own events a client may follow, and the capability needed to read each:
+
+```csharp
+public void ConfigureTopics(IModuleTopics topics)
+{
+    topics.Add("queue.tickets", "read_queue", typeof(TicketIssued), typeof(TicketCalled));
+}
+```
+
+Topic names are lower case words joined by dots or dashes, unique across all modules. Only event types from the module's own assemblies may be listed. A bad declaration stops the host at startup. The capability shows up in `GET /api/capabilities` with the module as its source, so a role can grant it.
+
+Clients read a topic through `GET /api/changes` and hear about new events through the realtime hub. See `docs/realtime.md`.
+
+#### Sensitive actions
+
+Mark an endpoint that should need a fresh authenticator code, such as voiding a receipt:
+
+```csharp
+public override void Configure()
+{
+    Post("/api/billing/receipts/{id}/void");
+    Definition.RequireCapability("void_receipts");
+    Definition.RequireStepUp();
+}
+```
+
+Without a valid `X-Step-Up` header the call gets 403 with `X-Step-Up-Required: true`. The client asks for a code, posts it to `POST /api/auth/mfa/step-up`, and retries with the returned token, which lasts `Auth:StepUp:Seconds` (default 300). The setting is clamped to 30 to 3600 seconds, and a non-numeric value falls back to 300. The user must have MFA turned on. Stations and API keys can never pass a step-up endpoint, and get 403 without the retry header. The token is not tied to a tenant or a session, and stays valid until it expires even if the user turns MFA off. A TOTP already used at sign-in is refused until the next 30 second step, so have the client ask for a fresh code rather than reuse the one just typed.
+
+A role with `RequireMfa` makes MFA mandatory for everyone holding it. Until they enroll, their token reaches only the MFA setup endpoints, and other calls get 403 with `X-Mfa-Enrollment-Required: true`. An endpoint that must stay reachable during enrollment calls `Definition.AllowDuringMfaEnrollment()`.
+
 ### Migrations
 
 `CreateOnly` creates your tables on a database that does not have them and never alters them

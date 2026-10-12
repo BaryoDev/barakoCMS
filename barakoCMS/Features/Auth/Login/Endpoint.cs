@@ -317,7 +317,8 @@ internal class Endpoint : Endpoint<Request, Response>
             Token = jwtToken,
             Expiry = accessTokenExpiry,
             RefreshToken = refreshTokenString,
-            RefreshTokenExpiry = refreshTokenExpiry
+            RefreshTokenExpiry = refreshTokenExpiry,
+            MfaEnrollmentRequired = issued.MfaEnrollmentRequired,
         });
     }
 }

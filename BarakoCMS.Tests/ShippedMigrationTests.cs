@@ -54,6 +54,8 @@ public class ShippedMigrationTests
         ["core/4.7.0/tenant-policy-restore"] = "79195b3f5af298a2dc7fd457462f220da290046fdd15cb1dcc0988014d8d0758",
         ["Forms/4.7.0/forms-tenant-policy-restore"] = "fed503d62bd158382f74db7dea413a15f1ccb4ee3df25a9efec469a450e0dae3",
         ["ExternalAuth/4.8.0/external-auth-used-nonces"] = "3c5a28d80e303db280fee5124aa24073666476fd22fd5254fae1c3d3b20c7f5f",
+        ["core/4.9.0/gapless-numbering"] = "546a734ce315e86e89aa05de8ad598f40825343001a73a958f6265bdbab88b5d",
+        ["core/4.9.0/stations"] = "24c899bb202fbcef6316181dc965947e243cafd89a5d4b16ee9aa704f9dbabe5",
     };
 
     private static IReadOnlyList<ShippedMigration> FirstParty() =>

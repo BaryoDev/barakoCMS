@@ -182,4 +182,17 @@ public class RoleAuditTests
         capped.GetProperty("truncated").GetBoolean().Should().BeTrue();
         metadata["name"].ToString().Should().HaveLength(RoleAudit.MaxLength);
     }
+
+    [Fact]
+    public void RequireMfa_IsRecordedOnCreateAndOnChange()
+    {
+        var off = new Role { Name = "Clerk", RequireMfa = false };
+        var on = new Role { Name = "Clerk", RequireMfa = true };
+
+        RoleAudit.Describe(RoleAudit.Of(on))["requireMfa"].Should().Be(true);
+
+        var changed = RoleAudit.Changed(RoleAudit.Of(off), RoleAudit.Of(on));
+        changed["requireMfa"].Should().Be(true);
+        changed["requireMfaBefore"].Should().Be(false);
+    }
 }

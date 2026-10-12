@@ -422,6 +422,22 @@ public static class ServiceCollectionExtensions
 
                 // Strict token expiration - no clock skew tolerance
                 p.ClockSkew = TimeSpan.Zero;
+
+                // SignalR sends the token as access_token in the query string when the transport
+                // cannot carry a header (WebSockets from a browser). Read there for hub paths only,
+                // so a token pasted into any other URL is not accepted.
+                o.Events ??= new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents();
+                var prior = o.Events.OnMessageReceived;
+                o.Events.OnMessageReceived = async ctx =>
+                {
+                    await prior(ctx);
+                    if (string.IsNullOrEmpty(ctx.Token)
+                        && ctx.HttpContext.Request.Path.StartsWithSegments("/hubs")
+                        && ctx.Request.Query["access_token"].ToString() is { Length: > 0 } fromQuery)
+                    {
+                        ctx.Token = fromQuery;
+                    }
+                };
             });
 
         // Second auth scheme for machine callers: `Authorization: Bearer bcms_...` API keys. A policy
@@ -436,10 +452,16 @@ public static class ServiceCollectionExtensions
             })
             .AddScheme<barakoCMS.Infrastructure.Auth.ApiKeyAuthenticationOptions, barakoCMS.Infrastructure.Auth.ApiKeyAuthenticationHandler>(
                 barakoCMS.Infrastructure.Auth.ApiKeyAuthenticationHandler.SchemeName, _ => { })
+            .AddScheme<barakoCMS.Infrastructure.Auth.Stations.StationAuthenticationOptions, barakoCMS.Infrastructure.Auth.Stations.StationAuthenticationHandler>(
+                barakoCMS.Infrastructure.Auth.Stations.StationAuthenticationHandler.SchemeName, _ => { })
             .AddPolicyScheme(smartScheme, smartScheme, options =>
             {
                 options.ForwardDefaultSelector = ctx =>
                 {
+                    // A station key in the header, or in the query string on a hub path only.
+                    if (barakoCMS.Infrastructure.Auth.Stations.StationKeys.Presented(ctx.Request) is not null)
+                        return barakoCMS.Infrastructure.Auth.Stations.StationAuthenticationHandler.SchemeName;
+
                     var header = ctx.Request.Headers.Authorization.ToString();
                     return header.StartsWith("Bearer " + barakoCMS.Infrastructure.Auth.ApiKeyService.Prefix, StringComparison.Ordinal)
                         ? barakoCMS.Infrastructure.Auth.ApiKeyAuthenticationHandler.SchemeName
@@ -821,6 +843,18 @@ public static class ServiceCollectionExtensions
             .Index(x => x.UserId)
             .Index(x => x.TenantSlug);
 
+        options.Schema.For<Station>()
+            .SingleTenanted() // credentials are global, like API keys; the tenant is kept as data
+            .DocumentAlias("stations")
+            .Index(x => x.KeyHash, idx => idx.IsUnique = true)
+            .Index(x => x.TenantSlug);
+
+        options.Schema.For<ExternalNumberUse>()
+            .MultiTenanted()
+            .DocumentAlias("external_number_uses")
+            .Index(x => x.Series)
+            .Index(x => x.Number);
+
         options.Schema.For<Models.AuditEvent>()
             .SingleTenanted() // one global chain per tenant, kept as data like ApiKey.TenantSlug
             .DocumentAlias("audit_events")
@@ -943,6 +977,12 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>(),
                 sp.GetRequiredService<ILogger<barakoCMS.Features.Public.Events.ContentChangeListener>>()));
 
+            // Realtime topic notices, after commit, on this instance. See RealtimeEventListener.
+            options.Listeners.Add(new barakoCMS.Infrastructure.Realtime.RealtimeEventListener(
+                sp.GetRequiredService<Microsoft.AspNetCore.SignalR.IHubContext<barakoCMS.Infrastructure.Realtime.RealtimeHub>>(),
+                sp.GetRequiredService<barakoCMS.Infrastructure.Realtime.TopicRegistry>(),
+                sp.GetRequiredService<ILogger<barakoCMS.Infrastructure.Realtime.RealtimeEventListener>>()));
+
             // What goes in the correlation and causation columns is decided here, for every session
             // of the store and not only the scoped one: Marten's own default is the raw parent id of
             // the current span, which is the caller's header as sent.
@@ -967,6 +1007,10 @@ public static class ServiceCollectionExtensions
                 module.ConfigureMarten(options);
 #pragma warning restore CS0618
             }
+
+            // Gapless counters for INumberAllocator (#584).
+            options.Storage.ExtendedSchemaObjects.Add(
+                barakoCMS.Infrastructure.Numbering.NumberCounterTable.Build(options.DatabaseSchemaName));
 
             return options;
         })
@@ -1137,6 +1181,9 @@ public static class ServiceCollectionExtensions
         // rather than the one passed in here, so a host that layers settings on after this call
         // (the test fixtures do) is read as configured.
         services.AddSingleton<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>();
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddSingleton<barakoCMS.Core.Interfaces.INumberAllocator, barakoCMS.Infrastructure.Numbering.GaplessNumberAllocator>();
+        services.AddSingleton<barakoCMS.Core.Interfaces.IExternalNumberLedger, barakoCMS.Infrastructure.Numbering.ExternalNumberLedger>();
         services.AddSingleton(sp => barakoCMS.Features.Public.Events.ContentEventsOptions.FromConfiguration(
             sp.GetRequiredService<IConfiguration>()));
     }
@@ -1229,17 +1276,33 @@ public static class ServiceCollectionExtensions
 
     private static void AddGlobalProcessors(IServiceCollection services)
     {
+        // Holds a token that still has to enroll in MFA to the setup endpoints. First, so it runs
+        // before every other gate.
+        services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Auth.Mfa.MfaEnrollmentProcessor>();
+
         // Confines API-key callers to the content surface and enforces their scopes. A no-op for JWT
         // callers (they carry no scope claims).
         services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Auth.ApiKeyScopeProcessor>();
+
+        // Confines station keys to endpoints that opt in with Definition.AllowStations(). Before the
+        // capability gate, so a station never reaches it on a closed endpoint.
+        services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Auth.Stations.StationScopeProcessor>();
 
         // Enforces the capability an endpoint declares with Definition.RequireCapability(...). A
         // no-op for endpoints that still gate on Roles(...).
         services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Auth.CapabilityGateProcessor>();
 
+        // Needs a valid X-Step-Up token on endpoints marked Definition.RequireStepUp(). After the
+        // capability gate, so a caller without the capability hears that first.
+        services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Auth.Mfa.StepUpProcessor>();
+
         // The names those gates ask for, read off the routing table. GET /api/capabilities lists it
         // and a role write checks against it.
         services.AddSingleton<barakoCMS.Infrastructure.Auth.CapabilityVocabulary>();
+        services.AddScoped<barakoCMS.Core.Interfaces.ICallerCapabilities, barakoCMS.Infrastructure.Auth.CallerCapabilities>();
+        services.AddSingleton(sp => new barakoCMS.Infrastructure.Realtime.TopicRegistry(sp.GetServices<IBarakoModule>()));
+        services.AddSignalR();
+        services.AddSingleton<barakoCMS.Infrastructure.Realtime.IHighWaterMark, barakoCMS.Infrastructure.Realtime.MartenHighWaterMark>();
 
         // Read from the container's configuration at first use, for the reason AddJobQueue gives, and
         // asked for in UseBarakoCMS so an out-of-range setting stops startup.
@@ -1483,6 +1546,9 @@ public static class ServiceCollectionExtensions
 
     public static IApplicationBuilder UseBarakoCMS(this IApplicationBuilder app)
     {
+        // Built here so a module that declares a bad topic stops the host at startup, not on the
+        // first feed request.
+        app.ApplicationServices.GetRequiredService<barakoCMS.Infrastructure.Realtime.TopicRegistry>();
         var configuration = app.ApplicationServices.GetRequiredService<IConfiguration>();
         var env = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
 
@@ -1491,6 +1557,12 @@ public static class ServiceCollectionExtensions
         // order MODULES.md states, and so a module whose schema is refused fails as itself and not
         // inside whichever module's ConfigureApp first asked for the store.
         _ = app.ApplicationServices.GetRequiredService<IDocumentStore>();
+
+        // The store knows every event type a module registered. A topic naming one it does not
+        // know would never match, so refuse it now.
+        app.ApplicationServices.GetRequiredService<barakoCMS.Infrastructure.Realtime.TopicRegistry>()
+            .EnsureRegistered(((Marten.Events.EventGraph)app.ApplicationServices
+                .GetRequiredService<IDocumentStore>().Options.Events).AllKnownEventTypes().Select(e => e.EventType));
 
         _ = app.ApplicationServices.GetRequiredService<barakoCMS.Infrastructure.Filters.IdempotencyOptions>();
 
@@ -1517,6 +1589,12 @@ public static class ServiceCollectionExtensions
         UseOutputCaching(app);
 
         UseFastEndpointsPipeline(app);
+
+        // The host is a WebApplication in every supported setup, which is also the route builder.
+        if (app is Microsoft.AspNetCore.Routing.IEndpointRouteBuilder routes)
+            routes.MapHub<barakoCMS.Infrastructure.Realtime.RealtimeHub>(
+                barakoCMS.Infrastructure.Realtime.RealtimeHub.Path,
+                o => o.CloseOnAuthenticationExpiration = true);
 
         UseJobWorkers(app);
 

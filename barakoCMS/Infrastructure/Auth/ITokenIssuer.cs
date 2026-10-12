@@ -82,12 +82,26 @@ public sealed record TokenIssueResult
     /// <summary>Role names embedded in the token, for logging.</summary>
     public IReadOnlyList<string> Roles { get; private init; } = Array.Empty<string>();
 
+    /// <summary>
+    /// The user holds a role that requires MFA and has not turned it on. The token carries
+    /// <c>mfa_enroll=required</c> and reaches only MFA setup, enable and status, refresh, and logout.
+    /// </summary>
+    public bool MfaEnrollmentRequired { get; private init; }
+
     /// <summary>Why the request was denied. For logs — do not return this to the caller verbatim.</summary>
     public string? DenialReason { get; private init; }
 
     public static TokenIssueResult Granted(
         string token, string jti, DateTime expiresAt, IReadOnlyList<string> roles) =>
         new() { Allowed = true, Token = token, Jti = jti, ExpiresAt = expiresAt, Roles = roles };
+
+    public static TokenIssueResult Granted(
+        string token, string jti, DateTime expiresAt, IReadOnlyList<string> roles, bool mfaEnrollmentRequired) =>
+        new()
+        {
+            Allowed = true, Token = token, Jti = jti, ExpiresAt = expiresAt, Roles = roles,
+            MfaEnrollmentRequired = mfaEnrollmentRequired,
+        };
 
     public static TokenIssueResult Denied(string reason) =>
         new() { Allowed = false, DenialReason = reason };

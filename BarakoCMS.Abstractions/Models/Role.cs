@@ -31,6 +31,12 @@ public class Role
     public List<string> SystemCapabilities { get; set; } = new();
 
     /// <summary>
+    /// Users holding this role must have MFA turned on. Until they do, their token can only reach
+    /// the MFA setup endpoints.
+    /// </summary>
+    public bool RequireMfa { get; set; }
+
+    /// <summary>
     /// When this role was created
     /// </summary>
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

@@ -230,6 +230,12 @@ public class BarakoTestHost : IAsyncLifetime
     /// <summary>An anonymous client.</summary>
     public HttpClient CreateClient() => App.GetTestClient();
 
+    /// <summary>
+    /// The in-memory server's handler, for clients that build their own HTTP stack, such as a
+    /// SignalR <c>HubConnection</c> (set it as <c>HttpMessageHandlerFactory</c>).
+    /// </summary>
+    public HttpMessageHandler CreateHandler() => App.GetTestServer().CreateHandler();
+
     /// <summary>A client signed in as the seeded admin on the default tenant.</summary>
     public Task<HttpClient> CreateAdminClientAsync(CancellationToken ct = default) =>
         CreateAdminClientAsync(Tenant.DefaultSlug, ct);
@@ -263,9 +269,17 @@ public class BarakoTestHost : IAsyncLifetime
     /// seeder did not create is left out rather than invented, so a caller with an unseeded role
     /// reaches nothing, which is the right answer when a test asks what a stranger can do.
     /// </remarks>
-    public async Task<HttpClient> CreateClientAsync(string[] roleNames, CancellationToken ct = default)
+    public Task<HttpClient> CreateClientAsync(string[] roleNames, CancellationToken ct = default) =>
+        CreateClientAsync(roleNames, Tenant.DefaultSlug, ct);
+
+    /// <summary>
+    /// A client signed in as a new user holding the named roles in <paramref name="tenantSlug"/>,
+    /// sending <c>X-Tenant</c>. The tenant must exist (see <see cref="CreateTenantAsync"/>).
+    /// </summary>
+    public async Task<HttpClient> CreateClientAsync(string[] roleNames, string tenantSlug, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(roleNames);
+        var slug = NormaliseSlug(tenantSlug);
 
         var userId = Guid.NewGuid();
         await using (var session = OpenSession())
@@ -289,7 +303,10 @@ public class BarakoTestHost : IAsyncLifetime
         }
 
         var user = await LoadUserAsync(userId, ct);
-        return await ClientForAsync(user, Tenant.DefaultSlug, ct);
+        if (slug != Tenant.DefaultSlug)
+            await EnsureMembershipAsync(user, slug, ct);
+
+        return await ClientForAsync(user, slug, ct);
     }
 
     /// <summary>The same, for a single role.</summary>

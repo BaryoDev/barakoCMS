@@ -308,6 +308,16 @@ public static class SystemCapabilities
     /// </remarks>
     public const string ViewHidden = "view_hidden";
 
+    /// <summary>
+    /// Read the gap report for externally issued number series (GET
+    /// /api/numbering/external/{series}/gaps). New with #584, no gate to preserve. Admin gets it:
+    /// checking that every pre-printed number is accounted for is routine bookkeeping.
+    /// </summary>
+    public const string ViewNumberGaps = "view_number_gaps";
+
+    /// <summary>Create, list and revoke station keys for kiosks and display boards.</summary>
+    public const string ManageStations = "manage_stations";
+
     public static readonly IReadOnlySet<string> Known = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         All, ManageRoles, ManageTenants, ManageTenantMembers, ManageUsers, ManageUserMembership, ManageUserGroups,
@@ -315,6 +325,7 @@ public static class SystemCapabilities
         ViewMonitoring, ManageRedirects, ManageQueries, ManageRequests, ViewConnectors, ManageConnectors,
         ManageWorkflows, ViewWorkflowRuns, RetryWorkflowActions, RollbackContent, EraseContent, ViewModules,
         ViewJobs, ViewWebhookResponseBodies, ManageCollectionSyncs, ViewSensitive, ViewHidden,
+        ViewNumberGaps, ManageStations,
     };
 
     public static bool IsKnown(string capability) =>
@@ -345,6 +356,10 @@ public static class SystemCapabilities
         // #794: new with collection syncs, no gate to preserve. Configuring a sync sits with
         // configuring the request definition and the connector it runs on, both of which are here.
         ManageCollectionSyncs,
+        // #584: new with the external number ledger, no gate to preserve.
+        ViewNumberGaps,
+        // New with stations, no gate to preserve.
+        ManageStations,
     ];
 
     /// <summary>

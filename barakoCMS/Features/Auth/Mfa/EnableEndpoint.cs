@@ -22,6 +22,7 @@ internal class EnableEndpoint(
     {
         Post("/api/auth/mfa/enable");
         Claims("UserId");
+        barakoCMS.Infrastructure.Auth.Mfa.MfaEnrollment.AllowDuringMfaEnrollment(Definition);
     }
 
     public override async Task HandleAsync(CodeRequest req, CancellationToken ct)

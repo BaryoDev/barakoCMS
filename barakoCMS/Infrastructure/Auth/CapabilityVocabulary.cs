@@ -108,6 +108,14 @@ internal sealed class CapabilityVocabulary
             byName[name] = new KnownCapability(name, assembly == core ? CoreSource : SourceOf(assembly!, modules));
         }
 
+        // A topic's capability is granted through roles like any other, so the role endpoints must
+        // accept it. The module that declared the topic is its source.
+        foreach (var topic in _services.GetRequiredService<barakoCMS.Infrastructure.Realtime.TopicRegistry>().All)
+        {
+            if (byName.ContainsKey(topic.Capability)) continue;
+            byName[topic.Capability] = new KnownCapability(topic.Capability, topic.Module);
+        }
+
         return byName.Values
             .OrderBy(e => e.Name, StringComparer.Ordinal)
             .ToList();

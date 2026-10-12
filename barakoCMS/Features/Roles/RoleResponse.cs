@@ -24,6 +24,7 @@ internal sealed class RoleResponse
     public string Description { get; init; } = string.Empty;
     public List<ContentTypePermission> Permissions { get; init; } = new();
     public List<string> SystemCapabilities { get; init; } = new();
+    public bool RequireMfa { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
 
     /// <summary>Whether the server refuses to delete this role. Not stored, derived per request.</summary>
@@ -36,6 +37,7 @@ internal sealed class RoleResponse
         Description = role.Description,
         Permissions = role.Permissions,
         SystemCapabilities = role.SystemCapabilities,
+        RequireMfa = role.RequireMfa,
         // Stored as DateTime, emitted with a zone. Every timestamp this API returns names an
         // unambiguous instant, which is the rule DateWireFormatTests holds.
         CreatedAt = new DateTimeOffset(DateTime.SpecifyKind(role.CreatedAt, DateTimeKind.Utc)),

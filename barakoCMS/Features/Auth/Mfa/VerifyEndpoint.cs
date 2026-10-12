@@ -52,28 +52,16 @@ internal class VerifyEndpoint(
         }
 
         // Same lockout gate as password login — a locked account can't be MFA-brute-forced either.
-        if (user.LockoutUntil is { } until && until > DateTime.UtcNow)
+        if (barakoCMS.Infrastructure.Auth.AccountLockout.LockedMessage(user) is { } locked)
         {
-            var remaining = (int)(until - DateTime.UtcNow).TotalMinutes + 1;
-            ThrowError($"Account is locked due to multiple failed attempts. Please try again in {remaining} minute(s).");
+            ThrowError(locked);
             return;
         }
 
         if (!await mfa.VerifyCodeAsync(user.Id, req.Code, ct))
         {
-            session.Patch<User>(user.Id).Increment(x => x.FailedLoginAttempts);
-            await session.SaveChangesAsync(ct);
-
-            var attempts = (await query.LoadAsync<User>(user.Id, ct))?.FailedLoginAttempts ?? 0;
-            if (attempts >= barakoCMS.Infrastructure.Auth.AccountLockout.MaxFailedAttempts
-                && await lockout.TryLockAsync(user, ct))
-            {
-                await AuditLog.RecordAsync(session, tenant.Slug, "auth.account.locked", user.Id, user.Username,
-                    metadata: new() { ["attempts"] = attempts, ["factor"] = "mfa" }, ipAddress: device.IpAddress, ct: ct);
-            }
-            await AuditLog.RecordAsync(session, tenant.Slug, "auth.mfa.failed", user.Id, user.Username,
-                metadata: new() { ["attempts"] = attempts }, ipAddress: device.IpAddress, ct: ct);
-            await session.SaveChangesAsync(ct);
+            await lockout.RecordWrongCodeAsync(session, query, tenant.Slug, user, "mfa", "auth.mfa.failed",
+                device.IpAddress, ct);
 
             ThrowError("Invalid code.");
             return;
@@ -81,11 +69,7 @@ internal class VerifyEndpoint(
 
         // Success: clear the failed-attempt counter, mint tokens through the issuer (which still runs the
         // tenant-access check), and drop a refresh token — the same shape as password login.
-        if (user.FailedLoginAttempts > 0 || user.LockoutUntil.HasValue)
-        {
-            session.Patch<User>(user.Id).Set(x => x.FailedLoginAttempts, 0);
-            session.Patch<User>(user.Id).Set(x => x.LockoutUntil, (DateTime?)null);
-        }
+        barakoCMS.Infrastructure.Auth.AccountLockout.ClearFailures(session, user);
 
         // Completing MFA proves possession of this device; trust it and bind the token to it, so
         // MFA-issued tokens carry the same device claim (did) as the password and OTP paths.

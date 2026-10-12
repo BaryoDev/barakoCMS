@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.9.0] - 2026-10-12
+
+Upgrading from 4.8 takes three steps. The API contract stays at 7 and the module contract at 1, so barakoBrew 1.8.0, barakoPress 0.12.0 and every module built for 4.x keep working.
+
+1. **Stop the API.** Two migrations ship under `migrations/4.9.0/`, both core's and both new tables, empty on arrival: `gapless-numbering.sql` (the number counters and the external number ledger) and `stations.sql` (station keys).
+2. **Run `db-migrate`, then `db-assert`.** `scripts/upgrade-check.sh --list` prints both files and their rollbacks. Rolling back `gapless-numbering.sql` loses where each series stands, so take a backup first.
+3. **Start 4.9.0.** Nothing new has to be configured. A role with `RequireMfa` set sends its users without MFA to MFA setup from their next sign in or token refresh (within 15 minutes), so tell them before you turn it on.
+
+### Added
+
+- **Gapless numbering.** `INumberAllocator` hands out gapless numbers per tenant and series, with yearly, monthly or daily reset at local midnight in a chosen time zone. The counter row stays locked until the caller's session commits, and a rolled back session gives its number to the next caller.
+- **External number ledger.** `IExternalNumberLedger` records numbers issued outside barakoCMS, and `GET /api/numbering/external/{series}/gaps` (capability `view_number_gaps`, granted to Admin) lists the ones in a range that were never recorded.
+- **Change feed.** `GET /api/changes?after=&topics=&limit=` returns the events after a sequence for the topics the caller holds, in the caller's tenant. It never reads past the store's high-water mark, so an event that commits after a higher one is still delivered.
+- **Module topics.** Modules declare topics with `IBarakoModule.ConfigureTopics`, each a group of the module's own event types and the capability needed to read them. Topic capabilities appear in `GET /api/capabilities` and can be granted through roles.
+- **Caller capability check.** `ICallerCapabilities` answers whether the signed-in caller holds a capability, for code outside an endpoint.
+- **Roles can require MFA.** `Role.RequireMfa`. A user holding such a role who has not turned on MFA gets a token marked `mfa_enroll=required` (and `MfaEnrollmentRequired` in the login response) that reaches only `/api/auth/mfa/setup`, `/enable`, `/status`, refresh and logout. Other endpoints answer 403 with `X-Mfa-Enrollment-Required: true`. `PUT /api/roles/{id}` without `RequireMfa` keeps the stored value.
+- **Step-up codes.** `POST /api/auth/mfa/step-up` takes a TOTP or recovery code and returns a token good for `Auth:StepUp:Seconds` (default 300). Endpoints marked `Definition.RequireStepUp()` need it in `X-Step-Up`, and answer 403 with `X-Step-Up-Required: true` without it. Wrong codes count toward account lockout.
+- **Modules can register their own events and projections.** `IModuleSchema.AddEventType<T>()` and `IModuleSchema.AddProjection<T>(lifecycle)` follow the same ownership rule as `For<T>()`, and events are stored under `{module}.{event}`.
+- **Realtime hub.** SignalR hub at `/hubs/realtime`. A signed-in caller subscribes to module topics it holds the capability for, and hears `changed` notices (`topic`, `sequence`, `streamId`, `type`, never event data) after each commit, for its own tenant only. The hub is closed to API keys: a connection that signs in with one is aborted and `Subscribe` refuses it. The bearer token may come in the `access_token` query string on hub paths only.
+- **Test host handler.** `BarakoTestHost.CreateHandler()` for clients that need the in-memory server's handler, such as a SignalR `HubConnection`.
+- **Notice then feed.** A notice can arrive before the feed reaches its `sequence`. `docs/realtime.md` says to read again after a short delay, backing off, until `next` reaches it.
+- **Station keys.** `POST /api/stations`, `GET /api/stations` and `POST /api/stations/{id}/revoke`, gated by the new `manage_stations` capability. A station is a machine with no signed-in person, such as a kiosk or display board, holding a fixed list of capabilities in one tenant. The key (`bsta_` prefix) is returned once and only its hash is stored. A caller can only grant capabilities they hold, and `*` and `manage_stations` are refused.
+- **Stations sign in with the key.** `Authorization: Bearer bsta_...` works on the change feed (`GET /api/changes`) and the realtime hub, which also accepts it as `access_token` in the query string. Prefer the header: a station key never expires, and the query form puts it in access logs. The station's tenant comes from the key, not from `X-Tenant`. A revoke is refused on the station's next request.
+- **Stations are closed by default.** A station can call only endpoints that opt in with `Definition.AllowStations()`. Every other endpoint answers 403. Module endpoints use the same call to let stations in.
+- **Revoked stations lose the hub.** A station's sign-in lasts 15 minutes, so an open hub connection closes and the reconnect is refused, and `Subscribe` refuses a revoked station at once.
+
+### Changed
+
+- **The stale pull request refresher needed a token made by hand.** It now updates a branch with
+  `GITHUB_TOKEN` and then starts `ci.yml` on it through `workflow_dispatch`, since a push made with
+  that token starts no workflow. The checks report on the updated head under their usual names.
+  `REFRESH_PR_TOKEN` is no longer read and can be deleted. A branch whose update would bring in a
+  change under `.github/workflows/` is reported as needing a hand, because `GITHUB_TOKEN` may not
+  write there.
+
 ## [4.8.0] - 2026-10-22
 
 Upgrading from 4.7 takes three steps. The API contract stays at 7, so barakoBrew 1.8.0 and barakoPress 0.12.0 keep working.
