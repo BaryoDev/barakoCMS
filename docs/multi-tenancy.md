@@ -309,6 +309,33 @@ request and returns 403 on a mismatch. It exempts `/api/me/*` (a user has to be 
 switch tenants from anywhere) and routes ending `/public`. A token with no `tenant` claim passes
 through, which is what keeps tokens issued before the claim existed working.
 
+## Who may join a tenant
+
+A tenant's `signUp` policy decides what registration (`POST /api/auth/register`), social sign-in
+and invitations (`POST /api/tenants/members`) do for the tenant the request resolves to. Set it with
+`PUT /api/tenants/{handle}`:
+
+| `signUp` | Registration and social sign-in | Invitation |
+| --- | --- | --- |
+| `NotSet`, the default | as before: an account with the global `User` role (registration) or no role (social sign-in), and no membership | works |
+| `Open` | the account joins the tenant with `signUpRoleId` and gets no global role | works |
+| `InviteOnly` | registration answers 403; social sign-in creates no account | works |
+| `Closed` | as `InviteOnly` | refused with 403 when it would create an account; an existing account is still added |
+
+`Open` needs `signUpRoleId`, and a role is refused with anything else. The role cannot be SuperAdmin
+or carry a platform capability, since anyone with an email address can sign up. The default tenant
+and a slug nobody registered have no policy and behave as before. A tenant that is not Active takes
+no sign-ups whatever its policy.
+
+Social sign-in of an account that already exists is a sign-in, not a sign-up: on an `Open` tenant it
+joins the tenant when the account has no membership row there, and elsewhere the issuer's
+membership check decides as before. A member an administrator removed or suspended keeps that row,
+so signing up again does not bring them back.
+
+A registration that has to be verified records the tenant on the pending row, and verification
+reads the policy again: a tenant that stopped taking sign-ups in between spends the token and
+creates nothing.
+
 ## Roles at request time
 
 `PermissionResolver` asks `MembershipRoles.EffectiveRoleIdsAsync` for the caller's roles, which is

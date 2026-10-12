@@ -90,12 +90,25 @@ internal class VerifyEndpoint(
             return;
         }
 
+        // Read again, since the policy may have changed in the hours since the registration. A
+        // tenant that stopped taking sign-ups spends the token and creates nothing.
+        var decision = await barakoCMS.Infrastructure.Auth.SignUpPolicy.DecideAsync(session, pending.TenantSlug, ct);
+        if (decision.Outcome == barakoCMS.Infrastructure.Auth.SignUpOutcome.Refused)
+        {
+            Consume(pending);
+            await TrySaveAsync(ct);
+            ThrowError(Invalid);
+            return;
+        }
+
         Consume(pending);
-        session.Store(Endpoint.NewUser(
-            await Endpoint.UserRoleIdsAsync(session, ct),
+        var user = Endpoint.NewUser(
+            await Endpoint.GlobalRoleIdsAsync(session, decision, ct),
             pending.Username,
             pending.Email,
-            pending.PasswordHash));
+            pending.PasswordHash);
+        session.Store(user);
+        await barakoCMS.Infrastructure.Auth.SignUpPolicy.StageJoinAsync(session, decision, user, ct);
 
         if (!await TrySaveAsync(ct))
         {

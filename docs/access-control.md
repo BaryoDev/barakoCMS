@@ -1104,6 +1104,7 @@ display prefix.
 | Global role taken from a user | `user.role.removed` | `roleId`, `roleName` |
 | Tenant created | `tenant.member.added` in the new tenant's log | `invited` (false), `roleIds`, `roleNames`, `tenantCreated` |
 | Tenant status changed | `tenant.deactivated`, `tenant.activated` in that tenant's log, with `from` and `to` | none |
+| Tenant sign-up policy changed | `tenant.signup_changed` in that tenant's log, with `from`, `to` and `roleId` | none |
 | Member added, or added again | `tenant.member.added` | `invited`, `roleIds`, `roleNames`; `previousStatus`, `previousRoleIds`, `previousRoleNames` when the membership already existed |
 | Member's roles or status changed (suspending is this) | `tenant.member.updated` | `status`, `roleIds`, `roleNames`, `previousStatus`, `previousRoleIds`, `previousRoleNames` |
 | Member removed | `tenant.member.removed` | `previousStatus`, `previousRoleIds`, `previousRoleNames` |

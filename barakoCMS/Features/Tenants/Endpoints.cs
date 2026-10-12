@@ -89,6 +89,12 @@ internal sealed class TenantWriteRequest
     /// </remarks>
     public bool? IsActive { get; set; }
 
+    /// <summary>Who may join by signing up. Null on an update leaves the policy, and its role, as they are.</summary>
+    public TenantSignUp? SignUp { get; set; }
+
+    /// <summary>The role an Open sign-up gives. Required with Open, refused with anything else.</summary>
+    public Guid? SignUpRoleId { get; set; }
+
     /// <summary>
     /// The domains the tenant answers on, as bare hosts such as <c>example.com</c>.
     /// </summary>
@@ -119,6 +125,11 @@ internal sealed class TenantWriteRequestValidator : Validator<TenantWriteRequest
         RuleFor(r => r.ContactUrl).Must(BeBlank).WithMessage(Moved("ContactUrl"));
 
         RuleFor(r => r.Status).IsInEnum();
+        RuleFor(r => r.SignUp).IsInEnum();
+        RuleFor(r => r.SignUpRoleId).NotNull().When(r => r.SignUp == TenantSignUp.Open)
+            .WithMessage("An Open sign-up policy needs signUpRoleId, the role a person who signs up is given.");
+        RuleFor(r => r.SignUpRoleId).Null().When(r => r.SignUp != TenantSignUp.Open)
+            .WithMessage("signUpRoleId is only read with signUp set to Open.");
         RuleFor(r => r.IsActive)
             .Must((r, active) => active is null || r.Status is null || active == (r.Status == TenantStatus.Active))
             .WithMessage("isActive disagrees with status. Send status alone.");
@@ -136,6 +147,28 @@ internal sealed class TenantWriteRequestValidator : Validator<TenantWriteRequest
     private static string Moved(string siteField) =>
         $"A tenant no longer holds a profile. Set the {siteField} field of its {TenantProfiles.SiteType} entry "
       + "and leave this one out.";
+}
+
+/// <summary>The checks a sign-up role needs from the store, which a validator cannot make.</summary>
+internal static class TenantSignUpRole
+{
+    /// <summary>Why <paramref name="roleId"/> cannot be the role an Open sign-up gives, or null.</summary>
+    /// <remarks>
+    /// Anyone with an email address can sign up to an Open tenant, so the role is held to the rule a
+    /// tenant administrator's grant is: never SuperAdmin, and never a role that reaches past the tenant.
+    /// </remarks>
+    public static async Task<string?> RefusalAsync(IQuerySession session, Guid roleId, CancellationToken ct)
+    {
+        var role = await session.LoadAsync<Role>(roleId, ct);
+        if (role is null)
+            return "The sign-up role does not exist.";
+
+        if (!barakoCMS.Features.Tenants.Members.Members.IsAssignable(roleId)
+            || barakoCMS.Features.Users.PlatformRoles.CarriesPlatformCapability(role))
+            return "The sign-up role carries platform access, so it cannot be given to whoever signs up.";
+
+        return null;
+    }
 }
 
 /// <summary>Finds a domain already held by another tenant.</summary>
@@ -204,6 +237,9 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         if (await _session.Query<Tenant>().AnyAsync(x => x.Slug == handle, ct))
         { AddError(r => r.Handle, "A tenant with this handle already exists."); ThrowIfAnyErrors(); }
 
+        if (req.SignUpRoleId is { } signUpRole && await TenantSignUpRole.RefusalAsync(_session, signUpRole, ct) is { } refusal)
+        { AddError(r => r.SignUpRoleId, refusal); ThrowIfAnyErrors(); }
+
         if (await TenantDomainClash.FindAsync(_session, domains, exceptSlug: null, ct) is { } clash)
         { ThrowError($"'{clash.Domain}' is already a domain of tenant '{clash.Slug}'. A domain belongs to one tenant.", 409); }
 
@@ -213,6 +249,8 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
             Slug = handle,
             Name = req.Name,
             Status = TenantWriteRequestValidator.Requested(req, TenantStatus.Active),
+            SignUp = req.SignUp ?? TenantSignUp.NotSet,
+            SignUpRoleId = req.SignUpRoleId,
             Domains = domains.ToList(),
         };
         _session.Store(tenant);
@@ -273,6 +311,8 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
             foreach (var error in domainErrors)
             { AddError(r => r.Domains, error); }
         }
+        if (req.SignUpRoleId is { } signUpRole && await TenantSignUpRole.RefusalAsync(_session, signUpRole, ct) is { } refusal)
+            AddError(r => r.SignUpRoleId, refusal);
         ThrowIfAnyErrors();
 
         if (domains is not null
@@ -295,6 +335,27 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         }
 
         tenant.Status = status;
+        if (req.SignUp is { } signUp)
+        {
+            if (tenant.SignUp != signUp || tenant.SignUpRoleId != req.SignUpRoleId)
+            {
+                Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
+                await barakoCMS.Infrastructure.Audit.AuditLog.RecordAsync(
+                    _session, tenant.Slug, "tenant.signup_changed", actorId,
+                    User.FindFirst("Username")?.Value, targetType: "Tenant", targetId: tenant.Slug,
+                    metadata: new Dictionary<string, object>
+                    {
+                        ["from"] = tenant.SignUp.ToString(),
+                        ["to"] = signUp.ToString(),
+                        ["roleId"] = req.SignUpRoleId?.ToString() ?? string.Empty,
+                    },
+                    ct: ct);
+            }
+
+            tenant.SignUp = signUp;
+            tenant.SignUpRoleId = req.SignUpRoleId;
+        }
+
         if (domains is not null)
             tenant.Domains = domains.ToList();
         _session.Store(tenant);

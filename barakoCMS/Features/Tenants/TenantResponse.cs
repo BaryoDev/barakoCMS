@@ -23,6 +23,8 @@ internal sealed class TenantResponse
 
     /// <summary>True when <see cref="Status"/> is Active. Kept for clients written before it.</summary>
     public bool IsActive { get; init; }
+    public TenantSignUp SignUp { get; init; }
+    public Guid? SignUpRoleId { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
 
     public static TenantResponse From(Tenant t) => new()
@@ -36,6 +38,8 @@ internal sealed class TenantResponse
         Domains = t.Domains,
         Status = t.Status,
         IsActive = t.Status == TenantStatus.Active,
+        SignUp = t.SignUp,
+        SignUpRoleId = t.SignUpRoleId,
         // Stored as DateTime, emitted with a zone, like every other timestamp this API returns.
         CreatedAt = new DateTimeOffset(DateTime.SpecifyKind(t.CreatedAt, DateTimeKind.Utc)),
     };

@@ -91,6 +91,12 @@ public class Tenant
         }
     }
 
+    /// <summary>Who may join this tenant by signing themselves up. <see cref="TenantSignUp.NotSet"/> keeps the behaviour from before the policy existed.</summary>
+    public TenantSignUp SignUp { get; set; } = TenantSignUp.NotSet;
+
+    /// <summary>The role a person who signs up under <see cref="TenantSignUp.Open"/> is given in this tenant.</summary>
+    public Guid? SignUpRoleId { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>The implicit tenant that existing single-tenant data and non-handle requests use.</summary>
@@ -112,4 +118,24 @@ public enum TenantStatus
 
     /// <summary>Refused exactly as Suspended is, kept apart so an operator can say the data is kept and nothing more.</summary>
     Archived = 2,
+}
+
+/// <summary>Who may join a tenant through registration, social sign-in or an invitation.</summary>
+/// <remarks>Stored as its number, so the values are fixed.</remarks>
+public enum TenantSignUp
+{
+    /// <summary>
+    /// What every tenant did before the policy existed: registration and social sign-in create an
+    /// account with no membership here, and an administrator adds members.
+    /// </summary>
+    NotSet = 0,
+
+    /// <summary>Nobody signs themselves up, and an invitation cannot create an account. An existing account can still be added.</summary>
+    Closed = 1,
+
+    /// <summary>Nobody signs themselves up. An administrator's invitation is the way in.</summary>
+    InviteOnly = 2,
+
+    /// <summary>Anyone who signs up joins as a member with <see cref="Tenant.SignUpRoleId"/>.</summary>
+    Open = 3,
 }

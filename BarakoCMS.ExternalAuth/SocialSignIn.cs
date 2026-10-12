@@ -3,6 +3,7 @@ using FastEndpoints.Security;
 using Marten;
 using Microsoft.AspNetCore.Http;
 using barakoCMS.Infrastructure;
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Models;
 using System.IdentityModel.Tokens.Jwt;
@@ -63,14 +64,20 @@ public static class SocialSignIn
         }
 
         var normalized = email.Trim().ToLowerInvariant();
+        var signUp = await SignUpPolicy.DecideAsync(session, club, ct);
         var user = await session.Query<User>().FirstOrDefaultAsync(u => u.Email.ToLower() == normalized, ct);
         if (user is null)
         {
+            // A new account is a sign-up, so the tenant's policy decides. An existing one is a
+            // sign-in, and the issuer's membership check decides.
+            if (signUp.Outcome == SignUpOutcome.Refused)
+                return Tokens.Denied();
+
             user = new User { Id = Guid.NewGuid(), Email = normalized, Username = normalized, PasswordHash = "" };
             session.Store(user);
         }
 
-        return await IssueForUserAsync(session, config, deviceGate, tokenIssuer, mfa, http, user, club, ct, profile, null);
+        return await IssueForUserAsync(session, config, deviceGate, tokenIssuer, mfa, http, user, club, signUp, ct, profile, null);
     }
 
     /// <summary>
@@ -101,6 +108,7 @@ public static class SocialSignIn
         // A link whose user has been deleted is treated as no link. Otherwise removing an account
         // would lock its provider identity out for good, with nothing an administrator could undo.
         var user = link is null ? null : await session.LoadAsync<User>(link.UserId, ct);
+        var signUp = await SignUpPolicy.DecideAsync(session, club, ct);
 
         if (user is null)
         {
@@ -113,6 +121,9 @@ public static class SocialSignIn
             user = await session.Query<User>().FirstOrDefaultAsync(u => u.NormalizedEmail == email, ct);
             if (user is null)
             {
+                if (signUp.Outcome == SignUpOutcome.Refused)
+                    return (Tokens.Denied(), false);
+
                 // NormalizedUsername is unique, and somebody may already use this address as a name.
                 var username = await session.Query<User>().AnyAsync(u => u.NormalizedUsername == email, ct)
                     ? $"{email}+{Guid.NewGuid():N}"[..(email.Length + 9)]
@@ -134,7 +145,7 @@ public static class SocialSignIn
 
         var profile = new ProfileData(identity.Name, identity.Picture, null, null, provider);
         return (await IssueForUserAsync(
-            session, config, deviceGate, tokenIssuer, mfa, http, user, club, ct, profile, beforeFinalCommit), false);
+            session, config, deviceGate, tokenIssuer, mfa, http, user, club, signUp, ct, profile, beforeFinalCommit), false);
     }
 
     /// <summary>
@@ -155,10 +166,17 @@ public static class SocialSignIn
         HttpContext http,
         User user,
         string club,
+        SignUpDecision signUp,
         CancellationToken ct,
         ProfileData? profile,
         Action<IDocumentSession>? beforeFinalCommit)
     {
+        // Open sign-up makes this person a member before the issuer looks for one. Committed now,
+        // with the account it may have just created, because the issuer reads memberships from
+        // the database and nothing queued by beforeFinalCommit is in the session yet.
+        if (await SignUpPolicy.StageJoinAsync(session, signUp, user, ct))
+            await session.SaveChangesAsync(ct);
+
         if (profile is not null)
         {
             var sp = await session.Query<SocialProfile>().FirstOrDefaultAsync(p => p.UserId == user.Id, ct)

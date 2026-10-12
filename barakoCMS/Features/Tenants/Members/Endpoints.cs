@@ -387,6 +387,9 @@ internal sealed class AddMemberEndpoint(
         var user = await session.Query<User>().FirstOrDefaultAsync(u => u.NormalizedEmail == email, ct);
         var invited = user is null;
 
+        if (user is null && await SignUpPolicy.RefusesNewAccountAsync(session, slug, ct))
+            ThrowError(SignUpPolicy.ClosedToNewAccountsMessage, 403);
+
         if (user is null)
         {
             // No password. They sign in with an emailed code, the same account shape social

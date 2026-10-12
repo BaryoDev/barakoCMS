@@ -36,5 +36,11 @@ public class PendingRegistration
 
     public bool Consumed { get; set; }
 
+    /// <summary>
+    /// The tenant the registration was made in, when its sign-up policy is Open, so verification
+    /// adds the membership. Null for a registration that joins no tenant.
+    /// </summary>
+    public string? TenantSlug { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
