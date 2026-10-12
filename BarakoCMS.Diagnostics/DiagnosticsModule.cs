@@ -1,5 +1,8 @@
+using barakoCMS.Core.Interfaces;
 using barakoCMS.Modules;
+using BarakoCMS.Diagnostics.Incidents;
 using Marten;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace BarakoCMS.Diagnostics;
 
@@ -15,6 +18,18 @@ namespace BarakoCMS.Diagnostics;
 public sealed class DiagnosticsModule : IBarakoModule
 {
     public string Name => "Diagnostics";
+
+    /// <summary>
+    /// The incidents view's sources (#893). <paramref name="configuration"/>
+    /// is this module's own section, <c>Modules:Diagnostics</c>.
+    /// </summary>
+    public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
+    {
+        services.TryAddEnumerable(ServiceDescriptor.Scoped<IIncidentSource, ClientErrorIncidentSource>());
+        services.TryAddEnumerable(ServiceDescriptor.Scoped<IIncidentSource, DeadLetteredJobIncidentSource>());
+        services.TryAddEnumerable(ServiceDescriptor.Scoped<IIncidentSource, FailedWorkflowRunIncidentSource>());
+        services.TryAddEnumerable(ServiceDescriptor.Scoped<IIncidentSource, FailedDeliveryIncidentSource>());
+    }
 
     public void ConfigureSchema(IModuleSchema schema)
     {

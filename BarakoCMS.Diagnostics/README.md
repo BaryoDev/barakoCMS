@@ -38,6 +38,7 @@ the repository.
 |---|---|---|
 | `POST /api/client-errors` | Report a batch of captured errors | Anonymous |
 | `GET  /api/client-errors` | Browse what has been reported for the current tenant (every tenant for a caller holding the role globally) | `Admin` / `SuperAdmin` |
+| `GET  /api/incidents` | Every failure source, grouped and redacted (see below) | `manage_client_errors` |
 | `POST /api/client-errors/{id}/resolve` | Mark a fingerprint resolved, with an optional `reference` (a ticket or pull request link or number, up to 500 characters) and `note` (up to 2,000); `{ "resolved": false }` reopens it and clears both | `Admin` / `SuperAdmin` |
 
 An error is kept per tenant: the report's `tenant`, or the tenant the request resolved to when it
@@ -47,6 +48,46 @@ names none. The same fault in two tenants is two rows, and resolving another ten
 Reporting is anonymous on purpose: the errors worth catching often happen before anyone signs in.
 That makes it a spammable endpoint, so it runs under its own tighter `telemetry` rate-limit policy
 rather than the global budget.
+
+## Incidents
+
+`GET /api/incidents` is one paged list across every place failures are recorded, grouped by
+fingerprint, so a person looking for "what is broken" reads one list instead of four:
+
+| Source | What it reads | Also needs |
+|---|---|---|
+| `client-errors` | Browser errors reported to `POST /api/client-errors` | |
+| `dead-letters` | Background jobs that used every attempt | `view_jobs` |
+| `failed-runs` | Workflow actions that failed for good | `view_workflow_runs` |
+| `failed-deliveries` | Webhook and connector sends with no answer or a non-2xx one | `view_workflow_runs` |
+
+The view needs `manage_client_errors`. A source whose records the caller could not read directly is
+left out for that caller. Each group carries `source`, `fingerprint`, `title`, `detail`, `count`,
+`firstSeenAt`, `lastSeenAt`, `tenants`, `releases` and the resolution fields. Query with
+`source`, `resolved`, `days` (1 to 90, default 30), `page` and `pageSize`. Each source contributes at
+most its newest 1,000 occurrences in the window. Client errors span every tenant for a caller who
+holds the capability through a global role; the other sources are stored per tenant and read for
+the current one. A response body from a delivery is never read here.
+
+Another module adds a source by registering a scoped `barakoCMS.Core.Interfaces.IIncidentSource`.
+
+## Redaction
+
+Titles, details and resolution text in the incidents view go through one set of rules on the
+server:
+
+- JSON web tokens, and the value after `Bearer` or `Basic`
+- every query string value, and the user and password in a URL
+- the value after a key named like a credential: password, secret, token, api key, access key,
+  private key, auth, session, cookie, signature, otp
+- the value after the name of a content field marked Sensitive or Hidden, written as
+  `Name: value`, `Name=value` or `"Name": "value"`
+- email addresses, and any run of 32 or more letters, digits, `-` or `_` holding both a letter and
+  a digit, which is what an API key or session id looks like
+
+These are patterns. A Sensitive value that appears with no field name in front of it is not
+recognisable as one and stays. The stored error and `GET /api/client-errors` are unchanged: they
+are the unredacted record, behind the same capability.
 
 ## Sending errors
 
