@@ -119,6 +119,6 @@ public class ModuleEventRegistrationTests
 
         var act = () => schema.AddEventType<ProbeHappened>();
 
-        act.Should().Throw<NotSupportedException>().WithMessage("*4.8*");
+        act.Should().Throw<NotSupportedException>().WithMessage("*4.9*");
     }
 }
