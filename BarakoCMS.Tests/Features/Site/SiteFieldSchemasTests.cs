@@ -182,8 +182,8 @@ public class SiteFieldSchemasTests
         await RunAsync(Down, slug);
 
         type = await SiteTypeAsync(slug);
+        type.Fields.Select(f => f.Name).Should().Contain(["HeaderLinks", "Colors", "Own"]);
         type.Fields.Where(f => f.JsonSchema is not null).Should().BeEmpty();
-        type.Fields.Should().HaveCountGreaterThan(3);
         Field(type, "Mode").Type.Should().Be("string");
     }
 

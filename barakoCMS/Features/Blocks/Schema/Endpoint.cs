@@ -4,6 +4,7 @@ using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Security;
 using barakoCMS.Models;
 using FastEndpoints;
+using Microsoft.AspNetCore.Mvc;
 using Marten;
 
 namespace barakoCMS.Features.Blocks.Schema;
@@ -41,6 +42,7 @@ internal sealed class PutEndpoint(IDocumentSession session) : Endpoint<Request, 
     {
         Put("/api/blocks/schema");
         Definition.RequireCapability(SystemCapabilities.ManageContentTypes, "SuperAdmin", "Admin");
+        Options(b => b.WithMetadata(new RequestSizeLimitAttribute(SchemaRules.MaxBodyBytes)));
         Description(b => b.Produces<Response>(200).Produces(400).Produces(401).Produces(403).WithTags("Blocks"));
     }
 
@@ -58,22 +60,21 @@ internal sealed class PutEndpoint(IDocumentSession session) : Endpoint<Request, 
 /// renderer key configured the route answers 404, and a missing or wrong key answers 401, compared
 /// in fixed time. The key is a deployment secret that already lets the renderer skip the per-IP
 /// limit, so whoever holds it can rewrite any tenant's block schema; it opens nothing else here.
+/// The body is capped at <see cref="SchemaRules.MaxBodyBytes"/>, so what is read before the key is
+/// checked is bounded.
 /// </remarks>
 internal sealed class RendererPutEndpoint(IDocumentSession session, IConfiguration configuration)
-    : Endpoint<Request, Response>
+    : Endpoint<RendererRequest, Response>
 {
     public override void Configure()
     {
         Put("/api/renderer/blocks/schema");
         AllowAnonymous();
-
-        // The key is checked before the body is judged, so a caller without it learns nothing from
-        // the validator.
-        DontThrowIfValidationFails();
+        Options(b => b.WithMetadata(new RequestSizeLimitAttribute(SchemaRules.MaxBodyBytes)));
         Description(b => b.Produces<Response>(200).Produces(400).Produces(401).Produces(404).WithTags("Blocks"));
     }
 
-    public override async Task HandleAsync(Request req, CancellationToken ct)
+    public override async Task HandleAsync(RendererRequest req, CancellationToken ct)
     {
         var key = RateLimitSetup.Read(configuration).RendererKey;
         if (key is null)
@@ -82,16 +83,28 @@ internal sealed class RendererPutEndpoint(IDocumentSession session, IConfigurati
             return;
         }
 
-        var sent = HttpContext.Request.Headers[RateLimitSetup.RendererHeader].ToString();
-        if (!CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(sent), Encoding.UTF8.GetBytes(key)))
+        if (!KeyMatches(HttpContext.Request.Headers[RateLimitSetup.RendererHeader].ToString(), key))
         {
             await Send.UnauthorizedAsync(ct);
             return;
         }
 
+        // Judged only now, so a caller without the key costs no schema check and learns nothing
+        // from one. The request type has no validator for the same reason.
+        foreach (var error in SchemaRules.Errors(req.Blocks))
+        {
+            AddError(error);
+        }
+
         ThrowIfAnyErrors();
-        await Send.OkAsync(await BlockSchemas.StoreAsync(session, req, "renderer", ct), ct);
+        await Send.OkAsync(await BlockSchemas.StoreAsync(session, new Request { Blocks = req.Blocks }, "renderer", ct), ct);
     }
+
+    /// <summary>Compared as hashes, so neither the time taken nor an early exit on length says anything about the key.</summary>
+    private static bool KeyMatches(string sent, string key) =>
+        CryptographicOperations.FixedTimeEquals(
+            SHA256.HashData(Encoding.UTF8.GetBytes(sent)),
+            SHA256.HashData(Encoding.UTF8.GetBytes(key)));
 }
 
 internal static class BlockSchemas

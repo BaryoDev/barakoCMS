@@ -27,25 +27,36 @@ internal sealed class Response
     };
 }
 
+/// <summary>The renderer's request: the same body, judged only once its key has matched.</summary>
+internal sealed class RendererRequest
+{
+    public Dictionary<string, JsonElement>? Blocks { get; set; }
+}
+
 internal sealed class Validator : Validator<Request>
 {
-    /// <summary>The most a whole schema may be, as JSON text.</summary>
-    public const int MaxLength = 256 * 1024;
-
     public Validator()
     {
         RuleFor(r => r.Blocks).Custom((blocks, context) =>
         {
-            if (blocks is not null && JsonSerializer.Serialize(blocks).Length > MaxLength)
-            {
-                context.AddFailure("blocks", $"A block schema is at most {MaxLength / 1024} KiB.");
-                return;
-            }
-
-            foreach (var error in barakoCMS.Core.Validation.BlockFields.SchemaErrors(blocks))
+            foreach (var error in SchemaRules.Errors(blocks))
             {
                 context.AddFailure("blocks", error);
             }
         });
     }
+}
+
+internal static class SchemaRules
+{
+    /// <summary>The most a whole schema may be, as JSON text.</summary>
+    public const int MaxLength = 256 * 1024;
+
+    /// <summary>The most a request body to either PUT may be, which bounds what is read before anything is judged.</summary>
+    public const long MaxBodyBytes = 512 * 1024;
+
+    public static IEnumerable<string> Errors(Dictionary<string, JsonElement>? blocks) =>
+        blocks is not null && JsonSerializer.Serialize(blocks).Length > MaxLength
+            ? [$"A block schema is at most {MaxLength / 1024} KiB."]
+            : barakoCMS.Core.Validation.BlockFields.SchemaErrors(blocks);
 }

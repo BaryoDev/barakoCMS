@@ -42,7 +42,8 @@ internal sealed class SettingsValidator : Validator<SettingsRequest>
         RuleFor(r => r.OrderField).Must(IsName).WithMessage(NameMessage);
         RuleFor(r => r.TitleField).Must(IsName).WithMessage(NameMessage);
         RuleFor(r => r.MaxDepth).InclusiveBetween(1, ParentDeclaration.MostDepth).When(r => r.MaxDepth is not null);
-        RuleFor(r => r.ReservedSlugs).Must(s => s is null || (s.Count <= MaxReservedSlugs && s.All(x => x?.Length is > 0 and <= MaxNameLength)))
+        RuleFor(r => r.ReservedSlugs).Must(s => s is null || (s.Count <= MaxReservedSlugs
+                && s.All(x => !string.IsNullOrWhiteSpace(x) && x.Length <= MaxNameLength)))
             .WithMessage($"At most {MaxReservedSlugs} reserved slugs, each 1 to {MaxNameLength} characters.");
         RuleFor(r => r.HomeSlug).MaximumLength(MaxNameLength);
     }
@@ -81,6 +82,8 @@ internal sealed class PutEndpoint(IDocumentSession session, IOptions<PagesOption
 
     public override async Task HandleAsync(SettingsRequest req, CancellationToken ct)
     {
+        await RefuseNamesTheTypeLacksAsync(req, ct);
+
         var row = new PagesSettings
         {
             ContentType = req.ContentType?.Trim(),
@@ -97,6 +100,41 @@ internal sealed class PutEndpoint(IDocumentSession session, IOptions<PagesOption
         session.Store(row);
         await session.SaveChangesAsync(ct);
         await Send.OkAsync(SettingsMapping.Response(row, deployment.Value), ct);
+    }
+
+    /// <summary>
+    /// Refuses a type that does not exist, and a field the type lacks, for the names this request
+    /// sets. A misspelt type would otherwise leave the real one with no tree rules at all.
+    /// </summary>
+    /// <remarks>
+    /// Only what the request names is checked. A value left to the deployment is the operator's,
+    /// and a tenant that never made the deployment's type must still be able to set a type of its
+    /// own.
+    /// </remarks>
+    private async Task RefuseNamesTheTypeLacksAsync(SettingsRequest req, CancellationToken ct)
+    {
+        var fields = new[] { req.ParentField, req.ShowInNavigationField, req.OrderField, req.TitleField }
+            .Where(f => f is not null).Select(f => f!.Trim()).ToList();
+        if (req.ContentType is null && fields.Count == 0)
+        {
+            return;
+        }
+
+        var typeName = (req.ContentType ?? deployment.Value.ContentType).Trim();
+        var lowered = typeName.ToLower();
+        var definition = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct);
+        if (definition is null)
+        {
+            AddError(r => r.ContentType!, $"There is no content type '{typeName}'.");
+            ThrowIfAnyErrors();
+        }
+
+        foreach (var field in fields.Where(f => !definition!.Fields.Any(d => string.Equals(d.Name, f, StringComparison.OrdinalIgnoreCase))))
+        {
+            AddError($"'{definition!.Name}' has no field '{field}'.");
+        }
+
+        ThrowIfAnyErrors();
     }
 }
 

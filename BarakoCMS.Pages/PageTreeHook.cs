@@ -69,9 +69,15 @@ public sealed class PageTreeHook : IContentLifecycleHook
             return errors;
         }
 
-        // The type declares this field its parent, so core walks the chain on every write to it.
-        if (definition?.Fields.Any(f => f.Parent is not null
-                && string.Equals(f.Name, options.ParentField, StringComparison.OrdinalIgnoreCase)) == true)
+        // The type declares this field its parent, as tight as this tree allows or tighter, so core
+        // walks the chain on every write to it and a second walk would only repeat its errors. A
+        // declaration core would not walk, or one deeper than MaxDepth, leaves the walk here.
+        if (definition?.Fields.Any(f => f.Parent is { } parent
+                && parent.MaxDepth <= options.MaxDepth
+                && string.Equals(f.Name, options.ParentField, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(f.Type, "reference", StringComparison.OrdinalIgnoreCase)
+                && !f.Multiple
+                && string.Equals(f.ReferenceType, definition.Name, StringComparison.OrdinalIgnoreCase)) == true)
         {
             return errors;
         }

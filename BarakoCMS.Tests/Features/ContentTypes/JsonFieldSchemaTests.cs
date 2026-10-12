@@ -122,6 +122,25 @@ public class JsonFieldSchemaTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Patterns_share_one_time_budget_per_value_and_a_value_past_it_is_refused()
+    {
+        var name = NewName();
+        (await CreateTypeAsync(name, new
+        {
+            name = "Codes", type = "json",
+            jsonSchema = new { type = "array", items = new { type = "string", pattern = "^(a+)+$" } },
+        })).StatusCode.Should().Be(HttpStatusCode.OK);
+        var slow = Enumerable.Repeat(new string('a', 40) + "!", 50).ToArray();
+
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var body = await RefusedAsync(await WriteAsync(name, new() { ["Codes"] = slow }));
+        clock.Stop();
+
+        body.Should().Contain("could not be checked against its patterns in time");
+        clock.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5), "fifty strings must not each spend the per-match timeout");
+    }
+
+    [Fact]
     public async Task A_json_field_with_no_schema_still_takes_any_object_or_array()
     {
         var type = await LinksTypeAsync();

@@ -37,11 +37,12 @@ digits, `-` and `_`. At most 200 blocks, 256 KiB in all, and no block may declar
 
 The renderer route uses the deployment's renderer key (`RateLimiting:Renderer:Key`, the same
 secret that gives the renderer its own rate limit bucket), names the tenant the way a delivery
-request does, and answers 404 when no key is configured and 401 for a missing or wrong key. Whoever
+request does, takes a body of at most 512 KiB, judges it only after the key matches, and answers 404 when no key is configured and 401 for a missing or wrong key. Whoever
 holds the key can replace any tenant's block schema; treat it as the secret it is.
 
 With a schema registered, a write to a `blocks` field is a 400 naming the path when a block's type
-is not in the schema, a block carries a property its block does not declare
+is not in the schema, a block carries a property its block does not declare (unless the block's
+schema says what its other properties may be with `additionalProperties`)
 (`Blocks[2].colour is not a property of 'hero'`), a property fails its schema, or `preset` or
 `binding` is not an id. With none registered, only the shape is checked, so a page type moved to
 `blocks` keeps saving until its renderer registers. A list the entry already holds is not checked

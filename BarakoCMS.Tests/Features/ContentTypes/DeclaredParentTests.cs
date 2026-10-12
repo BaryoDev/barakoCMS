@@ -249,9 +249,10 @@ public class DeclaredParentTests
         var deploymentType = before.GetProperty("effective").GetProperty("contentType").GetString();
         deploymentType.Should().NotBeNullOrEmpty();
 
-        var set = await SetPagesAsync(admin, new { contentType = "section", maxDepth = 5 });
+        var section = await CategoryTypeAsync(admin);
+        var set = await SetPagesAsync(admin, new { contentType = section, maxDepth = 5 });
         var body = await set.Content.ReadFromJsonAsync<JsonElement>(Ct);
-        body.GetProperty("effective").GetProperty("contentType").GetString().Should().Be("section");
+        body.GetProperty("effective").GetProperty("contentType").GetString().Should().Be(section);
         body.GetProperty("effective").GetProperty("maxDepth").GetInt32().Should().Be(5);
         body.GetProperty("effective").GetProperty("parentField").GetString().Should().NotBeNullOrEmpty();
 
@@ -260,10 +261,44 @@ public class DeclaredParentTests
         after.GetProperty("effective").GetProperty("contentType").GetString().Should().Be(deploymentType);
     }
 
+    [Fact]
+    public async Task Settings_naming_a_type_or_field_that_does_not_exist_are_refused()
+    {
+        var admin = await AdminAsync();
+        var type = await CategoryTypeAsync(admin);
+
+        var typo = await SetPagesAsync(admin, new { contentType = type + "x" });
+        typo.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await typo.Content.ReadAsStringAsync(Ct)).Should().Contain("There is no content type");
+
+        var field = await SetPagesAsync(admin, new { contentType = type, parentField = "Parnet" });
+        field.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await field.Content.ReadAsStringAsync(Ct)).Should().Contain("no field 'Parnet'");
+
+        (await SetPagesAsync(admin, new { contentType = type, parentField = "Parent" })).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task A_parent_declared_deeper_than_the_tree_allows_does_not_lift_the_trees_max_depth()
+    {
+        var admin = await AdminAsync();
+        var type = await CategoryTypeAsync(admin, maxDepth: 64);
+        (await SetPagesAsync(admin, new { contentType = type, parentField = "Parent", maxDepth = 1 }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        var a = await CreateAsync(admin, type, NewName("a"));
+        var b = await CreateAsync(admin, type, NewName("b"), a);
+
+        var data = new Dictionary<string, object> { ["Title"] = "c", ["Slug"] = NewName("c"), ["Parent"] = b.ToString() };
+        var res = await admin.PostAsJsonAsync("/api/contents", new { contentType = type, data }, Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, await res.Content.ReadAsStringAsync(Ct));
+    }
+
     [Theory]
     [InlineData("""{ "maxDepth": 0 }""")]
     [InlineData("""{ "maxDepth": 65 }""")]
     [InlineData("""{ "contentType": " " }""")]
+    [InlineData("""{ "reservedSlugs": [ " " ] }""")]
     public async Task Settings_out_of_range_are_refused(string json)
     {
         var admin = await AdminAsync();

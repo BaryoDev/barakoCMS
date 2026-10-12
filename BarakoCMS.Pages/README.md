@@ -65,7 +65,8 @@ tenants on one deployment can each have their own tree:
 The body takes `contentType`, `parentField`, `showInNavigationField`, `orderField`, `titleField`,
 `maxDepth` (1 to 64), `reservedSlugs` and `homeSlug`. Each one left out, or null, takes the
 deployment's value, so `{}` puts the tenant back on `Modules:Pages`. `MaxPages` stays the
-operator's. The answer is `{ "contract": 2, "tenant": {...}, "effective": {...} }`. A tenant that
+operator's. A type the request names has to exist, and each field it names has to be a field of
+the tree's type, so a typo cannot leave the real type with no rules. The answer is `{ "contract": 2, "tenant": {...}, "effective": {...} }`. A tenant that
 never sets any reads exactly what `Modules:Pages` says, as before.
 
 The rules on write, the three endpoints and the tree's `options` all read the tenant's values.
@@ -75,8 +76,8 @@ The rules on write, the three endpoints and the tree's `options` all read the te
 A reference field pointing at its own type may declare `"parent": { "maxDepth": 8 }` on its
 definition. Core then refuses a loop or a chain too deep on every write to that type, with no
 module or code involved: a docs site's sections or a shop's categories get a guarded tree from
-the definition alone. When the page type declares its parent field this way, the module leaves the
-walk to core and keeps the reserved-slug rule.
+the definition alone. When the page type declares its parent field this way, with a `maxDepth` no
+deeper than the tree's, the module leaves the walk to core and keeps the reserved-slug rule.
 
 ## Rules on write
 

@@ -313,7 +313,7 @@ public class ContentValidatorService(
             return await BlockFields.ValueErrorsAsync(session, field, value, existing);
         }
 
-        if (JsonFieldSchemas.Declares(field))
+        if (expectedType == "json" && JsonFieldSchemas.Declares(field))
         {
             return JsonFieldSchemas.ValueErrors(field, value, existing);
         }

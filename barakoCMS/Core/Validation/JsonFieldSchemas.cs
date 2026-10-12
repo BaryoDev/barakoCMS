@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -28,6 +29,9 @@ internal static class JsonFieldSchemas
     public const int MaxSchemaLength = 64 * 1024;
     private const int MaxErrors = 5;
     private static readonly TimeSpan PatternTimeout = TimeSpan.FromMilliseconds(100);
+    private static readonly TimeSpan PatternBudget = TimeSpan.FromMilliseconds(250);
+    private const int MaxCachedPatterns = 1000;
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Regex> Patterns = new(StringComparer.Ordinal);
 
     private static readonly string[] Types = ["object", "array", "string", "number", "integer", "boolean", "null"];
 
@@ -85,7 +89,7 @@ internal static class JsonFieldSchemas
     /// <summary>Where a value fails a schema in this subset, each error naming the path from <paramref name="at"/>.</summary>
     public static List<string> Errors(JsonElement schema, JsonElement value, string at)
     {
-        var errors = new List<string>();
+        var errors = new Findings();
         Check(schema, value, at, errors);
         return errors.Take(MaxErrors).ToList();
     }
@@ -181,14 +185,14 @@ internal static class JsonFieldSchemas
         }
 
         var element = value is JsonElement je ? je : JsonSerializer.SerializeToElement(value);
-        var errors = new List<string>();
+        var errors = new Findings();
         Check(field.JsonSchema!.Value, element, field.Name, errors);
 
         return errors.Take(MaxErrors)
             .Select(e => $"Field '{field.DisplayName}' ({field.Name}) does not match its schema: {e}");
     }
 
-    private static void Check(JsonElement schema, JsonElement value, string at, List<string> errors)
+    private static void Check(JsonElement schema, JsonElement value, string at, Findings errors)
     {
         if (errors.Count >= MaxErrors || schema.ValueKind == JsonValueKind.True)
         {
@@ -226,7 +230,7 @@ internal static class JsonFieldSchemas
         }
     }
 
-    private static void CheckObject(JsonElement schema, JsonElement value, string at, List<string> errors)
+    private static void CheckObject(JsonElement schema, JsonElement value, string at, Findings errors)
     {
         if (schema.TryGetProperty("required", out var required))
         {
@@ -256,7 +260,7 @@ internal static class JsonFieldSchemas
         }
     }
 
-    private static void CheckArray(JsonElement schema, JsonElement value, string at, List<string> errors)
+    private static void CheckArray(JsonElement schema, JsonElement value, string at, Findings errors)
     {
         var count = value.GetArrayLength();
         if (schema.TryGetProperty("minItems", out var min) && count < min.GetInt32())
@@ -281,7 +285,7 @@ internal static class JsonFieldSchemas
         }
     }
 
-    private static void CheckString(JsonElement schema, string value, string at, List<string> errors)
+    private static void CheckString(JsonElement schema, string value, string at, Findings errors)
     {
         var length = value.EnumerateRunes().Count();
         if (schema.TryGetProperty("minLength", out var min) && length < min.GetInt32())
@@ -299,23 +303,59 @@ internal static class JsonFieldSchemas
             return;
         }
 
+        if (errors.OutOfTime)
+        {
+            return;
+        }
+
+        var started = Stopwatch.GetTimestamp();
         bool matches;
         try
         {
-            matches = Regex.IsMatch(value, pattern.GetString()!, RegexOptions.None, PatternTimeout);
+            matches = Compiled(pattern.GetString()!).IsMatch(value);
         }
         catch (RegexMatchTimeoutException)
         {
             matches = false;
         }
 
-        if (!matches)
+        errors.PatternTime += Stopwatch.GetElapsedTime(started);
+        if (errors.PatternTime > PatternBudget)
+        {
+            errors.OutOfTime = true;
+            errors.Add($"{at} could not be checked against its patterns in time, so the value is refused.");
+        }
+        else if (!matches)
         {
             errors.Add($"{at} does not match the pattern {pattern.GetRawText()}.");
         }
     }
 
-    private static void CheckNumber(JsonElement schema, JsonElement value, string at, List<string> errors)
+    /// <summary>
+    /// The errors of one value's check, and the time its patterns have taken so far.
+    /// </summary>
+    /// <remarks>
+    /// A timeout per match does not bound a write: a value of many strings can spend just under the
+    /// timeout on each one. So every pattern a value is checked against shares one budget, and a
+    /// value that runs past it is refused rather than let through unchecked.
+    /// </remarks>
+    private sealed class Findings : List<string>
+    {
+        public TimeSpan PatternTime { get; set; }
+        public bool OutOfTime { get; set; }
+    }
+
+    private static Regex Compiled(string pattern)
+    {
+        if (Patterns.Count > MaxCachedPatterns)
+        {
+            Patterns.Clear();
+        }
+
+        return Patterns.GetOrAdd(pattern, p => new Regex(p, RegexOptions.CultureInvariant, PatternTimeout));
+    }
+
+    private static void CheckNumber(JsonElement schema, JsonElement value, string at, Findings errors)
     {
         var number = value.GetDouble();
         if (schema.TryGetProperty("minimum", out var min) && number < min.GetDouble())

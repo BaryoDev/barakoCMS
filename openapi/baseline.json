@@ -1655,6 +1655,18 @@
         ],
         "type": "object"
       },
+      "BarakoCMSFeaturesBlocksSchemaRendererRequest": {
+        "additionalProperties": false,
+        "description": "The renderer's request: the same body, judged only once its key has matched.",
+        "properties": {
+          "blocks": {
+            "additionalProperties": {},
+            "nullable": true,
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesBlocksSchemaRequest": {
         "additionalProperties": false,
         "properties": {
@@ -9431,7 +9443,6 @@
         "additionalProperties": false,
         "properties": {
           "boundBlocks": {
-            "description": "The entries each block of the page that names a binding selects. Empty for a page with none.",
             "items": {
               "$ref": "#/components/schemas/BarakoCMSPagesFeaturesResolveBoundBlock"
             },
@@ -17186,19 +17197,19 @@
     },
     "/api/renderer/blocks/schema": {
       "put": {
-        "description": "The renderer is how a tenant's blocks are known: it registers the blocks of the plugins enabled\nfor the tenant it is serving, named by the request the same way delivery names one. With no\nrenderer key configured the route answers 404, and a missing or wrong key answers 401, compared\nin fixed time. The key is a deployment secret that already lets the renderer skip the per-IP\nlimit, so whoever holds it can rewrite any tenant's block schema; it opens nothing else here.",
+        "description": "The renderer is how a tenant's blocks are known: it registers the blocks of the plugins enabled\nfor the tenant it is serving, named by the request the same way delivery names one. With no\nrenderer key configured the route answers 404, and a missing or wrong key answers 401, compared\nin fixed time. The key is a deployment secret that already lets the renderer skip the per-IP\nlimit, so whoever holds it can rewrite any tenant's block schema; it opens nothing else here.\nThe body is capped at MaxBodyBytes, so what is read before the key is\nchecked is bounded.",
         "operationId": "barakoCMSFeaturesBlocksSchemaRendererPutEndpoint",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/BarakoCMSFeaturesBlocksSchemaRequest"
+                "$ref": "#/components/schemas/BarakoCMSFeaturesBlocksSchemaRendererRequest"
               }
             }
           },
           "description": "",
           "required": true,
-          "x-name": "Request",
+          "x-name": "RendererRequest",
           "x-position": 1
         },
         "responses": {

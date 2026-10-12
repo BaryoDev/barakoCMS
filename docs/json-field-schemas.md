@@ -52,7 +52,15 @@ every keyword under `jsonSchemaKeywords`.
 Any other keyword, `$ref`, `oneOf` and `anyOf` among them, is refused when the type is saved. A
 schema the API would read as saying less than it does would pass the values it was written to
 refuse, so it is not stored at all. A schema nests at most 16 levels and is at most 64 KiB, and a
-pattern that takes longer than 100 ms on a value counts as not matching.
+pattern that takes longer than 100 ms on a value counts as not matching. All the patterns one
+value is checked against share a budget of 250 ms, and a value that runs past it is refused.
+
+## Setting one
+
+A schema is set on the field when the type is created (`POST /api/content-types`) or the field is
+added (`POST /api/content-types/{name}/fields`). Changing an existing field's schema is a field
+change, which belongs to the change-field endpoint (#934) and is not part of this release's routes
+yet.
 
 ## Stored values
 

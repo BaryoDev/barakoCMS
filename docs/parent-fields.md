@@ -13,6 +13,8 @@ declaration is part of the type, so each tenant can have its own trees.
 
 - One field per type, a single reference (not `multiple`) whose `referenceType` is the type itself.
 - `maxDepth` is 1 to 64, and 64 when left out.
+- Set when the type is created or the field is added. Declaring it on an existing field is a field
+  change, which belongs to the change-field endpoint (#934).
 - The walk runs inside the write's transaction under an advisory lock on the tenant, type and
   field, so two saves at once cannot close a loop between them.
 - A reference to the type itself that does not declare `parent` is not a parent, and is checked as

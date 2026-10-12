@@ -37,7 +37,6 @@ internal static class BlockFields
     /// </remarks>
     public static IReadOnlyList<string> Envelope { get; } = ["type", "id", "preset", "binding"];
 
-
     private static readonly Regex BlockName = new(@"^[A-Za-z][A-Za-z0-9_-]{0,63}$", RegexOptions.Compiled);
 
     public static bool Is(string? type) => string.Equals(type, TypeName, StringComparison.OrdinalIgnoreCase);
@@ -152,6 +151,13 @@ internal static class BlockFields
         if (!schema.Blocks.TryGetValue(type, out var blockSchema))
         {
             return [$"{at}.type '{type}' is not a block this tenant's renderer registered."];
+        }
+
+        // A block that says what its other properties may be leaves them to its schema. One that
+        // says nothing takes only the properties it names, so a misspelled one is refused.
+        if (blockSchema.TryGetProperty("additionalProperties", out _))
+        {
+            return JsonFieldSchemas.Errors(blockSchema, props, at);
         }
 
         blockSchema.TryGetProperty("properties", out var declared);

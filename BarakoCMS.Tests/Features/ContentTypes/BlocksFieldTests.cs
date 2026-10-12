@@ -136,6 +136,20 @@ public class BlocksFieldTests
     }
 
     [Fact]
+    public async Task A_block_that_declares_additional_properties_takes_them_as_its_schema_says()
+    {
+        var (_, admin) = await TenantAsync();
+        (await admin.PutAsJsonAsync("/api/blocks/schema", new
+        {
+            blocks = new Dictionary<string, object> { ["kv"] = new { type = "object", additionalProperties = new { type = "string" } } },
+        }, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        var type = await PageTypeAsync(admin);
+
+        (await WritePageAsync(admin, type, """[ { "type": "kv", "a": "x", "b": "y" } ]""")).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await RefusedAsync(await WritePageAsync(admin, type, """[ { "type": "kv", "a": 1 } ]"""))).Should().Contain("Blocks[0].a should be a string");
+    }
+
+    [Fact]
     public async Task Blocks_the_schema_allows_are_stored()
     {
         var (_, admin) = await TenantAsync();
@@ -319,7 +333,8 @@ public class BlocksFieldTests
                 new { name = "Secret", type = "string", sensitivity = "Hidden" },
             },
         }, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
-        foreach (var (title, rank, status) in new[] { ("one", 1, "Published"), ("two", 2, "Published"), ("three", 3, "Published"), ("draft", 9, "Draft") })
+        // Ranks out of step with creation order, so newest-first and highest-rank-first differ.
+        foreach (var (title, rank, status) in new[] { ("one", 2, "Published"), ("two", 3, "Published"), ("three", 1, "Published"), ("draft", 9, "Draft") })
         {
             (await admin.PostAsJsonAsync("/api/contents", new
             {
@@ -328,13 +343,18 @@ public class BlocksFieldTests
         }
 
         var page = await PageTypeAsync(admin);
-        (await admin.PutAsJsonAsync("/api/pages/settings", new { contentType = page, parentField = "Parent" }, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await admin.PutAsJsonAsync("/api/pages/settings", new { contentType = page }, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
         var top = Guid.NewGuid();
         var hidden = Guid.NewGuid();
+        var only = Guid.NewGuid();
         (await admin.PutAsJsonAsync($"/api/blocks/bindings/{top}", new { name = "Top two", contentType = posts, sort = "-Rank", limit = 2 }, Ct))
             .StatusCode.Should().Be(HttpStatusCode.OK);
         (await admin.PutAsJsonAsync($"/api/blocks/bindings/{hidden}", new { name = "By secret", contentType = posts, sort = "Secret" }, Ct))
             .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await admin.PutAsJsonAsync($"/api/blocks/bindings/{only}", new
+        {
+            name = "Just one", contentType = posts, where = new Dictionary<string, string> { ["Title"] = "ONE" },
+        }, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
 
         (await admin.PostAsJsonAsync("/api/contents", new
         {
@@ -342,7 +362,7 @@ public class BlocksFieldTests
             data = new Dictionary<string, object>
             {
                 ["Title"] = "Home", ["Slug"] = "home",
-                ["Blocks"] = JsonDocument.Parse($$"""[ { "type": "hero" }, { "type": "cards", "binding": "{{top}}" }, { "type": "cards", "binding": "{{hidden}}" } ]""").RootElement,
+                ["Blocks"] = JsonDocument.Parse($$"""[ { "type": "hero" }, { "type": "cards", "binding": "{{top}}" }, { "type": "cards", "binding": "{{hidden}}" }, { "type": "cards", "binding": "{{only}}" } ]""").RootElement,
             },
         }, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
 
@@ -350,13 +370,17 @@ public class BlocksFieldTests
         res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync(Ct));
         var bound = (await res.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("boundBlocks").EnumerateArray().ToList();
 
-        bound.Should().HaveCount(2);
+        bound.Should().HaveCount(3);
         bound[0].GetProperty("index").GetInt32().Should().Be(1);
         bound[0].GetProperty("field").GetString().Should().Be("Blocks");
         var titles = bound[0].GetProperty("entries").EnumerateArray().Select(e => e.GetProperty("data").GetProperty("Title").GetString()).ToList();
-        titles.Should().Equal("three", "two");
+        titles.Should().Equal("two", "one");
         bound[0].GetProperty("entries")[0].GetProperty("data").TryGetProperty("Secret", out _).Should().BeFalse("only Public fields are delivered");
 
         bound[1].GetProperty("entries").GetArrayLength().Should().Be(0, "a binding ordered by a field no reader may see selects nothing");
+
+        var matched = bound[2].GetProperty("entries").EnumerateArray().ToList();
+        matched.Should().HaveCount(1);
+        matched[0].GetProperty("data").GetProperty("Title").GetString().Should().Be("one", "a condition matches ignoring case");
     }
 }

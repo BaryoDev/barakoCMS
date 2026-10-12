@@ -17,7 +17,8 @@ internal sealed record BoundBlock(string Field, int Index, Guid Binding, IReadOn
 /// <remarks>
 /// Read off the page as delivery projects it, so a <c>blocks</c> field that is not Public binds
 /// nothing. Each entry is projected for an anonymous reader like any delivered entry: published,
-/// document-Public, of a publicly deliverable type, Public fields only. A binding whose type stopped
+/// document-Public, of a publicly deliverable type, Public fields only, references to entries a
+/// reader may not see left out. A binding whose type stopped
 /// being deliverable, or whose sort or conditions name a field that is no longer Public, selects
 /// nothing rather than filtering or ordering on a value no reader may see.
 ///
@@ -123,14 +124,34 @@ internal static class BoundBlocks
         // A field name reaches SQL as text here, as in core's own delivery sort, so only the type's
         // own spelling of a Public field of letters and digits is let through.
         query = sortField is not null && PublicField(definition, sortField) is { } sort && SafeFieldName.IsMatch(sort)
-            ? query.OrderBySql($"d.data -> 'Data' -> '{sort}' {(binding.Sort!.StartsWith('-') ? "DESC" : "ASC")} NULLS LAST, d.id")
+            ? query.OrderBySql(
+                $"(SELECT e.value FROM jsonb_each(d.data -> 'Data') e WHERE lower(e.key) = lower('{sort}') LIMIT 1) "
+                + $"{(binding.Sort!.StartsWith('-') ? "DESC" : "ASC")} NULLS LAST, d.id")
             : query.OrderByDescending(c => c.CreatedAt).ThenBy(c => c.Id);
 
         var docs = await query.Take(Math.Clamp(binding.Limit, 1, BlockBinding.MaxLimit)).ToListAsync(ct);
-        return docs.Select(d => projector.Project(d, definition)).OfType<PublicContentProjection>().ToList();
+
+        // As the page itself is projected, so a reference to an entry no reader may see is left out
+        // and a file field is answered, the way core delivery answers both.
+        var projected = new List<PublicContentProjection>(docs.Count);
+        foreach (var doc in docs)
+        {
+            if (await projector.ProjectAsync(doc, definition, ct) is { } entry)
+            {
+                projected.Add(entry);
+            }
+        }
+
+        return projected;
     }
 
+    /// <summary>
+    /// A field delivery serves: Public, and not a token, whose value the server keeps and delivery
+    /// never returns. Ordering or filtering on any other would answer questions about a value no
+    /// reader may see.
+    /// </summary>
     private static string? PublicField(ContentTypeDefinition definition, string name) =>
         definition.Fields.FirstOrDefault(f => string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase)
-            && f.Sensitivity == SensitivityLevel.Public)?.Name;
+            && f.Sensitivity == SensitivityLevel.Public
+            && !string.Equals(f.Type, "token", StringComparison.OrdinalIgnoreCase))?.Name;
 }
