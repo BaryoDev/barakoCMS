@@ -1,4 +1,5 @@
 using barakoCMS.Infrastructure.Multitenancy;
+using BarakoCMS.Diagnostics.Forwarding;
 using FastEndpoints;
 using Marten;
 // RequireRateLimiting lives here; this project is not a Web SDK project, so it is not implicitly used.
@@ -49,7 +50,8 @@ public class Endpoint(IDocumentSession session, TenantContext tenant) : Endpoint
         var username = User.FindFirst("Username")?.Value ?? User.Identity?.Name;
         var userAgent = HttpContext.Request.Headers.UserAgent.ToString();
 
-        foreach (var item in req.Items.Take(ClientErrorRecorder.MaxItems))
+        var items = req.Items.Take(ClientErrorRecorder.MaxItems).ToList();
+        foreach (var item in items)
         {
             // An error from before sign-in names no tenant. The one the request resolved to keeps it
             // on that tenant's list rather than on nobody's but a SuperAdmin's.
@@ -58,6 +60,16 @@ public class Endpoint(IDocumentSession session, TenantContext tenant) : Endpoint
         }
 
         await session.SaveChangesAsync(ct);
+
+        // After the save, and never awaited: the receiver cannot slow or fail this response.
+        if (TryResolve<ClientErrorForwarder>() is { Enabled: true } forwarder)
+        {
+            foreach (var item in items)
+            {
+                if (ClientErrorRecorder.ForwardableFrom(item) is { } forwarded) forwarder.TryEnqueue(forwarded);
+            }
+        }
+
         await Send.OkAsync(ct);
     }
 }

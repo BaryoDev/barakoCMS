@@ -73,8 +73,8 @@ Another module adds a source by registering a scoped `barakoCMS.Core.Interfaces.
 
 ## Redaction
 
-Titles, details and resolution text in the incidents view go through one set of rules on the
-server:
+Titles, details and resolution text in the incidents view, and everything the forwarder sends, go
+through one set of rules on the server:
 
 - JSON web tokens, and the value after `Bearer` or `Basic`
 - every query string value, and the user and password in a URL
@@ -88,6 +88,41 @@ server:
 These are patterns. A Sensitive value that appears with no field name in front of it is not
 recognisable as one and stays. The stored error and `GET /api/client-errors` are unchanged: they
 are the unredacted record, behind the same capability.
+
+## Forwarding to an error tracker
+
+Off by default. Set a DSN and captured errors are also sent to any receiver that speaks Sentry's
+envelope protocol: Sentry, or GlitchTip, which is MIT licensed and self-hostable.
+
+```sh
+Modules__Diagnostics__Forwarding__Enabled=true
+Modules__Diagnostics__Forwarding__Dsn=https://PUBLIC_KEY@errors.example.com/PROJECT_ID
+Modules__Diagnostics__Forwarding__Environment=production   # optional
+Modules__Diagnostics__Forwarding__QueueCapacity=500        # optional
+Modules__Diagnostics__Forwarding__TimeoutSeconds=5         # optional
+```
+
+Local storage and `GET /api/client-errors` are unchanged; this is a copy, not a replacement.
+Forwarding never touches the ingest response: reports wait in a queue of at most `QueueCapacity`,
+a full queue drops new ones, and a receiver that is down, slow or answering errors is logged and
+skipped with no retry.
+
+**Exactly what leaves the process**, per report, as one envelope event:
+
+| Field | From |
+|---|---|
+| `message.formatted` | the error message, redacted |
+| `culprit` | the reported source (script, component or API path), redacted |
+| `request.url` | the page URL, redacted (query values removed) |
+| `level` | `error` or `warning` |
+| `release` | the reported app version |
+| `environment` | the configured environment, when set |
+| `fingerprint` | this module's fingerprint of the fault |
+| `tags.kind`, `tags.tenant`, `tags.status` | the report's kind, tenant slug and HTTP status |
+| `event_id`, `timestamp`, `platform`, `logger` | generated |
+
+The envelope header also carries the DSN, as the protocol requires. **Not sent:** the stack, the
+user agent, the user id or username, and the client's address.
 
 ## Sending errors
 

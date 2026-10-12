@@ -1,5 +1,6 @@
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Modules;
+using BarakoCMS.Diagnostics.Forwarding;
 using BarakoCMS.Diagnostics.Incidents;
 using Marten;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -20,7 +21,7 @@ public sealed class DiagnosticsModule : IBarakoModule
     public string Name => "Diagnostics";
 
     /// <summary>
-    /// The incidents view's sources (#893). <paramref name="configuration"/>
+    /// The incidents view's sources (#893) and the optional forwarder (#627). <paramref name="configuration"/>
     /// is this module's own section, <c>Modules:Diagnostics</c>.
     /// </summary>
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
@@ -29,6 +30,11 @@ public sealed class DiagnosticsModule : IBarakoModule
         services.TryAddEnumerable(ServiceDescriptor.Scoped<IIncidentSource, DeadLetteredJobIncidentSource>());
         services.TryAddEnumerable(ServiceDescriptor.Scoped<IIncidentSource, FailedWorkflowRunIncidentSource>());
         services.TryAddEnumerable(ServiceDescriptor.Scoped<IIncidentSource, FailedDeliveryIncidentSource>());
+
+        services.Configure<ForwardingOptions>(configuration.GetSection(ForwardingOptions.SectionName));
+        services.TryAddSingleton<ClientErrorForwarder>();
+        services.AddHttpClient<SentryForwardClient>();
+        services.AddHostedService<ClientErrorForwardingService>();
     }
 
     public void ConfigureSchema(IModuleSchema schema)
