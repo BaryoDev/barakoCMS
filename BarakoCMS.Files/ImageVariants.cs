@@ -31,10 +31,25 @@ public readonly record struct VariantResult(StoredFile File, string? Refused);
 public sealed class ImageVariants
 {
     private readonly IDocumentSession _session;
-    private readonly IFileStorage _storage;
+    private readonly IFileStorage? _storage;
+    private readonly BarakoCMS.Files.Storage.FileStorageResolver? _storages;
     private readonly IImageResizer _resizer;
     private readonly ImageVariantOptions _options;
 
+    public ImageVariants(
+        IDocumentSession session,
+        BarakoCMS.Files.Storage.FileStorageResolver storages,
+        IImageResizer resizer,
+        IConfiguration configuration)
+    {
+        _session = session;
+        _storages = storages;
+        _resizer = resizer;
+        _options = SkiaImageResizer.Read(configuration);
+    }
+
+    /// <summary>The same, reading and writing through one storage whatever a file records.</summary>
+    [Obsolete("Reads now follow each file's own provider. Use the constructor taking FileStorageResolver. Removal planned for barakoCMS 6.0.")]
     public ImageVariants(
         IDocumentSession session,
         IFileStorage storage,
@@ -78,7 +93,7 @@ public sealed class ImageVariants
             return new VariantResult(cached, null);
         }
 
-        var source = await _storage.GetAsync(original.StorageKey, ct);
+        var source = await (_storages is null ? _storage! : await _storages.ForAsync(original, ct)).GetAsync(original.StorageKey, ct);
         if (source is null)
         {
             return new VariantResult(original, null);
@@ -99,10 +114,18 @@ public sealed class ImageVariants
             return new VariantResult(original, null);
         }
 
-        var key = FileKeys.ForVariant(original, width.Value);
-        var stored = await _storage.PutAsync(
+        return new VariantResult(await StoreVariantAsync(original, id, width.Value, resized, ct), null);
+    }
+
+    private async Task<StoredFile> StoreVariantAsync(
+        StoredFile original, Guid id, int width, byte[] resized, CancellationToken ct)
+    {
+        var key = FileKeys.ForVariant(original, width);
+        var target = _storages is null ? _storage! : await _storages.ForNewFilesAsync(ct);
+        var stored = await target.PutAsync(
             new MemoryStream(resized), key, original.ContentType, original.IsPublic, ct);
 
+        var dimensions = ImageDimensions.Read(original.ContentType, resized, resized.Length);
         var variant = new StoredFile
         {
             // Derived from the parent and the width rather than random, so two requests racing for
@@ -110,11 +133,13 @@ public sealed class ImageVariants
             // id rather than a query.
             Id = id,
             ParentFileId = original.Id,
-            VariantWidth = width.Value,
-            FileName = VariantName(original.FileName, width.Value),
+            VariantWidth = width,
+            FileName = VariantName(original.FileName, width),
             ContentType = original.ContentType,
             Size = resized.Length,
-            Provider = _storage.Provider,
+            Width = dimensions?.Width,
+            Height = dimensions?.Height,
+            Provider = target.Provider,
             StorageKey = stored.Key,
             // Mirrors the original so the bytes land with the same public-ness on a store that has
             // the concept. It is not what makes the variant safe; not being addressable is.
@@ -127,7 +152,7 @@ public sealed class ImageVariants
         _session.Store(variant);
         await _session.SaveChangesAsync(ct);
 
-        return new VariantResult(variant, null);
+        return variant;
     }
 
     /// <summary>The same parent and width always give the same id.</summary>

@@ -237,7 +237,7 @@ public class MigrationLedgerTests
         var ct = TestContext.Current.CancellationToken;
         await using var database = await MigrationScratchDatabase.CreateAsync(_factory);
         await database.ExecuteAsync("create table public.mt_doc_stored_files (id uuid primary key, data jsonb not null)");
-        var shipped = ShippedMigrations.FromAssembly("Files", typeof(BarakoCMS.Files.FilesModule).Assembly);
+        var shipped = FilesIndexMigration();
         var ledger = database.Ledger();
 
         var first = await ledger.ApplyAsync(shipped, Quiet, ct);
@@ -257,7 +257,7 @@ public class MigrationLedgerTests
     {
         var ct = TestContext.Current.CancellationToken;
         await using var database = await MigrationScratchDatabase.CreateAsync(_factory);
-        var shipped = ShippedMigrations.FromAssembly("Files", typeof(BarakoCMS.Files.FilesModule).Assembly);
+        var shipped = FilesIndexMigration();
 
         var result = await database.Ledger().ApplyAsync(shipped, Quiet, ct);
 
@@ -289,7 +289,7 @@ public class MigrationLedgerTests
             "select exists (select 1 from pg_index x join pg_class c on c.oid = x.indexrelid "
             + "where c.relname = 'mt_doc_stored_files_idx_parent_file_id' and not x.indisvalid)"))
             .Should().BeTrue("a failed CONCURRENTLY build leaves its index behind, invalid");
-        var shipped = ShippedMigrations.FromAssembly("Files", typeof(BarakoCMS.Files.FilesModule).Assembly);
+        var shipped = FilesIndexMigration();
         var ledger = database.Ledger();
 
         var stuck = await ledger.ApplyAsync(shipped, Quiet, ct);
@@ -556,4 +556,10 @@ public class MigrationLedgerTests
         (await used.IsTrueAsync("select to_regclass('public.barako_migrations') is null"))
             .Should().BeTrue("a database with history is never marked as migrated by a start");
     }
+
+    /// <summary>The Files module's 4.2.0 index file alone, which the Files tests above are about.</summary>
+    private static List<ShippedMigration> FilesIndexMigration() =>
+        ShippedMigrations.FromAssembly("Files", typeof(BarakoCMS.Files.FilesModule).Assembly)
+            .Where(m => m.Id == "4.2.0/stored-files-parent-index")
+            .ToList();
 }

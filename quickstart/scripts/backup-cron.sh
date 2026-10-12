@@ -20,6 +20,26 @@ echo "Starting backup daemon"
 echo "  schedule:  $BACKUP_CRON_SCHEDULE"
 echo "  retention: $BACKUP_KEEP_DAYS days"
 
+# The off-host copy (#780). Off unless BACKUP_S3_BUCKET is set, so a deployment that sets nothing
+# runs exactly as before. When it is set, everything it needs is checked now, at start, so a
+# missing key or a missing client stops the container here instead of failing at 02:00.
+if [ -n "${BACKUP_S3_BUCKET:-}" ]; then
+    echo "  offsite:   s3://$BACKUP_S3_BUCKET/${BACKUP_S3_PREFIX:-barako-backups/}"
+    if [ -z "${BACKUP_S3_ACCESS_KEY:-}" ] || [ -z "${BACKUP_S3_SECRET_KEY:-}" ]; then
+        echo "BACKUP FAILED [$(date)]: BACKUP_S3_BUCKET is set but BACKUP_S3_ACCESS_KEY or BACKUP_S3_SECRET_KEY is not" >&2
+        exit 1
+    fi
+    # The image has no S3 client. curl signs S3 requests itself (--aws-sigv4), and it comes from
+    # the image's own Alpine repositories. Installed only here, so a deployment without the copy
+    # never reaches a package mirror.
+    if ! command -v curl >/dev/null 2>&1; then
+        apk add --no-cache curl >/dev/null 2>&1 || {
+            echo "BACKUP FAILED [$(date)]: could not install curl for the offsite copy (apk add curl)" >&2
+            exit 1
+        }
+    fi
+fi
+
 cat <<'JOB' > /backup_job.sh
 #!/bin/sh
 set -eu
@@ -60,7 +80,42 @@ SIZE=$(wc -c < "$TMP.gz")
 mv "$TMP.gz" "$FINAL"
 echo "Backup OK [$(date)]: $FINAL (${SIZE} bytes)"
 
-# 5. Rotate only after a success, so a run of failures can never delete the last
+# 5. The off-host copy, when configured. A failed upload fails the run as loudly as a bad dump,
+#    keeps the local copy, and skips rotation, so the backups on this host are not thinned out
+#    while none is leaving it.
+if [ -n "${BACKUP_S3_BUCKET:-}" ]; then
+    REGION="${BACKUP_S3_REGION:-us-east-1}"
+    KEY="${BACKUP_S3_PREFIX:-barako-backups/}$(basename "$FINAL")"
+    if [ -n "${BACKUP_S3_ENDPOINT:-}" ]; then
+        URL="${BACKUP_S3_ENDPOINT%/}/$BACKUP_S3_BUCKET/$KEY"
+    else
+        URL="https://$BACKUP_S3_BUCKET.s3.$REGION.amazonaws.com/$KEY"
+    fi
+
+    # The keys go to curl in a file only this user can read, not on its command line, where
+    # anyone who can list processes would see them.
+    CREDENTIALS=$(mktemp)
+    chmod 600 "$CREDENTIALS"
+    printf 'user = "%s:%s"\n' \
+        "$(printf '%s' "$BACKUP_S3_ACCESS_KEY" | sed 's/[\\"]/\\&/g')" \
+        "$(printf '%s' "$BACKUP_S3_SECRET_KEY" | sed 's/[\\"]/\\&/g')" > "$CREDENTIALS"
+
+    UPLOADED=0
+    RESPONSE=$(curl -sS --fail-with-body --max-time 1800 -K "$CREDENTIALS" \
+        --aws-sigv4 "aws:amz:$REGION:s3" \
+        -H "x-amz-content-sha256: $(sha256sum "$FINAL" | cut -d' ' -f1)" \
+        --upload-file "$FINAL" "$URL" 2>&1) && UPLOADED=1
+    rm -f "$CREDENTIALS"
+
+    if [ "$UPLOADED" != 1 ]; then
+        echo "BACKUP FAILED [$(date)]: the offsite copy to s3://$BACKUP_S3_BUCKET/$KEY failed; $FINAL is kept and rotation is skipped" >&2
+        echo "$RESPONSE" >&2
+        exit 1
+    fi
+    echo "Offsite copy OK [$(date)]: s3://$BACKUP_S3_BUCKET/$KEY"
+fi
+
+# 6. Rotate only after a success, so a run of failures can never delete the last
 #    good backup we have.
 find "$BACKUP_DIR" -name "barako_backup_*.sql.gz" -mtime "+$BACKUP_KEEP_DAYS" -exec rm {} \;
 find "$BACKUP_DIR" -name ".in-progress_*" -mtime +1 -exec rm {} \;
