@@ -119,6 +119,12 @@ public class SystemCapabilitiesTests
             // because configuring one sits with configuring the request definition and the connector
             // it runs on, and Admin holds both of those already.
             SystemCapabilities.ManageCollectionSyncs,
+            // #584: the external number gap report is new, no gate to preserve. Checking that every
+            // pre-printed number is accounted for is routine bookkeeping.
+            SystemCapabilities.ViewNumberGaps,
+            // Station keys are new, no gate to preserve. They are tenant credentials like API keys,
+            // which Admin already manages.
+            SystemCapabilities.ManageStations,
         });
         admin.Should().NotContain(SystemCapabilities.ManageRoles);
         admin.Should().NotContain(SystemCapabilities.ManageTenants);

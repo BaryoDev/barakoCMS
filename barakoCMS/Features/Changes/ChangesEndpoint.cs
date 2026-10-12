@@ -20,7 +20,7 @@ internal sealed class ChangesRequest
     public int? Limit { get; set; }
 }
 
-public sealed class ChangesResponse
+internal sealed class ChangesResponse
 {
     /// <summary>Pass back as <c>after</c> on the next call.</summary>
     public long Next { get; set; }
@@ -28,7 +28,7 @@ public sealed class ChangesResponse
     public List<ChangeItem> Items { get; set; } = [];
 }
 
-public sealed class ChangeItem
+internal sealed class ChangeItem
 {
     public long Sequence { get; set; }
     public Guid StreamId { get; set; }
