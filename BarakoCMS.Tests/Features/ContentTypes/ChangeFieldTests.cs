@@ -337,6 +337,38 @@ public class ChangeFieldTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_sensitivity_change_on_a_type_past_one_batch_runs_on_the_job_queue_and_rebuilds_search_text_first()
+    {
+        var type = await TypeWithEntriesAsync(FieldChanges.BatchSize + 1);
+
+        var res = await _client.PutAsJsonAsync($"/api/content-types/{type}/fields/Doctor/sensitivity", new { sensitivity = "Hidden" }, Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync(Ct));
+        var change = (await res.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("change");
+        change.GetProperty("kind").GetString().Should().Be("sensitivity");
+        change.GetProperty("total").GetInt32().Should().Be(FieldChanges.BatchSize + 1);
+        var done = await CompletedAsync(change.GetProperty("id").GetGuid());
+        done.GetProperty("steps").GetInt32().Should().Be(2);
+
+        (await DefinitionAsync(type)).Fields.Single(f => f.Name == "Doctor").Sensitivity.Should().Be(SensitivityLevel.Hidden);
+        var entries = await EntriesAsync(type);
+        entries.Should().HaveCount(FieldChanges.BatchSize + 1);
+        entries.Where(e => e.SearchText is not null).Should().OnlyContain(e => !e.SearchText!.Contains("Dr "));
+    }
+
+    [Fact]
+    public async Task A_sensitivity_change_on_a_small_type_is_applied_before_the_answer()
+    {
+        var type = await TypeWithEntriesAsync(2);
+
+        var res = await _client.PutAsJsonAsync($"/api/content-types/{type}/fields/Doctor/sensitivity", new { sensitivity = "Hidden" }, Ct);
+
+        var body = await res.Content.ReadFromJsonAsync<JsonElement>(Ct);
+        body.GetProperty("change").GetProperty("state").GetString().Should().Be("completed");
+        (await DefinitionAsync(type)).Fields.Single(f => f.Name == "Doctor").Sensitivity.Should().Be(SensitivityLevel.Hidden);
+    }
+
+    [Fact]
     public async Task Changing_a_field_needs_manage_content_types()
     {
         var type = await TypeWithEntriesAsync(0);

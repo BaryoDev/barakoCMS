@@ -64,7 +64,7 @@
 128 barakoCMS/Features/ContentType/SetFieldCurrency/Endpoint.cs::Endpoint.HandleAsync
 102 barakoCMS/Features/ContentType/SetFieldOptions/Endpoint.cs::Endpoint.HandleAsync
 94 barakoCMS/Features/ContentType/SetFieldPresentation/Endpoint.cs::Endpoint.HandleAsync
-170 barakoCMS/Features/ContentType/SetFieldSensitivity/Endpoint.cs::Endpoint.HandleAsync
+165 barakoCMS/Features/ContentType/SetFieldSensitivity/Endpoint.cs::Endpoint.HandleAsync
 80 barakoCMS/Features/ContentType/SetPublicDelivery/Endpoint.cs::Endpoint.HandleAsync
 86 barakoCMS/Features/ContentType/SetUniqueness/Endpoint.cs::Endpoint.HandleAsync
 87 barakoCMS/Features/EmailTemplates/EmailTemplateRenderer.cs::EmailTemplateRenderer.RenderAsync

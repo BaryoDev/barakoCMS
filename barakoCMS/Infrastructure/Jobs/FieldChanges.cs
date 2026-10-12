@@ -75,10 +75,11 @@ internal static class FieldChanges
     };
 
     /// <summary>
-    /// Stores a new change and queues the job that runs it, both on <paramref name="session"/>, so
-    /// they commit with the request's other writes or not at all.
+    /// Stores a new change and, unless <paramref name="queue"/> is false, queues the job that runs it,
+    /// both on <paramref name="session"/>, so they commit with the request's other writes or not at
+    /// all.
     /// </summary>
-    public static async Task StartAsync(IDocumentSession session, FieldChange change, CancellationToken ct)
+    public static async Task StartAsync(IDocumentSession session, FieldChange change, CancellationToken ct, bool queue = true)
     {
         var lowered = change.ContentType.ToLower();
         change.Id = Guid.NewGuid();
@@ -87,7 +88,10 @@ internal static class FieldChanges
         change.Total = await session.Query<Content>().CountAsync(c => c.ContentType.ToLower() == lowered, ct);
         session.Store(change);
 
-        await new FieldChangeCommand { TenantId = session.TenantId, ChangeId = change.Id }.QueueJobAsync(ct: ct);
+        if (queue)
+        {
+            await new FieldChangeCommand { TenantId = session.TenantId, ChangeId = change.Id }.QueueJobAsync(ct: ct);
+        }
     }
 
     /// <summary>The change running on a type, if any. Entry writes to the type wait for it.</summary>

@@ -375,9 +375,17 @@ listing the roles that may see it reads as a restriction that is not there, and
 leaving the list in place would silently reinstate a stale allowlist the next
 time somebody raised the level.
 
-The rebuild is synchronous and proportional to the number of entries of the
-type. A background rebuild would answer 200 while the value was still matchable
-anonymously, with nothing to tell the caller when it stopped being.
+From 5.0.0 the rebuild and the definition change are one field change (see
+[field-changes.md](field-changes.md)), in the order above: raising rebuilds the
+search text before the definition changes, lowering changes the definition
+first. A type of up to 200 entries is changed before the answer, as it always
+was, and `change` in the response is `completed`. A larger type is changed by the
+job queue, so the request no longer holds open for the whole rebuild: the answer
+is 200 with `change` still `running` and `entriesReindexed` 0, the definition
+takes the new level when the change completes, and
+`GET /api/content-types/field-changes/{id}` reports its progress. Until then the
+field is served at its old level, which is what the synchronous rebuild did for
+as long as it ran, and entry writes to the type wait.
 
 Still no admin UI for it: the endpoint is called directly.
 
