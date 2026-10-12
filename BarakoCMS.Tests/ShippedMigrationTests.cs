@@ -133,7 +133,7 @@ public class ShippedMigrationTests
             "Forms/4.6.0/forms-email-verification",
             "Forms/4.7.0/forms-tenant-policy-restore");
         coreOnly.Count.Should().BeGreaterThanOrEqualTo(7, "seven core files were released before the ledger");
-        coreOnly.Should().HaveCount(all.Count - 8, "a module that is not enabled contributes nothing");
+        coreOnly.Should().HaveCount(all.Count - 9, "a module that is not enabled contributes nothing");
         coreOnly.Should().OnlyContain(m => m.Owner == ShippedMigrations.CoreOwner);
         coreOnly.Select(m => m.Id).Should().NotIntersectWith(ModuleOwned, "core must not also ship a module's file");
     }
