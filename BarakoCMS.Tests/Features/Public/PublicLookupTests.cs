@@ -325,8 +325,11 @@ public class PublicLookupTests
         held[5].Should().Be(HttpStatusCode.TooManyRequests);
         unheld.Should().Equal(held, "a held reference and one nobody holds are throttled the same way");
 
-        (await LookupAsync(Anonymous(), type, reference, "Dela Cruz")).StatusCode.Should().Be(
+        var refused = await LookupAsync(Anonymous(), type, reference, "Dela Cruz");
+        refused.StatusCode.Should().Be(
             HttpStatusCode.TooManyRequests, "the right name does not get past a reference that is out of attempts");
+        refused.Headers.RetryAfter?.Delta.Should().Be(TimeSpan.FromMinutes(15),
+            "a client that obeys Retry-After should not retry into a window that is still closed");
     }
 
     private async Task<HttpClient> AdminAsync()

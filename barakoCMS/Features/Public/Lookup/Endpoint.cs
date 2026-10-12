@@ -58,7 +58,7 @@ internal sealed class Endpoint(
 
         if (!throttle.TryAcquire(tenant.Slug, type, req.Reference))
         {
-            HttpContext.Response.Headers.RetryAfter = "60";
+            HttpContext.Response.Headers.RetryAfter = throttle.RetryAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
             await Send.StringAsync("Too many requests. Please try again later.", StatusCodes.Status429TooManyRequests, cancellation: ct);
             return;
         }

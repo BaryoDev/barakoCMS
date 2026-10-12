@@ -26,6 +26,7 @@ internal sealed class LookupReferenceThrottle : IDisposable
 
     public LookupReferenceThrottle(RateLimitWindow window)
     {
+        RetryAfterSeconds = window.WindowSeconds;
         _limiter = PartitionedRateLimiter.Create<string, string>(key =>
             RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions
             {
@@ -34,6 +35,9 @@ internal sealed class LookupReferenceThrottle : IDisposable
                 QueueLimit = 0,
             }));
     }
+
+    /// <summary>The longest a refused caller waits for the window to reopen.</summary>
+    public int RetryAfterSeconds { get; }
 
     /// <summary>Takes one attempt for this reference, or returns false when it has none left.</summary>
     public bool TryAcquire(string tenant, string type, string reference)
