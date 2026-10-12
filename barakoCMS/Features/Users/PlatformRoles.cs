@@ -46,6 +46,7 @@ internal static class PlatformRoles
     {
         SystemCapabilities.All,
         SystemCapabilities.ManageRoles,
+        SystemCapabilities.ManagePlatformRoles,
         SystemCapabilities.ManageTenants,
         SystemCapabilities.ManageUsers,
         SystemCapabilities.ManageEmailSettings,

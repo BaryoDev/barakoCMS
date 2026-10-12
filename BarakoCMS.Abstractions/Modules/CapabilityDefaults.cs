@@ -121,12 +121,21 @@ public sealed class CapabilityDefaults
                 continue;
             }
 
+            // A role seeded under its fixed id is the deployment's, so every tenant can assign it.
+            // One found by name alone may be an operator's, and is left where it is.
+            var platform = role.Id == seeded.Id && role is not { IsPlatform: true, TenantSlug: null };
+            if (platform)
+            {
+                role.IsPlatform = true;
+                role.TenantSlug = null;
+            }
+
             var held = role.SystemCapabilities ?? [];
             var missing = Capabilities
                 .Where(c => !held.Contains(c, StringComparer.OrdinalIgnoreCase))
                 .ToList();
 
-            if (missing.Count == 0)
+            if (missing.Count == 0 && !platform)
             {
                 continue;
             }

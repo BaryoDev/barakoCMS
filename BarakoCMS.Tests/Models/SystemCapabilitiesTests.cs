@@ -153,6 +153,8 @@ public class SystemCapabilitiesTests
         [
             SystemCapabilities.All,
             SystemCapabilities.ManageRoles,
+            // #913: the roles every tenant shares. Only SuperAdmin changes them.
+            SystemCapabilities.ManagePlatformRoles,
             SystemCapabilities.ManageTenants,
             SystemCapabilities.ManageUsers,
             SystemCapabilities.ManageEmailSettings,
