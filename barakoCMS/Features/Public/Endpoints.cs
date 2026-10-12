@@ -468,7 +468,16 @@ internal static class PublicDelivery
     }
 }
 
-internal sealed class PublicListRequest : PaginatedRequest { }
+internal sealed class PublicListRequest : PaginatedRequest
+{
+    /// <summary>Only entries updated after this instant. Optional.</summary>
+    /// <remarks>
+    /// For a build that fetches what changed since its last run. It answers additions and edits of
+    /// published entries only: an entry unpublished, archived, made non-Public or deleted is not in
+    /// a published list, so a removal is read from <c>GET /api/changes</c>.
+    /// </remarks>
+    public DateTimeOffset? ChangedSince { get; set; }
+}
 
 /// <summary>GET /api/public/{type} — paged Published entries of a content type, masked and cacheable.</summary>
 internal class ListPublishedEndpoint(
@@ -524,20 +533,33 @@ internal class ListPublishedEndpoint(
             return;
         }
 
-        /* Published + document-Public only; the DB filters the rest out. */
-        var baseQuery = session.Query<ContentDoc>()
-            .Where(c => c.ContentType == type
-                        && c.Status == ContentStatus.Published
-                        && c.Sensitivity == SensitivityLevel.Public);
+        // A function rather than one query, because Stats below marks the query it is called on
+        // and a count made from that same query is then refused.
+        IQueryable<ContentDoc> Matching()
+        {
+            /* Published + document-Public only; the DB filters the rest out. */
+            var matching = session.Query<ContentDoc>()
+                .Where(c => c.ContentType == type
+                            && c.Status == ContentStatus.Published
+                            && c.Sensitivity == SensitivityLevel.Public);
 
-        /*
-         * Applied on top of the published/public predicate, never instead of it, so no filter can
-         * widen what is visible. The integration test asserts that directly: a Draft matching the
-         * filter must still not come back.
-         */
-        baseQuery = query.ApplyTo(baseQuery);
+            /*
+             * Applied on top of the published/public predicate, never instead of it, so no filter can
+             * widen what is visible. The integration test asserts that directly: a Draft matching the
+             * filter must still not come back.
+             */
+            matching = query.ApplyTo(matching);
 
-        var total = await baseQuery.CountAsync(ct);
+            if (req.ChangedSince is { } since)
+            {
+                var after = since.UtcDateTime;
+                matching = matching.Where(c => c.UpdatedAt > after);
+            }
+
+            return matching;
+        }
+
+        var baseQuery = Matching();
 
         /*
          * A requested sort replaces the default rather than adding to it. CreatedAt stays as the
@@ -553,10 +575,17 @@ internal class ListPublishedEndpoint(
             _ => baseQuery.OrderByDescending(c => c.CreatedAt),
         };
 
+        // The total comes back on the page's own rows (count(*) over the whole match), so a list is
+        // one round trip. A page past the end has no row to carry it, and only then is it counted
+        // on its own.
         var page = await ordered
+            .Stats(out var stats)
             .Skip(req.Skip)
             .Take(req.Take)
             .ToListAsync(ct);
+        var total = page.Count == 0 && req.Skip > 0
+            ? await Matching().CountAsync(ct)
+            : (int)stats.TotalResults;
 
         var items = page
             .Select(c => PublicDelivery.ToPublic(c, def, slugField))

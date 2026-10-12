@@ -105,6 +105,22 @@ error. Every paginated endpoint in barakoCMS returns the same envelope:
 ```
 
 `totalItems` counts everything matching the query, filters included, not just the current page.
+The count and the page come back from one query, so a list costs one round trip to Postgres. A page
+past the last one has no row to carry the count, and only that request counts separately.
+
+### Only what changed
+
+`changedSince` takes an ISO 8601 instant and keeps the entries whose `updatedAt` is after it, for a
+build that fetches what changed since its last run:
+
+```
+GET /api/public/post?changedSince=2026-10-01T00:00:00Z&pageSize=100
+```
+
+It combines with filters, sorting and paging, and `totalItems` counts what it kept. It answers
+additions and edits only. An entry that was unpublished, archived, made non-Public or deleted is
+not in a published list, so a build learns of a removal from `GET /api/changes`. A value that is
+not a date is a 400. Leaving it out lists everything, as before.
 
 An entry looks like this:
 
