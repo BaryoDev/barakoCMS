@@ -40,6 +40,16 @@ internal class Endpoint(
 
         ThrowIfAnyErrors();
 
+        var platformCaller = await RoleScope.IsPlatformCallerAsync(HttpContext, ct);
+        if (req.IsPlatform && !platformCaller)
+            ThrowError(RoleScope.PlatformRoleMessage, 403);
+        if (!platformCaller && req.SystemCapabilities.Any(c => barakoCMS.Features.Users.PlatformRoles.PlatformCapabilities.Contains(c)))
+            ThrowError(RoleScope.PlatformCapabilityMessage, 403);
+
+        var owner = req.IsPlatform ? null : tenant.Slug;
+        if (await RoleScope.NameTakenAsync(session, req.Name, owner, except: null, ct))
+            ThrowError("Another role here already has this name.", 409);
+
         var role = new Role
         {
             Id = Guid.NewGuid(),
@@ -48,6 +58,8 @@ internal class Endpoint(
             Permissions = req.Permissions,
             SystemCapabilities = req.SystemCapabilities,
             RequireMfa = req.RequireMfa,
+            TenantSlug = owner,
+            IsPlatform = req.IsPlatform,
             CreatedAt = DateTime.UtcNow
         };
 

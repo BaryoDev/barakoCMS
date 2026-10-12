@@ -86,8 +86,8 @@ public class PlatformRoleGrantTests
         return (userId, ClientFor(userId, ["Admin"], slug), slug);
     }
 
-    /// <summary>A custom role holding manage_roles, which edits every role document in the deployment.</summary>
-    private async Task<Guid> PlatformRoleAsync()
+    /// <summary>A custom role holding manage_roles, owned by <paramref name="tenant"/> when one is named.</summary>
+    private async Task<Guid> PlatformRoleAsync(string? tenant = null)
     {
         using var scope = _fixture.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
@@ -97,6 +97,7 @@ public class PlatformRoleGrantTests
             Id = id,
             Name = $"role-editor-{id:N}",
             SystemCapabilities = [SystemCapabilities.ManageRoles],
+            TenantSlug = tenant,
         });
         await session.SaveChangesAsync();
         return id;
@@ -105,8 +106,8 @@ public class PlatformRoleGrantTests
     [Fact]
     public async Task A_tenant_admin_cannot_give_a_member_a_role_holding_a_platform_capability()
     {
-        var (_, client, _) = await TenantAdminAsync();
-        var roleId = await PlatformRoleAsync();
+        var (_, client, slug) = await TenantAdminAsync();
+        var roleId = await PlatformRoleAsync(slug);
         var email = $"member-{Guid.NewGuid():N}@example.com";
 
         var res = await client.PostAsJsonAsync("/api/tenants/members", new { email, roleIds = new[] { roleId } });
@@ -123,8 +124,8 @@ public class PlatformRoleGrantTests
     [Fact]
     public async Task A_tenant_admin_cannot_update_a_member_to_a_role_holding_a_platform_capability()
     {
-        var (adminId, client, _) = await TenantAdminAsync();
-        var roleId = await PlatformRoleAsync();
+        var (adminId, client, slug) = await TenantAdminAsync();
+        var roleId = await PlatformRoleAsync(slug);
 
         var res = await client.PutAsJsonAsync($"/api/tenants/members/{adminId}",
             new { roleIds = new[] { SystemRoles.AdminRoleId, roleId }, status = "Active" });
@@ -138,12 +139,12 @@ public class PlatformRoleGrantTests
     [Fact]
     public async Task A_role_stored_with_no_capability_list_is_offered_and_does_not_break_the_list()
     {
-        var (_, client, _) = await TenantAdminAsync();
+        var (_, client, slug) = await TenantAdminAsync();
         var roleId = Guid.NewGuid();
         using (var scope = _fixture.Services.CreateScope())
         {
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            session.Store(new Role { Id = roleId, Name = $"no-capabilities-{roleId:N}", SystemCapabilities = null! });
+            session.Store(new Role { Id = roleId, Name = $"no-capabilities-{roleId:N}", SystemCapabilities = null!, TenantSlug = slug });
             await session.SaveChangesAsync();
         }
 
@@ -165,8 +166,8 @@ public class PlatformRoleGrantTests
     [Fact]
     public async Task A_tenant_admin_is_not_offered_a_role_holding_a_platform_capability()
     {
-        var (_, client, _) = await TenantAdminAsync();
-        var roleId = await PlatformRoleAsync();
+        var (_, client, slug) = await TenantAdminAsync();
+        var roleId = await PlatformRoleAsync(slug);
 
         var offered = new List<Guid>();
         for (var page = 1; page < 1000; page++)
@@ -239,7 +240,7 @@ public class PlatformRoleGrantTests
     public async Task A_tenant_admin_can_suspend_a_member_who_already_holds_a_platform_role()
     {
         var (_, client, slug) = await TenantAdminAsync();
-        var roleId = await PlatformRoleAsync();
+        var roleId = await PlatformRoleAsync(slug);
         var member = await MemberHoldingAsync(slug, roleId);
 
         // The console sends every role the member holds back on a status-only change.
@@ -256,7 +257,7 @@ public class PlatformRoleGrantTests
     public async Task A_tenant_admin_can_take_a_platform_role_off_a_member()
     {
         var (_, client, slug) = await TenantAdminAsync();
-        var roleId = await PlatformRoleAsync();
+        var roleId = await PlatformRoleAsync(slug);
         var member = await MemberHoldingAsync(slug, roleId);
 
         var res = await client.PutAsJsonAsync($"/api/tenants/members/{member}",
@@ -272,8 +273,8 @@ public class PlatformRoleGrantTests
     public async Task A_tenant_admin_still_cannot_add_a_second_platform_role_to_such_a_member()
     {
         var (_, client, slug) = await TenantAdminAsync();
-        var held = await PlatformRoleAsync();
-        var added = await PlatformRoleAsync();
+        var held = await PlatformRoleAsync(slug);
+        var added = await PlatformRoleAsync(slug);
         var member = await MemberHoldingAsync(slug, held);
 
         var res = await client.PutAsJsonAsync($"/api/tenants/members/{member}",

@@ -30,6 +30,9 @@ internal class Endpoint(
         }
 
         var role = await session.LoadAsync<Role>(req.Id, ct);
+        var platformCaller = await RoleScope.IsPlatformCallerAsync(HttpContext, ct);
+        if (role is not null && !RoleScope.Reaches(role, tenant.Slug) && !platformCaller)
+            role = null;
 
         // Here and not in a validator: a condition the stored role already holds is passed over,
         // and that takes the stored role.
@@ -57,6 +60,29 @@ internal class Endpoint(
         {
             AddError(r => r.Name, SystemRoles.ReservedNameMessage(req.Name));
             ThrowIfAnyErrors();
+        }
+
+        if (role.IsPlatform && !platformCaller)
+        {
+            ThrowError(RoleScope.PlatformRoleMessage, 403);
+            return;
+        }
+
+        // Only capabilities being added count, the rule a member's roles follow: one a platform
+        // administrator gave this role is kept on an unrelated edit.
+        if (!platformCaller && req.SystemCapabilities
+                .Except(role.SystemCapabilities ?? [], StringComparer.OrdinalIgnoreCase)
+                .Any(c => barakoCMS.Features.Users.PlatformRoles.PlatformCapabilities.Contains(c)))
+        {
+            ThrowError(RoleScope.PlatformCapabilityMessage, 403);
+            return;
+        }
+
+        if (!string.Equals(role.Name, req.Name, StringComparison.Ordinal)
+            && await RoleScope.NameTakenAsync(session, req.Name, RoleScope.OwnerOf(role), role.Id, ct))
+        {
+            ThrowError("Another role here already has this name.", 409);
+            return;
         }
 
         var before = RoleAudit.Of(role);

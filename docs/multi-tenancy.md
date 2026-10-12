@@ -29,16 +29,40 @@ same for the event store. Documents then opt **out** one by one.
 | `User` | `Content`, `ContentTypeDefinition` |
 | `Tenant` (the registry itself) | `StoredFile`, `FileBlob` |
 | `Membership` (necessarily cross-tenant) | `Account`, `JournalEntry`, `NumberSequence` |
-| `Role` | workflows and their events |
+| `Role`, stored once with its tenant kept as data | workflows and their events |
 | `RefreshToken`, `RevokedToken`, `OtpCode`, `MfaSecret`, `ApiKey` | |
 | `Device` | |
 | `AuditEvent` | |
 
 Two of those are worth calling out because the obvious guess is the other way round.
 
-**Roles are global, not per tenant.** A role is a named permission set; which roles a person holds
-*in a tenant* is what `Membership.RoleIds` carries. Defining the role once and assigning it per
-tenant is the split, rather than every tenant owning its own copy of "Editor".
+**Roles belong to a tenant, or to the platform.** A role is stored once for the deployment, but from
+5.0 it carries its owner: `TenantSlug` for a tenant's own role, whose permissions name that tenant's
+content types, or `IsPlatform` for a role every tenant shares. The platform roles are the ones
+seeded for the deployment: SuperAdmin, Admin, User, the demo HR role, and a role a module seeds under
+its fixed id. Which roles a person holds *in a tenant* is still what `Membership.RoleIds` carries.
+
+- `GET /api/roles` answers with the caller's tenant's roles and the platform roles. A caller holding
+  `manage_platform_roles` sees every tenant's.
+- `GET`, `PUT` and `DELETE /api/roles/{id}` answer 404 for another tenant's role, so a tenant cannot
+  learn the ids of another's. A platform role can be read from any tenant; changing or deleting it
+  needs `manage_platform_roles`, and without it the answer is 403.
+- `POST /api/roles` makes a role of the caller's tenant. `isPlatform: true` makes a platform role and
+  needs `manage_platform_roles`. A name is unique within the tenant, and among platform roles; a
+  second one is a 409.
+- `manage_roles` reaches the caller's tenant only. Without `manage_platform_roles`, a role write
+  cannot add a capability that reaches past the tenant (`*`, `manage_roles`,
+  `manage_platform_roles`, `manage_tenants`, `manage_users`, `manage_email_settings`,
+  `view_hidden`), so a tenant's role editor cannot widen their own role into a platform one. Only
+  SuperAdmin holds `manage_platform_roles` by default.
+- The member routes offer and accept the tenant's roles and the platform roles. Another tenant's role
+  is answered as one that does not exist. The same holds for a tenant's sign-up role and MFA roles.
+- A membership that names another tenant's role, which no write path allows, gets nothing from it
+  when roles are resolved.
+
+`migrations/5.0.0/role-tenancy.sql` gives every role stored before 5.0 its owner; its header has
+the rule. A role held in several tenants is copied into each, so editing it in one no longer
+changes it in the others.
 
 **Auth artifacts are global.** A refresh token, an OTP code, an MFA secret, an API key and a trusted
 device all belong to the global identity, not to the tenant whose subdomain happened to be in the URL
@@ -364,7 +388,8 @@ the methods, since the caller has already signed in.
 ## Roles at request time
 
 `PermissionResolver` asks `MembershipRoles.EffectiveRoleIdsAsync` for the caller's roles, which is
-the **union** of the user's global `User.RoleIds` and their membership roles in the current tenant.
+the **union** of the user's global `User.RoleIds` and their membership roles in the current tenant,
+leaving out any membership role another tenant owns.
 
 `User.RoleIds` was kept rather than moved. A platform SuperAdmin stays a SuperAdmin inside every
 tenant, which is what makes the platform-global screens keep working after switching in, and a

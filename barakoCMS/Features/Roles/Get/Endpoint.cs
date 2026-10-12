@@ -5,7 +5,9 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.Roles.Get;
 
-internal class Endpoint(IDocumentSession session) : Endpoint<Request, barakoCMS.Features.Roles.RoleResponse>
+internal class Endpoint(
+    IDocumentSession session,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<Request, barakoCMS.Features.Roles.RoleResponse>
 {
     public override void Configure()
     {
@@ -17,7 +19,8 @@ internal class Endpoint(IDocumentSession session) : Endpoint<Request, barakoCMS.
     {
         var role = await session.LoadAsync<Role>(req.Id, ct);
 
-        if (role == null)
+        if (role == null
+            || (!RoleScope.Reaches(role, tenant.Slug) && !await RoleScope.IsPlatformCallerAsync(HttpContext, ct)))
         {
             await Send.NotFoundAsync(ct);
             return;

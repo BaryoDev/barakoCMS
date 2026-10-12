@@ -27,6 +27,12 @@ internal sealed class RoleResponse
     public bool RequireMfa { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
 
+    /// <summary>The tenant that owns the role, or null for a platform role.</summary>
+    public string? TenantSlug { get; init; }
+
+    /// <summary>A role every tenant shares. Changing it needs <c>manage_platform_roles</c>.</summary>
+    public bool IsPlatform { get; init; }
+
     /// <summary>Whether the server refuses to delete this role. Not stored, derived per request.</summary>
     public bool IsSystem { get; init; }
 
@@ -42,5 +48,7 @@ internal sealed class RoleResponse
         // unambiguous instant, which is the rule DateWireFormatTests holds.
         CreatedAt = new DateTimeOffset(DateTime.SpecifyKind(role.CreatedAt, DateTimeKind.Utc)),
         IsSystem = SystemRoles.Contains(role.Id),
+        TenantSlug = RoleScope.OwnerOf(role),
+        IsPlatform = role.IsPlatform,
     };
 }

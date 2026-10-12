@@ -7,6 +7,12 @@ internal class Request
     public List<barakoCMS.Models.ContentTypePermission> Permissions { get; set; } = new();
     public List<string> SystemCapabilities { get; set; } = new();
     public bool RequireMfa { get; set; }
+
+    /// <summary>
+    /// Make a platform role every tenant shares, rather than a role of the caller's tenant. Needs the
+    /// <c>manage_platform_roles</c> capability.
+    /// </summary>
+    public bool IsPlatform { get; set; }
 }
 
 internal class Response

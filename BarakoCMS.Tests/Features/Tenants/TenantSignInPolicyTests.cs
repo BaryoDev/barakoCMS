@@ -45,9 +45,9 @@ public class TenantSignInPolicyTests
         await session.SaveChangesAsync(Ct);
     }
 
-    private async Task<Role> RoleAsync()
+    private async Task<Role> RoleAsync(string? tenant = null)
     {
-        var role = new Role { Id = Guid.NewGuid(), Name = $"cashier-{Guid.NewGuid():N}"[..20] };
+        var role = new Role { Id = Guid.NewGuid(), Name = $"cashier-{Guid.NewGuid():N}"[..20], TenantSlug = tenant };
         await StoreAsync(role);
         return role;
     }
@@ -202,8 +202,8 @@ public class TenantSignInPolicyTests
     [Fact]
     public async Task The_policy_is_set_through_the_tenant_api_and_bad_values_are_refused()
     {
-        var role = await RoleAsync();
         var slug = await TenantAsync(new TenantSignInPolicy());
+        var role = await RoleAsync(slug);
 
         var set = await SetAsync(slug, new { requireMfa = false, mfaRoleIds = new[] { role.Id }, methods = new[] { "Password", "otp" }, sessionMinutes = 120 });
         set.StatusCode.Should().Be(HttpStatusCode.OK, await set.Content.ReadAsStringAsync(Ct));

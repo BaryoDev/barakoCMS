@@ -197,10 +197,10 @@ internal static class TenantSignUpRole
     /// Anyone with an email address can sign up to an Open tenant, so the role is held to the rule a
     /// tenant administrator's grant is: never SuperAdmin, and never a role that reaches past the tenant.
     /// </remarks>
-    public static async Task<string?> RefusalAsync(IQuerySession session, Guid roleId, CancellationToken ct)
+    public static async Task<string?> RefusalAsync(IQuerySession session, Guid roleId, string tenantSlug, CancellationToken ct)
     {
         var role = await session.LoadAsync<Role>(roleId, ct);
-        if (role is null)
+        if (role is null || !barakoCMS.Features.Roles.RoleScope.Reaches(role, tenantSlug))
             return "The sign-up role does not exist.";
 
         if (!barakoCMS.Features.Tenants.Members.Members.IsAssignable(roleId)
@@ -210,11 +210,9 @@ internal static class TenantSignUpRole
         return null;
     }
 
-    public static async Task<bool> AllExistAsync(IQuerySession session, List<Guid>? roleIds, CancellationToken ct)
-    {
-        var ids = (roleIds ?? []).Distinct().ToList();
-        return ids.Count == 0 || await session.Query<Role>().CountAsync(r => ids.Contains(r.Id), ct) == ids.Count;
-    }
+    /// <summary>Whether every id names a role the tenant reaches: its own, or a platform role.</summary>
+    public static Task<bool> AllExistAsync(IQuerySession session, List<Guid>? roleIds, string tenantSlug, CancellationToken ct) =>
+        barakoCMS.Features.Roles.RoleScope.AllReachableAsync(session, roleIds ?? [], tenantSlug, ct);
 }
 
 /// <summary>Finds a domain already held by another tenant.</summary>
@@ -283,10 +281,10 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         if (await _session.Query<Tenant>().AnyAsync(x => x.Slug == handle, ct))
         { AddError(r => r.Handle, "A tenant with this handle already exists."); ThrowIfAnyErrors(); }
 
-        if (req.SignUpRoleId is { } signUpRole && await TenantSignUpRole.RefusalAsync(_session, signUpRole, ct) is { } refusal)
+        if (req.SignUpRoleId is { } signUpRole && await TenantSignUpRole.RefusalAsync(_session, signUpRole, handle, ct) is { } refusal)
         { AddError(r => r.SignUpRoleId, refusal); ThrowIfAnyErrors(); }
 
-        if (req.SignIn is not null && !await TenantSignUpRole.AllExistAsync(_session, req.SignIn.MfaRoleIds, ct))
+        if (req.SignIn is not null && !await TenantSignUpRole.AllExistAsync(_session, req.SignIn.MfaRoleIds, handle, ct))
         { AddError(r => r.SignIn, "One or more MFA roles do not exist."); ThrowIfAnyErrors(); }
 
         if (await TenantDomainClash.FindAsync(_session, domains, exceptSlug: null, ct) is { } clash)
@@ -361,9 +359,9 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
             foreach (var error in domainErrors)
             { AddError(r => r.Domains, error); }
         }
-        if (req.SignUpRoleId is { } signUpRole && await TenantSignUpRole.RefusalAsync(_session, signUpRole, ct) is { } refusal)
+        if (req.SignUpRoleId is { } signUpRole && await TenantSignUpRole.RefusalAsync(_session, signUpRole, tenant.Slug, ct) is { } refusal)
             AddError(r => r.SignUpRoleId, refusal);
-        if (req.SignIn is not null && !await TenantSignUpRole.AllExistAsync(_session, req.SignIn.MfaRoleIds, ct))
+        if (req.SignIn is not null && !await TenantSignUpRole.AllExistAsync(_session, req.SignIn.MfaRoleIds, tenant.Slug, ct))
             AddError(r => r.SignIn, "One or more MFA roles do not exist.");
         ThrowIfAnyErrors();
 

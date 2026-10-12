@@ -39,9 +39,9 @@ public class TenantSignUpPolicyTests
         return client;
     }
 
-    private async Task<Role> MemberRoleAsync()
+    private async Task<Role> MemberRoleAsync(string? tenant = null)
     {
-        var role = new Role { Id = Guid.NewGuid(), Name = $"member-{Guid.NewGuid():N}"[..20], Description = "sign-up role" };
+        var role = new Role { Id = Guid.NewGuid(), Name = $"member-{Guid.NewGuid():N}"[..20], Description = "sign-up role", TenantSlug = tenant };
         using var scope = _fixture.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         session.Store(role);
@@ -323,7 +323,7 @@ public class TenantSignUpPolicyTests
     public async Task The_policy_is_set_through_the_tenant_api_and_refuses_a_role_that_reaches_past_the_tenant()
     {
         var slug = await TenantAsync(TenantSignUp.NotSet);
-        var role = await MemberRoleAsync();
+        var role = await MemberRoleAsync(slug);
 
         var set = await SetPolicyAsync(slug, new { name = slug, signUp = "Open", signUpRoleId = role.Id });
         set.StatusCode.Should().Be(HttpStatusCode.OK, await set.Content.ReadAsStringAsync(Ct));
@@ -352,6 +352,10 @@ public class TenantSignUpPolicyTests
             .StatusCode.Should().Be(HttpStatusCode.BadRequest, "nor holder of a platform capability");
         (await SetPolicyAsync(slug, new { name = slug, signUp = "Closed", signUpRoleId = role.Id }))
             .StatusCode.Should().Be(HttpStatusCode.BadRequest, "a role is only read with Open");
+
+        var elsewhere = await MemberRoleAsync(await TenantAsync(TenantSignUp.NotSet));
+        (await SetPolicyAsync(slug, new { name = slug, signUp = "Open", signUpRoleId = elsewhere.Id }))
+            .StatusCode.Should().Be(HttpStatusCode.BadRequest, "another tenant's role is not this tenant's to give");
 
         var untouched = await SetPolicyAsync(slug, new { name = slug });
         (await untouched.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("signUp").GetString().Should().Be("Open",

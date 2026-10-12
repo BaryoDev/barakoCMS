@@ -36,6 +36,19 @@ public static class MembershipRoles
         if (membership is null)
             return (global, null);
 
-        return (membership.RoleIds.Union(global).ToList(), membership);
+        // A membership holds only its own tenant's roles and the platform roles. One that names
+        // another tenant's role, which no write path allows any more, grants nothing from it here.
+        var held = membership.RoleIds ?? [];
+        if (held.Count > 0)
+        {
+            var foreign = await session.Query<Role>()
+                .Where(r => held.Contains(r.Id) && !r.IsPlatform && r.TenantSlug != null && r.TenantSlug != tenantSlug)
+                .Select(r => r.Id)
+                .ToListAsync(ct);
+            if (foreign.Count > 0)
+                held = held.Except(foreign).ToList();
+        }
+
+        return (held.Union(global).ToList(), membership);
     }
 }

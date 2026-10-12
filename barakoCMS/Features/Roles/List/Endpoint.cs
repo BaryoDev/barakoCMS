@@ -9,8 +9,10 @@ internal class Request : PaginatedRequest
 {
 }
 
+/// <summary>GET /api/roles: the caller's tenant's roles and the platform roles, or every role for a platform caller.</summary>
 internal class Endpoint(
-    IDocumentSession session) : Endpoint<Request, PaginatedResponse<barakoCMS.Features.Roles.RoleResponse>>
+    IDocumentSession session,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<Request, PaginatedResponse<barakoCMS.Features.Roles.RoleResponse>>
 {
     /// <summary>
     /// Who may read a role's capabilities and permissions. The audit list asks this same gate
@@ -27,6 +29,8 @@ internal class Endpoint(
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         var query = session.Query<Role>().AsQueryable();
+        if (!await RoleScope.IsPlatformCallerAsync(HttpContext, ct))
+            query = RoleScope.In(query, tenant.Slug);
 
         var totalCount = await query.CountAsync(ct);
 

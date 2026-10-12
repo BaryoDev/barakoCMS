@@ -21,7 +21,8 @@ internal class Endpoint(
     {
         var role = await session.LoadAsync<Role>(req.Id, ct);
 
-        if (role == null)
+        var platformCaller = await RoleScope.IsPlatformCallerAsync(HttpContext, ct);
+        if (role == null || (!RoleScope.Reaches(role, tenant.Slug) && !platformCaller))
         {
             await Send.NotFoundAsync(ct);
             return;
@@ -35,6 +36,12 @@ internal class Endpoint(
             {
                 Message = "Cannot delete a system role: SuperAdmin, Admin, User, or the HR role the seeder created."
             }, 403, ct);
+            return;
+        }
+
+        if (role.IsPlatform && !platformCaller)
+        {
+            await Send.ResponseAsync(new Response { Message = RoleScope.PlatformRoleMessage }, 403, ct);
             return;
         }
 
