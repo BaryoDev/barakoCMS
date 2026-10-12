@@ -286,7 +286,9 @@ deployment with no memberships at all behaves exactly as it did before multi-ten
 
 ## Endpoints
 
-- `GET /api/me/tenants` lists the caller's tenants (`Features/Me/MyTenantsEndpoint.cs`).
+- `GET /api/me/tenants` lists the caller's tenants (`Features/Me/MyTenantsEndpoint.cs`), each with
+  `roles`: the roles the caller holds there (that membership's roles plus their global ones), as
+  `{ id, name }` sorted by name, since a role can differ per tenant.
 - `POST /api/me/switch` exchanges the caller's access token for one scoped to another tenant they
   belong to. The new token expires when the presented one would have, and the presented one is
   revoked. It returns no refresh token (`refreshToken` is empty): the one from sign-in keeps
