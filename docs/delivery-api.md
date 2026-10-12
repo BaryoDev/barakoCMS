@@ -58,6 +58,17 @@ The feed takes an item's title, description and date from the fields the type gi
 `Feeds:Paths:{type}` or `/{type}/{slug}`, as before. See
 [field-hints-and-roles.md](field-hints-and-roles.md).
 
+Each link starts at the tenant's own site: the `Url` of its published `site` entry
+([site-settings.md](site-settings.md)). A tenant that sets none, or sets one that is not an absolute
+http or https URL without a query, links at `Feeds:SiteUrl` and then `App:BaseUrl`, which is what
+every tenant got before, so a deployment that only sets `Feeds:SiteUrl` serves the same feed it
+did. The `{{links.public}}` template placeholder builds the same address.
+
+A site entry's `Url` takes precedence over `Feeds:SiteUrl`. A deployment that set both, with the
+site entry pointing somewhere else (a staging host, say), now links its feed and sitemap at the site
+entry's address. Check that the two agree before upgrading. The feed and the sitemap carry the
+`site` type's cache tag, so a purge for a change to the site entry reaches them.
+
 A read by slug of a type that declares a `structuredDataType` also carries `structuredData`, the
 entry as schema.org JSON-LD built from its field roles. See [structured-data.md](structured-data.md).
 
@@ -106,6 +117,32 @@ error. Every paginated endpoint in barakoCMS returns the same envelope:
 ```
 
 `totalItems` counts everything matching the query, filters included, not just the current page.
+The count and the page come back from one query, so a list costs one round trip to Postgres. A page
+past the last one has no row to carry the count, and only that request counts separately.
+
+### Only what changed
+
+`changedSince` takes an ISO 8601 instant and keeps the entries whose `updatedAt` is after it, for a
+build that fetches what changed since its last run:
+
+```
+GET /api/public/post?changedSince=2026-10-01T00:00:00Z&pageSize=100
+```
+
+It combines with filters, sorting and paging, and `totalItems` counts what it kept. It answers
+additions and edits only. An entry that was unpublished, archived, made non-Public or deleted is
+not in a published list, so `changedSince` cannot report it. A build learns of a removal from a
+`Webhook` workflow action on the `Unpublished` and `Deleted` triggers ([webhooks.md](webhooks.md)),
+from `content.unpublished` on the event stream below while it is connected, or from a periodic full
+fetch whose ids it compares with what it holds. `GET /api/changes` carries no content topic, so it
+is not a way to learn of one.
+
+A change to the type rather than to an entry does not move `updatedAt`. When a field goes from
+Public to Sensitive, every entry's delivered data loses that field and none of them comes back from
+`changedSince`. After a change to a type's fields, their sensitivity or its route template, fetch
+the type in full.
+
+A value that is not a date is a 400. Leaving it out lists everything, as before.
 
 An entry looks like this:
 
