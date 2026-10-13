@@ -47,4 +47,22 @@ public interface IWorkflowAction
 #pragma warning restore CS0618
         return WorkflowActionResult.Success();
     }
+
+    /// <summary>
+    /// Execute the action with everything the runner knows about the run, including what the
+    /// actions before it produced.
+    /// </summary>
+    /// <param name="context">The resolved parameters, the content, the trigger and the earlier outputs.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The outcome, with any outputs the action produced.</returns>
+    /// <remarks>
+    /// The runner calls this one. The default implementation calls
+    /// <see cref="RunAsync(Dictionary{string, string}, Models.Content, CancellationToken)"/> with the
+    /// context's parameters and content, so an action written before it existed keeps working
+    /// unchanged. Override this to read <see cref="WorkflowContext.Outputs"/>, or to return outputs
+    /// with <see cref="WorkflowActionResult.Success(IReadOnlyDictionary{string, string})"/> knowing
+    /// which run you are in.
+    /// </remarks>
+    Task<WorkflowActionResult> RunAsync(WorkflowContext context, CancellationToken ct) =>
+        RunAsync(context.Parameters, context.Content, ct);
 }

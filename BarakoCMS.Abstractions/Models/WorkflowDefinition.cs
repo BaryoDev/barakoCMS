@@ -40,6 +40,14 @@ public class WorkflowDefinition
     /// already queued when it reaches it, so switching it back on does not send what was waiting.
     /// </remarks>
     public bool Enabled { get; set; } = true;
+
+    /// <summary>What runs this workflow. Null for the built-in runner, which is every workflow's default.</summary>
+    /// <remarks>
+    /// Routing and not replacement: a run goes to the executor its workflow names, and every other
+    /// workflow is untouched. Only the built-in runner exists today, so a save naming anything else
+    /// is refused. Copied onto a run when it is queued.
+    /// </remarks>
+    public string? Executor { get; set; }
 }
 
 public class WorkflowAction
@@ -56,6 +64,41 @@ public class WorkflowAction
     /// Continue, the same as leaving it out.
     /// </remarks>
     public WorkflowFailurePolicy? OnFailure { get; set; } = WorkflowFailurePolicy.Continue;
+
+    /// <summary>
+    /// The outputs of this action that are kept on the run, by name. Nothing is kept when it is
+    /// empty or null.
+    /// </summary>
+    /// <remarks>
+    /// An allowlist, because an output is usually a third party's response, and the run record is
+    /// stored and served over the API. A name not listed here is dropped when the outcome is
+    /// recorded and never reaches the database. A later action reads a kept one as
+    /// <c>{{actions.N.name}}</c>, N being this action's position counting from zero. Copied onto a
+    /// run when it is queued, like the parameters.
+    /// </remarks>
+    public List<string>? Capture { get; set; }
+
+    /// <summary>
+    /// What undoes this action when the run is rolled back. Null when nothing can, which is the
+    /// default and is reported as not compensated rather than as fine.
+    /// </summary>
+    /// <remarks>
+    /// A run is rolled back when an action set to <see cref="WorkflowFailurePolicy.Halt"/> fails for
+    /// good, if any action of the workflow declares a compensation, and when an operator abandons
+    /// it. The actions that succeeded are undone one at a time, the last first. The compensation can
+    /// read this action's captured outputs as <c>{{actions.N.name}}</c>, which is how it names the
+    /// thing it is undoing. Copied onto a run when it is queued, like the parameters.
+    /// </remarks>
+    public WorkflowCompensation? Compensate { get; set; }
+}
+
+/// <summary>The action that undoes another one.</summary>
+public class WorkflowCompensation
+{
+    /// <summary>An action type, as in <see cref="WorkflowAction.Type"/>. A Conditional is not accepted.</summary>
+    public string Type { get; set; } = string.Empty;
+
+    public Dictionary<string, string> Parameters { get; set; } = new();
 }
 
 /// <summary>Whether the actions after a failed one still run.</summary>

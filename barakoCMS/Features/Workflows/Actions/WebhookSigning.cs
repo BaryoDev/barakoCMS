@@ -109,6 +109,12 @@ internal static class WebhookSigning
         foreach (var action in workflow.Actions)
         {
             changed |= ProtectParameters(action.Type, action.Parameters, protector);
+
+            // A compensation is an action too, and stored the same way.
+            if (action.Compensate is { Parameters: { } undo } compensate)
+            {
+                changed |= ProtectParameters(compensate.Type, undo, protector);
+            }
         }
 
         return changed;
@@ -184,18 +190,39 @@ internal static class WebhookSigning
     {
         var changed = false;
 
+        // A document stored or imported with no actions list has nothing to migrate, and must not
+        // stop the pass for the workflows after it.
+        if (workflow.Actions is null)
+        {
+            return false;
+        }
+
         for (var index = 0; index < workflow.Actions.Count; index++)
         {
             var action = workflow.Actions[index];
             var actionIndex = index;
 
-            // A child of a Conditional is reported against the Conditional's index, since a child
-            // has no index of its own in the definition.
-            changed |= MigrateParameters(
-                action.Type, action.Parameters, protector,
-                name => undecryptableSecret?.Invoke(actionIndex, name),
-                branch => unreadableBranch?.Invoke(actionIndex, branch),
-                child: false);
+            if (action?.Parameters is not null)
+            {
+                // A child of a Conditional is reported against the Conditional's index, since a child
+                // has no index of its own in the definition.
+                changed |= MigrateParameters(
+                    action.Type, action.Parameters, protector,
+                    name => undecryptableSecret?.Invoke(actionIndex, name),
+                    branch => unreadableBranch?.Invoke(actionIndex, branch),
+                    child: false);
+            }
+
+            // A compensation is stored the same way, so a key retired after this pass must not
+            // strand its credentials. Reported against its action's index, named as the compensation's.
+            if (action?.Compensate is { Parameters: { } undo } compensate)
+            {
+                changed |= MigrateParameters(
+                    compensate.Type, undo, protector,
+                    name => undecryptableSecret?.Invoke(actionIndex, $"compensate.{name}"),
+                    branch => unreadableBranch?.Invoke(actionIndex, $"compensate.{branch}"),
+                    child: false);
+            }
         }
 
         return changed;

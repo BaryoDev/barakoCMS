@@ -42,6 +42,8 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
     private readonly IWorkflowPluginRegistry _pluginRegistry;
     private readonly IQuerySession _session;
     private readonly bool _allowInsecureSignedUrls;
+    private readonly WorkflowTriggerRegistry _triggers;
+    private readonly WorkflowExecutors _executors;
 
     public WorkflowSchemaValidator(IWorkflowPluginRegistry pluginRegistry, IQuerySession session)
         : this(pluginRegistry, session, configuration: null)
@@ -49,11 +51,23 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
     }
 
     public WorkflowSchemaValidator(IWorkflowPluginRegistry pluginRegistry, IQuerySession session, IConfiguration? configuration)
+        : this(pluginRegistry, session, configuration, WorkflowTriggerRegistry.BuiltIn, new WorkflowExecutors([]))
     {
+    }
+
+    /// <summary>The validator the host builds, which also accepts the triggers modules registered.</summary>
+    internal WorkflowSchemaValidator(
+        IWorkflowPluginRegistry pluginRegistry, IQuerySession session, IConfiguration? configuration, WorkflowTriggerRegistry triggers,
+        WorkflowExecutors executors)
+    {
+        _executors = executors;
         _pluginRegistry = pluginRegistry;
         _session = session;
         _allowInsecureSignedUrls = WebhookSigning.AllowsInsecureSignedUrls(configuration);
+        _triggers = triggers;
     }
+
+    private string TriggerChoices => $"Trigger event must be one of: {string.Join(", ", _triggers.Names)}";
 
     public WorkflowValidationResult Validate(WorkflowDefinition workflow, CancellationToken ct = default)
     {
@@ -112,12 +126,12 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
                 });
                 result.IsValid = false;
             }
-            else if (!WorkflowEvents.IsValid(listedEvents[i]))
+            else if (!_triggers.IsRegistered(listedEvents[i]))
             {
                 result.Errors.Add(new ValidationError
                 {
                     Field = $"triggerEvents[{i}]",
-                    Message = $"Trigger event must be one of: {string.Join(", ", WorkflowEvents.All)}"
+                    Message = TriggerChoices
                 });
                 result.IsValid = false;
             }
@@ -134,15 +148,17 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
         }
 
         // Validate trigger event is a known value
-        if (!string.IsNullOrWhiteSpace(workflow.TriggerEvent) && !WorkflowEvents.IsValid(workflow.TriggerEvent))
+        if (!string.IsNullOrWhiteSpace(workflow.TriggerEvent) && !_triggers.IsRegistered(workflow.TriggerEvent))
         {
             result.Errors.Add(new ValidationError
             {
                 Field = "triggerEvent",
-                Message = $"Trigger event must be one of: {string.Join(", ", WorkflowEvents.All)}"
+                Message = TriggerChoices
             });
             result.IsValid = false;
         }
+
+        ValidateExecutor(workflow, result);
 
         // Validate actions
         if (workflow.Actions == null || workflow.Actions.Count == 0)
@@ -158,17 +174,108 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
         {
             for (int i = 0; i < workflow.Actions.Count; i++)
             {
-                ValidateAction(workflow.Actions[i], i, result);
+                ValidateActionAt(workflow.Actions[i], i, result);
             }
 
-            var onTransition = WorkflowTriggers.Events(workflow).Any(WorkflowEvents.IsTransition);
-            for (int i = 0; i < workflow.Actions.Count; i++)
-            {
-                AddPlaceholderWarnings(workflow.Actions[i], $"actions[{i}]", onTransition, result, depth: 0);
-            }
+            AddWarnings(workflow, result);
         }
 
         return result;
+    }
+
+    private void ValidateExecutor(WorkflowDefinition workflow, WorkflowValidationResult result)
+    {
+        if (!_executors.IsKnown(workflow.Executor))
+        {
+            result.Errors.Add(new ValidationError
+            {
+                Field = "executor",
+                Message = $"Executor must be left out or one of: {string.Join(", ", _executors.Names)}"
+            });
+            result.IsValid = false;
+        }
+    }
+
+    private static void AddWarnings(WorkflowDefinition workflow, WorkflowValidationResult result)
+    {
+        var onTransition = WorkflowTriggers.Events(workflow).Any(WorkflowEvents.IsTransition);
+        for (int i = 0; i < workflow.Actions.Count; i++)
+        {
+            AddPlaceholderWarnings(workflow.Actions[i], $"actions[{i}]", onTransition, result, depth: 0);
+        }
+
+        AddOutputWarnings(workflow.Actions, result);
+    }
+
+    /// <summary>
+    /// Warns about every <c>{{actions.N.name}}</c> that cannot be filled: an action at or after the
+    /// one reading it, one that does not exist, or a name that action does not capture.
+    /// </summary>
+    /// <remarks>
+    /// Warnings and not errors. Before step outputs existed the same text was a placeholder the
+    /// engine sent as written, which saved with a warning, and a workflow that saved then must
+    /// still save. At run time an unfilled reference fails the action rather than sending it.
+    /// </remarks>
+    private static void AddOutputWarnings(List<WorkflowAction> actions, WorkflowValidationResult result)
+    {
+        for (var i = 0; i < actions.Count; i++)
+        {
+            var action = actions[i];
+            if (action?.Parameters is null)
+            {
+                continue;
+            }
+
+            foreach (var (name, template) in action.Parameters)
+            {
+                var field = $"actions[{i}].parameters.{name}";
+                var resolvedByTheAction = ActionParameters.IsResolvedByTheAction(action.Type ?? string.Empty, name);
+
+                foreach (var (ordinal, output) in ActionOutputs.References(template))
+                {
+                    if (result.Warnings.Count >= MaxPlaceholderWarnings)
+                    {
+                        return;
+                    }
+
+                    string? message =
+                        resolvedByTheAction ? $"Step outputs are not read inside this parameter, so {{{{actions.{ordinal}.{output}}}}} is sent as written."
+                        : ordinal >= i ? $"{{{{actions.{ordinal}.{output}}}}} reads action {ordinal}, which does not run before this one, so this action fails until it is fixed."
+                        : actions[ordinal]?.Capture?.Contains(output, StringComparer.Ordinal) != true
+                            ? $"{{{{actions.{ordinal}.{output}}}}} reads '{output}', which action {ordinal} does not capture, so this action fails until it is added to that action's capture."
+                        : null;
+
+                    if (message is not null)
+                    {
+                        result.Warnings.Add(new ValidationError { Field = field, Message = message });
+                    }
+                }
+            }
+
+            // A compensation runs after the action it undoes, so it may read that action's own
+            // outputs as well as earlier ones.
+            foreach (var (name, template) in action.Compensate?.Parameters ?? [])
+            {
+                foreach (var (ordinal, output) in ActionOutputs.References(template))
+                {
+                    if (result.Warnings.Count >= MaxPlaceholderWarnings)
+                    {
+                        return;
+                    }
+
+                    var message = ordinal > i || ordinal >= actions.Count
+                        ? $"{{{{actions.{ordinal}.{output}}}}} reads action {ordinal}, which runs after the action this undoes, so the compensation fails until it is fixed."
+                        : actions[ordinal]?.Capture?.Contains(output, StringComparer.Ordinal) != true
+                            ? $"{{{{actions.{ordinal}.{output}}}}} reads '{output}', which action {ordinal} does not capture, so the compensation fails until it is added to that action's capture."
+                            : null;
+
+                    if (message is not null)
+                    {
+                        result.Warnings.Add(new ValidationError { Field = $"actions[{i}].compensate.parameters.{name}", Message = message });
+                    }
+                }
+            }
+        }
     }
 
     /// <summary>How many placeholder warnings one validation lists. The last entry says when there are more.</summary>
@@ -533,10 +640,75 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
         }
     }
 
-    private void ValidateAction(WorkflowAction action, int index, WorkflowValidationResult result)
+    private static void ValidateCapture(List<string>? capture, string fieldPrefix, WorkflowValidationResult result)
+    {
+        if (capture is null)
+        {
+            return;
+        }
+
+        if (capture.Count > ActionOutputs.MaxCaptured)
+        {
+            result.Errors.Add(new ValidationError
+            {
+                Field = $"{fieldPrefix}.capture",
+                Message = $"An action keeps at most {ActionOutputs.MaxCaptured} outputs"
+            });
+            result.IsValid = false;
+        }
+
+        for (var c = 0; c < capture.Count; c++)
+        {
+            if (!ActionOutputs.IsValidName(capture[c]))
+            {
+                result.Errors.Add(new ValidationError
+                {
+                    Field = $"{fieldPrefix}.capture[{c}]",
+                    Message = $"An output name is letters, digits and underscores, at most {ActionOutputs.MaxNameLength} characters"
+                });
+                result.IsValid = false;
+            }
+            else if (capture.IndexOf(capture[c]) < c)
+            {
+                result.Errors.Add(new ValidationError
+                {
+                    Field = $"{fieldPrefix}.capture[{c}]",
+                    Message = $"'{capture[c]}' is listed twice"
+                });
+                result.IsValid = false;
+            }
+        }
+    }
+
+    private void ValidateActionAt(WorkflowAction action, int index, WorkflowValidationResult result)
     {
         var fieldPrefix = $"actions[{index}]";
+        ValidateAction(action, fieldPrefix, result);
 
+        if (action?.Compensate is not { } undo)
+        {
+            return;
+        }
+
+        var undoPrefix = $"{fieldPrefix}.compensate";
+        if (string.Equals(undo.Type, "Conditional", StringComparison.Ordinal))
+        {
+            result.Errors.Add(new ValidationError
+            {
+                Field = $"{undoPrefix}.type",
+                Message = "A compensation is one action, so it cannot be a Conditional"
+            });
+            result.IsValid = false;
+            return;
+        }
+
+        // Checked as an action of its own: a registered type, its required parameters, a signed
+        // webhook on https. It has no capture, policy or compensation of its own to check.
+        ValidateAction(new WorkflowAction { Type = undo.Type, Parameters = undo.Parameters ?? [] }, undoPrefix, result);
+    }
+
+    private void ValidateAction(WorkflowAction action, string fieldPrefix, WorkflowValidationResult result)
+    {
         // Check if action type is registered
         if (string.IsNullOrWhiteSpace(action.Type))
         {
@@ -573,6 +745,8 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
         }
 
         RefuseChildPolicies(action, fieldPrefix, result);
+
+        ValidateCapture(action.Capture, fieldPrefix, result);
 
         // A warning and not a refusal: a workflow saved before the cap must still save. The engine
         // sends a parameter past it as written, so the warning says so now rather than at the run.

@@ -245,4 +245,79 @@ public class WorkflowUpdateTests
         (await _harness.LoadWorkflowAsync(id))!.Actions.Single().Parameters["ThenActions"]
             .Should().Be(storedBranch, "the branch came back as it was shown, so the stored one, child secret and all, is kept");
     }
+
+    private static object Undoable(string url, string undoUrl, string? undoSecret) => new
+    {
+        type = "Webhook",
+        parameters = new Dictionary<string, string> { ["Url"] = url },
+        compensate = new
+        {
+            type = "Webhook",
+            parameters = undoSecret is null
+                ? new Dictionary<string, string> { ["Url"] = undoUrl }
+                : new Dictionary<string, string> { ["Url"] = undoUrl, ["Secret"] = undoSecret },
+        },
+    };
+
+    [Fact]
+    public async Task A_compensation_sent_back_as_it_was_read_keeps_its_secret()
+    {
+        var admin = await _harness.AdminAsync();
+        var read = await OkAsync(await admin.PostAsJsonAsync("/api/workflows",
+            Body(WorkflowStopHarness.NewName("wf-put"), WorkflowStopHarness.NewName("post"), "Published",
+                Undoable("https://hooks.example.com/do", "https://hooks.example.com/undo", "undo-secret")), Ct));
+        var id = read.GetProperty("id").GetGuid();
+        var shown = read.GetProperty("actions")[0].GetProperty("compensate");
+        shown.GetProperty("secretSet").GetBoolean().Should().BeTrue();
+        var shownParameters = shown.GetProperty("parameters").Deserialize<Dictionary<string, string>>()!;
+        shownParameters.Should().NotContainKey("Secret");
+
+        await OkAsync(await admin.PutAsJsonAsync($"/api/workflows/{id}",
+            Body("renamed", "post", "Published", new
+            {
+                type = "Webhook",
+                parameters = new Dictionary<string, string> { ["Url"] = "https://hooks.example.com/do" },
+                compensate = new { type = "Webhook", parameters = shownParameters },
+            }), Ct));
+
+        var undo = (await _harness.LoadWorkflowAsync(id))!.Actions.Single().Compensate;
+        undo.Should().NotBeNull();
+        undo!.Parameters.Should().ContainKey("Secret");
+        Unprotect(undo.Parameters["Secret"]).Should().Be("undo-secret");
+    }
+
+    [Fact]
+    public async Task A_changed_compensation_that_leaves_its_secret_out_is_refused()
+    {
+        var admin = await _harness.AdminAsync();
+        var id = await CreateAsync(admin, Undoable("https://hooks.example.com/do", "https://hooks.example.com/undo", "undo-secret"));
+        var before = (await _harness.LoadWorkflowAsync(id))!.Actions.Single().Compensate!.Parameters["Secret"];
+
+        var response = await admin.PutAsJsonAsync($"/api/workflows/{id}",
+            Body("moved", "post", "Published", Undoable("https://hooks.example.com/do", "https://elsewhere.example.com/undo", null)), Ct);
+
+        var text = await response.Content.ReadAsStringAsync(Ct);
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, text);
+        text.Should().Contain("compensate");
+        (await _harness.LoadWorkflowAsync(id))!.Actions.Single().Compensate!.Parameters["Secret"].Should().Be(before);
+    }
+
+    [Fact]
+    public async Task An_update_with_null_conditions_is_stored_with_none()
+    {
+        var admin = await _harness.AdminAsync();
+        var id = await CreateAsync(admin, Email("a@example.com"));
+
+        var response = await OkAsync(await admin.PutAsJsonAsync($"/api/workflows/{id}", new
+        {
+            name = "nulled",
+            triggerContentType = "post",
+            triggerEvent = "Published",
+            conditions = (Dictionary<string, string>?)null,
+            actions = new[] { Email("a@example.com") },
+        }, Ct));
+
+        response.GetProperty("conditions").ValueKind.Should().Be(JsonValueKind.Object);
+        (await _harness.LoadWorkflowAsync(id))!.Conditions.Should().NotBeNull().And.BeEmpty();
+    }
 }
