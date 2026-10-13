@@ -16,7 +16,7 @@ internal sealed class ConfigCallers(IntegrationTestFixture fixture)
     {
         var slug = $"cfg-{Guid.NewGuid():n}"[..16];
         await using var session = fixture.Services.GetRequiredService<IDocumentStore>().LightweightSession();
-        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug, IsActive = true });
+        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug, Status = TenantStatus.Active });
         await session.SaveChangesAsync(Ct);
         return slug;
     }

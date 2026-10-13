@@ -239,10 +239,13 @@ internal static class SeedFile
                      ?? new Tenant { Id = Guid.NewGuid(), Slug = slug, CreatedAt = DateTime.UtcNow };
         var name = string.IsNullOrWhiteSpace(declared.Name) ? slug : declared.Name.Trim();
 
-        if (tenant.Name != name || tenant.IsActive != declared.IsActive || !tenant.Domains.SequenceEqual(domains))
+        // isActive false suspends an active tenant and leaves an archived one archived.
+        var status = declared.IsActive ? TenantStatus.Active
+            : tenant.Status == TenantStatus.Active ? TenantStatus.Suspended : tenant.Status;
+        if (tenant.Name != name || tenant.Status != status || !tenant.Domains.SequenceEqual(domains))
         {
             tenant.Name = name;
-            tenant.IsActive = declared.IsActive;
+            tenant.Status = status;
             tenant.Domains = domains.ToList();
             session.Store(tenant);
             await session.SaveChangesAsync(ct);
