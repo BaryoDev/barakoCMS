@@ -10,6 +10,12 @@ Exports content-type definitions and their content as one JSON bundle, and impor
 another instance. Useful for backups, moving between environments, seeding a new tenant, and sharing
 content-type templates.
 
+**Obsolete since 4.6.0, removal planned for barakoCMS 6.0.** The config engine in the core covers
+the bundle: `POST /api/config/plan` and `POST /api/config/apply` accept a bundle unchanged, and
+`GET /api/config/export?sections=contentTypes,contents` exports the same types and entries. With
+this module installed it registers the `contents` section that makes that work. The two routes
+below keep working until the removal.
+
 ## Enable it
 
 ```sh
@@ -127,6 +133,6 @@ search on nuget.org returns the whole set.
 Contributions are welcome — including a module icon or other design work. See
 [CONTRIBUTING.md](https://github.com/BaryoDev/barakoCMS/blob/master/CONTRIBUTING.md).
 
-Licensed under MPL-2.0.
+Licensed under [MIT](LICENSE).
 
 If barakoCMS is useful to you, a star on the [repository](https://github.com/BaryoDev/barakoCMS) helps other people find it.

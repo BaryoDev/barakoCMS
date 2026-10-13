@@ -30,10 +30,15 @@ public static class AuditLog
         string? ipAddress = null,
         CancellationToken ct = default)
     {
-        var previous = await session.Query<AuditEvent>()
-            .Where(e => e.TenantSlug == tenantSlug)
-            .OrderByDescending(e => e.CreatedAt)
-            .FirstOrDefaultAsync(ct);
+        // An entry this session stored and has not saved yet is the newest, and a query cannot see
+        // it. Chaining off the stored one instead would give two entries of one save the same parent.
+        var previous = session.PendingChanges.AllChangedFor<AuditEvent>()
+                           .Where(e => e.TenantSlug == tenantSlug)
+                           .MaxBy(e => e.CreatedAt)
+                       ?? await session.Query<AuditEvent>()
+                           .Where(e => e.TenantSlug == tenantSlug)
+                           .OrderByDescending(e => e.CreatedAt)
+                           .FirstOrDefaultAsync(ct);
 
         var prevHash = previous?.Hash ?? AuditChain.GenesisHash;
         var createdAt = DateTime.UtcNow;

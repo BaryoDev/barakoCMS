@@ -1,0 +1,24 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.5.4">
+
+  <!-- A spike (#1025), not a shipped project: it is not in barakoCMS.sln, nothing references it,
+       and no image or compose file uses it. docs/internal/aspire-spike.md has the findings. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <UserSecretsId>barakocms-aspire-spike</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.AppHost" />
+    <PackageReference Include="Aspire.Hosting.PostgreSQL" />
+    <PackageReference Include="Aspire.Hosting.Docker" />
+    <!-- Aspire 13.5 needs KubernetesClient 19 and core pins 18.0.13. The AppHost runs the API as a
+         separate process, so it can carry its own version without moving any shipped project. -->
+    <PackageReference Include="KubernetesClient" VersionOverride="19.0.2" />
+  </ItemGroup>
+
+  <!-- No ProjectReference to the Suite: the Aspire SDK restores a referenced project for its own
+       runtime identifier, which writes a linux-x64 section into the lock file of every shipped project
+       in the graph and breaks their locked restore. Program.cs names the project by path instead. -->
+</Project>
