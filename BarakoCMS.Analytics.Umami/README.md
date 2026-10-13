@@ -68,3 +68,7 @@ The module persists nothing, since every read is
 live from Umami, so it registers no Marten documents.
 
 If barakoCMS is useful to you, a star on the [repository](https://github.com/BaryoDev/barakoCMS) helps other people find it.
+
+## License
+
+[MIT](LICENSE) © BaryoDev

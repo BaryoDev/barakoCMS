@@ -135,6 +135,17 @@ jobs:
       - name: Build
         run: dotnet build --no-restore --configuration Release
 
+      # D24: the engine is MPL-2.0 and every other package MIT (#816). The licence is set by rule in
+      # Directory.Build.props, so this asks MSBuild what each project evaluates to, which is what
+      # the package carries, and checks the LICENSE beside it.
+      - name: Check package licences
+        run: bash scripts/check-licences.sh
+
+      # The release publishes exactly PACKAGE_PROJECTS in release.yml. A packable project missing
+      # from it is built and tested and never reaches NuGet.
+      - name: Check every package is released
+        run: bash scripts/check-release-packages.sh
+
       - name: Test BarakoCMS.Tests
         run: >
           dotnet test --project BarakoCMS.Tests/BarakoCMS.Tests.csproj --no-build --configuration Release
@@ -188,7 +199,7 @@ jobs:
           echo "✅ BarakoCMS.Tests completed" >> $GITHUB_STEP_SUMMARY
 
   upgrade:
-    name: Upgrade from 3.x
+    name: Upgrade from 4.x
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -203,20 +214,23 @@ jobs:
       # against one that already has data. The upgrade lives entirely in that gap, which is how a
       # Marten major bump shipped with nobody having run it (#277).
       #
-      # The script stands up a real 3.21.0 database through the released image, asserts 4.0 refuses
-      # it, applies the reviewed migrations, and then proves an event appends to a stream that
-      # already existed and the projection daemon resumed rather than restarting. It then applies
-      # the rollback and boots 3.21.0 again to prove the documented way back actually works (#604).
-      # It checks the schema through the Suite as well as core and boots the Suite, because the
-      # Suite is what the image runs: a core-only gate stayed green while every module went
-      # unchecked (#661).
-      - name: Prove the 3.x database can be upgraded and rolled back
+      # The script stands up a real 4.9.0 database through the released image, the newest 4.x there
+      # is, asserts the working tree refuses it, applies the reviewed migrations, and then proves an
+      # event appends to a stream that already existed and the projection daemon resumed rather than
+      # restarting. It then applies the rollback and boots 4.9.0 again to prove the documented way
+      # back actually works (#604). It checks the schema through the Suite as well as core and boots
+      # the Suite, because the Suite is what the image runs: a core-only gate stayed green while
+      # every module went unchecked (#661). 5.0 takes no 3.x database directly: a 3.x install
+      # upgrades to 4.9 first (docs/upgrading-to-5.0.md), so the 3.21.0 start is gone (#1126).
+      - name: Prove a 4.9.0 database can be upgraded and rolled back
         run: bash scripts/upgrade-check.sh
+        env:
+          FROM_VERSION: 4.9.0
 
-      # The same sequence from a database 4.1.0 created, without the two 4.0.0 files. A 3.x start
-      # cannot see a table that a later release folded into the 4.0.0 file and gave no file of its
-      # own, because it runs the 4.0.0 file as it is today. An install that upgraded when 4.0 came
-      # out ran it as it was then. mt_doc_site_share_links went missing that way (#1007).
+      # The same sequence from a database 4.1.0 created. Such a database is past the 4.0.0 file, so
+      # it cannot see a table that a later release folded into that file and gave no file of its
+      # own. An install that upgraded when 4.0 came out ran the file as it was then.
+      # mt_doc_site_share_links went missing that way (#1007).
       - name: Prove a 4.1.0 database can be upgraded and rolled back
         run: bash scripts/upgrade-check.sh
         env:
@@ -246,7 +260,7 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      # The check scripts in this job and in "Upgrade from 3.x" used to bind fixed ports inside the
+      # The check scripts in this job and in "Upgrade from 4.x" used to bind fixed ports inside the
       # kernel's ephemeral range and lost them now and then to another process on the runner
       # (#1047). This holds a listener on each old default and requires the scripts to get past
       # their port steps anyway. It runs here because this job pulls postgres:16-alpine regardless

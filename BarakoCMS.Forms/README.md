@@ -284,3 +284,7 @@ action. The submission is written through `IContentWriter` like any other entry,
 fires for it.
 
 If barakoCMS is useful to you, a star on the [repository](https://github.com/BaryoDev/barakoCMS) helps other people find it.
+
+## License
+
+[MIT](LICENSE) © BaryoDev

@@ -15,7 +15,12 @@
     <Company>BaryoDev</Company>
     <Product>BarakoCMS</Product>
     <Copyright>Copyright © BaryoDev</Copyright>
-    <PackageLicenseExpression>MPL-2.0</PackageLicenseExpression>
+    <!-- D24 (DECISIONS.md): the engine stays MPL-2.0, everything built on it is MIT. The engine here
+         is the core and the contract package split out of it, whose files came from the core and
+         keep its licence. Every other package, a new module included, is MIT without saying so.
+         scripts/check-licences.sh evaluates each packable project and fails on a mismatch. -->
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageLicenseExpression Condition="'$(MSBuildProjectName)' == 'barakoCMS' or '$(MSBuildProjectName)' == 'BarakoCMS.Abstractions'">MPL-2.0</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/baryodev/barakoCMS</PackageProjectUrl>
     <RepositoryUrl>https://github.com/baryodev/barakoCMS</RepositoryUrl>
     <RepositoryType>git</RepositoryType>

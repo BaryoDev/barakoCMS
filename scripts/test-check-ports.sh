@@ -443,10 +443,19 @@ upgrade_cases() {
     expect "both containers are removed by the ids this run was given" \
         [ "$(grep -cE '^rm -f fake-(pg|old)$' "$state/calls")" = 2 ]
     expect "and nothing is removed by name" [ "$(grep -c '^rm ' "$state/calls")" = 2 ]
-    expect "on a 3.x start the event correlation file is applied once, in its place" \
-        [ "$(grep -c "cp migrations/4.6.0/event-correlation-metadata.sql" "$state/calls")" = 1 ]
-    expect "and not while the FROM_VERSION container is still running" \
-        not first_before "cp migrations/4.6.0/event-correlation-metadata.sql" "stop "
+    expect "on a 4.9.0 start, the default, the event correlation file is not applied: 4.9 already has it" \
+        [ "$(grep -c "cp migrations/4.6.0/event-correlation-metadata.sql" "$state/calls")" = 0 ]
+
+    echo
+    echo "upgrade-check.sh, from a 3.x release, which this release does not upgrade directly:"
+    stubs fake-pg
+    fake_docker true
+    run_upgrade FROM_VERSION=3.21.0
+    expect "the run fails" [ $? -ne 0 ]
+    expect "the message sends a 3.x install to 4.9 first, naming the guide" \
+        grep -q "upgrades to 4.9 first, as docs/upgrading-to-5.0.md says" "$output"
+    expect "no container is started" not grep -q "^run " "$state/calls"
+    expect "and no host" [ ! -s "$record" ]
 
     echo
     echo "upgrade-check.sh, from a 4.x release, where the event correlation file goes in under the old build:"
@@ -481,10 +490,12 @@ upgrade_cases() {
     expect "the host is told to bind the port asked for" [ "$(recorded URLS)" = "http://127.0.0.1:$new_wanted" ]
 
     echo
-    echo "upgrade-check.sh, when the database has no seeded HR role:"
+    # The seeded HR role checks sit around migrations/4.6.0/sensitivity-by-capability.sql, which only
+    # a database from before 4.6.0 runs, so these start from 4.1.0.
+    echo "upgrade-check.sh, from 4.1.0, when the database has no seeded HR role:"
     stubs fake-pg
     fake_docker true 0
-    run_upgrade
+    run_upgrade FROM_VERSION=4.1.0
     expect "the run fails" [ $? -ne 0 ]
     expect "the script stops before the forward file, saying it would prove nothing" \
         grep -q "no role named HR under the seeded id" "$output"
@@ -493,10 +504,10 @@ upgrade_cases() {
     expect "it does not go on to the db-assert that has to pass" not grep -q "core db-assert must now pass" "$output"
 
     echo
-    echo "upgrade-check.sh, when the forward file leaves the seeded HR role without view_sensitive:"
+    echo "upgrade-check.sh, from 4.1.0, when the forward file leaves the seeded HR role without view_sensitive:"
     stubs fake-pg
     fake_docker true 1 0
-    run_upgrade
+    run_upgrade FROM_VERSION=4.1.0
     expect "the run fails" [ $? -ne 0 ]
     expect "the forward file was applied" \
         [ "$(grep -c "cp migrations/4.6.0/sensitivity-by-capability.sql" "$state/calls")" = 1 ]

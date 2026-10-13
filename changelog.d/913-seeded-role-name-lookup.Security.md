@@ -3,4 +3,4 @@
   that name in any tenant. `CapabilityDefaults.GrantAsync`, the obsolete `ModuleCapabilities.GrantAsync`
   and the Accounting seed now read only ownerless and platform roles, then the default tenant's, so
   a tenant's own `Accountant` is never granted the module's capabilities or adopted in place of the
-  platform role. Accounting 4.3.2 (#913).
+  platform role. Accounting 4.4.0 (#913).

@@ -1,6 +1,8 @@
 using JasperFx;
 using Serilog;
 using barakoCMS.Extensions;
+using BarakoCMS.Secrets.Aws;
+using BarakoCMS.Secrets.Gcp;
 
 // "Barako" — the full-suite barakoCMS host: the core engine with every module on. Configure it with
 // just a DATABASE_URL (or ConnectionStrings__DefaultConnection) and a 32+ char JWT__Key; every
@@ -32,6 +34,12 @@ builder.Host.UseSerilog((context, services, configuration) =>
 
 try
 {
+    // Keys and credentials from a managed secret store, before anything reads them. Each adds
+    // nothing unless Secrets:Aws:Map or Secrets:Gcp:Map names a secret, and a mapped secret that
+    // cannot be read throws here, naming the secret, so the host does not start without it (#785).
+    builder.Configuration.AddBarakoAwsSecrets();
+    builder.Configuration.AddBarakoGcpSecrets();
+
     // Outbound HTTP for the ExternalAuth OAuth token exchange + profile lookups.
     builder.Services.AddHttpClient();
 

@@ -3,12 +3,17 @@
 4.0 will not boot against a 3.x database until you apply two SQL files. This page is what to run,
 what each statement does, and what to do when it goes wrong.
 
-The whole sequence, including the rollback below, is proved in CI by `scripts/upgrade-check.sh`,
-which stands up a real 3.21.0 database through the released image, upgrades it, then rolls it back
-and boots 3.21.0 again against the result. It checks the schema with both the core host and the
-Suite, and boots the Suite, which is what the published image runs. If a step here stops being
-true, that job goes red. The job then runs again from a database 4.1.0 created, leaving out the two
-`4.0.0` files, and rolls that one back to 4.1.0.
+**This page stops at 4.9.** It takes a 3.x database as far as the last 4.x release. 5.0 does not
+take a 3.x database directly: upgrade to 4.9 with this page, from a checkout of the `v4.9.0` tag and
+with the 4.9.0 image, and then follow [upgrading-to-5.0.md](upgrading-to-5.0.md).
+
+Through 4.9, the whole sequence, including the rollback below, was proved in CI by
+`scripts/upgrade-check.sh`, which stood up a real 3.21.0 database through the released image,
+upgraded it, then rolled it back and booted 3.21.0 again against the result. It checked the schema
+with both the core host and the Suite, and booted the Suite, which is what the published image runs.
+The job ran again from a database 4.1.0 created, leaving out the two `4.0.0` files, and rolled that
+one back to 4.1.0. From 5.0 the job is `Upgrade from 4.x` and starts from 4.9.0 and 4.1.0 instead;
+the 3.21.0 start is proved at the `v4.9.0` tag, which is where a 3.x install goes.
 
 ## Why there is a migration at all
 

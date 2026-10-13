@@ -262,6 +262,13 @@ If a break is genuinely unavoidable, say so explicitly in the PR description.
 
 ## License
 
-barakoCMS is released under the [Mozilla Public License 2.0](LICENSE), and your contribution ships
-under whatever licence the release carries. The [contributor terms](CLA.md) bound that to
-OSI-approved licences, so a release containing your work is always open source.
+The barakoCMS core (`barakoCMS/` and `BarakoCMS.Abstractions/`) is released under the
+[Mozilla Public License 2.0](LICENSE). Every module, `BarakoCMS.Testing`, `BarakoCMS.Suite` and the
+module template are MIT, each with the `LICENSE` in its own folder (D24 in
+[DECISIONS.md](DECISIONS.md)). Your contribution ships under the licence of the place it lands. The
+[contributor terms](CLA.md) say which is which, add a patent grant for MIT contributions, and bound
+the licence to MPL-2.0 or MIT, so a release containing your work is always open source.
+
+A new module is MIT without anyone setting it: the licence is decided by rule in
+`Directory.Build.props`, and `scripts/check-licences.sh` (in preflight and CI) fails a package whose
+licence or `LICENSE` file does not match.
