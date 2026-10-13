@@ -2423,6 +2423,13 @@
             },
             "type": "array"
           },
+          "conflicts": {
+            "description": "What stored state stops the section being applied now, answered as a 409, as its own route would.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "errors": {
             "items": {
               "type": "string"
@@ -13283,7 +13290,7 @@
         ]
       },
       "put": {
-        "description": "The type has to exist, and the sort and every condition have to name its fields, so a binding\ncannot be saved that page resolve would have to skip. Whether the type is publicly deliverable,\nand whether those fields are Public, is read again on every resolve, since either can change\nafter the binding is saved. A tenant holds at most MaxBindings.",
+        "description": "The type has to exist, and the sort and every condition have to name its fields, so a binding\ncannot be saved that page resolve would have to skip. Whether the type is publicly deliverable,\nand whether those fields are Public, is read again on every resolve, since either can change\nafter the binding is saved. A tenant holds at most MaxBindings.\n            \nRefused with 409 while a field change runs on the type: a rename moves the fields bindings name\nin one of its steps, and a binding saved around that step would keep the old name.",
         "operationId": "barakoCMSFeaturesBlocksBindingsPutEndpoint",
         "parameters": [
           {
@@ -14205,7 +14212,7 @@
     },
     "/api/config/apply": {
       "post": {
-        "description": "Answers with the plan it ran. 400 when a section cannot be applied as written, 403 when the\ncaller may not make a change it asks for, and 409 when it holds a destructive change and\nallowDestructive was not sent. In each of those nothing is written.",
+        "description": "Answers with the plan it ran. 400 when a section cannot be applied as written, 403 when the\ncaller may not make a change it asks for, and 409 when stored state stops a change the way its\nown route would refuse it (a field change running on a type it changes, or a field it leaves\nout that a block binding names), or when it holds a destructive change and\nallowDestructive was not sent. In each of those nothing is written.",
         "operationId": "barakoCMSFeaturesConfigApplyEndpoint",
         "requestBody": {
           "content": {
@@ -15042,7 +15049,7 @@
     },
     "/api/content-types/{name}/fields/{field}/change": {
       "post": {
-        "description": "A label is additive: it touches no entry and is applied at once (200). A rename, a convert (a\nnew type, with a mapping for the stored values) and a remove touch every entry, so each is a\nFieldChange applied by a job (202), whose progress\nGET /api/content-types/field-changes/{id} reports and which\nPOST /api/content-types/field-changes/{id}/resume runs again after it stopped.\n            \nWhile a change runs, the field is read under its old name: the job copies every value to the\nnew name first, then renames the field, then drops the old key. Entry writes to the type are\nrefused until it completes, so no write lands between two batches in a shape the job has\nalready passed. One change at a time per type.\n            \nA change that drops stored values is destructive: a remove always, and a convert when some value\nneither maps to nor reads as a value of the new type. It is refused unless the request says\nallowDestructive, and the refusal names how many entries hold a value it would drop.",
+        "description": "A label is additive: it touches no entry and is applied at once (200). A rename, a convert (a\nnew type, with a mapping for the stored values) and a remove touch every entry, so each is a\nFieldChange applied by a job (202), whose progress\nGET /api/content-types/field-changes/{id} reports and which\nPOST /api/content-types/field-changes/{id}/resume runs again after it stopped.\n            \nWhile a change runs, the field is read under its old name: the job copies every value to the\nnew name first, then renames the field, then drops the old key. Entry writes to the type are\nrefused until it completes, so no write lands between two batches in a shape the job has\nalready passed. One change at a time per type.\n            \nA rename carries every block binding that sorts or filters on the field along, in the step that\nrenames the field on the type. A remove is refused with 409 while a binding names the field.\n            \nA change that drops stored values is destructive: a remove always, and a convert when some value\nneither maps to nor reads as a value of the new type. It is refused unless the request says\nallowDestructive, and the refusal names how many entries hold a value it would drop.",
         "operationId": "barakoCMSFeaturesContentTypeChangeFieldEndpoint",
         "parameters": [
           {

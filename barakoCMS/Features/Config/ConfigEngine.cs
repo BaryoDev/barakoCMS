@@ -194,6 +194,7 @@ internal sealed class ConfigEngine(
                 ["sections"] = string.Join(", ", response.Sections.Select(s => s.Section)),
                 ["errors"] = response.Errors.Count + response.Sections.Sum(s => s.Errors.Count),
                 ["refusals"] = response.Refusals.Count + response.Sections.Sum(s => s.Refusals.Count),
+                ["conflicts"] = response.Sections.Sum(s => s.Conflicts.Count),
                 ["destructive"] = response.Sections.Sum(s => s.Changes.Count(c => c.Kind == ConfigChangeResponse.DestructiveKind)),
             }, ct: ct);
         await session.SaveChangesAsync(ct);
@@ -229,6 +230,11 @@ internal sealed class ConfigEngine(
             return 403;
         }
 
+        if (response.HasConflicts)
+        {
+            return 409;
+        }
+
         if (response.HasSectionErrors)
         {
             return 400;
@@ -249,6 +255,7 @@ internal sealed class ConfigEngine(
         var commit = apply
                      && !response.HasRefusals
                      && !response.HasSectionErrors
+                     && !response.HasConflicts
                      && (allowDestructive || !response.HasDestructiveChanges);
 
         if (commit && !response.IsEmpty)
@@ -281,7 +288,7 @@ internal sealed class ConfigEngine(
             {
                 plan = WithoutDestructive(plan);
             }
-            staging &= plan.Errors.Count == 0 && plan.Refusals.Count == 0;
+            staging &= plan.Errors.Count == 0 && plan.Refusals.Count == 0 && plan.Conflicts.Count == 0;
             if (staging && plan.Changes.Count > 0 && !writable.Contains(provider.Section))
             {
                 // Skipped on its own: the sections after it are still staged, planned as if its
@@ -311,6 +318,7 @@ internal sealed class ConfigEngine(
                         Changes = plan.Changes,
                         Errors = [.. plan.Errors, .. failures],
                         Refusals = plan.Refusals,
+                        Conflicts = plan.Conflicts,
                         Notes = plan.Notes,
                     };
                 }
@@ -335,6 +343,7 @@ internal sealed class ConfigEngine(
         Changes = plan.Changes,
         Errors = plan.Errors,
         Refusals = plan.Refusals,
+        Conflicts = plan.Conflicts,
         Notes = [.. plan.Notes, note],
     };
 
@@ -345,6 +354,7 @@ internal sealed class ConfigEngine(
         Changes = plan.Changes.Where(c => c.Kind != ConfigChangeKind.Destructive).ToList(),
         Errors = plan.Errors,
         Refusals = plan.Refusals,
+        Conflicts = plan.Conflicts,
         Notes = [.. plan.Notes, .. plan.Changes.Where(c => c.Kind == ConfigChangeKind.Destructive).Select(c => SkippedPrefix + c.Summary)],
     };
 

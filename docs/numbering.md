@@ -30,7 +30,8 @@ submission, a workflow's create-task action and an inbound collection sync. A ty
 matters should not take entries by those routes until they number too.
 
 A numbering rule moves with its field when the field is renamed, and a field a rule numbers cannot
-be converted or removed until the rule is taken off.
+be converted or removed until the rule is taken off. That holds for `POST /api/config/apply` and a
+Portability import too: a definition leaving out the field the stored rule numbers is refused.
 
 ## Strategies
 

@@ -477,6 +477,7 @@ public class PublicSurfaceTests
             "ConfigSectionPlan.IReadOnlyList<ConfigChange> Changes { get; init; }",
             "ConfigSectionPlan.IReadOnlyList<String> Errors { get; init; }",
             "ConfigSectionPlan.IReadOnlyList<String> Refusals { get; init; }",
+            "ConfigSectionPlan.IReadOnlyList<String> Conflicts { get; init; }",
             "ConfigSectionPlan.IReadOnlyList<String> Notes { get; init; }",
             "sealed class ConfigChange",
             "ConfigChange..ctor()",

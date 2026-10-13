@@ -1,6 +1,7 @@
 using System.Text.Json;
 using barakoCMS.Core.Validation;
 using barakoCMS.Events;
+using barakoCMS.Features.Blocks.Bindings;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using FastEndpoints;
@@ -94,9 +95,7 @@ internal static class FieldChanges
     public static async Task<FieldChange?> StartAsync(IDocumentSession session, FieldChange change, CancellationToken ct, bool inlineWhenSmall = false)
     {
         var lowered = change.ContentType.ToLower();
-        await session.BeginTransactionAsync(ct);
-        await session.QueryAsync<int>(
-            "select 1 from pg_advisory_xact_lock(hashtextextended(?, 0))", ct, $"barakocms:field-change:{session.TenantId}:{lowered}");
+        await LockTypeAsync(session, change.ContentType, ct);
         if (await RunningAsync(session, change.ContentType, ct) is { } running)
         {
             return running;
@@ -111,6 +110,23 @@ internal static class FieldChanges
         DateTime? executeAfter = inlineWhenSmall && RunsInline(change) ? DateTime.UtcNow.Add(InlineGrace) : null;
         await new FieldChangeCommand { TenantId = session.TenantId, ChangeId = change.Id }.QueueJobAsync(executeAfter, ct: ct);
         return null;
+    }
+
+    /// <summary>
+    /// Takes the lock a change to the type starts under, held until the session's transaction ends.
+    /// </summary>
+    /// <remarks>
+    /// A writer that reads what a change rewrites, checks no change is running and then stores, takes
+    /// it first: no change can start between its check and its commit, and one that committed before
+    /// the lock was taken is found running. Read the type after taking it, not before, or a change
+    /// that ran to completion in between is missed. The key names the tenant, as a type is per tenant.
+    /// </remarks>
+    public static async Task LockTypeAsync(IDocumentSession session, string contentType, CancellationToken ct)
+    {
+        await session.BeginTransactionAsync(ct);
+        await session.QueryAsync<int>(
+            "select 1 from pg_advisory_xact_lock(hashtextextended(?, 0))", ct,
+            $"barakocms:field-change:{session.TenantId}:{contentType.ToLower()}");
     }
 
     /// <summary>Whether a change is small enough for the request that asked for it to run.</summary>
@@ -198,12 +214,7 @@ internal static class FieldChanges
         var work = plan[change.Step];
         if (work == Work.Define)
         {
-            Define(definition, change);
-            definition.UpdatedAt = now;
-            session.Store(definition);
-            NextStep(change);
-            session.Store(change);
-            await session.SaveChangesAsync(ct);
+            await DefineStepAsync(session, definition, change, now, ct);
             return;
         }
 
@@ -238,6 +249,24 @@ internal static class FieldChanges
         }
 
         change.Cursor = batch[^1].Id;
+        session.Store(change);
+        await session.SaveChangesAsync(ct);
+    }
+
+    /// <summary>The definition step, with the block bindings a rename carries, committed with the step's progress.</summary>
+    private static async Task DefineStepAsync(
+        IDocumentSession session, ContentTypeDefinition definition, FieldChange change, DateTimeOffset now, CancellationToken ct)
+    {
+        Define(definition, change);
+        if (change.Kind == FieldChangeKind.Rename)
+        {
+            // In the step's commit, so a binding never names a field the type does not declare.
+            await BindingFields.RenameAsync(session, definition.Name, change.Field, change.NewName!, ct);
+        }
+
+        definition.UpdatedAt = now;
+        session.Store(definition);
+        NextStep(change);
         session.Store(change);
         await session.SaveChangesAsync(ct);
     }

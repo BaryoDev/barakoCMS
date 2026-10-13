@@ -306,7 +306,8 @@ Content types are tenant-scoped, so they go under the tenant's `config` in the s
 instance is up, the same document is the way to change the model: `POST /api/config/plan` says what
 a document would create, change or destroy without writing anything, and `POST /api/config/apply`
 applies it to the tenant the request is in, refusing a destructive change unless `allowDestructive`
-is sent. Both take `{ "document": { ... } }`, need the `manage_config` capability, and check each
+is sent. It answers 409, as the content type routes do, for a type with a field change running and
+for a document leaving out a field a block binding names; a plan lists those under `conflicts`. Both take `{ "document": { ... } }`, need the `manage_config` capability, and check each
 section against the capability its own routes ask for. `GET /api/config/export` writes a tenant's
 configuration in that shape, which is how a model built by clicking becomes a file. The worked
 example of a schema is [`examples/blog-starter`](../examples/blog-starter/), a real blog schema and

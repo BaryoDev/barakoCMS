@@ -54,6 +54,12 @@ public sealed class ConfigSectionPlan
     /// <summary>What this caller may not do that the section asks for. Answered as a 403.</summary>
     public IReadOnlyList<string> Refusals { get; init; } = [];
 
+    /// <summary>
+    /// What stored state stops the section being applied now, where the route making the same
+    /// change answers 409, such as a field change running on a type. Answered as a 409.
+    /// </summary>
+    public IReadOnlyList<string> Conflicts { get; init; } = [];
+
     /// <summary>What is worth knowing and changes nothing, such as a secret still to be set.</summary>
     public IReadOnlyList<string> Notes { get; init; } = [];
 }

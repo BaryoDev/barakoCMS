@@ -190,7 +190,7 @@ internal static class SeedFile
     {
         var reasons = response.Errors
             .Concat(response.Refusals)
-            .Concat(response.Sections.SelectMany(s => s.Errors.Concat(s.Refusals).Select(e => $"{s.Section}: {e}")))
+            .Concat(response.Sections.SelectMany(s => s.Errors.Concat(s.Refusals).Concat(s.Conflicts).Select(e => $"{s.Section}: {e}")))
             .ToList();
         return string.Join(" | ", reasons);
     }

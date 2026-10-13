@@ -115,6 +115,7 @@ public static class ContentTypeUpsert
 
         errors.AddRange(SensitivityChanges(type, stored, wording));
         errors.AddRange(DroppedTransitionFields(type, stored, wording));
+        errors.AddRange(DroppedNumberingAndLookupFields(type, stored, wording));
         errors.AddRange(UniquenessChanges(type, stored, wording));
         errors.AddRange(CurrencyAndTokenChanges(type, stored, wording));
         errors.AddRange(EntryRules(type, stored, await EntryCountAsync(session, stored, ct), wording));
@@ -373,6 +374,45 @@ public static class ContentTypeUpsert
                 yield return $"field '{name}' is named by the stored transition '{transition.Name}' and "
                              + $"{wording.Source} leaves it out, which would stop that transition asking for it. Keep the field.";
             }
+        }
+    }
+
+    /// <summary>
+    /// Fields the stored numbering rule or lookup names that the stored type has and the definition
+    /// leaves out.
+    /// </summary>
+    /// <remarks>
+    /// A write keeps the stored numbering rule and lookup (<see cref="MergeInto"/> carries neither).
+    /// Dropping a field one of them names would write each new number under a name the type does not
+    /// declare, or leave the lookup matching or returning nothing, with nothing said. The field
+    /// change route refuses removing such a field for the same reason. A name the stored type already
+    /// lacks is not reported, as for a transition.
+    /// </remarks>
+    private static IEnumerable<string> DroppedNumberingAndLookupFields(
+        ContentTypeDefinition type, ContentTypeDefinition stored, Wording wording)
+    {
+        var named = new List<(string Field, string By)>();
+        if (stored.Numbering is { } numbering)
+        {
+            named.Add((numbering.Field, "the stored numbering rule"));
+        }
+
+        if (stored.Lookup is { } lookup)
+        {
+            named.AddRange(barakoCMS.Core.Validation.FieldNames.LookupNames(lookup).Select(f => (f, "the stored lookup")));
+        }
+
+        foreach (var (field, by) in named.DistinctBy(n => (n.Field.ToLowerInvariant(), n.By)))
+        {
+            if (string.IsNullOrWhiteSpace(field)
+                || !stored.Fields.Any(f => f.Name.Equals(field, StringComparison.OrdinalIgnoreCase))
+                || type.Fields.Any(f => f.Name.Equals(field, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            yield return $"field '{field}' is named by {by} and {wording.Source} leaves it out, which would leave "
+                         + $"{by} naming a field the type does not declare. Keep the field, or take it out of {by} first.";
         }
     }
 
