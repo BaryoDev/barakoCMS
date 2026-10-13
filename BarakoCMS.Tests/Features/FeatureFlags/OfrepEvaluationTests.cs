@@ -7,6 +7,8 @@ using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
 using OpenFeature;
+using OpenFeature.Constant;
+using OpenFeature.Model;
 using OpenFeature.Providers.Ofrep.DependencyInjection;
 using Xunit;
 
@@ -20,6 +22,26 @@ namespace BarakoCMS.Tests.Features.FeatureFlags;
 public class OfrepEvaluationTests(IntegrationTestFixture factory)
 {
     private const string Base = "/ofrep/v1/evaluate/flags";
+
+    private static int _ipCounter;
+
+    // Its own bucket in the global limiter. Without the header every request in the shared fixture
+    // counts against one address, and past its limit a request waits for the window to turn over,
+    // up to a minute. The OFREP provider gives up after ten seconds and answers with the default.
+    private readonly string _ip = $"2001:db8:1148::{Interlocked.Increment(ref _ipCounter):x}";
+
+    private HttpClient Client()
+    {
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, _ip);
+        return client;
+    }
+
+    private static void ShouldBeAnsweredByTheServer(FlagEvaluationDetails<bool> details)
+    {
+        details.Reason.Should().Be("STATIC", $"the provider returned an evaluation, not its own fallback ({details.ErrorType}: {details.ErrorMessage})");
+        details.ErrorType.Should().Be(ErrorType.None, details.ErrorMessage);
+    }
 
     private async Task<string> FlagAsync(bool enabled, bool isPublic, List<string>? tenants = null, int rollout = 100)
     {
@@ -56,6 +78,7 @@ public class OfrepEvaluationTests(IntegrationTestFixture factory)
         {
             o.BaseUrl = "http://localhost";
             o.HttpClientName = "ofrep-test";
+            o.Headers[TestRemoteIpFilter.Header] = _ip;
         }));
         await using var provider = services.BuildServiceProvider();
         var lifecycle = provider.GetRequiredService<OpenFeature.Hosting.IFeatureLifecycleManager>();
@@ -65,8 +88,13 @@ public class OfrepEvaluationTests(IntegrationTestFixture factory)
             using var scope = provider.CreateScope();
             var client = scope.ServiceProvider.GetRequiredService<OpenFeature.IFeatureClient>();
 
-            (await client.GetBooleanValueAsync(on, defaultValue: false)).Should().BeTrue();
-            (await client.GetBooleanValueAsync(off, defaultValue: true)).Should().BeFalse("a disabled flag evaluates to false, not to the default");
+            var enabled = await client.GetBooleanDetailsAsync(on, defaultValue: false);
+            ShouldBeAnsweredByTheServer(enabled);
+            enabled.Value.Should().BeTrue();
+
+            var disabled = await client.GetBooleanDetailsAsync(off, defaultValue: true);
+            ShouldBeAnsweredByTheServer(disabled);
+            disabled.Value.Should().BeFalse("a disabled flag evaluates to false, not to the default");
             var missing = await client.GetBooleanDetailsAsync($"missing-{Guid.NewGuid():N}", defaultValue: true);
             missing.Value.Should().BeTrue("a flag that does not exist falls back to the caller's default");
             missing.ErrorType.Should().Be(OpenFeature.Constant.ErrorType.FlagNotFound);
@@ -83,7 +111,7 @@ public class OfrepEvaluationTests(IntegrationTestFixture factory)
     {
         var key = await FlagAsync(enabled: true, isPublic: true);
 
-        var response = await EvaluateAsync(factory.CreateClient(), key);
+        var response = await EvaluateAsync(Client(), key);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -98,12 +126,12 @@ public class OfrepEvaluationTests(IntegrationTestFixture factory)
     {
         var key = await FlagAsync(enabled: true, isPublic: false);
 
-        var signedIn = factory.CreateClient();
+        var signedIn = Client();
         signedIn.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", await factory.StoredUserTokenAsync("User"));
         (await EvaluateAsync(signedIn, key)).StatusCode.Should().Be(HttpStatusCode.OK, "the control: the flag exists");
 
-        var anonymous = await EvaluateAsync(factory.CreateClient(), key);
+        var anonymous = await EvaluateAsync(Client(), key);
         anonymous.StatusCode.Should().Be(HttpStatusCode.NotFound);
         using var doc = JsonDocument.Parse(await anonymous.Content.ReadAsStringAsync());
         doc.RootElement.GetProperty("errorCode").GetString().Should().Be("FLAG_NOT_FOUND");
@@ -115,7 +143,7 @@ public class OfrepEvaluationTests(IntegrationTestFixture factory)
         var other = $"tenant-{Guid.NewGuid():N}"[..20];
         var key = await FlagAsync(enabled: true, isPublic: true, tenants: [other]);
 
-        var response = await EvaluateAsync(factory.CreateClient(), key, new { targetingKey = other, tenant = other, tenantSlug = other });
+        var response = await EvaluateAsync(Client(), key, new { targetingKey = other, tenant = other, tenantSlug = other });
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -128,7 +156,7 @@ public class OfrepEvaluationTests(IntegrationTestFixture factory)
     {
         var shown = await FlagAsync(enabled: true, isPublic: true);
         var hidden = await FlagAsync(enabled: true, isPublic: false);
-        var client = factory.CreateClient();
+        var client = Client();
 
         var first = await client.PostAsJsonAsync(Base, new { context = new { } });
         first.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -151,7 +179,7 @@ public class OfrepEvaluationTests(IntegrationTestFixture factory)
     [Fact]
     public async Task The_existing_route_still_answers_and_names_its_successor()
     {
-        var response = await factory.CreateClient().GetAsync("/api/feature-flags");
+        var response = await Client().GetAsync("/api/feature-flags");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         response.Headers.GetValues("Link").Single().Should().Be($"<{Base}>; rel=\"successor-version\"");
@@ -161,7 +189,7 @@ public class OfrepEvaluationTests(IntegrationTestFixture factory)
     public async Task A_signed_in_callers_targeting_key_does_not_choose_their_rollout_bucket()
     {
         var key = await FlagAsync(enabled: true, isPublic: true, rollout: 50);
-        var client = factory.CreateClient();
+        var client = Client();
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", await factory.StoredUserTokenAsync("User"));
 
@@ -183,7 +211,7 @@ public class OfrepEvaluationTests(IntegrationTestFixture factory)
     public async Task An_anonymous_callers_targeting_key_does_choose_the_rollout_bucket()
     {
         var key = await FlagAsync(enabled: true, isPublic: true, rollout: 50);
-        var client = factory.CreateClient();
+        var client = Client();
 
         // The control for the test above: the same twenty keys do split when the caller is anonymous.
         var values = new List<bool>();
