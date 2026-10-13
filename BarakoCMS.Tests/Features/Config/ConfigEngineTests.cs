@@ -345,13 +345,82 @@ public class ConfigEngineTests
         var (_, otherRole, _) = await RuleChangeAsync();
         var mineType = Unique("ledger");
         await _callers.StoreInTenantAsync(tenant, Type(mineType, ("Title", "string")));
-        var (_, plan) = await PlanAsync(memberOnly, new
+        var (refused, plan) = await ApplyAsync(memberOnly, new
         {
             version = 1,
             permissionRules = new Dictionary<string, object> { [$"{otherRole}/{mineType}"] = new { read = new { enabled = true } } },
         });
+        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest, plan.ToString());
         plan.ToString().Should().Contain($"there is no role '{otherRole}'", "another tenant's role is out of reach");
         (await _callers.InTenantAsync(null, s => s.Query<Role>().SingleAsync(r => r.Name == otherRole, Ct)))!.Permissions.Should().BeEmpty();
+    }
+
+    /// <summary>A caller of <paramref name="tenant"/> holding manage_config and manage_roles through a membership only.</summary>
+    private async Task<HttpClient> MemberRoleWriterAsync(string tenant) =>
+        await _callers.ClientAsync(tenant, [], memberRoles:
+            [await _callers.TenantRoleAsync(tenant, SystemCapabilities.ManageConfig, SystemCapabilities.ManageRoles)]);
+
+    [Fact]
+    public async Task A_role_writer_from_a_membership_is_refused_a_platform_role_and_it_is_unchanged()
+    {
+        var tenant = await _callers.TenantAsync();
+        var platform = new Role { Id = Guid.NewGuid(), Name = Unique("Shared Desk "), Description = "before", IsPlatform = true };
+        await _callers.StoreInTenantAsync(null, platform);
+
+        var (applied, body) = await ApplyAsync(await MemberRoleWriterAsync(tenant),
+            new { version = 1, roles = new Dictionary<string, object> { [platform.Name] = new { description = "after" } } });
+
+        applied.StatusCode.Should().Be(HttpStatusCode.Forbidden, body.ToString());
+        body.ToString().Should().Contain("platform role every tenant shares");
+        (await _callers.InTenantAsync(null, s => s.LoadAsync<Role>(platform.Id, Ct)))!.Description.Should().Be("before");
+    }
+
+    [Fact]
+    public async Task A_role_writer_from_a_membership_is_refused_a_new_role_carrying_manage_roles_and_none_is_made()
+    {
+        var tenant = await _callers.TenantAsync();
+        var name = Unique("Widened ");
+
+        var (applied, body) = await ApplyAsync(await MemberRoleWriterAsync(tenant), new
+        {
+            version = 1,
+            roles = new Dictionary<string, object> { [name] = new { systemCapabilities = new[] { SystemCapabilities.ManageRoles } } },
+        });
+
+        applied.StatusCode.Should().Be(HttpStatusCode.Forbidden, body.ToString());
+        body.ToString().Should().Contain("reaches past the tenant");
+        (await _callers.InTenantAsync(null, s => s.Query<Role>().AnyAsync(r => r.Name == name, Ct))).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_role_writer_from_a_membership_is_refused_a_platform_roles_rules_and_they_are_unchanged()
+    {
+        var (tenant, role, document) = await RuleChangeAsync(platform: true);
+
+        var (applied, body) = await ApplyAsync(await MemberRoleWriterAsync(tenant), document);
+
+        applied.StatusCode.Should().Be(HttpStatusCode.Forbidden, body.ToString());
+        body.ToString().Should().Contain("platform role every tenant shares");
+        (await _callers.InTenantAsync(null, s => s.Query<Role>().SingleAsync(r => r.Name == role, Ct)))!.Permissions.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_platform_callers_change_to_a_platform_role_says_it_changes_every_tenant()
+    {
+        var tenant = await _callers.TenantAsync();
+        var platform = new Role { Id = Guid.NewGuid(), Name = Unique("Shared Desk "), Description = "before", IsPlatform = true };
+        var own = new Role { Id = Guid.NewGuid(), Name = Unique("Own Desk "), Description = "before", TenantSlug = tenant };
+        await _callers.StoreInTenantAsync(null, platform, own);
+
+        var (_, plan) = await PlanAsync(await _callers.SuperAdminAsync(tenant), new
+        {
+            version = 1,
+            roles = new Dictionary<string, object> { [platform.Name] = new { description = "after" }, [own.Name] = new { description = "after" } },
+        });
+
+        var notes = plan.GetProperty("sections")[0].GetProperty("notes").EnumerateArray().Select(n => n.GetString()!).ToList();
+        notes.Should().ContainSingle("only the platform role is shared. " + plan);
+        notes[0].Should().Contain($"'{platform.Name}' is a platform role every tenant shares");
     }
 
     [Fact]

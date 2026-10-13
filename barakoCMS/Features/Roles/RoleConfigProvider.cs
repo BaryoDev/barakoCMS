@@ -45,6 +45,9 @@ internal sealed class RoleConfigProvider(
     TenantContext tenant,
     ICallerCapabilities callers) : IConfigProvider
 {
+    /// <summary>The role each planned change resolved to, by name, or null for one it creates.</summary>
+    private readonly Dictionary<string, Guid?> planned = new(StringComparer.Ordinal);
+
     public string Section => "roles";
 
     public int Order => 200;
@@ -75,6 +78,7 @@ internal sealed class RoleConfigProvider(
         var refuseUnknown = configuration.GetValue(CapabilityVocabulary.RefuseUnknownKey, false);
         var touchesPlatformRole = false;
         var addsPlatformCapability = false;
+        planned.Clear();
 
         foreach (var (name, document) in desired.OrderBy(d => d.Key, StringComparer.Ordinal))
         {
@@ -96,6 +100,12 @@ internal sealed class RoleConfigProvider(
             }
 
             changes.Add(change);
+            planned[name] = current?.Id;
+            if (current?.IsPlatform == true)
+            {
+                notes.Add($"'{name}' is a platform role every tenant shares, so this changes it in every tenant.");
+            }
+
             touchesPlatformRole |= current?.IsPlatform == true;
             addsPlatformCapability |= Adds(role, current);
         }
@@ -118,6 +128,12 @@ internal sealed class RoleConfigProvider(
             }
 
             var role = stored.GetValueOrDefault(change.Key);
+            if (planned.TryGetValue(change.Key, out var resolved) && resolved != role?.Id)
+            {
+                errors.Add($"'{change.Key}' names another role than it did when the change was planned. Plan it again.");
+                continue;
+            }
+
             var before = role is null ? null : RoleAudit.Of(role);
             role ??= new Role { Id = Guid.NewGuid(), Name = change.Key, TenantSlug = tenant.Slug, CreatedAt = DateTime.UtcNow };
 

@@ -309,4 +309,47 @@ public class SeedFileTests
         memberships.Should().NotBeEmpty("a snapshot of a seeded tenant has its member in it");
         return $"{tenantVersion}|{string.Join(",", membershipVersions)}|{users}|{audit}|{types}";
     }
+
+    [Fact]
+    public async Task A_member_naming_a_role_only_another_tenant_has_stops_the_seed()
+    {
+        var owner = Unique("seed-");
+        var slug = Unique("seed-");
+        var role = Unique("Elsewhere ");
+        await _callers.StoreInTenantAsync(null, new Role { Id = Guid.NewGuid(), Name = role, TenantSlug = owner });
+        var email = $"{slug}@example.com";
+        var path = await FileAsync(new
+        {
+            version = 1,
+            tenants = new Dictionary<string, object> { [slug] = new { name = slug, members = new[] { new { email, roles = new[] { role } } } } },
+        });
+
+        var seeding = () => StartAsync(path);
+
+        var message = (await seeding.Should().ThrowAsync<InvalidOperationException>()).Which.Message;
+        message.Should().Contain("names roles that do not exist").And.Contain(role);
+        (await _callers.InTenantAsync(null, s => s.Query<User>().AnyAsync(u => u.Email == email, Ct)))
+            .Should().BeFalse("the member is not added holding another tenant's role");
+    }
+
+    [Fact]
+    public async Task A_member_naming_a_role_the_tenant_and_the_platform_both_have_gets_the_tenants()
+    {
+        var slug = Unique("seed-");
+        var name = Unique("Front Desk ");
+        var platform = new Role { Id = Guid.NewGuid(), Name = name, IsPlatform = true };
+        var own = new Role { Id = Guid.NewGuid(), Name = name, TenantSlug = slug };
+        await _callers.StoreInTenantAsync(null, platform, own);
+        var email = $"{slug}@example.com";
+
+        await StartAsync(await FileAsync(new
+        {
+            version = 1,
+            tenants = new Dictionary<string, object> { [slug] = new { name = slug, members = new[] { new { email, roles = new[] { name } } } } },
+        }));
+
+        var user = await _callers.InTenantAsync(null, s => s.Query<User>().SingleAsync(u => u.Email == email, Ct));
+        var membership = await _callers.InTenantAsync(null, s => s.Query<Membership>().SingleAsync(m => m.UserId == user!.Id && m.TenantSlug == slug, Ct));
+        membership!.RoleIds.Should().Equal(new[] { own.Id }, "the tenant's own role comes ahead of a platform role of the same name");
+    }
 }
