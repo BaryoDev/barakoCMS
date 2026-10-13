@@ -56,7 +56,6 @@ public class SeedFileTests
     private static object Document(string slug, string domain, string email, string role, string type) => new
     {
         version = 1,
-        roles = new Dictionary<string, object> { [role] = new { description = "Runs the front desk" } },
         tenants = new Dictionary<string, object>
         {
             [slug] = new
@@ -64,7 +63,11 @@ public class SeedFileTests
                 name = "Seeded Clinic",
                 domains = new[] { domain },
                 members = new[] { new { email, roles = new[] { role } } },
-                config = new { contentTypes = new Dictionary<string, object> { [type] = Type(type, ("Title", "string")) } },
+                config = new
+                {
+                    roles = new Dictionary<string, object> { [role] = new { description = "Runs the front desk" } },
+                    contentTypes = new Dictionary<string, object> { [type] = Type(type, ("Title", "string")) },
+                },
             },
         },
     };
@@ -86,7 +89,9 @@ public class SeedFileTests
         tenant!.Domains.Should().Equal(domain);
         var user = await _callers.InTenantAsync(null, s => s.Query<User>().SingleOrDefaultAsync(u => u.Email == email, Ct));
         user.Should().NotBeNull("the member is created by email");
-        var roleId = (await _callers.InTenantAsync(null, s => s.Query<Role>().SingleAsync(r => r.Name == role, Ct)))!.Id;
+        var seededRole = (await _callers.InTenantAsync(null, s => s.Query<Role>().SingleAsync(r => r.Name == role, Ct)))!;
+        seededRole.TenantSlug.Should().Be(slug, "a role the tenant's config creates is that tenant's");
+        var roleId = seededRole.Id;
         var membership = await _callers.InTenantAsync(null, s => s.Query<Membership>().SingleOrDefaultAsync(m => m.UserId == user!.Id && m.TenantSlug == slug, Ct));
         membership.Should().NotBeNull();
         membership!.RoleIds.Should().Equal(roleId);
@@ -219,18 +224,18 @@ public class SeedFileTests
         var slug = Unique("seed-");
         var type = Unique("chart");
         var role = Unique("Seed Reader ");
+        Dictionary<string, object> Roles() => new() { [role] = new { description = "Reads charts" } };
         object File(string field, object? rules) => new
         {
             version = 1,
-            roles = new Dictionary<string, object> { [role] = new { description = "Reads charts" } },
             tenants = new Dictionary<string, object>
             {
                 [slug] = new
                 {
                     name = slug,
                     config = rules is null
-                        ? (object)new { contentTypes = new Dictionary<string, object> { [type] = Type(type, ("Title", "string"), (field, "string")) } }
-                        : new { contentTypes = new Dictionary<string, object> { [type] = Type(type, ("Title", "string"), (field, "string")) }, permissionRules = rules },
+                        ? (object)new { roles = Roles(), contentTypes = new Dictionary<string, object> { [type] = Type(type, ("Title", "string"), (field, "string")) } }
+                        : new { roles = Roles(), contentTypes = new Dictionary<string, object> { [type] = Type(type, ("Title", "string"), (field, "string")) }, permissionRules = rules },
                 },
             },
         };

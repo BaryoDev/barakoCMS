@@ -31,6 +31,16 @@ internal sealed class ConfigCallers(IntegrationTestFixture fixture)
         return role.Id;
     }
 
+    /// <summary>A role of <paramref name="tenant"/> holding exactly these capabilities, under a name nobody else uses.</summary>
+    public async Task<Guid> TenantRoleAsync(string tenant, params string[] capabilities)
+    {
+        var role = new Role { Id = Guid.NewGuid(), Name = $"cfg-role-{Guid.NewGuid():n}", TenantSlug = tenant, SystemCapabilities = capabilities.ToList() };
+        await using var session = fixture.Services.GetRequiredService<IDocumentStore>().LightweightSession();
+        session.Store(role);
+        await session.SaveChangesAsync(Ct);
+        return role.Id;
+    }
+
     /// <summary>
     /// A signed-in caller holding <paramref name="globalRoles"/> on the user and, in
     /// <paramref name="tenant"/>, <paramref name="memberRoles"/> through a membership. A null tenant

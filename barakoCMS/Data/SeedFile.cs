@@ -284,7 +284,9 @@ internal static class SeedFile
 
     private static async Task<List<Guid>> RoleIdsAsync(IDocumentSession session, string slug, string email, List<string> names, CancellationToken ct)
     {
-        var roles = await session.Query<Role>().Where(r => names.Contains(r.Name)).ToListAsync(ct);
+        // Among the roles the tenant reaches, its own first, so a name another tenant also uses is not theirs.
+        var reachable = await barakoCMS.Features.Roles.RoleScope.ByNameAsync(session, slug, ct);
+        var roles = names.Distinct(StringComparer.Ordinal).Where(reachable.ContainsKey).Select(n => reachable[n]).ToList();
         var missing = names.Except(roles.Select(r => r.Name), StringComparer.Ordinal).ToList();
         if (missing.Count > 0)
         {

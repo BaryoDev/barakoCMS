@@ -221,27 +221,61 @@ public class ConfigEngineTests
     }
 
     [Fact]
-    public async Task Roles_take_manage_roles_from_a_global_role_and_not_from_a_membership()
+    public async Task A_role_written_with_manage_roles_from_a_membership_belongs_to_that_tenant()
     {
         var tenant = await _callers.TenantAsync();
         var name = Unique("Tenant Made ");
         var document = new { version = 1, roles = new Dictionary<string, object> { [name] = new { description = "x" } } };
         var grants = await _callers.RoleAsync(SystemCapabilities.ManageConfig, SystemCapabilities.ManageRoles);
 
-        var global = await _callers.ClientAsync(tenant, [grants]);
-        (await PlanAsync(global, document)).Body.GetProperty("sections")[0].GetProperty("refusals").GetArrayLength()
-            .Should().Be(0, "the positive control: the same grant held globally may write a role");
-
         var memberOnly = await _callers.ClientAsync(tenant, [], memberRoles: [grants]);
         var (applied, body) = await ApplyAsync(memberOnly, document);
 
-        applied.StatusCode.Should().Be(HttpStatusCode.Forbidden, body.ToString());
-        body.ToString().Should().Contain("global");
-        (await _callers.InTenantAsync(null, s => s.Query<Role>().AnyAsync(r => r.Name == name, Ct))).Should().BeFalse();
+        applied.StatusCode.Should().Be(HttpStatusCode.OK, body.ToString());
+        var role = await _callers.InTenantAsync(null, s => s.Query<Role>().SingleOrDefaultAsync(r => r.Name == name, Ct));
+        role.Should().NotBeNull();
+        role!.TenantSlug.Should().Be(tenant, "a role made in a tenant is that tenant's, the rule POST /api/roles follows");
+        role.IsPlatform.Should().BeFalse();
     }
 
     [Fact]
-    public async Task A_role_carrying_a_platform_capability_is_written_only_by_a_SuperAdmin()
+    public async Task A_tenant_export_and_apply_reach_neither_another_tenants_role_nor_list_it()
+    {
+        var mine = await _callers.TenantAsync();
+        var other = await _callers.TenantAsync();
+        var shared = Unique("Front Desk ");
+        var own = Unique("Own Desk ");
+        var theirs = new Role { Id = Guid.NewGuid(), Name = shared, TenantSlug = other, Description = "theirs", SystemCapabilities = ["view_audit_log"] };
+        await _callers.StoreInTenantAsync(null, theirs,
+            new Role { Id = Guid.NewGuid(), Name = own, TenantSlug = mine, Description = "mine" });
+        var client = await _callers.ClientAsync(mine,
+            [await _callers.RoleAsync(SystemCapabilities.ManageConfig, SystemCapabilities.ManageRoles)]);
+
+        var (exported, export) = await ExportAsync(client, "roles");
+        exported.StatusCode.Should().Be(HttpStatusCode.OK, export.ToString());
+        var keys = export.GetProperty("roles").EnumerateObject().Select(p => p.Name).ToList();
+        keys.Should().Contain(own, "the control: the tenant's own role is exported");
+        keys.Should().NotContain(shared, "another tenant's role is not this tenant's to export");
+
+        var document = new
+        {
+            version = 1,
+            roles = new Dictionary<string, object> { [shared] = new { description = "changed by mine", systemCapabilities = new[] { "view_jobs" } } },
+        };
+        var (applied, body) = await ApplyAsync(client, document);
+
+        applied.StatusCode.Should().Be(HttpStatusCode.OK, body.ToString());
+        Changes(body).Should().Equal($"roles/{shared} create");
+        var stored = await _callers.InTenantAsync(null, s => s.Query<Role>().Where(r => r.Name == shared).ToListAsync(Ct));
+        stored.Should().HaveCount(2, "the name makes a role of this tenant beside the other tenant's");
+        var untouched = stored.Single(r => r.Id == theirs.Id);
+        untouched.Description.Should().Be("theirs");
+        untouched.SystemCapabilities.Should().Equal("view_audit_log");
+        stored.Single(r => r.Id != theirs.Id).TenantSlug.Should().Be(mine);
+    }
+
+    [Fact]
+    public async Task A_role_carrying_a_platform_capability_is_written_only_by_a_platform_role_administrator()
     {
         var name = Unique("Escalator ");
         var document = new { version = 1, roles = new Dictionary<string, object> { [name] = new { systemCapabilities = new[] { "manage_users" } } } };
@@ -256,7 +290,7 @@ public class ConfigEngineTests
 
         var (refused, body) = await ApplyAsync(roleWriter, document);
         refused.StatusCode.Should().Be(HttpStatusCode.Forbidden, body.ToString());
-        body.ToString().Should().Contain("carries a platform capability", "the refusal is the platform role rule, not another gate");
+        body.ToString().Should().Contain("reaches past the tenant", "the refusal is the platform capability rule, not another gate");
         (await _callers.InTenantAsync(null, s => s.Query<Role>().AnyAsync(r => r.Name == name, Ct))).Should().BeFalse();
 
         var (allowed, allowedBody) = await ApplyAsync(await _callers.SuperAdminAsync(null), document);
@@ -282,13 +316,13 @@ public class ConfigEngineTests
     }
 
     /// <summary>A role holding a rule on a type of a fresh tenant, and the document that changes the rule.</summary>
-    private async Task<(string Tenant, string Role, object Document)> RuleChangeAsync(params string[] roleCapabilities)
+    private async Task<(string Tenant, string Role, object Document)> RuleChangeAsync(bool platform = false)
     {
         var tenant = await _callers.TenantAsync();
         var type = Unique("ledger");
         await _callers.StoreInTenantAsync(tenant, Type(type, ("Title", "string")));
         var role = Unique("Ruled ");
-        await _callers.StoreInTenantAsync(null, new Role { Id = Guid.NewGuid(), Name = role, SystemCapabilities = roleCapabilities.ToList() });
+        await _callers.StoreInTenantAsync(null, new Role { Id = Guid.NewGuid(), Name = role, TenantSlug = platform ? null : tenant, IsPlatform = platform });
         var document = new
         {
             version = 1,
@@ -298,32 +332,37 @@ public class ConfigEngineTests
     }
 
     [Fact]
-    public async Task Rules_take_manage_roles_from_a_global_role_and_not_from_a_membership()
+    public async Task Rules_on_a_tenants_role_take_manage_roles_from_a_membership_and_reach_no_other_tenants_role()
     {
         var (tenant, role, document) = await RuleChangeAsync();
         var grants = await _callers.RoleAsync(SystemCapabilities.ManageConfig, SystemCapabilities.ManageRoles);
 
-        var global = await _callers.ClientAsync(tenant, [grants]);
-        var (_, plan) = await PlanAsync(global, document);
-        plan.GetProperty("sections")[0].GetProperty("refusals").GetArrayLength().Should().Be(0, "the positive control. " + plan);
-
         var memberOnly = await _callers.ClientAsync(tenant, [], memberRoles: [grants]);
         var (applied, body) = await ApplyAsync(memberOnly, document);
+        applied.StatusCode.Should().Be(HttpStatusCode.OK, body.ToString());
+        (await _callers.InTenantAsync(null, s => s.Query<Role>().SingleAsync(r => r.Name == role, Ct)))!.Permissions.Should().ContainSingle();
 
-        applied.StatusCode.Should().Be(HttpStatusCode.Forbidden, body.ToString());
-        body.ToString().Should().Contain("global roles");
-        (await _callers.InTenantAsync(null, s => s.Query<Role>().SingleAsync(r => r.Name == role, Ct)))!.Permissions.Should().BeEmpty();
+        var (_, otherRole, _) = await RuleChangeAsync();
+        var mineType = Unique("ledger");
+        await _callers.StoreInTenantAsync(tenant, Type(mineType, ("Title", "string")));
+        var (_, plan) = await PlanAsync(memberOnly, new
+        {
+            version = 1,
+            permissionRules = new Dictionary<string, object> { [$"{otherRole}/{mineType}"] = new { read = new { enabled = true } } },
+        });
+        plan.ToString().Should().Contain($"there is no role '{otherRole}'", "another tenant's role is out of reach");
+        (await _callers.InTenantAsync(null, s => s.Query<Role>().SingleAsync(r => r.Name == otherRole, Ct)))!.Permissions.Should().BeEmpty();
     }
 
     [Fact]
-    public async Task A_rule_on_a_role_carrying_a_platform_capability_is_written_only_by_a_SuperAdmin()
+    public async Task A_rule_on_a_platform_role_is_written_only_by_a_platform_role_administrator()
     {
-        var (tenant, role, document) = await RuleChangeAsync(SystemCapabilities.ManageUsers);
+        var (tenant, role, document) = await RuleChangeAsync(platform: true);
         var writer = await _callers.ClientAsync(tenant, [await _callers.RoleAsync(SystemCapabilities.ManageConfig, SystemCapabilities.ManageRoles)]);
 
         var (refused, body) = await ApplyAsync(writer, document);
         refused.StatusCode.Should().Be(HttpStatusCode.Forbidden, body.ToString());
-        body.ToString().Should().Contain("carries a platform capability");
+        body.ToString().Should().Contain("platform role every tenant shares");
         (await _callers.InTenantAsync(null, s => s.Query<Role>().SingleAsync(r => r.Name == role, Ct)))!.Permissions.Should().BeEmpty();
 
         var (allowed, allowedBody) = await ApplyAsync(await _callers.SuperAdminAsync(tenant), document);

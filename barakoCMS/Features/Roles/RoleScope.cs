@@ -26,6 +26,28 @@ internal static class RoleScope
     public static Task<bool> IsPlatformCallerAsync(HttpContext http, CancellationToken ct) =>
         CapabilityGateProcessor.HoldsAsync(http, Platform, ct);
 
+    /// <summary>
+    /// The same gate for a config document's caller. The host applying its own seed file passes:
+    /// it is the deployment, not a tenant's administrator.
+    /// </summary>
+    public static async Task<bool> IsPlatformCallerAsync(
+        barakoCMS.Core.Interfaces.ConfigCaller caller, barakoCMS.Core.Interfaces.ICallerCapabilities callers,
+        IConfiguration configuration, CancellationToken ct)
+    {
+        if (caller.Principal is not { } principal)
+        {
+            return true;
+        }
+
+        if (Platform.LegacyRoles.Any(principal.IsInRole)
+            && configuration.GetValue(CapabilityGateProcessor.LegacyRoleFallbackKey, false))
+        {
+            return true;
+        }
+
+        return await callers.HoldsAsync(principal, Platform.Capability, ct);
+    }
+
     /// <summary>The tenant a role belongs to, or null for a platform role.</summary>
     public static string? OwnerOf(Role role) =>
         role.IsPlatform ? null : string.IsNullOrEmpty(role.TenantSlug) ? Tenant.DefaultSlug : role.TenantSlug;
@@ -38,6 +60,21 @@ internal static class RoleScope
         tenantSlug == Tenant.DefaultSlug
             ? roles.Where(r => r.IsPlatform || r.TenantSlug == tenantSlug || r.TenantSlug == null)
             : roles.Where(r => r.IsPlatform || r.TenantSlug == tenantSlug);
+
+    /// <summary>
+    /// The roles <paramref name="tenantSlug"/> reaches, by name. The tenant's own role comes ahead of
+    /// a platform role of the same name, since names are unique only within one owner.
+    /// </summary>
+    public static async Task<Dictionary<string, Role>> ByNameAsync(IQuerySession session, string tenantSlug, CancellationToken ct)
+    {
+        var byName = new Dictionary<string, Role>(StringComparer.Ordinal);
+        foreach (var role in (await In(session.Query<Role>(), tenantSlug).ToListAsync(ct)).OrderBy(r => r.IsPlatform))
+        {
+            byName.TryAdd(role.Name, role);
+        }
+
+        return byName;
+    }
 
     /// <summary>Whether every id names a role <paramref name="tenantSlug"/> reaches.</summary>
     public static async Task<bool> AllReachableAsync(
