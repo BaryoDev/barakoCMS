@@ -26,10 +26,18 @@ theme change live.
 
 ## Fields
 
-Plain fields hold identity. JSON fields hold the parts a renderer reads as structures. The API checks
-that a JSON field holds valid JSON and nothing more; the barakoBrew Site and Theme screens check the
-shapes below, and barakoPress falls back to its defaults for anything missing or unreadable, so a
-half-filled theme renders rather than breaks.
+Plain fields hold identity. JSON fields hold the parts a renderer reads as structures. From 5.0.0
+the blueprint declares a JSON Schema for each JSON field but `Presets`, and the API refuses a write
+that does not match it with a 400 naming the path that failed, such as `HeaderLinks[0]` (see
+[json-field-schemas.md](json-field-schemas.md)). The schemas check shapes: which keys are objects,
+lists or text, which keys a link needs, and that an `href` is a site path or an http or https URL.
+They leave names open, so a renderer key the API does not know is still accepted. barakoPress
+still falls back to its defaults for anything missing or unreadable, so a half-filled theme
+renders rather than breaks.
+
+A field the type does not declare is refused too, on this type as on every other. A site type
+applied before 5.0.0 gets the schemas and the `Mode` choice from
+`migrations/5.0.0/site-field-schemas.sql`, which `db-migrate` runs.
 
 | Field | Type | What |
 | :--- | :--- | :--- |
@@ -61,7 +69,7 @@ half-filled theme renders rather than breaks.
 | `ContactUrl` | url | A link to get in touch, such as a contact page |
 | `SocialHandle` | string | One social handle, such as `@acme`. `SocialLinks` holds several |
 | `Copyright` | string | The footer's copyright line |
-| `Mode` | string | `Live` or `Holding`. Unset means `Live`. See [Holding a site back](#holding-a-site-back) |
+| `Mode` | choice | `Live` or `Holding`. Unset means `Live`. See [Holding a site back](#holding-a-site-back) |
 | `HoldingPath` | string | The site path of the page shown while holding, such as `/holding` |
 | `HeaderPath`, `FooterPath` | string | The site path of a page drawn as the header or footer region in place of the built-in one |
 | `HeaderTone`, `FooterTone` | choice | The tone behind that region: `page`, `surface`, `accent`, `inverse`, `gradient` or `wash` |
@@ -291,8 +299,10 @@ the site. It covers a launch, maintenance and a seasonal break. The holding page
 from the Pages module, and `HoldingPath` is a path string rather than a reference because a
 blueprint may only reference types it declares. Going live again is a publish, not a deploy.
 
-`Mode` is a string field, not a choice field, documented as `Live` or `Holding`. Any other value
-should be read as `Live`.
+`Mode` is a choice field from 5.0.0, so the API refuses any value but `Live` or `Holding`. Before
+it was a string field, and a site type whose entry holds another value keeps it a string through
+the upgrade (the migration names the tenant); a frontend should still read any other value as
+`Live`.
 
 **Mode and HoldingPath are presentation, not access control.** Frontends honour them; the API
 hides nothing. While holding, published, publicly deliverable content is still served from
@@ -344,7 +354,8 @@ a margin.
 **Redeeming.** The frontend posts `{ "key": "..." }` with the tenant resolved the same way as
 `GET /api/public/site`. A live link answers 200 with its `expiresAt` and records `lastUsedAt`. A
 wrong key, an expired or revoked link, another tenant's key and the key of a link to one entry or
-page (below) all answer the same 404. Both answers carry `Cache-Control: no-store`. Redeeming is
+page (below) all answer the same 404. A 200 is audited as `site.share_link.redeemed`, with no
+actor and the caller's address. Both answers carry `Cache-Control: no-store`. Redeeming is
 rate limited per tenant and visitor (`RateLimiting:SiteShare`, 10 a minute by default). The key is
 never logged.
 
@@ -401,7 +412,8 @@ What an entry or page link opens is that one entry and nothing else:
 A wrong key, an expired or revoked link, another tenant's key, a preview token (below) and a link
 that opens nothing all answer the same 404 with the same body. Every answer from redeem and open carries
 `Cache-Control: no-store`, a 429 included, so no shared cache holds an entry a link opened. Open
-shares redeem's rate limit. `lastUsedAt` is recorded on a 200 only.
+shares redeem's rate limit. `lastUsedAt` and a `site.share_link.redeemed` row are recorded on a 200
+only.
 
 **Managing.** Listing and revoking go through the entry, and need update on it. A link to the site
 is not listed or revoked there, and an entry's link is not listed or revoked under
@@ -438,7 +450,8 @@ Because `read` is all it takes and the route used to store nothing, a token leav
 
 - It is not in `GET /api/contents/{id}/share-links` and cannot be revoked there. It is gone in 30
   minutes.
-- Minting writes no audit row.
+- Minting writes no audit row, and neither does a read through `?preview=`. Opening and redeeming
+  a link do, and a preview token cannot be opened or redeemed.
 - Its stored label is fixed, so the row holds nothing of the entry but its id.
 - An entry keeps at most 20 live tokens. A mint past that deletes the entry's oldest to make room,
   so the oldest of 21 previews stops working early. Each mint also deletes the tenant's expired

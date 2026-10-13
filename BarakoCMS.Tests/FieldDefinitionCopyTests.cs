@@ -28,6 +28,16 @@ public class FieldDefinitionCopyTests
         if (type == typeof(FieldMask)) return FieldMask.Last4;
         if (type == typeof(List<string>)) return new List<string> { "Editor" };
         if (type == typeof(List<FieldOption>)) return new List<FieldOption> { new() { Value = "A", Label = "A" } };
+        if (type == typeof(System.Text.Json.JsonElement))
+        {
+            return System.Text.Json.JsonDocument.Parse("{\"type\":\"array\"}").RootElement;
+        }
+
+        if (type == typeof(ParentDeclaration))
+        {
+            return new ParentDeclaration { MaxDepth = 3 };
+        }
+
         if (type == typeof(Dictionary<string, object>)) return new Dictionary<string, object> { ["min"] = 1 };
 
         throw new Xunit.Sdk.XunitException(

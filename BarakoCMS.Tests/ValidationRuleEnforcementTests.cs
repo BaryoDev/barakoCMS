@@ -338,7 +338,7 @@ public class ValidationRuleEnforcementTests
         var kind = Field("Kind", "string");
         var taxNumber = RequiredWhen("TaxNumber", "Kind", "_ne", "Person");
 
-        var (leftOut, leftOutErrors) = await WriteAsync(new() { ["Other"] = "x" }, kind, taxNumber);
+        var (leftOut, leftOutErrors) = await WriteAsync(new(), kind, taxNumber);
 
         leftOut.Should().BeFalse();
         leftOutErrors.Should().HaveCount(1);
@@ -359,7 +359,7 @@ public class ValidationRuleEnforcementTests
         var kind = Field("Kind", "string");
         var taxNumber = RequiredWhen("TaxNumber", "Kind", "_nin", new List<object> { "Person", "Minor" });
 
-        var (leftOut, leftOutErrors) = await WriteAsync(new() { ["Other"] = "x" }, kind, taxNumber);
+        var (leftOut, leftOutErrors) = await WriteAsync(new(), kind, taxNumber);
 
         leftOut.Should().BeFalse();
         leftOutErrors.Should().HaveCount(1);
@@ -379,10 +379,10 @@ public class ValidationRuleEnforcementTests
     {
         var kind = Field("Kind", "string");
 
-        (await WriteAsync(new() { ["Other"] = "x" }, kind, RequiredWhen("TaxNumber", "Kind", "_eq", "Company")))
+        (await WriteAsync(new(), kind, RequiredWhen("TaxNumber", "Kind", "_eq", "Company")))
             .IsValid.Should().BeTrue();
         (await WriteAsync(
-                new() { ["Other"] = "x" },
+                new(),
                 kind,
                 RequiredWhen("TaxNumber", "Kind", "_in", new List<object> { "Company" })))
             .IsValid.Should().BeTrue();

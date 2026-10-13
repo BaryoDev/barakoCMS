@@ -40,7 +40,7 @@ internal static class FieldPresentation
     /// <summary>The editors a console is known to render, each for a value of these types.</summary>
     public static IReadOnlyList<Spec> Editors { get; } =
     [
-        new("blocks", Lists),
+        new("blocks", ["json", "array", BlockFields.TypeName]),
         new("menu", Lists),
         new("links", Lists),
         new("image", ["url", "string", FileFields.TypeName]),

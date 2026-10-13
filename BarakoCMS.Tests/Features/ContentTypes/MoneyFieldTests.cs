@@ -122,6 +122,7 @@ public class MoneyFieldTests : IAsyncLifetime
             name, displayName = "Priced",
             fields = new object[]
             {
+                new { name = "Title", displayName = "Title", type = "string" },
                 new { name = "Price", displayName = "Price", type = "money", currency = "USD", scale = 4 },
                 new { name = "Cost", displayName = "Cost", type = "money" },
             },
@@ -147,7 +148,7 @@ public class MoneyFieldTests : IAsyncLifetime
         listed.Should().NotBeNull("the type just created is in the list");
         var fields = listed!.Value.GetProperty("fields").EnumerateArray()
             .ToDictionary(f => f.GetProperty("name").GetString()!, f => f);
-        fields.Should().HaveCount(2);
+        fields.Should().HaveCount(3);
 
         fields["Price"].GetProperty("currency").GetString().Should().Be("USD");
         fields["Price"].GetProperty("scale").GetInt32().Should().Be(4);

@@ -210,7 +210,9 @@ internal static class DeliveryDocument
         var schema = OpenApiChoice(field)
             ?? (barakoCMS.Core.Validation.ReferenceFields.IsMultiple(field)
                 ? new JsonObject { ["type"] = "array", ["items"] = OpenApiType("reference"), ["uniqueItems"] = true }
-                : OpenApiType(field.Type));
+                : barakoCMS.Core.Validation.ArrayItems.IsArray(field.Type) && field.ItemType is { } itemType
+                    ? new JsonObject { ["type"] = "array", ["items"] = OpenApiType(itemType) }
+                    : OpenApiType(field.Type));
         if (!string.IsNullOrWhiteSpace(field.DisplayName))
             schema["title"] = field.DisplayName;
         return schema;
@@ -248,6 +250,16 @@ internal static class DeliveryDocument
         "decimal" or "money" => new JsonObject { ["type"] = "number" },
         "bool" => new JsonObject { ["type"] = "boolean" },
         "array" => new JsonObject { ["type"] = "array", ["items"] = new JsonObject() },
+        barakoCMS.Core.Validation.BlockFields.TypeName => new JsonObject
+        {
+            ["type"] = "array",
+            ["items"] = new JsonObject
+            {
+                ["type"] = "object",
+                ["required"] = new JsonArray("type"),
+                ["properties"] = new JsonObject { ["type"] = new JsonObject { ["type"] = "string" } },
+            },
+        },
         "json" or "object" => new JsonObject { ["type"] = "object" },
         barakoCMS.Core.Validation.InlineImageFields.TypeName => new JsonObject
         {

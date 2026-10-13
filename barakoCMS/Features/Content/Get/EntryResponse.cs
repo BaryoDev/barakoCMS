@@ -1,5 +1,6 @@
 using Marten;
 using barakoCMS.Core.Interfaces;
+using barakoCMS.Infrastructure.Audit;
 
 namespace barakoCMS.Features.Content.Get;
 
@@ -68,6 +69,14 @@ internal static class EntryResponse
 
         if (await sensitivity.ApplyAsync(content, response.Data, http, ct))
             response.ContentType = "HIDDEN";
+
+        var type = content.ContentType;
+        var definition = await session.Query<barakoCMS.Models.ContentTypeDefinition>()
+            .FirstOrDefaultAsync(d => d.Name == type, ct);
+        await SensitiveReadAudit.RecordAsync(
+            http,
+            [await SensitiveReadAudit.DescribeAsync(content, definition, response.Data, sensitivity, http, ct)],
+            ct);
 
         // After the scrub, so a field masked from this caller names no file here either.
         response.Files = (await EntryFiles.ResolveAsync(

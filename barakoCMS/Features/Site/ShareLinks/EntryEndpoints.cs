@@ -390,7 +390,7 @@ internal sealed class OpenShareLinkEndpoint(
             }
         }
 
-        ShareLinkKeys.RecordUse(session, link, now);
+        await ShareLinkKeys.RecordRedeemAsync(session, link, "open", now, HttpContext, ct);
         await session.SaveChangesAsync(ct);
 
         await Send.OkAsync(new OpenShareLinkResponse
