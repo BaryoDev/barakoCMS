@@ -36,7 +36,7 @@ public interface IContentValidatorService
     /// implementor written against the three-argument overload does not have to write this one.
     /// </remarks>
     [Obsolete("Use the overload taking existing, so an update of a singleton type's only entry is "
-        + "not read as a second entry. Removal planned for barakoCMS 5.0.")]
+        + "not read as a second entry. Removal planned for barakoCMS 6.0.")]
     Task<(bool IsValid, List<string> Errors)> ValidateAsync(
         string contentType,
         Dictionary<string, object> data)

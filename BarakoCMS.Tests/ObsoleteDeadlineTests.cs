@@ -21,45 +21,154 @@ namespace BarakoCMS.Tests;
 /// </remarks>
 public class ObsoleteDeadlineTests
 {
-    private static readonly Regex ObsoleteAttribute = new(@"\[Obsolete\((.*?)\)\]", RegexOptions.Singleline);
+    // The attribute however it is written: [Obsolete], [System.Obsolete(...)], [ObsoleteAttribute(...)],
+    // or one entry of a list such as [Serializable, Obsolete(...)]. Only a name that opens an
+    // attribute list or follows a comma in one counts, so a comment or an identifier does not.
+    private static readonly Regex ObsoleteAttribute = new(
+        @"(?<=\[\s*|\[[^\[\]""]*,\s*)(?:global::)?(?:System\.)?Obsolete(?:Attribute)?\b(?!\s*[.<])");
     private static readonly Regex NamedVersion = new(@"barakoCMS (\d+)\.0");
+    private static readonly Regex Removal = new(@"remov", RegexOptions.IgnoreCase);
 
     [Fact]
     public void No_obsolete_member_names_a_deadline_this_release_has_already_reached()
     {
         var currentMajor = typeof(barakoCMS.Data.DataSeeder).Assembly.GetName().Version!.Major;
-        var offenders = new List<string>();
 
-        foreach (var file in SourceFiles())
+        var offenders = SourceFiles()
+            .SelectMany(file => Offenders(File.ReadAllText(file), currentMajor)
+                .Select(problem => $"{Path.GetFileName(file)}: {problem}"))
+            .ToList();
+
+        // Every offender in the message: a collection assertion prints only the first ten.
+        offenders.Should().BeEmpty(string.Join(Environment.NewLine, offenders));
+    }
+
+    [Theory]
+    [InlineData("[Obsolete(\"Use B. Removal planned for barakoCMS 5.0.\")]")]
+    [InlineData("[Obsolete(\"Use B. \"\n        + \"B is removed in barakoCMS 5.0.\")]")]
+    [InlineData("[Obsolete]")]
+    [InlineData("[Obsolete(\"Use B.\")]")]
+    [InlineData("[Obsolete(\"Use B in the next major version.\")]")]
+    [InlineData("[System.Obsolete(\"Use B. Removal planned for barakoCMS 5.0.\")]")]
+    [InlineData("[Serializable, Obsolete(\"Use B. Removal planned for barakoCMS 5.0.\")]")]
+    [InlineData("[ObsoleteAttribute(\"Use B. Removal planned for barakoCMS 5.0.\")]")]
+    [InlineData("[Obsolete(\"Use Apply(x)] instead. Removal planned for barakoCMS 5.0.\")]")]
+    [InlineData("[Obsolete(\"Deprecated in barakoCMS 6.0, removal planned for barakoCMS 5.0.\")]")]
+    public void A_deadline_this_release_reached_is_caught_however_the_attribute_is_written(string source)
+    {
+        Offenders(source, currentMajor: 5).Should().ContainSingle(source);
+    }
+
+    [Theory]
+    [InlineData("[Obsolete(\"Use B. Removal planned for barakoCMS 6.0.\")]")]
+    [InlineData("[Obsolete(\"Use B. \"\n        + \"B is removed in barakoCMS 6.0.\")]")]
+    [InlineData("[Obsolete(\"Deprecated in barakoCMS 4.0, removal planned for barakoCMS 6.0.\", true)]")]
+    [InlineData("// [Obsolete] is how a member is retired; see CLAUDE.md")]
+    [InlineData("var obsolete = true; // nothing to do with the attribute")]
+    public void A_deadline_a_major_away_is_not_flagged(string source)
+    {
+        Offenders(source, currentMajor: 5).Should().BeEmpty(source);
+    }
+
+    /// <summary>The problems with every <c>[Obsolete]</c> in <paramref name="source"/>.</summary>
+    private static IEnumerable<string> Offenders(string source, int currentMajor)
+    {
+        foreach (Match match in ObsoleteAttribute.Matches(source))
         {
-            var text = File.ReadAllText(file);
-            foreach (Match match in ObsoleteAttribute.Matches(text))
+            if (IsInLineComment(source, match.Index))
             {
-                var message = match.Groups[1].Value;
+                continue;
+            }
 
-                // "the next major version" reads as a deadline and is not one: it means something
-                // different in every release, so it can never come due.
-                if (message.Contains("next major", StringComparison.OrdinalIgnoreCase))
+            var message = Arguments(source, match.Index + match.Length);
+
+            // "the next major version" reads as a deadline and is not one: it means something
+            // different in every release, so it can never come due.
+            if (message.Contains("next major", StringComparison.OrdinalIgnoreCase))
+            {
+                yield return $"relative deadline, name a version instead. {Trim(message)}";
+                continue;
+            }
+
+            // A message can name more than one version ("deprecated in 4.0, removed in 6.0"). The
+            // deadline is the one named after the word for removal, and any named one without it.
+            var removal = Removal.Match(message);
+            var named = NamedVersion.Matches(message)
+                .Where(v => !removal.Success || v.Index > removal.Index)
+                .DefaultIfEmpty(NamedVersion.Match(message))
+                .Where(v => v.Success)
+                .ToList();
+            if (named.Count == 0)
+            {
+                yield return $"no removal version. {Trim(message)}";
+                continue;
+            }
+
+            var deadline = named.MinBy(v => int.Parse(v.Groups[1].Value))!;
+            if (int.Parse(deadline.Groups[1].Value) <= currentMajor)
+            {
+                yield return $"due in {deadline.Value} while building {currentMajor}.x, so remove it or move the deadline out";
+            }
+        }
+    }
+
+    /// <summary>
+    /// The attribute's argument text, from the parenthesis after its name to the one that closes it,
+    /// skipping parentheses inside string literals. Empty for a bare <c>[Obsolete]</c>.
+    /// </summary>
+    private static string Arguments(string source, int afterName)
+    {
+        var at = afterName;
+        while (at < source.Length && char.IsWhiteSpace(source[at]))
+        {
+            at++;
+        }
+
+        if (at >= source.Length || source[at] != '(')
+        {
+            return string.Empty;
+        }
+
+        var depth = 0;
+        var inString = false;
+        for (var i = at; i < source.Length; i++)
+        {
+            var c = source[i];
+            if (inString)
+            {
+                if (c == '\\')
                 {
-                    offenders.Add($"{Path.GetFileName(file)}: relative deadline, name a version instead. {Trim(message)}");
-                    continue;
+                    i++;
+                }
+                else if (c == '"')
+                {
+                    inString = false;
                 }
 
-                var named = NamedVersion.Match(message);
-                if (!named.Success)
-                {
-                    offenders.Add($"{Path.GetFileName(file)}: no removal version. {Trim(message)}");
-                    continue;
-                }
+                continue;
+            }
 
-                if (int.Parse(named.Groups[1].Value) <= currentMajor)
-                {
-                    offenders.Add($"{Path.GetFileName(file)}: due in {named.Value} while building {currentMajor}.x, so remove it or move the deadline out");
-                }
+            if (c == '"')
+            {
+                inString = true;
+            }
+            else if (c == '(')
+            {
+                depth++;
+            }
+            else if (c == ')' && --depth == 0)
+            {
+                return source[(at + 1)..i];
             }
         }
 
-        offenders.Should().BeEmpty();
+        return source[(at + 1)..];
+    }
+
+    private static bool IsInLineComment(string source, int index)
+    {
+        var lineStart = source.LastIndexOf('\n', Math.Max(0, index - 1)) + 1;
+        return source[lineStart..index].Contains("//", StringComparison.Ordinal);
     }
 
     private static string Trim(string message) =>

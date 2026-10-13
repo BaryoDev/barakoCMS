@@ -142,7 +142,7 @@ public interface IBarakoModule
     /// that overrides it.
     /// </remarks>
     [Obsolete("Use ConfigureSchema(IModuleSchema), which restricts a module to its own document types. "
-              + "ConfigureMarten will be removed in barakoCMS 5.0.")]
+              + "ConfigureMarten will be removed in barakoCMS 6.0.")]
     void ConfigureMarten(StoreOptions options) { }
 
     /// <summary>

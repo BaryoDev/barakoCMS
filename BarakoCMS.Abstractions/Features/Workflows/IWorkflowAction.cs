@@ -19,7 +19,7 @@ public interface IWorkflowAction
     /// <param name="content">The content that triggered the workflow.</param>
     /// <param name="ct">Cancellation token.</param>
     [Obsolete("Implement RunAsync instead, which reports whether the action succeeded. "
-        + "ExecuteAsync is removed in barakoCMS 5.0.")]
+        + "ExecuteAsync is removed in barakoCMS 6.0.")]
     Task ExecuteAsync(Dictionary<string, string> parameters, Models.Content content, CancellationToken ct);
 
     /// <summary>

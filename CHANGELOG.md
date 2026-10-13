@@ -34,6 +34,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Accounting's `JournalEntryHook()` and `LedgerService(session, writer)`: use the constructors taking an `INumberAllocator`.
 - Files' `ImageVariants` constructor without a `FileStorageResolver`.
 
+These were due to go in 5.0 and stay until 6.0 instead, still obsolete, so nothing a 4.x consumer compiles against is removed in 5.0:
+- `IWorkflowAction.ExecuteAsync`: implement `RunAsync`.
+- `IBarakoModule.ConfigureMarten`: use `ConfigureSchema(IModuleSchema)`. The host still logs a warning naming a module that overrides it.
+- `IContentWriter.Create` and `IContentWriter.Append`, and `ContentWriter.Create` and `ContentWriter.Append`: use `CreateAsync` and `AppendAsync`.
+- The `ContentValidatorService` overload without `existing`.
+- `Content.Apply(ContentCreated)`, `Apply(ContentUpdated)` and `Apply(ContentStatusChanged)` without a timestamp: use the overloads taking a `DateTime`.
+- The constructors of `ContentCreated`, `ContentUpdated`, `ContentStatusChanged`, `ContentScheduled`, `ContentSensitivityChanged`, `ContentTransitioned` and `ContentFieldSensitivityChanged` without `OccurredAt`.
+- Accounting's `LedgerService(IDocumentSession)`: use the constructor taking an `IContentWriter`.
+- Files' `ImageSharpResizer`: use `SkiaImageResizer`.
+- The `/api/schemas` alias of `GET /api/content-types` stays, deprecated, until 6.0 too.
+
 **Rolling back to 4.9.** Stop 5.0, run the rollback lines `--list` prints, newest first, then remove each rolled-back file's ledger row with the 5.0 image, `db-migrate --forget <key>` with the key `db-migrate --status` prints (`core/5.0.0/role-tenancy`, `Files/5.0.0/files-storage-settings`), and start 4.9.0.
 - **Role tenancy.** `rollback-role-tenancy.sql` folds every unchanged per-tenant copy back into its role, renames any other role that shares a name to `<name> (<tenant>)` with its holders kept, and puts back the unique index on the name alone. Nobody gains or loses a permission, but a check by role name now sees the new name. Run it as a database role that row level security does not hide content types from; it refuses otherwise.
 - **Tenant status.** `rollback-tenant-status.sql` changes nothing: `IsActive` is stored as a copy of `Status`, so 4.9 reads a Suspended or Archived tenant as inactive. 4.9 never reads `IsActive` when it resolves a tenant, so such a tenant's content is served again by header and subdomain while 4.9 runs.

@@ -95,7 +95,7 @@ public sealed class ContentWriter : IContentWriter
     private readonly ContentUniqueness _uniqueness;
 
     /// <inheritdoc />
-    [Obsolete("Use CreateAsync. Removal planned for barakoCMS 5.0.")]
+    [Obsolete("Use CreateAsync. Removal planned for barakoCMS 6.0.")]
     public Content Create(ContentCreated @event) => CreateCore(@event);
 
     /// <inheritdoc />
@@ -146,7 +146,7 @@ public sealed class ContentWriter : IContentWriter
     }
 
     /// <inheritdoc />
-    [Obsolete("Use AppendAsync. Removal planned for barakoCMS 5.0.")]
+    [Obsolete("Use AppendAsync. Removal planned for barakoCMS 6.0.")]
     public void Append(Content content, object @event)
     {
         ApplyToDocument(content, @event);
