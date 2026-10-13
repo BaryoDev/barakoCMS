@@ -23,14 +23,15 @@ public class PasswordComplexityTests
     {
         // Arrange
         var repo = Substitute.For<IUserRepository>();
-        var session = Substitute.For<IQuerySession>();
+        var session = Substitute.For<IDocumentSession>();
         var passwordValidator = new barakoCMS.Infrastructure.Services.PasswordPolicyValidator();
 
         repo.GetByUsernameOrEmailAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<User?>(null));
 
         var endpoint = Factory.Create<barakoCMS.Features.Auth.Register.Endpoint>(
-            repo, session, passwordValidator, Substitute.For<IEmailVerificationService>(), Options);
+            repo, session, new barakoCMS.Infrastructure.Multitenancy.TenantContext(), passwordValidator,
+            Substitute.For<IEmailVerificationService>(), Options);
         var req = new barakoCMS.Features.Auth.Register.Request
         {
             Username = "weakuser",
@@ -55,14 +56,15 @@ public class PasswordComplexityTests
     {
         // Arrange
         var repo = Substitute.For<IUserRepository>();
-        var session = Substitute.For<IQuerySession>();
+        var session = Substitute.For<IDocumentSession>();
         var passwordValidator = new barakoCMS.Infrastructure.Services.PasswordPolicyValidator();
 
         repo.GetByUsernameOrEmailAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<User?>(null));
 
         var endpoint = Factory.Create<barakoCMS.Features.Auth.Register.Endpoint>(
-            repo, session, passwordValidator, Substitute.For<IEmailVerificationService>(), Options);
+            repo, session, new barakoCMS.Infrastructure.Multitenancy.TenantContext(), passwordValidator,
+            Substitute.For<IEmailVerificationService>(), Options);
         var req = new barakoCMS.Features.Auth.Register.Request
         {
             Username = "stronguser",
