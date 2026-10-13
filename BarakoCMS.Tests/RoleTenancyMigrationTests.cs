@@ -231,13 +231,13 @@ public class RoleTenancyMigrationTests
         before.Values.Should().OnlyContain(roles => roles.Count > 0);
 
         var notices = await RunAsync(db);
-        notices.Should().Contain(n => n.Contains("gave 3 role(s) an owner and wrote 3 copy(ies)"));
+        notices.Should().Contain(n => n.Contains("gave 3 role(s) an owner and wrote 2 copy(ies)"));
 
         (await EffectiveAsync(db)).Should().BeEquivalentTo(before, o => o.WithStrictOrdering(),
             "every membership holds roles with the same content as before");
 
         var roles = await RowsAsync(db, "mt_doc_roles");
-        roles.Should().HaveCount(8, "five roles and three copies");
+        roles.Should().HaveCount(7, "five roles and two copies");
 
         foreach (var seeded in new[] { SystemRoles.AdminRoleId, Accountant })
         {
@@ -246,22 +246,23 @@ public class RoleTenancyMigrationTests
         }
 
         roles[world.Shared]["TenantSlug"]!.GetValue<string>().Should().Be(world.A, "the first tenant holding it keeps the original");
-        roles[world.Global]["TenantSlug"]!.GetValue<string>().Should().Be("default", "a global holder keeps it where it was");
+        roles[world.Global]["IsPlatform"]!.GetValue<bool>().Should().BeTrue(
+            "a role held globally grants in every tenant, so no one tenant's administrators may change it");
+        roles[world.Global]["TenantSlug"].Should().BeNull();
         roles[world.Unheld]["TenantSlug"]!.GetValue<string>().Should().Be("default", "nobody holds it, so it stays with the default tenant");
 
         var sharedInB = CopyId(world.Shared, world.B);
         var sharedInC = CopyId(world.Shared, world.C);
-        var globalInA = CopyId(world.Global, world.A);
+        roles.Should().NotContainKey(CopyId(world.Global, world.A), "a platform role is reached from every tenant, so it is not copied");
         roles[sharedInB]["TenantSlug"]!.GetValue<string>().Should().Be(world.B);
         roles[sharedInB]["Id"]!.GetValue<string>().Should().Be(sharedInB.ToString(), "the copy's id inside the document matches its row");
         roles[sharedInC]["TenantSlug"]!.GetValue<string>().Should().Be(world.C, "a removed member's row keeps working if they are added back");
-        roles[globalInA]["TenantSlug"]!.GetValue<string>().Should().Be(world.A);
 
         var memberships = await RowsAsync(db, "mt_doc_memberships");
         Ids(memberships[world.MemberA]).Should().Equal(world.Shared, SystemRoles.AdminRoleId);
         Ids(memberships[world.MemberB]).Should().Equal(SystemRoles.AdminRoleId, sharedInB);
         Ids(memberships[world.RemovedC]).Should().Equal(sharedInC);
-        Ids(memberships[world.GlobalMemberA]).Should().Equal(globalInA);
+        Ids(memberships[world.GlobalMemberA]).Should().Equal(world.Global);
 
         var types = await RowsAsync(db, "mt_doc_contenttypedefinition");
         VisibleTo(types[world.TypeA]).Should().Equal(world.Shared.ToString(), "Doctor");
@@ -349,21 +350,23 @@ public class RoleTenancyMigrationTests
         effective.Should().HaveCount(4);
 
         await RunAsync(db);
-        (await RowsAsync(db, "mt_doc_roles")).Should().HaveCount(8, "the control: the copies were written");
+        (await RowsAsync(db, "mt_doc_roles")).Should().HaveCount(7, "the control: the copies were written");
 
         var notices = await RollBackAsync(db);
 
-        notices.Should().Contain(n => n.Contains("folded 3 copy(ies) back into their role, renamed 0 role(s)"));
+        notices.Should().Contain(n => n.Contains("folded 2 copy(ies) back into their role, renamed 0 role(s)"));
         (await IndexDefinitionAsync(db.ConnectionString, "mt_doc_roles_uidx_name")).Should().Be(original);
         (await IndexDefinitionAsync(db.ConnectionString, "mt_doc_roles_uidx_tenant_slug_name")).Should().BeNull();
 
         var roles = await RowsAsync(db, "mt_doc_roles");
         roles.Should().HaveCount(5);
-        foreach (var custom in new[] { world.Shared, world.Global, world.Unheld })
+        foreach (var custom in new[] { world.Shared, world.Unheld })
         {
             roles[custom].ContainsKey(nameof(Role.TenantSlug)).Should().BeFalse("running role-tenancy.sql again works the owner out afresh");
             roles[custom].ContainsKey(nameof(Role.IsPlatform)).Should().BeFalse();
         }
+        roles[world.Global]["IsPlatform"]!.GetValue<bool>().Should().BeTrue(
+            "a role made a platform role because it was held globally stays one, and running role-tenancy.sql again skips it");
         roles[SystemRoles.AdminRoleId]["IsPlatform"]!.GetValue<bool>().Should().BeTrue("a platform role stays one");
 
         (await TablesAsync(db, ownerless: true)).Should().BeEquivalentTo(before,
@@ -395,14 +398,14 @@ public class RoleTenancyMigrationTests
 
         var notices = await RollBackAsync(db);
 
-        notices.Should().Contain(n => n.Contains("folded 2 copy(ies) back into their role, renamed 2 role(s)"));
+        notices.Should().Contain(n => n.Contains("folded 1 copy(ies) back into their role, renamed 2 role(s)"));
         var roles = await RowsAsync(db, "mt_doc_roles");
         roles.Should().HaveCount(7, "five roles, the edited copy and the role made after the upgrade");
         roles.Values.Select(r => r["Name"]!.GetValue<string>()).Should().OnlyHaveUniqueItems();
         roles[sharedInB]["Name"]!.GetValue<string>().Should().Be($"Nurse ({world.B})");
         roles[made]["Name"]!.GetValue<string>().Should().Be($"Auditor ({world.C})");
         roles[world.Shared]["Name"]!.GetValue<string>().Should().Be("Nurse", "the role the copy came from keeps the name");
-        roles[world.Global]["Name"]!.GetValue<string>().Should().Be("Auditor", "the default tenant's role keeps the name");
+        roles[world.Global]["Name"]!.GetValue<string>().Should().Be("Auditor", "the platform role keeps the name");
 
         var memberships = await RowsAsync(db, "mt_doc_memberships");
         Ids(memberships[world.MemberB]).Should().Equal(SystemRoles.AdminRoleId, sharedInB);

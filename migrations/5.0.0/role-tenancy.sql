@@ -10,16 +10,20 @@
 --      Admin, User, the demo HR role, and a first-party module's role such as Accountant), becomes a
 --      platform role. Core and its modules seed every role under an id of that form, and a role made
 --      through the API never has one.
---   2. Any other role goes to the tenants whose memberships hold it, a membership of any status:
---        - held by no membership, or held as a global role on a user account: it stays in place and
---          belongs to the default tenant, where a single-tenant deployment keeps everything;
+--   2. Any other role held as a global role on a user account becomes a platform role. A global
+--      role grants in every tenant the account enters, so it keeps doing that, and from now on only
+--      manage_platform_roles changes it: left with one tenant, that tenant's administrators could
+--      change what it grants in every other tenant. Its memberships keep holding it as they are.
+--   3. Any other role goes to the tenants whose memberships hold it, a membership of any status:
+--        - held by no membership: it stays in place and belongs to the default tenant, where a
+--          single-tenant deployment keeps everything;
 --        - otherwise it belongs to the first of those tenants by slug.
 --      Each other tenant whose memberships hold it gets a copy: the same name, description,
 --      permissions, capabilities and MFA rule, under an id derived from the role's id and the
 --      tenant's slug, so running this again finds the same copy. That tenant's memberships, and the
 --      role lists on that tenant's content type fields (VisibleToRoles), are rewritten from the
 --      role's id to the copy's. The role keeps its id everywhere else.
---   3. The unique index on a role's name alone is replaced by one on the tenant and the name, with
+--   4. The unique index on a role's name alone is replaced by one on the tenant and the name, with
 --      the platform roles counted as one group, under the name the application declares. Copies
 --      share their role's name, so the old index has to go before any copy is written.
 --
@@ -32,8 +36,8 @@
 -- This file reads the content types of every tenant. Run it as a role that row level security does
 -- not hide them from: it refuses to run otherwise.
 --
--- ONE ROLE. Set barako.only_role to a role id and only that role is looked at in step 2. Step 1 and
--- step 3 run as usual:
+-- ONE ROLE. Set barako.only_role to a role id and only that role is looked at in steps 2 and 3.
+-- Step 1 and step 4 run as usual:
 --   PGOPTIONS='-c barako.only_role=<id>' psql "$DATABASE_URL" ... -f this file
 --
 -- Run it with the API stopped, like every upgrade file, then start 5.0.0:
@@ -44,7 +48,8 @@
 -- other role that shares a name, and puts back the unique index on the name an earlier release
 -- declares. Its header has the rules.
 --
--- Safe to run twice: a role with an owner is skipped, and a copy is found under its derived id.
+-- Safe to run twice: a role with an owner or a platform role is skipped, and a copy is found under
+-- its derived id.
 -- barako:rerunnable
 
 DO $role_tenancy$
@@ -85,7 +90,7 @@ BEGIN
     WHERE id::text LIKE '00000000-0000-0000-0000-%'
       AND NOT (coalesce(data ->> 'IsPlatform', 'false') = 'true' AND coalesce(data ->> 'TenantSlug', '') = '');
 
-    -- Step 2.
+    -- Steps 2 and 3.
     FOR role_row IN
         SELECT r.id, r.data, r.mt_dotnet_type
         FROM public.mt_doc_roles r
@@ -104,7 +109,15 @@ BEGIN
         held_global := EXISTS (
             SELECT 1 FROM public.mt_doc_users u WHERE u.data -> 'RoleIds' ? role_row.id::text);
 
-        owner := CASE WHEN held_global OR cardinality(tenants) = 0 THEN 'default' ELSE tenants[1] END;
+        IF held_global THEN
+            UPDATE public.mt_doc_roles
+            SET data = data || jsonb_build_object('IsPlatform', true, 'TenantSlug', NULL)
+            WHERE id = role_row.id;
+            assigned := assigned + 1;
+            CONTINUE;
+        END IF;
+
+        owner := CASE WHEN cardinality(tenants) = 0 THEN 'default' ELSE tenants[1] END;
 
         UPDATE public.mt_doc_roles
         SET data = data || jsonb_build_object('TenantSlug', owner, 'IsPlatform', false)
@@ -155,7 +168,7 @@ BEGIN
         END LOOP;
     END LOOP;
 
-    -- Step 3. The statement db-assert reports for the index the application declares.
+    -- Step 4. The statement db-assert reports for the index the application declares.
     CREATE UNIQUE INDEX IF NOT EXISTS mt_doc_roles_uidx_tenant_slug_name
         ON public.mt_doc_roles USING btree ((data ->> 'TenantSlug'), (data ->> 'Name')) NULLS NOT DISTINCT;
 

@@ -19,7 +19,10 @@
 --      content type field of that tenant listing the old name gets the new one.
 --   3. Every role that is not a platform role loses TenantSlug and IsPlatform, so running
 --      role-tenancy.sql again works its owner out afresh from who holds it, and writes the same
---      copies under the same ids. A platform role keeps both, which an earlier release ignores.
+--      copies under the same ids. A platform role keeps both, which an earlier release ignores. That
+--      includes a role role-tenancy.sql made a platform role because an account held it globally:
+--      an earlier release grants it in every tenant either way, and running role-tenancy.sql again
+--      skips it, so it stays a platform role.
 --   4. The index on the tenant and the name is dropped and mt_doc_roles_uidx_name is created
 --      exactly as an earlier release's Marten declares it.
 --
