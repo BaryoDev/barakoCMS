@@ -21,6 +21,7 @@ internal class CreateWorkflowRequest
     public Dictionary<string, string> Conditions { get; set; } = new();
     public List<WorkflowAction> Actions { get; set; } = new();
     public bool Enabled { get; set; } = true;
+    public string? Executor { get; set; }
 
     /// <summary>The definition this request describes, with no id.</summary>
     /// <remarks>
@@ -37,5 +38,6 @@ internal class CreateWorkflowRequest
         Conditions = Conditions,
         Actions = Actions,
         Enabled = Enabled,
+        Executor = Executor,
     };
 }

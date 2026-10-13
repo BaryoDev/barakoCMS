@@ -471,6 +471,14 @@ internal static class TemplateExpression
 
         if (hole.Shape == Shape.Link) return LinkArgumentProblem(hole.Name, hole.Arguments[0]);
 
+        // Read by the runner after the templates, and only as written, so a format or a duration
+        // on one is never applied.
+        if (barakoCMS.Features.Workflows.ActionOutputs.IsReference(hole.Name)
+            || (hole.Shape == Shape.Between && barakoCMS.Features.Workflows.ActionOutputs.IsReference(hole.Second)))
+        {
+            return hole.Shape == Shape.Plain ? null : $"reads a step output with '{hole.Word}', and a step output is only read as it is";
+        }
+
         if (NameProblem(hole.Name, onTransition) is { } name) return name;
 
         switch (hole.Shape)

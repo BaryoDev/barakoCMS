@@ -1186,6 +1186,10 @@ public static class ServiceCollectionExtensions
     private static void AddWorkflowRunner(IServiceCollection services)
     {
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowRunQueue, barakoCMS.Features.Workflows.WorkflowRunQueue>();
+        services.AddSingleton(sp => new barakoCMS.Features.Workflows.WorkflowTriggerRegistry(sp.GetServices<IBarakoModule>()));
+        services.AddScoped<barakoCMS.Core.Interfaces.IWorkflowTriggers, barakoCMS.Features.Workflows.WorkflowTriggerSource>();
+        services.AddSingleton<barakoCMS.Features.Workflows.IWorkflowExecutor, barakoCMS.Features.Workflows.BuiltInWorkflowExecutor>();
+        services.AddSingleton<barakoCMS.Features.Workflows.WorkflowExecutors>();
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowRunner>();
     }
 
@@ -1264,14 +1268,21 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped(sp => ActivatorUtilities.CreateInstance<barakoCMS.Features.Workflows.WorkflowEngine>(
             sp, (IEnumerable<barakoCMS.Features.Workflows.IWorkflowAction>)(sp.GetRequiredService<barakoCMS.Features.Workflows.WorkflowActionSet>().Actions ?? [])));
+#pragma warning disable CS0618 // still served until 6.0, for a host that resolves it
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowEngine>(sp => sp.GetRequiredService<barakoCMS.Features.Workflows.WorkflowEngine>());
+#pragma warning restore CS0618
     }
 
     private static void AddWorkflowTooling(IServiceCollection services)
     {
         services.AddScoped<IWorkflowPluginRegistry>(sp => new WorkflowPluginRegistry(
             sp.GetRequiredService<barakoCMS.Features.Workflows.WorkflowActionSet>().Actions ?? []));
-        services.AddScoped<IWorkflowSchemaValidator, WorkflowSchemaValidator>();
+        services.AddScoped<IWorkflowSchemaValidator>(sp => new WorkflowSchemaValidator(
+            sp.GetRequiredService<IWorkflowPluginRegistry>(),
+            sp.GetRequiredService<Marten.IQuerySession>(),
+            sp.GetService<IConfiguration>(),
+            sp.GetRequiredService<barakoCMS.Features.Workflows.WorkflowTriggerRegistry>(),
+            sp.GetRequiredService<barakoCMS.Features.Workflows.WorkflowExecutors>()));
         services.AddScoped<ITemplateVariableExtractor, TemplateVariableExtractor>();
         services.AddScoped<IWorkflowDebugger, WorkflowDebugger>();
     }
@@ -1588,6 +1599,7 @@ public static class ServiceCollectionExtensions
         // Built here so a module that declares a bad topic stops the host at startup, not on the
         // first feed request.
         app.ApplicationServices.GetRequiredService<barakoCMS.Infrastructure.Realtime.TopicRegistry>();
+        app.ApplicationServices.GetRequiredService<barakoCMS.Features.Workflows.WorkflowTriggerRegistry>();
         var configuration = app.ApplicationServices.GetRequiredService<IConfiguration>();
         var env = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
 

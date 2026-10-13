@@ -27,12 +27,14 @@ public class PublicSurfaceTests
 
     // The documented extension points. A module author implements IWorkflowAction and the engine is
     // resolvable, so both are contract rather than accident. WorkflowActionResult is the outcome an
-    // action returns, so it is reachable by necessity once IWorkflowAction is.
+    // action returns, so it is reachable by necessity once IWorkflowAction is. WorkflowContext is
+    // what the runner hands an action, reachable for the same reason.
     private static readonly string[] Allowed =
     [
         "barakoCMS.Features.Workflows.IWorkflowAction",
         "barakoCMS.Features.Workflows.IWorkflowEngine",
         "barakoCMS.Features.Workflows.WorkflowActionResult",
+        "barakoCMS.Features.Workflows.WorkflowContext",
     ];
 
     // Without this the two fields can silently become one assembly again, and every assertion below

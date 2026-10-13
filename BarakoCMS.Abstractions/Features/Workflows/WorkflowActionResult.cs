@@ -11,11 +11,14 @@ namespace barakoCMS.Features.Workflows;
 /// </remarks>
 public sealed record WorkflowActionResult
 {
-    private WorkflowActionResult(bool succeeded, string? error, bool retryable)
+    private static readonly IReadOnlyDictionary<string, string> NoOutputs = new Dictionary<string, string>();
+
+    private WorkflowActionResult(bool succeeded, string? error, bool retryable, IReadOnlyDictionary<string, string>? outputs = null)
     {
         Succeeded = succeeded;
         Error = error;
         Retryable = retryable;
+        Outputs = outputs ?? NoOutputs;
     }
 
     /// <summary>
@@ -36,8 +39,28 @@ public sealed record WorkflowActionResult
     /// <summary>Why the action failed, or null when it succeeded.</summary>
     public string? Error { get; }
 
+    /// <summary>
+    /// What the action produced, by name, for the actions after it. Empty unless it succeeded with
+    /// outputs.
+    /// </summary>
+    /// <remarks>
+    /// Only the names the workflow lists in the action's <c>Capture</c> are kept on the run, and
+    /// only those can be read by a later action as <c>{{actions.N.name}}</c>. Everything else is
+    /// dropped when the outcome is recorded, so a provider's whole response never reaches the run
+    /// record, which is stored and served over the API.
+    /// </remarks>
+    public IReadOnlyDictionary<string, string> Outputs { get; }
+
     /// <summary>The action completed.</summary>
     public static WorkflowActionResult Success() => new(true, null, retryable: false);
+
+    /// <summary>The action completed and produced these values.</summary>
+    /// <param name="outputs">
+    /// Values by name. A later action reads one the workflow captured as <c>{{actions.N.name}}</c>,
+    /// where N is this action's position, counting from zero.
+    /// </param>
+    public static WorkflowActionResult Success(IReadOnlyDictionary<string, string> outputs) =>
+        new(true, null, retryable: false, new Dictionary<string, string>(outputs ?? NoOutputs, StringComparer.Ordinal));
 
     /// <summary>The action did not complete, for the stated reason.</summary>
     /// <param name="error">

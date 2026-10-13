@@ -30,6 +30,9 @@ public class WorkflowRun
 
     public string TriggerEvent { get; set; } = string.Empty;
 
+    /// <summary>What runs this run, copied from the workflow when it was queued. Null for the built-in runner.</summary>
+    public string? Executor { get; set; }
+
     /// <summary>
     /// The sequence of the event that caused this run.
     /// </summary>
@@ -92,6 +95,15 @@ public class WorkflowRun
     /// </remarks>
     public static readonly DateTimeOffset DueAtOnce = DateTimeOffset.UnixEpoch;
 
+    /// <summary>When an operator abandoned the run. Null for a run nobody abandoned.</summary>
+    public DateTimeOffset? AbandonedAt { get; set; }
+
+    /// <summary>When the run started undoing the actions that succeeded. Null for a run that never did.</summary>
+    public DateTimeOffset? CompensationStartedAt { get; set; }
+
+    /// <summary>Where the undoing stands. Null for a run that was never rolled back.</summary>
+    public RunCompensation? Compensation { get; set; }
+
     public List<WorkflowActionAttempt> Actions { get; set; } = new();
 
     /// <summary>Recomputes <see cref="Status"/> and <see cref="NextDueAt"/> from the attempts.</summary>
@@ -108,6 +120,13 @@ public class WorkflowRun
     {
         NextDueAt = EarliestClaim();
 
+        var undoing = Actions.Any(a => a.Compensation?.Status is CompensationStatus.Pending or CompensationStatus.Running);
+        Compensation = CompensationStartedAt is null ? null
+            : undoing ? RunCompensation.Compensating
+            : Actions.All(a => a.Compensation is null || a.Compensation.Status == CompensationStatus.Succeeded)
+                ? RunCompensation.Compensated
+                : RunCompensation.Incomplete;
+
         if (Actions.Count == 0)
         {
             Status = RunStatus.Succeeded;
@@ -115,9 +134,10 @@ public class WorkflowRun
             return;
         }
 
-        if (Actions.Any(a => a.Status is AttemptStatus.Pending or AttemptStatus.Running))
+        // A run that is undoing what it did is still at work, so it reads Running and stays due.
+        if (undoing || Actions.Any(a => a.Status is AttemptStatus.Pending or AttemptStatus.Running))
         {
-            Status = Actions.Any(a => a.Status != AttemptStatus.Pending) ? RunStatus.Running : RunStatus.Pending;
+            Status = undoing || Actions.Any(a => a.Status != AttemptStatus.Pending) ? RunStatus.Running : RunStatus.Pending;
             return;
         }
 
@@ -158,11 +178,15 @@ public class WorkflowRun
     /// <returns>How many attempts were stopped, Cancelled and Unknown together.</returns>
     public int Cancel(DateTimeOffset now)
     {
-        if (!Actions.Any(a => a.Status is AttemptStatus.Pending or AttemptStatus.Running)) return 0;
+        if (!Actions.Any(a => a.Status is AttemptStatus.Pending or AttemptStatus.Running
+                || a.Compensation?.Status is CompensationStatus.Pending or CompensationStatus.Running))
+        {
+            return 0;
+        }
 
         CancelledAt ??= now;
 
-        var stopped = 0;
+        var stopped = StopCompensations(now);
 
         foreach (var attempt in Actions)
         {
@@ -188,6 +212,126 @@ public class WorkflowRun
 
         Recompute();
         return stopped;
+    }
+
+    /// <summary>
+    /// Stops every compensation that has not finished: Cancelled when it never started, Unknown when
+    /// it was claimed and its lease ran out, and left alone while a live lease holds it.
+    /// </summary>
+    private int StopCompensations(DateTimeOffset now)
+    {
+        var stopped = 0;
+
+        foreach (var undo in Actions.Select(a => a.Compensation).OfType<CompensationState>())
+        {
+            var abandoned = undo.Status == CompensationStatus.Running && !(undo.LeaseExpiresAt > now);
+            if (undo.Status != CompensationStatus.Pending && !abandoned)
+            {
+                continue;
+            }
+
+            undo.Status = abandoned ? CompensationStatus.Unknown : CompensationStatus.Cancelled;
+            if (abandoned)
+            {
+                undo.Error = InFlightWhenStopped;
+            }
+            undo.NextAttemptAt = null;
+            undo.LeasedBy = null;
+            undo.LeaseExpiresAt = null;
+            undo.CompletedAt = now;
+            stopped++;
+        }
+
+        return stopped;
+    }
+
+    /// <summary>Whether any action of this run declares a compensation.</summary>
+    internal bool DeclaresCompensation => Actions.Any(a => a.Compensate is not null);
+
+    /// <summary>
+    /// Starts undoing the run: what has not started forward is cancelled, and every action that
+    /// succeeded gets its compensation queued, or is marked as having none.
+    /// </summary>
+    /// <remarks>
+    /// The compensations run one at a time, the highest ordinal first, and the runner claims them
+    /// once nothing forward is left. A run that already started is left as it is. Internal with
+    /// <see cref="HaltAfter"/>: the runner and the abandon endpoint are the only callers.
+    /// </remarks>
+    /// <returns>How many compensations were queued.</returns>
+    internal int StartCompensation(DateTimeOffset now)
+    {
+        if (CompensationStartedAt is not null)
+        {
+            return 0;
+        }
+
+        CompensationStartedAt = now;
+        CompletedAt = null;
+
+        var queued = 0;
+
+        foreach (var attempt in Actions)
+        {
+            if (attempt.Status == AttemptStatus.Pending)
+            {
+                attempt.Status = AttemptStatus.Cancelled;
+                attempt.NextAttemptAt = null;
+                attempt.CompletedAt = now;
+                continue;
+            }
+
+            if (attempt.Status != AttemptStatus.Succeeded)
+            {
+                continue;
+            }
+
+            if (attempt.Compensate is null)
+            {
+                attempt.Compensation = new CompensationState { Status = CompensationStatus.NotDeclared, CompletedAt = now };
+                continue;
+            }
+
+            attempt.Compensation = new CompensationState
+            {
+                Status = CompensationStatus.Pending,
+                IdempotencyKey = $"{attempt.IdempotencyKey}-undo",
+            };
+            queued++;
+        }
+
+        return queued;
+    }
+
+    /// <summary>The compensation the runner should claim next, or null.</summary>
+    /// <remarks>
+    /// Null while anything forward is waiting or in flight, while a compensation is held under a
+    /// live lease, and while the next one in reverse order waits on its retry: the last action is
+    /// undone before the one before it is touched.
+    /// </remarks>
+    internal WorkflowActionAttempt? NextCompensation(DateTimeOffset now)
+    {
+        if (Actions.Any(a => a.Status is AttemptStatus.Pending or AttemptStatus.Running))
+        {
+            return null;
+        }
+
+        foreach (var attempt in Actions.OrderByDescending(a => a.Ordinal))
+        {
+            var undo = attempt.Compensation;
+            if (undo?.Status is not (CompensationStatus.Pending or CompensationStatus.Running))
+            {
+                continue;
+            }
+
+            if (undo.Status == CompensationStatus.Running)
+            {
+                return undo.LeaseExpiresAt > now ? null : attempt;
+            }
+
+            return undo.NextAttemptAt is { } due && due > now ? null : attempt;
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -273,6 +417,16 @@ public class WorkflowRun
     {
         DateTimeOffset? earliest = null;
 
+        if (!Actions.Any(a => a.Status is AttemptStatus.Pending or AttemptStatus.Running))
+        {
+            var undo = Actions.OrderByDescending(a => a.Ordinal).Select(a => a.Compensation)
+                .FirstOrDefault(c => c?.Status is CompensationStatus.Pending or CompensationStatus.Running);
+
+            return undo is null ? null
+                : undo.Status == CompensationStatus.Running ? undo.LeaseExpiresAt ?? DueAtOnce
+                : undo.NextAttemptAt ?? DueAtOnce;
+        }
+
         foreach (var attempt in Actions.OrderBy(a => a.Ordinal))
         {
             if (attempt.Status == AttemptStatus.Running)
@@ -299,6 +453,68 @@ public class WorkflowRun
 /// whose workflow was switched off or deleted while it waited.
 /// </remarks>
 public enum RunStatus { Pending, Running, Succeeded, Failed, PartiallyFailed, Cancelled }
+
+/// <summary>Where the undoing of a rolled back run stands.</summary>
+/// <remarks>Numbered explicitly. Marten stores an enum as its number, so a member goes on the end.</remarks>
+public enum RunCompensation
+{
+    /// <summary>A compensation is waiting or in flight.</summary>
+    Compensating = 0,
+
+    /// <summary>Every action that succeeded was undone.</summary>
+    Compensated = 1,
+
+    /// <summary>
+    /// At least one action that succeeded was not undone: it declares no compensation, its
+    /// compensation failed or ended Unknown, or the run was stopped before it ran.
+    /// </summary>
+    Incomplete = 2,
+}
+
+/// <summary>Where the compensation of one action stands.</summary>
+/// <remarks>
+/// The same meanings as <see cref="AttemptStatus"/> where the names match, so Unknown is a
+/// compensation that may have arrived and is never retried on its own. Numbered explicitly, as
+/// <see cref="RunCompensation"/> is.
+/// </remarks>
+public enum CompensationStatus
+{
+    Pending = 0,
+    Running = 1,
+    Succeeded = 2,
+    Failed = 3,
+    Unknown = 4,
+
+    /// <summary>The action succeeded and declares nothing that undoes it, so it was not undone.</summary>
+    NotDeclared = 5,
+
+    /// <summary>The run was stopped before this compensation started.</summary>
+    Cancelled = 6,
+}
+
+/// <summary>The undoing of one action that succeeded, collapsed into its current state.</summary>
+public class CompensationState
+{
+    public CompensationStatus Status { get; set; } = CompensationStatus.Pending;
+
+    public int Attempts { get; set; }
+
+    public DateTimeOffset? NextAttemptAt { get; set; }
+
+    /// <summary>Stable across retries of this compensation, and different from the action's own key.</summary>
+    public string IdempotencyKey { get; set; } = string.Empty;
+
+    public string? LeasedBy { get; set; }
+
+    public DateTimeOffset? LeaseExpiresAt { get; set; }
+
+    /// <summary>Why it failed, truncated. Never a response body.</summary>
+    public string? Error { get; set; }
+
+    public DateTimeOffset? CompletedAt { get; set; }
+
+    public long? DurationMs { get; set; }
+}
 
 /// <summary>One action of a run, and every attempt at it collapsed into its current state.</summary>
 public class WorkflowActionAttempt
@@ -375,6 +591,25 @@ public class WorkflowActionAttempt
     public DateTimeOffset? CompletedAt { get; set; }
 
     public long? DurationMs { get; set; }
+
+    /// <summary>Which outputs of this action are kept, copied from the workflow when the run was queued.</summary>
+    /// <remarks>Empty on an attempt stored before outputs existed, which keeps nothing.</remarks>
+    public List<string> Capture { get; set; } = new();
+
+    /// <summary>
+    /// The outputs the action produced that <see cref="Capture"/> names, once it has succeeded. Null
+    /// until then, and when it produced none of them.
+    /// </summary>
+    public Dictionary<string, string>? Outputs { get; set; }
+
+    /// <summary>What undoes this action, copied from the workflow when the run was queued. Null when nothing does.</summary>
+    public WorkflowCompensation? Compensate { get; set; }
+
+    /// <summary>
+    /// The undoing of this action, once the run is rolled back and this action had succeeded. Null
+    /// otherwise.
+    /// </summary>
+    public CompensationState? Compensation { get; set; }
 }
 
 /// <summary>

@@ -18,6 +18,7 @@ internal class Request
     public List<string> TriggerEvents { get; set; } = new();
     public Dictionary<string, string> Conditions { get; set; } = new();
     public List<WorkflowAction> Actions { get; set; } = new();
+    public string? Executor { get; set; }
 }
 
 /// <summary>
@@ -46,7 +47,8 @@ internal class Endpoint(
                 TriggerEvent = req.TriggerEvent,
                 TriggerEvents = req.TriggerEvents,
                 Conditions = req.Conditions,
-                Actions = req.Actions
+                Actions = req.Actions,
+                Executor = req.Executor,
             };
 
             var result = await validator.ValidateAsync(workflow, ct);

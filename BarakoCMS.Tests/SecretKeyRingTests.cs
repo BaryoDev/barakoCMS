@@ -248,4 +248,58 @@ public class SecretKeyRingTests
         reported.Should().Equal("Secret");
         workflow.Actions.Single().Parameters["Secret"].Should().Be(underA);
     }
+
+    [Fact]
+    public void A_compensation_credential_under_an_older_key_moves_to_the_current_key()
+    {
+        var underA = new SecretProtector(RingA("Secrets"));
+        var rotated = new SecretProtector(RingAThenB("Secrets"));
+        var workflow = new WorkflowDefinition
+        {
+            Actions =
+            [
+                new WorkflowAction
+                {
+                    Type = "Webhook",
+                    Parameters = new() { ["Url"] = "https://example.test/do" },
+                    Compensate = new WorkflowCompensation
+                    {
+                        Type = "Webhook",
+                        Parameters = new() { ["Url"] = "https://example.test/undo", ["Secret"] = underA.Protect("whsec_undo") },
+                    },
+                },
+            ],
+        };
+
+        WebhookSigning.MigrateStoredCredentials(workflow, rotated).Should().BeTrue();
+
+        var undo = workflow.Actions.Single().Compensate!.Parameters;
+        undo["Secret"].Should().StartWith("enc:v1:b:");
+        rotated.Unprotect(undo["Secret"]).Should().Be("whsec_undo");
+    }
+
+    [Fact]
+    public void A_compensation_credential_no_key_opens_is_reported_and_left_as_it_is()
+    {
+        var underA = new SecretProtector(RingA("Secrets")).Protect("whsec_lost");
+        var other = new SecretProtector(Config(("Secrets:Keys:b", KeyB)));
+        var workflow = new WorkflowDefinition
+        {
+            Actions =
+            [
+                new WorkflowAction
+                {
+                    Type = "Webhook",
+                    Parameters = new() { ["Url"] = "https://example.test/do" },
+                    Compensate = new WorkflowCompensation { Type = "Webhook", Parameters = new() { ["Secret"] = underA } },
+                },
+            ],
+        };
+        var reported = new List<(int, string)>();
+
+        WebhookSigning.MigrateStoredCredentials(workflow, other, (index, name) => reported.Add((index, name))).Should().BeFalse();
+
+        reported.Should().Equal((0, "compensate.Secret"));
+        workflow.Actions.Single().Compensate!.Parameters["Secret"].Should().Be(underA);
+    }
 }
