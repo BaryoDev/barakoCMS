@@ -47,6 +47,25 @@ rule or the lookup names is refused until it is taken out of them.
 A convert rewrites every value, then retypes the field. A remove takes the field off the type
 first, so nobody reads it, then drops every value.
 
+## Block bindings
+
+A [block binding](blocks.md#presets-and-bindings) names fields of its type in its `sort` and its
+`where` conditions, and a binding naming a field the type does not declare selects nothing, so a
+page showing it empties with no error. A field change keeps them in step:
+
+- A rename carries every binding of the type that names the field to the new name, a descending
+  `sort` keeping its `-`, in the same commit as the step that renames the field on the type. Only
+  the bindings of the tenant the type belongs to are touched.
+- A remove is refused with 409 while a binding still names the field, and the refusal names each
+  binding by name and id. Change the binding or delete it, then remove the field. Refusing was
+  chosen over removing the condition or the sort for you: either would change what a published
+  page shows, which is a decision for whoever owns the page.
+- While a change runs on a type, saving a binding on it answers 409 too, so no binding is saved
+  around the step that renames the field.
+
+`POST /api/config/apply` follows the same rules: a document leaving out a field a binding names is
+refused with 409, and so is a document changing a type while a field change runs on it.
+
 ## The job
 
 The change is stored and queued in the same commit as the request, and a worker applies it in

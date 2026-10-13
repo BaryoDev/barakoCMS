@@ -68,6 +68,11 @@ content type that exists, an optional `sort` field (`-` first for descending), a
 case. The sort and condition fields have to be fields of the type. A tenant holds at most 500
 presets and 200 bindings.
 
+Renaming a field through `POST /api/content-types/{name}/fields/{field}/change` renames it in every
+binding that sorts or filters on it. Removing a field a binding names is refused with 409 until the
+binding stops naming it, and so is saving a binding on a type while a field change runs on it. See
+[field changes](field-changes.md#block-bindings).
+
 ## Resolve
 
 `GET /api/public/pages/resolve` returns, beside the page, `boundBlocks`: for each block that names

@@ -43,6 +43,8 @@ internal sealed class ConfigPlanResponse
 
     internal bool HasSectionErrors => Sections.Any(s => s.Errors.Count > 0);
 
+    internal bool HasConflicts => Sections.Any(s => s.Conflicts.Count > 0);
+
     internal bool HasRefusals => Refusals.Count > 0 || Sections.Any(s => s.Refusals.Count > 0);
 }
 
@@ -52,6 +54,10 @@ internal sealed class ConfigSectionPlanResponse
     public List<ConfigChangeResponse> Changes { get; init; } = [];
     public List<string> Errors { get; init; } = [];
     public List<string> Refusals { get; init; } = [];
+
+    /// <summary>What stored state stops the section being applied now, answered as a 409, as its own route would.</summary>
+    public List<string> Conflicts { get; init; } = [];
+
     public List<string> Notes { get; init; } = [];
 
     public static ConfigSectionPlanResponse From(ConfigSectionPlan plan) => new()
@@ -60,6 +66,7 @@ internal sealed class ConfigSectionPlanResponse
         Changes = plan.Changes.Select(ConfigChangeResponse.From).ToList(),
         Errors = plan.Errors.ToList(),
         Refusals = plan.Refusals.ToList(),
+        Conflicts = plan.Conflicts.ToList(),
         Notes = plan.Notes.ToList(),
     };
 }

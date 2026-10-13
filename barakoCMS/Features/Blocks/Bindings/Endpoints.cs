@@ -1,4 +1,5 @@
 using barakoCMS.Infrastructure.Auth;
+using barakoCMS.Infrastructure.Jobs;
 using barakoCMS.Models;
 using FastEndpoints;
 using FluentValidation;
@@ -78,6 +79,9 @@ internal sealed class PutValidator : Validator<PutRequest>
 /// cannot be saved that page resolve would have to skip. Whether the type is publicly deliverable,
 /// and whether those fields are Public, is read again on every resolve, since either can change
 /// after the binding is saved. A tenant holds at most <see cref="MaxBindings"/>.
+///
+/// Refused with 409 while a field change runs on the type: a rename moves the fields bindings name
+/// in one of its steps, and a binding saved around that step would keep the old name.
 /// </remarks>
 internal sealed class PutEndpoint(IDocumentSession session) : Endpoint<PutRequest, BindingResponse>
 {
@@ -92,8 +96,16 @@ internal sealed class PutEndpoint(IDocumentSession session) : Endpoint<PutReques
 
     public override async Task HandleAsync(PutRequest req, CancellationToken ct)
     {
+        // Taken before the type is read, so a field change that ran in between is not missed.
+        await FieldChanges.LockTypeAsync(session, req.ContentType.Trim(), ct);
         var lowered = req.ContentType.Trim().ToLower();
         var definition = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct);
+        if (definition is not null && await FieldChanges.RunningAsync(session, definition.Name, ct) is { } running)
+        {
+            AddError(FieldChanges.Busy(running));
+            ThrowIfAnyErrors(StatusCodes.Status409Conflict);
+        }
+
         if (definition is null)
         {
             AddError(r => r.ContentType, $"There is no content type '{req.ContentType}'.");

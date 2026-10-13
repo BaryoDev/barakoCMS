@@ -69,7 +69,8 @@ internal static class FieldNames
         }
     }
 
-    private static IEnumerable<string> LookupNames(LookupDefinition lookup) =>
+    /// <summary>Every field a lookup names: its match, verify, return and reveal fields.</summary>
+    public static IEnumerable<string> LookupNames(LookupDefinition lookup) =>
         new[] { lookup.MatchField }.Concat(lookup.VerifyFields).Concat(lookup.ReturnFields).Concat(lookup.Reveal?.Fields ?? []);
 
     private static void Replace(List<string> names, string from, string to)

@@ -23,6 +23,9 @@ namespace barakoCMS.Features.ContentType.ChangeField;
 /// refused until it completes, so no write lands between two batches in a shape the job has
 /// already passed. One change at a time per type.
 ///
+/// A rename carries every block binding that sorts or filters on the field along, in the step that
+/// renames the field on the type. A remove is refused with 409 while a binding names the field.
+///
 /// A change that drops stored values is destructive: a remove always, and a convert when some value
 /// neither maps to nor reads as a value of the new type. It is refused unless the request says
 /// <c>allowDestructive</c>, and the refusal names how many entries hold a value it would drop.
@@ -157,6 +160,11 @@ internal sealed class Endpoint(
             ThrowIfAnyErrors();
         }
 
+        if (req.Remove)
+        {
+            await RefuseWhileBindingsNameAsync(definition, field, ct);
+        }
+
         var change = new FieldChange
         {
             ContentType = definition.Name,
@@ -192,6 +200,21 @@ internal sealed class Endpoint(
         await AuditAsync(definition, field.Name, classification, change, ct);
         await session.SaveChangesAsync(ct);
         await Send.ResponseAsync(new Response { Classification = classification, Change = FieldChangeResponse.From(change) }, 202, ct);
+    }
+
+    /// <summary>Refuses, with 409, removing a field a block binding sorts or filters on.</summary>
+    /// <remarks>
+    /// Under the type's field-change lock, which the binding route takes too, so a binding saved
+    /// while this request runs is either found here or refused there.
+    /// </remarks>
+    private async Task RefuseWhileBindingsNameAsync(ContentTypeDefinition definition, FieldDefinition field, CancellationToken ct)
+    {
+        await FieldChanges.LockTypeAsync(session, definition.Name, ct);
+        if (await barakoCMS.Features.Blocks.Bindings.BindingFields.NamingAsync(session, definition.Name, field.Name, ct) is { Count: > 0 } bindings)
+        {
+            AddError(barakoCMS.Features.Blocks.Bindings.BindingFields.Refusal(field.Name, bindings));
+            ThrowIfAnyErrors(StatusCodes.Status409Conflict);
+        }
     }
 
     /// <summary>Refuses a convert the field or its target cannot take, through the validator create runs.</summary>

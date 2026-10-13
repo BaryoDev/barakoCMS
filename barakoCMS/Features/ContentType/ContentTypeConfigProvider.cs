@@ -18,6 +18,10 @@ namespace barakoCMS.Features.ContentType;
 /// the two refuse the same things. A type the document leaves out is kept: the API has no route
 /// that removes a content type, and an apply is not a way around that. Removing a field, changing a
 /// field's type or what a reference points at loses the values entries hold, so each is destructive.
+///
+/// The field routes' 409s hold here too: a type with a field change running is refused, as every
+/// <c>{name}</c> route refuses it, and so is leaving out a field a block binding names. Both answer
+/// the apply with 409 and write nothing.
 /// </remarks>
 internal sealed class ContentTypeConfigProvider(
     IDocumentSession session,
@@ -71,6 +75,10 @@ internal sealed class ContentTypeConfigProvider(
             return new ConfigSectionPlan { Section = Section, Errors = errors };
         }
 
+        var busy = await LockStoredTypesAsync(desired.Keys, stored, ct);
+        stored = (await session.Query<ContentTypeDefinition>().ToListAsync(ct)).ToList();
+        var conflicts = new List<string>();
+
         foreach (var duplicate in desired.Keys.GroupBy(barakoCMS.Core.ContentTypeName.Normalize).Where(g => g.Count() > 1))
         {
             errors.Add($"{string.Join(", ", duplicate)} name the same content type '{duplicate.Key}'.");
@@ -78,6 +86,12 @@ internal sealed class ContentTypeConfigProvider(
 
         foreach (var (key, document) in desired.OrderBy(d => d.Key, StringComparer.Ordinal))
         {
+            if (ContentTypeUpsert.StoredMatch(stored, key) is { } held && busy.TryGetValue(held.Name.ToLower(), out var running))
+            {
+                conflicts.Add(running);
+                continue;
+            }
+
             var resolved = await ResolveAsync(key, document, stored, errors, ct);
             if (resolved is null)
             {
@@ -100,6 +114,7 @@ internal sealed class ContentTypeConfigProvider(
                 disclosures.Add((match.Name, type.IsPubliclyDeliverable));
             }
 
+            conflicts.AddRange(await RemovedFieldsBindingsNameAsync(match, type, ct));
             if (Difference(match, type) is { } change)
             {
                 changes.Add(new ConfigChange
@@ -111,7 +126,59 @@ internal sealed class ContentTypeConfigProvider(
         }
 
         var refusals = await DisclosureRulesAsync(disclosures, caller, errors, ct);
-        return new ConfigSectionPlan { Section = Section, Changes = changes, Errors = errors, Refusals = refusals };
+        return new ConfigSectionPlan { Section = Section, Changes = changes, Errors = errors, Refusals = refusals, Conflicts = conflicts };
+    }
+
+    /// <summary>
+    /// Takes the field-change lock of each stored type the document updates, in one order, and
+    /// returns the refusal the type's <c>{name}</c> routes give, by lowered name, for each with a
+    /// field change running.
+    /// </summary>
+    /// <remarks>
+    /// Held until the apply commits or rolls back, so no field change starts on a type between this
+    /// check and the write, and no block binding is saved on one. The caller reads the types again
+    /// after this, so a change that ran to completion before the lock is seen in what it read.
+    /// </remarks>
+    private async Task<Dictionary<string, string>> LockStoredTypesAsync(
+        IEnumerable<string> keys, List<ContentTypeDefinition> stored, CancellationToken ct)
+    {
+        var busy = new Dictionary<string, string>(StringComparer.Ordinal);
+        var names = keys
+            .Select(k => ContentTypeUpsert.StoredMatch(stored, k)?.Name.ToLower())
+            .OfType<string>()
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal);
+
+        foreach (var name in names)
+        {
+            await barakoCMS.Infrastructure.Jobs.FieldChanges.LockTypeAsync(session, name, ct);
+            if (await barakoCMS.Infrastructure.Jobs.FieldChanges.RunningAsync(session, name, ct) is { } running)
+            {
+                busy[name] = barakoCMS.Infrastructure.Jobs.FieldChanges.Busy(running);
+            }
+        }
+
+        return busy;
+    }
+
+    /// <summary>
+    /// The refusal the field change route gives for removing a field a block binding names, for each
+    /// stored field <paramref name="type"/> leaves out that one does.
+    /// </summary>
+    private async Task<List<string>> RemovedFieldsBindingsNameAsync(
+        ContentTypeDefinition stored, ContentTypeDefinition type, CancellationToken ct)
+    {
+        var conflicts = new List<string>();
+        foreach (var removed in stored.Fields.Where(f => !type.Fields.Any(t => t.Name.Equals(f.Name, StringComparison.OrdinalIgnoreCase))))
+        {
+            var bindings = await barakoCMS.Features.Blocks.Bindings.BindingFields.NamingAsync(session, stored.Name, removed.Name, ct);
+            if (bindings.Count > 0)
+            {
+                conflicts.Add($"'{stored.Name}': {barakoCMS.Features.Blocks.Bindings.BindingFields.Refusal(removed.Name, bindings)}");
+            }
+        }
+
+        return conflicts;
     }
 
     /// <summary>

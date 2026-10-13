@@ -10,7 +10,9 @@ namespace barakoCMS.Features.Config.Apply;
 /// </summary>
 /// <remarks>
 /// Answers with the plan it ran. 400 when a section cannot be applied as written, 403 when the
-/// caller may not make a change it asks for, and 409 when it holds a destructive change and
+/// caller may not make a change it asks for, and 409 when stored state stops a change the way its
+/// own route would refuse it (a field change running on a type it changes, or a field it leaves
+/// out that a block binding names), or when it holds a destructive change and
 /// <c>allowDestructive</c> was not sent. In each of those nothing is written.
 /// </remarks>
 [barakoCMS.Infrastructure.Filters.NoIdempotentReplay]
