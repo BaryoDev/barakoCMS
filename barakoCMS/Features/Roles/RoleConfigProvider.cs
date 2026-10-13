@@ -22,29 +22,32 @@ internal sealed record RoleConfig(string? Description, List<string>? SystemCapab
 }
 
 /// <summary>
-/// The <c>roles</c> section: every role but the seeded ones, under its name.
+/// The <c>roles</c> section: the roles the tenant reaches, its own and the platform roles, but the
+/// seeded ones, under its name.
 /// </summary>
 /// <remarks>
 /// <para>
-/// Roles are stored once for the whole deployment, not per tenant, so this section is the same
-/// whichever tenant it is exported from or applied to. That is why writing it takes
-/// <c>manage_roles</c> from one of the caller's global roles, the rule <see cref="PlatformScope"/>
-/// applies to every document stored once: an administrator of one tenant holds Admin there through
-/// a membership and must not reach every tenant's roles that way. A role carrying a platform
-/// capability, before or after the change, is written only by a SuperAdmin, the rule both role
-/// surfaces apply, so an apply cannot grant what the caller could not grant through them.
+/// The same roles <c>GET /api/roles</c> lists for a caller in the tenant, and the same rules as the
+/// roles routes (<see cref="RoleScope"/>). Another tenant's role is neither exported nor written. A
+/// name is read as the tenant's own role first, then a platform role. A name the tenant does not
+/// reach creates a role of the tenant. Changing a platform role, or adding a capability that
+/// reaches past the tenant, takes <c>manage_platform_roles</c>.
 /// </para>
 /// <para>
-/// A role the document leaves out is kept: a role is shared by every tenant, and one tenant's file
-/// cannot know every other tenant's roles. Removing one is <c>DELETE /api/roles/{id}</c>.
+/// A role the document leaves out is kept, as it always was. Removing one is
+/// <c>DELETE /api/roles/{id}</c>.
 /// </para>
 /// </remarks>
 internal sealed class RoleConfigProvider(
     IDocumentSession session,
     CapabilityVocabulary vocabulary,
     IConfiguration configuration,
-    TenantContext tenant) : IConfigProvider
+    TenantContext tenant,
+    ICallerCapabilities callers) : IConfigProvider
 {
+    /// <summary>The role each planned change resolved to, by name, or null for one it creates.</summary>
+    private readonly Dictionary<string, Guid?> planned = new(StringComparer.Ordinal);
+
     public string Section => "roles";
 
     public int Order => 200;
@@ -55,11 +58,11 @@ internal sealed class RoleConfigProvider(
 
     public async Task<ConfigSectionExport?> ExportAsync(ConfigCaller caller, CancellationToken ct)
     {
-        var roles = await session.Query<Role>().ToListAsync(ct);
+        var roles = await RoleScope.ByNameAsync(session, tenant.Slug, ct);
 
         return new ConfigSectionExport
         {
-            Documents = roles
+            Documents = roles.Values
                 .Where(r => !SystemRoles.Contains(r.Id))
                 .ToDictionary(r => r.Name, r => ConfigJson.ToElement(RoleConfig.Of(r)), StringComparer.Ordinal),
         };
@@ -71,9 +74,11 @@ internal sealed class RoleConfigProvider(
         var errors = new List<string>();
         var notes = new List<string>();
         var changes = new List<ConfigChange>();
-        var stored = (await session.Query<Role>().ToListAsync(ct)).ToDictionary(r => r.Name, StringComparer.Ordinal);
+        var stored = await RoleScope.ByNameAsync(session, tenant.Slug, ct);
         var refuseUnknown = configuration.GetValue(CapabilityVocabulary.RefuseUnknownKey, false);
-        var platform = false;
+        var touchesPlatformRole = false;
+        var addsPlatformCapability = false;
+        planned.Clear();
 
         foreach (var (name, document) in desired.OrderBy(d => d.Key, StringComparer.Ordinal))
         {
@@ -95,10 +100,17 @@ internal sealed class RoleConfigProvider(
             }
 
             changes.Add(change);
-            platform |= Carries(role) || (current is not null && PlatformRoles.CarriesPlatformCapability(current));
+            planned[name] = current?.Id;
+            if (current?.IsPlatform == true)
+            {
+                notes.Add($"'{name}' is a platform role every tenant shares, so this changes it in every tenant.");
+            }
+
+            touchesPlatformRole |= current?.IsPlatform == true;
+            addsPlatformCapability |= Adds(role, current);
         }
 
-        var refusals = changes.Count == 0 ? [] : await RefusalsAsync(caller, platform, ct);
+        var refusals = changes.Count == 0 ? [] : await RefusalsAsync(caller, touchesPlatformRole, addsPlatformCapability, ct);
         return new ConfigSectionPlan { Section = Section, Changes = changes, Errors = errors, Refusals = refusals, Notes = notes };
     }
 
@@ -106,6 +118,7 @@ internal sealed class RoleConfigProvider(
     {
         var errors = new List<string>();
         Guid.TryParse(caller.Principal?.FindFirst("UserId")?.Value, out var actorId);
+        var stored = await RoleScope.ByNameAsync(session, tenant.Slug, ct);
 
         foreach (var change in plan.Changes)
         {
@@ -114,9 +127,15 @@ internal sealed class RoleConfigProvider(
                 continue;
             }
 
-            var role = await session.Query<Role>().FirstOrDefaultAsync(r => r.Name == change.Key, ct);
+            var role = stored.GetValueOrDefault(change.Key);
+            if (planned.TryGetValue(change.Key, out var resolved) && resolved != role?.Id)
+            {
+                errors.Add($"'{change.Key}' names another role than it did when the change was planned. Plan it again.");
+                continue;
+            }
+
             var before = role is null ? null : RoleAudit.Of(role);
-            role ??= new Role { Id = Guid.NewGuid(), Name = change.Key, CreatedAt = DateTime.UtcNow };
+            role ??= new Role { Id = Guid.NewGuid(), Name = change.Key, TenantSlug = tenant.Slug, CreatedAt = DateTime.UtcNow };
 
             role.Description = desired.Description ?? string.Empty;
             role.SystemCapabilities = desired.SystemCapabilities ?? [];
@@ -189,24 +208,35 @@ internal sealed class RoleConfigProvider(
         };
     }
 
-    private static bool Carries(RoleConfig role) =>
-        (role.SystemCapabilities ?? []).Any(PlatformRoles.PlatformCapabilities.Contains);
+    /// <summary>
+    /// Whether the change adds a capability that reaches past the tenant. Only additions count, the
+    /// rule <c>PUT /api/roles/{id}</c> follows, so one a platform administrator gave is kept.
+    /// </summary>
+    private static bool Adds(RoleConfig desired, Role? current) =>
+        (desired.SystemCapabilities ?? [])
+            .Except(current?.SystemCapabilities ?? [], StringComparer.OrdinalIgnoreCase)
+            .Any(PlatformRoles.PlatformCapabilities.Contains);
 
-    private async Task<List<string>> RefusalsAsync(ConfigCaller caller, bool platform, CancellationToken ct)
+    private async Task<List<string>> RefusalsAsync(
+        ConfigCaller caller, bool touchesPlatformRole, bool addsPlatformCapability, CancellationToken ct)
     {
-        if (caller.Principal is not { } principal)
+        if ((!touchesPlatformRole && !addsPlatformCapability)
+            || await RoleScope.IsPlatformCallerAsync(caller, callers, configuration, ct))
         {
             return [];
         }
 
-        if (!await PlatformScope.HoldsGloballyAsync(session, principal, configuration, SystemCapabilities.ManageRoles, [], ct))
+        var refusals = new List<string>();
+        if (touchesPlatformRole)
         {
-            return ["Roles are shared by every tenant, so writing one takes manage_roles from one of your global "
-                    + "roles, not from a tenant membership."];
+            refusals.Add(RoleScope.PlatformRoleMessage);
         }
 
-        return platform && !await PlatformRoles.IsSuperAdminAsync(session, principal, ct)
-            ? [PlatformRoles.PlatformRoleRefusedMessage]
-            : [];
+        if (addsPlatformCapability)
+        {
+            refusals.Add(RoleScope.PlatformCapabilityMessage);
+        }
+
+        return refusals;
     }
 }

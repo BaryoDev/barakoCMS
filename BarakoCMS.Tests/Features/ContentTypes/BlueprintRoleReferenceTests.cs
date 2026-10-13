@@ -37,15 +37,15 @@ public class BlueprintRoleReferenceTests
         var blueprint = $"staffing-{tag}";
         var typeName = $"staff-{tag}";
         var nobody = $"Nobody {Guid.NewGuid():N}";
-        var role = new Role { Id = Guid.NewGuid(), Name = $"Payroll {Guid.NewGuid():N}" };
         var tenant = $"bpr-{Guid.NewGuid():N}"[..14];
+        var role = new Role { Id = Guid.NewGuid(), Name = $"Payroll {Guid.NewGuid():N}", TenantSlug = tenant };
         var userId = Guid.NewGuid();
 
         using (var scope = _factory.Services.CreateScope())
         {
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
             session.Store(role);
-            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = tenant, Name = tenant, IsActive = true });
+            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = tenant, Name = tenant });
             session.Store(new User
             {
                 Id = userId,

@@ -115,7 +115,7 @@ public class BlueprintFieldPresentationTests : IDisposable
         using var scope = _factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         var slug = $"bh-{Guid.NewGuid():N}"[..14].ToLowerInvariant();
-        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug, IsActive = true });
+        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug });
         await session.SaveChangesAsync(Ct);
         return slug;
     }

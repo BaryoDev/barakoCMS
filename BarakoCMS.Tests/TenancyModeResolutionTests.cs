@@ -49,7 +49,7 @@ internal static class MultiTenancyHost
         using (var scope = fixture.Services.CreateScope())
         {
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug, IsActive = active });
+            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug, Status = active ? TenantStatus.Active : TenantStatus.Suspended });
             await session.SaveChangesAsync();
         }
 

@@ -38,8 +38,9 @@ public static class ModuleCapabilities
     /// keeps a module's seed all-or-nothing.
     ///
     /// Keyed on the role's name alone, so a renamed role stops being granted and a role of the
-    /// operator's own that takes the name starts. <see cref="CapabilityDefaults"/> keys on the
-    /// seeded id.
+    /// operator's own that takes the name starts. Only the deployment's roles are read (ownerless,
+    /// platform, and the default tenant's), so another tenant's role of that name is never granted.
+    /// <see cref="CapabilityDefaults"/> keys on the seeded id.
     /// </remarks>
     [Obsolete("Declare the defaults once with CapabilityDefaults, keyed by seeded role id, and call its "
             + "GrantAsync. Removal planned for barakoCMS 6.0.")]
@@ -62,7 +63,7 @@ public static class ModuleCapabilities
 
         foreach (var roleName in roleNames)
         {
-            var role = await session.Query<Role>().FirstOrDefaultAsync(r => r.Name == roleName, ct);
+            var role = await DeploymentRoleNames.FindAsync(session, roleName, ct);
             if (role is null)
             {
                 continue;

@@ -29,16 +29,43 @@ same for the event store. Documents then opt **out** one by one.
 | `User` | `Content`, `ContentTypeDefinition` |
 | `Tenant` (the registry itself) | `StoredFile`, `FileBlob` |
 | `Membership` (necessarily cross-tenant) | `Account`, `JournalEntry`, `NumberSequence` |
-| `Role` | workflows and their events |
+| `Role`, stored once with its tenant kept as data | workflows and their events |
 | `RefreshToken`, `RevokedToken`, `OtpCode`, `MfaSecret`, `ApiKey` | |
 | `Device` | |
 | `AuditEvent` | |
 
 Two of those are worth calling out because the obvious guess is the other way round.
 
-**Roles are global, not per tenant.** A role is a named permission set; which roles a person holds
-*in a tenant* is what `Membership.RoleIds` carries. Defining the role once and assigning it per
-tenant is the split, rather than every tenant owning its own copy of "Editor".
+**Roles belong to a tenant, or to the platform.** A role is stored once for the deployment, but from
+5.0 it carries its owner: `TenantSlug` for a tenant's own role, whose permissions name that tenant's
+content types, or `IsPlatform` for a role every tenant shares. The platform roles are the ones
+seeded for the deployment: SuperAdmin, Admin, User, the demo HR role, and a role a module seeds under
+its fixed id. Which roles a person holds *in a tenant* is still what `Membership.RoleIds` carries.
+
+- `GET /api/roles` answers with the caller's tenant's roles and the platform roles. A caller holding
+  `manage_platform_roles` sees every tenant's.
+- `GET`, `PUT` and `DELETE /api/roles/{id}` answer 404 for another tenant's role, so a tenant cannot
+  learn the ids of another's. A platform role can be read from any tenant; changing or deleting it
+  needs `manage_platform_roles`, and without it the answer is 403.
+- `POST /api/roles` makes a role of the caller's tenant. `isPlatform: true` makes a platform role and
+  needs `manage_platform_roles`. A name is unique within the tenant, and among platform roles; a
+  second one is a 409.
+- `manage_roles` reaches the caller's tenant only. Without `manage_platform_roles`, a role write
+  cannot add a capability that reaches past the tenant (`*`, `manage_roles`,
+  `manage_platform_roles`, `manage_tenants`, `manage_users`, `manage_email_settings`,
+  `view_hidden`), so a tenant's role editor cannot widen their own role into a platform one. Only
+  SuperAdmin holds `manage_platform_roles` by default.
+- The member routes offer and accept the tenant's roles and the platform roles. Another tenant's role
+  is answered as one that does not exist. The same holds for a tenant's sign-up role and MFA roles.
+- A membership that names another tenant's role, which no write path allows, gets nothing from it
+  when roles are resolved. Nor does a tenant's role held as a global role, outside that tenant.
+- `POST /api/users/{userId}/roles` writes a global role, which reaches every tenant, so it takes
+  only a platform role; a tenant's role is a 400.
+
+`migrations/5.0.0/role-tenancy.sql` gives every role stored before 5.0 its owner; its header has
+the rule. A role held in several tenants is copied into each, so editing it in one no longer
+changes it in the others. A role an account holds globally becomes a platform role, so it keeps
+granting in every tenant and only `manage_platform_roles` changes it.
 
 **Auth artifacts are global.** A refresh token, an OTP code, an MFA secret, an API key and a trusted
 device all belong to the global identity, not to the tenant whose subdomain happened to be in the URL
@@ -82,6 +109,44 @@ every host is legitimately unrecognised.
 Steps 3 and 4 serve whatever they resolve to, registered or not, unless `Tenancy:Mode` is `Multi`.
 The next section is that setting.
 
+### A tenant that is not Active
+
+A tenant has a `Status`: `Active`, `Suspended` or `Archived`, set with `PUT /api/tenants/{handle}`
+(`{ "name": "...", "status": "Suspended" }`). Suspended and Archived are refused the same way;
+Archived says the data is kept and nothing more. `isActive` is still accepted and returned: true is
+Active, false is Suspended, and false leaves an Archived tenant Archived. Sending both with
+different meanings is a 400. Leaving both out makes the tenant Active, as leaving `isActive` out
+always did. That holds on every `PUT`, unlike `signUp` and `signIn`, which are left as they are when
+left out: a client that saves only a suspended tenant's policy reactivates it unless it sends the
+current `status` too.
+
+The status is read once, at resolution, in every mode. A request that resolves to such a tenant, by
+header, subdomain or one of its domains, gets:
+
+- `404` on delivery (`/api/public/*`), whoever asks;
+- `403` with the body `This tenant is suspended.` (or `archived.`) on any other route, when the
+  caller's token names that tenant;
+- `404` on any other route for everyone else, with no body in `Single` and the body below in
+  `Multi`, so a caller who is not the tenant's own learns nothing a slug nobody registered would not
+  tell them.
+
+The routes listed under Multi as answering without a tenant are not refused here: sign in refuses
+such a tenant itself, and the registry routes answer 404 for it. A tenant's domains keep resolving
+to it while it is not Active, so a request on one is refused rather than served the default
+tenant's content, but CORS and the TLS check treat the domain as nobody's.
+
+Scheduled work waits. The scheduled content sweep and the collection sync do not visit the tenant,
+so nothing it scheduled fires while it is off. When it is Active again, the next sweep applies what
+fell due, with one rule: a publish whose unpublish time has also passed is missed. The entry goes
+straight to `Archived`, where the two would have left it, without being published, and both times
+are cleared, so no `Published` workflow runs for an entry that is already over. The same rule holds
+for an entry whose whole window passed while the service was down.
+
+`migrations/5.0.0/tenant-status.sql` writes `Status` onto tenant documents stored before it existed.
+The API does not need it: a document with only `IsActive` reads back with the right status. Its
+rollback, `rollback-tenant-status.sql`, changes nothing, since `IsActive` is kept as a copy of
+`Status` for a release that reads only that.
+
 ## Tenancy mode
 
 `Tenancy:Mode` says what kind of deployment this is. It has two values. A value that is neither
@@ -116,7 +181,7 @@ Opt-in. Every request and every token belongs to a registered, active tenant.
 
 - the `default` partition (no header, no registered domain and no subdomain, or `X-Tenant: default`);
 - a slug with no `Tenant` document;
-- a tenant whose `IsActive` is false.
+- a tenant whose `Status` is not `Active`, for anyone who is not signed in to it (see above).
 
 The three get the same status and the same body, so the answer does not say which slugs were ever
 registered. It is given by `TenantResolutionMiddleware`, before authentication and before any
@@ -275,10 +340,68 @@ request and returns 403 on a mismatch. It exempts `/api/me/*` (a user has to be 
 switch tenants from anywhere) and routes ending `/public`. A token with no `tenant` claim passes
 through, which is what keeps tokens issued before the claim existed working.
 
+## Who may join a tenant
+
+A tenant's `signUp` policy decides what registration (`POST /api/auth/register`), social sign-in
+and invitations (`POST /api/tenants/members`) do for the tenant the request resolves to. Set it with
+`PUT /api/tenants/{handle}`:
+
+| `signUp` | Registration and social sign-in | Invitation |
+| --- | --- | --- |
+| `NotSet`, the default | as before: an account with the global `User` role (registration) or no role (social sign-in), and no membership | works |
+| `Open` | the account joins the tenant with `signUpRoleId` and gets no global role | works |
+| `InviteOnly` | registration answers 403; social sign-in creates no account | works |
+| `Closed` | as `InviteOnly` | refused with 403 when it would create an account; an existing account is still added |
+
+`Open` needs `signUpRoleId`, and a role is refused with anything else. The role cannot be SuperAdmin
+or carry a platform capability, since anyone with an email address can sign up. The default tenant
+and a slug nobody registered have no policy and behave as before. A tenant that is not Active takes
+no sign-ups whatever its policy.
+
+Social sign-in of an account that already exists is a sign-in, not a sign-up, on every tenant: it
+joins nothing, and the issuer's membership check decides, the same as registering with an address
+that already has an account. Only an account the sign-in creates joins an `Open` tenant. A member an
+administrator removed or suspended keeps that row, so signing up again does not bring them back.
+
+A registration that has to be verified records the tenant on the pending row, and verification
+reads the policy again: a tenant that stopped taking sign-ups in between spends the token and
+creates nothing.
+
+## How members sign in
+
+A tenant's `signIn` rules, set whole with `PUT /api/tenants/{handle}`, are read when a token for
+the tenant is issued. Each adds to what the deployment and the member's roles already require, so
+the strictest applies, and leaving them unset is what a tenant did before they existed.
+
+```json
+{ "name": "Clinic", "signIn": { "requireMfa": false, "mfaRoleIds": ["<nurse role id>"], "methods": ["password"], "sessionMinutes": 480 } }
+```
+
+- `requireMfa` asks every member to enrol in MFA, and `mfaRoleIds` asks it of members holding one of
+  those roles here. A member who has not enrolled gets the enrol-only token a role with `RequireMfa`
+  already gives (`mfaEnrollmentRequired` on the sign-in answer). A role whose own `RequireMfa` is set
+  requires MFA in every tenant; this is how one tenant requires it of a role another does not.
+- `methods` names the ways a sign-in may start: `password` (`POST /api/auth/login`), `otp`
+  (`POST /api/auth/otp/request` and `POST /api/auth/otp/verify`, both, since a code records no
+  tenant and one requested elsewhere could otherwise be spent here) and `social`. Empty allows all
+  three. A method the tenant does not allow answers 403 before any account is read, and social
+  sign-in is refused. The code a password
+  sign-in emails to approve a new device is not a sign-in method, so it still works.
+- `sessionMinutes`, between 5 and 10080, caps the refresh token minted for the tenant at sign-in and
+  at every refresh, and the access token when it is shorter than fifteen minutes. A refresh is
+  capped from the moment it happens, so a session that keeps refreshing within the length keeps going.
+
+Switching tenants with `POST /api/me/switch` reads the MFA rules of the tenant switched to, and not
+the methods, since the caller has already signed in. So `methods` limits how a session starts on this
+tenant, not how a member who also belongs elsewhere reaches it: one who signs in to another tenant
+by a method this one refuses can still switch here. Use `requireMfa` or `mfaRoleIds` for a rule that
+holds on every path.
+
 ## Roles at request time
 
 `PermissionResolver` asks `MembershipRoles.EffectiveRoleIdsAsync` for the caller's roles, which is
-the **union** of the user's global `User.RoleIds` and their membership roles in the current tenant.
+the **union** of the user's global `User.RoleIds` and their membership roles in the current tenant,
+leaving out any membership role another tenant owns.
 
 `User.RoleIds` was kept rather than moved. A platform SuperAdmin stays a SuperAdmin inside every
 tenant, which is what makes the platform-global screens keep working after switching in, and a
@@ -298,7 +421,7 @@ deployment with no memberships at all behaves exactly as it did before multi-ten
   request that sets both to different tenants is a 400, and so is one that sets neither. Only the
   JSON body is read: a `tenant` or `club` on the query string is ignored.
 - `/api/tenants` creates, lists and updates tenants, gated on `SuperAdmin`. A tenant here is its
-  handle, name, domains and active flag.
+  handle, name, domains and status.
 - `GET /api/tenants/{handle}/public` is the anonymous lookup a sign-in page needs.
 
 ## The tenant profile

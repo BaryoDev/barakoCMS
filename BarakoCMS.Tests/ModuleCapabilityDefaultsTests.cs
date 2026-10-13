@@ -365,6 +365,87 @@ public class ModuleCapabilityDefaultsTests
             .Select(f => (string)f.GetRawConstantValue()!)
             .ToList();
 
+    /// <summary>
+    /// Role names are unique only within one owner, so the name fallback reads only the deployment's
+    /// roles: ownerless and platform roles, and the default tenant's. A tenant admin who names a role
+    /// after a module's seeded role does not get the module's defaults on it (#913).
+    /// </summary>
+    [Fact]
+    public async Task The_name_fallback_skips_a_role_another_tenant_owns()
+    {
+        var name = NewName("Module Role");
+        var tenants = await StoreRoleInAsync($"mc-{Guid.NewGuid():N}"[..16], name);
+        var deployment = await StoreRoleInAsync(Tenant.DefaultSlug, name);
+
+        var changed = await GrantAsync(CapabilityDefaults.For("cap_one").GrantedTo(new SeededRole(Guid.NewGuid(), name)));
+
+        changed.Should().Be(1);
+        (await LoadAsync(deployment.Id))!.SystemCapabilities.Should().Equal("cap_one");
+        (await LoadAsync(tenants.Id))!.SystemCapabilities.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task The_obsolete_name_grant_skips_a_role_another_tenant_owns()
+    {
+        var name = NewName("Legacy Role");
+        var tenants = await StoreRoleInAsync($"mc-{Guid.NewGuid():N}"[..16], name);
+
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+#pragma warning disable CS0618
+        var changed = await ModuleCapabilities.GrantAsync(session, [name], ["cap_one"], Ct);
+#pragma warning restore CS0618
+        await session.SaveChangesAsync(Ct);
+
+        changed.Should().Be(0);
+        (await LoadAsync(tenants.Id))!.SystemCapabilities.Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// A tenant's role that took the name Accountant before the module was installed is not adopted
+    /// as the module's role: the seed makes the platform Accountant and grants to that.
+    /// </summary>
+    [Fact]
+    public async Task The_accounting_seed_does_not_adopt_a_tenants_role_named_Accountant()
+    {
+        var id = BarakoCMS.Accounting.AccountingModule.AccountantRoleId;
+        var original = await LoadAsync(id);
+        original.Should().NotBeNull("the fixture seeds the Accounting module, which creates the role");
+        var tenants = new Role { Id = Guid.NewGuid(), Name = "Accountant", TenantSlug = $"mc-{Guid.NewGuid():N}"[..16] };
+
+        try
+        {
+            using (var scope = _factory.Services.CreateScope())
+            {
+                var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+                session.Delete<Role>(id);
+                session.Store(tenants);
+                await session.SaveChangesAsync(Ct);
+            }
+
+            using (var scope = _factory.Services.CreateScope())
+            {
+                var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+                await new BarakoCMS.Accounting.AccountingModule().SeedAsync(session, scope.ServiceProvider, Ct);
+                await session.SaveChangesAsync(Ct);
+            }
+
+            var created = await LoadAsync(id);
+            created.Should().NotBeNull("the module's own role is made under its id");
+            created!.IsPlatform.Should().BeTrue();
+            created.SystemCapabilities.Should().HaveCount(2);
+            (await LoadAsync(tenants.Id))!.SystemCapabilities.Should().BeEmpty();
+        }
+        finally
+        {
+            using var scope = _factory.Services.CreateScope();
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Delete<Role>(tenants.Id);
+            session.Store(original!);
+            await session.SaveChangesAsync(CancellationToken.None);
+        }
+    }
+
     private static string NewName(string prefix) => $"{prefix} {Guid.NewGuid():N}";
 
     private async Task<int> GrantAsync(CapabilityDefaults defaults)
@@ -377,9 +458,11 @@ public class ModuleCapabilityDefaultsTests
         return changed;
     }
 
-    private async Task<Role> StoreRoleAsync(string name, params string[] capabilities)
+    private Task<Role> StoreRoleAsync(string name, params string[] capabilities) => StoreRoleInAsync(null, name, capabilities);
+
+    private async Task<Role> StoreRoleInAsync(string? tenantSlug, string name, params string[] capabilities)
     {
-        var role = new Role { Id = Guid.NewGuid(), Name = name, SystemCapabilities = capabilities.ToList() };
+        var role = new Role { Id = Guid.NewGuid(), Name = name, TenantSlug = tenantSlug, SystemCapabilities = capabilities.ToList() };
 
         using var scope = _factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();

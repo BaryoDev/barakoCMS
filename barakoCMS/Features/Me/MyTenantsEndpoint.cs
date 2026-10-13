@@ -45,9 +45,10 @@ internal class MyTenantsEndpoint(IQuerySession session, IDocumentStore store) : 
             .ToListAsync(ct);
 
         var slugs = memberships.Select(m => m.TenantSlug).ToList();
-        var tenants = await session.Query<Tenant>()
-            .Where(t => slugs.Contains(t.Slug) && t.IsActive)
+        var registered = await session.Query<Tenant>()
+            .Where(t => slugs.Contains(t.Slug))
             .ToListAsync(ct);
+        var tenants = registered.Where(t => t.Status == TenantStatus.Active).ToList();
 
         // Paged in memory: the tenants are already filtered by the caller's memberships, which is
         // a join the query cannot express, so the set is small and known by this point.
@@ -74,9 +75,12 @@ internal class MyTenantsEndpoint(IQuerySession session, IDocumentStore store) : 
         {
             var profile = await barakoCMS.Features.Tenants.TenantProfiles.ReadAsync(store, tenant, ct);
 #pragma warning disable CS0618 // still returned until the member goes, since nothing replaced it
+            // A membership's role owned by another tenant grants nothing here, the rule
+            // MembershipRoles applies, so it is not listed either. A global role always is.
             var held = (roleIdsBySlug.GetValueOrDefault(tenant.Slug) ?? [])
                 .Select(id => roles.GetValueOrDefault(id))
                 .OfType<Role>()
+                .Where(r => global.Contains(r.Id) || !OwnedElsewhere(r, tenant.Slug))
                 .OrderBy(r => r.Name, StringComparer.Ordinal)
                 .Select(r => new MyRole(r.Id, r.Name))
                 .ToList();
@@ -92,4 +96,7 @@ internal class MyTenantsEndpoint(IQuerySession session, IDocumentStore store) : 
             TotalItems = page.TotalItems,
         }, ct);
     }
+
+    private static bool OwnedElsewhere(Role role, string slug) =>
+        !role.IsPlatform && role.TenantSlug is not null && role.TenantSlug != slug;
 }

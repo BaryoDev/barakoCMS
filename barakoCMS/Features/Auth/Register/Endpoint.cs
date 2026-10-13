@@ -28,6 +28,12 @@ namespace barakoCMS.Features.Auth.Register;
 /// difference a caller can see is the password policy, which is about their own input and discloses
 /// nothing about anybody else.
 /// </para>
+/// <para>
+/// The resolved tenant's sign-up policy is read first (<see cref="barakoCMS.Infrastructure.Auth.SignUpPolicy"/>).
+/// A tenant that takes no sign-ups answers 403 to everybody, which says something about the tenant
+/// and nothing about any address. An Open tenant's registration joins it with the policy's role and
+/// gets no global role; anywhere else the account gets the global User role, as before.
+/// </para>
 /// </remarks>
 [barakoCMS.Infrastructure.Filters.NoIdempotentReplay]
 internal class Endpoint : Endpoint<Request, Response>
@@ -40,20 +46,23 @@ internal class Endpoint : Endpoint<Request, Response>
         "If that email address can be registered, we have sent it a link to confirm it.";
 
     private readonly barakoCMS.Repository.IUserRepository _repo;
-    private readonly IQuerySession _session;
+    private readonly IDocumentSession _session;
+    private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
     private readonly barakoCMS.Infrastructure.Services.IPasswordPolicyValidator _passwordValidator;
     private readonly barakoCMS.Core.Interfaces.IEmailVerificationService _verification;
     private readonly barakoCMS.Infrastructure.Auth.EmailVerificationOptions _options;
 
     public Endpoint(
         barakoCMS.Repository.IUserRepository repo,
-        IQuerySession session,
+        IDocumentSession session,
+        barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
         barakoCMS.Infrastructure.Services.IPasswordPolicyValidator passwordValidator,
         barakoCMS.Core.Interfaces.IEmailVerificationService verification,
         barakoCMS.Infrastructure.Auth.EmailVerificationOptions options)
     {
         _repo = repo;
         _session = session;
+        _tenant = tenant;
         _passwordValidator = passwordValidator;
         _verification = verification;
         _options = options;
@@ -68,6 +77,13 @@ internal class Endpoint : Endpoint<Request, Response>
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
+        var decision = await barakoCMS.Infrastructure.Auth.SignUpPolicy.DecideAsync(_session, _tenant.Slug, ct);
+        if (decision.Outcome == barakoCMS.Infrastructure.Auth.SignUpOutcome.Refused)
+        {
+            ThrowError(barakoCMS.Infrastructure.Auth.SignUpPolicy.ClosedMessage, 403);
+            return;
+        }
+
         // Before anything that touches the database, and before the branch below, so the hashing
         // cost is spent on every path. A policy failure is about the caller's own input.
         var (isValid, errorMessage) = _passwordValidator.Validate(req.Password);
@@ -82,7 +98,7 @@ internal class Endpoint : Endpoint<Request, Response>
 
         if (!_options.Required)
         {
-            await RegisterWithoutVerificationAsync(req.Username, email, passwordHash, ct);
+            await RegisterWithoutVerificationAsync(req.Username, email, passwordHash, decision, ct);
             return;
         }
 
@@ -101,7 +117,9 @@ internal class Endpoint : Endpoint<Request, Response>
         // tell an anonymous caller which usernames exist, on the one endpoint that takes care not
         // to. The pending row is harmless: verification re-checks, and a token whose username has
         // since been taken is refused with the same message every other rejection there uses.
-        _ = await _verification.IssueAsync(req.Username, email, passwordHash, ct);
+        _ = decision.Outcome == barakoCMS.Infrastructure.Auth.SignUpOutcome.Join
+            ? await _verification.IssueAsync(req.Username, email, passwordHash, decision.TenantSlug, ct)
+            : await _verification.IssueAsync(req.Username, email, passwordHash, ct);
 
         await Send.ResponseAsync(new Response { Message = Accepted });
     }
@@ -113,12 +131,15 @@ internal class Endpoint : Endpoint<Request, Response>
     /// in every case: the enumeration fix is not part of what that setting turns off.
     /// </summary>
     private async Task RegisterWithoutVerificationAsync(
-        string username, string email, string passwordHash, CancellationToken ct)
+        string username, string email, string passwordHash,
+        barakoCMS.Infrastructure.Auth.SignUpDecision decision, CancellationToken ct)
     {
         var existing = await _repo.GetByUsernameOrEmailAsync(username, email, ct);
         if (existing is null)
         {
-            _repo.Store(NewUser(await UserRoleIdsAsync(_session, ct), username, email, passwordHash));
+            var user = NewUser(await GlobalRoleIdsAsync(_session, decision, ct), username, email, passwordHash);
+            _repo.Store(user);
+            await barakoCMS.Infrastructure.Auth.SignUpPolicy.StageJoinAsync(_session, decision, user, ct);
             await _repo.SaveChangesAsync(ct);
         }
 
@@ -136,6 +157,14 @@ internal class Endpoint : Endpoint<Request, Response>
         var userRole = await session.Query<Role>().FirstOrDefaultAsync(r => r.Name == "User", ct);
         return userRole is null ? new List<Guid>() : new List<Guid> { userRole.Id };
     }
+
+    /// <summary>
+    /// The global roles a new account starts with: none when it joins an Open tenant, where the
+    /// policy's role is what it holds, and User otherwise.
+    /// </summary>
+    internal static async Task<List<Guid>> GlobalRoleIdsAsync(
+        IQuerySession session, barakoCMS.Infrastructure.Auth.SignUpDecision decision, CancellationToken ct) =>
+        decision.Outcome == barakoCMS.Infrastructure.Auth.SignUpOutcome.Join ? [] : await UserRoleIdsAsync(session, ct);
 
     internal static User NewUser(List<Guid> roleIds, string username, string email, string passwordHash) => new()
     {

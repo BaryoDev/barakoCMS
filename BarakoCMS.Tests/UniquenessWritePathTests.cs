@@ -418,7 +418,7 @@ public class UniquenessWritePathTests
         using (var scope = _fixture.Services.CreateScope())
         {
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = tenant, Name = tenant, IsActive = true });
+            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = tenant, Name = tenant });
             session.Store(new User
             {
                 Id = userId,

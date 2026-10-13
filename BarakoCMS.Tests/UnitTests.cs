@@ -62,7 +62,7 @@ public class UnitTests
     {
         // Arrange
         var repo = Substitute.For<IUserRepository>();
-        var session = Substitute.For<IQuerySession>();
+        var session = Substitute.For<IDocumentSession>();
         var passwordValidator = new barakoCMS.Infrastructure.Services.PasswordPolicyValidator();
 
         repo.GetByUsernameOrEmailAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -71,6 +71,7 @@ public class UnitTests
         var endpoint = Factory.Create<barakoCMS.Features.Auth.Register.Endpoint>(
             repo,
             session,
+            new barakoCMS.Infrastructure.Multitenancy.TenantContext(),
             passwordValidator,
             Substitute.For<barakoCMS.Core.Interfaces.IEmailVerificationService>(),
             new barakoCMS.Infrastructure.Auth.EmailVerificationOptions

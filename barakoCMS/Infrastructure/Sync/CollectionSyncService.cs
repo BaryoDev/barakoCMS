@@ -153,8 +153,8 @@ internal sealed class CollectionSyncService(
 
         await using (var query = store.QuerySession())
         {
-            var tenants = await query.Query<Tenant>().Where(t => t.IsActive).ToListAsync(ct);
-            partitions.AddRange(tenants.Select(t => (string?)t.Slug));
+            var tenants = await query.Query<Tenant>().ToListAsync(ct);
+            partitions.AddRange(tenants.Where(t => t.Status == TenantStatus.Active).Select(t => (string?)t.Slug));
         }
 
         var budget = MaxSyncsPerSweep;

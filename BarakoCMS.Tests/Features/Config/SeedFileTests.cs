@@ -56,7 +56,6 @@ public class SeedFileTests
     private static object Document(string slug, string domain, string email, string role, string type) => new
     {
         version = 1,
-        roles = new Dictionary<string, object> { [role] = new { description = "Runs the front desk" } },
         tenants = new Dictionary<string, object>
         {
             [slug] = new
@@ -64,7 +63,11 @@ public class SeedFileTests
                 name = "Seeded Clinic",
                 domains = new[] { domain },
                 members = new[] { new { email, roles = new[] { role } } },
-                config = new { contentTypes = new Dictionary<string, object> { [type] = Type(type, ("Title", "string")) } },
+                config = new
+                {
+                    roles = new Dictionary<string, object> { [role] = new { description = "Runs the front desk" } },
+                    contentTypes = new Dictionary<string, object> { [type] = Type(type, ("Title", "string")) },
+                },
             },
         },
     };
@@ -86,7 +89,9 @@ public class SeedFileTests
         tenant!.Domains.Should().Equal(domain);
         var user = await _callers.InTenantAsync(null, s => s.Query<User>().SingleOrDefaultAsync(u => u.Email == email, Ct));
         user.Should().NotBeNull("the member is created by email");
-        var roleId = (await _callers.InTenantAsync(null, s => s.Query<Role>().SingleAsync(r => r.Name == role, Ct)))!.Id;
+        var seededRole = (await _callers.InTenantAsync(null, s => s.Query<Role>().SingleAsync(r => r.Name == role, Ct)))!;
+        seededRole.TenantSlug.Should().Be(slug, "a role the tenant's config creates is that tenant's");
+        var roleId = seededRole.Id;
         var membership = await _callers.InTenantAsync(null, s => s.Query<Membership>().SingleOrDefaultAsync(m => m.UserId == user!.Id && m.TenantSlug == slug, Ct));
         membership.Should().NotBeNull();
         membership!.RoleIds.Should().Equal(roleId);
@@ -219,18 +224,18 @@ public class SeedFileTests
         var slug = Unique("seed-");
         var type = Unique("chart");
         var role = Unique("Seed Reader ");
+        Dictionary<string, object> Roles() => new() { [role] = new { description = "Reads charts" } };
         object File(string field, object? rules) => new
         {
             version = 1,
-            roles = new Dictionary<string, object> { [role] = new { description = "Reads charts" } },
             tenants = new Dictionary<string, object>
             {
                 [slug] = new
                 {
                     name = slug,
                     config = rules is null
-                        ? (object)new { contentTypes = new Dictionary<string, object> { [type] = Type(type, ("Title", "string"), (field, "string")) } }
-                        : new { contentTypes = new Dictionary<string, object> { [type] = Type(type, ("Title", "string"), (field, "string")) }, permissionRules = rules },
+                        ? (object)new { roles = Roles(), contentTypes = new Dictionary<string, object> { [type] = Type(type, ("Title", "string"), (field, "string")) } }
+                        : new { roles = Roles(), contentTypes = new Dictionary<string, object> { [type] = Type(type, ("Title", "string"), (field, "string")) }, permissionRules = rules },
                 },
             },
         };
@@ -303,5 +308,48 @@ public class SeedFileTests
 
         memberships.Should().NotBeEmpty("a snapshot of a seeded tenant has its member in it");
         return $"{tenantVersion}|{string.Join(",", membershipVersions)}|{users}|{audit}|{types}";
+    }
+
+    [Fact]
+    public async Task A_member_naming_a_role_only_another_tenant_has_stops_the_seed()
+    {
+        var owner = Unique("seed-");
+        var slug = Unique("seed-");
+        var role = Unique("Elsewhere ");
+        await _callers.StoreInTenantAsync(null, new Role { Id = Guid.NewGuid(), Name = role, TenantSlug = owner });
+        var email = $"{slug}@example.com";
+        var path = await FileAsync(new
+        {
+            version = 1,
+            tenants = new Dictionary<string, object> { [slug] = new { name = slug, members = new[] { new { email, roles = new[] { role } } } } },
+        });
+
+        var seeding = () => StartAsync(path);
+
+        var message = (await seeding.Should().ThrowAsync<InvalidOperationException>()).Which.Message;
+        message.Should().Contain("names roles that do not exist").And.Contain(role);
+        (await _callers.InTenantAsync(null, s => s.Query<User>().AnyAsync(u => u.Email == email, Ct)))
+            .Should().BeFalse("the member is not added holding another tenant's role");
+    }
+
+    [Fact]
+    public async Task A_member_naming_a_role_the_tenant_and_the_platform_both_have_gets_the_tenants()
+    {
+        var slug = Unique("seed-");
+        var name = Unique("Front Desk ");
+        var platform = new Role { Id = Guid.NewGuid(), Name = name, IsPlatform = true };
+        var own = new Role { Id = Guid.NewGuid(), Name = name, TenantSlug = slug };
+        await _callers.StoreInTenantAsync(null, platform, own);
+        var email = $"{slug}@example.com";
+
+        await StartAsync(await FileAsync(new
+        {
+            version = 1,
+            tenants = new Dictionary<string, object> { [slug] = new { name = slug, members = new[] { new { email, roles = new[] { name } } } } },
+        }));
+
+        var user = await _callers.InTenantAsync(null, s => s.Query<User>().SingleAsync(u => u.Email == email, Ct));
+        var membership = await _callers.InTenantAsync(null, s => s.Query<Membership>().SingleAsync(m => m.UserId == user!.Id && m.TenantSlug == slug, Ct));
+        membership!.RoleIds.Should().Equal(new[] { own.Id }, "the tenant's own role comes ahead of a platform role of the same name");
     }
 }

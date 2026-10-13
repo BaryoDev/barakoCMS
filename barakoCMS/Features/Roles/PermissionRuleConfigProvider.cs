@@ -17,22 +17,25 @@ namespace barakoCMS.Features.Roles;
 /// A rule names a content type, and a content type belongs to one tenant, so this section holds the
 /// rules for the tenant's own types and nothing else. A rule a role holds for a type the tenant does
 /// not have is another tenant's business: it is neither exported nor removed from here. A rule the
-/// document leaves out, for one of the tenant's types, is removed destructively, and since the rule
-/// names the type by its name, so is it for any other tenant with a type of that name: the plan says
-/// which in a note, to a caller allowed to write the rules and to nobody else.
+/// document leaves out, for one of the tenant's types, is removed destructively.
 /// </para>
 /// <para>
-/// Rules live on the role, which is stored once for the deployment, so writing one asks what
-/// writing the role asks: <c>manage_roles</c> from a global role, and SuperAdmin for a role that
-/// carries a platform capability. The checks <c>PUT /api/roles/{id}</c> runs on a role's rules run
-/// here on the rules the role would hold.
+/// Rules live on the role, so the roles are the ones the tenant reaches, read by name the way the
+/// <c>roles</c> section reads them (<see cref="RoleScope"/>): its own, then the platform roles.
+/// Another tenant's role is out of reach. Writing a rule on a platform role takes
+/// <c>manage_platform_roles</c>, the rule <c>PUT /api/roles/{id}</c> applies, and since every tenant
+/// shares a platform role, removing one of its rules removes it for any other tenant with a type of
+/// that name: the plan says which in a note, to a caller allowed to write the rule and to nobody
+/// else. The checks <c>PUT /api/roles/{id}</c> runs on a role's rules run here on the rules the role
+/// would hold.
 /// </para>
 /// </remarks>
 internal sealed class PermissionRuleConfigProvider(
     IDocumentSession session,
     IDocumentStore store,
     IConfiguration configuration,
-    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : IConfigProvider
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
+    ICallerCapabilities callers) : IConfigProvider
 {
     public string Section => "permissionRules";
 
@@ -93,7 +96,7 @@ internal sealed class PermissionRuleConfigProvider(
 
             if (changes.Count > before)
             {
-                platform |= PlatformRoles.CarriesPlatformCapability(role);
+                platform |= role.IsPlatform;
                 errors.AddRange((await CheckAsync(role, Next(role, types, mine), ct)).Select(e => $"role '{role.Name}': {e}"));
             }
         }
@@ -102,13 +105,16 @@ internal sealed class PermissionRuleConfigProvider(
 
         // Names other tenants, so only for a caller who may write the shared roles anyway. Anyone
         // else could stage a type name and read back which tenants have it.
-        var notes = refusals.Count == 0 ? await SharedRemovalsAsync(changes, ct) : [];
+        var platformNames = roles.Where(r => r.IsPlatform).Select(r => r.Name).ToHashSet(StringComparer.Ordinal);
+        var notes = refusals.Count == 0
+            ? await SharedRemovalsAsync(changes.Where(c => platformNames.Contains(SplitKey(c.Key).Role)).ToList(), ct)
+            : [];
         return new ConfigSectionPlan { Section = Section, Changes = changes, Errors = errors, Refusals = refusals, Notes = notes };
     }
 
     /// <summary>
-    /// A note for each removed rule whose type name another tenant also has. Rules live on the shared
-    /// role and name a type by its name, so removing one here removes it there too.
+    /// A note for each removed rule on a platform role whose type name another tenant also has. The
+    /// role is shared and a rule names a type by its name, so removing one here removes it there too.
     /// </summary>
     private async Task<List<string>> SharedRemovalsAsync(List<ConfigChange> changes, CancellationToken ct)
     {
@@ -185,7 +191,7 @@ internal sealed class PermissionRuleConfigProvider(
 
     private async Task<(List<Role> Roles, HashSet<string> Types)> ReadAsync(CancellationToken ct)
     {
-        var roles = (await session.Query<Role>().ToListAsync(ct)).Where(r => r.Id != SystemRoles.SuperAdminRoleId).ToList();
+        var roles = (await RoleScope.ByNameAsync(session, tenant.Slug, ct)).Values.Where(r => r.Id != SystemRoles.SuperAdminRoleId).ToList();
         var types = (await session.Query<ContentTypeDefinition>().Select(t => t.Name).ToListAsync(ct))
             .Select(barakoCMS.Core.ContentTypeName.Normalize)
             .ToHashSet(StringComparer.Ordinal);
@@ -263,23 +269,10 @@ internal sealed class PermissionRuleConfigProvider(
         return errors;
     }
 
-    private async Task<List<string>> RefusalsAsync(ConfigCaller caller, bool platform, CancellationToken ct)
-    {
-        if (caller.Principal is not { } principal)
-        {
-            return [];
-        }
-
-        if (!await PlatformScope.HoldsGloballyAsync(session, principal, configuration, SystemCapabilities.ManageRoles, [], ct))
-        {
-            return ["Rules live on roles, which are shared by every tenant, so writing one takes manage_roles from "
-                    + "one of your global roles, not from a tenant membership."];
-        }
-
-        return platform && !await PlatformRoles.IsSuperAdminAsync(session, principal, ct)
-            ? [PlatformRoles.PlatformRoleRefusedMessage]
+    private async Task<List<string>> RefusalsAsync(ConfigCaller caller, bool platform, CancellationToken ct) =>
+        platform && !await RoleScope.IsPlatformCallerAsync(caller, callers, configuration, ct)
+            ? [RoleScope.PlatformRoleMessage]
             : [];
-    }
 
     private static string Key(string role, string slug) => $"{role}/{slug}";
 

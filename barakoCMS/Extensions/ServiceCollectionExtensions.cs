@@ -782,10 +782,19 @@ public static class ServiceCollectionExtensions
             .SingleTenanted() // one mail provider for the deployment, not one per tenant
             .DocumentAlias("email_settings");
 
+        // Stored in one table for the deployment, with the owning tenant kept as data. A name is
+        // unique within a tenant, and among platform roles: NULLS NOT DISTINCT makes the platform
+        // roles, which have no tenant, one group. migrations/5.0.0/role-tenancy.sql replaces the
+        // unique index on name alone with this one, under this name.
         options.Schema.For<Models.Role>()
-            .SingleTenanted() // roles are global; per-tenant assignment lives on Membership
+            .SingleTenanted()
             .DocumentAlias("roles")
-            .Index(x => x.Name, idx => idx.IsUnique = true);
+            .Index(x => new { x.TenantSlug, x.Name }, idx =>
+            {
+                idx.IsUnique = true;
+                idx.NullsNotDistinct = true;
+                idx.Name = "mt_doc_roles_uidx_tenant_slug_name";
+            });
 
         options.Schema.For<RefreshToken>()
             .SingleTenanted() // token lifecycle is global, independent of which club is in the URL

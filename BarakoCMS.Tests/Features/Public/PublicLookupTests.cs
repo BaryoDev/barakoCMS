@@ -272,8 +272,8 @@ public class PublicLookupTests
         var store = _factory.Services.GetRequiredService<IDocumentStore>();
         await using (var session = store.LightweightSession())
         {
-            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = tenantA, Name = tenantA, IsActive = true });
-            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = tenantB, Name = tenantB, IsActive = true });
+            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = tenantA, Name = tenantA, Status = TenantStatus.Active });
+            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = tenantB, Name = tenantB, Status = TenantStatus.Active });
             await session.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 

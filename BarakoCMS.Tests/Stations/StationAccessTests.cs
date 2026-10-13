@@ -150,7 +150,7 @@ public class StationAccessTests(ClinicProbeHost host) : IClassFixture<ClinicProb
         await using (var session = host.OpenSession())
         {
             var row = await session.Query<barakoCMS.Models.Tenant>().FirstAsync(t => t.Slug == tenant, TestContext.Current.CancellationToken);
-            row.IsActive = false;
+            row.Status = barakoCMS.Models.TenantStatus.Suspended;
             session.Store(row);
             await session.SaveChangesAsync(TestContext.Current.CancellationToken);
         }

@@ -116,13 +116,13 @@ public sealed class ApiKeyAuthenticationHandler : AuthenticationHandler<ApiKeyAu
     private static AuthenticateResult Fail() => AuthenticateResult.Fail("Invalid API key");
 
     // Same logic as TokenIssuer.CheckTenantAccessAsync: default + unregistered slugs are allowed,
-    // an inactive tenant or a missing active membership are refused.
+    // a tenant that is not Active or a missing active membership are refused.
     private static async Task<bool> IsDeniedForTenant(IQuerySession session, User user, string slug, CancellationToken ct)
     {
         if (slug == Tenant.DefaultSlug) return false;
         var tenant = await session.Query<Tenant>().FirstOrDefaultAsync(t => t.Slug == slug, ct);
         if (tenant is null) return false;
-        if (!tenant.IsActive) return true;
+        if (tenant.Status != TenantStatus.Active) return true;
         return !await session.Query<Membership>()
             .AnyAsync(m => m.UserId == user.Id && m.TenantSlug == slug && m.Status == MembershipStatus.Active, ct);
     }

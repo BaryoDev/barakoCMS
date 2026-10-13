@@ -374,18 +374,18 @@ internal sealed class AddMemberEndpoint(
 
         ThrowIfAnyErrors();
 
-        if (roleIds.Count > 0)
+        // Another tenant's role answers as one that does not exist, so its id says nothing here.
+        if (!await barakoCMS.Features.Roles.RoleScope.AllReachableAsync(session, roleIds, slug, ct))
         {
-            var known = await session.Query<Role>().Where(r => roleIds.Contains(r.Id)).CountAsync(ct);
-            if (known != roleIds.Count)
-            {
-                AddError(r => r.RoleIds, "One or more roles do not exist.");
-                ThrowIfAnyErrors();
-            }
+            AddError(r => r.RoleIds, "One or more roles do not exist.");
+            ThrowIfAnyErrors();
         }
 
         var user = await session.Query<User>().FirstOrDefaultAsync(u => u.NormalizedEmail == email, ct);
         var invited = user is null;
+
+        if (user is null && await SignUpPolicy.RefusesNewAccountAsync(session, slug, ct))
+            ThrowError(SignUpPolicy.ClosedToNewAccountsMessage, 403);
 
         if (user is null)
         {
@@ -515,14 +515,11 @@ internal sealed class UpdateMemberEndpoint(
 
         ThrowIfAnyErrors();
 
-        if (roleIds.Count > 0)
+        // Another tenant's role answers as one that does not exist, so its id says nothing here.
+        if (!await barakoCMS.Features.Roles.RoleScope.AllReachableAsync(session, roleIds, slug, ct))
         {
-            var known = await session.Query<Role>().Where(r => roleIds.Contains(r.Id)).CountAsync(ct);
-            if (known != roleIds.Count)
-            {
-                AddError(r => r.RoleIds, "One or more roles do not exist.");
-                ThrowIfAnyErrors();
-            }
+            AddError(r => r.RoleIds, "One or more roles do not exist.");
+            ThrowIfAnyErrors();
         }
 
         var membership = await session.Query<Membership>()
@@ -603,7 +600,8 @@ internal sealed class RemoveMemberEndpoint(
 /// GET /api/tenants/members/roles: the roles an administrator may assign inside a tenant.
 /// </summary>
 internal sealed class AssignableRolesEndpoint(
-    IQuerySession session) : Endpoint<ListRequest, PaginatedResponse<AssignableRoleResponse>>
+    IQuerySession session,
+    TenantContext tenant) : Endpoint<ListRequest, PaginatedResponse<AssignableRoleResponse>>
 {
     public override void Configure()
     {
@@ -613,7 +611,8 @@ internal sealed class AssignableRolesEndpoint(
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
-        var roles = await session.Query<Role>().OrderBy(r => r.Name).ToListAsync(ct);
+        var roles = await barakoCMS.Features.Roles.RoleScope.In(session.Query<Role>(), tenant.Slug)
+            .OrderBy(r => r.Name).ToListAsync(ct);
         var superAdmin = await barakoCMS.Features.Users.PlatformRoles.IsSuperAdminAsync(session, User, ct);
 
         // Filtered by the same predicate the write paths refuse on, so the list a client is offered

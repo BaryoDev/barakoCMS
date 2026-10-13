@@ -75,10 +75,10 @@ public class ConfigTransactionTests
     {
         var tenant = await _callers.TenantAsync();
         await _callers.StoreInTenantAsync(tenant, DeliveredSite());
-        // Writing a rule takes manage_roles held globally, and the rule goes on a plain role the caller
-        // holds through the membership, since a role carrying manage_roles takes a SuperAdmin to change.
+        // The rule goes on a plain role of the tenant the caller holds through the membership, so only
+        // the staged rule can let the caller create the entry.
         var writerId = await _callers.RoleAsync(SystemCapabilities.ManageConfig, SystemCapabilities.ManageRoles, SystemCapabilities.ManageContentTypes);
-        var roleId = await _callers.RoleAsync();
+        var roleId = await _callers.TenantRoleAsync(tenant);
         var roleName = (await _callers.InTenantAsync(null, s => s.LoadAsync<Role>(roleId, Ct)))!.Name;
         var client = await _callers.ClientAsync(tenant, [writerId], memberRoles: [roleId]);
 
@@ -109,7 +109,7 @@ public class ConfigTransactionTests
         await _callers.StoreInTenantAsync(tenant, Type(type, ("Title", "string"), ("Notes", "text")));
         var role = Unique("Audited ");
         var roleId = Guid.NewGuid();
-        await _callers.StoreInTenantAsync(null, new Role { Id = roleId, Name = role });
+        await _callers.StoreInTenantAsync(null, new Role { Id = roleId, Name = role, TenantSlug = tenant });
         var client = await _callers.SuperAdminAsync(tenant);
         var delivered = Type(type, ("Title", "string"), ("Notes", "text"));
         delivered.IsPubliclyDeliverable = true;
@@ -235,7 +235,8 @@ public class ConfigTransactionTests
         await _callers.StoreInTenantAsync(tenant, Type(type, ("Title", "string")));
         var first = Unique("Chain One ");
         var second = Unique("Chain Two ");
-        await _callers.StoreInTenantAsync(null, new Role { Id = Guid.NewGuid(), Name = first }, new Role { Id = Guid.NewGuid(), Name = second });
+        await _callers.StoreInTenantAsync(null,
+            new Role { Id = Guid.NewGuid(), Name = first, TenantSlug = tenant }, new Role { Id = Guid.NewGuid(), Name = second, TenantSlug = tenant });
         var client = await _callers.SuperAdminAsync(tenant);
 
         var (applied, body) = await ApplyAsync(client, new

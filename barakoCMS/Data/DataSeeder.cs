@@ -114,10 +114,11 @@ public static class DataSeeder
             if (existing == null)
             {
                 ApplyCapabilityDefaults(role);
+                MarkPlatform(role);
                 session.Store(role);
                 Console.WriteLine($"[DataSeeder] Created role: {role.Name}");
             }
-            else if (ApplyCapabilityDefaults(existing, role.Name))
+            else if (ApplyCapabilityDefaults(existing, role.Name) | MarkPlatform(existing))
             {
                 session.Store(existing);
                 Console.WriteLine($"[DataSeeder] Backfilled system capabilities on role: {existing.Name}");
@@ -128,6 +129,8 @@ public static class DataSeeder
         // holders read Sensitive fields because it was called HR. It is kept, and given the
         // capability that replaced the name.
         var storedHr = await session.LoadAsync<Role>(DemoHrRoleId);
+        if (storedHr is not null && MarkPlatform(storedHr))
+            session.Store(storedHr);
         if (storedHr is not null && GrantSensitiveToSeededHr(storedHr))
         {
             session.Store(storedHr);
@@ -185,13 +188,29 @@ public static class DataSeeder
         return true;
     }
 
+    /// <summary>Makes a seeded role a platform role, and reports whether that changed anything.</summary>
+    /// <remarks>
+    /// On every start, like the capability defaults, so a seeded role is a platform role whatever an
+    /// upgrade file or an edit made of it.
+    /// </remarks>
+    internal static bool MarkPlatform(Role role)
+    {
+        if (role is { IsPlatform: true, TenantSlug: null })
+            return false;
+
+        role.IsPlatform = true;
+        role.TenantSlug = null;
+        return true;
+    }
+
     internal const string DemoHrRoleName = "HR";
 
     /// <summary>Creates the HR role of the attendance demo, unless it or its name is already stored.</summary>
     private static async Task SeedDemoHrRoleAsync(IDocumentSession session)
     {
-        // Role names are uniquely indexed, so a role of the operator's own called HR keeps the name.
-        if (await session.Query<Role>().AnyAsync(r => r.Id == DemoHrRoleId || r.Name == DemoHrRoleName))
+        // Platform role names are uniquely indexed, so a platform role of the operator's own called
+        // HR keeps the name. A tenant's role called HR is the tenant's, and does not stand in for it.
+        if (await session.Query<Role>().AnyAsync(r => r.Id == DemoHrRoleId || (r.Name == DemoHrRoleName && r.TenantSlug == null)))
             return;
 
         var hr = new Role
@@ -199,6 +218,7 @@ public static class DataSeeder
             Id = DemoHrRoleId,
             Name = DemoHrRoleName,
             Description = "Human Resources - manage attendance",
+            IsPlatform = true,
         };
         GrantSensitiveToSeededHr(hr);
         session.Store(hr);

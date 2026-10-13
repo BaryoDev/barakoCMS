@@ -441,10 +441,12 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             {
                 barakoCMS.Data.DataSeeder.ApplyCapabilityDefaults(role);
                 barakoCMS.Data.DataSeeder.GrantSensitiveToSeededHr(role);
+                barakoCMS.Data.DataSeeder.MarkPlatform(role);
                 session.Store(role);
             }
             else if (barakoCMS.Data.DataSeeder.ApplyCapabilityDefaults(existing)
-                     | barakoCMS.Data.DataSeeder.GrantSensitiveToSeededHr(existing))
+                     | barakoCMS.Data.DataSeeder.GrantSensitiveToSeededHr(existing)
+                     | barakoCMS.Data.DataSeeder.MarkPlatform(existing))
             {
                 session.Store(existing);
             }

@@ -22,7 +22,7 @@ internal static class AuditTenants
         using var scope = factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         var slug = $"aud-{Guid.NewGuid():N}"[..16];
-        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug, IsActive = true });
+        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug });
         await session.SaveChangesAsync();
         return slug;
     }
@@ -77,13 +77,18 @@ internal static class AuditTenants
     /// A stored role of this test's own, under a name nothing else uses. The seeder creates no HR
     /// role without demo content, so a test that needs a second role makes one.
     /// </summary>
-    public static async Task<Role> RoleAsync(IntegrationTestFixture factory, params string[] capabilities)
+    public static Task<Role> RoleAsync(IntegrationTestFixture factory, params string[] capabilities) =>
+        RoleInAsync(factory, null, capabilities);
+
+    /// <summary>A role owned by <paramref name="tenant"/>, so that tenant's member routes reach it.</summary>
+    public static async Task<Role> RoleInAsync(IntegrationTestFixture factory, string? tenant, params string[] capabilities)
     {
         var role = new Role
         {
             Id = Guid.NewGuid(),
             Name = $"Audit role {Guid.NewGuid():N}",
             SystemCapabilities = capabilities.ToList(),
+            TenantSlug = tenant,
         };
 
         using var scope = factory.Services.CreateScope();

@@ -438,7 +438,7 @@ public class SensitivityByCapabilityTests
         var slug = $"sbc-{Guid.NewGuid():N}"[..14];
         using var scope = _factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug, IsActive = true });
+        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug });
         await session.SaveChangesAsync(Ct);
         return slug;
     }

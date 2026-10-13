@@ -393,7 +393,7 @@ public class TemplatePlaceholderContextTests
     public async Task In_a_registered_tenant_only_an_active_member_is_named()
     {
         await using var session = _store.LightweightSession(_tenant);
-        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = _tenant, Name = _tenant, IsActive = true });
+        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = _tenant, Name = _tenant });
 
         var member = await StoreUserAsync(session, "member", MembershipStatus.Active);
         var removed = await StoreUserAsync(session, "removed", MembershipStatus.Removed);
@@ -420,7 +420,7 @@ public class TemplatePlaceholderContextTests
     public async Task A_creator_who_is_not_a_member_of_a_registered_tenant_resolves_to_nothing()
     {
         await using var session = _store.LightweightSession(_tenant);
-        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = _tenant, Name = _tenant, IsActive = true });
+        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = _tenant, Name = _tenant });
 
         var keyOwner = await StoreUserAsync(session, "keyowner");
         session.Store(new Membership

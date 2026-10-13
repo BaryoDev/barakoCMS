@@ -49,7 +49,7 @@ public class ConfigSectionsTests
         await _callers.StoreInTenantAsync(tenant, Type(type, ("Title", "string")), site);
         await _callers.StoreInTenantAsync(null, new Role
         {
-            Id = Guid.NewGuid(), Name = role, SystemCapabilities = ["view_audit_log"],
+            Id = Guid.NewGuid(), Name = role, TenantSlug = tenant, SystemCapabilities = ["view_audit_log"],
             Permissions = [new ContentTypePermission { ContentTypeSlug = type, Read = new PermissionRule { Enabled = true } }],
         });
 
@@ -84,14 +84,8 @@ public class ConfigSectionsTests
         exported.StatusCode.Should().Be(HttpStatusCode.OK, document.ToString());
         document.ToString().Should().NotContain(secret, "an export never carries a secret's value");
 
-        // Roles are stored once for the deployment, so the target would already hold this one. Gone,
-        // the apply has to recreate it and its rule from the document, or nothing proves they travel.
-        await using (var session = _fixture.Services.GetRequiredService<IDocumentStore>().LightweightSession())
-        {
-            session.DeleteWhere<Role>(r => r.Name == role);
-            await session.SaveChangesAsync(Ct);
-        }
-
+        // The role is the source tenant's, so the target does not reach it: the apply has to create the
+        // target's own copy and its rule from the document, or nothing proves they travel.
         var targetClient = await _callers.SuperAdminAsync(target);
         var (applied, plan) = await ApplyAsync(targetClient, document);
         applied.StatusCode.Should().Be(HttpStatusCode.OK, plan.ToString());
@@ -112,7 +106,7 @@ public class ConfigSectionsTests
         var link = await _callers.InTenantAsync(target, s => s.Query<Connector>().SingleAsync(c => c.Slug == connector, Ct));
         link!.BaseUrl.Should().Be("https://crm.example.com");
         link.SecretKeys.Should().BeEmpty("a secret is carried by name, so the target still has to be given its value");
-        var recreated = await _callers.InTenantAsync(null, s => s.Query<Role>().SingleAsync(r => r.Name == role, Ct));
+        var recreated = await _callers.InTenantAsync(null, s => s.Query<Role>().SingleAsync(r => r.Name == role && r.TenantSlug == target, Ct));
         recreated!.SystemCapabilities.Should().Equal("view_audit_log");
         recreated.Permissions.Should().ContainSingle(p => p.ContentTypeSlug == type && p.Read.Enabled, "the rule came back with the role");
 
@@ -256,7 +250,7 @@ public class ConfigSectionsTests
         var role = Unique("Shared Clerk ");
         await _callers.StoreInTenantAsync(null, new Role
         {
-            Id = Guid.NewGuid(), Name = role,
+            Id = Guid.NewGuid(), Name = role, IsPlatform = true,
             Permissions =
             [
                 new ContentTypePermission { ContentTypeSlug = myType, Read = new PermissionRule { Enabled = true } },
@@ -473,7 +467,7 @@ public class ConfigSectionsTests
         var role = Unique("Both Clerk ");
         await _callers.StoreInTenantAsync(null, new Role
         {
-            Id = Guid.NewGuid(), Name = role,
+            Id = Guid.NewGuid(), Name = role, IsPlatform = true,
             Permissions = [new ContentTypePermission { ContentTypeSlug = shared, Read = new PermissionRule { Enabled = true } }],
         });
 
@@ -495,16 +489,17 @@ public class ConfigSectionsTests
         var role = Unique("Probed ");
         await _callers.StoreInTenantAsync(null, new Role
         {
-            Id = Guid.NewGuid(), Name = role,
+            Id = Guid.NewGuid(), Name = role, IsPlatform = true,
             Permissions = [new ContentTypePermission { ContentTypeSlug = shared, Read = new PermissionRule { Enabled = true } }],
         });
         var grants = await _callers.RoleAsync(SystemCapabilities.ManageConfig, SystemCapabilities.ManageRoles);
+        var platformGrants = await _callers.RoleAsync(SystemCapabilities.ManageConfig, SystemCapabilities.ManageRoles, SystemCapabilities.ManagePlatformRoles);
         var document = new { version = 1, permissionRules = new Dictionary<string, object>() };
 
-        var (_, allowed) = await PlanAsync(await _callers.ClientAsync(mine, [grants]), document);
-        allowed.ToString().Should().Contain(theirs, "the control: a caller who may write the shared roles is told");
+        var (_, allowed) = await PlanAsync(await _callers.ClientAsync(mine, [platformGrants]), document);
+        allowed.ToString().Should().Contain(theirs, "the control: a caller who may write the platform role is told");
 
-        var (_, plan) = await PlanAsync(await _callers.ClientAsync(mine, [], memberRoles: [grants]), document);
+        var (_, plan) = await PlanAsync(await _callers.ClientAsync(mine, [grants]), document);
 
         plan.GetProperty("sections")[0].GetProperty("refusals").GetArrayLength().Should().BeGreaterThan(0, plan.ToString());
         plan.ToString().Should().NotContain(theirs, "a tenant admin refused the rules does not learn which tenants have the type");

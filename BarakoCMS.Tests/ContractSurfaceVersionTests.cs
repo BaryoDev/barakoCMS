@@ -34,7 +34,7 @@ public class ContractSurfaceVersionTests
         // Both literals in one place. Moving one constant without the other turns exactly one of
         // these red, which is how a reviewer sees which surface a change claimed to break.
         ApiContract.Version.Should().Be(8, "the admin surface, the number a console compares itself against");
-        ApiContract.DeliveryVersion.Should().Be(7, "the delivery surface, which an admin-only change leaves alone");
+        ApiContract.DeliveryVersion.Should().Be(8, "the delivery surface, which an admin-only change leaves alone");
         ApiContract.HeaderName.Should().Be(AdminHeader, "a released console reads this name");
         ApiContract.DeliveryHeaderName.Should().Be(DeliveryHeader);
     }
@@ -55,7 +55,7 @@ public class ContractSurfaceVersionTests
 
         response.Headers.TryGetValues(DeliveryHeader, out var delivery).Should().BeTrue(
             "a site reads the delivery number from whatever answer it gets first, as a console reads the admin one");
-        delivery!.Should().ContainSingle().Which.Should().Be("7");
+        delivery!.Should().ContainSingle().Which.Should().Be("8");
     }
 
     [Fact]
@@ -69,7 +69,7 @@ public class ContractSurfaceVersionTests
 
         var delivery = meta.RootElement.GetProperty("deliveryContractVersion");
         delivery.ValueKind.Should().Be(JsonValueKind.Number);
-        delivery.GetInt32().Should().Be(7);
+        delivery.GetInt32().Should().Be(8);
 
         meta.RootElement.GetProperty("version").ValueKind.Should().Be(JsonValueKind.String);
         meta.RootElement.GetProperty("swaggerEnabled").ValueKind.Should().BeOneOf(JsonValueKind.True, JsonValueKind.False);

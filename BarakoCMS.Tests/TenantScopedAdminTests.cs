@@ -51,7 +51,7 @@ public class TenantScopedAdminTests
     private async Task<string> TenantAsync()
     {
         var slug = Unique("scope");
-        await StoreAsync(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug, IsActive = true });
+        await StoreAsync(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug });
         return slug;
     }
 

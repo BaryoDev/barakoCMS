@@ -32,7 +32,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// lets start.
 ///
 /// Every tenant is registered after the host was built, and each pair includes an inactive one, so
-/// a registry read cached at startup or filtered on <see cref="Tenant.IsActive"/> fails here too.
+/// a registry read cached at startup or filtered on <see cref="Tenant.Status"/> fails here too.
 /// </remarks>
 [Collection("Sequential")]
 public class TenantPartitionsTests
@@ -697,7 +697,7 @@ public class TenantPartitionsTests
         var slug = $"{prefix}-{Guid.NewGuid():N}"[..(prefix.Length + 9)];
 
         await using var session = store.LightweightSession();
-        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug, IsActive = active });
+        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug, Status = active ? TenantStatus.Active : TenantStatus.Suspended });
         await session.SaveChangesAsync(ct);
 
         return slug;

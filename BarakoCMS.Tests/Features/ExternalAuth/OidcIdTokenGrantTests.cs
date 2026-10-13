@@ -527,7 +527,7 @@ public class OidcIdTokenGrantTests
         {
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
             slug = $"club-{Guid.NewGuid():N}".ToLowerInvariant();
-            session.Store(new barakoCMS.Models.Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug, IsActive = true });
+            session.Store(new barakoCMS.Models.Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug });
             await session.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 

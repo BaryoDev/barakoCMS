@@ -3,6 +3,7 @@ using FastEndpoints.Security;
 using Marten;
 using Microsoft.AspNetCore.Http;
 using barakoCMS.Infrastructure;
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Models;
 using System.IdentityModel.Tokens.Jwt;
@@ -62,15 +63,30 @@ public static class SocialSignIn
             return Tokens.Denied();
         }
 
+        if (!await TenantSignIn.AllowsAsync(session, club, TenantSignInPolicy.Social, ct))
+        {
+            return Tokens.Denied();
+        }
+
         var normalized = email.Trim().ToLowerInvariant();
+        var signUp = await SignUpPolicy.DecideAsync(session, club, ct);
         var user = await session.Query<User>().FirstOrDefaultAsync(u => u.Email.ToLower() == normalized, ct);
+        var created = user is null;
         if (user is null)
         {
+            // A new account is a sign-up, so the tenant's policy decides. An existing one is a
+            // sign-in, and the issuer's membership check decides.
+            if (signUp.Outcome == SignUpOutcome.Refused)
+            {
+                return Tokens.Denied();
+            }
+
             user = new User { Id = Guid.NewGuid(), Email = normalized, Username = normalized, PasswordHash = "" };
             session.Store(user);
         }
 
-        return await IssueForUserAsync(session, config, deviceGate, tokenIssuer, mfa, http, user, club, ct, profile, null);
+        return await IssueForUserAsync(
+            session, config, deviceGate, tokenIssuer, mfa, http, user, club, created ? signUp : null, ct, profile, null);
     }
 
     /// <summary>
@@ -95,12 +111,19 @@ public static class SocialSignIn
         CancellationToken ct,
         Action<IDocumentSession>? beforeFinalCommit = null)
     {
+        if (!await TenantSignIn.AllowsAsync(session, club, TenantSignInPolicy.Social, ct))
+        {
+            return (Tokens.Denied(), false);
+        }
+
         var key = ExternalIdentity.KeyOf(identity.Issuer, identity.Subject);
         var link = await session.LoadAsync<ExternalIdentity>(key, ct);
 
         // A link whose user has been deleted is treated as no link. Otherwise removing an account
         // would lock its provider identity out for good, with nothing an administrator could undo.
         var user = link is null ? null : await session.LoadAsync<User>(link.UserId, ct);
+        var signUp = await SignUpPolicy.DecideAsync(session, club, ct);
+        var created = false;
 
         if (user is null)
         {
@@ -113,12 +136,18 @@ public static class SocialSignIn
             user = await session.Query<User>().FirstOrDefaultAsync(u => u.NormalizedEmail == email, ct);
             if (user is null)
             {
+                if (signUp.Outcome == SignUpOutcome.Refused)
+                {
+                    return (Tokens.Denied(), false);
+                }
+
                 // NormalizedUsername is unique, and somebody may already use this address as a name.
                 var username = await session.Query<User>().AnyAsync(u => u.NormalizedUsername == email, ct)
                     ? $"{email}+{Guid.NewGuid():N}"[..(email.Length + 9)]
                     : email;
                 user = new User { Id = Guid.NewGuid(), Email = email, Username = username, PasswordHash = "" };
                 session.Store(user);
+                created = true;
             }
 
             session.Store(new ExternalIdentity
@@ -134,13 +163,28 @@ public static class SocialSignIn
 
         var profile = new ProfileData(identity.Name, identity.Picture, null, null, provider);
         return (await IssueForUserAsync(
-            session, config, deviceGate, tokenIssuer, mfa, http, user, club, ct, profile, beforeFinalCommit), false);
+            session, config, deviceGate, tokenIssuer, mfa, http, user, club, created ? signUp : null, ct, profile, beforeFinalCommit), false);
     }
 
     /// <summary>
     /// Everything after the provider has said who this is: the profile merge, the second factor, the
     /// device, and the token from core's issuer, which is where tenant membership is decided.
     /// </summary>
+    /// <param name="session">The request's session, which this commits.</param>
+    /// <param name="config">Where the MFA challenge is signed from.</param>
+    /// <param name="deviceGate">Trusts the device the sign-in came from.</param>
+    /// <param name="tokenIssuer">Core's issuer, which decides tenant membership.</param>
+    /// <param name="mfa">Whether the account has a second factor.</param>
+    /// <param name="http">The request, for the device.</param>
+    /// <param name="user">Who the provider proved this is.</param>
+    /// <param name="club">The tenant asked for.</param>
+    /// <param name="signUp">
+    /// The tenant's sign-up decision when this request created the account, which an Open tenant
+    /// acts on here. Null for an existing account: that is a sign-in, the same as registering with an
+    /// address that already has an account, and the issuer's membership check decides it.
+    /// </param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <param name="profile">What the provider shared, merged into the stored profile.</param>
     /// <param name="beforeFinalCommit">
     /// Queues writes that must commit with the outcome and with nothing earlier. Trusting a device
     /// commits the session on its own, so work queued before that would commit before the token is
@@ -155,22 +199,22 @@ public static class SocialSignIn
         HttpContext http,
         User user,
         string club,
+        SignUpDecision? signUp,
         CancellationToken ct,
         ProfileData? profile,
         Action<IDocumentSession>? beforeFinalCommit)
     {
+        // Open sign-up makes this person a member before the issuer looks for one. Committed now,
+        // with the account it may have just created, because the issuer reads memberships from
+        // the database and nothing queued by beforeFinalCommit is in the session yet.
+        if (signUp is not null && await SignUpPolicy.StageJoinAsync(session, signUp, user, ct))
+        {
+            await session.SaveChangesAsync(ct);
+        }
+
         if (profile is not null)
         {
-            var sp = await session.Query<SocialProfile>().FirstOrDefaultAsync(p => p.UserId == user.Id, ct)
-                     ?? new SocialProfile { Id = Guid.NewGuid(), UserId = user.Id };
-            // Merge: keep existing values when this provider didn't share a field.
-            sp.Name = profile.Name ?? sp.Name;
-            sp.PhotoUrl = profile.PhotoUrl ?? sp.PhotoUrl;
-            sp.Birthday = profile.Birthday ?? sp.Birthday;
-            sp.Location = profile.Location ?? sp.Location;
-            sp.Source = profile.Source;
-            sp.UpdatedAt = DateTime.UtcNow;
-            session.Store(sp);
+            await StageProfileAsync(session, user, profile, ct);
         }
 
         var tenantSlug = string.IsNullOrEmpty(club) ? Tenant.DefaultSlug : club;
@@ -211,7 +255,7 @@ public static class SocialSignIn
             Id = Guid.NewGuid(),
             TokenHash = RefreshToken.HashOf(refresh),
             UserId = user.Id,
-            ExpiresAt = DateTime.UtcNow.AddDays(7),
+            ExpiresAt = DateTime.UtcNow.Add(issued.RefreshLifetime),
             CreatedAt = DateTime.UtcNow,
             IsRevoked = false,
             DeviceId = device.DeviceId,
@@ -220,6 +264,20 @@ public static class SocialSignIn
         await session.SaveChangesAsync(ct);
 
         return new Tokens(jwt, refresh);
+    }
+
+    /// <summary>Merges what the provider shared into the stored profile, keeping a field it left out.</summary>
+    private static async Task StageProfileAsync(IDocumentSession session, User user, ProfileData profile, CancellationToken ct)
+    {
+        var sp = await session.Query<SocialProfile>().FirstOrDefaultAsync(p => p.UserId == user.Id, ct)
+                 ?? new SocialProfile { Id = Guid.NewGuid(), UserId = user.Id };
+        sp.Name = profile.Name ?? sp.Name;
+        sp.PhotoUrl = profile.PhotoUrl ?? sp.PhotoUrl;
+        sp.Birthday = profile.Birthday ?? sp.Birthday;
+        sp.Location = profile.Location ?? sp.Location;
+        sp.Source = profile.Source;
+        sp.UpdatedAt = DateTime.UtcNow;
+        session.Store(sp);
     }
 
     /// <summary>The SPA callback URL the provider callbacks redirect to, with tokens in the fragment.</summary>

@@ -141,7 +141,7 @@ internal class Endpoint : Endpoint<Request, Response>
 
         // Generate new refresh token (rotation)
         var newRefreshTokenString = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
-        var newRefreshTokenExpiry = DateTime.UtcNow.AddDays(7);
+        var newRefreshTokenExpiry = DateTime.UtcNow.Add(issued.RefreshLifetime);
         
         var newRefreshToken = new RefreshToken
         {

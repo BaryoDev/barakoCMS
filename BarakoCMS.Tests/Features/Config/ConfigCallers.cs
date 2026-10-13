@@ -16,7 +16,7 @@ internal sealed class ConfigCallers(IntegrationTestFixture fixture)
     {
         var slug = $"cfg-{Guid.NewGuid():n}"[..16];
         await using var session = fixture.Services.GetRequiredService<IDocumentStore>().LightweightSession();
-        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug, IsActive = true });
+        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug, Status = TenantStatus.Active });
         await session.SaveChangesAsync(Ct);
         return slug;
     }
@@ -25,6 +25,16 @@ internal sealed class ConfigCallers(IntegrationTestFixture fixture)
     public async Task<Guid> RoleAsync(params string[] capabilities)
     {
         var role = new Role { Id = Guid.NewGuid(), Name = $"cfg-role-{Guid.NewGuid():n}", SystemCapabilities = capabilities.ToList() };
+        await using var session = fixture.Services.GetRequiredService<IDocumentStore>().LightweightSession();
+        session.Store(role);
+        await session.SaveChangesAsync(Ct);
+        return role.Id;
+    }
+
+    /// <summary>A role of <paramref name="tenant"/> holding exactly these capabilities, under a name nobody else uses.</summary>
+    public async Task<Guid> TenantRoleAsync(string tenant, params string[] capabilities)
+    {
+        var role = new Role { Id = Guid.NewGuid(), Name = $"cfg-role-{Guid.NewGuid():n}", TenantSlug = tenant, SystemCapabilities = capabilities.ToList() };
         await using var session = fixture.Services.GetRequiredService<IDocumentStore>().LightweightSession();
         session.Store(role);
         await session.SaveChangesAsync(Ct);

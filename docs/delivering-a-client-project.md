@@ -49,9 +49,6 @@ In a container, mount the file into it and set `Seed__File` on the API service:
 ```json
 {
   "version": 1,
-  "roles": {
-    "Acme Editor": { "description": "Writes and publishes Acme's blog posts", "systemCapabilities": [] }
-  },
   "tenants": {
     "acme": {
       "name": "Acme Corporation",
@@ -60,6 +57,9 @@ In a container, mount the file into it and set `Seed__File` on the API service:
         { "email": "editor@acme.example.com", "roles": ["Acme Editor"] }
       ],
       "config": {
+        "roles": {
+          "Acme Editor": { "description": "Writes and publishes Acme's blog posts", "systemCapabilities": [] }
+        },
         "contentTypes": {
           "blog-post": {
             "displayName": "Blog Post",
@@ -83,11 +83,12 @@ In a container, mount the file into it and set `Seed__File` on the API service:
 ```
 
 It is the document `GET /api/config/export` writes, plus a `tenants` section only the seeder reads.
-The top-level sections apply to the `default` tenant; roles are shared by every tenant, so they go
-there. Each tenant is keyed by its handle and carries its name, its domains, its first members, and
-under `config` the sections applied inside it: `contentTypes`, `permissionRules`, `workflows`,
-`connectors` and, with the Forms module, `forms`. Members are added the way step 5 describes: by
-email, with no password, holding the roles named.
+The top-level sections apply to the `default` tenant. Each tenant is keyed by its handle and carries
+its name, its domains, its first members, and under `config` the sections applied inside it:
+`roles`, `contentTypes`, `permissionRules`, `workflows`, `connectors` and, with the Forms module,
+`forms`. A role is owned by the tenant whose `config` creates it, so a client's roles go under that
+client. Members are added the way step 5 describes: by email, with no password, holding the roles
+named, each found among that tenant's own roles and then the platform roles.
 
 What the seeder does with it:
 
@@ -192,15 +193,13 @@ quickstart, `ADMIN_USER` / `ADMIN_PASSWORD` in production).
 
 That account is the platform administrator. It is yours, not the client's, and step 8 says why.
 
-Roles are global documents, not tenant-scoped. `Role` is `SingleTenanted` and a membership carries
-which of those roles a person holds in a tenant. This has one consequence that catches people out
-across a multi-client deployment: **a role you create for one client is visible to every client**.
-`GET /api/tenants/members/roles` lists every role in the deployment, minus SuperAdmin. Name roles so
-that seeing them is not itself a disclosure, and remember that a role's content permissions name
-content type slugs, so a role built for one client grants the same thing in any tenant that happens
-to have a type by that name.
+A role has an owner: the tenant it was made in, or the platform for the seeded roles every tenant
+shares. A role you create for one client is that client's: another tenant does not list it, read it
+or hold it, and `GET /api/roles` in a tenant lists its own roles and the platform roles. Changing a
+platform role such as `Admin` takes `manage_platform_roles`, which only SuperAdmin holds by default.
+[access-control.md](access-control.md) has the rules.
 
-Two more naming rules that are not cosmetic:
+Naming rules that are not cosmetic:
 
 - Do not hand a client's staff the seeded `Admin` role. Not because of the role name, which means
   nothing on its own in 4.0: `Auth:LegacyRoleFallback` defaults to **false**, so a gate listing
@@ -369,12 +368,13 @@ load-bearing once entries exist. Model as if the shape is close to final, becaus
 
 If several clients get the same shape, keep the house model in one file and apply it to each
 tenant: under each tenant's `config` in a seed file, or with `POST /api/config/apply` in the tenant.
-A document names no tenant, so it can be applied in any of them, with one exception that matters on
-a shared deployment: roles and their `permissionRules` are stored once for every tenant, and a rule
-names a content type by its name. Applying `permissionRules` in one tenant changes the rule for every
-tenant with a type of that name, and a rule the document leaves out is removed for all of them; the
-plan names those tenants in a note. Give each client's types and roles their own names. Export one
-tenant with `GET /api/config/export` to start the file.
+A document names no tenant, so it can be applied in any of them. Its `roles` are created in the
+tenant it is applied to, and its `permissionRules` land on that tenant's roles, so one client's file
+never reaches another client's roles. The exception is a platform role every tenant shares, such as
+`Admin`: changing it, or its rules, takes `manage_platform_roles`, and since a rule names a content
+type by its name, a rule removed from a platform role is removed for every tenant with a type of that
+name; the plan names those tenants in a note. Export one tenant with `GET /api/config/export` to
+start the file: it lists that tenant's roles and the platform roles, never another tenant's.
 
 The Portability module's routes did this before the config engine and are obsolete, with removal
 planned for 6.0. `POST /api/config/apply` accepts their bundle unchanged. Until the removal:
@@ -754,7 +754,8 @@ client's staff.
 **`POST /api/users/{userId}/roles` writes a global role.** `User.RoleIds` is global, and effective
 roles are the union of that and the caller's membership roles in the current tenant, so a role
 assigned there applies in every tenant. It is gated on `manage_user_membership`, which `Admin` holds
-by default. It does refuse the SuperAdmin role id to a caller who does not already hold SuperAdmin.
+by default. It does refuse the SuperAdmin role id to a caller who does not already hold SuperAdmin,
+and it takes only a platform role: a role a tenant owns is a 400.
 
 The tenant-scoped way to grant a role is `POST /api/tenants/members` and
 `PUT /api/tenants/members/{userId}`, which write only `Membership.RoleIds`. Prefer those on a shared

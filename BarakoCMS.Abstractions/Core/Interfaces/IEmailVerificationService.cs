@@ -21,6 +21,17 @@ public interface IEmailVerificationService
     Task<bool> IssueAsync(string username, string email, string passwordHash, CancellationToken ct);
 
     /// <summary>
+    /// Records a pending registration that joins <paramref name="tenantSlug"/> when it is verified,
+    /// and emails its token. See the overload without a tenant for the rest.
+    /// </summary>
+    /// <remarks>
+    /// The default ignores the tenant, so an implementation written before it existed still
+    /// compiles, and its registrations join no tenant, as they did.
+    /// </remarks>
+    Task<bool> IssueAsync(string username, string email, string passwordHash, string? tenantSlug, CancellationToken ct) =>
+        IssueAsync(username, email, passwordHash, ct);
+
+    /// <summary>
     /// Emails the owner of an already-registered address that somebody tried to register it again.
     /// </summary>
     /// <remarks>
