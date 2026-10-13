@@ -139,18 +139,24 @@ else
     ok "from 4.9.0 no 4.x folder is listed"
 fi
 
-# A module's own 5.0.0 file is undone before any core file, so the first core rollback is the one
-# compared: the rollback of a file a module embeds is skipped, whatever the module.
+# From 4.1.0 every 5.0.0 core file runs after every older core file, and the core rollbacks start
+# by undoing those same files in reverse. A module's own 5.0.0 file is undone before any core file,
+# so module rollbacks are skipped when comparing, whatever the module.
 module_files=$(cd "$ROOT" && . "$LIB" && module_migration_paths)
 plan "$ROOT" 4.1.0
-first_core_rollback=$(grep '^rollback ' <<< "$out" | while read -r _ path; do
-    grep -qxF "${path%/*}/${path##*/rollback-}" <<< "$module_files" || { echo "rollback $path"; break; }
+core_50=$(grep '^core migrations/5\.0\.0/' <<< "$out" | sed 's/^core //' || true)
+count_50=$(grep -c . <<< "$core_50" || true)
+core_rollbacks=$(grep '^rollback ' <<< "$out" | while read -r _ path; do
+    grep -qxF "${path%/*}/${path##*/rollback-}" <<< "$module_files" || echo "$path"
 done)
-if [ "$(grep '^core ' <<< "$out" | tail -1)" = "core migrations/5.0.0/marten-9-49-quick-append-events.sql" ] \
-    && [ "$first_core_rollback" = "rollback migrations/5.0.0/rollback-marten-9-49-quick-append-events.sql" ]; then
-    ok "from 4.1.0 the 5.0.0 core file runs last among core and its rollback first"
+expected_rollbacks=$(tac <<< "$core_50" | sed 's#/\([^/]*\)$#/rollback-\1#')
+if [ "$count_50" -gt 0 ] \
+    && grep -qxF migrations/5.0.0/marten-9-49-quick-append-events.sql <<< "$core_50" \
+    && [ "$(grep '^core ' <<< "$out" | tail -n "$count_50" | sed 's/^core //')" = "$core_50" ] \
+    && [ "$(head -n "$count_50" <<< "$core_rollbacks")" = "$expected_rollbacks" ]; then
+    ok "from 4.1.0 the 5.0.0 core files run last among core and their rollbacks first, in reverse"
 else
-    bad "from 4.1.0 the 5.0.0 core file runs last among core and its rollback first"
+    bad "from 4.1.0 the 5.0.0 core files run last among core and their rollbacks first, in reverse"
 fi
 
 psql_lines "$ROOT" 3.21.0
