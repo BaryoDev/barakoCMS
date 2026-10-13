@@ -23,4 +23,8 @@
     <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- The module's own migrations, for db-migrate (docs/migrations.md). -->
+    <EmbeddedResource Include="..\migrations\5.0.0\accounting-number-sequences.sql" LogicalName="barako-migrations/5.0.0/accounting-number-sequences.sql" />
+  </ItemGroup>
 </Project>

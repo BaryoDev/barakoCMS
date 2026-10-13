@@ -24,6 +24,25 @@ namespace BarakoCMS.Accounting;
 /// </summary>
 public sealed class JournalEntryHook : IContentLifecycleHook
 {
+    /// <summary>The core series journal entry numbers are counted in, one count per tenant and year.</summary>
+    public static readonly barakoCMS.Core.Interfaces.NumberSeries EntryNumbers =
+        new("accounting.je", Prefix: "JE-", Padding: 6, Reset: barakoCMS.Core.Interfaces.NumberReset.Yearly);
+
+    private readonly barakoCMS.Core.Interfaces.INumberAllocator _numbers;
+
+    /// <summary>Numbers entries with the core gapless allocator.</summary>
+    public JournalEntryHook(barakoCMS.Core.Interfaces.INumberAllocator numbers)
+    {
+        _numbers = numbers;
+    }
+
+    /// <summary>The form before 5.0, for a caller that constructs the hook. Numbers with the core gapless allocator too.</summary>
+    [Obsolete("Construct with an INumberAllocator, as DI does. Removal planned for barakoCMS 6.0.")]
+    public JournalEntryHook()
+        : this(barakoCMS.Infrastructure.Numbering.NumberAllocators.Gapless())
+    {
+    }
+
     public string ContentType => AccountingContentTypes.JournalEntry;
 
     public async Task<IReadOnlyList<string>> OnBeforeSaveAsync(
@@ -120,17 +139,18 @@ public sealed class JournalEntryHook : IContentLifecycleHook
         return Array.Empty<string>();
     }
 
-    private static async Task<string> NextEntryNumberAsync(
+    /// <remarks>
+    /// The year is the entry's own date's, so an entry dated last December takes last year's next
+    /// number. Gapless and in the endpoint's session: the number commits with the entry or not at
+    /// all. <c>migrations/5.0.0/accounting-number-sequences.sql</c> carries each year's count over
+    /// from the <see cref="NumberSequence"/> rows, so numbering continues where it stopped.
+    /// </remarks>
+    private async Task<string> NextEntryNumberAsync(
         IDocumentSession session, Dictionary<string, object> data, CancellationToken ct)
     {
         var year = ReadDate(ContentData.Get(data, "Date"))?.Year ?? DateTime.UtcNow.Year;
-        var key = $"JE-{year}";
-
-        var seq = await session.LoadAsync<NumberSequence>(key, ct) ?? new NumberSequence { Id = key, Value = 0 };
-        seq.Value += 1;
-        // Stored on the endpoint's session: the increment commits with the entry itself.
-        session.Store(seq);
-        return $"{key}-{seq.Value:000000}";
+        var at = new DateTimeOffset(year, 6, 30, 12, 0, 0, TimeSpan.Zero);
+        return (await _numbers.NextAsync(session, EntryNumbers, at, ct)).Formatted;
     }
 
     /// <summary>

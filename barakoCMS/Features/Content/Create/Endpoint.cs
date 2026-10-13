@@ -20,22 +20,7 @@ internal class Endpoint(
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        var userIdClaim = User.FindFirst("UserId");
-        if (userIdClaim == null)
-        {
-            ThrowError("User ID claim not found");
-        }
-
-        if (!Guid.TryParse(userIdClaim.Value, out var userId))
-        {
-            ThrowError("Invalid User ID format");
-        }
-
-        var user = await session.LoadAsync<User>(userId, ct);
-        if (user == null)
-        {
-            ThrowError("User not found", 401);
-        }
+        var (userId, user) = await CallerAsync(ct);
 
         if (!await permissionResolver.CanPerformActionAsync(user, req.ContentType, "create", null, ct))
         {
@@ -74,6 +59,12 @@ internal class Endpoint(
             return;
         }
 
+        if (req.DryRun)
+        {
+            await Send.ResponseAsync(new Response { DryRun = true, Changes = barakoCMS.Core.Validation.DryRuns.Between(null, request.Data) });
+            return;
+        }
+
         var created = await creator.StageAsync(request, userId, batch: null, ct);
 
         await session.SaveChangesAsync(ct);
@@ -87,5 +78,28 @@ internal class Endpoint(
             Id = created.Id,
             Version = 1,
         });
+    }
+
+    /// <summary>The signed-in user the write is made for.</summary>
+    private async Task<(Guid Id, User User)> CallerAsync(CancellationToken ct)
+    {
+        var userIdClaim = User.FindFirst("UserId");
+        if (userIdClaim == null)
+        {
+            ThrowError("User ID claim not found");
+        }
+
+        if (!Guid.TryParse(userIdClaim.Value, out var userId))
+        {
+            ThrowError("Invalid User ID format");
+        }
+
+        var user = await session.LoadAsync<User>(userId, ct);
+        if (user == null)
+        {
+            ThrowError("User not found", 401);
+        }
+
+        return (userId, user);
     }
 }

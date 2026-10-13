@@ -217,3 +217,20 @@ public record ContentFieldSensitivityChanged(
     {
     }
 }
+
+/// <summary>
+/// A change to one field of the entry's type rewrote the entry's data: a rename moved a value, a
+/// convert changed one, a remove dropped one.
+/// </summary>
+/// <remarks>
+/// Its own event rather than a <see cref="ContentUpdated"/>, because nobody edited the entry. An
+/// update fires every workflow listening for edits, moves the entry to the top of "recently
+/// updated" and names an administrator as its last editor, once per entry of the type.
+/// </remarks>
+public record ContentFieldChanged(
+    Guid Id,
+    string Field,
+    Dictionary<string, object> Data,
+    string? SearchText,
+    Guid ChangedBy,
+    DateTime OccurredAt) : IContentEvent;

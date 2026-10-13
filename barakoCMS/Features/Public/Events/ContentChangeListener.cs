@@ -275,7 +275,7 @@ internal sealed class ContentChangeListener(
 
     private static bool IsContentEvent(object data) => data is
         ContentCreated or ContentUpdated or ContentStatusChanged or ContentTransitioned
-        or ContentSensitivityChanged or ContentFieldSensitivityChanged;
+        or ContentSensitivityChanged or ContentFieldSensitivityChanged or ContentFieldChanged;
 
     private static bool BecamePublic(object data) => data is
         ContentCreated

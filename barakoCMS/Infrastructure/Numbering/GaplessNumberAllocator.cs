@@ -10,13 +10,16 @@ namespace barakoCMS.Infrastructure.Numbering;
 /// </summary>
 internal sealed class GaplessNumberAllocator(TimeProvider clock) : INumberAllocator
 {
-    public async Task<AllocatedNumber> NextAsync(IDocumentSession session, NumberSeries series, CancellationToken ct = default)
+    public Task<AllocatedNumber> NextAsync(IDocumentSession session, NumberSeries series, CancellationToken ct = default) =>
+        NextAsync(session, series, clock.GetUtcNow(), ct);
+
+    public async Task<AllocatedNumber> NextAsync(IDocumentSession session, NumberSeries series, DateTimeOffset at, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(series);
         series.Validate();
 
-        var period = series.PeriodFor(clock.GetUtcNow());
+        var period = series.PeriodFor(at);
 
         // Without an open transaction the statement would autocommit and the lock would end with
         // it, which is a sequence, not a gapless counter. Marten makes this a no-op when the session

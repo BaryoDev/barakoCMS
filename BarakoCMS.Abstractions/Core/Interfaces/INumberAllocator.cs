@@ -94,4 +94,45 @@ public sealed record AllocatedNumber(string Series, string Period, long Value, s
 public interface INumberAllocator
 {
     Task<AllocatedNumber> NextAsync(IDocumentSession session, NumberSeries series, CancellationToken ct = default);
+
+    /// <summary>
+    /// The next number in the period <paramref name="at"/> falls in, for a number that belongs to a
+    /// date other than today, such as a journal entry dated last December.
+    /// </summary>
+    /// <remarks>
+    /// The default ignores <paramref name="at"/> and counts in today's period, which is what an
+    /// implementor written before this member does.
+    /// </remarks>
+    Task<AllocatedNumber> NextAsync(IDocumentSession session, NumberSeries series, DateTimeOffset at, CancellationToken ct = default)
+        => NextAsync(session, series, ct);
+}
+
+/// <summary>How a series hands out its numbers, and what each way costs.</summary>
+public enum NumberStrategy
+{
+    /// <summary>
+    /// No gaps and no duplicates. The number is taken inside the writer's transaction and the
+    /// series' counter stays locked until it commits, so writers on one series take turns. For an
+    /// invoice, where a gap has to be explained.
+    /// </summary>
+    Gapless = 0,
+
+    /// <summary>
+    /// No duplicates, in order, and gaps allowed: the number is taken and committed on its own, so a
+    /// write that fails afterwards leaves its number unused. Writers wait only for the one statement.
+    /// </summary>
+    Sequence = 1,
+
+    /// <summary>
+    /// No duplicates, and gaps and order not kept: each instance takes a block of numbers at once and
+    /// hands them out from memory, so a restart skips what was left of its block and two instances
+    /// interleave. For a high write rate where a number only has to be unique.
+    /// </summary>
+    HiLo = 2,
+}
+
+/// <summary>The allocator for each <see cref="NumberStrategy"/>.</summary>
+public interface INumberStrategies
+{
+    INumberAllocator For(NumberStrategy strategy);
 }

@@ -2,6 +2,7 @@ using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 using FastEndpoints;
+using barakoCMS.Infrastructure.Jobs;
 using FluentValidation;
 using Marten;
 
@@ -61,9 +62,15 @@ internal sealed class Request
     /// <summary>Field-level sensitivity, so a field can arrive masked rather than be masked later.</summary>
     public SensitivityLevel Sensitivity { get; set; } = SensitivityLevel.Public;
     public List<string>? VisibleToRoles { get; set; }
+
+    /// <summary>
+    /// Check the write with everything the real write runs and answer with what it would change,
+    /// storing nothing.
+    /// </summary>
+    public bool DryRun { get; set; }
 }
 
-internal sealed class Response
+internal sealed class Response : barakoCMS.Core.Validation.IDryRunResponse
 {
     public string ContentType { get; init; } = string.Empty;
 
@@ -72,6 +79,12 @@ internal sealed class Response
 
     /// <summary>Every field the type now has, in order.</summary>
     public List<string> Fields { get; init; } = new();
+
+    /// <summary>True when this answers a dry run: nothing was stored.</summary>
+    public bool DryRun { get; init; }
+
+    /// <summary>For a dry run, the field the type would gain, each with its type. Null otherwise.</summary>
+    public List<barakoCMS.Core.Validation.FieldDiff>? Changes { get; init; }
 }
 
 internal sealed class Validator : Validator<Request>
@@ -130,6 +143,7 @@ internal sealed class Endpoint(
         // Adding a field to a content type is what manage_content_types means. Same gate as the
         // SEO endpoint next door, which does the same thing for a fixed set.
         Definition.RequireCapability(SystemCapabilities.ManageContentTypes, "SuperAdmin", "Admin");
+        Definition.RefusesWhileFieldChangeRuns();
     }
 
     private static FieldDefinition NewField(Request req) =>
@@ -211,32 +225,19 @@ internal sealed class Endpoint(
             ThrowIfAnyErrors();
         }
 
-        if (barakoCMS.Core.Validation.TokenFields.IsToken(field.Type))
+        await RefuseWhatExistingEntriesBreakAsync(definition, field, ct);
+
+        if (req.DryRun)
         {
-            var holding = await barakoCMS.Infrastructure.Services.TokenFieldEntries.HoldingAsync(
-                session, definition.Name, field.Name, ct);
-
-            if (holding > 0)
+            await Send.OkAsync(new Response
             {
-                AddError(barakoCMS.Infrastructure.Services.TokenFieldEntries.Refusal(definition.Name, field.Name, holding));
-                ThrowIfAnyErrors(StatusCodes.Status409Conflict);
-            }
-        }
-
-        if (field.IsRequired && field.DefaultValue is null)
-        {
-            var entries = await session.Query<barakoCMS.Models.Content>()
-                .CountAsync(c => c.ContentType == definition.Name, ct);
-
-            if (entries > 0)
-            {
-                AddError(
-                    $"\"{definition.Name}\" already has {entries} "
-                    + (entries == 1 ? "entry" : "entries")
-                    + $" with no \"{field.Name}\", so a required field with no default would make them "
-                    + "all invalid. Give the field a defaultValue, or add it as optional.");
-                ThrowIfAnyErrors();
-            }
+                ContentType = definition.Name,
+                Added = field.Name,
+                Fields = definition.Fields.Select(f => f.Name).Append(field.Name).ToList(),
+                DryRun = true,
+                Changes = [new barakoCMS.Core.Validation.FieldDiff(field.Name, null, field.Type)],
+            }, ct);
+            return;
         }
 
         definition.Fields.Add(field);
@@ -268,5 +269,40 @@ internal sealed class Endpoint(
             Added = field.Name,
             Fields = definition.Fields.Select(f => f.Name).ToList(),
         }, ct);
+    }
+
+    /// <summary>
+    /// Refuses a field the entries already stored would break: a token some entry already holds a
+    /// value under, and a required field with no default on a type that has entries.
+    /// </summary>
+    private async Task RefuseWhatExistingEntriesBreakAsync(ContentTypeDefinition definition, FieldDefinition field, CancellationToken ct)
+    {
+        if (barakoCMS.Core.Validation.TokenFields.IsToken(field.Type))
+        {
+            var holding = await barakoCMS.Infrastructure.Services.TokenFieldEntries.HoldingAsync(
+                session, definition.Name, field.Name, ct);
+
+            if (holding > 0)
+            {
+                AddError(barakoCMS.Infrastructure.Services.TokenFieldEntries.Refusal(definition.Name, field.Name, holding));
+                ThrowIfAnyErrors(StatusCodes.Status409Conflict);
+            }
+        }
+
+        if (field.IsRequired && field.DefaultValue is null)
+        {
+            var entries = await session.Query<barakoCMS.Models.Content>()
+                .CountAsync(c => c.ContentType == definition.Name, ct);
+
+            if (entries > 0)
+            {
+                AddError(
+                    $"\"{definition.Name}\" already has {entries} "
+                    + (entries == 1 ? "entry" : "entries")
+                    + $" with no \"{field.Name}\", so a required field with no default would make them "
+                    + "all invalid. Give the field a defaultValue, or add it as optional.");
+                ThrowIfAnyErrors();
+            }
+        }
     }
 }

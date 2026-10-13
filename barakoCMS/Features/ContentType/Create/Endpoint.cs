@@ -59,15 +59,27 @@ internal class Request
     /// direction, including by deleting the type and creating it again.
     /// </remarks>
     public bool EventSourced { get; set; }
+
+    /// <summary>
+    /// Check the write with everything the real write runs and answer with what it would change,
+    /// storing nothing.
+    /// </summary>
+    public bool DryRun { get; set; }
 }
 
-internal class Response
+internal class Response : barakoCMS.Core.Validation.IDryRunResponse
 {
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
 
     /// <summary>The standing sourcing decision for this name, which a recreated name inherits.</summary>
     public bool EventSourced { get; set; }
+
+    /// <summary>True when this answers a dry run: nothing was stored.</summary>
+    public bool DryRun { get; init; }
+
+    /// <summary>For a dry run, the fields the type would gain, each with its type. Null otherwise.</summary>
+    public List<barakoCMS.Core.Validation.FieldDiff>? Changes { get; init; }
 }
 
 internal class Endpoint(
@@ -244,23 +256,14 @@ internal class Endpoint(
             }
         }
 
-        // 5. Create
-        var def = new ContentTypeDefinition
+        // 5. Create, or for a dry run say what would be created and stop: every check has run.
+        var def = NewDefinition(req, slug);
+        if (req.DryRun)
         {
-            Id = Guid.NewGuid(),
-            Name = slug,
-            DisplayName = req.DisplayName,
-            Lifecycle = req.Lifecycle,
-            Description = req.Description,
-            Fields = req.Fields,
-            IsPubliclyDeliverable = req.IsPubliclyDeliverable,
-            IsSingleton = req.IsSingleton,
-            RouteTemplate = req.RouteTemplate,
-            StructuredDataType = req.StructuredDataType,
-            Uniqueness = req.Uniqueness is { Count: > 0 } ? req.Uniqueness : null,
-            CreatedAt = DateTimeOffset.UtcNow,
-            UpdatedAt = DateTimeOffset.UtcNow
-        };
+            var changes = def.Fields.Select(f => new barakoCMS.Core.Validation.FieldDiff(f.Name, null, f.Type)).ToList();
+            await Send.OkAsync(new Response { Name = slug, EventSourced = standing?.EventSourced ?? req.EventSourced, DryRun = true, Changes = changes }, ct);
+            return;
+        }
 
         await barakoCMS.Core.RoleReferences.ToIdsAsync(session, def.Fields, ct);
         session.Store(def);
@@ -292,6 +295,23 @@ internal class Endpoint(
             EventSourced = policy.EventSourced,
         }, ct);
     }
+
+    private static ContentTypeDefinition NewDefinition(Request req, string slug) => new()
+    {
+        Id = Guid.NewGuid(),
+        Name = slug,
+        DisplayName = req.DisplayName,
+        Lifecycle = req.Lifecycle,
+        Description = req.Description,
+        Fields = req.Fields,
+        IsPubliclyDeliverable = req.IsPubliclyDeliverable,
+        IsSingleton = req.IsSingleton,
+        RouteTemplate = req.RouteTemplate,
+        StructuredDataType = req.StructuredDataType,
+        Uniqueness = req.Uniqueness is { Count: > 0 } ? req.Uniqueness : null,
+        CreatedAt = DateTimeOffset.UtcNow,
+        UpdatedAt = DateTimeOffset.UtcNow,
+    };
 
     private static string Lower(bool value) => value ? "true" : "false";
 

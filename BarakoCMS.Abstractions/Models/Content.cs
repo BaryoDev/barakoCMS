@@ -174,6 +174,17 @@ public class Content
         SearchText = @event.SearchText;
     }
 
+    /// <summary>Takes the data a field change wrote, leaving who edited the entry and when as they were.</summary>
+    /// <remarks>
+    /// <paramref name="occurredAt"/> is unused for the reason it is in the sensitivity change: the
+    /// entry was not edited.
+    /// </remarks>
+    public void Apply(barakoCMS.Events.ContentFieldChanged @event, DateTime occurredAt)
+    {
+        Data = @event.Data;
+        SearchText = @event.SearchText;
+    }
+
     // The single-argument forms these replace. Kept because Content ships in the BarakoCMS package
     // and external code compiles against it. Each delegates with UtcNow, which is what the old body
     // read, so a caller that has not moved across behaves exactly as before. A rebuild must not use
