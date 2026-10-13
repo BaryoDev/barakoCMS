@@ -9,9 +9,10 @@
 -- with only IsActive comes back with the right Status. The file makes the stored rows say what the
 -- API reads, so a query against the table by hand finds Status on every row.
 --
--- No rollback file. IsActive stays in every tenant document, written as a copy of Status (true for
--- Active, false otherwise), so an earlier release reads an Archived or Suspended tenant as inactive
--- and an Active one as active, with or without this file.
+-- Its rollback, rollback-tenant-status.sql, changes nothing. IsActive stays in every tenant
+-- document, written as a copy of Status (true for Active, false otherwise), so an earlier release
+-- reads an Archived or Suspended tenant as inactive and an Active one as active, with or without
+-- this file.
 --
 -- Run it with the API stopped, like every upgrade file:
 --

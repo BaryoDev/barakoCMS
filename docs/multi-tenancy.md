@@ -140,7 +140,9 @@ are cleared, so no `Published` workflow runs for an entry that is already over. 
 for an entry whose whole window passed while the service was down.
 
 `migrations/5.0.0/tenant-status.sql` writes `Status` onto tenant documents stored before it existed.
-The API does not need it: a document with only `IsActive` reads back with the right status.
+The API does not need it: a document with only `IsActive` reads back with the right status. Its
+rollback, `rollback-tenant-status.sql`, changes nothing, since `IsActive` is kept as a copy of
+`Status` for a release that reads only that.
 
 ## Tenancy mode
 
