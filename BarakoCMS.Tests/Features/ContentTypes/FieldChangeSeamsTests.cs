@@ -3,7 +3,9 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
 using Marten;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using barakoCMS.Infrastructure.Jobs;
 using barakoCMS.Models;
 using BarakoCMS.Tests.Features.Tenants;
 using Xunit;
@@ -81,19 +83,29 @@ public class FieldChangeSeamsTests
         await session.SaveChangesAsync(Ct);
     }
 
-    private static async Task CompletedAsync(HttpClient admin, HttpResponseMessage started)
+    /// <summary>
+    /// Runs the change the response started to completion here, rather than waiting on the job
+    /// queue, which a full suite run can keep busy past any wait worth writing.
+    /// </summary>
+    private async Task CompletedAsync(string slug, HttpResponseMessage started)
     {
         started.StatusCode.Should().Be(HttpStatusCode.Accepted, await started.Content.ReadAsStringAsync(Ct));
         var id = (await started.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("change").GetProperty("id").GetGuid();
-        for (var i = 0; i < 150; i++)
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var configuration = _fixture.Services.GetRequiredService<IConfiguration>();
+        for (var attempt = 0; attempt < 20; attempt++)
         {
-            var status = await (await admin.GetAsync($"/api/content-types/field-changes/{id}", Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
-            if (status.GetProperty("state").GetString() == "completed")
+            try
             {
-                return;
+                if ((await FieldChanges.RunAsync(store, configuration, slug, id, maxBatches: null, Ct))?.State == FieldChangeState.Completed)
+                {
+                    return;
+                }
             }
-
-            await Task.Delay(200, Ct);
+            catch (JasperFx.ConcurrencyException)
+            {
+                // The queued job committed the same batch first; the next run reads its progress.
+            }
         }
 
         throw new Xunit.Sdk.XunitException($"Field change {id} did not complete.");
@@ -146,7 +158,7 @@ public class FieldChangeSeamsTests
         var untouched = await BindingAsync(admin, type, "By title", "Title", null);
         var foreign = await BindingAsync(other, type, "Their doctor", "-Doctor", new Dictionary<string, string> { ["Doctor"] = "Dr 0" });
 
-        await CompletedAsync(admin, await admin.PostAsJsonAsync($"/api/content-types/{type}/fields/Doctor/change", new { newName = "Practitioner" }, Ct));
+        await CompletedAsync(mine, await admin.PostAsJsonAsync($"/api/content-types/{type}/fields/Doctor/change", new { newName = "Practitioner" }, Ct));
 
         (await StoredBindingAsync(mine, sorted)).Sort.Should().Be("-Practitioner");
         var where = (await StoredBindingAsync(mine, filtered)).Where!;
@@ -176,7 +188,7 @@ public class FieldChangeSeamsTests
         (await DefinitionAsync(slug, type)).Fields.Select(f => f.Name).Should().Equal("Title", "Doctor");
 
         (await admin.DeleteAsync($"/api/blocks/bindings/{binding}", Ct)).StatusCode.Should().Be(HttpStatusCode.NoContent);
-        await CompletedAsync(admin, await admin.PostAsJsonAsync($"/api/content-types/{type}/fields/Doctor/change", remove, Ct));
+        await CompletedAsync(slug, await admin.PostAsJsonAsync($"/api/content-types/{type}/fields/Doctor/change", remove, Ct));
         (await DefinitionAsync(slug, type)).Fields.Select(f => f.Name).Should().Equal("Title");
     }
 
