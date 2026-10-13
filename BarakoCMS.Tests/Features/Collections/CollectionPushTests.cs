@@ -203,7 +203,7 @@ public class CollectionPushTests
         using var host = _factory.WithWebHostBuilder(_ => { });
         host.UseKestrel(0);
         host.StartServer();
-        using var client = host.CreateClient();
+        using var client = KestrelTestClient.ExpectContinue(host);
 
         var oversized = new string('a', (int)barakoCMS.Features.Collections.Push.Limits.MaxBodyBytes + 1024);
         using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/collections/{type}/push")
