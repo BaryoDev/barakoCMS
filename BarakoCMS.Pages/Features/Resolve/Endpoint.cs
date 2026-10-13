@@ -7,11 +7,14 @@ namespace BarakoCMS.Pages.Features.Resolve;
 
 internal sealed record Breadcrumb(Guid Id, string? Title, string Slug, string Path);
 
+// BoundBlocks: the entries each block of the page that names a binding selects, empty for a page
+// with none.
 internal sealed record ResolveResponse(
     int Contract,
     string Path,
     PublicContentProjection Entry,
-    IReadOnlyList<Breadcrumb> Breadcrumbs);
+    IReadOnlyList<Breadcrumb> Breadcrumbs,
+    IReadOnlyList<BoundBlock> BoundBlocks);
 
 /// <summary>
 /// GET /api/public/pages/resolve?path=/about/team: the published page at a path, with its canonical
@@ -29,13 +32,13 @@ internal sealed class Endpoint : EndpointWithoutRequest<ResolveResponse>
 
     private readonly IQuerySession _session;
     private readonly IPublicContentProjector _projector;
-    private readonly PagesOptions _options;
+    private readonly PagesOptions _deployment;
 
     public Endpoint(IQuerySession session, IPublicContentProjector projector, IOptions<PagesOptions> options)
     {
         _session = session;
         _projector = projector;
-        _options = options.Value;
+        _deployment = options.Value;
     }
 
     public override void Configure()
@@ -51,14 +54,15 @@ internal sealed class Endpoint : EndpointWithoutRequest<ResolveResponse>
             ? null
             : raw.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-        var definition = await PublishedPages.DefinitionAsync(_session, _options.ContentType, ct);
-        if (segments is null || segments.Length > _options.MaxDepth + 1 || !_projector.IsDeliverable(definition))
+        var options = await PagesSettings.ResolveAsync(_session, _deployment, ct);
+        var definition = await PublishedPages.DefinitionAsync(_session, options.ContentType, ct);
+        if (segments is null || segments.Length > options.MaxDepth + 1 || !_projector.IsDeliverable(definition))
         {
             await Send.NotFoundAsync(ct);
             return;
         }
 
-        var slug = segments.Length == 0 ? _options.HomeSlug : segments[^1];
+        var slug = segments.Length == 0 ? options.HomeSlug : segments[^1];
         if (string.IsNullOrWhiteSpace(slug))
         {
             await Send.NotFoundAsync(ct);
@@ -66,15 +70,15 @@ internal sealed class Endpoint : EndpointWithoutRequest<ResolveResponse>
         }
 
         var requested = "/" + string.Join('/', segments);
-        var candidates = await PublishedPages.WithSlugAsync(_session, _projector, definition!, _options, slug, ct);
+        var candidates = await PublishedPages.WithSlugAsync(_session, _projector, definition!, options, slug, ct);
 
         foreach (var (node, entry) in candidates)
         {
             var nodes = new List<PageNode> { node };
             var parent = node.ParentId;
-            for (var depth = 0; parent is { } parentId && depth < _options.MaxDepth; depth++)
+            for (var depth = 0; parent is { } parentId && depth < options.MaxDepth; depth++)
             {
-                if (await PublishedPages.ByIdAsync(_session, _projector, definition!, _options, parentId, ct) is not { } ancestor)
+                if (await PublishedPages.ByIdAsync(_session, _projector, definition!, options, parentId, ct) is not { } ancestor)
                 {
                     break;
                 }
@@ -83,7 +87,7 @@ internal sealed class Endpoint : EndpointWithoutRequest<ResolveResponse>
                 parent = ancestor.Node.ParentId;
             }
 
-            var tree = new PageTree(nodes, _options.HomeSlug, _options.MaxDepth);
+            var tree = new PageTree(nodes, options.HomeSlug, options.MaxDepth);
             if (tree.Ancestry(node.Id) is not { } chain)
             {
                 continue;
@@ -106,7 +110,8 @@ internal sealed class Endpoint : EndpointWithoutRequest<ResolveResponse>
                 : entry;
 
             PublishedPages.SetCache(HttpContext);
-            await Send.OkAsync(new ResolveResponse(PagesContract.Version, path, served, breadcrumbs), ct);
+            var bound = await BoundBlocks.MaterializeAsync(_session, _projector, definition!, served, ct);
+            await Send.OkAsync(new ResolveResponse(PagesContract.Version, path, served, breadcrumbs, bound), ct);
             return;
         }
 

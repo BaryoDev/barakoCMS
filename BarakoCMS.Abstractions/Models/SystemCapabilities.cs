@@ -318,6 +318,17 @@ public static class SystemCapabilities
     /// <summary>Create, list and revoke station keys for kiosks and display boards.</summary>
     public const string ManageStations = "manage_stations";
 
+    /// <summary>
+    /// Export, plan and apply a tenant's configuration as one document (<c>/api/config</c>).
+    /// </summary>
+    /// <remarks>
+    /// It opens the routes and grants nothing past them: each section of a document is also gated
+    /// on the capability its own endpoints ask for, so roles still take <see cref="ManageRoles"/>
+    /// held globally and connectors still take <see cref="ManageConnectors"/>. Admin gets it, since
+    /// Admin already holds what the core sections other than roles ask for.
+    /// </remarks>
+    public const string ManageConfig = "manage_config";
+
     public static readonly IReadOnlySet<string> Known = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         All, ManageRoles, ManageTenants, ManageTenantMembers, ManageUsers, ManageUserMembership, ManageUserGroups,
@@ -325,7 +336,7 @@ public static class SystemCapabilities
         ViewMonitoring, ManageRedirects, ManageQueries, ManageRequests, ViewConnectors, ManageConnectors,
         ManageWorkflows, ViewWorkflowRuns, RetryWorkflowActions, RollbackContent, EraseContent, ViewModules,
         ViewJobs, ViewWebhookResponseBodies, ManageCollectionSyncs, ViewSensitive, ViewHidden,
-        ViewNumberGaps, ManageStations,
+        ViewNumberGaps, ManageStations, ManageConfig,
     };
 
     public static bool IsKnown(string capability) =>
@@ -360,6 +371,8 @@ public static class SystemCapabilities
         ViewNumberGaps,
         // New with stations, no gate to preserve.
         ManageStations,
+        // #921: new with the config engine, no gate to preserve, and it widens nothing (see its summary).
+        ManageConfig,
     ];
 
     /// <summary>

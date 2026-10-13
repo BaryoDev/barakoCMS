@@ -119,6 +119,11 @@ public static class FieldTypeRegistry
         // checks it through FileFields.
         new(FileFields.TypeName, "file", v => FileFields.TryReadId(v, out _)),
 
+        // A list of blocks, each an object naming its type. Only the shape is checked here. Whether
+        // each block and property is one the tenant's renderer registered needs the tenant's block
+        // schema, so ContentValidatorService checks it through BlockFields.
+        new(BlockFields.TypeName, BlockFields.TypeName, BlockFields.IsShape),
+
         // A small image carried in the entry as a data URI, checked in full here because the check
         // needs nothing but the value. See InlineImageFields.
         new(InlineImageFields.TypeName, InlineImageFields.TypeName, InlineImageFields.IsValid),

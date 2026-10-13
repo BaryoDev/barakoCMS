@@ -25,17 +25,113 @@ and what is shared, and two of the answers are the opposite of the obvious guess
 | --- | --- | --- |
 | 1 | Stand an instance up | Docker, one compose file |
 | 2 | Decide who the platform admin is | `InitialAdmin`, seeded on first boot |
-| 3 | Create the tenant | `POST /api/tenants` |
-| 4 | Model the content, inside that tenant | `POST /api/content-types` |
-| 5 | Add the client's people and pick their roles | `POST /api/tenants/members` |
+| 3 | Create the tenant | the seed file, `Seed:File` |
+| 4 | Model the content, inside that tenant | the seed file, or `POST /api/config/apply` |
+| 5 | Add the client's people and pick their roles | the seed file |
 | 6 | Point a frontend at the delivery API | `GET /api/public/{type}` |
 | 7 | Deploy behind a domain | `docker-compose.prod.yml` |
 | 8 | Hand over | export, credentials, and what stays yours |
 
 Steps 3 and 4 are in that order for a reason. Content types are tenant-scoped documents. Modelling
 first and creating the tenant afterwards leaves the model on `default`, where the client's tenant
-cannot see it, and moving it then needs the Portability module. Create the tenant first, switch into
-it, and model there.
+cannot see it. Create the tenant first, and model inside it.
+
+Steps 3 to 5 are one file. It is reviewed like code, committed beside the deployment, and applied by
+the seeder on the instance's first start, so the next client's instance starts from a file and not
+from a run of API calls someone gets slightly different each time. The next section is that file;
+the steps after it say what each part does and where it goes wrong.
+
+## The seed file
+
+Name it with `Seed:File` (env `Seed__File`), a path relative to the API's content root or absolute.
+In a container, mount the file into it and set `Seed__File` on the API service:
+
+```json
+{
+  "version": 1,
+  "roles": {
+    "Acme Editor": { "description": "Writes and publishes Acme's blog posts", "systemCapabilities": [] }
+  },
+  "tenants": {
+    "acme": {
+      "name": "Acme Corporation",
+      "domains": ["acme.com"],
+      "members": [
+        { "email": "editor@acme.example.com", "roles": ["Acme Editor"] }
+      ],
+      "config": {
+        "contentTypes": {
+          "blog-post": {
+            "displayName": "Blog Post",
+            "isPubliclyDeliverable": true,
+            "fields": [
+              { "name": "Title", "type": "string", "isRequired": true },
+              { "name": "Slug", "type": "slug" },
+              { "name": "Body", "type": "richtext" }
+            ]
+          }
+        },
+        "permissionRules": {
+          "Acme Editor/blog-post": {
+            "read": { "enabled": true }, "create": { "enabled": true }, "update": { "enabled": true }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+It is the document `GET /api/config/export` writes, plus a `tenants` section only the seeder reads.
+The top-level sections apply to the `default` tenant; roles are shared by every tenant, so they go
+there. Each tenant is keyed by its handle and carries its name, its domains, its first members, and
+under `config` the sections applied inside it: `contentTypes`, `permissionRules`, `workflows`,
+`connectors` and, with the Forms module, `forms`. Members are added the way step 5 describes: by
+email, with no password, holding the roles named.
+
+What the seeder does with it:
+
+- **Applied once per file.** It records the file's SHA-256 under the setting `Seed:File:Sha256`. A
+  restart with the same file reads nothing else and changes nothing, so what the client changes in
+  barakoBrew afterwards is not undone by a redeploy.
+- **A changed file is applied again, every section it names.** That converges those sections to the
+  file, and so reverts any change made through the API since in the documents they hold, a renamed
+  tenant or an edited workflow included. Sections the file leaves out are not touched. Edit the file
+  only for what you mean to set again, or make the change with `POST /api/config/apply` instead.
+- **Through the same engine as the API, as the host.** The file gets the checks
+  `POST /api/config/apply` runs. It is applied by the host rather than a signed-in caller, so the
+  capability checks a caller's apply goes through do not apply, and a section written for a caller
+  is skipped (below).
+- **Destructive changes are skipped, a whole document at a time.** A change the engine marks
+  destructive (a removed field, a deleted workflow, a cleared credential) is never made from the
+  file. A change is one document, so everything else in that document is skipped with it: a type
+  that gains field B and loses field A is not updated at all, a role that gains one capability and
+  loses another is not changed, and a workflow whose webhook URL moves keeps its old triggers and
+  conditions too. The seeder logs a warning naming each skipped document and applies the other
+  documents; make the change with `POST /api/config/apply` and `allowDestructive`.
+- **A section that relies on a skipped change fails.** A rule naming field B, or a workflow
+  triggered by a transition that same skipped type change adds, is checked against what is stored,
+  and refused. That stops the seed for the tenant (below), and editing the failing section does not
+  fix it, because the cause is the skipped one. The error says when a destructive change was skipped
+  in the same tenant. Apply that change with `allowDestructive` first, then restart.
+- **Anything else that cannot be applied stops the seed** and names every reason, and the hash is
+  not recorded. What was applied before the refusal stays: the top-level sections, and each tenant
+  before the one refused, commit as they go. Fix the file and restart, and the next start applies it
+  from the top; the apply converges, so what is already there is left as it is. On the core image
+  `/health/ready` reports the seed as failed until then. The Suite seeds before it starts serving,
+  so there a failed seed stops the process, and a restart policy brings it back into the same failure
+  until the file is fixed.
+- **No secrets.** A connector names its secrets and never carries a value, and a document carrying
+  one is refused. Set them after the first start with `PUT /api/connectors/{slug}`.
+
+`siteSettings`, and with the Portability module `contents`, are skipped with a warning in the log:
+both are written as entries for a signed-in caller, the way the content routes write them. Apply them
+afterwards with `POST /api/config/apply`, described in step 4.
+
+Several replicas starting on an empty database each run the seeder. More than one can apply the file
+at the same time: the apply converges, so a replica that finds the work done changes nothing, and one
+that loses a race on a unique name fails its seed and applies cleanly on its next start. Start one
+replica first if a failed seed on the others would page someone.
 
 ---
 
@@ -119,35 +215,19 @@ Two more naming rules that are not cosmetic:
 
 ## 3. Create the tenant
 
-Platform admin only. `POST /api/tenants` requires the `manage_tenants` capability, which only
-SuperAdmin holds by default.
-
-```bash
-API=http://localhost:5005
-
-TOKEN=$(curl -s -X POST "$API/api/auth/login" \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"YOUR_ADMIN_PASSWORD"}' \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
-
-curl -s -X POST "$API/api/tenants" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{
-        "handle": "acme",
-        "name": "Acme Corporation",
-        "isActive": true
-      }'
-```
+The seed file's `tenants` section creates it on the first start. After that, tenants are platform
+admin only: `POST /api/tenants` and `PUT /api/tenants/{handle}` require the `manage_tenants`
+capability, which only SuperAdmin holds by default.
 
 The handle is 3 to 40 characters of `a-z`, `0-9` and hyphens, and some are reserved. A tenant is
 its handle, name, domains and whether it is active. Its logo, about text, location, social handle,
 email and contact link are fields of its `site` entry ([site-settings.md](site-settings.md)), and a
 request that sets one of them here is refused with a 400 that names the site field.
 
-Creating the tenant provisions **you** as an active `Admin` member of it in the same transaction.
-Without that, the tenant would exist with no memberships and the token issuer would refuse a token
-for it to everyone including its creator.
+Creating the tenant through `POST /api/tenants` provisions **you** as an active `Admin` member of it
+in the same transaction. Without that, the tenant would exist with no memberships and the token
+issuer would refuse a token for it to everyone including its creator. The seeder acts as nobody, so a
+tenant it creates has exactly the members the file lists: list yourself if you will work inside it.
 
 `GET /api/tenants/{handle}/public` serves the tenant's name and that profile anonymously, read
 from the published site entry, which is what a client's sign-in page or landing page reads. That
@@ -198,13 +278,8 @@ refused with a 400.
 
 ### Custom domains
 
-Set a tenant's domains with the tenant itself:
-
-```bash
-curl -s -X PUT "$API/api/tenants/acme" -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"Acme","isActive":true,"domains":["acme.com"]}'
-```
+Set a tenant's domains with the tenant itself: `domains` in the seed file, or the same field on
+`PUT /api/tenants/{handle}` later.
 
 Enter bare hosts. They are stored the way requests are matched: lower case, a leading `www.` and a
 trailing dot removed, so `acme.com` also answers `www.acme.com`. A scheme, port, path or wildcard is
@@ -228,17 +303,15 @@ answers on a host nobody registered. Turn it on once every client has a domain r
 
 ## 4. Model the content, inside the tenant
 
-Content types are tenant-scoped, so this is done while switched into the client's tenant. There is no
-schema import screen in the admin, so a schema file is posted to the API. The worked example is
-[`examples/blog-starter`](../examples/blog-starter/), which is a real blog schema and a frontend that
-reads it.
-
-```bash
-curl -s -X POST "$API/api/content-types" \
-  -H "Authorization: Bearer $TOKEN" -H "X-Tenant: $TENANT" \
-  -H 'Content-Type: application/json' \
-  --data-binary @examples/blog-starter/blog-schema.json
-```
+Content types are tenant-scoped, so they go under the tenant's `config` in the seed file. Once the
+instance is up, the same document is the way to change the model: `POST /api/config/plan` says what
+a document would create, change or destroy without writing anything, and `POST /api/config/apply`
+applies it to the tenant the request is in, refusing a destructive change unless `allowDestructive`
+is sent. Both take `{ "document": { ... } }`, need the `manage_config` capability, and check each
+section against the capability its own routes ask for. `GET /api/config/export` writes a tenant's
+configuration in that shape, which is how a model built by clicking becomes a file. The worked
+example of a schema is [`examples/blog-starter`](../examples/blog-starter/), a real blog schema and
+a frontend that reads it.
 
 Or build it in the admin under **Content Types**. The admin's field editor sets a field's
 sensitivity at the point the type is created.
@@ -294,12 +367,20 @@ load-bearing once entries exist. Model as if the shape is close to final, becaus
 
 ### Reusing a model across clients
 
-If several clients get the same shape, keep the house model on the `default` tenant and move it with
-the Portability module rather than maintaining the JSON by hand:
+If several clients get the same shape, keep the house model in one file and apply it to each
+tenant: under each tenant's `config` in a seed file, or with `POST /api/config/apply` in the tenant.
+A document names no tenant, so it can be applied in any of them, with one exception that matters on
+a shared deployment: roles and their `permissionRules` are stored once for every tenant, and a rule
+names a content type by its name. Applying `permissionRules` in one tenant changes the rule for every
+tenant with a type of that name, and a rule the document leaves out is removed for all of them; the
+plan names those tenants in a note. Give each client's types and roles their own names. Export one
+tenant with `GET /api/config/export` to start the file.
+
+The Portability module's routes did this before the config engine and are obsolete, with removal
+planned for 6.0. `POST /api/config/apply` accepts their bundle unchanged. Until the removal:
 
 - `GET /api/portability/export` downloads content types and their content as one JSON bundle.
-- `POST /api/portability/import` applies a bundle **into the calling tenant**. A bundle carries no
-  tenant identity of its own, which is what makes it safe to move.
+- `POST /api/portability/import` applies a bundle **into the calling tenant**.
 
 Content types are upserted by name, so re-importing an evolved bundle updates rather than duplicates
 them. Entries in the same bundle do not: every record in the import gets a fresh id, so re-importing
@@ -320,8 +401,8 @@ access control behind the moment it is downloaded.
 
 ## 5. Add the client's people, and pick their roles
 
-This is the step that was not writable until recently. It is now five endpoints, all scoped to the
-caller's *current* tenant rather than one named in the path, and all gated on
+The first members come from the seed file's `members`. After that, it is five endpoints, all
+scoped to the caller's *current* tenant rather than one named in the path, and all gated on
 `manage_tenant_members`, which SuperAdmin and Admin hold by default.
 
 | Method | Route | What it does |
@@ -334,14 +415,7 @@ caller's *current* tenant rather than one named in the path, and all gated on
 
 barakoBrew has all of this on the Tenants screen.
 
-```bash
-curl -s -X POST "$API/api/tenants/members" \
-  -H "Authorization: Bearer $TOKEN" -H "X-Tenant: $TENANT" \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"editor@acme.example.com","roleIds":["..."]}'
-```
-
-What happens on that call:
+What happens when a member is added, from the file or with `POST /api/tenants/members`:
 
 - If no user has that email, one is created with **no password**. Their username is the email address,
   or the email plus a suffix if that username is already taken.
@@ -726,9 +800,8 @@ form, and `POST /api/public/forms/{slug}` stores each submission as a draft entr
 
 - **The TLS path is not covered by CI** (#308). CI resolves every compose file and asserts the
   production one builds nothing, but certificate issuance on a real VM is verified by hand.
-- **No CLI** (#169, #345). Everything in this document is barakoBrew or curl. There is no
-  reviewable file that configures an instance, which is what would make step 3 through step 5
-  repeatable per client instead of retyped.
+- **No CLI** (#169, #345). The seed file and `/api/config` make steps 3 to 5 a reviewable file,
+  but applying a changed file to a running instance is still an API call, not a command.
 - **No per-tenant email settings.** One provider for the deployment.
 - **Tenant branding is a database write.** Domains are set through the API (section 3); a site's identity and theme belong in content (#793).
 - **Per-field sensitivity can be set when a content type is created but not edited in barakoBrew.**

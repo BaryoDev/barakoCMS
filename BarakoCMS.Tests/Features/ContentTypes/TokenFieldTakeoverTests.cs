@@ -15,7 +15,9 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// not have generated is replaced on the next save.
 /// </summary>
 /// <remarks>
-/// Entry data can hold keys no field declares, which is how such a value gets there.
+/// Entry data written before 5.0 can hold keys no field declares, which is how such a value gets
+/// there. The API refuses an undeclared key now, so the tests seed one through the writer, as an
+/// older database holds it.
 /// </remarks>
 [Collection("Sequential")]
 public class TokenFieldTakeoverTests
@@ -33,7 +35,7 @@ public class TokenFieldTakeoverTests
     {
         var type = await Probe.StoreTypeAsync(_factory, "tokover", false, Probe.Text("Name"));
         var admin = await Probe.AdminAsync(_factory);
-        var holding = await Probe.CreateAsync(_factory, admin, type, new() { ["Name"] = "Ana", ["ClaimToken"] = Chosen });
+        var holding = await Probe.SeedAsync(_factory, type, new() { ["Name"] = "Ana", ["ClaimToken"] = Chosen });
         await Probe.CreateAsync(_factory, admin, type, new() { ["Name"] = "Ben" });
         (await Probe.StoredAsync(_factory, holding)).Data.Should().ContainKey("ClaimToken",
             "the undeclared key was stored, or the refusal below is about nothing");
@@ -98,7 +100,7 @@ public class TokenFieldTakeoverTests
         // the endpoints, which is the case the writer's own check is for.
         var type = await Probe.StoreTypeAsync(_factory, "tokbad", false, Probe.Text("Name"));
         var admin = await Probe.AdminAsync(_factory);
-        var id = await Probe.CreateAsync(_factory, admin, type, new() { ["Name"] = "Ana", ["ClaimToken"] = Chosen });
+        var id = await Probe.SeedAsync(_factory, type, new() { ["Name"] = "Ana", ["ClaimToken"] = Chosen });
 
         using (var scope = _factory.Services.CreateScope())
         {

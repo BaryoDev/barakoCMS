@@ -9,6 +9,9 @@ using Marten;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
+// The bundle types are obsolete for callers outside the module, and this is the module.
+#pragma warning disable CS0618
+
 namespace BarakoCMS.Portability;
 
 /// <summary>
@@ -26,6 +29,7 @@ namespace BarakoCMS.Portability;
 /// half-applied bundle after fixing it would duplicate everything that landed the first time. A dry
 /// run refuses exactly what the real run would.
 /// </remarks>
+[Obsolete("Use the config engine instead: GET /api/config/export, and POST /api/config/plan and /api/config/apply, which accept a Portability bundle as a document. Removal planned for barakoCMS 6.0.")]
 public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
 {
     private readonly IDocumentSession _session;
@@ -63,206 +67,25 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
         var bundleTypes = (req.ContentTypes ?? []).Where(t => t is not null).ToList();
         var records = (req.Contents ?? []).Where(r => r is not null).ToList();
 
-        // Bounded before anything is read, since every record costs a validation pass and all of
-        // them are held in one unit of work.
-        var maxRecords = PortabilityLimits.MaxImportRecords(configuration);
-        if (records.Count > maxRecords)
-        {
-            AddError($"A bundle may hold at most {maxRecords} records and this one holds {records.Count}. "
-                     + "Export fewer types per bundle, or raise Portability:MaxImportRecords.");
-            ThrowIfAnyErrors();
-        }
-
-        if (bundleTypes.Count > PortabilityLimits.MaxImportContentTypes)
-        {
-            AddError($"A bundle may hold at most {PortabilityLimits.MaxImportContentTypes} content types "
-                     + $"and this one holds {bundleTypes.Count}.");
-            ThrowIfAnyErrors();
-        }
+        CheckLimits(bundleTypes.Count, records.Count, configuration);
 
         var existing = (await _session.Query<ContentTypeDefinition>().ToListAsync(ct)).ToList();
+        await CheckTypesAsync(bundleTypes, existing, configuration, ct);
 
-        // Checked for the whole bundle before anything is stored, so a refused import leaves no
-        // type and no content behind. Same rule as the content-type endpoints: a type already
-        // stored over the cap may be imported again at its size, only growth past the cap is refused.
-        var maxFields = barakoCMS.Infrastructure.Services.ContentTypeFieldLimit.Resolve(configuration);
-        foreach (var type in bundleTypes)
-        {
-            if (string.IsNullOrWhiteSpace(type.Name)) continue;
-
-            var incoming = type.Fields?.Count ?? 0;
-            var stored = StoredMatch(existing, type.Name)?.Fields?.Count ?? 0;
-
-            if (incoming > maxFields && incoming > stored)
-            {
-                var name = type.Name.Length > 100 ? type.Name[..100] + "..." : type.Name;
-                AddError($"Content type '{name}' was not imported. "
-                         + barakoCMS.Infrastructure.Services.ContentTypeFieldLimit.TooMany(maxFields, incoming));
-                ThrowIfAnyErrors();
-            }
-        }
-
-        for (var i = 0; i < bundleTypes.Count; i++)
-        {
-            var type = bundleTypes[i];
-            if (string.IsNullOrWhiteSpace(type.Name)) continue;
-
-            type.Fields = (type.Fields ?? []).Where(f => f is not null).ToList();
-            foreach (var field in type.Fields)
-            {
-                field.VisibleToRoles ??= [];
-                field.ValidationRules ??= new Dictionary<string, object>();
-            }
-
-            // A token field that states no sensitivity is Hidden, as on create. Before the bundle
-            // is compared with the stored type, so a bundle that leaves it out is not read as
-            // lowering a stored field.
-            barakoCMS.Core.Validation.FieldTypeRegistry.ApplyTypeDefaults(type.Fields);
-
-            var match = StoredMatch(existing, type.Name);
-
-            // A bundle names roles and a definition is stored with their ids. Both sides are
-            // brought to ids before they are compared, so a bundle naming the roles a stored field
-            // lists is not read as a change to who may see it.
-            await barakoCMS.Core.RoleReferences.ToIdsAsync(_session, type.Fields, ct);
-            if (match is not null)
-            {
-                await barakoCMS.Core.RoleReferences.ToIdsAsync(_session, match.Fields ?? [], ct);
-                KeepStoredPresentation(type, match);
-            }
-
-            foreach (var error in await TypeErrorsAsync(type, match, maxFields, ct))
-                AddError(new ValidationFailure($"contentTypes[{i}]", $"Content type '{Shorten(type.Name)}': {error}"));
-        }
-
-        // Records are checked against the types as this bundle leaves them, so there is no point
-        // checking them against a type that is itself refused.
-        ThrowIfAnyErrors();
-
-        var toStore = new List<ContentTypeDefinition>();
-        var created = new List<ContentTypeDefinition>();
-
-        foreach (var type in bundleTypes)
-        {
-            if (string.IsNullOrWhiteSpace(type.Name)) continue;
-
-            var match = StoredMatch(existing, type.Name);
-
-            if (match is not null)
-            {
-                report.ContentTypesUpdated++;
-
-                match.DisplayName = type.DisplayName;
-                match.Description = type.Description;
-                match.Fields = type.Fields;
-                // A bundle without a lifecycle keeps the stored one. TypeErrorsAsync has already
-                // refused a bundle that would change it.
-                match.Lifecycle ??= type.Lifecycle;
-                // Carried like every other attribute of the schema. Dropping it silently reverted an
-                // exported type to not-deliverable, so a round trip through export/import took the
-                // content off the public API with the import still reporting success.
-                match.IsPubliclyDeliverable = type.IsPubliclyDeliverable;
-                match.IsSingleton = type.IsSingleton;
-                // Kept when the bundle carries none, for the reason KeepStoredPresentation gives.
-                match.RouteTemplate = type.RouteTemplate ?? match.RouteTemplate;
-                match.StructuredDataType = type.StructuredDataType ?? match.StructuredDataType;
-                match.UpdatedAt = DateTimeOffset.UtcNow;
-                toStore.Add(match);
-            }
-            else
-            {
-                report.ContentTypesCreated++;
-
-                var definition = new ContentTypeDefinition
-                {
-                    Id = Guid.NewGuid(),
-                    // Normalized, like the create endpoint. Storing the file's spelling let an
-                    // import put "Article" beside an existing "article": distinct to the unique
-                    // index, the same to every reader.
-                    Name = barakoCMS.Core.ContentTypeName.Normalize(type.Name),
-                    DisplayName = type.DisplayName,
-                    Description = type.Description,
-                    Fields = type.Fields,
-                    Lifecycle = type.Lifecycle,
-                    IsPubliclyDeliverable = type.IsPubliclyDeliverable,
-                    IsSingleton = type.IsSingleton,
-                    RouteTemplate = type.RouteTemplate,
-                    StructuredDataType = type.StructuredDataType,
-                    Uniqueness = type.Uniqueness is { Count: > 0 } ? type.Uniqueness : null,
-                    CreatedAt = DateTimeOffset.UtcNow,
-                    UpdatedAt = DateTimeOffset.UtcNow,
-                };
-
-                // Added to the lookup whether or not this is a dry run, so records later in the same
-                // bundle resolve against a type this bundle creates.
-                existing.Add(definition);
-                toStore.Add(definition);
-                created.Add(definition);
-            }
-        }
+        var (toStore, created) = Upsert(bundleTypes, existing, report);
 
         // Each record is checked against its type as this bundle leaves it, not as it is stored.
         // No singleton cap: an import is a restore and lands what the bundle holds.
         var batch = new ContentCreateBatch { CapSingletons = false };
         foreach (var definition in existing)
-            batch.UseSchema(definition);
-
-        // Every record gets a new id up front, so a reference to another record of the bundle can
-        // be pointed at that record as imported before either exists.
-        var newIds = new Dictionary<Guid, Guid>();
-        for (var i = 0; i < records.Count; i++)
         {
-            if (records[i].Id is not { } sourceId || sourceId == Guid.Empty) continue;
-            if (!newIds.TryAdd(sourceId, Guid.NewGuid()))
-                AddError(new ValidationFailure($"contents[{i}]", $"id {sourceId} is used by another record of this bundle."));
+            batch.UseSchema(definition);
         }
 
-        var pending = new List<(int Index, ContentCreateRequest Request)>();
-        for (var i = 0; i < records.Count; i++)
+        var prepared = BundleEntries.Prepare(records, existing, batch, report);
+        foreach (var error in prepared.Errors)
         {
-            var rec = records[i];
-            if (string.IsNullOrWhiteSpace(rec.ContentType)) continue;
-            report.ContentsCreated++;
-
-            // A record whose type is in neither the store nor the bundle gets no public fields, so
-            // its SearchText comes out empty and it is unsearchable while the import still reports
-            // success. Counted and named in the report rather than left to be discovered later.
-            if (!existing.Any(t => t.Name.Equals(rec.ContentType, StringComparison.OrdinalIgnoreCase)))
-            {
-                report.ContentsWithoutContentType++;
-                if (!report.UnknownContentTypes.Contains(rec.ContentType, StringComparer.OrdinalIgnoreCase))
-                {
-                    report.UnknownContentTypes.Add(rec.ContentType);
-                }
-            }
-
-            if (rec.Sensitivity is { } level && !Enum.IsDefined(level))
-            {
-                AddError(new ValidationFailure($"contents[{i}]", "sensitivity is not a valid value."));
-                continue;
-            }
-
-            var data = rec.Data ?? new Dictionary<string, object>();
-
-            // A field the exporter could not read arrives holding its mask, not its value.
-            foreach (var masked in rec.MaskedFields ?? [])
-                data.Remove(masked);
-
-            RepointReferences(existing.FirstOrDefault(t => t.Name.Equals(rec.ContentType, StringComparison.OrdinalIgnoreCase)), data, newIds);
-
-            if (rec.Id is { } sourceRecordId && newIds.TryGetValue(sourceRecordId, out var expectedId))
-                batch.Expect(expectedId, rec.ContentType);
-
-            pending.Add((i, new ContentCreateRequest
-            {
-                ContentType = rec.ContentType,
-                Data = data,
-                Status = Enum.TryParse<ContentStatus>(rec.Status, ignoreCase: true, out var s) && Enum.IsDefined(s)
-                    ? s
-                    : ContentStatus.Published,
-                Sensitivity = rec.Sensitivity ?? SensitivityLevel.Public,
-                Id = rec.Id is { } id && newIds.TryGetValue(id, out var fresh) ? fresh : null,
-            }));
+            AddError(error);
         }
 
         ThrowIfAnyErrors();
@@ -274,10 +97,11 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
         var failures = await Resolve<IContentBatchRunner>().RunAsync(async (scope, token) =>
         {
             var session = scope.GetRequiredService<IDocumentSession>();
-            var creator = scope.GetRequiredService<IContentCreator>();
 
             foreach (var definition in toStore)
+            {
                 session.Store(definition);
+            }
 
             // Recorded here as well as in the create endpoint, because this is the other way a
             // content type comes into existence. A type with no policy row reads as not event
@@ -286,36 +110,14 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
             // keeps it.
             var sourcing = scope.GetRequiredService<IContentSourcingPolicy>();
             foreach (var definition in created)
+            {
                 await sourcing.DecideAsync(definition.Name, false, token);
+            }
 
             await session.SaveChangesAsync(token);
 
-            var refused = new List<ValidationFailure>();
-            foreach (var (index, request) in InDependencyOrder(pending, newIds))
-            {
-                var errors = await creator.CheckAsync(request, userId, HttpContext, batch, token);
-                if (errors.Count > 0)
-                {
-                    refused.AddRange(errors.Select(e => new ValidationFailure($"contents[{index}]", e)));
-
-                    // Whatever a hook staged for an entry it then refused is not this batch's.
-                    session.EjectAllPendingChanges();
-                    continue;
-                }
-
-                try
-                {
-                    await creator.StageAsync(request, userId, batch, token);
-                    await session.SaveChangesAsync(token);
-                }
-                catch (ContentUniquenessException ex)
-                {
-                    // Another entry, stored or earlier in this bundle, holds this record's values
-                    // under a uniqueness rule of its type. Named like any other refused record.
-                    refused.Add(new ValidationFailure($"contents[{index}]", ex.Message));
-                    session.EjectAllPendingChanges();
-                }
-            }
+            var refused = await BundleEntries.WriteAsync(
+                session, scope.GetRequiredService<IContentCreator>(), prepared, userId, HttpContext, batch, token);
 
             var commit = refused.Count == 0 && !req.DryRun;
             if (commit)
@@ -334,478 +136,110 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
         }, ct);
 
         foreach (var failure in failures.OrderBy(f => f.PropertyName, StringComparer.Ordinal))
+        {
             AddError(failure);
+        }
+
         ThrowIfAnyErrors();
 
         await Send.ResponseAsync(report, cancellation: ct);
     }
 
     /// <summary>
-    /// Gives each bundle field the editor, section and role its stored counterpart holds, where
-    /// the bundle carries none.
+    /// Bounded before anything is read, since every record costs a validation pass and all of them
+    /// are held in one unit of work.
     /// </summary>
-    /// <remarks>
-    /// A bundle exported before these members existed cannot carry them, and once read a member
-    /// left out and a member set to null are the same. Replacing would clear every hint on the
-    /// stored type with the import still reporting success. So null keeps and a value replaces,
-    /// which means a bundle cannot clear one: the presentation endpoint does that.
-    ///
-    /// Only on a field whose type the bundle leaves as it is, since each value is tied to field
-    /// types. A stored role is not kept when the bundle gives that role to another field, so a
-    /// bundle can move one. Run before the type is checked, so what is checked is what is stored.
-    /// </remarks>
-    private static void KeepStoredPresentation(ContentTypeDefinition type, ContentTypeDefinition stored)
+    private void CheckLimits(int types, int records, IConfiguration configuration)
     {
-        foreach (var field in type.Fields)
+        var maxRecords = PortabilityLimits.MaxImportRecords(configuration);
+        if (records > maxRecords)
         {
-            var current = (stored.Fields ?? []).FirstOrDefault(
-                f => f is not null && string.Equals(f.Name, field.Name, StringComparison.OrdinalIgnoreCase));
+            AddError($"A bundle may hold at most {maxRecords} records and this one holds {records}. "
+                     + "Export fewer types per bundle, or raise Portability:MaxImportRecords.");
+            ThrowIfAnyErrors();
+        }
 
-            if (current is null || !string.Equals(current.Type, field.Type, StringComparison.OrdinalIgnoreCase))
-                continue;
+        if (types > PortabilityLimits.MaxImportContentTypes)
+        {
+            AddError($"A bundle may hold at most {PortabilityLimits.MaxImportContentTypes} content types "
+                     + $"and this one holds {types}.");
+            ThrowIfAnyErrors();
+        }
+    }
 
-            field.Editor ??= current.Editor;
-            field.Section ??= current.Section;
-
-            if (field.Role is null
-                && current.Role is not null
-                && !type.Fields.Any(f => string.Equals(f.Role, current.Role, StringComparison.Ordinal)))
+    /// <summary>
+    /// Refuses the whole bundle before anything is stored when one type would not be written by the
+    /// content-type endpoints, so a refused import leaves no type and no content behind.
+    /// </summary>
+    private async Task CheckTypesAsync(
+        List<ContentTypeDefinition> bundleTypes, List<ContentTypeDefinition> existing, IConfiguration configuration, CancellationToken ct)
+    {
+        // Same rule as the content-type endpoints: a type already stored over the cap may be
+        // imported again at its size, only growth past the cap is refused.
+        var maxFields = ContentTypeFieldLimit.Resolve(configuration);
+        foreach (var type in bundleTypes.Where(t => !string.IsNullOrWhiteSpace(t.Name)))
+        {
+            if (ContentTypeUpsert.FieldCapError(type, ContentTypeUpsert.StoredMatch(existing, type.Name), maxFields) is { } tooMany)
             {
-                field.Role = current.Role;
+                AddError($"Content type '{Shorten(type.Name)}' was not imported. {tooMany}");
+                ThrowIfAnyErrors();
             }
         }
-    }
 
-    /// <summary>
-    /// Points each reference field holding the source id of another record in this bundle at the id
-    /// that record is imported under, each id of a list included. A reference to anything outside
-    /// the bundle is left alone, and validation refuses it unless it exists here.
-    /// </summary>
-    private static void RepointReferences(
-        ContentTypeDefinition? schema, Dictionary<string, object> data, Dictionary<Guid, Guid> newIds)
-    {
-        if (schema is null || newIds.Count == 0) return;
-
-        foreach (var field in schema.Fields.Where(f => string.Equals(f.Type, "reference", StringComparison.OrdinalIgnoreCase)))
+        for (var i = 0; i < bundleTypes.Count; i++)
         {
-            foreach (var key in data.Keys.Where(k => k.Equals(field.Name, StringComparison.OrdinalIgnoreCase)).ToList())
-            {
-                if (barakoCMS.Core.Validation.FieldTypeRegistry.TryReadChoice(data[key], out var listed, out var isList) && isList)
-                {
-                    data[key] = listed
-                        .Select(id => Guid.TryParse(id, out var source) && newIds.TryGetValue(source, out var copy) ? copy.ToString() : id)
-                        .ToList<object>();
-                    continue;
-                }
-
-                var raw = data[key] is System.Text.Json.JsonElement je ? je.ToString() : data[key]?.ToString();
-                if (Guid.TryParse(raw, out var target) && newIds.TryGetValue(target, out var imported))
-                    data[key] = imported.ToString();
-            }
-        }
-    }
-
-    /// <summary>
-    /// The records, each after the records of this bundle it references, otherwise in bundle order.
-    /// </summary>
-    /// <remarks>
-    /// A reference is checked against what exists, so a child has to be written after its parent,
-    /// and an export does not promise that order. A cycle cannot be ordered; its records keep their
-    /// bundle order and the first of them is refused for pointing at an entry not yet written.
-    /// </remarks>
-    private static IEnumerable<(int Index, ContentCreateRequest Request)> InDependencyOrder(
-        List<(int Index, ContentCreateRequest Request)> pending, Dictionary<Guid, Guid> newIds)
-    {
-        var byNewId = pending.Where(p => p.Request.Id is not null).ToDictionary(p => p.Request.Id!.Value, p => p.Index);
-        var imported = newIds.Values.ToHashSet();
-
-        var dependsOn = pending.ToDictionary(p => p.Index, p => p.Request.Data.Values
-            .Select(v => v is System.Text.Json.JsonElement je ? je.ToString() : v?.ToString())
-            .Select(v => Guid.TryParse(v, out var g) && imported.Contains(g) && byNewId.TryGetValue(g, out var at) && at != p.Index ? at : -1)
-            .Where(at => at >= 0)
-            .ToHashSet());
-
-        var written = new HashSet<int>();
-        var remaining = pending.ToList();
-        while (remaining.Count > 0)
-        {
-            var next = remaining.FirstOrDefault(p => dependsOn[p.Index].All(written.Contains));
-            if (next.Request is null)
-                next = remaining[0];
-
-            remaining.Remove(next);
-            written.Add(next.Index);
-            yield return next;
-        }
-    }
-
-    /// <summary>
-    /// What the content-type endpoints would refuse about writing <paramref name="type"/> over
-    /// <paramref name="stored"/>, or as a new type when <paramref name="stored"/> is null.
-    /// </summary>
-    private async Task<List<string>> TypeErrorsAsync(
-        ContentTypeDefinition type, ContentTypeDefinition? stored, int maxFields, CancellationToken ct)
-    {
-        var validator = Resolve<IContentTypeValidatorService>();
-
-        // The cap was settled above, including its one exception: a type already stored over it may
-        // be imported again at its size. The validator only knows the cap and checks no field of a
-        // list over it, so an oversized list is checked a cap's worth of fields at a time.
-        //
-        // A field the stored type already holds with the same rules is passed as stored, so its rule
-        // definitions are not checked: a bundle exported from this tenant has to import back into it,
-        // including a rule saved before rules were checked.
-        var carried = FieldsWithStoredRules(type, stored);
-
-        var errors = type.Fields.Count <= maxFields
-            ? validator.Validate(type.Name, type.DisplayName, type.Fields, carried).Errors
-            : type.Fields.Chunk(maxFields)
-                .SelectMany(chunk => validator.Validate(type.Name, type.DisplayName, chunk.ToList(), carried).Errors)
-                .Distinct()
-                .ToList();
-
-        errors.AddRange(validator.ValidateRouteTemplate(type.RouteTemplate).Errors);
-        errors.AddRange(validator.ValidateStructuredDataType(type.StructuredDataType).Errors);
-
-        // Checked only for a type this import creates. A stored type keeps its rules, below.
-        if (stored is null)
-            errors.AddRange(validator.ValidateUniqueness(type.Uniqueness, type.Fields, type.Lifecycle).Errors);
-
-        // The validator refuses a role two fields declare, but it saw an oversized list a chunk at
-        // a time, and the two can sit in different chunks.
-        if (type.Fields.Count > maxFields
-            && type.Fields
-                .Where(f => !string.IsNullOrEmpty(f.Role))
-                .GroupBy(f => f.Role, StringComparer.Ordinal)
-                .Any(g => g.Count() > 1))
-        {
-            errors.Add("a role is declared by more than one field, and one field of a type holds a role.");
-        }
-
-        // Refused here because the validator does not check it. Two fields of one name let a bundle
-        // declare a field both Sensitive and Public, and public delivery serves it as the Public one.
-        foreach (var repeated in type.Fields
-                     .GroupBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
-                     .Where(g => g.Count() > 1))
-        {
-            errors.Add($"field '{repeated.Key}' is declared more than once, ignoring case.");
-        }
-
-        // The fields a transition names are checked only for a lifecycle this import will store. A
-        // stored one is kept as it is, and a bundle exported from this tenant has to import back.
-        errors.AddRange(stored?.Lifecycle is null
-            ? validator.ValidateLifecycle(type.Lifecycle, type.Fields).Errors
-            : validator.ValidateLifecycle(type.Lifecycle).Errors);
-
-        var name = stored?.Name ?? barakoCMS.Core.ContentTypeName.Normalize(type.Name);
-        var nonPublic = type.Fields.Where(f => f.Sensitivity != SensitivityLevel.Public).Select(f => f.Name).ToList();
-        if (nonPublic.Count > 0 && await Resolve<IContentSourcingPolicy>().IsEventSourcedAsync(name, ct))
-        {
-            errors.Add($"'{name}' is event sourced, so its fields have to stay Public, and "
-                       + $"{string.Join(", ", nonPublic)} {(nonPublic.Count == 1 ? "is" : "are")} not.");
-        }
-
-        // A token field the stored type does not have yet must not take over values entries
-        // already hold under its name, the add field rule.
-        foreach (var token in type.Fields.Where(f => barakoCMS.Core.Validation.FieldTypeRegistry.IsServerGenerated(f)
-                     && !(stored?.Fields ?? []).Any(s => s is not null
-                         && s.Name.Equals(f.Name, StringComparison.OrdinalIgnoreCase)
-                         && barakoCMS.Core.Validation.FieldTypeRegistry.IsServerGenerated(s))))
-        {
-            var holding = await TokenFieldEntries.HoldingAsync(_session, name, token.Name, ct);
-            if (holding > 0)
-                errors.Add(TokenFieldEntries.Refusal(name, token.Name, holding));
-        }
-
-        if (stored is null)
-            return errors;
-
-        errors.AddRange(SensitivityChanges(type, stored));
-        errors.AddRange(DroppedTransitionFields(type, stored));
-        errors.AddRange(UniquenessChanges(type, stored));
-
-        // A bundle may not change the currency or scale a stored field declares. That goes through
-        // PUT /api/content-types/{name}/fields/{field}/currency, which counts the entries holding an
-        // amount the new scale refuses, or stored under another code. A bundle exported before the
-        // field declared a currency carries none, so importing it would switch the rule off with
-        // nothing said. A field the stored type does not have is new and takes what the bundle
-        // declares.
-        foreach (var current in stored.Fields)
-        {
-            var incoming = type.Fields.FirstOrDefault(f => f.Name.Equals(current.Name, StringComparison.OrdinalIgnoreCase));
-            if (incoming is null
-                || (string.Equals(incoming.Currency, current.Currency, StringComparison.Ordinal) && incoming.Scale == current.Scale))
+            var type = bundleTypes[i];
+            if (string.IsNullOrWhiteSpace(type.Name))
             {
                 continue;
             }
 
-            errors.Add($"field '{current.Name}' has a different currency or scale in the bundle. An import "
-                       + "does not change a stored field's currency; use "
-                       + $"PUT /api/content-types/{stored.Name}/fields/{current.Name}/currency.");
-        }
+            var match = ContentTypeUpsert.StoredMatch(existing, type.Name);
+            await ContentTypeUpsert.PrepareAsync(_session, type, match, ct);
 
-        // A bundle may not turn a stored field into a token or a token into something else. The
-        // first would freeze values callers wrote as if the server had generated them, and the
-        // second would make every stored token writable by whoever may edit the entry.
-        foreach (var current in stored.Fields)
-        {
-            var incoming = type.Fields.FirstOrDefault(f => f.Name.Equals(current.Name, StringComparison.OrdinalIgnoreCase));
-            if (incoming is not null
-                && barakoCMS.Core.Validation.FieldTypeRegistry.IsServerGenerated(incoming)
-                    != barakoCMS.Core.Validation.FieldTypeRegistry.IsServerGenerated(current))
+            foreach (var error in await ContentTypeUpsert.ErrorsAsync(
+                         Resolve<IContentTypeValidatorService>(), Resolve<IContentSourcingPolicy>(), _session,
+                         type, match, maxFields, ContentTypeUpsert.Wording.Import, ct))
             {
-                errors.Add($"field '{current.Name}' changes to or from the token type in the bundle. An "
-                           + "import does not change whether the server generates a stored field's value.");
+                AddError(new ValidationFailure($"contentTypes[{i}]", $"Content type '{Shorten(type.Name)}': {error}"));
             }
         }
 
-        var entries = await EntryCountAsync(stored, ct);
-
-        // No endpoint changes a stored type's lifecycle: permissions and workflows key on its
-        // transition names, and entries sit in its states. A bundle may leave it out, which keeps
-        // it, or carry the same one. It may add one only to a type with no entries, which is the
-        // one case where no entry is left in a state the type does not know.
-        if (type.Lifecycle is not null && !SameLifecycle(type.Lifecycle, stored.Lifecycle))
-        {
-            if (stored.Lifecycle is not null)
-                errors.Add("the bundle's lifecycle differs from the stored one, and an import does not change a stored lifecycle.");
-            else if (entries > 0)
-                errors.Add($"it already has {entries} {(entries == 1 ? "entry" : "entries")} and no lifecycle, "
-                           + "and an import does not add one to a type with entries.");
-        }
-
-        // The add field rule: a required field with no default declares an invariant every entry
-        // already stored breaks.
-        var newlyRequired = type.Fields
-            .Where(f => f.IsRequired && f.DefaultValue is null)
-            .Where(f => !stored.Fields.Any(s => s.IsRequired && s.Name.Equals(f.Name, StringComparison.OrdinalIgnoreCase)))
-            .ToList();
-
-        if (entries > 0)
-        {
-            foreach (var field in newlyRequired)
-            {
-                errors.Add($"it already has {entries} {(entries == 1 ? "entry" : "entries")}, so making "
-                           + $"'{field.Name}' required with no default would make them all invalid. "
-                           + "Give the field a defaultValue, or leave it optional.");
-            }
-        }
-
-        return errors;
+        // Records are checked against the types as this bundle leaves them, so there is no point
+        // checking them against a type that is itself refused.
+        ThrowIfAnyErrors();
     }
 
     /// <summary>
-    /// Fields a stored transition names that the stored type has and the bundle leaves out.
+    /// The definitions to store: each stored type with the bundle's written over it, and each new
+    /// one. A new type joins <paramref name="existing"/> whether or not this is a dry run, so records
+    /// later in the same bundle resolve against a type this bundle creates.
     /// </summary>
-    /// <remarks>
-    /// An import replaces a type's fields and keeps its lifecycle. A transition naming a field the
-    /// type no longer has skips that name on every move, so dropping the field would switch a
-    /// requirement off with nothing said. A name the stored type already lacks is not reported: that
-    /// requirement is skipped today, and a bundle exported from this tenant has to import back.
-    /// </remarks>
-    private static IEnumerable<string> DroppedTransitionFields(ContentTypeDefinition type, ContentTypeDefinition stored)
+    private static (List<ContentTypeDefinition> ToStore, List<ContentTypeDefinition> Created) Upsert(
+        List<ContentTypeDefinition> bundleTypes, List<ContentTypeDefinition> existing, ImportReport report)
     {
-        if (stored.Lifecycle is null)
-            yield break;
+        var toStore = new List<ContentTypeDefinition>();
+        var created = new List<ContentTypeDefinition>();
 
-        foreach (var transition in stored.Lifecycle.Transitions)
+        foreach (var type in bundleTypes.Where(t => !string.IsNullOrWhiteSpace(t.Name)))
         {
-            var named = (transition.RequiredFields ?? [])
-                .Concat(transition.OptionalFields ?? [])
-                .Where(n => !string.IsNullOrWhiteSpace(n))
-                .Distinct(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var name in named)
+            if (ContentTypeUpsert.StoredMatch(existing, type.Name) is { } match)
             {
-                if (!stored.Fields.Any(f => f.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
-                    continue;
-
-                if (type.Fields.Any(f => f.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
-                    continue;
-
-                yield return $"field '{name}' is named by the stored transition '{transition.Name}' and the "
-                             + "bundle leaves it out, which would stop that transition asking for it. Keep the field.";
-            }
-        }
-    }
-
-    /// <summary>
-    /// A bundle may not change the uniqueness rules a stored type declares, or drop a field one of
-    /// them compares.
-    /// </summary>
-    /// <remarks>
-    /// Rules are set on a stored type with <c>PUT /api/content-types/{name}/uniqueness</c>, which
-    /// counts the entries that already share their values before it adds one. A bundle without
-    /// rules keeps the stored ones, so a bundle exported before rules existed imports back. A field
-    /// a stored rule compares and the bundle leaves out would switch the rule off with nothing said.
-    /// </remarks>
-    private static IEnumerable<string> UniquenessChanges(ContentTypeDefinition type, ContentTypeDefinition stored)
-    {
-        var route = $"PUT /api/content-types/{stored.Name}/uniqueness";
-
-        if (type.Uniqueness is { Count: > 0 } && !SameRules(type.Uniqueness, stored.Uniqueness))
-        {
-            yield return "the bundle's uniqueness rules differ from the stored ones, and an import does not "
-                         + $"change a stored type's rules; use {route}.";
-        }
-
-        foreach (var rule in stored.Uniqueness ?? [])
-        {
-            foreach (var name in rule?.Fields ?? [])
-            {
-                if (string.Equals(name, UniquenessRule.CreatedByField, StringComparison.OrdinalIgnoreCase)
-                    || !stored.Fields.Any(f => f.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
-                    || type.Fields.Any(f => f.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
-                {
-                    continue;
-                }
-
-                yield return $"field '{name}' is compared by the stored uniqueness rule '{rule!.Name}' and the "
-                             + "bundle leaves it out, which would switch that rule off. Keep the field.";
-            }
-        }
-    }
-
-    private static bool SameRules(List<UniquenessRule> a, List<UniquenessRule>? b) =>
-        b is not null
-        && a.Count == b.Count
-        && a.All(x => x is not null && b.Count(y => y is not null && SameRule(x, y)) == 1);
-
-    private static bool SameRule(UniquenessRule a, UniquenessRule b) =>
-        string.Equals(a.Name, b.Name, StringComparison.OrdinalIgnoreCase)
-        && string.Equals(
-            string.IsNullOrWhiteSpace(a.WhenState) ? null : a.WhenState,
-            string.IsNullOrWhiteSpace(b.WhenState) ? null : b.WhenState,
-            StringComparison.OrdinalIgnoreCase)
-        && (a.Fields ?? []).SequenceEqual(b.Fields ?? [], StringComparer.OrdinalIgnoreCase);
-
-    /// <summary>
-    /// A bundle may not change who can read a stored field.
-    /// </summary>
-    /// <remarks>
-    /// That is <c>PUT /api/content-types/{name}/fields/{field}/sensitivity</c>'s decision, behind its
-    /// own capability, with an acknowledgement for lowering, its own audit entry, and a rebuild of
-    /// the search text so a raised value stops matching anonymous search. An import carrying the
-    /// change would skip all of that, so it is refused and the caller is pointed there. Leaving a
-    /// non-Public field out of the bundle counts as a change: a key the schema does not declare is
-    /// served unmasked.
-    /// </remarks>
-    private static IEnumerable<string> SensitivityChanges(ContentTypeDefinition type, ContentTypeDefinition stored)
-    {
-        foreach (var current in stored.Fields)
-        {
-            // Duplicates are refused elsewhere; the first is enough here.
-            var incoming = type.Fields.FirstOrDefault(f => f.Name.Equals(current.Name, StringComparison.OrdinalIgnoreCase));
-            var route = $"PUT /api/content-types/{stored.Name}/fields/{current.Name}/sensitivity";
-
-            if (incoming is null)
-            {
-                if (current.Sensitivity != SensitivityLevel.Public)
-                {
-                    yield return $"field '{current.Name}' is {current.Sensitivity} and the bundle leaves it out, "
-                                 + "which would serve the values already stored in it unmasked. Keep the "
-                                 + $"field, or lower it with {route} first.";
-                }
-
+                report.ContentTypesUpdated++;
+                ContentTypeUpsert.MergeInto(match, type);
+                toStore.Add(match);
                 continue;
             }
 
-            if (incoming.Sensitivity != current.Sensitivity)
-            {
-                yield return $"field '{current.Name}' is {current.Sensitivity} and the bundle makes it "
-                             + $"{incoming.Sensitivity}. An import does not change who may read a field; use {route}.";
-            }
-            else if (current.Sensitivity != SensitivityLevel.Public
-                     && (incoming.Mask != current.Mask || !SameRoles(incoming.VisibleToRoles, current.VisibleToRoles)))
-            {
-                yield return $"field '{current.Name}' has a different mask or visibleToRoles in the bundle. "
-                             + $"An import does not change who may read a field; use {route}.";
-            }
-        }
-    }
-
-    private async Task<int> EntryCountAsync(ContentTypeDefinition stored, CancellationToken ct)
-    {
-        var lowered = stored.Name.ToLower();
-        return await _session.Query<Content>().CountAsync(c => c.ContentType.ToLower() == lowered, ct);
-    }
-
-    private static bool SameLifecycle(LifecycleDefinition a, LifecycleDefinition? b) =>
-        b is not null
-        && a.States.SequenceEqual(b.States, StringComparer.OrdinalIgnoreCase)
-        && string.Equals(a.InitialState, b.InitialState, StringComparison.OrdinalIgnoreCase)
-        && a.Transitions.Count == b.Transitions.Count
-        && a.Transitions.Zip(b.Transitions).All(p =>
-            string.Equals(p.First.Name, p.Second.Name, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(p.First.From, p.Second.From, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(p.First.To, p.Second.To, StringComparison.OrdinalIgnoreCase)
-            && SameFields(p.First.RequiredFields, p.Second.RequiredFields)
-            && SameFields(p.First.OptionalFields, p.Second.OptionalFields));
-
-    private static bool SameFields(List<string>? a, List<string>? b) =>
-        new HashSet<string>(a ?? [], StringComparer.OrdinalIgnoreCase).SetEquals(b ?? []);
-
-    /// <summary>
-    /// The stored type a bundle type updates, compared under the name normalisation create applies,
-    /// so "Blog Post" in a bundle updates a stored "blog-post" rather than colliding with it.
-    /// </summary>
-    private static ContentTypeDefinition? StoredMatch(List<ContentTypeDefinition> existing, string name)
-    {
-        var normalized = barakoCMS.Core.ContentTypeName.Normalize(name);
-        return existing.FirstOrDefault(t => barakoCMS.Core.ContentTypeName.Normalize(t.Name) == normalized);
-    }
-
-    /// <summary>
-    /// The bundle's own field instances whose type and validation rules are the ones the stored
-    /// type holds for a field of that name. A rule depends on the field's type, so a bundle that
-    /// changes the type has changed what the rules mean.
-    /// </summary>
-    private static List<FieldDefinition> FieldsWithStoredRules(ContentTypeDefinition type, ContentTypeDefinition? stored)
-    {
-        var storedFields = stored?.Fields;
-        if (storedFields is null)
-            return [];
-
-        return type.Fields
-            .Where(field => storedFields.FirstOrDefault(
-                    f => f is not null && string.Equals(f.Name, field.Name, StringComparison.OrdinalIgnoreCase))
-                is { } held
-                && string.Equals(field.Type, held.Type, StringComparison.OrdinalIgnoreCase)
-                && SameRules(field.ValidationRules, held.ValidationRules))
-            .ToList();
-    }
-
-    /// <summary>Same rule names, in the same case, each with the same JSON value.</summary>
-    /// <remarks>
-    /// Compared as JSON because the two sides are not the same CLR shape: a stored value comes back
-    /// from the database and a bundle value from the request body, and one may be a
-    /// <c>JsonElement</c> where the other is a number or a dictionary.
-    /// </remarks>
-    private static bool SameRules(Dictionary<string, object>? a, Dictionary<string, object>? b)
-    {
-        a ??= new Dictionary<string, object>();
-        b ??= new Dictionary<string, object>();
-
-        if (a.Count != b.Count)
-            return false;
-
-        foreach (var (name, value) in a)
-        {
-            if (!b.TryGetValue(name, out var other))
-                return false;
-
-            var left = System.Text.Json.JsonSerializer.SerializeToElement<object?>(value);
-            var right = System.Text.Json.JsonSerializer.SerializeToElement<object?>(other);
-
-            if (!System.Text.Json.JsonElement.DeepEquals(left, right))
-                return false;
+            report.ContentTypesCreated++;
+            var definition = ContentTypeUpsert.Create(type);
+            existing.Add(definition);
+            toStore.Add(definition);
+            created.Add(definition);
         }
 
-        return true;
+        return (toStore, created);
     }
-
-    private static bool SameRoles(List<string>? a, List<string>? b) =>
-        (a ?? []).ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(b ?? []);
 
     private static string Shorten(string name) => name.Length > 100 ? name[..100] + "..." : name;
 }

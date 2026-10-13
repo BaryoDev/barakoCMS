@@ -32,13 +32,13 @@ internal sealed class Endpoint : EndpointWithoutRequest<NavigationResponse>
 {
     private readonly IQuerySession _session;
     private readonly IPublicContentProjector _projector;
-    private readonly PagesOptions _options;
+    private readonly PagesOptions _deployment;
 
     public Endpoint(IQuerySession session, IPublicContentProjector projector, IOptions<PagesOptions> options)
     {
         _session = session;
         _projector = projector;
-        _options = options.Value;
+        _deployment = options.Value;
     }
 
     public override void Configure()
@@ -49,15 +49,16 @@ internal sealed class Endpoint : EndpointWithoutRequest<NavigationResponse>
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        var definition = await PublishedPages.DefinitionAsync(_session, _options.ContentType, ct);
+        var options = await PagesSettings.ResolveAsync(_session, _deployment, ct);
+        var definition = await PublishedPages.DefinitionAsync(_session, options.ContentType, ct);
         if (!_projector.IsDeliverable(definition))
         {
             await Send.NotFoundAsync(ct);
             return;
         }
 
-        var (pages, truncated) = await PublishedPages.AllAsync(_session, _projector, definition!, _options, ct);
-        var tree = new PageTree(pages.Select(p => p.Node), _options.HomeSlug, _options.MaxDepth);
+        var (pages, truncated) = await PublishedPages.AllAsync(_session, _projector, definition!, options, ct);
+        var tree = new PageTree(pages.Select(p => p.Node), options.HomeSlug, options.MaxDepth);
 
         var inNavigation = new Dictionary<Guid, (PageNode Node, string Path, Guid? NavParent)>();
         foreach (var node in tree.Nodes.Where(n => n.ShowInNavigation))
