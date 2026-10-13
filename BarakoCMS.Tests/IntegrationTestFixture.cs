@@ -52,12 +52,6 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
 
     public string ConnectionString => _postgresContainer.GetConnectionString().Replace("localhost", "127.0.0.1").Replace("Host=", "Server=") + ";Pooling=false";
 
-    /// <summary>
-    /// Applies this fixture's host configuration to a builder it does not own, so another host can
-    /// run exactly the application the shared collection tests. The Alba pilot uses it (#1024).
-    /// </summary>
-    internal void ApplyTestHostConfiguration(IWebHostBuilder builder) => ConfigureWebHost(builder);
-
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.ConfigureAppConfiguration((ctx, config) =>

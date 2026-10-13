@@ -106,9 +106,6 @@
   </ItemGroup>
 
   <ItemGroup Label="Testing">
-    <!-- Pilot only (#1024): one integration test class runs through an AlbaHost. Referenced by
-         BarakoCMS.Tests alone, never by the published BarakoCMS.Testing. -->
-    <PackageVersion Include="Alba" Version="8.5.3" />
     <PackageVersion Include="coverlet.collector" Version="6.0.4" />
     <PackageVersion Include="FastEndpoints.Testing" Version="8.3.0" />
     <PackageVersion Include="FluentAssertions" Version="8.11.0" />
