@@ -76,8 +76,11 @@ public class AdminContractTests
         {
             var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
             s.Store(custom);
-            // A seeded role under a name nobody would guess, so a name-based check cannot pass.
-            s.Store(new Role { Id = barakoCMS.Data.DataSeeder.DemoHrRoleId, Name = "People Operations" });
+            // A seeded role under a name nobody would guess, so a name-based check cannot pass. Renamed
+            // in place, so it stays the platform role every tenant reaches for the classes that follow.
+            var seeded = await s.LoadAsync<Role>(barakoCMS.Data.DataSeeder.DemoHrRoleId);
+            seeded!.Name = "People Operations";
+            s.Store(seeded);
             await s.SaveChangesAsync();
         }
 
