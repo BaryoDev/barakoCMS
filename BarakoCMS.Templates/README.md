@@ -53,4 +53,4 @@ is the module contract and has the publishing conventions.
 This package belongs to [barakoCMS](https://github.com/BaryoDev/barakoCMS), an open-source headless
 CMS for .NET 10.
 
-Licensed under MPL-2.0. What the template produces is yours, under whatever licence you pick.
+Licensed under [MIT](LICENSE). What the template produces is yours, under whatever licence you pick.

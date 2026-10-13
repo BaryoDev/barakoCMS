@@ -80,4 +80,4 @@ This package belongs to [barakoCMS](https://github.com/BaryoDev/barakoCMS), an o
 CMS for .NET 10. [MODULES.md](https://github.com/BaryoDev/barakoCMS/blob/master/MODULES.md) is the
 module contract.
 
-Licensed under MPL-2.0.
+Licensed under [MIT](LICENSE).

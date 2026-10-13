@@ -1,9 +1,12 @@
+using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using BarakoCMS.Portability;
 using BarakoCMS.Testing;
+using barakoCMS.Models;
 using barakoCMS.Modules;
 using FluentAssertions;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -160,6 +163,44 @@ public class BarakoTestHostTests : IClassFixture<BarakoTestHostTests.Host>
             TestContext.Current.CancellationToken);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK, "CreateAdminClientAsync(slug) gave the admin an active membership in the tenant");
+    }
+
+    [Fact]
+    public async Task A_client_in_a_tenant_holds_that_tenant_s_role_and_not_another_tenant_s_of_the_same_name()
+    {
+        // Stored first, so a lookup by name alone finds the other tenant's role before this one.
+        var other = await _host.CreateTenantAsync(ct: TestContext.Current.CancellationToken);
+        var slug = await _host.CreateTenantAsync(ct: TestContext.Current.CancellationToken);
+        await StoreRoleAsync("Exporter", other, capabilities: []);
+        await StoreRoleAsync("Exporter", slug, capabilities: [PortabilityCapabilities.ExportContent]);
+
+        var client = await _host.CreateClientAsync(["Exporter"], slug, TestContext.Current.CancellationToken);
+        var response = await client.GetAsync("/api/portability/export", TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, "the client holds its own tenant's Exporter, which grants export_content");
+    }
+
+    [Fact]
+    public async Task A_client_never_holds_a_role_another_tenant_owns()
+    {
+        var other = await _host.CreateTenantAsync(ct: TestContext.Current.CancellationToken);
+        var name = $"Foreign-{Guid.NewGuid():N}"[..16];
+        await StoreRoleAsync(name, other, capabilities: [PortabilityCapabilities.ExportContent]);
+
+        var client = await _host.CreateClientAsync(name, TestContext.Current.CancellationToken);
+        var roles = new JwtSecurityTokenHandler()
+            .ReadJwtToken(client.DefaultRequestHeaders.Authorization!.Parameter)
+            .Claims.Where(c => c.Type == ClaimTypes.Role).Select(c => c.Value).ToList();
+
+        roles.Should().ContainSingle().Which.Should().Be("User",
+            $"{name} belongs to {other}, so the default tenant client is given no role and signs in as a plain user");
+    }
+
+    private async Task StoreRoleAsync(string name, string tenantSlug, List<string> capabilities)
+    {
+        await using var session = _host.OpenSession();
+        session.Store(new Role { Id = Guid.NewGuid(), Name = name, TenantSlug = tenantSlug, SystemCapabilities = capabilities });
+        await session.SaveChangesAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
