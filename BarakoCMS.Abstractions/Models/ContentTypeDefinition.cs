@@ -96,6 +96,14 @@ public class ContentTypeDefinition
     /// </remarks>
     public List<UniquenessRule>? Uniqueness { get; set; }
 
+    /// <summary>The field a new entry's number is written to, and how numbers are made, or null for none.</summary>
+    /// <remarks>
+    /// Null is every type stored before this existed. Set, every entry created gets the next number
+    /// of the type's series in the field, whatever the request sent there: the server owns it. Set
+    /// with <c>PUT /api/content-types/{name}/numbering</c>.
+    /// </remarks>
+    public NumberingRule? Numbering { get; set; }
+
     /// <summary>
     /// An anonymous lookup of one entry by a reference plus an identifier, or null for none.
     /// </summary>
@@ -106,6 +114,32 @@ public class ContentTypeDefinition
     /// registrations.
     /// </remarks>
     public LookupDefinition? Lookup { get; set; }
+}
+
+/// <summary>How a content type numbers its entries, for example <c>INV-2026-00042</c>.</summary>
+/// <remarks>
+/// The series is the type's own, kept per tenant, so two tenants never share a counter or see each
+/// other's numbers. Entries are numbered when they are created.
+/// </remarks>
+public class NumberingRule
+{
+    /// <summary>A text field of the type, not required, that holds the number.</summary>
+    public string Field { get; set; } = string.Empty;
+
+    /// <summary>Put in front of the number, for example <c>INV-</c>. At most 20 characters.</summary>
+    public string Prefix { get; set; } = string.Empty;
+
+    /// <summary>Minimum digits, 1 to 18.</summary>
+    public int Padding { get; set; } = 5;
+
+    /// <summary>When the count starts again from 1. The period is written between prefix and digits.</summary>
+    public barakoCMS.Core.Interfaces.NumberReset Reset { get; set; }
+
+    /// <summary>IANA id whose midnight starts a period, or null for UTC.</summary>
+    public string? TimeZoneId { get; set; }
+
+    /// <summary>How numbers are handed out. Gapless unless set.</summary>
+    public barakoCMS.Core.Interfaces.NumberStrategy Strategy { get; set; }
 }
 
 /// <summary>

@@ -1,4 +1,5 @@
 using FastEndpoints;
+using barakoCMS.Infrastructure.Jobs;
 using Marten;
 using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Auth;
@@ -27,6 +28,7 @@ internal class Endpoint(
         Put("/api/content-types/{name}/route-template");
         // Where a type's entries live on the site is modelling, the same gate as creating the type.
         Definition.RequireCapability(SystemCapabilities.ManageContentTypes, "SuperAdmin", "Admin");
+        Definition.RefusesWhileFieldChangeRuns();
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)

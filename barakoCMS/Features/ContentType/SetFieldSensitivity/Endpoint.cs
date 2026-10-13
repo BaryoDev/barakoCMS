@@ -4,6 +4,7 @@ using barakoCMS.Core.Interfaces;
 using barakoCMS.Events;
 using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Auth;
+using barakoCMS.Infrastructure.Jobs;
 using barakoCMS.Models;
 using ContentDoc = barakoCMS.Models.Content;
 
@@ -31,9 +32,10 @@ namespace barakoCMS.Features.ContentType.SetFieldSensitivity;
 /// <c>Content.SearchText</c>, a derived column built from the fields that were Public when the entry
 /// was last written. Flipping the definition changes what is returned and not what is matched, so a
 /// caller could still search for a value they may no longer read and learn which entries contain it,
-/// one guess at a time. The search text is rebuilt here for that reason, and it is rebuilt BEFORE
-/// the definition changes so no window exists where the old text is still matchable under the new
-/// level.
+/// one guess at a time. The search text is rebuilt for that reason, and it is rebuilt BEFORE the
+/// definition changes so no window exists where the old text is still matchable under the new
+/// level. Both happen as one <see cref="FieldChange"/>: applied before the answer for a type that
+/// fits in one batch, and by the job queue for a larger one, with the change in the response.
 ///
 /// LOWERING is a disclosure. Every value written while the field was masked becomes readable to
 /// everyone who can read the type, retroactively, and to anonymous callers as well when the type is
@@ -51,20 +53,19 @@ namespace barakoCMS.Features.ContentType.SetFieldSensitivity;
 /// </remarks>
 internal class Endpoint(
     IDocumentSession session,
-    IContentWriter writer,
+    IDocumentStore store,
+    IConfiguration configuration,
     barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache openApiCache,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
     IContentSourcingPolicy sourcing) : Endpoint<Request, Response>
 {
-    /// <summary>Entries per batch while rebuilding search text.</summary>
-    private const int BatchSize = 200;
-
     public override void Configure()
     {
         Put("/api/content-types/{name}/fields/{field}/sensitivity");
         // Sensitivity is what decides whether a field is scrubbed on the way out to an anonymous
         // caller, so it is a disclosure decision rather than a modelling one.
         Definition.RequireCapability(SystemCapabilities.ManagePublicDelivery, "SuperAdmin", "Admin");
+        Definition.RefusesWhileFieldChangeRuns();
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
@@ -161,36 +162,22 @@ internal class Endpoint(
 
         var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : Guid.Empty;
 
-        // The public field set as it will be once the change lands, which is what the search text has
-        // to be built from in both directions.
-        var publicFields = def.Fields
-            .Where(f => f == field ? to == SensitivityLevel.Public : f.Sensitivity == SensitivityLevel.Public)
-            .Where(f => !barakoCMS.Core.Validation.InlineImageFields.Is(f.Type))
-            .Select(f => f.Name)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // The roles as stored (ids) and as answered (names), worked out now so the change carries
+        // exactly what this request asked for. A copy, so the stored field is not touched until the
+        // change's definition step runs.
+        var target = new FieldDefinition
+        {
+            VisibleToRoles = to == SensitivityLevel.Public ? new List<string>() : req.VisibleToRoles ?? new List<string>(),
+        };
+        await barakoCMS.Core.RoleReferences.ToIdsAsync(session, [target], ct);
+        var answered = new FieldDefinition { VisibleToRoles = [.. target.VisibleToRoles] };
+        var roles = await RoleAudit.RoleListsAsync(session, [field.VisibleToRoles?.ToList() ?? new List<string>(), target.VisibleToRoles], [answered], ct);
 
-        var reindexed = 0;
-
-        if (!lowering)
-            reindexed = await RebuildSearchTextAsync(def.Name, field.Name, from, to, publicFields, actorId, ct);
-
-        var rolesBefore = field.VisibleToRoles is null ? new List<string>() : field.VisibleToRoles.ToList();
-        var maskBefore = field.Mask;
-
-        field.Sensitivity = to;
-        field.VisibleToRoles = to == SensitivityLevel.Public
-            ? new List<string>()
-            : req.VisibleToRoles ?? new List<string>();
-        await barakoCMS.Core.RoleReferences.ToIdsAsync(session, [field], ct);
-        field.Mask = to == SensitivityLevel.Public ? FieldMask.Default : req.Mask ?? FieldMask.Default;
-        def.UpdatedAt = DateTimeOffset.UtcNow;
-        session.Store(def);
-
-        // Stored as role ids, answered as role names, which is what a client sends back. A copy,
-        // so the stored field is not the one rewritten. The same lookup names the roles for the
-        // audit entry, which holds each id with the name it has now.
-        var answered = new FieldDefinition { VisibleToRoles = [.. field.VisibleToRoles] };
-        var roles = await RoleAudit.RoleListsAsync(session, [rolesBefore, field.VisibleToRoles], [answered], ct);
+        var change = NewChange(def, field, req, target.VisibleToRoles, actorId);
+        if (await FieldChanges.StartAsync(session, change, ct, inlineWhenSmall: true) is { } busy)
+        {
+            RefuseBusy(busy);
+        }
 
         // Lowering is a disclosure, so it gets an action of its own. Alerting on it should not mean
         // reading the metadata of every sensitivity change.
@@ -212,16 +199,16 @@ internal class Endpoint(
                 ["visibleToRolesFrom"] = roles[0].Names,
                 ["visibleToRoleIdsTo"] = roles[1].Ids,
                 ["visibleToRolesTo"] = roles[1].Names,
-                ["maskFrom"] = maskBefore.ToString(),
-                ["maskTo"] = field.Mask.ToString(),
+                ["maskFrom"] = field.Mask.ToString(),
+                ["maskTo"] = change.Mask.ToString()!,
                 ["publiclyDeliverable"] = def.IsPubliclyDeliverable,
+                ["change"] = change.Id.ToString(),
             },
             ct: ct);
 
         await session.SaveChangesAsync(ct);
 
-        if (lowering)
-            reindexed = await RebuildSearchTextAsync(def.Name, field.Name, from, to, publicFields, actorId, ct);
+        var applied = await RunInlineAsync(change, ct);
 
         // The delivery OpenAPI document lists only the Public fields of a type, so this changed it.
         openApiCache.Invalidate(tenant.Slug);
@@ -233,84 +220,65 @@ internal class Endpoint(
             From = from,
             To = to,
             VisibleToRoles = answered.VisibleToRoles,
-            Mask = field.Mask,
-            EntriesReindexed = reindexed,
+            Mask = change.Mask ?? FieldMask.Default,
+            EntriesReindexed = applied.State == FieldChangeState.Completed ? applied.Processed : 0,
+            Change = barakoCMS.Features.ContentType.ChangeField.FieldChangeResponse.From(applied),
         }, ct);
     }
 
+    /// <summary>The change this request asks for, carrying the roles as stored.</summary>
+    private static FieldChange NewChange(ContentTypeDefinition def, FieldDefinition field, Request req, List<string> roleIds, Guid actorId) => new()
+    {
+        ContentType = def.Name,
+        Field = field.Name,
+        Kind = FieldChangeKind.Sensitivity,
+        FromSensitivity = field.Sensitivity,
+        ToSensitivity = req.Sensitivity,
+        VisibleToRoles = roleIds,
+        Mask = req.Sensitivity == SensitivityLevel.Public ? FieldMask.Default : req.Mask ?? FieldMask.Default,
+        DefinitionFirst = req.Sensitivity < field.Sensitivity,
+        RequestedBy = actorId,
+    };
+
+    private void RefuseBusy(FieldChange running)
+    {
+        AddError(FieldChanges.Busy(running));
+        ThrowIfAnyErrors(StatusCodes.Status409Conflict);
+    }
+
     /// <summary>
-    /// Rewrites <c>SearchText</c> for every entry of the type whose text the new field set changes.
+    /// Applies the change before answering when the type fits in one batch, and otherwise answers
+    /// with the change still running on its job.
     /// </summary>
     /// <remarks>
-    /// Synchronous and proportional to the number of entries of the type, which is the trade taken
-    /// deliberately: a background rebuild would answer 200 while the value was still matchable
-    /// anonymously, and the caller would have nothing telling them when it stopped being.
-    ///
-    /// Batched on the id so the working set stays bounded, and each batch commits on its own. A run
-    /// that dies partway leaves the entries it reached correct and the rest unchanged, and rerunning
-    /// the same request finishes the job.
-    ///
-    /// An entry with no search text at all is left alone. It was never indexed, so there is nothing
-    /// to scrub, and indexing it here would make content searchable that was not searchable before,
-    /// which is the seeder's backfill and not this endpoint's business.
-    ///
-    /// The rewrite goes through the writer so it lands on the stream as well as the document. A bare
-    /// store would hold only until the next projection rebuild, which replays the last write event
-    /// and puts the old text back.
+    /// The steps are the same either way, and their order is the one this endpoint always had: when
+    /// raising, the search text is rebuilt before the definition changes, so no window exists where
+    /// the old text is still matchable under the new level; when lowering, the definition changes
+    /// first. Inline for a small type, because a client reading the type straight after this answer
+    /// expects the new level, and a job for a large one, because rebuilding a whole type used to hold
+    /// the request open for as long as it took. The small change's job was queued with it, to start a
+    /// minute later, so a run cut short here, by a failure or by the client going away, is finished
+    /// by the job rather than leaving the type's writes refused.
     /// </remarks>
-    private async Task<int> RebuildSearchTextAsync(
-        string contentType,
-        string fieldName,
-        SensitivityLevel from,
-        SensitivityLevel to,
-        HashSet<string> publicFields,
-        Guid actorId,
-        CancellationToken ct)
+    private async Task<FieldChange> RunInlineAsync(FieldChange change, CancellationToken ct)
     {
-        var updated = 0;
-        Guid? lastId = null;
-
-        while (true)
+        if (FieldChanges.RunsInline(change))
         {
-            var query = session.Query<ContentDoc>().Where(c => c.ContentType == contentType);
-
-            if (lastId.HasValue)
-                query = query.Where(c => c.Id > lastId.Value);
-
-            var batch = await query.OrderBy(c => c.Id).Take(BatchSize).ToListAsync(ct);
-
-            if (batch.Count == 0)
-                break;
-
-            lastId = batch[^1].Id;
-
-            var staged = false;
-            foreach (var content in batch)
+            try
             {
-                if (content.SearchText is null)
-                    continue;
-
-                var rebuilt = string.Join(
-                    ' ',
-                    content.Data
-                        .Where(kv => publicFields.Contains(kv.Key))
-                        .Select(kv => kv.Value?.ToString())
-                        .Where(v => !string.IsNullOrWhiteSpace(v)));
-
-                if (string.Equals(rebuilt, content.SearchText, StringComparison.Ordinal))
-                    continue;
-
-                await writer.AppendAsync(content, new ContentFieldSensitivityChanged(
-                    content.Id, fieldName, from, to, rebuilt, actorId, DateTime.UtcNow), ct);
-
-                staged = true;
-                updated++;
+                if (await FieldChanges.RunAsync(store, configuration, session.TenantId, change.Id, maxBatches: null, ct) is
+                    { State: FieldChangeState.Completed } done)
+                {
+                    return done;
+                }
             }
-
-            if (staged)
-                await session.SaveChangesAsync(ct);
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                await FieldChanges.RecordErrorAsync(store, session.TenantId, change.Id, e, ct);
+            }
         }
 
-        return updated;
+        await using var read = store.QuerySession(session.TenantId);
+        return await read.LoadAsync<FieldChange>(change.Id, ct) ?? change;
     }
 }

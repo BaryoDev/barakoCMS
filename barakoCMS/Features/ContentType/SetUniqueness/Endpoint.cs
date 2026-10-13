@@ -1,4 +1,5 @@
 using FastEndpoints;
+using barakoCMS.Infrastructure.Jobs;
 using Marten;
 using barakoCMS.Core.Validation;
 using barakoCMS.Infrastructure.Audit;
@@ -34,6 +35,7 @@ internal class Endpoint(
         Put("/api/content-types/{name}/uniqueness");
         // What a type's entries may hold is modelling, the same gate as creating the type.
         Definition.RequireCapability(SystemCapabilities.ManageContentTypes, "SuperAdmin", "Admin");
+        Definition.RefusesWhileFieldChangeRuns();
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)

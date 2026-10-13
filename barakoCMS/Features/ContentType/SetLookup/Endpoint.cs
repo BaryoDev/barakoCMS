@@ -1,6 +1,7 @@
 using barakoCMS.Core.Validation;
 using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Auth;
+using barakoCMS.Infrastructure.Jobs;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
@@ -24,6 +25,7 @@ internal class Endpoint(
     {
         Put("/api/content-types/{name}/lookup");
         Definition.RequireCapability(SystemCapabilities.ManagePublicDelivery, "SuperAdmin", "Admin");
+        Definition.RefusesWhileFieldChangeRuns();
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)

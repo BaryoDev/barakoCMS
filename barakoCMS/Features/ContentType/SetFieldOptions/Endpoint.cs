@@ -1,4 +1,5 @@
 using FastEndpoints;
+using barakoCMS.Infrastructure.Jobs;
 using Marten;
 using Marten.Linq.MatchesSql;
 using barakoCMS.Features.Public;
@@ -38,6 +39,7 @@ internal class Endpoint(
         Put("/api/content-types/{name}/fields/{field}/options");
         // Changing what a field accepts is modelling, the same gate as adding the field.
         Definition.RequireCapability(SystemCapabilities.ManageContentTypes, "SuperAdmin", "Admin");
+        Definition.RefusesWhileFieldChangeRuns();
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)

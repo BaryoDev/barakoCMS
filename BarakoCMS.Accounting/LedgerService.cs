@@ -43,7 +43,7 @@ public class LedgerService
 {
     private readonly IDocumentSession _session;
     private readonly IContentWriter _contentWriter;
-    private readonly JournalEntryHook _hook = new();
+    private readonly JournalEntryHook _hook;
 
     /// <summary>
     /// The single-argument form this replaces.
@@ -63,10 +63,22 @@ public class LedgerService
     {
     }
 
+    /// <summary>The form before 5.0, kept for an external caller that constructs the service.</summary>
+    /// <remarks>
+    /// Numbers through the core gapless allocator, as the content endpoint does, so posts made here
+    /// and there share one count.
+    /// </remarks>
+    [Obsolete("Use the constructor taking INumberAllocator. Removal planned for barakoCMS 6.0.")]
     public LedgerService(IDocumentSession session, IContentWriter contentWriter)
+        : this(session, contentWriter, barakoCMS.Infrastructure.Numbering.NumberAllocators.Gapless())
+    {
+    }
+
+    public LedgerService(IDocumentSession session, IContentWriter contentWriter, barakoCMS.Core.Interfaces.INumberAllocator numbers)
     {
         _session = session;
         _contentWriter = contentWriter;
+        _hook = new JournalEntryHook(numbers);
     }
 
     public async Task<PostResult> PostAsync(PostEntryCommand cmd, Guid userId, CancellationToken ct)

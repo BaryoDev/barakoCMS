@@ -1,4 +1,5 @@
 using FastEndpoints;
+using barakoCMS.Infrastructure.Jobs;
 using Marten;
 using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Auth;
@@ -32,6 +33,7 @@ internal class Endpoint(
     {
         Put("/api/content-types/{name}/public-delivery");
         Definition.RequireCapability(SystemCapabilities.ManagePublicDelivery, "SuperAdmin", "Admin");
+        Definition.RefusesWhileFieldChangeRuns();
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)

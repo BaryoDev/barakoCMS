@@ -633,6 +633,12 @@ public static class ServiceCollectionExtensions
                 idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
             });
 
+        // A field change's progress is a load, a batch and a save. Two runs of one change, a resumed
+        // job beside the one it was meant to replace, must not both commit a batch from one cursor:
+        // a convert would map an already mapped value again.
+        options.Schema.For<FieldChange>()
+            .UseOptimisticConcurrency(true);
+
         // Navigation menus are a "menu" content type served through public delivery, not a bespoke
         // doc. Keeping them as content keeps them pluggable and drops a whole CRUD surface. The old
         // Menu document + /api/menus endpoints were removed; existing "menus" tables are just left
@@ -1204,6 +1210,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>();
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<barakoCMS.Core.Interfaces.INumberAllocator, barakoCMS.Infrastructure.Numbering.GaplessNumberAllocator>();
+        services.AddSingleton<barakoCMS.Infrastructure.Numbering.SequenceNumberAllocator>();
+        services.AddSingleton<barakoCMS.Infrastructure.Numbering.HiLoNumberAllocator>();
+        services.AddSingleton<barakoCMS.Core.Interfaces.INumberStrategies, barakoCMS.Infrastructure.Numbering.NumberStrategies>();
         services.AddSingleton<barakoCMS.Core.Interfaces.IExternalNumberLedger, barakoCMS.Infrastructure.Numbering.ExternalNumberLedger>();
         services.AddSingleton(sp => barakoCMS.Features.Public.Events.ContentEventsOptions.FromConfiguration(
             sp.GetRequiredService<IConfiguration>()));
@@ -1340,6 +1349,9 @@ public static class ServiceCollectionExtensions
         // Needs a valid X-Step-Up token on endpoints marked Definition.RequireStepUp(). After the
         // capability gate, so a caller without the capability hears that first.
         services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Auth.Mfa.StepUpProcessor>();
+
+        // Refuses an edit to a type's definition while a field change runs on it. After every gate.
+        services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Jobs.FieldChangeGateProcessor>();
 
         // The names those gates ask for, read off the routing table. GET /api/capabilities lists it
         // and a role write checks against it.

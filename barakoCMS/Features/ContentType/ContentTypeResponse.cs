@@ -55,6 +55,9 @@ internal sealed class ContentTypeResponse
     /// </remarks>
     public List<UniquenessRule>? Uniqueness { get; init; }
 
+    /// <summary>The rule numbering the type's entries, or null when they are not numbered.</summary>
+    public NumberingRule? Numbering { get; init; }
+
     /// <summary>The anonymous lookup this type answers, or null when it answers none.</summary>
     public LookupDefinition? Lookup { get; init; }
 
@@ -84,6 +87,7 @@ internal sealed class ContentTypeResponse
         RouteTemplate = d.RouteTemplate,
         StructuredDataType = d.StructuredDataType,
         Uniqueness = d.Uniqueness,
+        Numbering = d.Numbering,
         Lookup = d.Lookup,
         EventSourced = eventSourced,
         CreatedAt = d.CreatedAt,

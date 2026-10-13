@@ -602,6 +602,36 @@
         },
         "type": "object"
       },
+      "BarakoCMSCoreInterfacesNumberReset": {
+        "description": "When a series starts counting from 1 again.",
+        "enum": [
+          "Never",
+          "Yearly",
+          "Monthly",
+          "Daily"
+        ],
+        "type": "string",
+        "x-enumNames": [
+          "Never",
+          "Yearly",
+          "Monthly",
+          "Daily"
+        ]
+      },
+      "BarakoCMSCoreInterfacesNumberStrategy": {
+        "description": "How a series hands out its numbers, and what each way costs.",
+        "enum": [
+          "Gapless",
+          "Sequence",
+          "HiLo"
+        ],
+        "type": "string",
+        "x-enumNames": [
+          "Gapless",
+          "Sequence",
+          "HiLo"
+        ]
+      },
       "BarakoCMSCoreInterfacesPublicContentProjection": {
         "additionalProperties": false,
         "description": "One entry as anonymous delivery serves it: the same JSON shape as\nGET /api/public/{type}/{slug}.",
@@ -674,6 +704,25 @@
             "description": "What a search result and a browser tab should say.",
             "nullable": true,
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSCoreValidationFieldDiff": {
+        "additionalProperties": false,
+        "description": "One field a write would change: its value, or for a definition its type, before and after.",
+        "properties": {
+          "field": {
+            "description": "The field's name as the write spells it.",
+            "type": "string"
+          },
+          "from": {
+            "description": "What it holds now, or null when it is new.",
+            "nullable": true
+          },
+          "to": {
+            "description": "What it would hold, or null when the write leaves it out.",
+            "nullable": true
           }
         },
         "type": "object"
@@ -2712,6 +2761,10 @@
             "nullable": false,
             "type": "object"
           },
+          "dryRun": {
+            "description": "Check the write with everything the real write runs and answer with what it would change,\nstoring nothing.",
+            "type": "boolean"
+          },
           "sensitivity": {
             "$ref": "#/components/schemas/BarakoCMSModelsSensitivityLevel"
           },
@@ -2728,6 +2781,18 @@
       "BarakoCMSFeaturesContentCreateResponse": {
         "additionalProperties": false,
         "properties": {
+          "changes": {
+            "description": "For a dry run, what the write would change. Null otherwise.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSCoreValidationFieldDiff"
+            },
+            "nullable": true,
+            "type": "array"
+          },
+          "dryRun": {
+            "description": "True when this answers a dry run: nothing was stored.",
+            "type": "boolean"
+          },
           "id": {
             "format": "guid",
             "type": "string"
@@ -3098,6 +3163,10 @@
           "displayName": {
             "type": "string"
           },
+          "dryRun": {
+            "description": "Check the write with everything the real write runs and answer with what it would change,\nstoring nothing.",
+            "type": "boolean"
+          },
           "editor": {
             "description": "The editor a console should open: one of fieldEditors in GET /api/meta/describe.",
             "nullable": true,
@@ -3208,8 +3277,20 @@
             "description": "The field this call added.",
             "type": "string"
           },
+          "changes": {
+            "description": "For a dry run, the field the type would gain, each with its type. Null otherwise.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSCoreValidationFieldDiff"
+            },
+            "nullable": true,
+            "type": "array"
+          },
           "contentType": {
             "type": "string"
+          },
+          "dryRun": {
+            "description": "True when this answers a dry run: nothing was stored.",
+            "type": "boolean"
           },
           "fields": {
             "description": "Every field the type now has, in order.",
@@ -3310,6 +3391,136 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesContentTypeChangeFieldFieldChangeResponse": {
+        "additionalProperties": false,
+        "description": "A field change as it stands.",
+        "properties": {
+          "completedAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "contentType": {
+            "type": "string"
+          },
+          "error": {
+            "description": "The last failure, cleared once a batch commits again.",
+            "nullable": true,
+            "type": "string"
+          },
+          "field": {
+            "type": "string"
+          },
+          "id": {
+            "format": "guid",
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "processed": {
+            "description": "Entries rewritten so far.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "startedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "step": {
+            "description": "The step it is on, from 0, of Steps.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "steps": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Entries of the type when the change was asked for.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "valuesLost": {
+            "description": "Entries whose value the change drops, counted when it was asked for.",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentTypeChangeFieldRequest": {
+        "additionalProperties": false,
+        "description": "One change to one field. Send one of newName, toType or remove, or only displayName.",
+        "properties": {
+          "allowDestructive": {
+            "description": "Says yes to a change that drops stored values: a remove, or a convert some values do not survive.",
+            "type": "boolean"
+          },
+          "displayName": {
+            "description": "A new label. On its own, applied at once: no entry changes.",
+            "maxLength": 200,
+            "minLength": 0,
+            "nullable": true,
+            "type": "string"
+          },
+          "mapping": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "For a convert, stored values as text and what each becomes.",
+            "nullable": true,
+            "type": "object"
+          },
+          "newName": {
+            "description": "A new name. Every entry's value moves to it, by a job.",
+            "maxLength": 100,
+            "minLength": 0,
+            "nullable": true,
+            "type": "string"
+          },
+          "options": {
+            "description": "For a convert to a choice, the options the field takes.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSModelsFieldOption"
+            },
+            "nullable": true,
+            "type": "array"
+          },
+          "remove": {
+            "description": "Takes the field off the type, and its value off every entry.",
+            "type": "boolean"
+          },
+          "toType": {
+            "description": "A new type. Every entry's value is converted, through Mapping first.",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentTypeChangeFieldResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "change": {
+            "description": "The job applying the change, or null for a change applied at once.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeChangeFieldFieldChangeResponse"
+              }
+            ]
+          },
+          "classification": {
+            "description": "additive, applied at once, or rename, convert or destructive,\napplied by the job in Change.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesContentTypeContentTypeResponse": {
         "additionalProperties": false,
         "description": "A content type as the API describes it, rather than as it is stored.",
@@ -3366,6 +3577,15 @@
           "name": {
             "type": "string"
           },
+          "numbering": {
+            "description": "The rule numbering the type's entries, or null when they are not numbered.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsNumberingRule"
+              }
+            ]
+          },
           "routeTemplate": {
             "description": "Where an entry of this type lives on the site, such as /blog/{slug}, or null when the\ntype declares none.",
             "nullable": true,
@@ -3399,6 +3619,10 @@
           },
           "displayName": {
             "type": "string"
+          },
+          "dryRun": {
+            "description": "Check the write with everything the real write runs and answer with what it would change,\nstoring nothing.",
+            "type": "boolean"
           },
           "eventSourced": {
             "description": "Make the event stream the source of truth for entries of this type. Permanent.",
@@ -3454,6 +3678,18 @@
       "BarakoCMSFeaturesContentTypeCreateResponse": {
         "additionalProperties": false,
         "properties": {
+          "changes": {
+            "description": "For a dry run, the fields the type would gain, each with its type. Null otherwise.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSCoreValidationFieldDiff"
+            },
+            "nullable": true,
+            "type": "array"
+          },
+          "dryRun": {
+            "description": "True when this answers a dry run: nothing was stored.",
+            "type": "boolean"
+          },
           "eventSourced": {
             "description": "The standing sourcing decision for this name, which a recreated name inherits.",
             "type": "boolean"
@@ -3466,6 +3702,10 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentTypeFieldChangeStatusRequest": {
+        "additionalProperties": false,
         "type": "object"
       },
       "BarakoCMSFeaturesContentTypeRebuildRequest": {
@@ -3490,6 +3730,10 @@
             "type": "integer"
           }
         },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentTypeResumeFieldChangeRequest": {
+        "additionalProperties": false,
         "type": "object"
       },
       "BarakoCMSFeaturesContentTypeSetFieldCurrencyRequest": {
@@ -3676,8 +3920,17 @@
       "BarakoCMSFeaturesContentTypeSetFieldSensitivityResponse": {
         "additionalProperties": false,
         "properties": {
+          "change": {
+            "description": "The change applying this: completed when the type fit in one batch, and otherwise running on\nthe job queue, with the definition taking the new level when it completes.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeChangeFieldFieldChangeResponse"
+              }
+            ]
+          },
           "entriesReindexed": {
-            "description": "How many entries had their derived search text rewritten. Entries that were never indexed,\nand entries whose text did not change, are not counted.",
+            "description": "How many entries had their derived search text rewritten. Entries that were never indexed,\nand entries whose text did not change, are not counted. 0 while Change is still\nrunning: its processed counts them then.",
             "format": "int32",
             "type": "integer"
           },
@@ -3733,6 +3986,57 @@
           },
           "name": {
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentTypeSetNumberingRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "field": {
+            "description": "The text field that holds the number. Null or empty takes the rule off the type.",
+            "nullable": true,
+            "type": "string"
+          },
+          "padding": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "reset": {
+            "$ref": "#/components/schemas/BarakoCMSCoreInterfacesNumberReset"
+          },
+          "strategy": {
+            "$ref": "#/components/schemas/BarakoCMSCoreInterfacesNumberStrategy"
+          },
+          "timeZoneId": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentTypeSetNumberingResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "contentType": {
+            "type": "string"
+          },
+          "example": {
+            "description": "What the next number would look like, for a rule that is set.",
+            "nullable": true,
+            "type": "string"
+          },
+          "numbering": {
+            "description": "The rule now on the type, or null when it has none.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsNumberingRule"
+              }
+            ]
           }
         },
         "type": "object"
@@ -3908,6 +4212,10 @@
             "nullable": false,
             "type": "object"
           },
+          "dryRun": {
+            "description": "Check the write with everything the real write runs and answer with what it would change,\nstoring nothing.",
+            "type": "boolean"
+          },
           "status": {
             "description": "The status to leave the content in. Nullable so that omitting it means \"unchanged\".",
             "nullable": true,
@@ -3930,6 +4238,18 @@
       "BarakoCMSFeaturesContentUpdateResponse": {
         "additionalProperties": false,
         "properties": {
+          "changes": {
+            "description": "For a dry run, what the write would change. Null otherwise.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSCoreValidationFieldDiff"
+            },
+            "nullable": true,
+            "type": "array"
+          },
+          "dryRun": {
+            "description": "True when this answers a dry run: nothing was stored.",
+            "type": "boolean"
+          },
           "id": {
             "format": "guid",
             "type": "string"
@@ -8034,6 +8354,15 @@
           "name": {
             "type": "string"
           },
+          "numbering": {
+            "description": "The field a new entry's number is written to, and how numbers are made, or null for none.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsNumberingRule"
+              }
+            ]
+          },
           "routeTemplate": {
             "description": "Where an entry of this type lives on the site, as a path holding {slug}, for example\n/blog/{slug}.",
             "nullable": true,
@@ -8366,6 +8695,47 @@
           "Suspended",
           "Removed"
         ]
+      },
+      "BarakoCMSModelsNumberingRule": {
+        "additionalProperties": false,
+        "description": "How a content type numbers its entries, for example INV-2026-00042.",
+        "properties": {
+          "field": {
+            "description": "A text field of the type, not required, that holds the number.",
+            "type": "string"
+          },
+          "padding": {
+            "description": "Minimum digits, 1 to 18.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "prefix": {
+            "description": "Put in front of the number, for example INV-. At most 20 characters.",
+            "type": "string"
+          },
+          "reset": {
+            "description": "When the count starts again from 1. The period is written between prefix and digits.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSCoreInterfacesNumberReset"
+              }
+            ]
+          },
+          "strategy": {
+            "description": "How numbers are handed out. Gapless unless set.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSCoreInterfacesNumberStrategy"
+              }
+            ]
+          },
+          "timeZoneId": {
+            "description": "IANA id whose midnight starts a period, or null for UTC.",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
       },
       "BarakoCMSModelsPaginatedRequest": {
         "additionalProperties": false,
@@ -14524,6 +14894,88 @@
         ]
       }
     },
+    "/api/content-types/field-changes/{id}": {
+      "get": {
+        "description": "A change stopped part way shows the step it is on, how many entries it has rewritten and the\nerror that stopped it. Another tenant's change, like one that does not exist, is a 404.",
+        "operationId": "barakoCMSFeaturesContentTypeFieldChangeStatusEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeChangeFieldFieldChangeResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/content-types/field-changes/{id}: where a field change is.",
+        "tags": [
+          "ContentType"
+        ]
+      }
+    },
+    "/api/content-types/field-changes/{id}/resume": {
+      "post": {
+        "description": "For a change whose job stopped, for example after the queue gave up on it. The job starts from\nthe step and entry the change last recorded, so nothing done is done twice. A completed change\nis a 409: there is nothing left to run. So is a change whose job is still queued or running, which\nwould otherwise run beside the new one.",
+        "operationId": "barakoCMSFeaturesContentTypeResumeFieldChangeEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeChangeFieldFieldChangeResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/content-types/field-changes/{id}/resume: queues a running change's job again.",
+        "tags": [
+          "ContentType"
+        ]
+      }
+    },
     "/api/content-types/{name}/fields": {
       "post": {
         "description": "The missing half of \"content types are defined at runtime\".\n            \nA type could be created and its fields read, but nothing could add one afterwards. The only way\nto gain a field was the SEO endpoint, which does exactly this mutation for one hardcoded set, so\nthe capability was already here and only the general case was missing. Without it a client\nasking for one more field on a type that already holds their content had no answer that did not\ninvolve recreating the type, and a page type could never gain the field a block or widget list\nneeds.\n            \nFour things this deliberately refuses.\n            \nA name the type already has, rather than overwriting it. The existing field may have been\nrenamed, made required or given rules by someone else, and none of that is this endpoint's to\nundo. Changing a field is a different operation with data consequences and does not exist yet.\n            \nA required field with no default, on a type that already has entries. Every one of those entries\nis missing the new field, so the type would be declaring an invariant its own content breaks. A\ndefault makes the rule honest, and an optional field is always safe.\n            \nAnything the create validator would refuse. The merged field list goes through\nIContentTypeValidatorService, the same call create makes, so a bad type name, a reference with no\ntarget, or a duplicate under a different casing is rejected here for the same reason and with the\nsame message.\n            \nA field that is not Public, on an event-sourced type. The rule create and\nSetFieldSensitivity apply: a stream is append-only, so a value written to it cannot be\nerased, and a type that could not be created with such a field must not gain one here.\n            \nThe endpoint itself and the optional field it added to a response were additive. The refusals\nare request validation, and tightening one is a change to the API contract.",
@@ -14583,6 +15035,77 @@
           }
         ],
         "summary": "POST /api/content-types/{name}/fields. Adds one field to a content type that already exists.",
+        "tags": [
+          "ContentType"
+        ]
+      }
+    },
+    "/api/content-types/{name}/fields/{field}/change": {
+      "post": {
+        "description": "A label is additive: it touches no entry and is applied at once (200). A rename, a convert (a\nnew type, with a mapping for the stored values) and a remove touch every entry, so each is a\nFieldChange applied by a job (202), whose progress\nGET /api/content-types/field-changes/{id} reports and which\nPOST /api/content-types/field-changes/{id}/resume runs again after it stopped.\n            \nWhile a change runs, the field is read under its old name: the job copies every value to the\nnew name first, then renames the field, then drops the old key. Entry writes to the type are\nrefused until it completes, so no write lands between two batches in a shape the job has\nalready passed. One change at a time per type.\n            \nA change that drops stored values is destructive: a remove always, and a convert when some value\nneither maps to nor reads as a value of the new type. It is refused unless the request says\nallowDestructive, and the refusal names how many entries hold a value it would drop.",
+        "operationId": "barakoCMSFeaturesContentTypeChangeFieldEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "field",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeChangeFieldRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "Request",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeChangeFieldResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/content-types/{name}/fields/{field}/change: changes one field of a type that may\nalready hold entries, and says what kind of change it was.",
         "tags": [
           "ContentType"
         ]
@@ -14773,7 +15296,7 @@
     },
     "/api/content-types/{name}/fields/{field}/sensitivity": {
       "put": {
-        "description": "Its own endpoint rather than a general content-type update, for the reason\nSetPublicDelivery is: this decides who may read data that already exists, which is worth\nmaking on purpose and worth being able to audit, rather than something that rides along inside a\nlarger edit. A general update is a separate decision, because field names, field types and a\nreference target are load-bearing once entries exist.\n            \nThe two directions are not symmetric, and treating them as one operation is the mistake this is\nshaped to avoid.\n            \nRAISING (Public towards Hidden) is safe for the future and does nothing about the past. The value\nstops being served, which is what the caller wants. It is still in the entry's data, in every\nbackup and in the event stream, and nothing here removes it from any of those.\n            \nRaising is also not finished when the definition is updated. Anonymous search matches against\nContent.SearchText, a derived column built from the fields that were Public when the entry\nwas last written. Flipping the definition changes what is returned and not what is matched, so a\ncaller could still search for a value they may no longer read and learn which entries contain it,\none guess at a time. The search text is rebuilt here for that reason, and it is rebuilt BEFORE\nthe definition changes so no window exists where the old text is still matchable under the new\nlevel.\n            \nLOWERING is a disclosure. Every value written while the field was masked becomes readable to\neveryone who can read the type, retroactively, and to anonymous callers as well when the type is\npublicly deliverable. It is allowed, because refusing it would make raising a one-way door and a\nfield marked Sensitive by mistake would need direct database access to recover, which is the\nfailure SetPublicDelivery exists to answer. It is allowed only with\nacknowledgeDisclosure, and it is recorded under its own audit action so it can be alerted\non. Lowering updates the definition FIRST and rebuilds the search text after, which is the same\nrule the other way round: whichever step exposes less goes first.\n            \nIt deliberately does not run IContentTypeValidatorService. That validates a whole type on\ncreate and has no rules about sensitivity, so all it could do here is refuse the request for\nsomething unrelated: a type created before the \"a reference must name its target\" rule existed\nwould fail it, and masking a leaking field on that type would become impossible.",
+        "description": "Its own endpoint rather than a general content-type update, for the reason\nSetPublicDelivery is: this decides who may read data that already exists, which is worth\nmaking on purpose and worth being able to audit, rather than something that rides along inside a\nlarger edit. A general update is a separate decision, because field names, field types and a\nreference target are load-bearing once entries exist.\n            \nThe two directions are not symmetric, and treating them as one operation is the mistake this is\nshaped to avoid.\n            \nRAISING (Public towards Hidden) is safe for the future and does nothing about the past. The value\nstops being served, which is what the caller wants. It is still in the entry's data, in every\nbackup and in the event stream, and nothing here removes it from any of those.\n            \nRaising is also not finished when the definition is updated. Anonymous search matches against\nContent.SearchText, a derived column built from the fields that were Public when the entry\nwas last written. Flipping the definition changes what is returned and not what is matched, so a\ncaller could still search for a value they may no longer read and learn which entries contain it,\none guess at a time. The search text is rebuilt for that reason, and it is rebuilt BEFORE the\ndefinition changes so no window exists where the old text is still matchable under the new\nlevel. Both happen as one FieldChange: applied before the answer for a type that\nfits in one batch, and by the job queue for a larger one, with the change in the response.\n            \nLOWERING is a disclosure. Every value written while the field was masked becomes readable to\neveryone who can read the type, retroactively, and to anonymous callers as well when the type is\npublicly deliverable. It is allowed, because refusing it would make raising a one-way door and a\nfield marked Sensitive by mistake would need direct database access to recover, which is the\nfailure SetPublicDelivery exists to answer. It is allowed only with\nacknowledgeDisclosure, and it is recorded under its own audit action so it can be alerted\non. Lowering updates the definition FIRST and rebuilds the search text after, which is the same\nrule the other way round: whichever step exposes less goes first.\n            \nIt deliberately does not run IContentTypeValidatorService. That validates a whole type on\ncreate and has no rules about sensitivity, so all it could do here is refuse the request for\nsomething unrelated: a type created before the \"a reference must name its target\" rule existed\nwould fail it, and masking a leaking field on that type would become impossible.",
         "operationId": "barakoCMSFeaturesContentTypeSetFieldSensitivityEndpoint",
         "parameters": [
           {
@@ -14890,6 +15413,59 @@
           }
         ],
         "summary": "PUT /api/content-types/{name}/lookup, which sets or removes the anonymous lookup the type answers\nat POST /api/public/{type}/lookup.",
+        "tags": [
+          "ContentType"
+        ]
+      }
+    },
+    "/api/content-types/{name}/numbering": {
+      "put": {
+        "description": "The rule says which field takes the number and which strategy hands it out, so the cost of the\nchoice is visible where it is made (see NumberStrategy). Changing the strategy keeps\nthe series' count. Entries that already exist keep what they hold; only entries created from now\non are numbered.",
+        "operationId": "barakoCMSFeaturesContentTypeSetNumberingEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeSetNumberingRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "Request",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeSetNumberingResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "PUT /api/content-types/{name}/numbering: sets or clears the rule that numbers a type's new entries.",
         "tags": [
           "ContentType"
         ]
