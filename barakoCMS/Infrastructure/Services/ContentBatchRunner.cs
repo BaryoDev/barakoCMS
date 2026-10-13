@@ -54,6 +54,7 @@ public sealed class ContentBatchRunner(
             // The batch's events, all at once and last, so their sequence numbers are taken
             // moments before they commit rather than held open for the whole batch.
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            await batch.RunDeferredAppendsAsync(session, ct);
             batch.StartDeferredStreams(session);
             await session.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
