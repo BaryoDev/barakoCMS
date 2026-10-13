@@ -9,6 +9,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using barakoCMS.Models;
 
+// The Portability routes and their bundle types are obsolete, and they are what these tests are about.
+#pragma warning disable CS0618
+
 namespace BarakoCMS.Tests.Features.Portability;
 
 /// <summary>

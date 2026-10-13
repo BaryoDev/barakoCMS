@@ -285,6 +285,10 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             new BarakoCMS.Forms.FormsModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Forms"));
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Forms.FormsModule(), opts));
 
+            // Portability: its contents section, so a bundle applies through the config engine. Called
+            // through IBarakoModule, the way the host calls every module's ConfigureServices.
+            ((barakoCMS.Modules.IBarakoModule)new BarakoCMS.Portability.PortabilityModule()).ConfigureServices(services, ctx.Configuration);
+
             // Diagnostics: the incidents view reads its sources from the container, and the report
             // endpoint hands reports to the forwarder, which stays off unless a test turns it on.
             // Scoped to its own section, as the host scopes it.
@@ -373,8 +377,8 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
 
         typeof(BarakoCMS.Forms.FormsModule).Assembly,
         typeof(BarakoCMS.FeatureFlags.FeatureFlagsModule).Assembly,
-        // Portability owns no documents of its own and registers no services, so its
-        // endpoints only need discovering.
+        // Portability owns no documents of its own, so beside its endpoints it needs only the
+        // config section it registers, which ConfigureWebHost adds.
         typeof(BarakoCMS.Portability.PortabilityModule).Assembly,
         typeof(BarakoCMS.ExternalAuth.ExternalAuthModule).Assembly,
         typeof(BarakoCMS.DeviceTrust.DeviceTrustModule).Assembly,
