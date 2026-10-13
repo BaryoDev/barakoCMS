@@ -27,6 +27,9 @@ internal sealed class WorkflowResponse
     /// <summary>Whether the workflow fires. True for a workflow saved before it could be switched off.</summary>
     public bool Enabled { get; init; } = true;
 
+    /// <summary>What runs the workflow. Null for the built-in runner.</summary>
+    public string? Executor { get; init; }
+
     /// <summary>
     /// The placeholder warnings, on the response to a save: an array, empty when there are none.
     /// </summary>
@@ -53,9 +56,10 @@ internal sealed class WorkflowResponse
         TriggerContentTypes = WorkflowTriggers.ContentTypes(w),
         TriggerEvent = w.TriggerEvent,
         TriggerEvents = WorkflowTriggers.Events(w),
-        Conditions = w.Conditions,
-        Actions = w.Actions.Select(WorkflowActionResponse.From).ToList(),
+        Conditions = w.Conditions ?? [],
+        Actions = (w.Actions ?? []).Select(WorkflowActionResponse.From).ToList(),
         Enabled = w.Enabled,
+        Executor = WorkflowExecutors.ForRun(w),
     };
 }
 
@@ -87,6 +91,12 @@ internal sealed class WorkflowActionResponse
     /// </summary>
     public List<string> UnreadableBranches { get; init; } = new();
 
+    /// <summary>The outputs of this action kept on a run. Empty when it keeps none.</summary>
+    public List<string> Capture { get; init; } = new();
+
+    /// <summary>What undoes this action, with its secret left out the same way. Null when nothing does.</summary>
+    public WorkflowCompensationResponse? Compensate { get; init; }
+
     public static WorkflowActionResponse From(WorkflowAction a)
     {
         var parameters = WebhookSigning.WithoutSecret(a.Type, a.Parameters, out var unreadableBranches);
@@ -98,6 +108,23 @@ internal sealed class WorkflowActionResponse
             SecretSet = WebhookSigning.HasSecret(a.Parameters),
             OnFailure = a.OnFailure ?? WorkflowFailurePolicy.Continue,
             UnreadableBranches = unreadableBranches,
+            Capture = a.Capture ?? [],
+            Compensate = a.Compensate is { } undo
+                ? new WorkflowCompensationResponse
+                {
+                    Type = undo.Type,
+                    Parameters = WebhookSigning.WithoutSecret(undo.Type, undo.Parameters ?? []),
+                    SecretSet = WebhookSigning.HasSecret(undo.Parameters ?? []),
+                }
+                : null,
         };
     }
+}
+
+/// <summary>A compensation as the API describes it: its credentials left out, as on an action.</summary>
+internal sealed class WorkflowCompensationResponse
+{
+    public string Type { get; init; } = string.Empty;
+    public Dictionary<string, string> Parameters { get; init; } = new();
+    public bool SecretSet { get; init; }
 }

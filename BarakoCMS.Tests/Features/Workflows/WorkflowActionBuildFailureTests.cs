@@ -162,7 +162,9 @@ public class WorkflowActionBuildFailureTests
     {
         using var scope = Host().Services.CreateScope();
 
+#pragma warning disable CS0618 // IWorkflowEngine is obsolete and still tested until it is removed in 6.0
         var engine = () => scope.ServiceProvider.GetRequiredService<IWorkflowEngine>();
+#pragma warning restore CS0618
         var registry = () => scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Services.IWorkflowPluginRegistry>();
 
         engine.Should().NotThrow();

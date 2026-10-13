@@ -75,7 +75,7 @@ internal sealed class WorkflowStopHarness(IntegrationTestFixture factory)
     }
 
     /// <summary>An entry for the runner to load. Without one it skips the action and calls nothing.</summary>
-    public async Task<Guid> StoreContentAsync()
+    public async Task<Guid> StoreContentAsync(Dictionary<string, object>? data = null)
     {
         var id = Guid.NewGuid();
 
@@ -85,7 +85,7 @@ internal sealed class WorkflowStopHarness(IntegrationTestFixture factory)
             Id = id,
             ContentType = "article",
             Status = ContentStatus.Published,
-            Data = new Dictionary<string, object>(),
+            Data = data ?? new Dictionary<string, object>(),
         });
         await session.SaveChangesAsync(Ct);
 

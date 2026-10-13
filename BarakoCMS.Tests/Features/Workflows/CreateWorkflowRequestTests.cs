@@ -35,6 +35,7 @@ public class CreateWorkflowRequestTests
         "Conditions",
         "Actions",
         "Enabled",
+        "Executor",
     ];
 
     /// <summary>What the stored workflow has that no request may set.</summary>
@@ -70,7 +71,7 @@ public class CreateWorkflowRequestTests
 
         var names = PropertiesOf(CreateRequest).Keys.ToList();
 
-        names.Should().HaveCount(8);
+        names.Should().HaveCount(9);
         names.Should().BeEquivalentTo(Accepted);
         names.Should().NotContain("Id");
     }
@@ -85,7 +86,7 @@ public class CreateWorkflowRequestTests
         var stored = PropertiesOf(typeof(WorkflowDefinition));
         var request = PropertiesOf(CreateRequest);
 
-        stored.Should().HaveCount(9);
+        stored.Should().HaveCount(10);
         stored.Keys.Should().BeEquivalentTo(Accepted.Concat(ServerOwned));
         request.Keys.Should().BeEquivalentTo(stored.Keys.Except(ServerOwned));
 
@@ -108,7 +109,7 @@ public class CreateWorkflowRequestTests
         var create = PropertiesOf(CreateRequest);
         var validate = PropertiesOf(ValidateRequest);
 
-        validate.Should().HaveCount(7);
+        validate.Should().HaveCount(8);
         create.Keys.Except(validate.Keys).Should().Equal("Enabled");
         validate.Keys.Except(create.Keys).Should().BeEmpty();
 
@@ -128,7 +129,7 @@ public class CreateWorkflowRequestTests
 
         var names = PropertiesOf(DryRunWorkflow).Keys.ToList();
 
-        names.Should().HaveCount(9);
+        names.Should().HaveCount(10);
         names.Should().BeEquivalentTo(Accepted.Append("Id"));
     }
 
@@ -140,7 +141,7 @@ public class CreateWorkflowRequestTests
         var body = OpenApiSchemaReader.RequestBody(doc, OpenApiSchemaReader.Operation(doc, "/api/workflows", "post"));
         var names = OpenApiSchemaReader.PropertyNames(body);
 
-        names.Should().HaveCount(8);
+        names.Should().HaveCount(9);
         names.Should().BeEquivalentTo(Accepted.Select(JsonNamingPolicy.CamelCase.ConvertName));
         names.Should().NotContain("id");
     }

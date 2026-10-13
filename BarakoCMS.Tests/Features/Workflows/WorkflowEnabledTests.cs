@@ -334,7 +334,9 @@ public class WorkflowEnabledTests
         });
 
         using var scope = _factory.Services.CreateScope();
+#pragma warning disable CS0618 // IWorkflowEngine is obsolete and still tested until it is removed in 6.0
         var engine = scope.ServiceProvider.GetRequiredService<IWorkflowEngine>();
+#pragma warning restore CS0618
 
         await engine.ProcessEventAsync(contentType, WorkflowEvents.Published, NewEntry(contentType), Ct);
 

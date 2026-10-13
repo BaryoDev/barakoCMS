@@ -342,6 +342,28 @@ Topic names are lower case words joined by dots or dashes, unique across all mod
 
 Clients read a topic through `GET /api/changes` and hear about new events through the realtime hub. See `docs/realtime.md`.
 
+#### Workflow triggers
+
+A module names the things it knows happened, so a workflow can listen for them:
+
+```csharp
+public void ConfigureWorkflowTriggers(IModuleWorkflowTriggers triggers)
+{
+    triggers.Add("forms.submitted", "A visitor submitted a form.");
+}
+```
+
+Names are lower case words joined by dots or dashes, with at least one dot, and unique across all modules. Core's own triggers (`Created`, `Updated`, `Deleted`, `Published`, `Unpublished` and `transition:<name>`) are single capitalised words or carry the transition prefix, so a module name never collides with one. A bad or duplicate name stops the host at startup. A workflow saved on a name nobody registered is refused with 400, and the error lists the names that may be chosen.
+
+Fire the trigger from the request's scope, on a stored entry:
+
+```csharp
+var queued = await services.GetRequiredService<IWorkflowTriggers>()
+    .FireAsync("forms.submitted", submission, ct);
+```
+
+It queues a run of every switched-on workflow on that trigger and the entry's content type whose conditions the entry meets, in the scope's tenant only, and commits them through the scope's session. A module cannot fire core's triggers or one it did not register: both throw `ArgumentException`. The runner loads the entry again by id when each action runs, so fire on an entry that is stored. A host older than 5.0 never calls `ConfigureWorkflowTriggers` and has no `IWorkflowTriggers`.
+
 #### Sensitive actions
 
 Mark an endpoint that should need a fresh authenticator code, such as voiding a receipt:

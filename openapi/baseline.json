@@ -6399,6 +6399,15 @@
             "format": "int32",
             "type": "integer"
           },
+          "compensation": {
+            "description": "The undoing of this action once the run is rolled back and it had succeeded. Null otherwise.\nA status of NotDeclared is an action nothing could undo.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesWorkflowRunsCompensationResponse"
+              }
+            ]
+          },
           "completedAt": {
             "format": "date-time",
             "nullable": true,
@@ -6432,6 +6441,14 @@
             "format": "int32",
             "type": "integer"
           },
+          "outputs": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "The outputs the action produced that the workflow captures, once it has succeeded. Null\notherwise. Nothing the workflow did not name is ever stored, so nothing else can be here.",
+            "nullable": true,
+            "type": "object"
+          },
           "responseStatus": {
             "format": "int32",
             "nullable": true,
@@ -6452,6 +6469,49 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesWorkflowRunsCompensationResponse": {
+        "additionalProperties": false,
+        "description": "One action's compensation, as the API describes it. No parameters, for the reason an attempt has none.",
+        "properties": {
+          "actionType": {
+            "description": "The action type that undoes it. Null when none is declared.",
+            "nullable": true,
+            "type": "string"
+          },
+          "attempts": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "completedAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "durationMs": {
+            "format": "int64",
+            "nullable": true,
+            "type": "integer"
+          },
+          "error": {
+            "nullable": true,
+            "type": "string"
+          },
+          "nextAttemptAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "status": {
+            "description": "The name of a CompensationStatus.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsCompensationStatus"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesWorkflowRunsListRunsRequest": {
         "allOf": [
           {
@@ -6466,6 +6526,12 @@
       "BarakoCMSFeaturesWorkflowRunsRunResponse": {
         "additionalProperties": false,
         "properties": {
+          "abandonedAt": {
+            "description": "When an operator abandoned the run. Null for a run nobody abandoned.",
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
           "actions": {
             "items": {
               "$ref": "#/components/schemas/BarakoCMSFeaturesWorkflowRunsAttemptResponse"
@@ -6477,6 +6543,14 @@
             "format": "date-time",
             "nullable": true,
             "type": "string"
+          },
+          "compensation": {
+            "description": "Compensating, Compensated or Incomplete once the run is rolled back, and null for a run that\nnever was. Incomplete is a run where something that went out was not undone.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsRunCompensation"
+              }
+            ]
           },
           "completedAt": {
             "format": "date-time",
@@ -6497,6 +6571,11 @@
           },
           "createdAt": {
             "format": "date-time",
+            "type": "string"
+          },
+          "executor": {
+            "description": "What runs it. Null for the built-in runner.",
+            "nullable": true,
             "type": "string"
           },
           "id": {
@@ -6542,6 +6621,10 @@
           },
           "enabled": {
             "type": "boolean"
+          },
+          "executor": {
+            "nullable": true,
+            "type": "string"
           },
           "name": {
             "type": "string"
@@ -6676,6 +6759,10 @@
             },
             "type": "object"
           },
+          "executor": {
+            "nullable": true,
+            "type": "string"
+          },
           "name": {
             "type": "string"
           },
@@ -6704,6 +6791,22 @@
         "additionalProperties": false,
         "description": "An action with its secret replaced by whether there is one.",
         "properties": {
+          "capture": {
+            "description": "The outputs of this action kept on a run. Empty when it keeps none.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "compensate": {
+            "description": "What undoes this action, with its secret left out the same way. Null when nothing does.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesWorkflowsWorkflowCompensationResponse"
+              }
+            ]
+          },
           "onFailure": {
             "description": "Continue or Halt. Continue for an action saved without the setting, or with null.",
             "oneOf": [
@@ -6734,6 +6837,25 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesWorkflowsWorkflowCompensationResponse": {
+        "additionalProperties": false,
+        "description": "A compensation as the API describes it: its credentials left out, as on an action.",
+        "properties": {
+          "parameters": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "secretSet": {
+            "type": "boolean"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesWorkflowsWorkflowResponse": {
         "additionalProperties": false,
         "description": "A workflow as the API describes it, rather than as it is stored.",
@@ -6753,6 +6875,11 @@
           "enabled": {
             "description": "Whether the workflow fires. True for a workflow saved before it could be switched off.",
             "type": "boolean"
+          },
+          "executor": {
+            "description": "What runs the workflow. Null for the built-in runner.",
+            "nullable": true,
+            "type": "string"
           },
           "id": {
             "format": "guid",
@@ -7742,6 +7869,28 @@
           "Failed",
           "Unknown",
           "Skipped",
+          "Cancelled"
+        ]
+      },
+      "BarakoCMSModelsCompensationStatus": {
+        "description": "Where the compensation of one action stands.",
+        "enum": [
+          "Pending",
+          "Running",
+          "Succeeded",
+          "Failed",
+          "Unknown",
+          "NotDeclared",
+          "Cancelled"
+        ],
+        "type": "string",
+        "x-enumNames": [
+          "Pending",
+          "Running",
+          "Succeeded",
+          "Failed",
+          "Unknown",
+          "NotDeclared",
           "Cancelled"
         ]
       },
@@ -9881,6 +10030,20 @@
         },
         "type": "object"
       },
+      "BarakoCMSModelsRunCompensation": {
+        "description": "Where the undoing of a rolled back run stands.",
+        "enum": [
+          "Compensating",
+          "Compensated",
+          "Incomplete"
+        ],
+        "type": "string",
+        "x-enumNames": [
+          "Compensating",
+          "Compensated",
+          "Incomplete"
+        ]
+      },
       "BarakoCMSModelsRunStatus": {
         "description": "",
         "enum": [
@@ -10157,6 +10320,23 @@
       "BarakoCMSModelsWorkflowAction": {
         "additionalProperties": false,
         "properties": {
+          "capture": {
+            "description": "The outputs of this action that are kept on the run, by name. Nothing is kept when it is\nempty or null.",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true,
+            "type": "array"
+          },
+          "compensate": {
+            "description": "What undoes this action when the run is rolled back. Null when nothing can, which is the\ndefault and is reported as not compensated rather than as fine.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsWorkflowCompensation"
+              }
+            ]
+          },
           "onFailure": {
             "description": "What a run does with the actions after this one when this one fails.",
             "nullable": true,
@@ -10218,6 +10398,23 @@
           },
           "type": {
             "description": "The unique action type identifier.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSModelsWorkflowCompensation": {
+        "additionalProperties": false,
+        "description": "The action that undoes another one.",
+        "properties": {
+          "parameters": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "type": {
+            "description": "An action type, as in Type. A Conditional is not accepted.",
             "type": "string"
           }
         },
@@ -21244,6 +21441,46 @@
             "JWTBearerAuth": []
           }
         ],
+        "tags": [
+          "WorkflowRuns"
+        ]
+      }
+    },
+    "/api/workflow-runs/{id}/abandon": {
+      "post": {
+        "description": "For a run nobody intends to finish, such as one whose halting action ended Unknown, or that\nfailed part way and has to be rolled back by hand. An action that succeeded and declares no\ncompensation is reported as not undone, and the run then reads Incomplete.\n            \nRefused while an action is in flight under a live lease, since the run cannot be undone around\na request that may still arrive; for a run already stopped, already rolled back, or finished\nwith every action succeeded; and for a workflow that is switched off or deleted, the same as a\nretry, because a compensation is an action that goes out.",
+        "operationId": "barakoCMSFeaturesWorkflowRunsAbandonRunEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesWorkflowRunsRunResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "Gives up on a run and undoes what it did: what has not started is cancelled, and each action\nthat succeeded has its compensation run, the last first.",
         "tags": [
           "WorkflowRuns"
         ]

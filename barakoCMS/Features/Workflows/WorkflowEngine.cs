@@ -8,6 +8,7 @@ using Marten;
 
 namespace barakoCMS.Features.Workflows;
 
+#pragma warning disable CS0618 // the implementation of the obsolete interface, kept until 6.0
 internal class WorkflowEngine(
     IDocumentSession session,
     IEnumerable<IWorkflowAction> actions,
@@ -15,6 +16,7 @@ internal class WorkflowEngine(
     IWorkflowDebugger debugger,
     ISecretProtector protector,
     ILogger<WorkflowEngine> logger) : IWorkflowEngine
+#pragma warning restore CS0618
 {
     public async Task ProcessEventAsync(string contentType, string eventType, barakoCMS.Models.Content content, CancellationToken ct)
     {
@@ -63,9 +65,9 @@ internal class WorkflowEngine(
 
     private bool MatchesConditions(WorkflowDefinition workflow, barakoCMS.Models.Content content)
     {
-        foreach (var condition in workflow.Conditions)
+        foreach (var condition in workflow.Conditions ?? [])
         {
-            if (content.Data.TryGetValue(condition.Key, out var value))
+            if (content.Data?.TryGetValue(condition.Key, out var value) == true)
             {
                 if (value?.ToString() != condition.Value)
                 {
