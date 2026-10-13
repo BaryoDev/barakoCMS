@@ -19,6 +19,12 @@ internal sealed class DescribeResponse
     /// <summary>Every value a field's <c>role</c> may hold, and the field types each is for.</summary>
     public IReadOnlyList<DescribedFieldHint> FieldRoles { get; set; } = [];
 
+    /// <summary>Every type an <c>array</c> field's <c>itemType</c> may name.</summary>
+    public IReadOnlyList<string> ArrayItemTypes { get; set; } = [];
+
+    /// <summary>Every keyword a <c>json</c> field's <c>jsonSchema</c> may use. Any other is refused.</summary>
+    public IReadOnlyList<string> JsonSchemaKeywords { get; set; } = [];
+
     /// <summary>Every value a content type's <c>structuredDataType</c> may hold, spelled exactly.</summary>
     public IReadOnlyList<string> StructuredDataTypes { get; set; } = [];
 

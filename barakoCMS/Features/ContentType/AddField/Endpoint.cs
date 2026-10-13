@@ -28,6 +28,15 @@ internal sealed class Request
     /// <summary>For a choice, whether an entry holds a list of options rather than one.</summary>
     public bool Multiple { get; set; }
 
+    /// <summary>For an array field, the type every item is. Refused on any other type.</summary>
+    public string? ItemType { get; set; }
+
+    /// <summary>For a json field, the JSON Schema a value has to match. Refused on any other type.</summary>
+    public System.Text.Json.JsonElement? JsonSchema { get; set; }
+
+    /// <summary>For a reference to the type itself, that it names the entry's parent, with the tree's depth.</summary>
+    public ParentDeclaration? Parent { get; set; }
+
     /// <summary>For a money field, the ISO 4217 code its amounts are in. Refused on any other type.</summary>
     public string? Currency { get; set; }
 
@@ -137,6 +146,31 @@ internal sealed class Endpoint(
         Definition.RefusesWhileFieldChangeRuns();
     }
 
+    private static FieldDefinition NewField(Request req) =>
+        new()
+        {
+            Name = req.FieldName,
+            DisplayName = string.IsNullOrWhiteSpace(req.DisplayName) ? req.FieldName : req.DisplayName,
+            Type = req.Type,
+            ReferenceType = req.ReferenceType,
+            Options = req.Options,
+            Multiple = req.Multiple,
+            ItemType = req.ItemType,
+            JsonSchema = req.JsonSchema,
+            Parent = req.Parent,
+            Currency = req.Currency,
+            Scale = req.Scale,
+            Editor = req.Editor,
+            Section = req.Section,
+            Role = req.Role,
+            TokenLength = req.TokenLength,
+            IsRequired = req.IsRequired,
+            DefaultValue = req.DefaultValue,
+            ValidationRules = req.ValidationRules ?? new Dictionary<string, object>(),
+            Sensitivity = req.Sensitivity,
+            VisibleToRoles = req.VisibleToRoles ?? new List<string>(),
+        };
+
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         var name = barakoCMS.Core.ContentTypeName.Normalize(req.Name);
@@ -178,26 +212,7 @@ internal sealed class Endpoint(
             ThrowIfAnyErrors();
         }
 
-        var field = new FieldDefinition
-        {
-            Name = req.FieldName,
-            DisplayName = string.IsNullOrWhiteSpace(req.DisplayName) ? req.FieldName : req.DisplayName,
-            Type = req.Type,
-            ReferenceType = req.ReferenceType,
-            Options = req.Options,
-            Multiple = req.Multiple,
-            Currency = req.Currency,
-            Scale = req.Scale,
-            Editor = req.Editor,
-            Section = req.Section,
-            Role = req.Role,
-            TokenLength = req.TokenLength,
-            IsRequired = req.IsRequired,
-            DefaultValue = req.DefaultValue,
-            ValidationRules = req.ValidationRules ?? new Dictionary<string, object>(),
-            Sensitivity = req.Sensitivity,
-            VisibleToRoles = req.VisibleToRoles ?? new List<string>(),
-        };
+        var field = NewField(req);
         await barakoCMS.Core.RoleReferences.ToIdsAsync(session, [field], ct);
 
         // Validate the type as it would be, not the field on its own, so every rule create applies

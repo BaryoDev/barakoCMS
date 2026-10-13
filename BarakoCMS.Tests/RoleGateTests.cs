@@ -168,6 +168,11 @@ public class RoleGateTests
         new("GET", "/api/content-types/field-changes/{id}", $"/api/content-types/field-changes/{NotAGuid}"),
         new("POST", "/api/content-types/field-changes/{id}/resume", $"/api/content-types/field-changes/{NotAGuid}/resume"),
         new("PUT", "/api/content-types/{name}/numbering", "/api/content-types/no-such-type/numbering"),
+        new("PUT", "/api/blocks/schema", "/api/blocks/schema"),
+        new("PUT", "/api/blocks/presets/{id}", $"/api/blocks/presets/{NotAGuid}"),
+        new("DELETE", "/api/blocks/presets/{id}", $"/api/blocks/presets/{NotAGuid}"),
+        new("PUT", "/api/blocks/bindings/{id}", $"/api/blocks/bindings/{NotAGuid}"),
+        new("DELETE", "/api/blocks/bindings/{id}", $"/api/blocks/bindings/{NotAGuid}"),
     ];
 
     public static TheoryData<GatedRoute> AllGatedRoutes()
