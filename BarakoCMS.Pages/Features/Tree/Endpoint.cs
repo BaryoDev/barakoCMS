@@ -26,7 +26,11 @@ internal sealed record TreeOptions(
     string TitleField,
     int MaxDepth,
     IReadOnlyList<string> ReservedSlugs,
-    string? HomeSlug);
+    string? HomeSlug)
+{
+    public static TreeOptions From(PagesOptions o) =>
+        new(o.ContentType, o.ParentField, o.ShowInNavigationField, o.OrderField, o.TitleField, o.MaxDepth, o.ReservedSlugs, o.HomeSlug);
+}
 
 internal sealed record TreeResponse(int Contract, bool Truncated, TreeOptions Options, IReadOnlyList<TreeItem> Items);
 
@@ -47,7 +51,7 @@ internal sealed class Endpoint : EndpointWithoutRequest<TreeResponse>
     private readonly IPermissionResolver _permissions;
     private readonly ISensitivityService _sensitivity;
     private readonly IPublicContentProjector _projector;
-    private readonly PagesOptions _options;
+    private readonly PagesOptions _deployment;
 
     public Endpoint(
         IQuerySession session,
@@ -60,7 +64,7 @@ internal sealed class Endpoint : EndpointWithoutRequest<TreeResponse>
         _permissions = permissions;
         _sensitivity = sensitivity;
         _projector = projector;
-        _options = options.Value;
+        _deployment = options.Value;
     }
 
     public override void Configure()
@@ -83,7 +87,8 @@ internal sealed class Endpoint : EndpointWithoutRequest<TreeResponse>
             return;
         }
 
-        var definition = await PublishedPages.DefinitionAsync(_session, _options.ContentType, ct);
+        var options = await PagesSettings.ResolveAsync(_session, _deployment, ct);
+        var definition = await PublishedPages.DefinitionAsync(_session, options.ContentType, ct);
         if (definition is null)
         {
             await Send.NotFoundAsync(ct);
@@ -95,15 +100,15 @@ internal sealed class Endpoint : EndpointWithoutRequest<TreeResponse>
             .Where(c => c.ContentType == name)
             .OrderBy(c => c.CreatedAt)
             .ThenBy(c => c.Id)
-            .Take(_options.MaxPages + 1)
+            .Take(options.MaxPages + 1)
             .ToListAsync(ct);
 
-        var truncated = docs.Count > _options.MaxPages;
+        var truncated = docs.Count > options.MaxPages;
         var slugField = _projector.SlugField(definition);
         var nodes = new List<PageNode>();
         var statuses = new Dictionary<Guid, ContentStatus>();
 
-        foreach (var doc in docs.Take(_options.MaxPages))
+        foreach (var doc in docs.Take(options.MaxPages))
         {
             if (!await _permissions.CanPerformActionAsync(user, name, "read", doc, ct))
             {
@@ -116,14 +121,14 @@ internal sealed class Endpoint : EndpointWithoutRequest<TreeResponse>
             nodes.Add(new PageNode(
                 doc.Id,
                 hidden || slugField is null ? null : PageData.String(data, slugField),
-                hidden ? null : PageData.String(data, _options.TitleField),
-                PageData.Guid(doc.Data, _options.ParentField),
-                PageData.Bool(data, _options.ShowInNavigationField),
-                PageData.Long(data, _options.OrderField)));
+                hidden ? null : PageData.String(data, options.TitleField),
+                PageData.Guid(doc.Data, options.ParentField),
+                PageData.Bool(data, options.ShowInNavigationField),
+                PageData.Long(data, options.OrderField)));
             statuses[doc.Id] = doc.Status;
         }
 
-        var tree = new PageTree(nodes, _options.HomeSlug, _options.MaxDepth);
+        var tree = new PageTree(nodes, options.HomeSlug, options.MaxDepth);
         var byParent = tree.Nodes.ToLookup(n =>
             n.ParentId is { } p && tree.Contains(p) && tree.Terminates(n.Id) ? n.ParentId : null);
 
@@ -133,16 +138,6 @@ internal sealed class Endpoint : EndpointWithoutRequest<TreeResponse>
                     n.Id, n.Title, n.Slug, tree.PathOf(n.Id), statuses[n.Id], n.ShowInNavigation, n.Order, Build(n.Id)))
                 .ToList();
 
-        var options = new TreeOptions(
-            _options.ContentType,
-            _options.ParentField,
-            _options.ShowInNavigationField,
-            _options.OrderField,
-            _options.TitleField,
-            _options.MaxDepth,
-            _options.ReservedSlugs,
-            _options.HomeSlug);
-
-        await Send.OkAsync(new TreeResponse(PagesContract.Version, truncated, options, Build(null)), ct);
+        await Send.OkAsync(new TreeResponse(PagesContract.Version, truncated, TreeOptions.From(options), Build(null)), ct);
     }
 }

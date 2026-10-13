@@ -749,6 +749,28 @@ public class CapabilityGateTests
             "the probe sends the stored credential to the configured base URL, so it is a write");
     }
 
+    /// <summary>
+    /// The config routes are one capability, and it opens nothing else: a document's sections are
+    /// each gated again on their own capability, which ConfigEngineTests covers.
+    /// </summary>
+    [Fact]
+    public async Task Manage_config_opens_the_config_routes_and_nothing_else()
+    {
+        var (client, _) = await CallerHolding("Config Steward", barakoCMS.Models.SystemCapabilities.ManageConfig);
+
+        var export = await client.GetAsync("/api/config/export", TestContext.Current.CancellationToken);
+        var plan = await client.SendAsync(Probe("POST", "/api/config/plan"), TestContext.Current.CancellationToken);
+        var apply = await client.SendAsync(Probe("POST", "/api/config/apply"), TestContext.Current.CancellationToken);
+        var types = await client.GetAsync("/api/content-types", TestContext.Current.CancellationToken);
+        var roles = await client.GetAsync("/api/roles", TestContext.Current.CancellationToken);
+
+        export.StatusCode.Should().Be(HttpStatusCode.OK);
+        plan.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        apply.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        types.StatusCode.Should().Be(HttpStatusCode.Forbidden, "the schema routes are manage_content_types");
+        roles.StatusCode.Should().Be(HttpStatusCode.Forbidden, "and the role routes manage_roles");
+    }
+
     /// <summary>The other half, and it does not carry the read surface with it.</summary>
     [Fact]
     public async Task Manage_connectors_opens_the_writes_and_not_the_list()
@@ -973,6 +995,9 @@ public class CapabilityGateTests
         ("POST", $"/api/workflow-runs/{NotAGuid}/cancel", HttpStatusCode.BadRequest),
         ("POST", $"/api/workflow-runs/{NotAGuid}/abandon", HttpStatusCode.BadRequest),
         ("POST", $"/api/contents/{NotAGuid}/rollback/{NotAGuid}", HttpStatusCode.BadRequest),
+        ("GET", "/api/config/export", HttpStatusCode.OK),
+        ("POST", "/api/config/plan", HttpStatusCode.BadRequest),
+        ("POST", "/api/config/apply", HttpStatusCode.BadRequest),
     ];
 
     public static TheoryData<string, string, HttpStatusCode> RoutesMigratedLast()
@@ -1013,6 +1038,7 @@ public class CapabilityGateTests
             barakoCMS.Models.SystemCapabilities.RetryWorkflowActions,
             barakoCMS.Models.SystemCapabilities.RollbackContent,
             barakoCMS.Models.SystemCapabilities.EraseContent,
+            barakoCMS.Models.SystemCapabilities.ManageConfig,
         };
 
         var withCapability = _factory.Services.GetServices<EndpointDataSource>()

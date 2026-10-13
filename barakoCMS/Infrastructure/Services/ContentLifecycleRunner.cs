@@ -7,7 +7,8 @@ public interface IContentLifecycleRunner
 {
     /// <summary>
     /// Runs every <see cref="IContentLifecycleHook"/> registered for <paramref name="contentType"/>,
-    /// in registration order, before the entry is written. Hooks may enrich <paramref name="data"/>
+    /// in registration order, then the parent check for a field the type declares a parent, before
+    /// the entry is written. Hooks may enrich <paramref name="data"/>
     /// in place. Returns every error collected; a non-empty result must abort the write.
     ///
     /// <paramref name="entryId"/> is the id of the entry being written, null on create. It has no
@@ -46,11 +47,9 @@ public class ContentLifecycleRunner(
         CancellationToken ct)
     {
         var matching = hooks
-            .Where(h => string.Equals(h.ContentType, contentType, StringComparison.OrdinalIgnoreCase))
+            .Where(h => h.ContentType == IContentLifecycleHook.AnyType
+                || string.Equals(h.ContentType, contentType, StringComparison.OrdinalIgnoreCase))
             .ToList();
-
-        if (matching.Count == 0)
-            return Array.Empty<string>();
 
         var context = new ContentLifecycleContext
         {
@@ -65,6 +64,13 @@ public class ContentLifecycleRunner(
         var errors = new List<string>();
         foreach (var hook in matching)
             errors.AddRange(await hook.OnBeforeSaveAsync(context, ct));
+
+        // A parent the type declares as data, after the hooks code registered, so a module's own
+        // rule about the same tree answers first.
+        var lowered = contentType.ToLower();
+        var definition = await session.Query<barakoCMS.Models.ContentTypeDefinition>()
+            .FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct);
+        errors.AddRange(await barakoCMS.Core.Validation.ParentFields.CheckAsync(definition, context, ct));
 
         return errors;
     }

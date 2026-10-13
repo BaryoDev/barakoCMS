@@ -81,6 +81,9 @@ public class RoleGateTests
         new("GET", "/api/monitoring/metrics", "/api/monitoring/metrics"),
         new("GET", "/api/modules", "/api/modules"),
         new("GET", "/api/capabilities", "/api/capabilities"),
+        new("GET", "/api/config/export", "/api/config/export"),
+        new("POST", "/api/config/plan", "/api/config/plan"),
+        new("POST", "/api/config/apply", "/api/config/apply"),
         new("POST", "/api/roles", "/api/roles"),
         new("GET", "/api/roles", "/api/roles"),
         new("GET", "/api/roles/{id}", $"/api/roles/{NotAGuid}"),
@@ -165,6 +168,11 @@ public class RoleGateTests
         new("PUT", "/api/workflows/{id}", $"/api/workflows/{NotAGuid}"),
         new("PUT", "/api/workflows/{id}/enabled", $"/api/workflows/{NotAGuid}/enabled"),
         new("DELETE", "/api/workflows/{id}", $"/api/workflows/{NotAGuid}"),
+        new("PUT", "/api/blocks/schema", "/api/blocks/schema"),
+        new("PUT", "/api/blocks/presets/{id}", $"/api/blocks/presets/{NotAGuid}"),
+        new("DELETE", "/api/blocks/presets/{id}", $"/api/blocks/presets/{NotAGuid}"),
+        new("PUT", "/api/blocks/bindings/{id}", $"/api/blocks/bindings/{NotAGuid}"),
+        new("DELETE", "/api/blocks/bindings/{id}", $"/api/blocks/bindings/{NotAGuid}"),
     ];
 
     public static TheoryData<GatedRoute> AllGatedRoutes()

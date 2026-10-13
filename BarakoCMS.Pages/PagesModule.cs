@@ -10,7 +10,7 @@ namespace BarakoCMS.Pages;
 /// <code>services.AddBarakoCMS(config, m =&gt; m.Add(new PagesModule()));</code>
 /// </summary>
 /// <remarks>
-/// It stores no documents of its own, so there is no schema. It seeds nothing: creating the page type
+/// It stores one document of its own, a tenant's <see cref="PagesSettings"/>. It seeds nothing: creating the page type
 /// on boot would make a later <c>blog</c> blueprint apply fail with 409.
 /// </remarks>
 public sealed class PagesModule : IBarakoModule
@@ -37,4 +37,12 @@ public sealed class PagesModule : IBarakoModule
 
         services.AddScoped<IContentLifecycleHook, PageTreeHook>();
     }
+
+    /// <summary>One row per tenant, loaded by its fixed id, so no index.</summary>
+    public void ConfigureSchema(IModuleSchema schema) =>
+        schema.For<PagesSettings>().DocumentAlias("pages_settings");
+
+    /// <summary>Grants the settings capability its defaults name, as every module seeds its own.</summary>
+    public Task SeedAsync(Marten.IDocumentSession session, IServiceProvider services, CancellationToken ct) =>
+        PagesCapabilities.Defaults.GrantAsync(session, ct);
 }
