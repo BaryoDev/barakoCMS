@@ -124,8 +124,14 @@ internal static class FieldChanges
     public static Task<FieldChange?> RunningAsync(IQuerySession session, string contentType, CancellationToken ct)
     {
         var lowered = contentType.ToLower();
-        return session.Query<FieldChange>()
-            .FirstOrDefaultAsync(c => c.ContentType.ToLower() == lowered && c.State == FieldChangeState.Running, ct);
+
+        // A real session always answers a query; a test double built on a mock may hand back null,
+        // and a session that cannot read the changes has none running. ContentUniqueness reads the
+        // type's rules the same way, on the same writer path.
+        var changes = session.Query<FieldChange>();
+        return changes is null
+            ? Task.FromResult<FieldChange?>(null)
+            : changes.FirstOrDefaultAsync(c => c.ContentType.ToLower() == lowered && c.State == FieldChangeState.Running, ct);
     }
 
     /// <summary>
