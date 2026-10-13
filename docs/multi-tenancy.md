@@ -58,11 +58,14 @@ its fixed id. Which roles a person holds *in a tenant* is still what `Membership
 - The member routes offer and accept the tenant's roles and the platform roles. Another tenant's role
   is answered as one that does not exist. The same holds for a tenant's sign-up role and MFA roles.
 - A membership that names another tenant's role, which no write path allows, gets nothing from it
-  when roles are resolved.
+  when roles are resolved. Nor does a tenant's role held as a global role, outside that tenant.
+- `POST /api/users/{userId}/roles` writes a global role, which reaches every tenant, so it takes
+  only a platform role; a tenant's role is a 400.
 
 `migrations/5.0.0/role-tenancy.sql` gives every role stored before 5.0 its owner; its header has
 the rule. A role held in several tenants is copied into each, so editing it in one no longer
-changes it in the others.
+changes it in the others. A role an account holds globally becomes a platform role, so it keeps
+granting in every tenant and only `manage_platform_roles` changes it.
 
 **Auth artifacts are global.** A refresh token, an OTP code, an MFA secret, an API key and a trusted
 device all belong to the global identity, not to the tenant whose subdomain happened to be in the URL

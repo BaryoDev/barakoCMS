@@ -754,7 +754,8 @@ client's staff.
 **`POST /api/users/{userId}/roles` writes a global role.** `User.RoleIds` is global, and effective
 roles are the union of that and the caller's membership roles in the current tenant, so a role
 assigned there applies in every tenant. It is gated on `manage_user_membership`, which `Admin` holds
-by default. It does refuse the SuperAdmin role id to a caller who does not already hold SuperAdmin.
+by default. It does refuse the SuperAdmin role id to a caller who does not already hold SuperAdmin,
+and it takes only a platform role: a role a tenant owns is a 400.
 
 The tenant-scoped way to grant a role is `POST /api/tenants/members` and
 `PUT /api/tenants/members/{userId}`, which write only `Membership.RoleIds`. Prefer those on a shared

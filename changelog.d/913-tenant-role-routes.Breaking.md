@@ -8,4 +8,7 @@
   caller's tenant, or a platform role with `isPlatform: true`; a name already used there is a 409.
   Without `manage_platform_roles`, a role write cannot add a capability that reaches past the
   tenant. A tenant's sign-up and MFA roles follow the same rule. The role response carries
-  `tenantSlug` and `isPlatform`. `ApiContract.Version` moves to 8 with #894 (#913).
+  `tenantSlug` and `isPlatform`. `POST /api/users/{userId}/roles` writes a global role, which
+  reaches every tenant, so it now takes only a platform role and answers 400 naming a tenant's
+  role; give that through `POST /api/tenants/members`. A tenant's role held globally anyway grants
+  nothing outside that tenant. `ApiContract.Version` moves to 8 with #894 (#913).
