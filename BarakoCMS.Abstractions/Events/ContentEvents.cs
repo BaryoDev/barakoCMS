@@ -37,7 +37,7 @@ public record ContentCreated(
     DateTime OccurredAt) : IContentEvent
 {
     /// <summary>The shape before <see cref="OccurredAt"/>, kept so existing callers compile.</summary>
-    [Obsolete("Pass OccurredAt, so a rebuild reproduces the timestamps. Removal planned for barakoCMS 5.0.")]
+    [Obsolete("Pass OccurredAt, so a rebuild reproduces the timestamps. Removal planned for barakoCMS 6.0.")]
     public ContentCreated(
         Guid id,
         string contentType,
@@ -60,7 +60,7 @@ public record ContentUpdated(
     DateTime OccurredAt) : IContentEvent
 {
     /// <summary>The shape before <see cref="OccurredAt"/>, kept so existing callers compile.</summary>
-    [Obsolete("Pass OccurredAt, so a rebuild reproduces the timestamps. Removal planned for barakoCMS 5.0.")]
+    [Obsolete("Pass OccurredAt, so a rebuild reproduces the timestamps. Removal planned for barakoCMS 6.0.")]
     public ContentUpdated(Guid id, Dictionary<string, object> data, Guid updatedBy, string? searchText)
         : this(id, data, updatedBy, searchText, DateTime.UtcNow)
     {
@@ -77,7 +77,7 @@ public record ContentStatusChanged(
     DateTime OccurredAt) : IContentEvent
 {
     /// <summary>The shape before <see cref="OccurredAt"/>, kept so existing callers compile.</summary>
-    [Obsolete("Pass OccurredAt, so a rebuild reproduces the timestamps. Removal planned for barakoCMS 5.0.")]
+    [Obsolete("Pass OccurredAt, so a rebuild reproduces the timestamps. Removal planned for barakoCMS 6.0.")]
     public ContentStatusChanged(Guid id, Models.ContentStatus newStatus, Guid updatedBy)
         : this(id, newStatus, updatedBy, DateTime.UtcNow)
     {
@@ -101,7 +101,7 @@ public record ContentScheduled(
     DateTime OccurredAt) : IContentEvent
 {
     /// <summary>The shape before <see cref="OccurredAt"/>, kept so existing callers compile.</summary>
-    [Obsolete("Pass OccurredAt, so a rebuild reproduces the timestamps. Removal planned for barakoCMS 5.0.")]
+    [Obsolete("Pass OccurredAt, so a rebuild reproduces the timestamps. Removal planned for barakoCMS 6.0.")]
     public ContentScheduled(
         Guid id, DateTime? scheduledPublishAt, DateTime? scheduledUnpublishAt, Guid updatedBy)
         : this(id, scheduledPublishAt, scheduledUnpublishAt, updatedBy, DateTime.UtcNow)
@@ -143,7 +143,7 @@ public record ContentSensitivityChanged(
     DateTime OccurredAt) : IContentEvent
 {
     /// <summary>The shape before <see cref="OccurredAt"/>, kept so existing callers compile.</summary>
-    [Obsolete("Pass OccurredAt, so a rebuild reproduces the timestamps. Removal planned for barakoCMS 5.0.")]
+    [Obsolete("Pass OccurredAt, so a rebuild reproduces the timestamps. Removal planned for barakoCMS 6.0.")]
     public ContentSensitivityChanged(Guid id, Models.SensitivityLevel sensitivity, Guid updatedBy)
         : this(id, sensitivity, updatedBy, DateTime.UtcNow)
     {
@@ -174,7 +174,7 @@ public record ContentTransitioned(
     DateTime OccurredAt) : IContentEvent
 {
     /// <summary>The shape before <see cref="OccurredAt"/>, kept so existing callers compile.</summary>
-    [Obsolete("Pass OccurredAt, so a rebuild reproduces the timestamps. Removal planned for barakoCMS 5.0.")]
+    [Obsolete("Pass OccurredAt, so a rebuild reproduces the timestamps. Removal planned for barakoCMS 6.0.")]
     public ContentTransitioned(
         Guid id, string transition, string fromState, string toState, Guid updatedBy)
         : this(id, transition, fromState, toState, updatedBy, DateTime.UtcNow)
@@ -205,7 +205,7 @@ public record ContentFieldSensitivityChanged(
     DateTime OccurredAt) : IContentEvent
 {
     /// <summary>The shape before <see cref="OccurredAt"/>, kept so existing callers compile.</summary>
-    [Obsolete("Pass OccurredAt, so a rebuild reproduces the timestamps. Removal planned for barakoCMS 5.0.")]
+    [Obsolete("Pass OccurredAt, so a rebuild reproduces the timestamps. Removal planned for barakoCMS 6.0.")]
     public ContentFieldSensitivityChanged(
         Guid id,
         string field,

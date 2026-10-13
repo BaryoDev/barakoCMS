@@ -191,12 +191,12 @@ public class Content
     // these: replaying an old event with the current clock is the failure the two-argument forms
     // exist to prevent.
 
-    [Obsolete("Use Apply(ContentCreated, DateTime). Removal planned for barakoCMS 5.0.")]
+    [Obsolete("Use Apply(ContentCreated, DateTime). Removal planned for barakoCMS 6.0.")]
     public void Apply(barakoCMS.Events.ContentCreated @event) => Apply(@event, DateTime.UtcNow);
 
-    [Obsolete("Use Apply(ContentUpdated, DateTime). Removal planned for barakoCMS 5.0.")]
+    [Obsolete("Use Apply(ContentUpdated, DateTime). Removal planned for barakoCMS 6.0.")]
     public void Apply(barakoCMS.Events.ContentUpdated @event) => Apply(@event, DateTime.UtcNow);
 
-    [Obsolete("Use Apply(ContentStatusChanged, DateTime). Removal planned for barakoCMS 5.0.")]
+    [Obsolete("Use Apply(ContentStatusChanged, DateTime). Removal planned for barakoCMS 6.0.")]
     public void Apply(barakoCMS.Events.ContentStatusChanged @event) => Apply(@event, DateTime.UtcNow);
 }

@@ -56,7 +56,7 @@ public class LedgerService
     /// The endpoints changed alongside it are not given this treatment on purpose: FastEndpoints
     /// constructs those, and nothing outside the process news one up.
     /// </remarks>
-    [Obsolete("Use the constructor taking IContentWriter. Removal planned for barakoCMS 5.0.")]
+    [Obsolete("Use the constructor taking IContentWriter. Removal planned for barakoCMS 6.0.")]
     public LedgerService(IDocumentSession session)
         : this(session, new barakoCMS.Infrastructure.Services.ContentWriter(
             session, new barakoCMS.Infrastructure.Services.ContentSourcingPolicyService(session)))

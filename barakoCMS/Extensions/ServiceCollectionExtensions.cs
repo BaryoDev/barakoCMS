@@ -1017,7 +1017,7 @@ public static class ServiceCollectionExtensions
                     Log.Warning(
                         "Module {Module} uses the deprecated ConfigureMarten(StoreOptions), which can "
                         + "reach core's documents and the event store. Move to ConfigureSchema(IModuleSchema); "
-                        + "ConfigureMarten is removed in barakoCMS 5.0.",
+                        + "ConfigureMarten is removed in barakoCMS 6.0.",
                         module.Name);
                 }
                 module.ConfigureMarten(options);

@@ -291,7 +291,7 @@ found would grant permission to re-map that assembly's documents.
 The older `ConfigureMarten(StoreOptions)` received the same options object core configured, so a
 module could re-map core documents, change tenancy or alter the event store. It still runs so
 existing modules keep working, it is `[Obsolete]`, the host logs a warning naming any module using
-it, and it is removed in barakoCMS 5.0.
+it, and it is removed in barakoCMS 6.0.
 
 Migrating is two edits:
 
