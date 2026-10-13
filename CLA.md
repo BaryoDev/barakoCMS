@@ -1,7 +1,17 @@
 # Contributor terms
 
-barakoCMS is [MPL-2.0](LICENSE). Your contribution ships under it, you keep your copyright, and
-barakoCMS is not released as closed source.
+The barakoCMS core is [MPL-2.0](LICENSE) and the modules are MIT (D24 in
+[DECISIONS.md](DECISIONS.md)). Your contribution ships under the licence of where it lands, you
+keep your copyright, and barakoCMS is not released as closed source.
+
+| Where the contribution lands | Licence |
+| --- | --- |
+| `barakoCMS/` (the core) and `BarakoCMS.Abstractions/` (the contract split out of it) | MPL-2.0 |
+| the modules (every other `BarakoCMS.*` package folder), `BarakoCMS.Testing`, `BarakoCMS.Suite`, `BarakoCMS.Templates` and the module template | MIT, the `LICENSE` file in that folder (`BarakoCMS.Testing` and `BarakoCMS.Templates` get theirs with their 5.0 release, which is when they move to MIT) |
+| anything else in the repository, `BarakoCMS.Tests/`, docs, scripts, migrations and CI included | MPL-2.0, the root `LICENSE` |
+
+Each package folder that is MIT carries its own `LICENSE`, and `scripts/check-licences.sh` checks
+the licence every package declares against this table.
 
 Worth splitting that last part honestly, because it is a structural guarantee for some of the code
 and a commitment for the rest:
@@ -28,8 +38,9 @@ A perpetual, worldwide, royalty-free licence to use, modify, distribute and subl
 contribute, so it can ship as part of barakoCMS and any project that includes it.
 
 **2. MPL-2.0 or MIT. Nothing else.**
-Releases containing your contribution are made under MPL-2.0, or under MIT if the project ever
-moves. Those are the only two licences BaryoDev uses, and naming them is more useful than saying
+Releases containing your contribution are made under the licence the table above gives for where
+it lands: MPL-2.0 for the core, MIT for the modules. A contribution to the core may also be
+released under MIT if the core ever moves. Those are the only two licences BaryoDev uses, and naming them is more useful than saying
 "an open source licence": that phrase covers AGPL, which many companies will not accept, so you
 would still have to ask what could happen. Now you do not.
 
@@ -44,9 +55,23 @@ Nothing here transfers ownership. It is a licence, not an assignment. Your contr
 yours and you can use it anywhere else you like, including in commercial work of your own.
 
 **4. Patents.**
-MPL-2.0 section 2.1(b) is the patent grant and it applies to your contribution. Pointed at rather
-than restated, because a second definition alongside the licence's is a second one to keep in step.
-Its purpose is that a contribution cannot become a legal trap for everyone downstream.
+For a contribution to the core, MPL-2.0 section 2.1(b) is the patent grant and it applies to your
+contribution. Pointed at rather than restated, because a second definition alongside the licence's
+is a second one to keep in step.
+
+The MIT licence says nothing about patents, so for a contribution that lands under MIT you grant
+the patent licence here: a perpetual, worldwide, no-charge, royalty-free, irrevocable (except as
+stated in this section) licence, to everyone who receives the software, to make, have made, use,
+offer to sell, sell, import and otherwise transfer the contribution, under the patent claims you can
+license that are necessarily infringed by your contribution alone or by its combination with the
+package it was contributed to. If anyone starts patent litigation against any entity, a cross-claim
+or counterclaim included, alleging that the contribution or that package infringes a patent, the
+patent licences granted to them under this section end on the date that litigation is filed. This
+is the patent clause of Apache-2.0 section 3, applied to your contribution and the package it lands
+in, because it is the one most legal teams already know.
+
+Either way the purpose is the same: a contribution cannot become a legal trap for everyone
+downstream.
 
 **5. You have the right to contribute it.**
 Either you wrote it, or you have permission from whoever did. If your employer owns your work,

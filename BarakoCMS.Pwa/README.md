@@ -37,3 +37,7 @@ launches bump `lastSeenAt` / `launchCount`). Records are stored globally; the re
 as data. Pair it with `@baryodev/pwa-kit`'s reporter on the frontend.
 
 If barakoCMS is useful to you, a star on the [repository](https://github.com/BaryoDev/barakoCMS) helps other people find it.
+
+## License
+
+[MIT](LICENSE) © BaryoDev
