@@ -73,6 +73,16 @@ public class MigrationSkipQueryTests
             "select exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace "
             + "where n.nspname = 'public' and p.proname = 'mt_quick_append_events' and p.prosrc like '%mt_events_sequence%')"),
 
+        // The 4.6.0 signature, correlation arguments included, with a body that is not the 9.49 one.
+        ["core/5.0.0/marten-9-49-quick-append-events"] = (
+            "create function public.mt_quick_append_events(stream uuid, stream_type varchar, tenantid varchar, "
+            + "event_ids uuid[], event_types varchar[], dotnet_types varchar[], bodies jsonb[], bdatas bytea[], "
+            + "causation_ids varchar[], correlation_ids varchar[], expected_version integer default null) "
+            + "returns int[] language plpgsql as $f$ begin return null; end $f$;",
+            "select exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace "
+            + "where n.nspname = 'public' and p.proname = 'mt_quick_append_events' "
+            + "and p.prosrc like '%COALESCE(array_length(event_ids, 1), 0) > 0%')"),
+
         ["core/4.5.0/refresh-token-hash-index"] = (
             "create table public.mt_doc_refresh_tokens (id uuid primary key, data jsonb not null);",
             "select (select indisunique from pg_index where indexrelid = to_regclass('public.mt_doc_refresh_tokens_uidx_token_hash'))"),
