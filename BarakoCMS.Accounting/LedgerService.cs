@@ -81,7 +81,25 @@ public class LedgerService
         _hook = new JournalEntryHook(numbers);
     }
 
+    /// <summary>
+    /// Posts the entry and saves, in one transaction. Use <see cref="StageAsync"/> instead when the
+    /// caller has more to commit with it.
+    /// </summary>
     public async Task<PostResult> PostAsync(PostEntryCommand cmd, Guid userId, CancellationToken ct)
+    {
+        var result = await StageAsync(cmd, userId, ct);
+        if (result.Ok)
+            await _session.SaveChangesAsync(ct);
+        return result;
+    }
+
+    /// <summary>
+    /// Does everything <see cref="PostAsync"/> does except save: the same validation, the same entry
+    /// number, the content and its event stream on the shared session. The caller's own
+    /// <c>SaveChangesAsync</c> commits the entry, the number sequence and whatever else the caller
+    /// staged, in one transaction. A rejected entry stages nothing and returns its errors.
+    /// </summary>
+    public async Task<PostResult> StageAsync(PostEntryCommand cmd, Guid userId, CancellationToken ct)
     {
         var data = new Dictionary<string, object>
         {
@@ -144,9 +162,6 @@ public class LedgerService
             barakoCMS.Models.SensitivityLevel.Public);
 
         await _contentWriter.CreateAsync(created, ct);
-
-        // The entry and the sequence increment the hook made commit in one transaction.
-        await _session.SaveChangesAsync(ct);
 
         return PostResult.Success(new JournalEntry
         {
