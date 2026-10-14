@@ -130,12 +130,10 @@ public class LedgerService
             .ToHashSet(StringComparer.OrdinalIgnoreCase)
             ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        var searchText = string.Join(
-            ' ',
-            data
-                .Where(kv => publicFields.Contains(kv.Key))
-                .Select(kv => kv.Value?.ToString())
-                .Where(v => !string.IsNullOrWhiteSpace(v)));
+        var searchText = string.Join(' ', data
+            .Where(kv => publicFields.Contains(kv.Key))
+            .Select(kv => kv.Value?.ToString())
+            .Where(v => !string.IsNullOrWhiteSpace(v)));
         // Sensitivity stated rather than defaulted. A journal entry is Public, but the six-value
         // constructor supplied that silently and this is the field a rebuild must not have to guess.
         var created = new barakoCMS.Events.ContentCreated(
