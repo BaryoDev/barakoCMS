@@ -25,7 +25,7 @@ internal static class AccountingContentReader
             .Where(c => c.ContentType == AccountingContentTypes.Account)
             .ToListAsync(ct);
 
-        return rows.Select(r => ToAccount(r.Data)).Where(a => !string.IsNullOrWhiteSpace(a.Code)).ToList();
+        return rows.Select(r => ToAccount(r)).Where(a => !string.IsNullOrWhiteSpace(a.Code)).ToList();
     }
 
     public static async Task<List<JournalEntry>> PostedEntriesAsync(
@@ -39,14 +39,17 @@ internal static class AccountingContentReader
         // Same shape as the previous implementation, which also materialised posted entries before
         // aggregating; roadmap U.18 tracks pushing this into a projection.
         return rows
-            .Select(r => ToEntry(r.Data))
+            .Select(r => ToEntry(r))
             .Where(e => e.Status == JournalStatus.Posted)
             .Where(e => asOf is not { } d || e.Date <= d)
             .ToList();
     }
 
-    private static Account ToAccount(Dictionary<string, object> data) => new()
+    private static Account ToAccount(barakoCMS.Models.Content row) => ToAccount(row.Data, row.Id);
+
+    private static Account ToAccount(Dictionary<string, object> data, Guid id) => new()
     {
+        Id = id,
         Code = ContentData.AsString(ContentData.Get(data, "Code")) ?? string.Empty,
         Name = ContentData.AsString(ContentData.Get(data, "Name")) ?? string.Empty,
         Type = Enum.TryParse<AccountType>(ContentData.AsString(ContentData.Get(data, "Type")), true, out var t)
@@ -58,8 +61,11 @@ internal static class AccountingContentReader
         IsActive = ContentData.Get(data, "IsActive") is not bool active || active,
     };
 
-    private static JournalEntry ToEntry(Dictionary<string, object> data) => new()
+    private static JournalEntry ToEntry(barakoCMS.Models.Content row) => ToEntry(row.Data, row.Id);
+
+    private static JournalEntry ToEntry(Dictionary<string, object> data, Guid id) => new()
     {
+        Id = id,
         EntryNumber = ContentData.AsString(ContentData.Get(data, "EntryNumber")) ?? string.Empty,
         Date = ReadDate(ContentData.Get(data, "Date")),
         Memo = ContentData.AsString(ContentData.Get(data, "Memo")) ?? string.Empty,

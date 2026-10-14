@@ -131,6 +131,25 @@ public class AccountingApiTests
     }
 
     [Fact]
+    public async Task The_id_returned_for_a_posted_entry_loads_the_stored_entry()
+    {
+        var suffix = Guid.NewGuid().ToString("N")[..6];
+        var cash = await AccountAsync($"1000-{suffix}");
+        var income = await AccountAsync($"4000-{suffix}", "Income");
+
+        var res = await PostEntryAsync(Entry("id round trip", Line(cash, 10m, 0m), Line(income, 0m, 10m)));
+
+        res.IsSuccessStatusCode.Should().BeTrue(await res.Content.ReadAsStringAsync());
+        var body = await res.Content.ReadFromJsonAsync<JsonElement>();
+        var id = body.GetProperty("id").GetGuid();
+
+        var load = await _client.GetAsync($"/api/contents/{id}");
+        load.StatusCode.Should().Be(HttpStatusCode.OK, "the returned id has to be the stored content id");
+        var stored = await load.Content.ReadFromJsonAsync<JsonElement>();
+        stored.GetProperty("contentType").GetString().Should().Be(AccountingContentTypes.JournalEntry);
+    }
+
+    [Fact]
     public async Task An_unbalanced_entry_is_refused_and_stores_nothing()
     {
         var suffix = Guid.NewGuid().ToString("N")[..6];
