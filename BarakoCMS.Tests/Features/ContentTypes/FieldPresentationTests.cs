@@ -398,7 +398,7 @@ public class FieldPresentationTests : IAsyncLifetime
         using (var scope = _fixture.Services.CreateScope())
         {
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = other, Name = other, IsActive = true });
+            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = other, Name = other });
             await session.SaveChangesAsync(Ct);
         }
 

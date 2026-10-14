@@ -5,8 +5,8 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.Pages</PackageId>
-    <Version>4.3.2</Version>
-    <Description>Page tree for barakoCMS: refuses a parent cycle, a page too deep or a reserved root slug on a configured content type, and serves the nested navigation, path resolution with breadcrumbs, and an authenticated tree with drafts for the console.</Description>
+    <Version>4.4.0</Version>
+    <Description>Page tree for barakoCMS: refuses a parent cycle, a page too deep or a reserved root slug on a configured content type, per tenant, and serves the nested navigation, path resolution with breadcrumbs, and an authenticated tree with drafts for the console.</Description>
   </PropertyGroup>
 
   <ItemGroup>
@@ -16,6 +16,11 @@
   <ItemGroup>
     <ProjectReference Include="..\BarakoCMS.Abstractions\BarakoCMS.Abstractions.csproj" />
     <ProjectReference Include="..\barakoCMS\barakoCMS.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The module's own table, for db-migrate (docs/migrations.md). -->
+    <EmbeddedResource Include="..\migrations\5.0.0\pages-settings.sql" LogicalName="barako-migrations/5.0.0/pages-settings.sql" />
   </ItemGroup>
 
   <ItemGroup>

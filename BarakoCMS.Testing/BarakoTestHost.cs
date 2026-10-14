@@ -282,14 +282,26 @@ public class BarakoTestHost : IAsyncLifetime
         var slug = NormaliseSlug(tenantSlug);
 
         var userId = Guid.NewGuid();
+        var globalRoleIds = new List<Guid>();
+        var tenantRoleIds = new List<Guid>();
         await using (var session = OpenSession())
         {
-            var roleIds = new List<Guid>();
             foreach (var name in roleNames)
             {
-                var role = await session.Query<Role>().FirstOrDefaultAsync(r => r.Name == name, ct);
-                if (role is not null)
-                    roleIds.Add(role.Id);
+                var role = await RoleNamedAsync(session, name, slug, ct);
+                if (role is null)
+                    continue;
+
+                // A global role grants in every tenant, so only a platform role is held globally.
+                // Outside the default tenant, that tenant's own role is held through the membership.
+                if (role.TenantSlug is null || slug == Tenant.DefaultSlug)
+                {
+                    globalRoleIds.Add(role.Id);
+                }
+                else
+                {
+                    tenantRoleIds.Add(role.Id);
+                }
             }
 
             session.Store(new User
@@ -297,14 +309,14 @@ public class BarakoTestHost : IAsyncLifetime
                 Id = userId,
                 Username = $"test-{userId:N}"[..20],
                 Email = $"test-{userId:N}@example.com",
-                RoleIds = roleIds,
+                RoleIds = globalRoleIds,
             });
             await session.SaveChangesAsync(ct);
         }
 
         var user = await LoadUserAsync(userId, ct);
         if (slug != Tenant.DefaultSlug)
-            await EnsureMembershipAsync(user, slug, ct);
+            await EnsureMembershipAsync(user, slug, ct, tenantRoleIds);
 
         return await ClientForAsync(user, slug, ct);
     }
@@ -325,7 +337,7 @@ public class BarakoTestHost : IAsyncLifetime
         var existing = await session.Query<Tenant>().FirstOrDefaultAsync(t => t.Slug == value, ct);
         if (existing is null)
         {
-            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = value, Name = value, IsActive = true });
+            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = value, Name = value, Status = TenantStatus.Active });
             await session.SaveChangesAsync(ct);
         }
 
@@ -385,8 +397,9 @@ public class BarakoTestHost : IAsyncLifetime
         IReadOnlyList<string> roles;
         await using (var session = OpenSession())
         {
+            var roleIds = await MembershipRoles.EffectiveRoleIdsAsync(session, user, tenantSlug, ct);
             roles = await session.Query<Role>()
-                .Where(r => user.RoleIds.Contains(r.Id))
+                .Where(r => roleIds.Contains(r.Id))
                 .Select(r => r.Name)
                 .ToListAsync(ct);
         }
@@ -438,7 +451,21 @@ public class BarakoTestHost : IAsyncLifetime
             ?? throw new InvalidOperationException($"User {id} was stored and could not be read back.");
     }
 
-    private async Task EnsureMembershipAsync(User user, string tenantSlug, CancellationToken ct)
+    /// <summary>
+    /// The role a test means by <paramref name="name"/> in <paramref name="tenantSlug"/>: a platform
+    /// role first, then that tenant's own. Role names are unique only within one owner, so another
+    /// tenant's role of the same name is never picked.
+    /// </summary>
+    private static async Task<Role?> RoleNamedAsync(IQuerySession session, string name, string tenantSlug, CancellationToken ct)
+    {
+        var found = await session.Query<Role>()
+            .Where(r => r.Name == name && (r.TenantSlug == null || r.TenantSlug == tenantSlug))
+            .ToListAsync(ct);
+        return found.OrderBy(r => r.TenantSlug is null ? 0 : 1).FirstOrDefault();
+    }
+
+    private async Task EnsureMembershipAsync(User user, string tenantSlug, CancellationToken ct,
+        IReadOnlyCollection<Guid>? tenantRoleIds = null)
     {
         await using var session = OpenSession();
 
@@ -460,7 +487,7 @@ public class BarakoTestHost : IAsyncLifetime
             UserId = user.Id,
             TenantSlug = tenantSlug,
             Status = MembershipStatus.Active,
-            RoleIds = [.. user.RoleIds],
+            RoleIds = [.. user.RoleIds, .. tenantRoleIds ?? []],
         });
         await session.SaveChangesAsync(ct);
     }

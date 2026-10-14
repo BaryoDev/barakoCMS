@@ -57,7 +57,18 @@ comes only from a tenant membership gets 403 on every route below.
 | GET | `/api/analytics/{websiteId}/series?range=7d` | Pageviews/sessions over time |
 | GET | `/api/analytics/{websiteId}/metric?type=url&range=7d` | Top-N breakdown (`url`,`referrer`,`country`,`browser`,`os`,`device`) |
 
-`range` is one of `24h`, `7d` (default), `30d`, `90d`. The module persists nothing — every read is
-live from Umami — so it registers no Marten documents.
+`range` is one of `24h`, `7d` (default), `30d`, `90d`. The three read routes also take `from` and
+`to` (ISO 8601 with `Z` or an offset, URL-encoded so a `+` survives) for any window up to 400 days, in place of `range`; set both or neither. A window of
+two days or less is bucketed by hour, anything longer by day. The series answers with the `from` and
+`to` it covered, and `compare=previous` adds `previous`: the window of the same length that ends
+where this one starts, with its own `from`, `to`, `pageviews` and `sessions`, for drawing behind
+the current line.
+
+The module persists nothing, since every read is
+live from Umami, so it registers no Marten documents.
 
 If barakoCMS is useful to you, a star on the [repository](https://github.com/BaryoDev/barakoCMS) helps other people find it.
+
+## License
+
+[MIT](LICENSE) © BaryoDev

@@ -31,6 +31,12 @@ public sealed class FilesModule : IBarakoModule
         /* Default storage. The S3 module, when present, replaces this (it runs after and overrides). */
         services.TryAddScoped<IFileStorage, PostgresFileStorage>();
 
+        // Which storage a request writes to and reads from. Postgres is registered on its own too,
+        // so a file stored there stays readable after the tenant or the operator moves to a bucket.
+        services.TryAddScoped<PostgresFileStorage>();
+        services.TryAddSingleton<BarakoCMS.Files.Storage.IStorageEnvironment, BarakoCMS.Files.Storage.NoStorageEnvironment>();
+        services.TryAddScoped<BarakoCMS.Files.Storage.FileStorageResolver>();
+
         // Replaces the core's default, which refuses. Added rather than TryAdded so it wins whether
         // the core registered its default before this module or after.
         services.AddScoped<barakoCMS.Core.Interfaces.IFileStore, FileStore>();
@@ -53,7 +59,11 @@ public sealed class FilesModule : IBarakoModule
         // Resizing is stateless, so one instance. The variant cache is per request because it
         // writes through the request's Marten session and the storage provider bound to it.
         services.TryAddSingleton<IImageResizer, SkiaImageResizer>();
-        services.TryAddScoped<ImageVariants>();
+        services.TryAddScoped(sp => new ImageVariants(
+            sp.GetRequiredService<IDocumentSession>(),
+            sp.GetRequiredService<BarakoCMS.Files.Storage.FileStorageResolver>(),
+            sp.GetRequiredService<IImageResizer>(),
+            sp.GetRequiredService<IConfiguration>()));
     }
 
     public void ConfigureSchema(IModuleSchema schema)
@@ -72,6 +82,10 @@ public sealed class FilesModule : IBarakoModule
         /* Blob bytes for the Postgres provider, keyed by the storage key (a string id). */
         schema.For<FileBlob>()
             .DocumentAlias("file_blobs");
+
+        // One per tenant: where its new uploads go.
+        schema.For<BarakoCMS.Files.Storage.StorageSettings>()
+            .DocumentAlias("storage_settings");
     }
 
     /// <summary>

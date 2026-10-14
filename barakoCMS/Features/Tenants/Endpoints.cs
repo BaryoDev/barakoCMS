@@ -28,8 +28,8 @@ internal class PublicTenantEndpoint(IQuerySession session, IDocumentStore store)
     public override async Task HandleAsync(CancellationToken ct)
     {
         var handle = Route<string>("handle")?.ToLowerInvariant();
-        var t = await session.Query<Tenant>().FirstOrDefaultAsync(x => x.Slug == handle && x.IsActive, ct);
-        if (t is null) { await Send.NotFoundAsync(ct); return; }
+        var t = await session.Query<Tenant>().FirstOrDefaultAsync(x => x.Slug == handle, ct);
+        if (t is not { Status: TenantStatus.Active }) { await Send.NotFoundAsync(ct); return; }
         var profile = await TenantProfiles.ReadAsync(store, t, ct);
         await Send.OkAsync(new TenantPublicResponse(
             t.Slug, t.Name, profile.LogoUrl, profile.About, profile.Location, profile.LocationUrl,
@@ -78,7 +78,29 @@ internal sealed class TenantWriteRequest
     public string? SocialHandle { get; set; }
     public string? Email { get; set; }
     public string? ContactUrl { get; set; }
-    public bool IsActive { get; set; } = true;
+
+    /// <summary>
+    /// Whether the tenant is served. Leaving it and <see cref="IsActive"/> out makes it Active, as
+    /// before, also on an update: a write that sends only other fields reactivates a suspended
+    /// tenant, so send the current status to keep it.
+    /// </summary>
+    public TenantStatus? Status { get; set; }
+
+    /// <summary>The flag clients sent before <see cref="Status"/>: true is Active, false Suspended.</summary>
+    /// <remarks>
+    /// False leaves an Archived tenant Archived, so a client that echoes a tenant back with this
+    /// flag does not move it between the two.
+    /// </remarks>
+    public bool? IsActive { get; set; }
+
+    /// <summary>Who may join by signing up. Null on an update leaves the policy, and its role, as they are.</summary>
+    public TenantSignUp? SignUp { get; set; }
+
+    /// <summary>The role an Open sign-up gives. Required with Open, refused with anything else.</summary>
+    public Guid? SignUpRoleId { get; set; }
+
+    /// <summary>The tenant's sign-in rules, replaced whole. Null on an update leaves them as they are.</summary>
+    public TenantSignInBody? SignIn { get; set; }
 
     /// <summary>
     /// The domains the tenant answers on, as bare hosts such as <c>example.com</c>.
@@ -89,6 +111,35 @@ internal sealed class TenantWriteRequest
     /// wiping its domains.
     /// </remarks>
     public List<string>? Domains { get; set; }
+}
+
+/// <summary>A tenant's sign-in rules as the API reads and writes them. See <see cref="TenantSignInPolicy"/>.</summary>
+internal sealed class TenantSignInBody
+{
+    public bool RequireMfa { get; set; }
+    public List<Guid> MfaRoleIds { get; set; } = new();
+    public List<string> Methods { get; set; } = new();
+    public int? SessionMinutes { get; set; }
+
+    /// <summary>Shortest and longest session a tenant may set: five minutes, and the deployment's seven days.</summary>
+    public const int MinSessionMinutes = 5;
+    public const int MaxSessionMinutes = 7 * 24 * 60;
+
+    public static TenantSignInBody From(TenantSignInPolicy p) => new()
+    {
+        RequireMfa = p.RequireMfa,
+        MfaRoleIds = p.MfaRoleIds.ToList(),
+        Methods = p.Methods.ToList(),
+        SessionMinutes = p.SessionMinutes,
+    };
+
+    public TenantSignInPolicy ToPolicy() => new()
+    {
+        RequireMfa = RequireMfa,
+        MfaRoleIds = (MfaRoleIds ?? []).Distinct().ToList(),
+        Methods = (Methods ?? []).Select(m => m.Trim().ToLowerInvariant()).Distinct().ToList(),
+        SessionMinutes = SessionMinutes,
+    };
 }
 
 /// <summary>Refuses a tenant write that sets a profile field, naming the site field it moved to.</summary>
@@ -108,13 +159,64 @@ internal sealed class TenantWriteRequestValidator : Validator<TenantWriteRequest
         RuleFor(r => r.SocialHandle).Must(BeBlank).WithMessage(Moved("SocialHandle"));
         RuleFor(r => r.Email).Must(BeBlank).WithMessage(Moved("Email"));
         RuleFor(r => r.ContactUrl).Must(BeBlank).WithMessage(Moved("ContactUrl"));
+
+        RuleFor(r => r.Status).IsInEnum();
+        RuleFor(r => r.SignUp).IsInEnum();
+        RuleForEach(r => r.SignIn!.Methods)
+            .Must(m => TenantSignInPolicy.KnownMethods.Contains((m ?? string.Empty).Trim().ToLowerInvariant()))
+            .When(r => r.SignIn is not null)
+            .WithMessage($"A sign-in method is one of: {string.Join(", ", TenantSignInPolicy.KnownMethods)}.");
+        RuleFor(r => r.SignIn!.SessionMinutes)
+            .InclusiveBetween(TenantSignInBody.MinSessionMinutes, TenantSignInBody.MaxSessionMinutes)
+            .When(r => r.SignIn?.SessionMinutes is not null)
+            .WithMessage($"sessionMinutes is between {TenantSignInBody.MinSessionMinutes} and {TenantSignInBody.MaxSessionMinutes}, or null for the deployment's length.");
+        RuleFor(r => r.SignUpRoleId).NotNull().When(r => r.SignUp == TenantSignUp.Open)
+            .WithMessage("An Open sign-up policy needs signUpRoleId, the role a person who signs up is given.");
+        RuleFor(r => r.SignUpRoleId).Null().When(r => r.SignUp != TenantSignUp.Open)
+            .WithMessage("signUpRoleId is only read with signUp set to Open.");
+        RuleFor(r => r.IsActive)
+            .Must((r, active) => active is null || r.Status is null || active == (r.Status == TenantStatus.Active))
+            .WithMessage("isActive disagrees with status. Send status alone.");
     }
+
+    /// <summary>The status a write asks for: Status if sent, else the IsActive flag, else Active.</summary>
+    public static TenantStatus Requested(TenantWriteRequest r, TenantStatus current) =>
+        r.Status
+        ?? (r.IsActive is false
+            ? (current == TenantStatus.Active ? TenantStatus.Suspended : current)
+            : TenantStatus.Active);
 
     private static bool BeBlank(string? value) => string.IsNullOrWhiteSpace(value);
 
     private static string Moved(string siteField) =>
         $"A tenant no longer holds a profile. Set the {siteField} field of its {TenantProfiles.SiteType} entry "
       + "and leave this one out.";
+}
+
+/// <summary>The checks a sign-up role needs from the store, which a validator cannot make.</summary>
+internal static class TenantSignUpRole
+{
+    /// <summary>Why <paramref name="roleId"/> cannot be the role an Open sign-up gives, or null.</summary>
+    /// <remarks>
+    /// Anyone with an email address can sign up to an Open tenant, so the role is held to the rule a
+    /// tenant administrator's grant is: never SuperAdmin, and never a role that reaches past the tenant.
+    /// </remarks>
+    public static async Task<string?> RefusalAsync(IQuerySession session, Guid roleId, string tenantSlug, CancellationToken ct)
+    {
+        var role = await session.LoadAsync<Role>(roleId, ct);
+        if (role is null || !barakoCMS.Features.Roles.RoleScope.Reaches(role, tenantSlug))
+            return "The sign-up role does not exist.";
+
+        if (!barakoCMS.Features.Tenants.Members.Members.IsAssignable(roleId)
+            || barakoCMS.Features.Users.PlatformRoles.CarriesPlatformCapability(role))
+            return "The sign-up role carries platform access, so it cannot be given to whoever signs up.";
+
+        return null;
+    }
+
+    /// <summary>Whether every id names a role the tenant reaches: its own, or a platform role.</summary>
+    public static Task<bool> AllExistAsync(IQuerySession session, List<Guid>? roleIds, string tenantSlug, CancellationToken ct) =>
+        barakoCMS.Features.Roles.RoleScope.AllReachableAsync(session, roleIds ?? [], tenantSlug, ct);
 }
 
 /// <summary>Finds a domain already held by another tenant.</summary>
@@ -183,6 +285,12 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         if (await _session.Query<Tenant>().AnyAsync(x => x.Slug == handle, ct))
         { AddError(r => r.Handle, "A tenant with this handle already exists."); ThrowIfAnyErrors(); }
 
+        if (req.SignUpRoleId is { } signUpRole && await TenantSignUpRole.RefusalAsync(_session, signUpRole, handle, ct) is { } refusal)
+        { AddError(r => r.SignUpRoleId, refusal); ThrowIfAnyErrors(); }
+
+        if (req.SignIn is not null && !await TenantSignUpRole.AllExistAsync(_session, req.SignIn.MfaRoleIds, handle, ct))
+        { AddError(r => r.SignIn, "One or more MFA roles do not exist."); ThrowIfAnyErrors(); }
+
         if (await TenantDomainClash.FindAsync(_session, domains, exceptSlug: null, ct) is { } clash)
         { ThrowError($"'{clash.Domain}' is already a domain of tenant '{clash.Slug}'. A domain belongs to one tenant.", 409); }
 
@@ -191,7 +299,10 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
             Id = Guid.NewGuid(),
             Slug = handle,
             Name = req.Name,
-            IsActive = req.IsActive,
+            Status = TenantWriteRequestValidator.Requested(req, TenantStatus.Active),
+            SignUp = req.SignUp ?? TenantSignUp.NotSet,
+            SignUpRoleId = req.SignUpRoleId,
+            SignIn = req.SignIn?.ToPolicy() ?? new TenantSignInPolicy(),
             Domains = domains.ToList(),
         };
         _session.Store(tenant);
@@ -216,7 +327,7 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
     }
 }
 
-/// <summary>PUT /api/tenants/{handle}: update a tenant's name, domains and active flag (platform admin).</summary>
+/// <summary>PUT /api/tenants/{handle}: update a tenant's name, domains and status (platform admin).</summary>
 /// <remarks>
 /// A profile value still on the stored document is left as it is unless the request sends that
 /// field as an empty string, which blanks it. This used to overwrite all seven with whatever the
@@ -252,6 +363,10 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
             foreach (var error in domainErrors)
             { AddError(r => r.Domains, error); }
         }
+        if (req.SignUpRoleId is { } signUpRole && await TenantSignUpRole.RefusalAsync(_session, signUpRole, tenant.Slug, ct) is { } refusal)
+            AddError(r => r.SignUpRoleId, refusal);
+        if (req.SignIn is not null && !await TenantSignUpRole.AllExistAsync(_session, req.SignIn.MfaRoleIds, tenant.Slug, ct))
+            AddError(r => r.SignIn, "One or more MFA roles do not exist.");
         ThrowIfAnyErrors();
 
         if (domains is not null
@@ -260,17 +375,23 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
 
         tenant.Name = req.Name;
         TenantProfiles.ClearBlanked(tenant, req);
-        // Switching a tenant off stops tokens being issued for it and refuses its API keys, and
-        // switching it on restores both, so either is recorded in that tenant's log.
-        if (tenant.IsActive != req.IsActive)
+        // Switching a tenant off stops it being served, tokens being issued for it and its API keys,
+        // and switching it on restores all three, so any change is recorded in that tenant's log.
+        var status = TenantWriteRequestValidator.Requested(req, tenant.Status);
+        if (tenant.Status != status)
         {
             Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
             await barakoCMS.Infrastructure.Audit.AuditLog.RecordAsync(
-                _session, tenant.Slug, req.IsActive ? "tenant.activated" : "tenant.deactivated", actorId,
-                User.FindFirst("Username")?.Value, targetType: "Tenant", targetId: tenant.Slug, ct: ct);
+                _session, tenant.Slug, status == TenantStatus.Active ? "tenant.activated" : "tenant.deactivated", actorId,
+                User.FindFirst("Username")?.Value, targetType: "Tenant", targetId: tenant.Slug,
+                metadata: new Dictionary<string, object> { ["from"] = tenant.Status.ToString(), ["to"] = status.ToString() },
+                ct: ct);
         }
 
-        tenant.IsActive = req.IsActive;
+        tenant.Status = status;
+        await ApplySignUpAsync(tenant, req, ct);
+        await ApplySignInAsync(tenant, req, ct);
+
         if (domains is not null)
             tenant.Domains = domains.ToList();
         _session.Store(tenant);
@@ -280,5 +401,61 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         // the map too, and waiting out the cache would keep routing to it for minutes.
         _domains.Invalidate();
         await Send.OkAsync(TenantResponse.From(tenant), ct);
+    }
+
+    /// <summary>Applies a sent sign-up policy, recording a change in the tenant's log.</summary>
+    private async Task ApplySignUpAsync(Tenant tenant, TenantWriteRequest req, CancellationToken ct)
+    {
+        if (req.SignUp is not { } signUp)
+        {
+            return;
+        }
+
+        if (tenant.SignUp != signUp || tenant.SignUpRoleId != req.SignUpRoleId)
+        {
+            Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
+            await barakoCMS.Infrastructure.Audit.AuditLog.RecordAsync(
+                _session, tenant.Slug, "tenant.signup_changed", actorId,
+                User.FindFirst("Username")?.Value, targetType: "Tenant", targetId: tenant.Slug,
+                metadata: new Dictionary<string, object>
+                {
+                    ["from"] = tenant.SignUp.ToString(),
+                    ["to"] = signUp.ToString(),
+                    ["roleId"] = req.SignUpRoleId?.ToString() ?? string.Empty,
+                },
+                ct: ct);
+        }
+
+        tenant.SignUp = signUp;
+        tenant.SignUpRoleId = req.SignUpRoleId;
+    }
+
+    /// <summary>Applies sent sign-in rules, recording a change in the tenant's log.</summary>
+    private async Task ApplySignInAsync(Tenant tenant, TenantWriteRequest req, CancellationToken ct)
+    {
+        if (req.SignIn is null)
+        {
+            return;
+        }
+
+        var signIn = req.SignIn.ToPolicy();
+        var changed = System.Text.Json.JsonSerializer.Serialize(tenant.SignIn) != System.Text.Json.JsonSerializer.Serialize(signIn);
+        if (changed)
+        {
+            Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
+            await barakoCMS.Infrastructure.Audit.AuditLog.RecordAsync(
+                _session, tenant.Slug, "tenant.signin_changed", actorId,
+                User.FindFirst("Username")?.Value, targetType: "Tenant", targetId: tenant.Slug,
+                metadata: new Dictionary<string, object>
+                {
+                    ["requireMfa"] = signIn.RequireMfa,
+                    ["mfaRoleIds"] = signIn.MfaRoleIds.Select(id => id.ToString()).ToList(),
+                    ["methods"] = signIn.Methods,
+                    ["sessionMinutes"] = signIn.SessionMinutes?.ToString() ?? string.Empty,
+                },
+                ct: ct);
+        }
+
+        tenant.SignIn = signIn;
     }
 }

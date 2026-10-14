@@ -121,6 +121,19 @@ internal class Endpoint : Endpoint<Request, Response>
         }
     }
 
+    /// <summary>
+    /// Refuses a tenant that does not allow passwords, before the account is looked at, so the
+    /// answer is the same for every username and says only what the tenant allows.
+    /// </summary>
+    public override async Task OnBeforeHandleAsync(Request req, CancellationToken ct)
+    {
+        var method = barakoCMS.Models.TenantSignInPolicy.Password;
+        if (!await barakoCMS.Infrastructure.Auth.TenantSignIn.AllowsAsync(_session, _tenant.Slug, method, ct))
+        {
+            ThrowError(barakoCMS.Infrastructure.Auth.TenantSignIn.RefusedMessage(method), 403);
+        }
+    }
+
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         var device = barakoCMS.Infrastructure.DeviceContext.From(HttpContext);
@@ -284,9 +297,9 @@ internal class Endpoint : Endpoint<Request, Response>
         var accessTokenExpiry = issued.ExpiresAt;
         var jwtToken = issued.Token;
 
-        // Generate refresh token (7-day expiry)
+        // The refresh token lives seven days, or the tenant's session length when that is shorter.
         var refreshTokenString = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
-        var refreshTokenExpiry = DateTime.UtcNow.AddDays(7);
+        var refreshTokenExpiry = DateTime.UtcNow.Add(issued.RefreshLifetime);
         
         var refreshToken = new RefreshToken
         {

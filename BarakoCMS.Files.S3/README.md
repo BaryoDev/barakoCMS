@@ -53,6 +53,15 @@ the repository.
 }
 ```
 
+### Upgrading to 5.0
+
+`UsePublicReadAcl` now defaults to `false`. A deployment that never set it, on an AWS bucket with
+ACLs enabled that relied on the ACL to make public files readable, stops getting public-read objects
+on upgrade: files uploaded after it are not readable at their public URL. Set
+`Files__S3__UsePublicReadAcl=true` to keep the old behaviour, or better, grant read on `public/*`
+or serve through CloudFront as below. Files already uploaded keep their ACL. Every other setup (a
+new AWS bucket, R2, SeaweedFS, Garage) either refused the ACL or ignored it, and is unaffected.
+
 The section is `Files:S3`. With no `Files:S3:Bucket` set the provider stays dormant and the default
 storage keeps serving, so a typo here shows up as "uploads still work but nothing reaches the
 bucket" rather than as an error.
@@ -62,11 +71,18 @@ bucket" rather than as an error.
 | `ServiceUrl` | Set for R2 or a self-hosted store; leave null for AWS |
 | `ForcePathStyle` | Usually `true` for self-hosted stores |
 | `PublicBaseUrl` | Serve public files from your CDN domain. The key is appended, so a public file's URL is `{PublicBaseUrl}/public/{name}` |
-| `UsePublicReadAcl` | Defaults to `true`. Set it to `false` on buckets that block public ACLs, and grant read on `public/*` as below, not on the bucket |
+| `UsePublicReadAcl` | Defaults to `false` (`true` before 5.0). Set it to `true` only for an AWS bucket with ACLs enabled that serves public files by ACL. Otherwise grant read on `public/*` as below, not on the bucket |
 | `MaxErrorRetry` | Unset is `2`, or fewer on a short lease. Tries after the first the SDK makes for one call, 0 to 10. The SDK's own default is 4 |
 | `TimeoutSeconds` | Unset is `45`, or less on a short lease. How long one try may take, a body upload included |
 
 Keys belong in environment variables or a secret store, never in a checked-in `appsettings.json`.
+
+### Choosing a bucket per tenant
+
+With no `Files:S3` key set, this module stays dormant for configuration and lets each tenant pick a
+bucket through `/api/settings/storage` (see the Files module's README). Setting any key here makes
+that choice read-only for every tenant. A bucket chosen through the API may only be at a public
+address unless `Modules:Files.S3:AllowPrivateServiceUrl` is `true`.
 
 ### Retries and the job lease
 
@@ -192,6 +208,6 @@ search on nuget.org returns the whole set.
 Contributions are welcome — including a module icon or other design work. See
 [CONTRIBUTING.md](https://github.com/BaryoDev/barakoCMS/blob/master/CONTRIBUTING.md).
 
-Licensed under MPL-2.0.
+Licensed under [MIT](LICENSE).
 
 If barakoCMS is useful to you, a star on the [repository](https://github.com/BaryoDev/barakoCMS) helps other people find it.

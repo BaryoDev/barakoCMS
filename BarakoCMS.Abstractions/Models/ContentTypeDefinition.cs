@@ -95,6 +95,97 @@ public class ContentTypeDefinition
     /// at once cannot both pass. See <see cref="UniquenessRule"/>.
     /// </remarks>
     public List<UniquenessRule>? Uniqueness { get; set; }
+
+    /// <summary>The field a new entry's number is written to, and how numbers are made, or null for none.</summary>
+    /// <remarks>
+    /// Null is every type stored before this existed. Set, every entry created gets the next number
+    /// of the type's series in the field, whatever the request sent there: the server owns it. Set
+    /// with <c>PUT /api/content-types/{name}/numbering</c>.
+    /// </remarks>
+    public NumberingRule? Numbering { get; set; }
+
+    /// <summary>
+    /// An anonymous lookup of one entry by a reference plus an identifier, or null for none.
+    /// </summary>
+    /// <remarks>
+    /// Null is every type stored before this existed, and such a type answers no lookup. See
+    /// <see cref="LookupDefinition"/>. Separate from <see cref="IsPubliclyDeliverable"/>: a type can
+    /// answer a lookup without its entries being listed anonymously, which is the usual case for
+    /// registrations.
+    /// </remarks>
+    public LookupDefinition? Lookup { get; set; }
+}
+
+/// <summary>How a content type numbers its entries, for example <c>INV-2026-00042</c>.</summary>
+/// <remarks>
+/// The series is the type's own, kept per tenant, so two tenants never share a counter or see each
+/// other's numbers. Entries are numbered when they are created.
+/// </remarks>
+public class NumberingRule
+{
+    /// <summary>A text field of the type, not required, that holds the number.</summary>
+    public string Field { get; set; } = string.Empty;
+
+    /// <summary>Put in front of the number, for example <c>INV-</c>. At most 20 characters.</summary>
+    public string Prefix { get; set; } = string.Empty;
+
+    /// <summary>Minimum digits, 1 to 18.</summary>
+    public int Padding { get; set; } = 5;
+
+    /// <summary>When the count starts again from 1. The period is written between prefix and digits.</summary>
+    public barakoCMS.Core.Interfaces.NumberReset Reset { get; set; }
+
+    /// <summary>IANA id whose midnight starts a period, or null for UTC.</summary>
+    public string? TimeZoneId { get; set; }
+
+    /// <summary>How numbers are handed out. Gapless unless set.</summary>
+    public barakoCMS.Core.Interfaces.NumberStrategy Strategy { get; set; }
+}
+
+/// <summary>
+/// How <c>POST /api/public/{type}/lookup</c> finds one entry and what it hands back.
+/// </summary>
+/// <remarks>
+/// The caller sends a reference and an identifier. An entry is found when its
+/// <see cref="MatchField"/> equals the reference and any one of its <see cref="VerifyFields"/>
+/// equals the identifier, both compared ignoring case and surrounding spaces. Neither alone returns
+/// anything, and a miss answers exactly as a failed verification does.
+/// </remarks>
+public class LookupDefinition
+{
+    /// <summary>The field the reference is compared with, for example a registration number.</summary>
+    public string MatchField { get; set; } = string.Empty;
+
+    /// <summary>The fields the identifier is compared with; matching any one of them is enough.</summary>
+    public List<string> VerifyFields { get; set; } = new();
+
+    /// <summary>
+    /// The fields a found entry returns. Each must be Public: a Sensitive, Hidden or token field is
+    /// refused when the lookup is set, and left out when it is answered if it changed since.
+    /// </summary>
+    public List<string> ReturnFields { get; set; } = new();
+
+    /// <summary>Further fields returned only while a setting is on, or null for none.</summary>
+    public LookupReveal? Reveal { get; set; }
+}
+
+/// <summary>
+/// Fields a lookup adds to its answer only while a boolean field on a singleton type is true.
+/// </summary>
+/// <remarks>
+/// For a value meant to be handed out from a date an editor decides, such as a claim token once kit
+/// collection opens. A reveal field may be Public or a token, never another Sensitive or Hidden field.
+/// The setting is read from the singleton's entry when it is Published, so a draft cannot open it.
+/// </remarks>
+public class LookupReveal
+{
+    public List<string> Fields { get; set; } = new();
+
+    /// <summary>The singleton content type holding the setting.</summary>
+    public string SettingType { get; set; } = string.Empty;
+
+    /// <summary>The boolean field on that type which turns the reveal on.</summary>
+    public string SettingField { get; set; } = string.Empty;
 }
 
 /// <summary>
@@ -231,6 +322,45 @@ public class FieldDefinition
     public bool Multiple { get; set; }
 
     /// <summary>
+    /// For an <c>array</c> field, the type every item in it is, for example <c>url</c>.
+    /// </summary>
+    /// <remarks>
+    /// Null, the default, is every array stored before this existed, and such an array accepts any
+    /// list, as it always has. Set, an entry write refuses a list holding an item that is not a value
+    /// of this type, naming its index. One of the scalar types whose check needs nothing but the
+    /// value; a list of references is a <c>reference</c> field with <see cref="Multiple"/>. Refused
+    /// on a field of any other type.
+    /// </remarks>
+    public string? ItemType { get; set; }
+
+    /// <summary>
+    /// For a <c>json</c> field, the JSON Schema every value written to it has to match, or null for
+    /// none.
+    /// </summary>
+    /// <remarks>
+    /// Null, the default, is every json field stored before this existed, and such a field accepts
+    /// any object or array, as it always has. Set, an entry write whose value does not match is a
+    /// 400 naming the path that failed. A subset of JSON Schema 2020-12: the keywords
+    /// <c>GET /api/meta/describe</c> lists under <c>jsonSchemaKeywords</c>, and any other keyword is
+    /// refused when the type is saved. A value an entry already holds is not checked again. Refused
+    /// on a field of any other type.
+    /// </remarks>
+    public System.Text.Json.JsonElement? JsonSchema { get; set; }
+
+    /// <summary>
+    /// For a <c>reference</c> field pointing at its own type, the declaration that it names the
+    /// entry's parent, or null when it does not.
+    /// </summary>
+    /// <remarks>
+    /// Null, the default, is every field stored before this existed, and such a reference is
+    /// checked as it always was. Set, every write to the type walks the parent chain and refuses a
+    /// value that would make the entry its own ancestor, or put it, or an entry below it, deeper
+    /// than <see cref="ParentDeclaration.MaxDepth"/>. No code has to register anything for it. One
+    /// field per type, on a single reference whose <see cref="ReferenceType"/> is the type itself.
+    /// </remarks>
+    public ParentDeclaration? Parent { get; set; }
+
+    /// <summary>
     /// For a <c>money</c> field, the ISO 4217 code every amount in it is in, for example <c>USD</c>.
     /// </summary>
     /// <remarks>
@@ -314,6 +444,16 @@ public class FieldDefinition
     /// </remarks>
     public List<string> VisibleToRoles { get; set; } = new();
     public FieldMask Mask { get; set; } = FieldMask.Default;
+}
+
+/// <summary>That a reference field names its entry's parent, and how deep the tree may go.</summary>
+public class ParentDeclaration
+{
+    /// <summary>The most a <see cref="MaxDepth"/> may be.</summary>
+    public const int MostDepth = 64;
+
+    /// <summary>The most ancestors an entry may have, from 1 to <see cref="MostDepth"/>. A root has none.</summary>
+    public int MaxDepth { get; set; } = MostDepth;
 }
 
 /// <summary>One option a <c>choice</c> field accepts.</summary>

@@ -139,6 +139,8 @@ project, through the same `IBarakoModule` contract you can implement yourself.
 | **Pages** | [`BarakoCMS.Pages`](https://www.nuget.org/packages/BarakoCMS.Pages) | A **page tree** over a content type: refuses parent loops, over-deep pages and reserved top-level slugs, and serves the nested menu, path resolution with breadcrumbs, and a drafts-included tree for the console. |
 | **Pwa** | [`BarakoCMS.Pwa`](https://www.nuget.org/packages/BarakoCMS.Pwa) | Tracks PWA installs / installed-app launches (anonymous or tied to the signed-in user) so the admin shows **who** installed the app. |
 | **AI** | [`BarakoCMS.AI`](https://www.nuget.org/packages/BarakoCMS.AI) | **Semantic search** over published content using a self-hosted embedding model ([Ollama](https://ollama.com) by default), with no third-party API key. Indexes only public fields; results are re-checked as published + public at query time. |
+| **Secrets.Aws** | [`BarakoCMS.Secrets.Aws`](https://www.nuget.org/packages/BarakoCMS.Secrets.Aws) | Reads `JWT:Key`, `Secrets:Key` and other keys and credentials from AWS Secrets Manager at startup, as the instance's role. A configuration source, not a module. |
+| **Secrets.Gcp** | [`BarakoCMS.Secrets.Gcp`](https://www.nuget.org/packages/BarakoCMS.Secrets.Gcp) | The same from Google Secret Manager, as the instance's service account. |
 
 Reference the packages you want and register the CMS. `AddBarakoCMS` finds every module in the
 application's dependency context, so adding one is `dotnet add package` and a restart:
@@ -441,7 +443,7 @@ the breakable-staging discipline, version-gated releases, and how tests gate eve
 
 ## Support
 
-BarakoCMS is free and open-source under [MPL-2.0](LICENSE). If it's useful to you:
+BarakoCMS is free and open-source: the core under [MPL-2.0](LICENSE), the modules under MIT. If it's useful to you:
 
 - ⭐ **Star the repo** so others find it
 - ☕ **[Ko-fi](https://ko-fi.com/T6T01CQT4R)** (one-time) or **[GitHub Sponsors](https://github.com/sponsors/BaryoDev)** (monthly)
@@ -487,12 +489,22 @@ Follows the [all-contributors](https://allcontributors.org) specification. To ad
 
 ## License
 
-[MPL-2.0](LICENSE) for the core and every module, so there is one licence across the suite.
+The core (`barakoCMS/` and `BarakoCMS.Abstractions/`) is [MPL-2.0](LICENSE). Every module,
+`BarakoCMS.Testing`, the Suite and the module template are MIT, each with the `LICENSE` in its own
+folder (D24 in [DECISIONS.md](DECISIONS.md)).
 
-MPL is file-level copyleft: use it in commercial and closed-source products freely, and if you
-modify a barakoCMS source file, share that file's changes. Your own code stays yours.
+MPL is file-level copyleft: use the core in commercial and closed-source products freely, and if
+you modify a core source file, share that file's changes. MIT asks only that the notice travels with
+the code. Your own code stays yours.
 
-*Packages up to `BarakoCMS` 3.1.1 were released under Apache-2.0 and remain so; 3.2.0 onward is MPL-2.0.*
+*Packages up to `BarakoCMS` 3.1.1 were released under Apache-2.0 and remain so; 3.2.0 onward is
+MPL-2.0. Modules move from MPL-2.0 to MIT from their first 5.0 release; versions already published
+keep the licence they shipped with.*
+
+BarakoCMS.Files up to 4.4.0 depended on SixLabors.ImageSharp 3.1.12, which is not plain Apache-2.0
+but the Six Labors Split License. BarakoCMS.Files 4.5.0 and later carry no ImageSharp.
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) says what that means if you still run an older
+Files, and where the notices for SkiaSharp's native library travel.
 
 **Author:** Arnel Robles · [@arnelirobles](https://github.com/arnelirobles) · [arnelirobles@gmail.com](mailto:arnelirobles@gmail.com)
 

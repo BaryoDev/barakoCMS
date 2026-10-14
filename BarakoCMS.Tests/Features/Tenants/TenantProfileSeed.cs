@@ -20,7 +20,7 @@ internal static class TenantProfileSeed
         IntegrationTestFixture fixture, CancellationToken ct, Action<Tenant>? profile = null)
     {
         var slug = $"tp-{Guid.NewGuid():N}"[..16];
-        var tenant = new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = $"Name of {slug}", IsActive = true };
+        var tenant = new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = $"Name of {slug}" };
         profile?.Invoke(tenant);
 
         using var scope = fixture.Services.CreateScope();

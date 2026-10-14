@@ -47,6 +47,14 @@ internal class Endpoint(
             return;
         }
 
+        // A global role grants in every tenant the user enters, so it has to be a role every tenant
+        // shares. A tenant's role is given through that tenant's members routes instead.
+        if (!role.IsPlatform && !string.IsNullOrEmpty(role.TenantSlug))
+        {
+            await Send.ResponseAsync(new Response { Message = TenantRoleMessage(role) }, 400, ct);
+            return;
+        }
+
         // A role carrying a platform capability (SuperAdmin, or a custom role with manage_roles and
         // the like) is granted only by a SuperAdmin. Admin holds manage_user_membership but none of
         // those, so without this an Admin grants itself one and steps outside the capability model.
@@ -72,6 +80,10 @@ internal class Endpoint(
 
         await Send.OkAsync(new Response { Message = "Role assigned to user successfully" }, ct);
     }
+
+    internal static string TenantRoleMessage(Role role) =>
+        $"'{role.Name}' is a role of the tenant '{role.TenantSlug}', and a global role reaches every tenant, so only a "
+        + "platform role can be one. Give it to the person in that tenant with POST /api/tenants/members.";
 }
 
 internal class Request

@@ -29,7 +29,7 @@ public class TemplateVariableExtractorIntegrationTests
 
         // Assert
         Assert.NotNull(result.SystemVariables);
-        Assert.Equal(15, result.SystemVariables.Count);
+        Assert.Equal(16, result.SystemVariables.Count);
         Assert.Contains(result.SystemVariables, v => v.Name == "{{id}}");
         Assert.Contains(result.SystemVariables, v => v.Name == "{{contentType}}");
         Assert.Contains(result.SystemVariables, v => v.Name == "{{status}}");
@@ -45,6 +45,7 @@ public class TemplateVariableExtractorIntegrationTests
         Assert.Contains(result.SystemVariables, v => v.Name == "{{links.edit}}");
         Assert.Contains(result.SystemVariables, v => v.Name == "{{links.entry}}");
         Assert.Contains(result.SystemVariables, v => v.Name == "{{links.site}}");
+        Assert.Contains(result.SystemVariables, v => v.Name == "{{links.public}}");
     }
 
     /// <summary>

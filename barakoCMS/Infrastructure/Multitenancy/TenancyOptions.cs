@@ -67,7 +67,12 @@ public sealed class TenancyOptions
         if (!IsMulti)
             return false;
 
-        return slug == Tenant.DefaultSlug
-            || !await session.Query<Tenant>().AnyAsync(t => t.Slug == slug && t.IsActive, ct);
+        if (slug == Tenant.DefaultSlug)
+            return true;
+
+        // In memory, not in the query: a document stored before Status existed has only IsActive,
+        // and reads back with the right Status.
+        var tenant = await session.Query<Tenant>().FirstOrDefaultAsync(t => t.Slug == slug, ct);
+        return tenant is not { Status: TenantStatus.Active };
     }
 }

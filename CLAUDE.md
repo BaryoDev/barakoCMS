@@ -23,19 +23,24 @@ k8s/, scripts/          Deployment
 
 Modules depend on the core, never the reverse. If a module needs something from the core, the core
 exposes it; do not add a reference back from `barakoCMS/` to a module.
+Enforced by `ArchitectureTests.The_core_references_no_module_assembly`.
 
 ## 1a. Architecture
 
 **Vertical slices, not technical layers.** Code is organised by feature:
 `Features/<FeatureName>/<Action>/`, for example `Features/Content/Create/`. A slice holds its own
 `Endpoint.cs`, `Models.cs` (request and response records) and `Validator.cs`. Resist the urge to
-add a shared `Services/` or `Handlers/` folder that every feature reaches into.
+add a shared `Services/` or `Handlers/` folder that every feature reaches into. Enforced by
+`ArchitectureTests.No_feature_namespace_is_a_shared_Services_or_Handlers_folder` and
+`Every_feature_endpoint_is_internal_and_lives_in_a_feature_and_action_namespace`; the features that
+predate the layout are allowlisted there and the list only shrinks.
 
 **REPR, not controllers.** Endpoints follow Request-Endpoint-Response via FastEndpoints. There are
-no MVC controllers here.
+no MVC controllers here. Enforced by `ArchitectureTests.No_type_is_an_MVC_controller`.
 
 **No repository pattern.** Inject Marten's `IDocumentSession` directly in the endpoint. Introduce a
 service only when logic is genuinely shared or complex enough to test on its own, not reflexively.
+Enforced by `ArchitectureTests.No_type_is_named_Repository_outside_the_allowlist`.
 
 ```csharp
 session.Store(entity);                    // save
@@ -44,10 +49,19 @@ await session.SaveChangesAsync(ct);       // commit
 ```
 
 **Validation** uses FluentValidation through the FastEndpoints `Validator<T>` base class, not
-hand-rolled checks inside `HandleAsync`.
+hand-rolled checks inside `HandleAsync`. Enforced by
+`ArchitectureTests.Every_validator_is_a_FastEndpoints_Validator`.
 
 **A list endpoint is bounded.** Take `PaginatedRequest` (or cap the result), always. An unbounded
-query on an anonymous endpoint is an availability problem anyone can trigger.
+query on an anonymous endpoint is an availability problem anyone can trigger. Enforced by
+`ArchitectureTests.Every_list_endpoint_takes_a_PaginatedRequest_or_is_allowlisted_with_a_reason`.
+
+The `ArchitectureTests` named above scan the core assembly (`barakoCMS`) only; module assemblies
+are not scanned yet, and several module endpoints are public or sit outside `Features/`.
+`ArchitectureTests.The_scan_finds_the_endpoints_validators_and_list_endpoints_Features_holds` fails
+when a scan finds too little to mean anything, and
+`ArchitectureTests.Every_allowlist_entry_names_a_type_that_still_needs_it` fails when an allowlist
+entry no longer excuses anything.
 
 **Prefer an existing pattern over a new one.** If a neighbouring endpoint solves the same problem,
 match it or say in the pull request why not. Check the pattern first: a pattern being existing is
@@ -150,7 +164,9 @@ Test classes are `{Subject}Tests`. Test methods read as sentences describing the
 - **`scripts/preflight.sh`** does a locked-mode restore first (before any build, since a build's
   own implicit restore rewrites `packages.lock.json` and would hide a stale one), then builds with
   `--no-restore`, runs the named test classes and fails if a class matches zero tests, then checks
-  changelog fragments, module versions, and dash/banned-word and workflow-duplicate-key scans that
+  changelog fragments, module versions, method length (a method over 70 lines may not appear or
+  grow; `scripts/method-length-baseline.txt` holds today's, and its numbers only go down), and
+  dash/banned-word and workflow-duplicate-key scans that
   cover the working tree and untracked files, not just what is committed. **`scripts/sync-master.sh`**
   merges `origin/master`, regenerates lock files when a `.csproj` or `Directory.Packages.props`
   changed, and exits 1 naming either the conflicting files or a dirty working tree, whichever
@@ -226,6 +242,14 @@ major-version boundary: `barakoCMS.Features.Monitoring.Meta.ApiContract.Version`
 independently, the same way a module-contract change is independent of the CMS version. A breaking
 HTTP change can land in any release, but it moves `ApiContract.Version` and gets called out
 explicitly in the pull request, the same as an unavoidable break to the package surface.
+
+**The HTTP surface is diffed in CI.** `openapi/baseline.json` is the reviewed OpenAPI document the
+Suite serves, and the `OpenAPI contract` job (`scripts/openapi-contract-check.sh`) fails when the
+API breaks it, naming each removed or renamed path, response property or enum value. Additions
+pass. To accept a change, run `bash scripts/openapi-fetch.sh openapi/baseline.json` and commit the
+diff; a baseline edit that is itself breaking fails unless an HTTP contract number goes up in the
+same change (`ApiContract.Version`, `ApiContract.DeliveryVersion`, or a module's
+`HttpContractVersion`, read by `scripts/contract-versions.py`).
 
 ## 7. Comments
 

@@ -19,6 +19,12 @@ internal class Request
     public Models.ContentStatus? Status { get; set; }
 
     public long Version { get; set; }
+
+    /// <summary>
+    /// Check the write with everything the real write runs and answer with what it would change,
+    /// storing nothing.
+    /// </summary>
+    public bool DryRun { get; set; }
 }
 
 /// <summary>
@@ -40,7 +46,7 @@ internal class RequestValidator : FastEndpoints.Validator<Request>
     }
 }
 
-internal class Response
+internal class Response : barakoCMS.Core.Validation.IDryRunResponse
 {
     public Guid Id { get; set; }
     /// <summary>
@@ -48,4 +54,10 @@ internal class Response
     /// update's Version field to enable optimistic-concurrency conflict detection.
     /// </summary>
     public long Version { get; set; }
+
+    /// <summary>True when this answers a dry run: nothing was stored.</summary>
+    public bool DryRun { get; init; }
+
+    /// <summary>For a dry run, what the write would change. Null otherwise.</summary>
+    public List<barakoCMS.Core.Validation.FieldDiff>? Changes { get; init; }
 }

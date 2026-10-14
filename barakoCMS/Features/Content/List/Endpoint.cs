@@ -254,8 +254,7 @@ internal class Endpoint(
             ? permittedItems
             : permittedItems.Skip(req.Skip).Take(req.Take).ToList();
 
-        await FillVersionsAsync(pagedItems, ct);
-        await FillFilesAsync(pagedItems, ct);
+        await CompletePageAsync(pagedItems, candidates, sensitivity, ct);
 
         if (permittedTotal < 0) permittedTotal = permittedItems.Count;
 
@@ -272,6 +271,48 @@ internal class Endpoint(
             PageSize = req.PageSize,
             TotalItems = permittedTotal // Honest: counts only what this user can see.
         }, cancellation: ct);
+    }
+
+    /// <summary>Records the page's read, then fills in each item's version and files.</summary>
+    private async Task CompletePageAsync(
+        List<ContentResponse> page,
+        IReadOnlyList<barakoCMS.Models.Content> candidates,
+        barakoCMS.Core.Interfaces.ISensitivityService sensitivity,
+        CancellationToken ct)
+    {
+        await RecordSensitiveReadsAsync(page, candidates.ToDictionary(c => c.Id), sensitivity, ct);
+        await FillVersionsAsync(page, ct);
+        await FillFilesAsync(page, ct);
+    }
+
+    /// <summary>One audit row for the page, naming each entry's fields above Public that it sends.</summary>
+    private async Task RecordSensitiveReadsAsync(
+        IReadOnlyList<ContentResponse> page,
+        IReadOnlyDictionary<Guid, barakoCMS.Models.Content> stored,
+        barakoCMS.Core.Interfaces.ISensitivityService sensitivity,
+        CancellationToken ct)
+    {
+        if (page.Count == 0)
+        {
+            return;
+        }
+
+        var typeNames = page.Select(i => stored[i.Id].ContentType).Distinct().ToArray();
+        var definitions = (await session.Query<ContentTypeDefinition>()
+                .Where(d => d.Name.In(typeNames))
+                .ToListAsync(ct))
+            .GroupBy(d => d.Name, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+
+        var reads = new List<barakoCMS.Infrastructure.Audit.SensitiveRead>();
+        foreach (var item in page)
+        {
+            var entry = stored[item.Id];
+            reads.Add(await barakoCMS.Infrastructure.Audit.SensitiveReadAudit.DescribeAsync(
+                entry, definitions.GetValueOrDefault(entry.ContentType), item.Data, sensitivity, HttpContext, ct));
+        }
+
+        await barakoCMS.Infrastructure.Audit.SensitiveReadAudit.RecordAsync(HttpContext, reads, ct);
     }
 
     /// <summary>

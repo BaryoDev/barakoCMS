@@ -74,8 +74,9 @@ public sealed class CapabilityDefaults
     /// </summary>
     /// <remarks>
     /// The role is the one holding the seeded id, whatever it is called now. Where no role holds
-    /// the id, it is the role carrying the seeded name, so a database that holds the role under
-    /// another id is granted as it was when grants went by name. Where neither exists nothing is
+    /// the id, it is the deployment's role carrying the seeded name (ownerless, platform, or the
+    /// default tenant's, never another tenant's), so a database that holds the role under another id
+    /// is granted as it was when grants went by name. Where neither exists nothing is
     /// created: a module does not know whether the host seeded the system roles at all, and
     /// inventing an "Admin" on a deployment that deliberately has none would be a module granting
     /// itself access to a role nobody made.
@@ -113,12 +114,21 @@ public sealed class CapabilityDefaults
             var name = seeded.Name;
             var role = staged.FirstOrDefault(r => r.Id == seeded.Id)
                        ?? await session.LoadAsync<Role>(seeded.Id, ct)
-                       ?? staged.FirstOrDefault(r => r.Name == name)
-                       ?? await session.Query<Role>().FirstOrDefaultAsync(r => r.Name == name, ct);
+                       ?? staged.FirstOrDefault(r => DeploymentRoleNames.Matches(r, name))
+                       ?? await DeploymentRoleNames.FindAsync(session, name, ct);
 
             if (role is null || !seen.Add(role.Id))
             {
                 continue;
+            }
+
+            // A role seeded under its fixed id is the deployment's, so every tenant can assign it.
+            // One found by name alone may be an operator's, and is left where it is.
+            var platform = role.Id == seeded.Id && role is not { IsPlatform: true, TenantSlug: null };
+            if (platform)
+            {
+                role.IsPlatform = true;
+                role.TenantSlug = null;
             }
 
             var held = role.SystemCapabilities ?? [];
@@ -126,7 +136,7 @@ public sealed class CapabilityDefaults
                 .Where(c => !held.Contains(c, StringComparer.OrdinalIgnoreCase))
                 .ToList();
 
-            if (missing.Count == 0)
+            if (missing.Count == 0 && !platform)
             {
                 continue;
             }

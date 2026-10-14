@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 #
-# Proves the 3.x to 4.0 upgrade, and the rollback, against a database that has data in it.
+# Proves the upgrade from a 4.x database to the working tree, and the rollback, against a database
+# that has data in it. 5.0 takes a 4.x database only: a 3.x install upgrades to 4.9 first
+# (docs/upgrading-to-5.0.md), so a 3.x start is refused here.
 #
 # Nothing in the test suite covers this: IntegrationTestFixture forces Development, so the suite
 # always runs CreateOrUpdate against a fresh database, and production runs CreateOnly against one
@@ -11,8 +13,9 @@
 #   1. stand up a database with the released FROM_VERSION and put real content in it. On a 4.x
 #      start, migrations/4.6.0/event-correlation-metadata.sql is applied here, under the running
 #      FROM_VERSION, which must then still write an event: that file is documented as one that
-#      goes in ahead of the deploy
-#   2. db-assert must FAIL on both hosts, because 4.0's schema does not match a 3.x database
+#      goes in ahead of the deploy. A 4.6.0 or later start already has it
+#   2. db-assert must FAIL on both hosts, because the working tree's schema does not match the
+#      FROM_VERSION database
 #   3. apply the core files under migrations/, in the order --list prints them. After
 #      migrations/4.6.0/sensitivity-by-capability.sql the HR role FROM_VERSION seeded must hold
 #      view_sensitive
@@ -20,9 +23,9 @@
 #   5. apply the module files, the ones a module's .csproj embeds, in the order --list prints them
 #   6. db-assert must PASS on the Suite host, so nothing any module registers is left outstanding
 #   7. the Suite boots in Production mode, module schema preflight included, and serves
-#   8. an event appends to a stream that already existed and carries a correlation id, the events
-#      stored before the upgrade keep none, and the projection daemon resumes from its stored
-#      progression rather than restarting from zero
+#   8. an event appends to a stream that already existed and carries a correlation id, on a start
+#      before 4.6.0 the events stored before the upgrade keep none, and the projection daemon
+#      resumes from its stored progression rather than restarting from zero
 #   9. the new build stops, and the rollback files are applied newest first, in the order --list
 #      prints them
 #  10. FROM_VERSION boots again against the rolled-back database and still serves the record the
@@ -40,19 +43,20 @@
 # parse. Running it here means a future edit that breaks it fails this job instead of an operator
 # mid-incident.
 #
-# A 4.0 or 4.1 start (FROM_VERSION=4.1.0) runs the same sequence without the two 4.0.0 files. Such
-# a database is already past the 4.0.0 file and nobody runs it a second time, so anything a later
+# A 4.0 or 4.1 start (FROM_VERSION=4.1.0) runs the sequence without the two 4.0.0 files. Such a
+# database is already past the 4.0.0 file and nobody runs it a second time, so anything a later
 # release folded into that file reaches it only through a file of its own. That is how
 # mt_doc_site_share_links went missing from every upgraded 4.0 and 4.1 install while this job,
-# starting from 3.x, stayed green (#1007). Its rollback stops at FROM_VERSION and boots that image
-# again.
+# starting from 3.x, stayed green (#1007). A 4.9 start (FROM_VERSION=4.9.0, the default) is the
+# newest database there is, and takes only the files of releases after 4.9.0. Each rollback stops
+# at FROM_VERSION and boots that image again.
 #
 # Which files run, and in what order, is read from migrations/ by scripts/lib-migrations.sh, which
 # says the rules. A new migration needs no edit here. --list prints the plan as psql lines and
-# exits without building or starting anything; docs/upgrading-to-4.0.md sends operators to it, and
+# exits without building or starting anything; docs/upgrading-to-5.0.md sends operators to it, and
 # it takes any x.y.z FROM_VERSION, not only the starts the full check knows.
 #
-# Usage: scripts/upgrade-check.sh                       (FROM_VERSION defaults to the last 3.x release)
+# Usage: scripts/upgrade-check.sh                       (FROM_VERSION defaults to the last 4.x release)
 #        FROM_VERSION=4.1.0 scripts/upgrade-check.sh    (a database 4.0 or 4.1 created)
 #        FROM_VERSION=4.5.0 scripts/upgrade-check.sh --list
 
@@ -62,7 +66,7 @@ set -euo pipefail
 . "$(dirname "$0")/lib-upgrade-data.sh"
 . "$(dirname "$0")/lib-migrations.sh"
 
-FROM_VERSION="${FROM_VERSION:-3.21.0}"
+FROM_VERSION="${FROM_VERSION:-4.9.0}"
 
 step() { printf '\n=== %s\n' "$1"; }
 fail() { printf '\nFAILED: %s\n' "$1" >&2; exit 1; }
@@ -100,12 +104,15 @@ cleanup() {
 trap cleanup EXIT
 
 # Which files a database still needs depends on what created it. 4.0 and 4.1 declare the same
-# objects, so a database either one booted takes the same files. Anything else stops here rather
-# than guessing: a 4.2 or later start would have to leave out its own release's files.
+# objects, so a database either one booted takes the same files, and so does any 4.9.x. Anything
+# else stops here rather than guessing: a start between them has checks below that depend on
+# which 4.6.0 files it already has. BEFORE_46 says whether the start predates the 4.6.0 event
+# correlation file.
 case "$FROM_VERSION" in
-    3.*) FROM_3X=1 ;;
-    4.0.*|4.1.*) FROM_3X=0 ;;
-    *) fail "FROM_VERSION=${FROM_VERSION} is not a start this script knows. Use a 3.x, 4.0.x or 4.1.x release." ;;
+    3.*) fail "FROM_VERSION=${FROM_VERSION}: a 3.x database is not upgraded to this release directly. It upgrades to 4.9 first, as docs/upgrading-to-5.0.md says." ;;
+    4.0.*|4.1.*) BEFORE_46=1 ;;
+    4.9.*) BEFORE_46=0 ;;
+    *) fail "FROM_VERSION=${FROM_VERSION} is not a start this script knows. Use a 4.0.x, 4.1.x or 4.9.x release." ;;
 esac
 
 PLAN=$(migration_plan "$FROM_VERSION") || fail "the upgrade plan could not be read from migrations/"
@@ -118,15 +125,12 @@ ROLLBACK_FILES=$(awk '$1 == "rollback" { print $2 }' <<< "$PLAN")
 # Checks tied to one file, made around it as it runs. A file with none needs nothing here.
 before_file() {
     case "$1" in
-        # The share links table (#841, #1007). The 4.0.0 file creates it too, so on a 3.x start
-        # this is the second run of the same statements and shows the file is harmless there. On a
-        # 4.x start it is the only thing that creates the table: a 4.x database that already has it
-        # means this file has stopped doing anything and someone should find out.
+        # The share links table (#841, #1007). On a 4.0 or 4.1 start it is the only thing that
+        # creates the table: a database that already has it means this file has stopped doing
+        # anything and someone should find out.
         migrations/4.2.0/site-share-links.sql)
-            if [ "$FROM_3X" = 0 ]; then
-                [ "$(psql_q "select to_regclass('public.mt_doc_site_share_links') is null;")" = "t" ] \
-                    || fail "a ${FROM_VERSION} database already has mt_doc_site_share_links, so $1 proves nothing on this start"
-            fi ;;
+            [ "$(psql_q "select to_regclass('public.mt_doc_site_share_links') is null;")" = "t" ] \
+                || fail "a ${FROM_VERSION} database already has mt_doc_site_share_links, so $1 proves nothing on this start" ;;
         # Data, not schema (#883). FROM_VERSION seeded a role named HR under the fixed id, and the
         # file grants it view_sensitive. The count is checked before the new build boots, because
         # its seeder grants the same capability and would hide a file that does nothing. The checks
@@ -294,9 +298,9 @@ curl -s -X PUT "$OLD_URL/api/contents/$CONTENT_ID/status" -H "Authorization: Bea
 # serving. That holds only because the old build writes an event with an INSERT naming its own
 # columns and never calls the function the file replaces, so it is checked here against a live
 # FROM_VERSION and not taken from reading. The file runs again in its place below, after the 4.4.0
-# file, which is what leaves one function and not two. On a 3.x start it is left out: nobody is
-# told to apply it under 3.x, and the 4.0.0 file expects the event store as 3.x left it.
-if [ "$FROM_3X" = 0 ]; then
+# file, which is what leaves one function and not two. A 4.6.0 or later start already has the
+# file and is past this step.
+if [ "$BEFORE_46" = 1 ]; then
     step "migrations/4.6.0/event-correlation-metadata.sql goes in under the running ${FROM_VERSION}, which keeps writing"
     LAST_SEQ=$(psql_q "select coalesce(max(seq_id), 0) from mt_events;")
     docker cp migrations/4.6.0/event-correlation-metadata.sql "$PG:/tmp/event-correlation-early.sql"
@@ -374,7 +378,7 @@ apply_files "$MODULE_FILES"
 step "Suite db-assert must now pass, every module included"
 run_suite db-assert >"$WORK/assert-after-suite.log" 2>&1 || {
     cat "$WORK/assert-after-suite.log" >&2
-    fail "the migrations brought core up to date and left a module behind. The Suite, which the published image runs, would refuse to start on this database. Whatever db-assert lists above needs a migration, and docs/upgrading-to-4.0.md needs to name it."
+    fail "the migrations brought core up to date and left a module behind. The Suite, which the published image runs, would refuse to start on this database. Whatever db-assert lists above needs a migration, and docs/upgrading-to-5.0.md needs to name it."
 }
 echo "Suite schema matches"
 
@@ -410,13 +414,21 @@ EVENTS_AFTER=$(psql_q "select count(*) from mt_events where stream_id = '$CONTEN
     || fail "no event appended to the pre-existing stream ($EVENTS_BEFORE then $EVENTS_AFTER)"
 echo "$EVENTS_BEFORE then $EVENTS_AFTER events"
 
-# The new build's INSERT names the two columns the 4.6.0 file added. The events FROM_VERSION wrote,
-# the one it wrote after the file included, have neither.
-step "the new event carries a correlation id, and the older ones on the stream have none"
-CORRELATED=$(psql_q "select count(*) from mt_events where stream_id = '$CONTENT_ID' and correlation_id is not null;")
-[ "$CORRELATED" = "$((EVENTS_AFTER - EVENTS_BEFORE))" ] \
-    || fail "expected $((EVENTS_AFTER - EVENTS_BEFORE)) event(s) on stream $CONTENT_ID with a correlation id, the ones the new build appended, and found $CORRELATED"
-echo "$CORRELATED of $EVENTS_AFTER"
+# The new build's INSERT names the two columns the 4.6.0 file added. On a start before 4.6.0 the
+# events FROM_VERSION wrote, the one it wrote after the file included, have neither. A 4.6.0 or
+# later FROM_VERSION writes them itself, so there only the appended events are checked.
+step "the new event carries a correlation id"
+APPENDED_CORRELATED=$(psql_q "select count(*) from mt_events where stream_id = '$CONTENT_ID' and version > $EVENTS_BEFORE and correlation_id is not null;")
+[ "$APPENDED_CORRELATED" = "$((EVENTS_AFTER - EVENTS_BEFORE))" ] \
+    || fail "expected the $((EVENTS_AFTER - EVENTS_BEFORE)) event(s) the new build appended to stream $CONTENT_ID to carry a correlation id, and $APPENDED_CORRELATED do"
+if [ "$BEFORE_46" = 1 ]; then
+    CORRELATED=$(psql_q "select count(*) from mt_events where stream_id = '$CONTENT_ID' and correlation_id is not null;")
+    [ "$CORRELATED" = "$((EVENTS_AFTER - EVENTS_BEFORE))" ] \
+        || fail "expected $((EVENTS_AFTER - EVENTS_BEFORE)) event(s) on stream $CONTENT_ID with a correlation id, the ones the new build appended, and found $CORRELATED"
+    echo "$CORRELATED of $EVENTS_AFTER, the older ones have none"
+else
+    echo "$APPENDED_CORRELATED appended event(s) carry one"
+fi
 
 step "the projection daemon picked up where it left off"
 # Polled, not slept: the daemon takes the HotCold advisory lock and catches up on its own schedule,
@@ -433,8 +445,8 @@ if [ "${PROGRESSION_AFTER:-0}" -le "$PROGRESSION_BEFORE" ]; then
 fi
 echo "$PROGRESSION_BEFORE then $PROGRESSION_AFTER"
 
-# The rollback. docs/upgrading-to-4.0.md tells an operator to stop 4.0 first, so this does the same:
-# kill the host process, then apply rollback-to-3.x.sql to the same postgres container the forward
+# The rollback. docs/upgrading-to-5.0.md tells an operator to stop the new build first, so this does
+# the same: kill the host process, then apply the rollback files to the same postgres container the forward
 # migration ran against, then boot the FROM_VERSION image again to prove the documented way back
 # actually lands on a schema that version recognises. $OLD is reused rather than started fresh: it
 # already has the admin user and the InitialAdmin env it was created with, so a second `docker run`

@@ -149,6 +149,23 @@ internal static class TokenFieldProbe
         return JsonDocument.Parse(body).RootElement.GetProperty("id").GetGuid();
     }
 
+    /// <summary>
+    /// An entry as a database from before 5.0 can hold one: written through the writer, so its
+    /// stream and document both carry the data, including keys its type does not declare, which the
+    /// API now refuses.
+    /// </summary>
+    public static async Task<Guid> SeedAsync(IntegrationTestFixture fixture, string type, Dictionary<string, object> data)
+    {
+        using var scope = fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var writer = scope.ServiceProvider.GetRequiredService<barakoCMS.Core.Interfaces.IContentWriter>();
+        var id = Guid.NewGuid();
+        await writer.CreateAsync(new barakoCMS.Events.ContentCreated(
+            id, type, data, ContentStatus.Draft, Guid.NewGuid(), null, SensitivityLevel.Public, DateTime.UtcNow), Ct);
+        await session.SaveChangesAsync(Ct);
+        return id;
+    }
+
     public static Task<HttpResponseMessage> UpdateAsync(
         IntegrationTestFixture fixture, string token, Guid id, Dictionary<string, object> data) =>
         ClientFor(fixture, token).PutAsJsonAsync(

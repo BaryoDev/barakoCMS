@@ -7,6 +7,495 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.0] - 2026-10-13
+
+5.0 is a major release. Roles and tenants get owners and a lifecycle, the API contract and the delivery contract move from 7 to 8, and Marten moves to 9.49. The module contract stays at 1, and no module's HTTP contract moves. Read Upgrade before deploying.
+
+### Upgrade
+
+**From 4.x only.** 5.0 upgrades a database that a 4.x release created. A 3.x install upgrades to 4.9 first, with `docs/upgrading-to-4.0.md` from the `v4.9.0` tag and the 4.9.0 image, starts 4.9.0 once, and then follows the steps below. `docs/upgrading-to-5.0.md` has the whole procedure, and the `Upgrade from 4.x` CI job proves it, rollback included, from databases created by 4.9.0 and 4.1.0.
+
+1. **Take a backup and check it restores** (`docs/backup-and-restore.md`). A failed upgrade's remedy is a restore.
+2. **Stop the 4.x API.** `role-tenancy.sql` replaces the unique index on a role's name with one on the tenant and the name, so it must run before 5.0.0 starts.
+3. **Run `db-migrate` with the 5.0.0 image, then `db-assert`.** `FROM_VERSION=4.9.0 scripts/upgrade-check.sh --list` prints each file as a `psql` line in the order CI applies them; from a release before 4.9 the list also holds the 4.x files that release lacks. Under `migrations/5.0.0/`:
+   - Core, first: `blocks.sql` (the block tables, empty), `field-changes.sql` (the field change table, empty), `marten-9-49-quick-append-events.sql` (replaces one Marten function body, no data; it can go in while 4.x still serves), `role-tenancy.sql` (gives every role an owner, see Breaking), `site-field-schemas.sql` (the site blueprint's json schemas and the `Mode` choice), `tenant-status.sql` (writes `Status` from `IsActive`; the API reads tenants correctly without it).
+   - Modules, after the core files; a host without the module skips its file: `accounting-number-sequences.sql` (BarakoCMS.Accounting 4.4.0, carries each tenant's journal entry count to the core counters), `files-storage-settings.sql` (BarakoCMS.Files 5.0.0, the per-tenant storage settings table), `pages-settings.sql` (BarakoCMS.Pages 4.4.0, the per-tenant page type settings table).
+4. **Check one changed default.** `Files:S3:UsePublicReadAcl` now defaults to `false`. A deployment on an AWS bucket with ACLs enabled that relies on the ACL for public files sets `Files__S3__UsePublicReadAcl=true`, or grants read on `public/*`.
+5. **Start 5.0.0.** Workflows stored or imported with `conditions: null` never ran before 5.0 and start running on their next trigger, so check them first.
+
+**Breaking HTTP changes.** `ApiContract.Version` moves from 7 to 8, and `ApiContract.DeliveryVersion` from 7 to 8. Each entry under Breaking names its routes: a tenant that is not Active answers 404 on delivery and 403 to its own signed-in callers (#894); the roles, member role and config routes reach only the caller's tenant's roles and the platform roles, and `POST /api/users/{userId}/roles` takes only a platform role (#913); a `json` field's `jsonSchema` and an undeclared field name are refused with 400 (#924); the sensitivity route can answer with a queued `change` and refuses with 409 while a field change runs (#934); removing a field a block binding names, and config apply over a running field change, answer 409 (#1145); a workflow with a malformed `capture`, `compensate` or `executor` is refused with 400. Released barakoBrew and barakoPress read contracts up to 7: upgrade them to releases that read 8 together with the API.
+
+**Breaking package changes.** Marten 9.40.0 to 9.49.0 and JasperFx 2.75.2 to 2.84.1: a module or host compiled against their types rebuilds, and Marten no longer retries a `40001` serialization failure or a command timeout on reads. BarakoCMS.Abstractions 5.0.0 adds `Role.TenantSlug`, `Role.IsPlatform` and `Tenant.Status`. A module's seeded role found by name (`CapabilityDefaults.GrantAsync`, `ModuleCapabilities.GrantAsync`) is now looked up among platform roles and then the default tenant's only. BarakoCMS.Files.S3 5.0.0 changes the ACL default above. BarakoCMS.Testing creates tenants by `Status` and signs a client into a tenant with that tenant's own role or a platform role, never another tenant's of the same name.
+
+**Obsolete, removal planned for 6.0.** They keep working until then:
+- `Tenant.IsActive`: read `Tenant.Status`.
+- `IWorkflowEngine`: register a trigger and fire it through `IWorkflowTriggers`.
+- Portability's `ExportEndpoint`, `ImportEndpoint`, `PortabilityBundle`, `ContentRecord`, `ImportRequest` and `ImportReport`: use `GET /api/config/export` and `POST /api/config/plan` and `/apply`, which take a Portability bundle as a document.
+- Accounting's `JournalEntryHook()` and `LedgerService(session, writer)`: use the constructors taking an `INumberAllocator`.
+- Files' `ImageVariants` constructor without a `FileStorageResolver`.
+
+These were due to go in 5.0 and stay until 6.0 instead, still obsolete, so nothing a 4.x consumer compiles against is removed in 5.0:
+- `IWorkflowAction.ExecuteAsync`: implement `RunAsync`.
+- `IBarakoModule.ConfigureMarten`: use `ConfigureSchema(IModuleSchema)`. The host still logs a warning naming a module that overrides it.
+- `IContentWriter.Create` and `IContentWriter.Append`, and `ContentWriter.Create` and `ContentWriter.Append`: use `CreateAsync` and `AppendAsync`.
+- The `ContentValidatorService` overload without `existing`.
+- `Content.Apply(ContentCreated)`, `Apply(ContentUpdated)` and `Apply(ContentStatusChanged)` without a timestamp: use the overloads taking a `DateTime`.
+- The constructors of `ContentCreated`, `ContentUpdated`, `ContentStatusChanged`, `ContentScheduled`, `ContentSensitivityChanged`, `ContentTransitioned` and `ContentFieldSensitivityChanged` without `OccurredAt`.
+- Accounting's `LedgerService(IDocumentSession)`: use the constructor taking an `IContentWriter`.
+- Files' `ImageSharpResizer`: use `SkiaImageResizer`.
+- The `/api/schemas` alias of `GET /api/content-types` stays, deprecated, until 6.0 too.
+
+**Rolling back to 4.9.** Stop 5.0, run the rollback lines `--list` prints, newest first, then remove each rolled-back file's ledger row with the 5.0 image, `db-migrate --forget <key>` with the key `db-migrate --status` prints (`core/5.0.0/role-tenancy`, `Files/5.0.0/files-storage-settings`), and start 4.9.0.
+- **Role tenancy.** `rollback-role-tenancy.sql` folds every unchanged per-tenant copy back into its role, renames any other role that shares a name to `<name> (<tenant>)` with its holders kept, and puts back the unique index on the name alone. Nobody gains or loses a permission, but a check by role name now sees the new name. Run it as a database role that row level security does not hide content types from; it refuses otherwise.
+- **Tenant status.** `rollback-tenant-status.sql` changes nothing: `IsActive` is stored as a copy of `Status`, so 4.9 reads a Suspended or Archived tenant as inactive. 4.9 never reads `IsActive` when it resolves a tenant, so such a tenant's content is served again by header and subdomain while 4.9 runs.
+- Also lost on rollback: every block schema, preset and binding, the field change record, every tenant's saved storage setting (files in a bucket stay there but are unreadable until the bucket is configured again) and every tenant's own page type settings. The Accounting rollback copies each year's count back, so numbering continues.
+
+### Breaking
+
+- **Marten moves from 9.40.0 to 9.49.0 and JasperFx from 2.75.2 to 2.84.1, with one schema step.**
+  The new Marten replaces the body of the database function `mt_quick_append_events`. barakoCMS
+  appends events in Marten's Rich mode and never calls it, but production runs
+  `AutoCreate.CreateOnly` and the start-up check compares the body, so a 4.x database needs
+  `migrations/5.0.0/marten-9-49-quick-append-events.sql` before 5.0 starts; `db-migrate` applies it, and it can go in while 4.x still serves. The rollback is
+  `migrations/5.0.0/rollback-marten-9-49-quick-append-events.sql`. A module or host compiled against
+  Marten or JasperFx types has to rebuild against these versions. Marten no longer replays a
+  `40001` serialization failure, and stops retrying a command timeout in its default read policy, so
+  code that relied on either retry now sees the error.
+- **A 3.x database is no longer upgraded to 5.0 directly.** 5.0 takes a database a 4.x release
+  created. A 3.x install upgrades to 4.9 first with `docs/upgrading-to-4.0.md`, from the `v4.9.0`
+  tag, and then follows the new `docs/upgrading-to-5.0.md`. The CI job that proves the upgrade and
+  the rollback against a real database is renamed from `Upgrade from 3.x` to `Upgrade from 4.x`, and
+  starts from 4.9.0 and 4.1.0 instead of 3.21.0 and 4.1.0. `scripts/upgrade-check.sh` refuses a 3.x
+  `FROM_VERSION` and names the guide; `--list` still prints the plan from any version.
+- **A field change left block bindings, and config apply, behind.** Renaming a field with
+  `POST /api/content-types/{name}/fields/{field}/change` now renames it in every block binding of
+  the type that sorts or filters on it, in the step that renames the field. Removing a field a
+  binding still names answers 409 naming the bindings, where it used to succeed and leave the
+  binding selecting nothing. `PUT /api/blocks/bindings/{id}` answers 409 while a field change runs
+  on its type. `POST /api/config/apply` answers 409, with the refusal the `{name}` routes give, for
+  a type with a field change running and for a document leaving out a field a binding names, and a
+  plan lists them in a new `conflicts` list per section. It, and a Portability import, refuse a
+  definition leaving out a field the stored numbering rule or lookup names. Each refusal is new to
+  a request the API used to accept; `ApiContract.Version` already moved for 5.0.
+- **`Files:S3:UsePublicReadAcl` defaulted to `true`, which a new AWS bucket refuses.** It now
+  defaults to `false`. A new AWS bucket has Object Ownership set to bucket owner enforced and
+  refuses ACLs, and R2, SeaweedFS and Garage ignore or refuse them, so for those nothing changes.
+  **Upgrade step:** a deployment on an AWS bucket with ACLs enabled that never set the option and
+  relies on the ACL for public files stops getting public-read objects: set
+  `Files__S3__UsePublicReadAcl=true`, or grant read on `public/*` (see the module README). Files
+  already uploaded keep their ACL. `BarakoCMS.Files.S3` is 5.0.0.
+- **A switched-off tenant kept serving its published content.** A tenant had only `IsActive`, and
+  resolution never read it, so a deactivated tenant's pages stayed up by header and by subdomain,
+  and its custom domains fell through to the default tenant. A tenant now has a `Status`, `Active`,
+  `Suspended` or `Archived`, read once at resolution in every tenancy mode. For a tenant that is not
+  Active, delivery (`/api/public/*`) answers 404, a caller signed in to that tenant gets 403 on every
+  other route, and anyone else gets 404. Its scheduled content and collection syncs wait until it is
+  Active again, and a scheduled publish whose unpublish time also passed meanwhile is archived
+  without being published. `PUT /api/tenants/{handle}` takes `status`, the tenant response carries
+  it, and `isActive` stays on both, derived from it. `Tenant.IsActive` is obsolete, removal planned
+  for 6.0. `migrations/5.0.0/tenant-status.sql` writes `Status` onto stored tenants; the API reads
+  them correctly without it. `ApiContract.Version` and `ApiContract.DeliveryVersion` move to 8
+  (#894).
+- **A config document's roles reached every tenant's roles.** The `roles` and `permissionRules`
+  sections of `GET /api/config/export` and `POST /api/config/plan` and `/apply` were written while
+  roles were shared, so one tenant's export listed every tenant's custom roles and an apply could
+  change another tenant's role by its name. They now follow the roles routes: a tenant exports its
+  own roles and the platform roles, a name is read as the tenant's own role and then a platform
+  role, a name it does not reach creates a role of that tenant, and changing a platform role or its
+  rules, or adding a capability that reaches past the tenant, needs `manage_platform_roles`.
+  Writing a tenant's own roles takes `manage_roles` in that tenant, from a membership too. A seed
+  file's roles go under the tenant's `config` block and belong to that tenant, and its members' roles
+  are found among that tenant's own roles and the platform roles (#913).
+- **A role made for one client was a role of every client.** Roles were one list for the
+  deployment, so a custom role held in two tenants was edited for both by whoever could edit it. A
+  role now has an owner: `TenantSlug` for a tenant's role, or `IsPlatform` for a role seeded for
+  the whole deployment (SuperAdmin, Admin, User, the demo HR role, and a module's role seeded under
+  its fixed id). `migrations/5.0.0/role-tenancy.sql` gives every stored role one: a role held as a
+  global role on an account becomes a platform role, since it grants in every tenant and no one
+  tenant's administrators may change it; a role held by the memberships of one tenant moves to it;
+  one held in several is copied into each other tenant under a derived id with that tenant's
+  memberships and field role lists rewritten to the copy; and one held by nobody stays with the
+  default tenant. Nobody's permissions change. The unique index on a role's name becomes one on the tenant and the name, so
+  the file must run before 5.0.0 starts. `migrations/5.0.0/rollback-role-tenancy.sql` undoes it
+  for a rollback: an unchanged copy is folded back into its role, any other role sharing a name is
+  renamed `<name> (<tenant>)` and keeps its holders, and the index on the name alone comes back.
+  The new `manage_platform_roles` capability covers platform roles; only SuperAdmin holds it by
+  default (#913).
+- **One tenant's role editor could edit every tenant's roles.** The roles routes listed, read,
+  changed and deleted any role in the deployment, so a role carrying `manage_roles` given to one
+  client's administrator reached every client's roles, the shared Admin role included. The roles
+  routes and the member role routes now reach the caller's tenant's roles and the platform roles:
+  `GET /api/roles` lists only those (a holder of `manage_platform_roles` sees all), another
+  tenant's role answers 404, and changing or deleting a platform role such as Admin needs
+  `manage_platform_roles` and answers 403 without it. `POST /api/roles` makes a role of the
+  caller's tenant, or a platform role with `isPlatform: true`; a name already used there is a 409.
+  Without `manage_platform_roles`, a role write cannot add a capability that reaches past the
+  tenant. A tenant's sign-up and MFA roles follow the same rule. The role response carries
+  `tenantSlug` and `isPlatform`. `POST /api/users/{userId}/roles` writes a global role, which
+  reaches every tenant, so it now takes only a platform role and answers 400 naming a tenant's
+  role; give that through `POST /api/tenants/members`. A tenant's role held globally anyway grants
+  nothing outside that tenant. `ApiContract.Version` moves to 8 with #894 (#913).
+- **A site json field took any shape, Mode took any text, and every type stored keys it did not
+  declare.** A `json` field may now declare a `jsonSchema` (a subset of JSON Schema 2020-12, see
+  `docs/json-field-schemas.md`), and a write that does not match is a 400 naming the path that
+  failed. The site blueprint declares one for every json field but `Presets`, and `Mode` is a
+  choice of `Live` and `Holding`. A write naming a field the type does not declare is a 400 naming
+  it, for every type with a definition. Each of these refuses a request 4.9 accepted, so
+  `ApiContract.Version` moves to 8. A value an entry already holds is not checked again when an
+  edit leaves it as it is. `migrations/5.0.0/site-field-schemas.sql` gives a site type applied
+  before 5.0.0 the blueprint's schemas and the `Mode` choice, and leaves `Mode` a string, naming
+  the tenant, when an entry holds another value. `GET /api/meta/describe` lists
+  `jsonSchemaKeywords` and `arrayItemTypes`.
+- **Changing a field's sensitivity held the request open while every entry's search text was
+  rebuilt.** `PUT /api/content-types/{name}/fields/{field}/sensitivity` now applies the rebuild and
+  the definition change as one field change, in the order it always used (raising rebuilds first,
+  lowering changes the definition first). A type of up to 200 entries is still changed before the
+  answer; a larger one is changed by the job queue, and the response's new `change` field names it,
+  with `entriesReindexed` 0 until it completes and the definition taking the new level when it does.
+  While any field change runs on the type, the endpoint answers 409, as every edit to the type's
+  definition does, and an entry write to the type answers 400. A larger type's answer no longer
+  means the level is in force, and these refusals are new to requests 4.9 accepted, so
+  `ApiContract.Version` moves to 8.
+- **Saving a workflow refuses a malformed `capture`, `compensate` or `executor`.** An action's
+  `capture` names the outputs a run keeps (#575), its `compensate` the action that undoes it (#577),
+  and the workflow's `executor` what runs it (#698). A workflow sent with any of these was saved
+  with it ignored before. Now a `capture` whose names are not letters, digits and underscores, are
+  repeated, or number more than 20 is refused with 400, and so is a `compensate` that is a
+  `Conditional`, an unregistered action type or missing a required parameter, and an `executor`
+  other than the built-in one. `ApiContract.Version` moves to 8. The delivery number does not move.
+
+### Added
+
+- **A console could not tell that legacy role names still open the gates.** `GET /api/me` now
+  carries `legacyRoleFallback`, `true` when the deployment runs with `Auth:LegacyRoleFallback` on,
+  so a console that builds its navigation from capabilities can still offer an Admin-named role the
+  screens the API serves it. Additive; the HTTP contract version is unchanged.
+- **A public list cost two database round trips, and a build could not ask for only what changed.**
+  `GET /api/public/{type}` now reads its page and `totalItems` in one query, and takes an optional
+  `changedSince` instant that keeps the entries updated after it. Removals are not in a published
+  list; learn of them from a webhook on `Unpublished` and `Deleted` or a periodic full fetch. A
+  change to a type's fields or their sensitivity does not move `updatedAt`, so refetch the type in
+  full after one. See `docs/delivery-api.md` (#508, #560).
+- **A workflow action can hand a value to the actions after it.** An action returns outputs with
+  `WorkflowActionResult.Success(outputs)`, and a later action of the same run reads one as
+  `{{actions.N.name}}`, N being the earlier action's position from zero. Only outputs the workflow
+  lists in that action's new `capture` field are kept: the rest is dropped before the run is
+  written, and only a kept one can be read (D37). Only a reference written in the workflow is read:
+  an entry value holding `{{actions.0.name}}` is sent as that text. Kept outputs are on each attempt as `outputs` in
+  `GET /api/workflow-runs`. A reference to an output that is not there fails that action and retries
+  it, rather than sending the text. `IWorkflowAction` gains `RunAsync(WorkflowContext, ct)`, which
+  the runner calls and which defaults to the existing `RunAsync`, so existing actions are unchanged.
+  The obsolete `IWorkflowEngine` path does not read outputs. (#575)
+- **A run can undo the actions that succeeded.** An action can declare `compensate`, the action that
+  undoes it. When an action set to `Halt` fails for good in a workflow that declares any
+  compensation, or when an operator calls the new `POST /api/workflow-runs/{id}/abandon`, what has
+  not started is cancelled and each action that succeeded is undone, the last first, with its own
+  idempotency key and the action's captured outputs to name what it undoes. Each attempt shows its
+  `compensation` status, with `NotDeclared` for an action nothing undoes, and the run shows
+  `compensation` as `Compensating`, `Compensated` or `Incomplete`, so a half applied run says so. A
+  workflow that declares no compensation halts exactly as before. A run that finished with every
+  action succeeded is not abandoned. `PUT /api/workflows/{id}` keeps a compensation's credentials on
+  the same rule as an action's, and rotating `Secrets:Keys` re-wraps them too. (#577)
+- **Numbering lived in the Accounting module, and nothing else could number its entries.** A content
+  type can declare a numbering rule (`PUT /api/content-types/{name}/numbering`): the field that
+  takes the number, a prefix, padding, a yearly, monthly or daily reset in a time zone, and the
+  strategy, `gapless` (no gaps, writers take turns), `sequence` (no duplicates, gaps when a write
+  fails, no long lock) or `hiLo` (blocks of 50 per instance, for throughput). An entry created
+  through the content API, a batch create or an import gets the next number of the type's own
+  series, per tenant, and an update by any route keeps the stored number. The type's response
+  carries the rule as `numbering`. Modules reach the same primitive
+  through `INumberStrategies`, and `INumberAllocator.NextAsync` takes a date to count in that
+  date's period. See `docs/numbering.md`.
+- **Captured browser errors stayed where the team's error tracker could not see them.** The
+  Diagnostics module can forward each report to a Sentry-compatible receiver (Sentry, GlitchTip) when
+  `Modules:Diagnostics:Forwarding:Enabled` and a `Dsn` are set. Off by default. Forwarding never
+  touches the ingest response: reports wait in a bounded queue that drops when full, and a failed
+  send is logged and skipped. What is sent is redacted with the incidents view's rules, and the
+  module README lists every field that leaves the process.
+- **Reading feature flags needed a client written for this API.** The FeatureFlags module serves
+  the OpenFeature Remote Evaluation Protocol at `POST /ofrep/v1/evaluate/flags`
+  and `.../{key}`, so an OpenFeature SDK with its stock OFREP provider reads flags directly. Boolean
+  flags, single and bulk evaluation with an ETag; the tenant and user come from the request, never
+  from the evaluation context. `GET /api/feature-flags` keeps answering through 5.x and names its
+  successor in a `Link` header.
+- **Nothing read the API the way the console does, so a renamed response field could merge with
+  every check green.** A new CI job, `OpenAPI contract`, boots the Suite, fetches its OpenAPI
+  document and diffs it with oasdiff against the reviewed `openapi/baseline.json`. A removed or
+  renamed path, operation, response property or enum value fails with the change named; an added
+  optional field passes. It also runs weekly. The baseline only changes in a reviewed commit
+  (`bash scripts/openapi-fetch.sh openapi/baseline.json`), and a baseline change that is itself
+  breaking must move `ApiContract.Version` or the module's `HttpContractVersion` with it.
+- **A frontend had to download an image to learn its size.** The Files module reads an image's
+  width and height from its header on upload (PNG, JPEG, GIF, WebP, as shown after any EXIF turn)
+  and returns `width` and `height` from the upload, `GET /api/files/{id}/meta` and
+  `GET /api/public/files/{id}/meta`. A variant records its own size, and `?w=` on the public
+  metadata route answers for the copy served at that width. Files uploaded before this have none.
+  `BarakoCMS.Files` is 5.0.0.
+- **Analytics could only show four fixed windows ending now.** The Umami routes (`summary`,
+  `series`, `metric`) take `from` and `to` for any window up to 400 days, the series answers with
+  the window it covered, and `compare=previous` adds the window of the same length just before it.
+  `BarakoCMS.Analytics.Umami` is 4.4.0.
+- **An overview card had to page every entry to count them.** `GET /api/contents/counts` answers
+  how many entries the caller may read by status (`draft`, `scheduled`, `published`, `archived`
+  and the `total`), for one type or across every defined type, under the same read rules the entries
+  list pages with. A type whose rules cannot be counted in a query is named in `uncountedTypes`
+  instead of loaded row by row.
+- **A tenant switcher could not show which role the caller holds in each tenant.** Every item of
+  `GET /api/me/tenants` now carries `roles`, the roles the caller holds in that tenant (the
+  membership's roles plus their global ones) as `{ id, name }`. Additive.
+- **The metrics summary only counted since the process started.** `GET /api/monitoring/metrics`
+  now also returns `startedAt`, `uptimeSeconds`, and a `last24Hours` window with requests, errors,
+  error rate, average and p95 response time, and the cache hit rate (a `304` or a response the
+  output cache served). The existing fields are unchanged.
+- **A workflow could not be changed, only deleted and created again.** `PUT /api/workflows/{id}`
+  replaces a workflow, validated the way a create is, and is audited as `workflow.updated`. An
+  action sent back unchanged keeps its stored credentials, since the API never returns them; a
+  changed action that leaves one out is refused, so a secret never follows an action to a new URL.
+- **A workflow can name what runs it.** `executor` on a workflow, null by default, routes its runs
+  to an executor; the built-in runner claims only its own runs, and a run shows its `executor`. Only
+  the built-in runner exists, so a save naming any other is refused. The routing and the invariants
+  an executor keeps are documented in `docs/workflow-runs.md` and stay internal until a second
+  executor is built against them. Every existing workflow runs as before. (#698)
+- **The nightly backup never left the host it protects.** The compose stacks can now copy each
+  checked backup to S3-compatible storage (AWS, R2, a self-hosted store) by setting
+  `BACKUP_S3_BUCKET` and its key. Off unless the bucket is set, so a stack that sets nothing runs
+  as before. A failed upload fails the run loudly, keeps the local archive and skips rotation.
+  `docs/backup-and-restore.md` has a write-only key policy and a lifecycle rule example. A new CI
+  check uploads a backup to SeaweedFS and restores from the uploaded copy.
+- **Where a tenant's files were stored could only be set by an operator, with a restart.**
+  `GET` and `PUT /api/settings/storage` let a tenant choose Postgres or an S3-compatible bucket,
+  and `POST /api/settings/storage/test` puts, reads and deletes a test object first and names the
+  step that failed. The secret key is write-only and stored encrypted. New uploads follow the saved
+  setting from the next request, and every file is read from where it was stored, so nothing moves;
+  pointing the saved bucket elsewhere while files are in it is refused.
+  Any `Files:S3` key in configuration still wins and makes the setting read-only. A bucket address
+  typed into the API must be public unless `Modules:Files.S3:AllowPrivateServiceUrl` is set. New
+  capability `manage_storage`, held by SuperAdmin and Admin. **Upgrade step:** run
+  `migrations/5.0.0/files-storage-settings.sql` (or `db-migrate`) for the new table.
+- **The keys that protect stored secrets can come from AWS Secrets Manager or Google Secret
+  Manager.** Two new packages, `BarakoCMS.Secrets.Aws` and `BarakoCMS.Secrets.Gcp`, add a
+  configuration source that reads each secret named under `Secrets:Aws:Map` or `Secrets:Gcp:Map` onto
+  the configuration key it is mapped to, for example `Secrets__Aws__Map__JWT__Key=barakocms/jwt-key`,
+  at startup. They authenticate as the instance's own role or service account and read no key from
+  barakoCMS configuration. A mapped secret that does not exist, is empty or cannot be read stops
+  startup with a message naming the secret and the key, never a value. With nothing mapped they add
+  nothing and call nothing. The Suite and the published image include both; a host of its own calls
+  `builder.Configuration.AddBarakoAwsSecrets()` or `AddBarakoGcpSecrets()` before `AddBarakoCMS`.
+- **A public lookup by reference plus an identifier.** A content type can define a lookup
+  (`PUT /api/content-types/{name}/lookup`, `manage_public_delivery`): a match field, verify fields
+  and the Public fields to return, with optional reveal fields shown only while a bool on a
+  singleton is true. `POST /api/public/{type}/lookup` answers a miss and a failed verification with
+  the same empty 404, refuses to return a Sensitive, Hidden or token field, and is throttled per
+  visitor (`RateLimiting:Lookup`) and per reference (`RateLimiting:LookupReference`). See
+  `docs/public-lookup.md` (#804).
+- **Nothing noticed the image, memory or startup growing back.** A new CI job, `Performance budget`,
+  runs on amd64 and arm64 for every pull request. It builds the Suite image, boots it beside
+  Postgres with the quickstart's settings on 2 CPUs, and records build time, image size (compressed
+  and uncompressed), startup to a passing readiness check, memory at rest after 60 seconds idle, and
+  p50/p95 delivery latency for the list, an entry by slug and the site entry. Each number is
+  compared with `perf-budget.json`; one over budget fails with the baseline and the new number in
+  the job summary, and an improvement is shown without failing. Raising a budget is an edit to that
+  file. The numbers are kept as an artifact per run. `scripts/delivery-load.py` takes `--json`.
+- **A client had to write to find out whether a write would be accepted.** `POST /api/contents`,
+  `PUT /api/contents/{id}`, `POST /api/content-types` and `POST /api/content-types/{name}/fields`
+  take `"dryRun": true`: the write runs its permission, sensitivity, schema and lifecycle checks and
+  answers with `dryRun` and `changes` (each field it would set or change, with `from` and `to` as
+  the caller may read them), storing nothing and releasing its `Idempotency-Key`. Uniqueness and
+  the version checks run only on the real write. See `docs/dry-run.md`.
+- **Finding what is broken meant checking four places.** The Diagnostics module adds
+  `GET /api/incidents`: one paged list across client errors, dead-lettered jobs, failed workflow
+  actions and failed webhook or connector deliveries, grouped by fingerprint with counts, first and
+  last seen, tenants and releases, and redacted on the server (tokens, query values, credentials,
+  email addresses and values of fields marked Sensitive or Hidden). It needs
+  `manage_client_errors`, and each source is shown only to a caller holding the capability that
+  reads its records. A module adds a source by implementing `IIncidentSource`.
+- **Standing up a client's instance was a runbook of curl calls that came out slightly different
+  each time.** `Seed:File` names a config document the seeder applies on the first start: the format
+  `GET /api/config/export` writes, plus a `tenants` section with each tenant's name, domains, first
+  members (by email, with roles by name) and the sections to apply inside it. It goes through the
+  same engine as `POST /api/config/apply`, as the host. A destructive change, and a section written
+  for a signed-in caller (`siteSettings`, `contents`), is skipped with a warning naming it. It records
+  the file's SHA-256, so a restart with the same file changes nothing; a changed file is applied
+  again, every section it names, reverting API edits in those sections. A file that cannot be
+  applied stops the seed with every reason and records no hash, keeping what it applied before the
+  refusal, and the next start converges. With no
+  `Seed:File`, the seeder does exactly what it did before. `docs/delivering-a-client-project.md`
+  replaces its curl steps with the file (#905).
+- **A module can add a workflow trigger.** Triggers were a fixed list of content events, so a module
+  had no way to say "a form was submitted" or "a payment arrived". A module now names its triggers
+  in `IBarakoModule.ConfigureWorkflowTriggers` and fires them with `IWorkflowTriggers.FireAsync`,
+  which queues runs in the caller's tenant only. A workflow can be saved on a registered module
+  trigger, and the save error for an unknown trigger lists the registered names. Saving on a name
+  nobody registered was already refused with 400, so no request that used to save is refused now. (#908)
+- **A person who registered on a tenant could not then sign in to it.** Registration, social
+  sign-in and invitations each decided for themselves who may join, none asked the tenant, and none
+  wrote a membership, so the issuer refused the new account a token. A tenant now has a sign-up
+  policy, `signUp` on `PUT /api/tenants/{handle}`: `Open` with a `signUpRoleId`, `InviteOnly` or
+  `Closed`. An Open tenant's registration and social sign-in create the membership with that role;
+  InviteOnly and Closed refuse registration with 403 and create no account through social sign-in;
+  Closed also refuses an invitation that would create an account. A tenant with no policy, and the
+  default tenant, behave as before. `IEmailVerificationService` gains an overload carrying the
+  tenant, with a default implementation, and `SignUpPolicy` is a new public type the ExternalAuth
+  module calls. ExternalAuth 4.6.0 (#914).
+- **Nothing recorded who read a Sensitive or Hidden value, or who used a share link.** A read of
+  `GET /api/contents/{id}`, `GET /api/contents/by-slug/{type}/{slug}`, `GET /api/contents`,
+  `GET /api/contents/{id}/history` or a rollback's response that sends a value above Public now writes one `content.sensitive.read` audit row per request, naming
+  the entries and fields and never a value. Opening or redeeming a share link writes
+  `site.share_link.redeemed`, naming the link by id and the caller by address. A read whose row
+  cannot be written answers 500 instead of going out unrecorded. See `docs/access-control.md` (#916).
+- **A tenant could not require MFA, or keep its sessions short, on its own.** Whether a second
+  factor was needed came from the account or its roles in every tenant alike, and every refresh
+  token lived seven days. A tenant now has `signIn` rules on `PUT /api/tenants/{handle}`:
+  `requireMfa` for every member, `mfaRoleIds` for members holding chosen roles there, `methods` to
+  allow only some of password, sign-in code and social sign-in, and `sessionMinutes` to shorten the
+  refresh lifetime, and the access token when shorter than fifteen minutes. The issuer decides all
+  but the methods, so login, codes, MFA, social sign-in, refresh and tenant switch agree, and the
+  strictest of the role and the tenant applies. `TokenIssueResult.RefreshLifetime` carries the
+  length to every path that mints a refresh token. ExternalAuth 4.6.0 (#920).
+- **A tenant's setup lived in the database and nowhere else, so promoting it meant clicking it all
+  again.** `GET /api/config/export` returns the caller's tenant's configuration as one JSON
+  document, `POST /api/config/plan` says what applying a document would create, change or destroy
+  without writing anything, and `POST /api/config/apply` converges the tenant to it in one
+  transaction. A destructive change (a removed field, a deleted document, a cleared credential) is
+  refused with 409 unless `allowDestructive` is sent. The document declares `"version": 1`, and an
+  unknown top-level section is refused by name rather than skipped. The routes take the new
+  `manage_config` capability, which Admin starts with, and every section is gated again on the
+  capability its own endpoints ask for. The core sections are `contentTypes` and `roles` here, and
+  the four sections listed under the next entry. Roles are shared by every tenant, so writing one takes `manage_roles` from a global
+  role, and a role carrying a platform capability is written only by a SuperAdmin. A module adds a
+  section by registering an `IConfigProvider`, a new public interface in
+  `BarakoCMS.Abstractions` (#921).
+- **Workflows, permission rules, connectors and the site entry could not be promoted with a
+  tenant's content types.** The config document gains four sections. `workflows` holds each
+  workflow by name; a credential parameter is never exported, a document carrying one is refused,
+  and a change keeps a stored credential only on an action whose position, type and other
+  parameters stay the same; otherwise it is dropped, destructively. `permissionRules` holds what each
+  role may do with each of the tenant's own content types, under `role/type`. `connectors` holds
+  each connector by slug with its secrets by name only: a document that carries a secret's value is
+  refused, a name the tenant does not hold is a note to set it with `PUT /api/connectors/{slug}`,
+  and moving a connector to another origin clears its secrets, destructively. `siteSettings` holds
+  the tenant's `site` entry, written for the caller the way the content routes write it. A workflow,
+  rule or connector the document leaves out is removed, destructively (#921).
+- **A module's documents could not travel with the rest of a tenant's setup, and a Portability
+  bundle needed its own route.** The Forms module adds a `forms` section to the config document:
+  each content type that takes public submissions, with the email field it verifies, checked the
+  way `PUT /api/forms/{contentType}` checks it. The Portability module adds a `contents` section, so
+  a bundle from `GET /api/portability/export` is accepted unchanged by `POST /api/config/plan` and
+  `POST /api/config/apply`; entries are exported only when named, with
+  `GET /api/config/export?sections=contentTypes,contents`, and applying them creates new entries
+  each time, as the import always did. `GET /api/portability/export`, `POST /api/portability/import`
+  and the bundle types are now obsolete, with removal planned for barakoCMS 6.0, and keep working
+  until then (#921).
+- **Every tenant's feed and sitemap linked to the one `Feeds:SiteUrl` of the deployment.** They now
+  link to the `Url` of the tenant's published `site` entry, through one resolver, and fall back to
+  `Feeds:SiteUrl` and `App:BaseUrl` as before when a tenant sets none. A new `{{links.public}}`
+  template placeholder gives an entry's address on that site, and is empty unless delivery serves
+  the entry at a slug (#923).
+
+  **Upgrading:** a published site entry's `Url` now takes precedence over `Feeds:SiteUrl`. If you
+  set both and they differ, the feed and sitemap links move to the site entry's address. Check that
+  they agree before upgrading.
+- **A page's blocks were a json field the API could not check, and each renderer kept its own block
+  list, presets and data queries.** A `blocks` field type holds a list of blocks, checked against the
+  tenant's block schema, which the renderer registers with its renderer key
+  (`PUT /api/renderer/blocks/schema`) or an admin sets (`PUT /api/blocks/schema`); a block type or
+  property the schema does not declare is a 400 naming the path. Presets and data bindings are
+  tenant data under `/api/blocks/presets` and `/api/blocks/bindings`. Pages resolve returns
+  `boundBlocks`: the entries each bound block selects, in the same response. A page type whose
+  blocks are a `json` field keeps working. See `docs/blocks.md`.
+  `migrations/5.0.0/blocks.sql` creates the three tables on an existing database, so db-assert
+  passes before the deploy.
+- **An `array` field accepted any list, so a list of links could hold a number.** An `array` field
+  may now declare `itemType`, one of `string`, `text`, `markdown`, `int`, `decimal`, `bool`, `date`,
+  `datetime`, `time`, `email`, `url`, `slug` or `uuid`. A write holding an item of another type, or
+  a null item, is a 400 naming the item's index. The type's delivery OpenAPI describes the items.
+  An array with no item type accepts what it accepted before, and a list an entry already holds is
+  not checked again on an edit of another field. A list of references stays a `reference` field
+  with `multiple`, and `itemType: "reference"` is refused with that advice.
+- **A guarded tree needed code, and every tenant on a deployment shared one page type.** A
+  `reference` field pointing at its own type may declare `"parent": { "maxDepth": n }`, and core
+  then refuses a loop or a chain too deep on every write to that type with no hook registered for
+  it (`docs/parent-fields.md`). The Pages module reads its type and fields per tenant from
+  `GET`/`PUT /api/pages/settings` (`manage_content_types`), with `Modules:Pages` as the default, so
+  a deployment that sets nothing behaves as before. `IContentLifecycleHook.AnyType` lets a hook run
+  for every type and choose per write. BarakoCMS.Pages 4.4.0, which
+  ships `migrations/5.0.0/pages-settings.sql` for its table.
+- **No endpoint changed a field once it existed.** `POST /api/content-types/{name}/fields/{field}/change`
+  classifies a change: a new `displayName` is additive and applied at once, and a `newName` is a
+  rename applied by a job on the queue, which copies every entry's value to the new name, renames
+  the field (and the type's uniqueness rules, transitions, numbering rule and lookup), then drops the old key, in batches
+  that commit with their progress. `GET /api/content-types/field-changes/{id}` reports a change's
+  step, progress and last error, and `POST .../{id}/resume` runs a stopped one again from where it
+  stopped. A `toType` (with a `mapping` of stored values, and `options` for a choice) converts
+  every value, and `remove` takes the field and its values away; a change that drops values is
+  refused unless `allowDestructive` is set, and the refusal names how many entries hold one.
+  Only a Public field that holds no token is renamed, converted or removed. Entry writes to the
+  type wait while a change runs, by every route, and edits to the type's definition answer 409
+  until it completes. The rewrite is a new
+  `ContentFieldChanged` event, so it fires no workflow and does not move an entry's `updatedAt`.
+  See `docs/field-changes.md`.
+
+### Changed
+
+- **Journal entries were numbered from a single optimistic-concurrency row per year, so posts at once
+  retried against each other.** BarakoCMS.Accounting 4.4.0 numbers them with the core gapless
+  allocator, series `accounting.je`, in the same `JE-<year>-<six digits>` format.
+  `migrations/5.0.0/accounting-number-sequences.sql`, shipped from the module, carries each
+  tenant's yearly count over from the old rows, and its rollback copies the count back for a
+  return to 4.9. `JournalEntryHook()` and `LedgerService(session, writer)` are obsolete and number
+  through the same core counter, by the new `NumberAllocators.Gapless()`; the module registers the
+  forms taking an `INumberAllocator`.
+- **Every module, BarakoCMS.Testing, the Suite and the module template are MIT; the core stays
+  MPL-2.0.** This is D24 in `DECISIONS.md`. `barakoCMS` and `BarakoCMS.Abstractions` keep MPL-2.0,
+  and every other package moves from MPL-2.0 to MIT from its next release, with an MIT `LICENSE` in
+  its folder. Versions already published keep the licence they shipped with. The licence is set by
+  rule in `Directory.Build.props`, so a new module is MIT without anyone setting it, and
+  `scripts/check-licences.sh`, in preflight and CI, fails a package whose licence or `LICENSE` file
+  does not match. BarakoCMS.Templates and BarakoCMS.Testing are versioned with the core, so their `LICENSE`
+  files and README lines arrive with the release that moves all three; their package licence is MIT
+  from that release too. `CLA.md` now names the licence for each part of the repository and adds a patent
+  grant for contributions that land under MIT. `THIRD-PARTY-NOTICES.md` is new: it says
+  BarakoCMS.Files up to 4.4.0 depended on SixLabors.ImageSharp 3.1.12 under the Six Labors Split
+  License, what that means for a host still on it, and that Files 4.5.0 and later carry no ImageSharp.
+- **`IWorkflowEngine` is obsolete, and is removed in 6.0.** Nothing in the host calls it: content
+  events queue runs and the background runner executes them with retries, leases and a record per
+  attempt. It keeps working until 6.0. A module that wants to start workflows registers a trigger
+  and fires it through `IWorkflowTriggers` instead. (#908)
+
+### Fixed
+
+- **A workflow stored with `conditions: null` never ran.** The run queue read the conditions without
+  a null check, so the event threw and was dropped, and every other workflow on the same event was
+  dropped with it. An entry with no data did the same to a workflow with a field condition. A null
+  is now read as no conditions, and a save stores none instead of null. Workflows that silently
+  never ran before this change will start running on their next trigger: check the ones stored or
+  imported with null conditions before upgrading. A workflow stored with `actions: null` no longer
+  stops the credential encryption pass for its tenant, fails `GET /api/workflows` with 500, or drops
+  the runs of the other workflows on its event: it is queued as a run with no actions. A save through
+  `PUT /api/workflows/{id}` also stores null conditions as none. (#1118)
+- **The API did not start on a host with a machine name shorter than seven characters.** The
+  workflow runner cut its node id to 40 characters with a range that threw when the id was
+  shorter, so on a host named `vm` or `api` the runner could not be built. On a host with a long
+  name the same cut dropped the random part, so every runner on that host leased attempts under
+  one id. The machine name is cut now and the random part is kept whole. (#1127)
+
+### Security
+
+- **Rotating an encryption key lost every stored secret under it.** The email API key, workflow
+  credentials, MFA secrets and connector credentials were each encrypted under one key, and changing
+  it made them unreadable with nothing said at startup. Each class now takes a key ring
+  (`Secrets:Keys`, `Mfa:Keys`, `Connectors:Keys`, each with a `CurrentKey`): a value names the key
+  that wrote it, so it still decrypts after another key becomes current. A startup pass re-wraps
+  stored values under the current key and logs how many no configured key decrypts. Values written
+  before the ring read as before, and a deployment that configures no ring stores exactly what it
+  stored before (#900).
+- **A tenant's role could take a module's defaults by sharing its name.** Role names are unique only
+  within one owner since #913, and a module that found its seeded role by name took the first role of
+  that name in any tenant. `CapabilityDefaults.GrantAsync`, the obsolete `ModuleCapabilities.GrantAsync`
+  and the Accounting seed now read only ownerless and platform roles, then the default tenant's, so
+  a tenant's own `Accountant` is never granted the module's capabilities or adopted in place of the
+  platform role. Accounting 4.4.0 (#913).
+
 ## [4.9.0] - 2026-10-12
 
 Upgrading from 4.8 takes three steps. The API contract stays at 7 and the module contract at 1, so barakoBrew 1.8.0, barakoPress 0.12.0 and every module built for 4.x keep working.

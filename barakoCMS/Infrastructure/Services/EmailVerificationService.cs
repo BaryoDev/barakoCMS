@@ -30,7 +30,10 @@ public class EmailVerificationService : IEmailVerificationService
         _logger = logger;
     }
 
-    public async Task<bool> IssueAsync(string username, string email, string passwordHash, CancellationToken ct)
+    public Task<bool> IssueAsync(string username, string email, string passwordHash, CancellationToken ct) =>
+        IssueAsync(username, email, passwordHash, tenantSlug: null, ct);
+
+    public async Task<bool> IssueAsync(string username, string email, string passwordHash, string? tenantSlug, CancellationToken ct)
     {
         email = (email ?? string.Empty).Trim().ToLowerInvariant();
 
@@ -51,6 +54,7 @@ public class EmailVerificationService : IEmailVerificationService
             Username = username,
             Email = email,
             PasswordHash = passwordHash,
+            TenantSlug = tenantSlug,
             ExpiresAt = DateTime.UtcNow.Add(EmailVerificationOptions.TokenLifetime),
         };
 

@@ -36,12 +36,12 @@ the repository.
 | `POST /api/files` | Upload one PNG, JPEG, GIF, WebP, AVIF or PDF (up to 10 MB, multipart). The part's Content-Type must be exactly one of those, and the file must start the way that format does. Returns `{ id, fileName, contentType, size }`. |
 | `GET  /api/files/{id}` | Stream the file back with its original content type. Requires a Bearer token. |
 | `GET  /api/files` | List uploads, newest first, paginated. `?q=` matches a substring of the name, `?contentType=image/` a type or prefix. |
-| `GET  /api/files/{id}/meta` | The record without the bytes: name, type, size, public flag, alt text, caption. |
+| `GET  /api/files/{id}/meta` | The record without the bytes: name, type, size, width and height, public flag, alt text, caption. |
 | `PATCH /api/files/{id}` | Set `alt` and `caption`. A field left out is unchanged; an empty string clears it. |
 | `GET  /api/files/{id}/usage` | The entries whose data references the file, by id or by URL. Paginated. |
 | `DELETE /api/files/{id}` | Remove the file, its cached resizes and their bytes. 409 with the first ten usages while an entry references it; `?force=true` deletes anyway. |
 | `GET  /api/public/files/{id}` | Anonymous download of a public file. Private files are 404. |
-| `GET  /api/public/files/{id}/meta` | Anonymous alt text and caption for a public file. Private files are 404. |
+| `GET  /api/public/files/{id}/meta` | Anonymous alt text, caption, width and height for a public file; `?w=` describes the variant at that width, and a width the download would refuse is ignored. Private files are 404. |
 
 Attach the returned `id` to your own documents; fetch it later with the download endpoint. Because
 `GET /api/files/{id}` requires authentication, browser `<img>`/`<a>` tags cannot load it directly:
@@ -58,6 +58,44 @@ its storage key as a substring of any field, so it finds the id a `file` field h
 with or without `?w=`, and an object store's public URL. A usage row always carries the entry's id
 and status; its title is there only when the caller holds read on the type and the sensitivity
 scrub leaves it, the same two checks as `GET /api/contents`.
+
+## Choosing where files are stored
+
+A tenant can choose where its new uploads go, Postgres or an S3-compatible bucket, without anyone
+editing the server or restarting it. The three routes need the `manage_storage` capability, which
+SuperAdmin and Admin hold by default:
+
+| Method & path | Purpose |
+|---|---|
+| `GET  /api/settings/storage` | The saved setting, where uploads go right now (`activeProvider`), whether configuration decides (`readOnly`, `environmentKeys`), and `secretSet` in place of the secret. |
+| `PUT  /api/settings/storage` | `{ "provider": "s3", "s3": { "bucket", "region", "serviceUrl", "publicBaseUrl", "usePublicReadAcl", "forcePathStyle", "accessKey", "secretKey" } }`, or `{ "provider": "postgres" }`. Applies from the next upload. |
+| `POST /api/settings/storage/test` | Puts, reads back and deletes a small object with the settings sent, saves nothing, and answers `{ ok, step, errorCode, message }` naming the step that failed (`put`, `get` or `delete`) and the provider's own error code. |
+
+- The secret key is write-only. It is stored encrypted with the deployment's secret protector, and
+  no response carries it. On `PUT` and on the test, leaving `secretKey` out keeps the stored one and
+  an empty string clears it.
+- Nothing moves. Each file records where its bytes are, and reads follow that, so files stored in
+  Postgres keep downloading after a switch to a bucket, and the other way round. Switching back to
+  Postgres keeps the bucket's settings so its files stay readable.
+- A file records that it is in a bucket, not which bucket, so while any file is in the tenant's
+  bucket a `PUT` that changes the bucket, region or service URL, or clears the secret, is refused
+  with a 409. The provider can still be switched, and the keys replaced with new values. A bucket
+  set later in configuration takes over reading every tenant's bucket files.
+- If the stored secret cannot be decrypted (the deployment's key changed), `GET` reports
+  `secretUnreadable: true` and new uploads go to Postgres until the secret is sent again.
+- Configuration wins. If the deployment sets any `Files:S3` key (`Files__S3__Bucket` and so on),
+  that storage serves every tenant, the API's setting is read-only, and `PUT` answers 409 naming
+  the keys. A deployment configured that way behaves exactly as before.
+- A new install still stores files in Postgres, and a tenant that saves nothing stays there.
+- A bucket address typed into the API is one the server will call, so by default it may only be a
+  public address: loopback, private networks and cloud metadata addresses are refused when the
+  connection opens, as for webhooks. A deployment whose object store sits on its own private
+  network sets `Modules__Files.S3__AllowPrivateServiceUrl=true`.
+- Choosing a bucket needs the `BarakoCMS.Files.S3` module installed. Without it only `postgres` is
+  offered (`availableProviders`).
+
+On an existing database, run `migrations/5.0.0/files-storage-settings.sql` (or `db-migrate`)
+before the upgrade, so `db-assert` finds the new table.
 
 ## Using files from another module
 
@@ -125,6 +163,6 @@ Neither is older than 4.3.0, the release that added BarakoCMS.Abstractions. Targ
 
 ## License
 
-[MPL-2.0](LICENSE) © BaryoDev
+[MIT](LICENSE) © BaryoDev
 
 If barakoCMS is useful to you, a star on the [repository](https://github.com/BaryoDev/barakoCMS) helps other people find it.

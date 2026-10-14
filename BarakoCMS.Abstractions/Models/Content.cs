@@ -174,18 +174,29 @@ public class Content
         SearchText = @event.SearchText;
     }
 
+    /// <summary>Takes the data a field change wrote, leaving who edited the entry and when as they were.</summary>
+    /// <remarks>
+    /// <paramref name="occurredAt"/> is unused for the reason it is in the sensitivity change: the
+    /// entry was not edited.
+    /// </remarks>
+    public void Apply(barakoCMS.Events.ContentFieldChanged @event, DateTime occurredAt)
+    {
+        Data = @event.Data;
+        SearchText = @event.SearchText;
+    }
+
     // The single-argument forms these replace. Kept because Content ships in the BarakoCMS package
     // and external code compiles against it. Each delegates with UtcNow, which is what the old body
     // read, so a caller that has not moved across behaves exactly as before. A rebuild must not use
     // these: replaying an old event with the current clock is the failure the two-argument forms
     // exist to prevent.
 
-    [Obsolete("Use Apply(ContentCreated, DateTime). Removal planned for barakoCMS 5.0.")]
+    [Obsolete("Use Apply(ContentCreated, DateTime). Removal planned for barakoCMS 6.0.")]
     public void Apply(barakoCMS.Events.ContentCreated @event) => Apply(@event, DateTime.UtcNow);
 
-    [Obsolete("Use Apply(ContentUpdated, DateTime). Removal planned for barakoCMS 5.0.")]
+    [Obsolete("Use Apply(ContentUpdated, DateTime). Removal planned for barakoCMS 6.0.")]
     public void Apply(barakoCMS.Events.ContentUpdated @event) => Apply(@event, DateTime.UtcNow);
 
-    [Obsolete("Use Apply(ContentStatusChanged, DateTime). Removal planned for barakoCMS 5.0.")]
+    [Obsolete("Use Apply(ContentStatusChanged, DateTime). Removal planned for barakoCMS 6.0.")]
     public void Apply(barakoCMS.Events.ContentStatusChanged @event) => Apply(@event, DateTime.UtcNow);
 }

@@ -50,12 +50,24 @@ listed, audited and revocable, and its key is posted in a body rather than put i
 | GET | `/api/public/sitemap.xml` | sitemap |
 | GET | `/api/public/types/{type}/description` | the type's route template and its Public fields' roles |
 | GET | `/api/public/events` | a server-sent event stream of changes (off by default, see below) |
+| POST | `/api/public/{type}/lookup` | one entry's named fields, by a reference plus an identifier (see [public-lookup.md](public-lookup.md)) |
 
 The feed takes an item's title, description and date from the fields the type gives the `title`,
 `summary` and `date` roles, and the feed and the sitemap build each link from the type's
 `routeTemplate`. A type that declares neither is read by field name and linked at
 `Feeds:Paths:{type}` or `/{type}/{slug}`, as before. See
 [field-hints-and-roles.md](field-hints-and-roles.md).
+
+Each link starts at the tenant's own site: the `Url` of its published `site` entry
+([site-settings.md](site-settings.md)). A tenant that sets none, or sets one that is not an absolute
+http or https URL without a query, links at `Feeds:SiteUrl` and then `App:BaseUrl`, which is what
+every tenant got before, so a deployment that only sets `Feeds:SiteUrl` serves the same feed it
+did. The `{{links.public}}` template placeholder builds the same address.
+
+A site entry's `Url` takes precedence over `Feeds:SiteUrl`. A deployment that set both, with the
+site entry pointing somewhere else (a staging host, say), now links its feed and sitemap at the site
+entry's address. Check that the two agree before upgrading. The feed and the sitemap carry the
+`site` type's cache tag, so a purge for a change to the site entry reaches them.
 
 A read by slug of a type that declares a `structuredDataType` also carries `structuredData`, the
 entry as schema.org JSON-LD built from its field roles. See [structured-data.md](structured-data.md).
@@ -105,6 +117,32 @@ error. Every paginated endpoint in barakoCMS returns the same envelope:
 ```
 
 `totalItems` counts everything matching the query, filters included, not just the current page.
+The count and the page come back from one query, so a list costs one round trip to Postgres. A page
+past the last one has no row to carry the count, and only that request counts separately.
+
+### Only what changed
+
+`changedSince` takes an ISO 8601 instant and keeps the entries whose `updatedAt` is after it, for a
+build that fetches what changed since its last run:
+
+```
+GET /api/public/post?changedSince=2026-10-01T00:00:00Z&pageSize=100
+```
+
+It combines with filters, sorting and paging, and `totalItems` counts what it kept. It answers
+additions and edits only. An entry that was unpublished, archived, made non-Public or deleted is
+not in a published list, so `changedSince` cannot report it. A build learns of a removal from a
+`Webhook` workflow action on the `Unpublished` and `Deleted` triggers ([webhooks.md](webhooks.md)),
+from `content.unpublished` on the event stream below while it is connected, or from a periodic full
+fetch whose ids it compares with what it holds. `GET /api/changes` carries no content topic, so it
+is not a way to learn of one.
+
+A change to the type rather than to an entry does not move `updatedAt`. When a field goes from
+Public to Sensitive, every entry's delivered data loses that field and none of them comes back from
+`changedSince`. After a change to a type's fields, their sensitivity or its route template, fetch
+the type in full.
+
+A value that is not a date is a 400. Leaving it out lists everything, as before.
 
 An entry looks like this:
 
@@ -214,6 +252,30 @@ asking:
   blanked value is.
 - A filter without `contentType`, or on a type with no stored definition, returns 400.
 - `sort` is not read on this route. Order is `sortOrder` over the creation time, as before.
+
+### Counting entries by status
+
+`GET /api/contents/counts` answers how many entries the caller may read, by status, so an overview
+card does not have to page the whole collection:
+
+```text
+GET /api/contents/counts?contentType=article
+```
+
+```json
+{ "total": 154, "draft": 27, "published": 121, "archived": 3, "scheduled": 3, "uncountedTypes": [] }
+```
+
+- Without `contentType` it counts every type with a stored definition that the caller may read;
+  with one, only that type.
+- Each status is its own number and `total` is all four together. `scheduled` is the `Scheduled`
+  status, entries waiting for their publish time.
+- Each type is counted under the same read rules the entries list pages with, so the numbers agree
+  with what `GET /api/contents` would list. A type whose rules for the caller depend on the entry in
+  a way that cannot be turned into a query (a condition on `$status`, or on a value that is not a
+  string) is named in `uncountedTypes` and left out of the numbers, rather than loaded row by row.
+  Only a type the caller has some read rule for is named.
+- It needs a signed-in caller, or an API key with `content:read`.
 
 ## Sorting
 

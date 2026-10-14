@@ -54,6 +54,7 @@ public class IdempotencyReplayRulesTests
     private static readonly Dictionary<string, string> NotCredentials = new()
     {
         ["BarakoCMS.FeatureFlags.FlagDto"] = "Key is the flag's name",
+        ["BarakoCMS.FeatureFlags.Ofrep.OfrepFlag"] = "Key is the flag's name",
         ["barakoCMS.Features.Settings.SystemSettingDto"] = "Key is the setting's name",
         ["BarakoCMS.Accounting.Domain.Account"] = "Code is the account code",
         ["BarakoCMS.Accounting.AccountBalance"] = "Code is the account code",

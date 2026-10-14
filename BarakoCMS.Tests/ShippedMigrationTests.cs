@@ -23,6 +23,9 @@ public class ShippedMigrationTests
         "4.6.0/forms-email-verification",
         "4.7.0/forms-tenant-policy-restore",
         "4.8.0/external-auth-used-nonces",
+        "5.0.0/accounting-number-sequences",
+        "5.0.0/pages-settings",
+        "5.0.0/files-storage-settings",
     ];
 
     /// <summary>
@@ -56,6 +59,15 @@ public class ShippedMigrationTests
         ["ExternalAuth/4.8.0/external-auth-used-nonces"] = "3c5a28d80e303db280fee5124aa24073666476fd22fd5254fae1c3d3b20c7f5f",
         ["core/4.9.0/gapless-numbering"] = "546a734ce315e86e89aa05de8ad598f40825343001a73a958f6265bdbab88b5d",
         ["core/4.9.0/stations"] = "24c899bb202fbcef6316181dc965947e243cafd89a5d4b16ee9aa704f9dbabe5",
+        ["Accounting/5.0.0/accounting-number-sequences"] = "1b0c692e36b40fdebbe07a951be5c405e981d2eac6bfc7d58eed09d75194cd80",
+        ["core/5.0.0/blocks"] = "157480041989f0e2c94ecdabaab38be675f36090ba2f997a17581d3e7a624d96",
+        ["core/5.0.0/field-changes"] = "ea34638b75ca37c5cf1e6363a07e685e9feb86e6c43d6f439c740af11efbbf0b",
+        ["Files/5.0.0/files-storage-settings"] = "cdad1c10b7f0e90cc1a9c91b513260d78413b2abc25b03f05741e22aa37be7fd",
+        ["core/5.0.0/marten-9-49-quick-append-events"] = "c7d141e0a1f987e0c7a44def68e64f51ab6f4b443e76f1d6b0826fbba1e72c04",
+        ["Pages/5.0.0/pages-settings"] = "204e781e76d6adae347497950771293b05a55d65e19f9cd65743e0caf90a6181",
+        ["core/5.0.0/role-tenancy"] = "1cdf8bea3d8efbd67134cfc02b154042e620cabe469b5b525c0059636c70be17",
+        ["core/5.0.0/site-field-schemas"] = "982871901171d8bf8bae595987abe0d560b1e71771f6e0d57e721bdced3ee4ad",
+        ["core/5.0.0/tenant-status"] = "158094c6e3234029157f411909efde433353c5ae00c73481ecb78f6ed67c8d52",
     };
 
     private static IReadOnlyList<ShippedMigration> FirstParty() =>
@@ -65,6 +77,8 @@ public class ShippedMigrationTests
             new BarakoCMS.Files.FilesModule(),
             new BarakoCMS.Email.Resend.ResendEmailModule(),
             new BarakoCMS.ExternalAuth.ExternalAuthModule(),
+            new BarakoCMS.Accounting.AccountingModule(),
+            new BarakoCMS.Pages.PagesModule(),
         ]);
 
     private sealed class SecondOwnerOfTheFilesAssembly : IBarakoModule
@@ -112,6 +126,8 @@ public class ShippedMigrationTests
             new BarakoCMS.Files.FilesModule(),
             new BarakoCMS.Email.Resend.ResendEmailModule(),
             new BarakoCMS.ExternalAuth.ExternalAuthModule(),
+            new BarakoCMS.Accounting.AccountingModule(),
+            new BarakoCMS.Pages.PagesModule(),
         ];
 
         var all = ShippedMigrations.Discover(modules);
@@ -119,15 +135,18 @@ public class ShippedMigrationTests
 
         var owned = all.Where(m => m.Owner != ShippedMigrations.CoreOwner).Select(m => m.Key).ToList();
         owned.Should().Equal(
+            "Accounting/5.0.0/accounting-number-sequences",
             "Email.Resend/4.5.0/email-sent-emails",
             "ExternalAuth/4.6.0/external-auth-identities",
             "ExternalAuth/4.8.0/external-auth-used-nonces",
             "Files/4.2.0/stored-files-parent-index",
+            "Files/5.0.0/files-storage-settings",
             "Forms/4.2.0/forms-public-forms",
             "Forms/4.6.0/forms-email-verification",
-            "Forms/4.7.0/forms-tenant-policy-restore");
+            "Forms/4.7.0/forms-tenant-policy-restore",
+            "Pages/5.0.0/pages-settings");
         coreOnly.Count.Should().BeGreaterThanOrEqualTo(7, "seven core files were released before the ledger");
-        coreOnly.Should().HaveCount(all.Count - 7, "a module that is not enabled contributes nothing");
+        coreOnly.Should().HaveCount(all.Count - 10, "a module that is not enabled contributes nothing");
         coreOnly.Should().OnlyContain(m => m.Owner == ShippedMigrations.CoreOwner);
         coreOnly.Select(m => m.Id).Should().NotIntersectWith(ModuleOwned, "core must not also ship a module's file");
     }

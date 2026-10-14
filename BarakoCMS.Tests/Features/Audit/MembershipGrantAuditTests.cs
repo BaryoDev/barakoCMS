@@ -150,7 +150,7 @@ public class MembershipGrantAuditTests
         var slug = await AuditTenants.CreateAsync(_factory);
         var (client, _) = await AuditTenants.AdminAsync(_factory, slug);
         var memberId = await AuditTenants.MemberAsync(_factory, slug, MembershipStatus.Active);
-        var platform = await AuditTenants.RoleAsync(_factory, SystemCapabilities.ManageRoles);
+        var platform = await AuditTenants.RoleInAsync(_factory, slug, SystemCapabilities.ManageRoles);
 
         var allowed = await client.PutAsJsonAsync($"/api/tenants/members/{memberId}",
             new { roleIds = new[] { SystemRoles.UserRoleId }, status = "Active" });

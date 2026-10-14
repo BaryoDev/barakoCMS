@@ -88,6 +88,15 @@ public sealed record TokenIssueResult
     /// </summary>
     public bool MfaEnrollmentRequired { get; private init; }
 
+    /// <summary>The refresh lifetime when nothing shortens it.</summary>
+    public static readonly TimeSpan DefaultRefreshLifetime = TimeSpan.FromDays(7);
+
+    /// <summary>
+    /// How long a refresh token minted beside this access token may live: the deployment's seven
+    /// days, or the tenant's session length when that is shorter.
+    /// </summary>
+    public TimeSpan RefreshLifetime { get; private init; } = DefaultRefreshLifetime;
+
     /// <summary>Why the request was denied. For logs — do not return this to the caller verbatim.</summary>
     public string? DenialReason { get; private init; }
 
@@ -101,6 +110,15 @@ public sealed record TokenIssueResult
         {
             Allowed = true, Token = token, Jti = jti, ExpiresAt = expiresAt, Roles = roles,
             MfaEnrollmentRequired = mfaEnrollmentRequired,
+        };
+
+    public static TokenIssueResult Granted(
+        string token, string jti, DateTime expiresAt, IReadOnlyList<string> roles, bool mfaEnrollmentRequired,
+        TimeSpan refreshLifetime) =>
+        new()
+        {
+            Allowed = true, Token = token, Jti = jti, ExpiresAt = expiresAt, Roles = roles,
+            MfaEnrollmentRequired = mfaEnrollmentRequired, RefreshLifetime = refreshLifetime,
         };
 
     public static TokenIssueResult Denied(string reason) =>

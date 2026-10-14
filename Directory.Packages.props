@@ -25,14 +25,21 @@
   </ItemGroup>
 
   <ItemGroup Label="Persistence and storage">
-    <PackageVersion Include="Marten" Version="9.40.0" />
+    <PackageVersion Include="Marten" Version="9.49.0" />
     <!-- Marten 9 already brings JasperFx transitively; referenced explicitly because the host
          calls RunJasperFxCommands for the db-patch / db-assert / db-apply schema commands, and a
          compile-time dependency should not rest on someone else's dependency graph. -->
-    <PackageVersion Include="JasperFx" Version="2.75.2" />
+    <PackageVersion Include="JasperFx" Version="2.84.1" />
     <!-- Was floating (3.7.*) before central management, so two builds of the same commit could
          resolve different versions. Pinned to what it last resolved to. -->
     <PackageVersion Include="AWSSDK.S3" Version="3.7.511.8" />
+    <!-- BarakoCMS.Secrets.Aws (#785). The 3.7 line, not 4.x: AWSSDK.S3 above is 3.7, both need the
+         same AWSSDK.Core, and the Suite carries both modules. They move to 4.x together. -->
+    <PackageVersion Include="AWSSDK.SecretsManager" Version="3.7.504.43" />
+    <!-- BarakoCMS.Secrets.Gcp (#785). Apache-2.0. Brings the gRPC client stack and Google's
+         application default credentials, which is how it authenticates as the instance's service
+         account without a stored key. -->
+    <PackageVersion Include="Google.Cloud.SecretManager.V1" Version="2.8.0" />
     <PackageVersion Include="Talaan" Version="0.2.0" />
   </ItemGroup>
 
@@ -89,10 +96,23 @@
     <PackageVersion Include="Microsoft.Extensions.DependencyModel" Version="10.0.12" />
   </ItemGroup>
 
+  <ItemGroup Label="Aspire spike">
+    <!-- aspire/ only (#1025). No shipped project references these; the AppHost is not in the
+         solution, so CI never restores or builds it. 13.5.4 rather than 13.6.x: the newest release
+         at least two weeks old. -->
+    <PackageVersion Include="Aspire.Hosting.AppHost" Version="13.5.4" />
+    <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.5.4" />
+    <PackageVersion Include="Aspire.Hosting.Docker" Version="13.5.4" />
+  </ItemGroup>
+
   <ItemGroup Label="Testing">
     <PackageVersion Include="coverlet.collector" Version="6.0.4" />
     <PackageVersion Include="FastEndpoints.Testing" Version="8.3.0" />
     <PackageVersion Include="FluentAssertions" Version="8.11.0" />
+    <!-- Test only: an OpenFeature SDK with the stock OFREP provider reads the FeatureFlags module's
+         OFREP routes, which is the proof #628 asks for. Nothing shipped references either. -->
+    <PackageVersion Include="OpenFeature" Version="2.14.1" />
+    <PackageVersion Include="OpenFeature.Providers.Ofrep" Version="0.1.5" />
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.12" />
     <PackageVersion Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.12" />
     <!-- BarakoCMS.Testing hosts a real barakoCMS over TestServer without a Program.cs to point

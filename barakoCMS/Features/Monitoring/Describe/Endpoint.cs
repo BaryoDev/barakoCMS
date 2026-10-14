@@ -48,6 +48,8 @@ internal sealed class Endpoint(
             Rules = DescribeDocument.Rules(FieldRules.Names),
             FieldEditors = DescribeDocument.FieldHints(FieldPresentation.Editors),
             FieldRoles = DescribeDocument.FieldHints(FieldPresentation.Roles),
+            ArrayItemTypes = ArrayItems.ItemTypes,
+            JsonSchemaKeywords = JsonFieldSchemas.Keywords,
             StructuredDataTypes = barakoCMS.Core.Validation.StructuredDataTypes.Names,
             CredentialNameParts = barakoCMS.Infrastructure.Security.CredentialNames.Words,
         };

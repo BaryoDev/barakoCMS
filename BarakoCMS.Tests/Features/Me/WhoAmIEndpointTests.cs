@@ -44,7 +44,7 @@ public class WhoAmIEndpointTests
         var slug = $"me-{Guid.NewGuid():N}"[..14];
         using var scope = _factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug, IsActive = true });
+        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug });
         await session.SaveChangesAsync(Ct);
         return slug;
     }
@@ -239,7 +239,43 @@ public class WhoAmIEndpointTests
 
         operation.GetProperty("tags").EnumerateArray().Select(t => t.GetString()).Should().Equal("Me");
         OpenApiSchemaReader.PropertyNames(OpenApiSchemaReader.OkResponse(doc, operation))
-            .Should().BeEquivalentTo(["userId", "username", "tenant", "roles", "capabilities"]);
+            .Should().BeEquivalentTo(["userId", "username", "tenant", "roles", "capabilities", "legacyRoleFallback"]);
+    }
+
+    [Fact]
+    public async Task The_legacy_role_fallback_is_reported_off_on_a_default_host()
+    {
+        var userId = await UserAsync([await RoleAsync()]);
+
+        var me = await MeAsync(Client(userId));
+
+        me.GetProperty("legacyRoleFallback").GetBoolean().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task The_legacy_role_fallback_is_reported_on_where_the_deployment_turns_it_on()
+    {
+        var userId = await UserAsync([await RoleAsync()]);
+        var client = LegacyFallbackHost().CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer", _factory.CreateToken(roles: ["Claimed Only"], userId: userId.ToString()));
+
+        var me = await MeAsync(client);
+
+        me.GetProperty("userId").GetGuid().Should().Be(userId);
+        me.GetProperty("legacyRoleFallback").GetBoolean().Should().BeTrue();
+    }
+
+    private static readonly Lock LegacyHostGate = new();
+    private static Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program>? _legacyHost;
+
+    /// <summary>One derived host for the class, since each build costs a server. Never disposed.</summary>
+    private Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> LegacyFallbackHost()
+    {
+        lock (LegacyHostGate)
+        {
+            return _legacyHost ??= _factory.WithSetting(CapabilityGateProcessor.LegacyRoleFallbackKey, "true");
+        }
     }
 
     [Fact]

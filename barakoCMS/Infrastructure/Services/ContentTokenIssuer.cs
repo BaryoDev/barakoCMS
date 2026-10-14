@@ -26,16 +26,25 @@ namespace barakoCMS.Infrastructure.Services;
 /// which costs nothing.
 ///
 /// A token is never logged.
+///
+/// The field a type's numbering rule fills is the server's in the same way once the entry exists:
+/// an update puts the stored number back, so a number cannot be rewritten by any route either.
 /// </remarks>
 internal sealed class ContentTokenIssuer(IDocumentSession session)
 {
-    private readonly Dictionary<string, IReadOnlyList<FieldDefinition>> _fields = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Owned> _fields = new(StringComparer.Ordinal);
+
+    /// <summary>What the server owns in a type's entries: its token fields, and the field its numbering rule fills.</summary>
+    private sealed record Owned(IReadOnlyList<FieldDefinition> Tokens, string? Number)
+    {
+        public static readonly Owned Nothing = new([], null);
+    }
     private readonly HashSet<string> _issued = new(StringComparer.Ordinal);
 
     /// <summary>Gives a new entry its tokens, discarding whatever the event carried under those fields.</summary>
     public async Task IssueAsync(ContentCreated created, CancellationToken ct)
     {
-        foreach (var field in await FieldsAsync(created.ContentType, ct))
+        foreach (var field in (await OwnedAsync(created.ContentType, ct)).Tokens)
         {
             RemoveKeys(created.Data, field.Name);
             created.Data[field.Name] = NewToken(field);
@@ -52,7 +61,10 @@ internal sealed class ContentTokenIssuer(IDocumentSession session)
         if (@event is not ContentUpdated updated)
             return;
 
-        foreach (var field in await FieldsAsync(content.ContentType, ct))
+        var owned = await OwnedAsync(content.ContentType, ct);
+        KeepNumber(content, updated, owned.Number);
+
+        foreach (var field in owned.Tokens)
         {
             // Read before anything is removed: a caller in process may hand over the entry's own
             // dictionary as the event's data.
@@ -68,16 +80,34 @@ internal sealed class ContentTokenIssuer(IDocumentSession session)
         }
     }
 
-    /// <summary>The token fields of a type, read once per type for the life of this writer.</summary>
+    /// <summary>Puts the stored number back into a data update, or leaves the field out when the entry has none.</summary>
+    private static void KeepNumber(Content content, ContentUpdated updated, string? field)
+    {
+        if (field is null)
+        {
+            return;
+        }
+
+        var storedKey = content.Data.Keys.FirstOrDefault(k => Matches(k, field));
+        var stored = storedKey is null ? null : content.Data[storedKey];
+
+        RemoveKeys(updated.Data, field);
+        if (storedKey is not null && stored is not null)
+        {
+            updated.Data[storedKey] = stored;
+        }
+    }
+
+    /// <summary>The token fields and numbered field of a type, read once per type for the life of this writer.</summary>
     /// <remarks>
     /// The name is matched ignoring case, as the singleton cap matches it, so an entry created as
     /// TICKET under a type named ticket still gets the type's tokens. A name with no definition is
     /// not remembered, because a later write in the same unit may follow the type's creation.
     /// </remarks>
-    private async Task<IReadOnlyList<FieldDefinition>> FieldsAsync(string contentType, CancellationToken ct)
+    private async Task<Owned> OwnedAsync(string contentType, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(contentType))
-            return [];
+            return Owned.Nothing;
 
         if (_fields.TryGetValue(contentType, out var cached))
             return cached;
@@ -86,7 +116,7 @@ internal sealed class ContentTokenIssuer(IDocumentSession session)
         // cannot read the type's definition has no token field it could be owed.
         var types = session.Query<ContentTypeDefinition>();
         if (types is null)
-            return [];
+            return Owned.Nothing;
 
         var lowered = contentType.ToLower();
         var definitions = await types
@@ -95,14 +125,14 @@ internal sealed class ContentTokenIssuer(IDocumentSession session)
 
         var definition = definitions.FirstOrDefault(d => d.Name == contentType) ?? definitions.FirstOrDefault();
         if (definition is null)
-            return [];
+            return Owned.Nothing;
 
-        IReadOnlyList<FieldDefinition> fields = (definition.Fields ?? [])
-            .Where(f => f is not null && TokenFields.IsToken(f.Type))
-            .ToList();
+        var owned = new Owned(
+            (definition.Fields ?? []).Where(f => f is not null && TokenFields.IsToken(f.Type)).ToList(),
+            definition.Numbering is { Field.Length: > 0 } rule ? rule.Field : null);
 
-        _fields[contentType] = fields;
-        return fields;
+        _fields[contentType] = owned;
+        return owned;
     }
 
     private string NewToken(FieldDefinition field)

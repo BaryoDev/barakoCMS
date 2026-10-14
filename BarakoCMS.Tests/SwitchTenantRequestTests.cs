@@ -425,7 +425,7 @@ public class SwitchTenantRequestTests
             Id = Guid.NewGuid(),
             Slug = slug,
             Name = slug,
-            IsActive = isActive,
+            Status = isActive ? TenantStatus.Active : TenantStatus.Suspended,
         });
         await session.SaveChangesAsync();
         return slug;

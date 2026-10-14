@@ -38,7 +38,7 @@ public class UniquenessExistingEntriesTests
         using (var scope = _fixture.Services.CreateScope())
         {
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug, IsActive = true });
+            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug });
             session.Store(new User
             {
                 Id = userId,

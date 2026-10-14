@@ -163,7 +163,7 @@ public class PublicTypeDescriptionTests
         using (var scope = _factory.Services.CreateScope())
         {
             var registry = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            registry.Store(new Tenant { Id = Guid.NewGuid(), Slug = tenant, Name = tenant, IsActive = true });
+            registry.Store(new Tenant { Id = Guid.NewGuid(), Slug = tenant, Name = tenant });
             await registry.SaveChangesAsync(Ct);
         }
 

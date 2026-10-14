@@ -33,7 +33,7 @@ public interface IContentWriter
     /// </summary>
     /// <returns>The document, so the caller can read back what was applied.</returns>
     [Obsolete("Use CreateAsync, which can read the content type's sourcing policy. This one cannot, "
-        + "so it always takes the document path. Removal planned for barakoCMS 5.0.")]
+        + "so it always takes the document path. Removal planned for barakoCMS 6.0.")]
     Content Create(Events.ContentCreated @event);
 
     /// <summary>
@@ -45,7 +45,7 @@ public interface IContentWriter
     /// this throws rather than appending an event the document will silently ignore.
     /// </param>
     [Obsolete("Use AppendAsync, which can read the content type's sourcing policy. This one cannot, "
-        + "so it always takes the document path. Removal planned for barakoCMS 5.0.")]
+        + "so it always takes the document path. Removal planned for barakoCMS 6.0.")]
     void Append(Content content, object @event);
 
     /// <summary>

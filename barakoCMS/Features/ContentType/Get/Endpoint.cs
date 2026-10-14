@@ -13,7 +13,7 @@ internal class Endpoint(
         // The content-type resource lived at two route names: read at /api/schemas, create at
         // POST /api/content-types, and the delivery toggle at /api/content-types/{name}. It is
         // consolidated on /api/content-types. /api/schemas stays as a deprecated alias so an
-        // existing client keeps working; it goes in 5.0.
+        // existing client keeps working; it goes in 6.0.
         Get("/api/content-types", "/api/schemas");
         // NOTE: AllowAnonymous() must NOT be combined with Roles() — in ASP.NET Core
         // AllowAnonymous short-circuits authorization and silently disables the role check.

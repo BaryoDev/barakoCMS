@@ -175,7 +175,7 @@ public class MfaPolicyTests
             var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
             var userId = (await s.Query<User>().FirstAsync(u => u.Username == username)).Id;
             foreach (var slug in new[] { tenantA, tenantB })
-                s.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug, IsActive = true });
+                s.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug });
             s.Store(new Membership
             {
                 Id = Guid.NewGuid(), UserId = userId, TenantSlug = tenantA,

@@ -43,10 +43,8 @@ internal sealed class TenantByHostEndpoint(
 
         if (slug is not null && map.Find(host) is null)
         {
-            slug = await session.Query<Tenant>()
-                .Where(t => t.Slug == slug && t.IsActive)
-                .Select(t => t.Slug)
-                .FirstOrDefaultAsync(ct);
+            var tenant = await session.Query<Tenant>().FirstOrDefaultAsync(t => t.Slug == slug, ct);
+            slug = tenant is { Status: TenantStatus.Active } ? tenant.Slug : null;
         }
 
         if (slug is null)

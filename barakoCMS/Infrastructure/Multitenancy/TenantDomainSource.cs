@@ -90,9 +90,9 @@ public sealed class TenantDomainSource : ITenantDomainSource
         }
 
         await using var session = _store.QuerySession();
-        var tenants = await session.Query<Tenant>()
-            .Where(t => t.IsActive)
-            .ToListAsync(ct);
+        // Every tenant, filtered in memory: a document stored before Status existed has only
+        // IsActive, and reads back with the right Status.
+        var tenants = await session.Query<Tenant>().ToListAsync(ct);
 
         var map = Build(tenants, _logger);
 
@@ -117,18 +117,23 @@ public sealed class TenantDomainSource : ITenantDomainSource
         return map;
     }
 
-    /// <summary>The map for a list of active tenants.</summary>
-    internal static TenantDomainMap Build(IReadOnlyList<Tenant> tenants, ILogger logger)
+    /// <summary>The map for the registered tenants, whatever their status.</summary>
+    internal static TenantDomainMap Build(IReadOnlyList<Tenant> registered, ILogger logger)
     {
+        var tenants = registered.Where(t => t.Status == TenantStatus.Active).ToList();
         var entries = tenants
             .Where(t => t.Domains.Count > 0)
             .SelectMany(t => t.Domains.Select(d => (Domain: d, t.Slug)));
 
         var slugs = tenants.Select(t => t.Slug).ToList();
+        var paused = registered
+            .Where(t => t.Status != TenantStatus.Active)
+            .Select(t => (t.Slug, t.Status, (IReadOnlyCollection<string>)t.Domains))
+            .ToList();
 
         try
         {
-            return new TenantDomainMap(entries, slugs);
+            return new TenantDomainMap(entries, slugs, paused);
         }
         catch (InvalidOperationException ex)
         {
@@ -137,7 +142,7 @@ public sealed class TenantDomainSource : ITenantDomainSource
             // map degrades to no domains and the conflict is logged loudly instead. The active
             // slugs are kept: in Multi an empty map would answer 404 for every tenant.
             logger.LogError(ex, "Tenant domains conflict; custom domain resolution is disabled until it is resolved");
-            return new TenantDomainMap([], slugs);
+            return new TenantDomainMap([], slugs, paused.Select(p => (p.Slug, p.Status, (IReadOnlyCollection<string>)[])));
         }
     }
 }

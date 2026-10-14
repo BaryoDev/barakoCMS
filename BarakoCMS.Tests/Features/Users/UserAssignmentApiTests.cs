@@ -57,11 +57,12 @@ public class UserAssignmentApiTests
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
-        // Create role
+        // A platform role, since a global role reaches every tenant and only a platform role may be one.
         var roleResponse = await _client.PostAsJsonAsync("/api/roles", new
         {
             name = "Editor",
-            description = "Content Editor"
+            description = "Content Editor",
+            isPlatform = true,
         });
 
         if (!roleResponse.IsSuccessStatusCode)
@@ -94,12 +95,13 @@ public class UserAssignmentApiTests
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
-        var roleResponse = await _client.PostAsJsonAsync("/api/roles", new { name = "Viewer" });
+        var roleResponse = await _client.PostAsJsonAsync("/api/roles", new { name = "Viewer", isPlatform = true });
         var role = await roleResponse.Content.ReadFromJsonAsync<barakoCMS.Features.Roles.Create.Response>();
         var userId = await CreateUserAsync();
 
         // Assign role first
-        await _client.PostAsJsonAsync($"/api/users/{userId}/roles", new { roleId = role!.Id });
+        (await _client.PostAsJsonAsync($"/api/users/{userId}/roles", new { roleId = role!.Id }))
+            .StatusCode.Should().Be(HttpStatusCode.OK, "the control: the role is held before it is removed");
 
         // Act
         var response = await _client.DeleteAsync($"/api/users/{userId}/roles/{role.Id}");

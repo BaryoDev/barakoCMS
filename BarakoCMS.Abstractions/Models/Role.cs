@@ -37,6 +37,20 @@ public class Role
     public bool RequireMfa { get; set; }
 
     /// <summary>
+    /// The tenant that owns this role, by slug. Null for a platform role. A tenant's roles are
+    /// listed, assigned and edited inside that tenant only, and their permissions name that
+    /// tenant's content types.
+    /// </summary>
+    public string? TenantSlug { get; set; }
+
+    /// <summary>
+    /// A role seeded for the whole deployment (SuperAdmin, Admin, User, and a role a module seeds
+    /// under a fixed id). Every tenant can assign it, and only a holder of
+    /// <see cref="SystemCapabilities.ManagePlatformRoles"/> can change it.
+    /// </summary>
+    public bool IsPlatform { get; set; }
+
+    /// <summary>
     /// When this role was created
     /// </summary>
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

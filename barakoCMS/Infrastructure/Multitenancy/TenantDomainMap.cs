@@ -1,3 +1,5 @@
+using barakoCMS.Models;
+
 namespace barakoCMS.Infrastructure.Multitenancy;
 
 /// <summary>
@@ -18,6 +20,8 @@ public sealed class TenantDomainMap
 
     private readonly Dictionary<string, string> _bySlug;
     private readonly HashSet<string> _activeSlugs;
+    private readonly Dictionary<string, TenantStatus> _paused;
+    private readonly Dictionary<string, string> _pausedByDomain;
 
     public TenantDomainMap(IEnumerable<(string Domain, string Slug)> entries)
         : this(entries, [])
@@ -31,25 +35,58 @@ public sealed class TenantDomainMap
     /// from one snapshot and dropped together.
     /// </param>
     public TenantDomainMap(IEnumerable<(string Domain, string Slug)> entries, IEnumerable<string> activeSlugs)
+        : this(entries, activeSlugs, [])
+    {
+    }
+
+    /// <param name="entries">Each active tenant's registered domains.</param>
+    /// <param name="activeSlugs">The slug of every active tenant.</param>
+    /// <param name="paused">
+    /// Every registered tenant that is not Active, with its status and domains. Its domains still
+    /// resolve to it, so a request on one is refused as that tenant's instead of falling through to
+    /// the default tenant, but <see cref="Find"/> does not return them: CORS and the TLS ask treat
+    /// such a domain as nobody's.
+    /// </param>
+    public TenantDomainMap(
+        IEnumerable<(string Domain, string Slug)> entries,
+        IEnumerable<string> activeSlugs,
+        IEnumerable<(string Slug, TenantStatus Status, IReadOnlyCollection<string> Domains)> paused)
     {
         // Ordinal, and nothing lowercased here: the token issuer matches the stored slug exactly
         // against the lowercased one it is asked for, and the two answers have to agree.
         _activeSlugs = new HashSet<string>(activeSlugs, StringComparer.Ordinal);
-        _bySlug = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        _bySlug = Index(entries);
+        _paused = new Dictionary<string, TenantStatus>(StringComparer.Ordinal);
+        var pausedEntries = new List<(string, string)>();
+        foreach (var (slug, status, domains) in paused)
+        {
+            if (string.IsNullOrWhiteSpace(slug) || status == TenantStatus.Active)
+                continue;
+            _paused[slug] = status;
+            pausedEntries.AddRange(domains.Select(d => (d, slug)));
+        }
 
+        _pausedByDomain = Index(pausedEntries);
+    }
+
+    private static Dictionary<string, string> Index(IEnumerable<(string Domain, string Slug)> entries)
+    {
+        var bySlug = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (domain, slug) in entries)
         {
             var key = Normalise(domain);
             if (string.IsNullOrEmpty(key) || string.IsNullOrWhiteSpace(slug))
                 continue;
 
-            if (_bySlug.TryGetValue(key, out var existing) && !existing.Equals(slug, StringComparison.OrdinalIgnoreCase))
+            if (bySlug.TryGetValue(key, out var existing) && !existing.Equals(slug, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException(
                     $"Domain '{key}' is registered to both '{existing}' and '{slug}'. "
                     + "A domain must belong to exactly one tenant.");
 
-            _bySlug[key] = slug.Trim().ToLowerInvariant();
+            bySlug[key] = slug.Trim().ToLowerInvariant();
         }
+
+        return bySlug;
     }
 
     public int Count => _bySlug.Count;
@@ -57,7 +94,21 @@ public sealed class TenantDomainMap
     /// <summary>Whether <paramref name="slug"/>, trimmed and lowercased, is an active tenant's.</summary>
     public bool IsActiveTenant(string? slug) => slug is not null && _activeSlugs.Contains(slug);
 
-    /// <summary>The tenant slug for a host, or null if the host is not a registered domain.</summary>
+    /// <summary>
+    /// The status of a registered tenant that is not Active, or null for an active tenant and for a
+    /// slug nobody registered. Matched exactly, like <see cref="IsActiveTenant"/>.
+    /// </summary>
+    public TenantStatus? PausedStatus(string? slug) =>
+        slug is not null && _paused.TryGetValue(slug, out var status) ? status : null;
+
+    /// <summary>The slug of the paused tenant a host is a domain of, or null.</summary>
+    public string? FindPaused(string? host)
+    {
+        var key = Normalise(host);
+        return key is not null && _pausedByDomain.TryGetValue(key, out var slug) ? slug : null;
+    }
+
+    /// <summary>The active tenant slug for a host, or null if the host is not an active tenant's domain.</summary>
     public string? Find(string? host)
     {
         var key = Normalise(host);

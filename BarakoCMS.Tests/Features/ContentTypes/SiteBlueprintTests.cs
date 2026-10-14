@@ -35,7 +35,7 @@ public class SiteBlueprintTests
         using var scope = _factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         var slug = $"site-{Guid.NewGuid():N}"[..14].ToLowerInvariant();
-        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug, IsActive = true });
+        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug });
         await session.SaveChangesAsync(Ct);
         return slug;
     }
@@ -262,7 +262,9 @@ public class SiteBlueprintTests
         var fields = site.GetProperty("fields").EnumerateArray()
             .ToDictionary(f => f.GetProperty("name").GetString()!, f => f);
         fields.Should().NotBeEmpty();
-        fields["Mode"].GetProperty("type").GetString().Should().Be("string");
+        fields["Mode"].GetProperty("type").GetString().Should().Be("choice", "Mode is a choice of Live and Holding from 5.0 (#924)");
+        fields["Mode"].GetProperty("options").EnumerateArray().Select(o => o.GetProperty("value").GetString())
+            .Should().BeEquivalentTo(["Live", "Holding"]);
         fields["Mode"].GetProperty("isRequired").GetBoolean().Should().BeFalse("unset means Live");
         fields["HoldingPath"].GetProperty("type").GetString().Should().Be("string");
         fields.Keys.Should().NotContain(["ComingSoon", "ComingSoonBlocks", "ComingSoonPath", "PreviewKeyHash"]);

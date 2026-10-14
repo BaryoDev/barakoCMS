@@ -39,7 +39,7 @@ public class TlsAskTests
         using (var scope = _fixture.Services.CreateScope())
         {
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug, IsActive = active, Domains = domains.ToList() });
+            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug, Status = active ? TenantStatus.Active : TenantStatus.Suspended, Domains = domains.ToList() });
             await session.SaveChangesAsync(Ct);
         }
 

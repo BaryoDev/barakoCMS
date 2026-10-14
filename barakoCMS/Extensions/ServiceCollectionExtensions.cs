@@ -91,6 +91,7 @@ public static class ServiceCollectionExtensions
 
         AddWorkflowTooling(services);
         AddValidationAndMonitoring(services);
+        AddConfigEngine(services);
 
         AddGlobalProcessors(services);
 
@@ -632,6 +633,12 @@ public static class ServiceCollectionExtensions
                 idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
             });
 
+        // A field change's progress is a load, a batch and a save. Two runs of one change, a resumed
+        // job beside the one it was meant to replace, must not both commit a batch from one cursor:
+        // a convert would map an already mapped value again.
+        options.Schema.For<FieldChange>()
+            .UseOptimisticConcurrency(true);
+
         // Navigation menus are a "menu" content type served through public delivery, not a bespoke
         // doc. Keeping them as content keeps them pluggable and drops a whole CRUD surface. The old
         // Menu document + /api/menus endpoints were removed; existing "menus" tables are just left
@@ -775,10 +782,19 @@ public static class ServiceCollectionExtensions
             .SingleTenanted() // one mail provider for the deployment, not one per tenant
             .DocumentAlias("email_settings");
 
+        // Stored in one table for the deployment, with the owning tenant kept as data. A name is
+        // unique within a tenant, and among platform roles: NULLS NOT DISTINCT makes the platform
+        // roles, which have no tenant, one group. migrations/5.0.0/role-tenancy.sql replaces the
+        // unique index on name alone with this one, under this name.
         options.Schema.For<Models.Role>()
-            .SingleTenanted() // roles are global; per-tenant assignment lives on Membership
+            .SingleTenanted()
             .DocumentAlias("roles")
-            .Index(x => x.Name, idx => idx.IsUnique = true);
+            .Index(x => new { x.TenantSlug, x.Name }, idx =>
+            {
+                idx.IsUnique = true;
+                idx.NullsNotDistinct = true;
+                idx.Name = "mt_doc_roles_uidx_tenant_slug_name";
+            });
 
         options.Schema.For<RefreshToken>()
             .SingleTenanted() // token lifecycle is global, independent of which club is in the URL
@@ -1001,7 +1017,7 @@ public static class ServiceCollectionExtensions
                     Log.Warning(
                         "Module {Module} uses the deprecated ConfigureMarten(StoreOptions), which can "
                         + "reach core's documents and the event store. Move to ConfigureSchema(IModuleSchema); "
-                        + "ConfigureMarten is removed in barakoCMS 5.0.",
+                        + "ConfigureMarten is removed in barakoCMS 6.0.",
                         module.Name);
                 }
                 module.ConfigureMarten(options);
@@ -1126,6 +1142,13 @@ public static class ServiceCollectionExtensions
         // refused before the host is built rather than at the first send. An absent key is not an
         // error: it means the feature is off, and the endpoints say so with the setting named.
         barakoCMS.Infrastructure.Connectors.ConnectorOptions.FromConfiguration(configuration).Validate(configuration);
+
+        // A key ring that is ambiguous or weak is refused here too, rather than at the first value
+        // somebody stores or reads.
+        foreach (var section in new[] { "Secrets", "Mfa", "Connectors" })
+        {
+            barakoCMS.Infrastructure.Security.KeyRing.FromConfiguration(configuration, section, legacyMaterial: null, prefixUnkeyedWrites: false);
+        }
         services.AddSingleton(erasure);
         services.AddScoped<barakoCMS.Infrastructure.Erasure.IContentEraser, barakoCMS.Infrastructure.Erasure.ContentEraser>();
     }
@@ -1172,6 +1195,10 @@ public static class ServiceCollectionExtensions
     private static void AddWorkflowRunner(IServiceCollection services)
     {
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowRunQueue, barakoCMS.Features.Workflows.WorkflowRunQueue>();
+        services.AddSingleton(sp => new barakoCMS.Features.Workflows.WorkflowTriggerRegistry(sp.GetServices<IBarakoModule>()));
+        services.AddScoped<barakoCMS.Core.Interfaces.IWorkflowTriggers, barakoCMS.Features.Workflows.WorkflowTriggerSource>();
+        services.AddSingleton<barakoCMS.Features.Workflows.IWorkflowExecutor, barakoCMS.Features.Workflows.BuiltInWorkflowExecutor>();
+        services.AddSingleton<barakoCMS.Features.Workflows.WorkflowExecutors>();
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowRunner>();
     }
 
@@ -1183,6 +1210,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>();
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<barakoCMS.Core.Interfaces.INumberAllocator, barakoCMS.Infrastructure.Numbering.GaplessNumberAllocator>();
+        services.AddSingleton<barakoCMS.Infrastructure.Numbering.SequenceNumberAllocator>();
+        services.AddSingleton<barakoCMS.Infrastructure.Numbering.HiLoNumberAllocator>();
+        services.AddSingleton<barakoCMS.Core.Interfaces.INumberStrategies, barakoCMS.Infrastructure.Numbering.NumberStrategies>();
         services.AddSingleton<barakoCMS.Core.Interfaces.IExternalNumberLedger, barakoCMS.Infrastructure.Numbering.ExternalNumberLedger>();
         services.AddSingleton(sp => barakoCMS.Features.Public.Events.ContentEventsOptions.FromConfiguration(
             sp.GetRequiredService<IConfiguration>()));
@@ -1192,6 +1222,7 @@ public static class ServiceCollectionExtensions
     {
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowRunRetentionService>();
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowCredentialMigrationService>();
+        services.AddHostedService<barakoCMS.Infrastructure.Security.SecretRewrapService>();
         services.AddHostedService<barakoCMS.Infrastructure.Services.StoredValidationRulesNotice>();
         services.AddHostedService<barakoCMS.Infrastructure.Services.StoredReferenceConditionsNotice>();
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowExecutionLogRedactionService>();
@@ -1246,16 +1277,39 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped(sp => ActivatorUtilities.CreateInstance<barakoCMS.Features.Workflows.WorkflowEngine>(
             sp, (IEnumerable<barakoCMS.Features.Workflows.IWorkflowAction>)(sp.GetRequiredService<barakoCMS.Features.Workflows.WorkflowActionSet>().Actions ?? [])));
+#pragma warning disable CS0618 // still served until 6.0, for a host that resolves it
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowEngine>(sp => sp.GetRequiredService<barakoCMS.Features.Workflows.WorkflowEngine>());
+#pragma warning restore CS0618
     }
 
     private static void AddWorkflowTooling(IServiceCollection services)
     {
         services.AddScoped<IWorkflowPluginRegistry>(sp => new WorkflowPluginRegistry(
             sp.GetRequiredService<barakoCMS.Features.Workflows.WorkflowActionSet>().Actions ?? []));
-        services.AddScoped<IWorkflowSchemaValidator, WorkflowSchemaValidator>();
+        services.AddScoped<IWorkflowSchemaValidator>(sp => new WorkflowSchemaValidator(
+            sp.GetRequiredService<IWorkflowPluginRegistry>(),
+            sp.GetRequiredService<Marten.IQuerySession>(),
+            sp.GetService<IConfiguration>(),
+            sp.GetRequiredService<barakoCMS.Features.Workflows.WorkflowTriggerRegistry>(),
+            sp.GetRequiredService<barakoCMS.Features.Workflows.WorkflowExecutors>()));
         services.AddScoped<ITemplateVariableExtractor, TemplateVariableExtractor>();
         services.AddScoped<IWorkflowDebugger, WorkflowDebugger>();
+    }
+
+    /// <summary>
+    /// The config engine and the core's sections. A module adds its own section by registering an
+    /// <see cref="barakoCMS.Core.Interfaces.IConfigProvider"/> the same way, scoped.
+    /// </summary>
+    private static void AddConfigEngine(IServiceCollection services)
+    {
+        services.AddScoped<barakoCMS.Features.Config.ConfigEngine>();
+        services.AddHostedService<barakoCMS.Features.Config.ConfigSectionCheck>();
+        services.AddScoped<barakoCMS.Core.Interfaces.IConfigProvider, barakoCMS.Features.ContentType.ContentTypeConfigProvider>();
+        services.AddScoped<barakoCMS.Core.Interfaces.IConfigProvider, barakoCMS.Features.Roles.RoleConfigProvider>();
+        services.AddScoped<barakoCMS.Core.Interfaces.IConfigProvider, barakoCMS.Features.Roles.PermissionRuleConfigProvider>();
+        services.AddScoped<barakoCMS.Core.Interfaces.IConfigProvider, barakoCMS.Features.Workflows.WorkflowConfigProvider>();
+        services.AddScoped<barakoCMS.Core.Interfaces.IConfigProvider, barakoCMS.Features.Connectors.ConnectorConfigProvider>();
+        services.AddScoped<barakoCMS.Core.Interfaces.IConfigProvider, barakoCMS.Features.Site.SiteSettingsConfigProvider>();
     }
 
     private static void AddValidationAndMonitoring(IServiceCollection services)
@@ -1295,6 +1349,9 @@ public static class ServiceCollectionExtensions
         // Needs a valid X-Step-Up token on endpoints marked Definition.RequireStepUp(). After the
         // capability gate, so a caller without the capability hears that first.
         services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Auth.Mfa.StepUpProcessor>();
+
+        // Refuses an edit to a type's definition while a field change runs on it. After every gate.
+        services.AddSingleton<FastEndpoints.IGlobalPreProcessor, barakoCMS.Infrastructure.Jobs.FieldChangeGateProcessor>();
 
         // The names those gates ask for, read off the routing table. GET /api/capabilities lists it
         // and a role write checks against it.
@@ -1374,6 +1431,8 @@ public static class ServiceCollectionExtensions
         // test host's settings arrive after this method has run. In production both reads see the
         // same values.
         services.AddRateLimiter(_ => { });
+        services.AddSingleton(sp => new barakoCMS.Infrastructure.Security.LookupReferenceThrottle(
+            barakoCMS.Infrastructure.Security.RateLimitSetup.Read(sp.GetRequiredService<IConfiguration>()).LookupReference));
         services.AddOptions<Microsoft.AspNetCore.RateLimiting.RateLimiterOptions>()
             .Configure<IConfiguration>((options, current) =>
                 barakoCMS.Infrastructure.Security.RateLimitSetup.Configure(
@@ -1549,6 +1608,7 @@ public static class ServiceCollectionExtensions
         // Built here so a module that declares a bad topic stops the host at startup, not on the
         // first feed request.
         app.ApplicationServices.GetRequiredService<barakoCMS.Infrastructure.Realtime.TopicRegistry>();
+        app.ApplicationServices.GetRequiredService<barakoCMS.Features.Workflows.WorkflowTriggerRegistry>();
         var configuration = app.ApplicationServices.GetRequiredService<IConfiguration>();
         var env = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
 
@@ -1862,6 +1922,13 @@ public static class ServiceCollectionExtensions
         // DeviceTrust enforcement pre-processor) simply by registering IGlobalPreProcessor/PostProcessor.
         var globalPreProcessors = app.ApplicationServices.GetServices<FastEndpoints.IGlobalPreProcessor>().ToArray();
         var globalPostProcessors = app.ApplicationServices.GetServices<FastEndpoints.IGlobalPostProcessor>().ToArray();
+
+        // Inside the output cache, so the metrics can tell a response it served from one that ran.
+        app.Use((context, next) =>
+        {
+            context.Items[barakoCMS.Infrastructure.Middleware.RequestResponseLoggingMiddleware.ReachedEndpointsKey] = true;
+            return next(context);
+        });
 
         // Lets IdempotencyFilter hash a keyed write's body after FastEndpoints has bound it.
         app.UseMiddleware<barakoCMS.Infrastructure.Filters.IdempotencyRequestBuffering>();

@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Marten;
 using barakoCMS.Modules;
 
@@ -15,6 +17,10 @@ namespace BarakoCMS.Portability;
 public sealed class PortabilityModule : IBarakoModule
 {
     public string Name => "Portability";
+
+    /// <summary>Adds the <c>contents</c> section, which is what lets a bundle apply as a config document.</summary>
+    public void ConfigureServices(IServiceCollection services, IConfiguration configuration) =>
+        services.AddScoped<barakoCMS.Core.Interfaces.IConfigProvider, ContentsConfigProvider>();
 
     /// <summary>
     /// Gives this module's capabilities to the roles that already reached its endpoints.

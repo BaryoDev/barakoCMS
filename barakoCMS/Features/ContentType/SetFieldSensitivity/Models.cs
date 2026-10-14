@@ -47,7 +47,14 @@ internal class Response
 
     /// <summary>
     /// How many entries had their derived search text rewritten. Entries that were never indexed,
-    /// and entries whose text did not change, are not counted.
+    /// and entries whose text did not change, are not counted. 0 while <see cref="Change"/> is still
+    /// running: its <c>processed</c> counts them then.
     /// </summary>
     public int EntriesReindexed { get; set; }
+
+    /// <summary>
+    /// The change applying this: completed when the type fit in one batch, and otherwise running on
+    /// the job queue, with the definition taking the new level when it completes.
+    /// </summary>
+    public barakoCMS.Features.ContentType.ChangeField.FieldChangeResponse? Change { get; set; }
 }

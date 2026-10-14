@@ -223,7 +223,8 @@ children of a `Conditional` have no policy of their own: the `Conditional` succe
 action, and its own `onFailure` decides what follows. A workflow that puts `onFailure` on a child
 is refused when it is saved.
 
-The engine a host can call in line through `IWorkflowEngine` follows the policy too. It retries
+The engine a host can call in line through `IWorkflowEngine` follows the policy too. That
+interface is obsolete in 5.0 and is removed in 6.0: nothing in the host calls it. It retries
 nothing, so any failure of a `Halt` action ends the workflow there, and the actions after it are
 written to the execution log as not run.
 
@@ -233,6 +234,114 @@ run retried through such a node can end `Succeeded` with actions that never ran.
 during a rolling upgrade and after a rollback alike. Finish the rollout before saving a workflow
 that uses `Halt`, and before rolling back past this version, change those workflows back or wait
 for their runs to finish.
+
+## Passing a value from one action to the next
+
+An action can return outputs, and a later action of the same run can read them. A custom action
+returns them from `RunAsync(WorkflowContext, ct)` with `WorkflowActionResult.Success(outputs)`; none
+of the built-in actions returns any yet.
+
+The workflow says which outputs are kept, per action, in `capture`:
+
+```json
+{
+  "actions": [
+    { "type": "Lookup", "capture": ["total", "reference"] },
+    { "type": "Email", "parameters": { "To": "{{data.Email}}", "Subject": "Order {{actions.0.reference}}", "Body": "Total {{actions.0.total}}" } }
+  ]
+}
+```
+
+`{{actions.N.name}}` reads the output `name` of the action at position N, counting from zero. Only
+outputs named in that action's `capture` are kept on the run, and only those can be read. Everything
+else the action returned is dropped before the run is written, so a credential or an address in a
+provider's response never reaches the database (D37). An action keeps at most 20 outputs, a name is
+letters, digits and underscores, and a value longer than 2000 characters is not kept: the attempt's
+`error` says which.
+
+A kept output is substituted after the action's own placeholders are resolved, encoded the way the
+parameter it lands in is encoded, and it is never read as a placeholder itself. Only a reference
+written in the workflow is read: an entry value that holds `{{actions.0.name}}` is sent as that text. It is read only as
+it is: a format such as `| upper` is not applied. It is not read inside a `Conditional`'s branches.
+
+When the output is not there, because the earlier action has not succeeded or does not capture that
+name, the reading action fails and is retried like any other failure, so an action set to `Continue`
+can wait for an earlier one still on its own retry. Saving a workflow warns about a reference to an
+action that does not run first or a name it does not capture.
+
+Kept outputs are served on each attempt as `outputs` in `GET /api/workflow-runs`, and are deleted
+with the run when its retention window ends.
+
+## Undoing what a run did
+
+An action can declare what undoes it, in `compensate`: one action, with its own type and
+parameters, checked on save the way an action is. A `Conditional` is not accepted there. Nothing is
+declared by default, because not everything can be undone: an SMS cannot be unsent. In this example
+both types are custom actions a module registers:
+
+```json
+{ "type": "PostInvoice", "capture": ["invoiceId"], "onFailure": "Halt",
+  "compensate": { "type": "VoidInvoice", "parameters": { "InvoiceId": "{{actions.0.invoiceId}}" } } }
+```
+
+A run is rolled back in two cases. When an action set to `Halt` fails for good, if any action of the
+workflow declares a compensation; a workflow that declares none halts exactly as before, and its
+halted action can still be retried. And when an operator abandons it with
+`POST /api/workflow-runs/{id}/abandon`, which needs `retry_workflow_actions` because the
+compensations go out to third parties. An action that ended `Unknown` starts nothing on its own: it
+may have arrived, so an operator decides between retrying it and abandoning the run.
+
+Rolling back cancels what has not started, then undoes each action that succeeded, one at a time and
+the last first, under the same retries, leases and backoff as an action. A compensation has its own
+idempotency key, the action's key with `-undo` on the end, is handed `CompensationOf` with the
+position of the action it undoes, and can read that action's captured outputs, which is how it names
+the thing to undo. It runs even when the entry has been deleted since.
+
+Each attempt in `GET /api/workflow-runs` carries `compensation` once the run is rolled back:
+`Succeeded`, `Failed`, `Unknown`, `Cancelled`, or `NotDeclared` for an action that succeeded and
+declares nothing that undoes it. The run carries `compensation`: `Compensating` while one is waiting
+or in flight, `Compensated` when every action that succeeded was undone, and `Incomplete` when any
+was not, so a run that is half applied says so. A run being rolled back reads `Running`, and its
+actions cannot be retried. Cancelling it stops the compensations that have not started, and leaves
+it `Incomplete`. Abandon is refused with 409 for a run nothing of which succeeded, for one that finished
+with every action succeeded, while an action is in flight, for a run already rolled back or cancelled, and for a workflow switched off or deleted.
+
+The obsolete `IWorkflowEngine` path does not compensate.
+
+## What runs a workflow
+
+A workflow can name its executor in `executor`. Left out, or null, it is the built-in runner, which is
+what every workflow has always used, and a workflow and its runs read exactly as before. Only the
+built-in runner exists in this release, so a save naming anything else is refused with 400. The field
+is there so a later executor can take only the workflows pointed at it and leave every other one
+alone: routing, not replacement.
+
+A run copies the executor when it is queued and shows it as `executor` in `GET /api/workflow-runs`,
+null for the built-in runner. The built-in runner claims only its own runs. Whatever another
+executor does, it keeps the run document current under the invariants the built-in runner keeps:
+attempts advance in `ordinal` order, only the holder of a lease writes an outcome, a timeout is
+`Unknown` and is not retried on its own, the idempotency key of an attempt is stable across retries,
+only captured outputs are written, compensations run last first, and a cancelled or switched off run
+starts nothing more.
+
+## Changing a workflow
+
+`PUT /api/workflows/{id}` (capability `manage_workflows`) replaces a workflow with the definition
+sent, in the same shape `POST /api/workflows` takes, and validates it the same way: an unknown action
+type, a missing required parameter or a trigger the content type does not declare is a 400 and
+nothing is saved. It is a full update, so a field left out takes the create's default (`enabled`
+left out switches the workflow on). The response carries `warnings` as a create does, and the change
+is written to the audit log as `workflow.updated`.
+
+Credentials are write-only, so a console never has them to send back. An action sent back
+unchanged, in the same position, of the same type and with every parameter as the API returned it,
+keeps its stored credentials (`Secret`, `ApiKey`, a password, a token), and an unchanged
+Conditional keeps its children's too. A credential stays with the destination it was given for, so
+an action that changed (a new URL, or another action moved into its place) and leaves a credential
+out is refused with a 400 naming it: send it again, or send it blank to clear it. A changed
+Conditional branch is taken as sent. An action's `compensate` is kept or refused on the same rule,
+against the compensation stored in the same position. Runs already queued keep the actions they were
+queued with.
 
 ## Stopping a workflow or a run
 

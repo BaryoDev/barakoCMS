@@ -39,7 +39,9 @@ public class WorkflowTests
         }
     }
 
+#pragma warning disable CS0618 // IWorkflowEngine is obsolete and still tested until it is removed in 6.0
     private async Task<(barakoCMS.Features.Workflows.IWorkflowEngine Engine, SpyAction Spy, IServiceScope Scope)> EngineAsync()
+#pragma warning restore CS0618
     {
         var scope = _factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
@@ -201,10 +203,10 @@ public class WorkflowTests
     /// inside the async projection, where an escaped exception halts the projection and silently
     /// stops every workflow in the system until a manual rebuild that does not exist (#285).
     ///
-    /// Reaching it needs a failure before `ExecuteActionsAsync` swallows things, so this uses a
-    /// condition the evaluator cannot handle rather than a throwing action. That is the only route
-    /// between the two catches, which is worth knowing: it is a narrow gap and the guard is there
-    /// for what falls through it.
+    /// Reaching it needs a failure before `ExecuteActionsAsync` swallows things, so this stores a
+    /// workflow with no actions list, which is enumerated outside the per-action catch, rather than
+    /// a throwing action. It is a narrow gap and the guard is there for what falls through it. The
+    /// workflow is deleted afterwards, since every reader of stored workflows shares this database.
     /// </remarks>
     [Fact]
     public async Task A_workflow_that_fails_before_its_actions_does_not_stop_the_others()
@@ -216,7 +218,7 @@ public class WorkflowTests
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
 
         var broken = Definition(type, new());
-        broken.Conditions = null!; // MatchesConditions enumerates this, outside the per-action catch.
+        broken.Actions = null!; // Enumerated before any action runs, outside the per-action catch.
         session.Store(broken);
         session.Store(Definition(type, new()));
         await session.SaveChangesAsync();
@@ -226,8 +228,16 @@ public class WorkflowTests
             Id = Guid.NewGuid(), ContentType = type, Data = new Dictionary<string, object>(),
         }, CancellationToken.None);
 
-        await act.Should().NotThrowAsync("an escape here halts the projection for everybody");
-        spy.Executions.Should().ContainSingle("the healthy workflow still ran");
+        try
+        {
+            await act.Should().NotThrowAsync("an escape here halts the projection for everybody");
+            spy.Executions.Should().ContainSingle("the healthy workflow still ran");
+        }
+        finally
+        {
+            session.Delete(broken);
+            await session.SaveChangesAsync();
+        }
     }
 
     [Fact]

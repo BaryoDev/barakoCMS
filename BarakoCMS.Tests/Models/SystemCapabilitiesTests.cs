@@ -125,6 +125,9 @@ public class SystemCapabilitiesTests
             // Station keys are new, no gate to preserve. They are tenant credentials like API keys,
             // which Admin already manages.
             SystemCapabilities.ManageStations,
+            // #921: the config routes are new, no gate to preserve. Each section is also gated on
+            // its own capability, so it reaches nothing Admin could not reach already.
+            SystemCapabilities.ManageConfig,
         });
         admin.Should().NotContain(SystemCapabilities.ManageRoles);
         admin.Should().NotContain(SystemCapabilities.ManageTenants);
@@ -153,6 +156,8 @@ public class SystemCapabilitiesTests
         [
             SystemCapabilities.All,
             SystemCapabilities.ManageRoles,
+            // #913: the roles every tenant shares. Only SuperAdmin changes them.
+            SystemCapabilities.ManagePlatformRoles,
             SystemCapabilities.ManageTenants,
             SystemCapabilities.ManageUsers,
             SystemCapabilities.ManageEmailSettings,

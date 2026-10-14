@@ -375,9 +375,17 @@ listing the roles that may see it reads as a restriction that is not there, and
 leaving the list in place would silently reinstate a stale allowlist the next
 time somebody raised the level.
 
-The rebuild is synchronous and proportional to the number of entries of the
-type. A background rebuild would answer 200 while the value was still matchable
-anonymously, with nothing to tell the caller when it stopped being.
+From 5.0.0 the rebuild and the definition change are one field change (see
+[field-changes.md](field-changes.md)), in the order above: raising rebuilds the
+search text before the definition changes, lowering changes the definition
+first. A type of up to 200 entries is changed before the answer, as it always
+was, and `change` in the response is `completed`. A larger type is changed by the
+job queue, so the request no longer holds open for the whole rebuild: the answer
+is 200 with `change` still `running` and `entriesReindexed` 0, the definition
+takes the new level when the change completes, and
+`GET /api/content-types/field-changes/{id}` reports its progress. Until then the
+field is served at its old level, which is what the synchronous rebuild did for
+as long as it ran, and entry writes to the type wait.
 
 Still no admin UI for it: the endpoint is called directly.
 
@@ -412,13 +420,18 @@ the same reading for the caller, so a console can decide the way the API does:
   "username": "ana",
   "tenant": "clinic",
   "roles": [ { "id": "4f2a...", "name": "Nurse" } ],
-  "capabilities": ["view_sensitive"]
+  "capabilities": ["view_sensitive"],
+  "legacyRoleFallback": false
 }
 ```
 
 `roles` is the caller's global roles and their active membership's roles in the
 tenant, and `capabilities` is every capability those roles carry, with `*`
-reported as `*` rather than expanded. The tenant is the token's own, or the
+reported as `*` rather than expanded. `legacyRoleFallback` is `true` when the
+deployment runs with `Auth:LegacyRoleFallback` on (see below), where the legacy role
+names still open the gates they used to whatever capabilities the role carries, so a
+console that decides its navigation by capability should also offer those screens to
+an Admin-named role. It describes the deployment, not the caller. The tenant is the token's own, or the
 resolved one for a token without a tenant claim. The route takes no parameters,
 so it only ever describes the caller. It is sent `Cache-Control: no-store`, and
 an API key gets a 403, as on every route outside the content API. Taking a capability off
@@ -753,7 +766,7 @@ same registries the API checks requests against, so a client does not keep its o
 
 ```json
 {
-  "apiContractVersion": 7,
+  "apiContractVersion": 8,
   "fieldTypes": [
     { "name": "int", "aliases": ["integer", "number"], "editorHint": "number", "ruleNames": ["min", "max", "requiredWhen"] }
   ],
@@ -764,12 +777,16 @@ same registries the API checks requests against, so a client does not keep its o
   "credentialNameParts": ["secret", "password", "token"],
   "capabilities": [ { "name": "manage_roles", "source": "core", "note": null } ],
   "workflowActions": [ { "type": "Webhook", "requiredParameters": ["Url"], "optionalParameters": ["Secret"], "secretParameters": ["Secret"] } ],
-  "modules": [ { "name": "Pages", "httpContractVersion": 2 } ]
+  "modules": [ { "name": "Pages", "httpContractVersion": 2 } ],
+  "jsonSchemaKeywords": ["type", "properties", "required", "items", "enum"],
+  "arrayItemTypes": ["string", "int", "url"]
 }
 ```
 
-`fieldTypes`, `rules`, `fieldEditors`, `fieldRoles`, `structuredDataTypes` and `credentialNameParts`
-go to every signed-in caller. `fieldEditors` and `fieldRoles` are the values a field's `editor` and `role` may hold, see
+`fieldTypes`, `rules`, `fieldEditors`, `fieldRoles`, `structuredDataTypes`, `credentialNameParts`,
+`jsonSchemaKeywords` and `arrayItemTypes` go to every signed-in caller. `jsonSchemaKeywords` is
+every keyword a `json` field's `jsonSchema` may use (see [json-field-schemas.md](json-field-schemas.md))
+and `arrayItemTypes` every `itemType` an `array` field may declare; both examples are shortened. `fieldEditors` and `fieldRoles` are the values a field's `editor` and `role` may hold, see
 [field-hints-and-roles.md](field-hints-and-roles.md). `credentialNameParts` is the whole list of
 words that make a setting key or a workflow action parameter read as a credential when its name
 contains one, ignoring case (the example above is shortened). It is read from the list the API
@@ -882,7 +899,7 @@ says.
 | `Features/Requests/*` | `manage_requests` | `/api/requests`, `/api/requests/{slug}`, `POST /api/requests/{slug}/dry-run/{contentId}` | SuperAdmin, Admin |
 | `Features/Connectors/*` | `view_connectors` | `GET /api/connectors`, `GET /api/connectors/{slug}` | SuperAdmin, Admin |
 | `Features/Connectors/*` | `manage_connectors` | `POST /api/connectors`, `PUT` and `DELETE /api/connectors/{slug}`, `POST /api/connectors/{slug}/test` | SuperAdmin, Admin |
-| `Features/Workflows/*` | `manage_workflows` | `/api/workflows`, `/api/workflows/actions`, `/variables`, `/validate`, `/dry-run`, `PUT /api/workflows/{id}/enabled`, `DELETE /api/workflows/{id}`, `POST /api/workflow-runs/{id}/cancel` | SuperAdmin, Admin |
+| `Features/Workflows/*` | `manage_workflows` | `/api/workflows`, `/api/workflows/actions`, `/variables`, `/validate`, `/dry-run`, `PUT /api/workflows/{id}`, `PUT /api/workflows/{id}/enabled`, `DELETE /api/workflows/{id}`, `POST /api/workflow-runs/{id}/cancel` | SuperAdmin, Admin |
 | `Features/EmailTemplates/*` | `manage_workflows` | `POST /api/email-templates/{id}/preview`, which also needs read on the template and the entry ([email-templates.md](email-templates.md#preview)) | SuperAdmin, Admin |
 | `Features/WorkflowRuns/*` | `view_workflow_runs` | `GET /api/workflow-runs`, `GET /api/workflow-runs/{id}`, `GET /api/workflows/{id}/debug`, `GET /api/webhook-deliveries`, `GET /api/connector-deliveries` | SuperAdmin, Admin |
 | `Features/WorkflowRuns/*` | `retry_workflow_actions` | `POST /api/workflow-runs/{id}/actions/{ordinal}/retry` | SuperAdmin, Admin |
@@ -890,6 +907,7 @@ says.
 | `Features/Content/History/*` | `rollback_content` | `POST /api/contents/{id}/rollback/{versionId}` | SuperAdmin, Admin |
 | `Features/Content/Erase/*` | `erase_content` | `DELETE /api/contents/{id}/erase` | SuperAdmin |
 | `Features/Jobs/*` | `view_jobs` | `GET /api/jobs` | SuperAdmin, Admin |
+| `BarakoCMS.Files/Features/StorageSettings` | `manage_storage` | `GET` and `PUT /api/settings/storage`, `POST /api/settings/storage/test` | SuperAdmin, Admin |
 | `Features/Collections/Endpoints.cs` | `manage_collection_syncs` | `/api/collection-syncs`, `/api/collection-syncs/{slug}`, `POST /api/collection-syncs/{slug}/run` | SuperAdmin, Admin |
 | `Infrastructure/Services/SensitivityService.cs` | `view_sensitive` | No route. Sensitive fields that list no roles, and Sensitive entries, wherever content is read or written | SuperAdmin, and HR where it is seeded |
 | `Infrastructure/Services/SensitivityService.cs` | `view_hidden` | No route. Hidden fields that list no roles, and Hidden entries, wherever content is read or written | SuperAdmin |
@@ -1103,7 +1121,9 @@ display prefix.
 | Global role given to a user | `user.role.assigned` | `roleId`, `roleName` |
 | Global role taken from a user | `user.role.removed` | `roleId`, `roleName` |
 | Tenant created | `tenant.member.added` in the new tenant's log | `invited` (false), `roleIds`, `roleNames`, `tenantCreated` |
-| Tenant switched off or on | `tenant.deactivated`, `tenant.activated` in that tenant's log | none |
+| Tenant status changed | `tenant.deactivated`, `tenant.activated` in that tenant's log | `from`, `to` |
+| Tenant sign-up policy changed | `tenant.signup_changed` in that tenant's log | `from`, `to`, `roleId` |
+| Tenant sign-in policy changed | `tenant.signin_changed` in that tenant's log | `requireMfa`, `mfaRoleIds`, `methods`, `sessionMinutes` |
 | Member added, or added again | `tenant.member.added` | `invited`, `roleIds`, `roleNames`; `previousStatus`, `previousRoleIds`, `previousRoleNames` when the membership already existed |
 | Member's roles or status changed (suspending is this) | `tenant.member.updated` | `status`, `roleIds`, `roleNames`, `previousStatus`, `previousRoleIds`, `previousRoleNames` |
 | Member removed | `tenant.member.removed` | `previousStatus`, `previousRoleIds`, `previousRoleNames` |
@@ -1209,4 +1229,46 @@ as it did before these rows existed.
 - A portability import adding a new Sensitive or Hidden field to an existing type. Its row holds
   counts only. An import cannot change the level, role list or mask of a field that already exists.
 - An entry's own sensitivity level changing. That is on the entry's event stream.
-- Reads of Sensitive and Hidden fields.
+
+## What the audit log records about reads
+
+A request to `GET /api/contents/{id}`, `GET /api/contents/by-slug/{type}/{slug}`,
+`GET /api/contents` or `GET /api/contents/{id}/history`, or a rollback
+(`POST /api/contents/{id}/rollback/{versionId}`) whose response sends a Sensitive or Hidden value,
+writes one `content.sensitive.read` row, however many entries or versions it returns. A history
+read names every field that any version on the page sent. A value counts when it went out as stored: a field the caller sees
+redacted, as its last four characters or not at all was not read and is not named. An entry whose
+own level is Sensitive or Hidden counts when its data went out. A read that sends nothing above
+Public writes no row.
+
+| Key | Holds |
+|---|---|
+| `route` | the route template, such as `/api/contents/by-slug/{type}/{slug}`, never the path, since a slug can be a Sensitive value |
+| `apiKeyId` | for a read made with an API key, the key's id; the actor is the key's owner |
+| `entries` | `items`, `count` and `truncated`; each item is `id`, `contentType`, `sensitivity` and `fields` |
+| `contentType`, `fields`, `sensitivity` | for a read of one entry, the same three again, and the row's `targetId` is the entry's id |
+
+`fields` holds field names, never values. The row is written before the response goes out, in its
+own transaction, and a read whose row cannot be written answers 500 rather than going out
+unrecorded. A `Sensitivity:Mode` of `Off` masks nothing, so every Sensitive or Hidden value read is
+recorded.
+
+Public delivery sends Public fields only and writes no read row. Opening a share link does, below.
+
+Not recorded: `POST /api/email-templates/{id}/preview`. It needs `manage_workflows` as well as read
+on the entry, and renders only the placeholders the template names, but a Sensitive field the caller
+may see does render into its output, and no row says so.
+
+### Share links
+
+| Event | Action | Metadata |
+|---|---|---|
+| Link created | `site.share_link.created` | `label`, `expiresAt`; `scope` and `entryId` for an entry or page link |
+| Link revoked | `site.share_link.revoked` | `label`; `scope` and `entryId` for an entry or page link |
+| Link redeemed or opened | `site.share_link.redeemed` | `label`, `scope`, `via` (`redeem` or `open`); `entryId` for an entry or page link |
+
+A redemption row has no actor, since whoever holds a key has no account, and carries the caller's
+address. It names the link by id, never by key or hash. It is written in the same transaction as
+`lastUsedAt`, so a 404 writes neither. A preview token from `POST /api/preview` writes no row when
+it is minted or read through `?preview=`: it lasts 30 minutes and is meant to leave little behind
+(see `docs/site-settings.md`).

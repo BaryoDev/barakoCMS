@@ -11,9 +11,14 @@ namespace barakoCMS.Features.Workflows;
 /// </remarks>
 internal static class WorkflowConditions
 {
+    /// <remarks>
+    /// A definition stored or imported with <c>conditions: null</c> reads back as null, and an entry
+    /// stored without data has none. Both are read as empty: a null used to throw here, which threw
+    /// the whole event away, so the other workflows on it were lost along with this one.
+    /// </remarks>
     internal static bool Matches(WorkflowDefinition workflow, barakoCMS.Models.Content content)
     {
-        foreach (var condition in workflow.Conditions)
+        foreach (var condition in workflow.Conditions ?? [])
         {
             // Status is answered from the document before the data bag is consulted, and the order
             // is the whole of it. An entry with its own "Status" field, which is an ordinary thing to
@@ -24,7 +29,7 @@ internal static class WorkflowConditions
             {
                 if (content.Status.ToString() != condition.Value) return false;
             }
-            else if (content.Data.TryGetValue(condition.Key, out var value))
+            else if (content.Data?.TryGetValue(condition.Key, out var value) == true)
             {
                 if (value?.ToString() != condition.Value) return false;
             }
@@ -62,6 +67,17 @@ internal interface IWorkflowRunQueue
     /// </remarks>
     /// <returns>How many runs were queued.</returns>
     Task<int> QueueDeletedAsync(Guid contentId, string contentType, CancellationToken ct);
+
+    /// <summary>
+    /// Records the runs for a trigger a module fired, and commits them.
+    /// </summary>
+    /// <remarks>
+    /// Not checked for an earlier run of the same entry, unlike <see cref="EnqueueAsync"/>. That
+    /// check is for a projection rebuild replaying stored events, and a module's trigger is not a
+    /// stored event, so it is never replayed. Two fires are two things that happened.
+    /// </remarks>
+    /// <returns>How many runs were queued.</returns>
+    Task<int> FireAsync(barakoCMS.Models.Content content, string trigger, CancellationToken ct);
 
     /// <summary>Whether any workflow fires on this event for this content type.</summary>
     Task<bool> ListensAsync(string contentType, string eventType, CancellationToken ct);
@@ -143,6 +159,36 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
         return queued;
     }
 
+    public async Task<int> FireAsync(barakoCMS.Models.Content content, string trigger, CancellationToken ct)
+    {
+        var workflows = WorkflowTriggers.SwitchedOn(await session.Query<WorkflowDefinition>()
+            .Where(WorkflowTriggers.FiredBy(content.ContentType, trigger))
+            .ToListAsync(ct));
+
+        var queued = 0;
+
+        foreach (var workflow in workflows)
+        {
+            if (!WorkflowConditions.Matches(workflow, content))
+            {
+                continue;
+            }
+
+            // Sequence zero, as for an erasure: no stored event caused this run.
+            session.Store(NewRun(workflow, content.Id, content.ContentType, trigger, eventSequence: 0));
+            queued++;
+        }
+
+        if (queued > 0)
+        {
+            await session.SaveChangesAsync(ct);
+        }
+
+        WorkflowMetrics.Default.Queued(trigger, queued);
+
+        return queued;
+    }
+
     public async Task<bool> ListensAsync(string contentType, string eventType, CancellationToken ct) =>
         WorkflowTriggers.SwitchedOn(await session.Query<WorkflowDefinition>()
             .Where(WorkflowTriggers.FiredBy(contentType, eventType))
@@ -159,23 +205,32 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
             ContentId = contentId,
             ContentType = contentType,
             TriggerEvent = eventType,
+            Executor = WorkflowExecutors.ForRun(workflow),
             TriggeringEventSequence = eventSequence,
             // From the triggering event in the projection, and from the request for an erasure.
             CorrelationId = barakoCMS.Infrastructure.Tracing.Correlation.Id,
             TraceParent = barakoCMS.Infrastructure.Tracing.Correlation.Cause,
         };
 
-        for (var i = 0; i < workflow.Actions.Count; i++)
+        // A document stored or imported with no actions list, or an action with no parameters, is
+        // read as none, as null conditions are: throwing here would lose the run of every other
+        // workflow on the same event.
+        var actions = workflow.Actions ?? [];
+        for (var i = 0; i < actions.Count; i++)
         {
             run.Actions.Add(new WorkflowActionAttempt
             {
                 Ordinal = i,
-                ActionType = workflow.Actions[i].Type,
+                ActionType = actions[i].Type,
                 // Copied rather than referenced. A definition edited between queueing and
                 // running would otherwise change what a queued run sends, and the operator who
                 // edited it is not expecting to have rewritten yesterday's outbox.
-                Parameters = new Dictionary<string, string>(workflow.Actions[i].Parameters),
-                OnFailure = workflow.Actions[i].OnFailure ?? WorkflowFailurePolicy.Continue,
+                Parameters = new Dictionary<string, string>(actions[i].Parameters ?? []),
+                OnFailure = actions[i].OnFailure ?? WorkflowFailurePolicy.Continue,
+                Capture = actions[i].Capture is { } capture ? [.. capture] : [],
+                Compensate = actions[i].Compensate is { } undo
+                    ? new WorkflowCompensation { Type = undo.Type, Parameters = new Dictionary<string, string>(undo.Parameters ?? []) }
+                    : null,
                 IdempotencyKey = $"{run.Id:N}-{i}",
             });
         }

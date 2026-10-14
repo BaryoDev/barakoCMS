@@ -7,6 +7,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using barakoCMS.Models;
 
+// The Portability routes and their bundle types are obsolete, and they are what these tests are about.
+#pragma warning disable CS0618
+
 namespace BarakoCMS.Tests.Features.Portability;
 
 /// <summary>
@@ -29,7 +32,7 @@ public class ImportMoneyCurrencyTests
         using var scope = _fixture.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         var slug = $"cur-{Guid.NewGuid():N}"[..14].ToLowerInvariant();
-        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug, IsActive = true });
+        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug });
         await session.SaveChangesAsync(Ct);
         return slug;
     }

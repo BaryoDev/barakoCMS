@@ -109,6 +109,12 @@ internal static class WebhookSigning
         foreach (var action in workflow.Actions)
         {
             changed |= ProtectParameters(action.Type, action.Parameters, protector);
+
+            // A compensation is an action too, and stored the same way.
+            if (action.Compensate is { Parameters: { } undo } compensate)
+            {
+                changed |= ProtectParameters(compensate.Type, undo, protector);
+            }
         }
 
         return changed;
@@ -147,9 +153,12 @@ internal static class WebhookSigning
     /// </summary>
     /// <remarks>
     /// <para>
-    /// A value with the prefix is left alone. One without it is one of three things, told apart by
-    /// trying the current key: an envelope written before the prefix existed (it decrypts, and gains
-    /// the prefix with its ciphertext unchanged), a value stored in clear (it does not decrypt, and is
+    /// A value with the prefix is left alone, unless a key ring is configured and it was written under
+    /// a key other than the current one, when it is re-wrapped under the current key. One with the
+    /// prefix that no key opens is reported through <paramref name="undecryptableSecret"/>. One
+    /// without the prefix is one of three things, told apart by trying the keys: an envelope written
+    /// before the prefix existed (it decrypts, and gains the prefix with its ciphertext unchanged, or
+    /// is re-wrapped when a ring is configured), a value stored in clear (it does not decrypt, and is
     /// encrypted), or a <see cref="SecretParameter"/> that has the envelope's shape and will not
     /// decrypt.
     /// </para>
@@ -166,7 +175,7 @@ internal static class WebhookSigning
     /// </para>
     /// <para>
     /// Safe to run again and on several instances at once: every write produces a prefixed envelope
-    /// of the same plaintext, and a prefixed value is never touched.
+    /// of the same plaintext, and a prefixed value under the current key is never touched.
     /// </para>
     /// </remarks>
     /// <param name="undecryptableSecret">Called with the action's index and the parameter name, never the value.</param>
@@ -181,18 +190,39 @@ internal static class WebhookSigning
     {
         var changed = false;
 
+        // A document stored or imported with no actions list has nothing to migrate, and must not
+        // stop the pass for the workflows after it.
+        if (workflow.Actions is null)
+        {
+            return false;
+        }
+
         for (var index = 0; index < workflow.Actions.Count; index++)
         {
             var action = workflow.Actions[index];
             var actionIndex = index;
 
-            // A child of a Conditional is reported against the Conditional's index, since a child
-            // has no index of its own in the definition.
-            changed |= MigrateParameters(
-                action.Type, action.Parameters, protector,
-                name => undecryptableSecret?.Invoke(actionIndex, name),
-                branch => unreadableBranch?.Invoke(actionIndex, branch),
-                child: false);
+            if (action?.Parameters is not null)
+            {
+                // A child of a Conditional is reported against the Conditional's index, since a child
+                // has no index of its own in the definition.
+                changed |= MigrateParameters(
+                    action.Type, action.Parameters, protector,
+                    name => undecryptableSecret?.Invoke(actionIndex, name),
+                    branch => unreadableBranch?.Invoke(actionIndex, branch),
+                    child: false);
+            }
+
+            // A compensation is stored the same way, so a key retired after this pass must not
+            // strand its credentials. Reported against its action's index, named as the compensation's.
+            if (action?.Compensate is { Parameters: { } undo } compensate)
+            {
+                changed |= MigrateParameters(
+                    compensate.Type, undo, protector,
+                    name => undecryptableSecret?.Invoke(actionIndex, $"compensate.{name}"),
+                    branch => unreadableBranch?.Invoke(actionIndex, $"compensate.{branch}"),
+                    child: false);
+            }
         }
 
         return changed;
@@ -219,14 +249,7 @@ internal static class WebhookSigning
 
             if (LooksProtected(value))
             {
-                // What follows the prefix on anything the protector wrote is base64 of at least a
-                // nonce and a tag. A value with the prefix and not that shape was typed that way and
-                // stored in clear. One with the shape that will not decrypt cannot be told from
-                // ciphertext under another key, so it is left alone, as it always was.
-                if (AesGcmEnvelope.IsWellFormed(value[AesGcmEnvelope.VersionPrefix.Length..])) continue;
-
-                parameters[name] = protector.Protect(name == SecretParameter ? value.Trim() : value);
-                changed = true;
+                changed |= MigratePrefixed(parameters, name, value, protector, undecryptableSecret);
                 continue;
             }
 
@@ -237,7 +260,10 @@ internal static class WebhookSigning
                 // ciphertext by shape, when both ran against one database. The inner envelope is
                 // the credential; prefixing the outer one would hand the action ciphertext.
                 var inner = LooksProtected(decrypted) && protector.Unprotect(decrypted) is not null;
-                parameters[name] = inner ? decrypted : AesGcmEnvelope.VersionPrefix + value;
+                var prefixed = AesGcmEnvelope.VersionPrefix + value;
+                parameters[name] = inner ? decrypted
+                    : IsCurrent(protector, prefixed) ? prefixed
+                    : protector.Protect(decrypted);
                 changed = true;
                 continue;
             }
@@ -263,6 +289,42 @@ internal static class WebhookSigning
 
         return changed;
     }
+
+    private static bool MigratePrefixed(
+        Dictionary<string, string> parameters, string name, string value, ISecretProtector protector,
+        Action<string> undecryptableSecret)
+    {
+        // What follows the prefix (and the key id, when a ring wrote it) on anything the protector
+        // wrote is base64 of at least a nonce and a tag. A value with the prefix and not that shape
+        // was typed that way and stored in clear.
+        if (!AesGcmEnvelope.IsWellFormed(AesGcmEnvelope.Split(value).Envelope))
+        {
+            parameters[name] = protector.Protect(name == SecretParameter ? value.Trim() : value);
+            return true;
+        }
+
+        // One with the shape that will not decrypt cannot be told from ciphertext under another key,
+        // so it is left alone, as it always was, and reported. One that opens under an older key in
+        // the ring moves to the current key.
+        var opened = protector.Unprotect(value);
+        if (opened is null)
+        {
+            undecryptableSecret(name);
+            return false;
+        }
+
+        if (IsCurrent(protector, value))
+        {
+            return false;
+        }
+
+        parameters[name] = protector.Protect(opened);
+        return true;
+    }
+
+    // A protector with no ring behind it writes one way only, so whatever opens is current.
+    private static bool IsCurrent(ISecretProtector protector, string value) =>
+        protector is not IKeyRingProtector keyed || keyed.Ring.IsCurrent(value);
 
     private const string ConditionalType = "Conditional";
     private const string ChildTypeProperty = "Type";
@@ -626,7 +688,46 @@ internal static class WebhookSigning
     /// named here instead of returned.
     /// </param>
     public static Dictionary<string, string> WithoutSecret(
-        string? type, IReadOnlyDictionary<string, string> parameters, out List<string> unreadableBranches)
+        string? type, IReadOnlyDictionary<string, string> parameters, out List<string> unreadableBranches) =>
+        Redact(type, parameters, flags: true, out unreadableBranches);
+
+    /// <summary>
+    /// The same, without the flags a read response writes onto a child, and with any such flag that
+    /// was sent removed: the parameters as they compare between a stored action and one sent back.
+    /// </summary>
+    /// <remarks>
+    /// The response form cannot be compared with itself. A stored child holding a secret reads with
+    /// <c>SecretSet</c> true, and the same child sent back without its secret reads with it false.
+    /// </remarks>
+    public static Dictionary<string, string> WithoutSecretOrFlags(
+        string? type, IReadOnlyDictionary<string, string> parameters, out List<string> unreadableBranches) =>
+        Redact(type, parameters, flags: false, out unreadableBranches);
+
+    /// <summary>
+    /// Whether the parameters hold a credential value anywhere an action could read one: a
+    /// credential-named parameter that is not blank, or, on a Conditional, one on any child of any
+    /// branch, the child itself and its <c>Parameters</c> both, at every depth.
+    /// </summary>
+    /// <remarks>
+    /// The flags a read response writes onto a child are not credentials. A branch that is not
+    /// readable counts as holding one, since nothing can tell that it does not.
+    /// </remarks>
+    public static bool HasCredential(string? type, IReadOnlyDictionary<string, string> parameters)
+    {
+        var found = false;
+        Inspect(type, new Dictionary<string, string>(parameters));
+        return found;
+
+        bool Inspect(string? actionType, Dictionary<string, string> strings)
+        {
+            found |= strings.Any(p => IsSensitiveParameterName(p.Key) && !string.IsNullOrWhiteSpace(p.Value));
+            RewriteBranches(actionType, strings, Inspect, _ => found = true);
+            return false;
+        }
+    }
+
+    private static Dictionary<string, string> Redact(
+        string? type, IReadOnlyDictionary<string, string> parameters, bool flags, out List<string> unreadableBranches)
     {
         unreadableBranches = [];
 
@@ -638,7 +739,7 @@ internal static class WebhookSigning
             var json = copy[branch];
             if (string.IsNullOrWhiteSpace(json)) continue;
 
-            if (!TryRewriteBranch(json, WithoutChildSecrets, out var redacted))
+            if (!TryRewriteBranch(json, child => WithoutChildSecrets(child, flags), out var redacted))
             {
                 copy.Remove(branch);
                 unreadableBranches.Add(branch);
@@ -651,7 +752,7 @@ internal static class WebhookSigning
         return copy;
     }
 
-    private static bool WithoutChildSecrets(JsonObject child)
+    private static bool WithoutChildSecrets(JsonObject child, bool flags)
     {
         var nestsBranches = NestsBranches(child);
         var secretSet = false;
@@ -681,7 +782,7 @@ internal static class WebhookSigning
                 var json = StringOf(parameters[branch]);
                 if (string.IsNullOrWhiteSpace(json)) continue;
 
-                if (!TryRewriteBranch(json, WithoutChildSecrets, out var redacted))
+                if (!TryRewriteBranch(json, nested => WithoutChildSecrets(nested, flags), out var redacted))
                 {
                     parameters.Remove(branch);
                     unreadable.Add((JsonNode?)JsonValue.Create(branch));
@@ -690,6 +791,11 @@ internal static class WebhookSigning
 
                 if (redacted is not null) parameters[branch] = JsonValue.Create(redacted);
             }
+        }
+
+        if (!flags)
+        {
+            return true;
         }
 
         child[ChildSecretSetProperty] = JsonValue.Create(secretSet);

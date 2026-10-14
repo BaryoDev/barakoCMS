@@ -50,8 +50,8 @@ It warns and carries on. It cannot tell an API from a backup job, so the decisio
 
 If you cannot stop the service first, run `db-migrate --status` while it serves, which only reads.
 If nothing is `pending`, running `db-migrate` records the rest without executing a file. Some files
-say in their header that they can go in while the old build still serves: the two Marten event
-store files (4.3.0, 4.4.0) and `core/4.6.0/event-correlation-metadata`. When those are the only
+say in their header that they can go in while the old build still serves: the three Marten event
+store files (4.3.0, 4.4.0, 5.0.0) and `core/4.6.0/event-correlation-metadata`. When those are the only
 pending files, `db-migrate` can run under the old build; it prints the warning above and goes on,
 and each of them is safe to run again. Deploy soon after, since an old instance that restarts
 fails its own start-up check. For any other pending file, take the downtime: there is no supported

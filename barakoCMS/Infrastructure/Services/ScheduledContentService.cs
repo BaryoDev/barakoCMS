@@ -153,10 +153,12 @@ public class ScheduledContentService : BackgroundService
         if (Multitenancy.TenantPartitions.ServesDefaultPartition(_configuration))
             partitions.Add(null);
 
+        // A tenant that is not Active is not visited, so its schedules wait rather than fire. Filtered
+        // in memory: a document stored before Status existed has only IsActive.
         await using (var query = _store.QuerySession())
         {
-            var tenants = await query.Query<Tenant>().Where(t => t.IsActive).ToListAsync(ct);
-            partitions.AddRange(tenants.Select(t => (string?)t.Slug));
+            var tenants = await query.Query<Tenant>().ToListAsync(ct);
+            partitions.AddRange(tenants.Where(t => t.Status == TenantStatus.Active).Select(t => (string?)t.Slug));
         }
 
         foreach (var slug in partitions.Distinct())
@@ -234,6 +236,12 @@ public class ScheduledContentService : BackgroundService
     /// state change, and one that happened without a user, so the trail is the only place it is
     /// visible. Only the field just consumed is cleared; a Published item can still carry a future
     /// unpublish time, and a sensitivity time is independent of both.
+    ///
+    /// A publish whose unpublish time has also passed is missed, not applied: the item goes straight
+    /// to Archived, where the two would have left it, without ever being Published, and both times are
+    /// cleared. That is the case a sweep meets when its tenant was suspended, or the service was down,
+    /// across the whole window. Publishing it for one sweep would run every Published workflow, an
+    /// email or a webhook, for an entry that is already over.
     /// </remarks>
     internal static List<object> DueEvents(Content content, DateTime nowUtc)
     {
@@ -245,7 +253,12 @@ public class ScheduledContentService : BackgroundService
         var unpublishDue = content.Status == ContentStatus.Published
             && content.ScheduledUnpublishAt is { } unpublishAt && unpublishAt <= nowUtc;
 
-        if (publishDue)
+        if (publishDue && content.ScheduledUnpublishAt is { } closedAt && closedAt <= nowUtc)
+        {
+            events.Add(new ContentStatusChanged(content.Id, ContentStatus.Archived, SystemActor, now));
+            events.Add(new ContentScheduled(content.Id, null, null, SystemActor, now));
+        }
+        else if (publishDue)
         {
             events.Add(new ContentStatusChanged(content.Id, ContentStatus.Published, SystemActor, now));
             events.Add(new ContentScheduled(content.Id, null, content.ScheduledUnpublishAt, SystemActor, now));

@@ -468,7 +468,17 @@ internal static class PublicDelivery
     }
 }
 
-internal sealed class PublicListRequest : PaginatedRequest { }
+internal sealed class PublicListRequest : PaginatedRequest
+{
+    /// <summary>Only entries updated after this instant. Optional.</summary>
+    /// <remarks>
+    /// For a build that fetches what changed since its last run. It answers additions and edits of
+    /// published entries only: an entry unpublished, archived, made non-Public or deleted is not in
+    /// a published list, and a change to the type's fields does not move <c>updatedAt</c>. See
+    /// docs/delivery-api.md for how a build learns of those.
+    /// </remarks>
+    public DateTimeOffset? ChangedSince { get; set; }
+}
 
 /// <summary>GET /api/public/{type} — paged Published entries of a content type, masked and cacheable.</summary>
 internal class ListPublishedEndpoint(
@@ -524,39 +534,7 @@ internal class ListPublishedEndpoint(
             return;
         }
 
-        /* Published + document-Public only; the DB filters the rest out. */
-        var baseQuery = session.Query<ContentDoc>()
-            .Where(c => c.ContentType == type
-                        && c.Status == ContentStatus.Published
-                        && c.Sensitivity == SensitivityLevel.Public);
-
-        /*
-         * Applied on top of the published/public predicate, never instead of it, so no filter can
-         * widen what is visible. The integration test asserts that directly: a Draft matching the
-         * filter must still not come back.
-         */
-        baseQuery = query.ApplyTo(baseQuery);
-
-        var total = await baseQuery.CountAsync(ct);
-
-        /*
-         * A requested sort replaces the default rather than adding to it. CreatedAt stays as the
-         * tiebreaker inside the fragment, so a page boundary cannot move between two entries that
-         * compare equal. Without that, paging a list sorted on a field with duplicates can show the
-         * same entry twice and skip another, which reads as data loss rather than as an ordering
-         * question.
-         */
-        var ordered = query switch
-        {
-            { Near: { } n, DistanceSortDescending: { } desc } => baseQuery.OrderBySql(DeliveryQuery.DistanceOrderBySql(n, desc)),
-            { Sort: { } sort } => baseQuery.OrderBySql(DeliveryQuery.ToOrderBySql(sort)),
-            _ => baseQuery.OrderByDescending(c => c.CreatedAt),
-        };
-
-        var page = await ordered
-            .Skip(req.Skip)
-            .Take(req.Take)
-            .ToListAsync(ct);
+        var (page, total) = await PageAsync(type, query, req, ct);
 
         var items = page
             .Select(c => PublicDelivery.ToPublic(c, def, slugField))
@@ -594,6 +572,67 @@ internal class ListPublishedEndpoint(
             PageSize = req.PageSize,
             TotalItems = total,
         }, cancellation: ct);
+    }
+
+    /// <summary>One page of the matching entries in the requested order, and the total.</summary>
+    /// <remarks>
+    /// The total comes back on the page's own rows (count(*) over the whole match), so a list is one
+    /// round trip. A page past the end has no row to carry it, and only then is it counted on its
+    /// own, from a fresh query: Stats marks the query it is called on, and a count made from that
+    /// same query is refused.
+    /// </remarks>
+    private async Task<(IReadOnlyList<ContentDoc> Page, int Total)> PageAsync(
+        string type, DeliveryQuery query, PublicListRequest req, CancellationToken ct)
+    {
+        var baseQuery = Matching(type, query, req.ChangedSince);
+
+        /*
+         * A requested sort replaces the default rather than adding to it. CreatedAt stays as the
+         * tiebreaker inside the fragment, so a page boundary cannot move between two entries that
+         * compare equal. Without that, paging a list sorted on a field with duplicates can show the
+         * same entry twice and skip another, which reads as data loss rather than as an ordering
+         * question.
+         */
+        var ordered = query switch
+        {
+            { Near: { } n, DistanceSortDescending: { } desc } => baseQuery.OrderBySql(DeliveryQuery.DistanceOrderBySql(n, desc)),
+            { Sort: { } sort } => baseQuery.OrderBySql(DeliveryQuery.ToOrderBySql(sort)),
+            _ => baseQuery.OrderByDescending(c => c.CreatedAt),
+        };
+
+        var page = await ordered
+            .Stats(out var stats)
+            .Skip(req.Skip)
+            .Take(req.Take)
+            .ToListAsync(ct);
+        var total = page.Count == 0 && req.Skip > 0
+            ? await Matching(type, query, req.ChangedSince).CountAsync(ct)
+            : (int)stats.TotalResults;
+        return (page, total);
+    }
+
+    private IQueryable<ContentDoc> Matching(string type, DeliveryQuery query, DateTimeOffset? changedSince)
+    {
+        /* Published + document-Public only; the DB filters the rest out. */
+        var matching = session.Query<ContentDoc>()
+            .Where(c => c.ContentType == type
+                        && c.Status == ContentStatus.Published
+                        && c.Sensitivity == SensitivityLevel.Public);
+
+        /*
+         * Applied on top of the published/public predicate, never instead of it, so no filter can
+         * widen what is visible. The integration test asserts that directly: a Draft matching the
+         * filter must still not come back.
+         */
+        matching = query.ApplyTo(matching);
+
+        if (changedSince is { } since)
+        {
+            var after = since.UtcDateTime;
+            matching = matching.Where(c => c.UpdatedAt > after);
+        }
+
+        return matching;
     }
 }
 

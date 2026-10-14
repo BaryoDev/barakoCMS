@@ -248,6 +248,12 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             new BarakoCMS.Files.FilesModule().ConfigureServices(services, ctx.Configuration);
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Files.FilesModule(), opts));
 
+            // Files.S3 after Files, as a host registers it. Dormant with no bucket configured, so
+            // every other test still stores in Postgres; it is here for the S3 provider a tenant can
+            // choose through /api/settings/storage, and for the keys a derived host sets.
+            new BarakoCMS.Files.S3.S3FilesModule().ConfigureServices(
+                services, ctx.Configuration.GetSection("Modules:Files.S3"));
+
             // AI module: register its schema/endpoints, but swap the Ollama client for a deterministic
             // fake so the search tests run without an embedding backend.
             new BarakoCMS.AI.AiModule().ConfigureServices(services, ctx.Configuration);
@@ -278,6 +284,15 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             // its own section, as the host scopes it.
             new BarakoCMS.Forms.FormsModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Forms"));
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Forms.FormsModule(), opts));
+
+            // Portability: its contents section, so a bundle applies through the config engine. Called
+            // through IBarakoModule, the way the host calls every module's ConfigureServices.
+            ((barakoCMS.Modules.IBarakoModule)new BarakoCMS.Portability.PortabilityModule()).ConfigureServices(services, ctx.Configuration);
+
+            // Diagnostics: the incidents view reads its sources from the container, and the report
+            // endpoint hands reports to the forwarder, which stays off unless a test turns it on.
+            // Scoped to its own section, as the host scopes it.
+            new BarakoCMS.Diagnostics.DiagnosticsModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Diagnostics"));
 
             // FeatureFlags: /api/feature-flags is anonymous, so which keys it hands out is a test
             // this project has to be able to run.
@@ -317,6 +332,10 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.HookedRunnerAction>();
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.SlowRunnerAction>();
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.MeteredRunnerAction>();
+            services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.OutputRunnerAction>();
+            services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.RecordingRunnerAction>();
+            // A second executor, so a test can route a workflow away from the built-in runner.
+            services.AddSingleton<barakoCMS.Features.Workflows.IWorkflowExecutor, BarakoCMS.Tests.Features.Workflows.ElsewhereExecutor>();
 
             // Email transport, replacing the Resend provider the module above registered. Resend
             // throws on every call here because no API key is configured, so any flow that emails
@@ -362,8 +381,8 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
 
         typeof(BarakoCMS.Forms.FormsModule).Assembly,
         typeof(BarakoCMS.FeatureFlags.FeatureFlagsModule).Assembly,
-        // Portability owns no documents of its own and registers no services, so its
-        // endpoints only need discovering.
+        // Portability owns no documents of its own, so beside its endpoints it needs only the
+        // config section it registers, which ConfigureWebHost adds.
         typeof(BarakoCMS.Portability.PortabilityModule).Assembly,
         typeof(BarakoCMS.ExternalAuth.ExternalAuthModule).Assembly,
         typeof(BarakoCMS.DeviceTrust.DeviceTrustModule).Assembly,
@@ -422,10 +441,12 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             {
                 barakoCMS.Data.DataSeeder.ApplyCapabilityDefaults(role);
                 barakoCMS.Data.DataSeeder.GrantSensitiveToSeededHr(role);
+                barakoCMS.Data.DataSeeder.MarkPlatform(role);
                 session.Store(role);
             }
             else if (barakoCMS.Data.DataSeeder.ApplyCapabilityDefaults(existing)
-                     | barakoCMS.Data.DataSeeder.GrantSensitiveToSeededHr(existing))
+                     | barakoCMS.Data.DataSeeder.GrantSensitiveToSeededHr(existing)
+                     | barakoCMS.Data.DataSeeder.MarkPlatform(existing))
             {
                 session.Store(existing);
             }

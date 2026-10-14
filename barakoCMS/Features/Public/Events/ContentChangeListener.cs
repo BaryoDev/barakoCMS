@@ -256,6 +256,9 @@ internal sealed class ContentChangeListener(
         ReferenceType = f.ReferenceType,
         Options = f.Options,
         Multiple = f.Multiple,
+        ItemType = f.ItemType,
+        JsonSchema = f.JsonSchema,
+        Parent = f.Parent,
         Currency = f.Currency,
         Scale = f.Scale,
         Editor = f.Editor,
@@ -272,7 +275,7 @@ internal sealed class ContentChangeListener(
 
     private static bool IsContentEvent(object data) => data is
         ContentCreated or ContentUpdated or ContentStatusChanged or ContentTransitioned
-        or ContentSensitivityChanged or ContentFieldSensitivityChanged;
+        or ContentSensitivityChanged or ContentFieldSensitivityChanged or ContentFieldChanged;
 
     private static bool BecamePublic(object data) => data is
         ContentCreated

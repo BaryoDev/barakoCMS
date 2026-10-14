@@ -112,6 +112,15 @@ jobs:
           fi
           echo "Unwatched lockfile was caught. The check is live."
 
+      # A ratchet rather than a rewrite (#969): scripts/method-length-baseline.txt lists the methods
+      # over 70 lines, none may grow and no new one may join. The check is proven against fixtures
+      # before it is trusted.
+      - name: Prove the method-length check can fail
+        run: bash scripts/test-method-length.sh
+
+      - name: Methods over 70 lines do not grow
+        run: python3 scripts/check-method-length.py
+
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
@@ -125,6 +134,17 @@ jobs:
 
       - name: Build
         run: dotnet build --no-restore --configuration Release
+
+      # D24: the engine is MPL-2.0 and every other package MIT (#816). The licence is set by rule in
+      # Directory.Build.props, so this asks MSBuild what each project evaluates to, which is what
+      # the package carries, and checks the LICENSE beside it.
+      - name: Check package licences
+        run: bash scripts/check-licences.sh
+
+      # The release publishes exactly PACKAGE_PROJECTS in release.yml. A packable project missing
+      # from it is built and tested and never reaches NuGet.
+      - name: Check every package is released
+        run: bash scripts/check-release-packages.sh
 
       - name: Test BarakoCMS.Tests
         run: >
@@ -179,7 +199,7 @@ jobs:
           echo "✅ BarakoCMS.Tests completed" >> $GITHUB_STEP_SUMMARY
 
   upgrade:
-    name: Upgrade from 3.x
+    name: Upgrade from 4.x
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -194,20 +214,23 @@ jobs:
       # against one that already has data. The upgrade lives entirely in that gap, which is how a
       # Marten major bump shipped with nobody having run it (#277).
       #
-      # The script stands up a real 3.21.0 database through the released image, asserts 4.0 refuses
-      # it, applies the reviewed migrations, and then proves an event appends to a stream that
-      # already existed and the projection daemon resumed rather than restarting. It then applies
-      # the rollback and boots 3.21.0 again to prove the documented way back actually works (#604).
-      # It checks the schema through the Suite as well as core and boots the Suite, because the
-      # Suite is what the image runs: a core-only gate stayed green while every module went
-      # unchecked (#661).
-      - name: Prove the 3.x database can be upgraded and rolled back
+      # The script stands up a real 4.9.0 database through the released image, the newest 4.x there
+      # is, asserts the working tree refuses it, applies the reviewed migrations, and then proves an
+      # event appends to a stream that already existed and the projection daemon resumed rather than
+      # restarting. It then applies the rollback and boots 4.9.0 again to prove the documented way
+      # back actually works (#604). It checks the schema through the Suite as well as core and boots
+      # the Suite, because the Suite is what the image runs: a core-only gate stayed green while
+      # every module went unchecked (#661). 5.0 takes no 3.x database directly: a 3.x install
+      # upgrades to 4.9 first (docs/upgrading-to-5.0.md), so the 3.21.0 start is gone (#1126).
+      - name: Prove a 4.9.0 database can be upgraded and rolled back
         run: bash scripts/upgrade-check.sh
+        env:
+          FROM_VERSION: 4.9.0
 
-      # The same sequence from a database 4.1.0 created, without the two 4.0.0 files. A 3.x start
-      # cannot see a table that a later release folded into the 4.0.0 file and gave no file of its
-      # own, because it runs the 4.0.0 file as it is today. An install that upgraded when 4.0 came
-      # out ran it as it was then. mt_doc_site_share_links went missing that way (#1007).
+      # The same sequence from a database 4.1.0 created. Such a database is past the 4.0.0 file, so
+      # it cannot see a table that a later release folded into that file and gave no file of its
+      # own. An install that upgraded when 4.0 came out ran the file as it was then.
+      # mt_doc_site_share_links went missing that way (#1007).
       - name: Prove a 4.1.0 database can be upgraded and rolled back
         run: bash scripts/upgrade-check.sh
         env:
@@ -237,7 +260,7 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      # The check scripts in this job and in "Upgrade from 3.x" used to bind fixed ports inside the
+      # The check scripts in this job and in "Upgrade from 4.x" used to bind fixed ports inside the
       # kernel's ephemeral range and lost them now and then to another process on the runner
       # (#1047). This holds a listener on each old default and requires the scripts to get past
       # their port steps anyway. It runs here because this job pulls postgres:16-alpine regardless
@@ -302,6 +325,12 @@ jobs:
       # while the file still resolved, so this copies the folder out and waits for a real backup.
       - name: A copied quickstart folder takes a backup
         run: bash scripts/quickstart-backup-check.sh
+
+      # The nightly backup's optional copy off the host (#780), against SeaweedFS, the S3 server
+      # the Files.S3 tests use: uploaded, restored from the uploaded copy, and a refused upload
+      # failing the run without deleting the local archive.
+      - name: The offsite backup copy uploads and restores
+        run: bash scripts/offsite-backup-check.sh
 
       # The production file deliberately has no defaults for the secrets, so it is checked twice:
       # once with a filled env, and once without, where it has to fail rather than boot on a blank.
@@ -506,6 +535,101 @@ jobs:
         env:
           BARAKO_SKIP_BUILD: "1"
           DOCKER_HOST: unix:///var/run/docker.sock
+
+  # Nothing else here reads the API the way a consumer does, from the outside (#631). This boots
+  # the Suite, fetches the OpenAPI document it serves and diffs it against openapi/baseline.json.
+  # A removed or renamed path, operation, response property or enum value fails with the change
+  # named; an addition passes. The baseline is only ever updated by a reviewed commit, and one that
+  # accepts a break must move a contract version with it. openapi-contract.yml runs the same check
+  # on a schedule.
+  openapi:
+    name: OpenAPI contract
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # The base branch's baseline is read from history, to show what this change accepts.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install oasdiff
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bin"
+          bash scripts/install-oasdiff.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      # A branch push and a dispatch (refresh-stale-prs.yml starts one) carry no base ref, so they
+      # compare the baseline with the default branch's, which is what the pull request merges into
+      # unless it says otherwise. A dispatch on a pull request into another branch (release/*) is
+      # still compared with the default branch; its pull_request and merge_group runs use the real
+      # base.
+      - name: The served API does not break the reviewed baseline
+        env:
+          OPENAPI_OUT: ${{ runner.temp }}/openapi
+          BASE: ${{ github.base_ref || github.event.merge_group.base_ref || github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          ref="${BASE#refs/heads/}"
+          bash scripts/openapi-contract-check.sh ${ref:+"origin/$ref"}
+
+      - name: Upload the served document
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: openapi-served-document
+          path: ${{ runner.temp }}/openapi/current.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # Lean only stays lean if something notices weight coming back (#853). This builds the image the
+  # quickstart runs, boots it beside Postgres with the quickstart's settings on 2 CPUs, and records
+  # build time, image size, startup to readiness, memory at rest and delivery p50/p95 (#969). Each
+  # is compared with perf-budget.json, and the summary shows the baseline, this run and the budget.
+  # Raising a budget is an edit to that file, so it is reviewed. Both architectures run because
+  # both ship. The numbers are uploaded on every run, so a slow creep across pull requests shows.
+  perf-budget:
+    name: Performance budget (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Prove the budget comparison can fail
+        run: bash scripts/test-perf-budget.sh
+
+      - name: Measure the image and the running API
+        run: bash scripts/perf-measure.sh "$RUNNER_TEMP/perf.json"
+
+      - name: Compare with perf-budget.json
+        run: python3 scripts/perf-budget.py "$RUNNER_TEMP/perf.json" perf-budget.json --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the numbers
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: perf-${{ matrix.arch }}
+          path: ${{ runner.temp }}/perf.json
+          if-no-files-found: ignore
+          retention-days: 90
 
   # The SBOM is generated in the release workflow, which means it had never run: it was added after
   # the last release, so the first time anything executed it would have been the 4.0 release itself.

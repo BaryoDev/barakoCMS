@@ -36,7 +36,7 @@ public interface IContentValidatorService
     /// implementor written against the three-argument overload does not have to write this one.
     /// </remarks>
     [Obsolete("Use the overload taking existing, so an update of a singleton type's only entry is "
-        + "not read as a second entry. Removal planned for barakoCMS 5.0.")]
+        + "not read as a second entry. Removal planned for barakoCMS 6.0.")]
     Task<(bool IsValid, List<string> Errors)> ValidateAsync(
         string contentType,
         Dictionary<string, object> data)
@@ -120,7 +120,14 @@ public class ContentValidatorService(
         System.Security.Claims.ClaimsPrincipal? caller)
     {
         var errors = new List<string>();
-        
+
+        // A field change rewrites entries in batches; a write between two would undo its work.
+        if (await barakoCMS.Infrastructure.Jobs.FieldChanges.RunningAsync(session, contentType, CancellationToken.None) is { } change)
+        {
+            errors.Add($"'{change.ContentType}' has a field change running ({change.Id}). Writes to it resume when the change completes.");
+            return (false, errors);
+        }
+
         // 1. Load Schema
         var schema = await session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(x => x.Name == contentType);
@@ -193,7 +200,7 @@ public class ContentValidatorService(
         Models.Content? existing,
         System.Security.Claims.ClaimsPrincipal? caller)
     {
-        var errors = new List<string>();
+        var errors = UndeclaredFieldErrors(schema, contentType, data, existing);
 
         // 3. Validate Fields
         foreach (var field in schema.Fields)
@@ -227,75 +234,8 @@ public class ContentValidatorService(
                 }
             }
 
-            // Check Type - validate the value against the field type via the shared
-            // registry (same source of truth the content-type validator uses).
             if (keyDetails.Key != null && keyDetails.Value != null)
-            {
-                var value = keyDetails.Value;
-                var expectedType = field.Type.ToLower();
-
-                if (InlineImageFields.Is(expectedType))
-                {
-                    if (!InlineImageFields.IsUnchanged(field, value, existing)
-                        && InlineImageFields.ValueError(field, value) is { } imageError)
-                    {
-                        errors.Add(imageError);
-                    }
-                }
-                else if (ReferenceFields.IsMultiple(field))
-                {
-                    if (await ReferenceFields.ValueErrorAsync(session, field, value) is { } referencesError)
-                        errors.Add(referencesError);
-                }
-                else if (expectedType == FileFields.TypeName)
-                {
-                    // Ahead of the shape check, so text that is not an id is answered in the same
-                    // words as an id the caller may not use.
-                    var error = await ValidateFileAsync(field, value, existing, caller);
-                    if (error is not null)
-                        errors.Add(error);
-                }
-                else if (expectedType == "email" && StoredValues.IsUnchanged(field.Name, value, existing))
-                {
-                    // An address stored before the email check was tightened is still the entry's
-                    // own, and an edit of another field keeps it as it is.
-                }
-                else if (!FieldTypeRegistry.IsValidValue(expectedType, value))
-                {
-                    var actualType = GetActualTypeName(value);
-                    errors.Add($"Field '{field.DisplayName}' expects type '{expectedType}' but received '{actualType}'");
-                }
-                else if (expectedType == "reference")
-                {
-                    // The registry checked the shape. Whether the target exists, and is the type
-                    // this field declares, needs the database, which is why it is here and not
-                    // there. Checked on write rather than on read: a reference that pointed at
-                    // nothing would otherwise be stored happily and fail for whoever renders it.
-                    var error = await ValidateReferenceAsync(field, value);
-                    if (error is not null)
-                        errors.Add(error);
-                }
-                else if (expectedType == "choice")
-                {
-                    // What the entry already holds is not checked again. The options may have
-                    // changed since it was stored, and a field the caller may not see is put back
-                    // to its stored value before this runs, so refusing it would block every edit
-                    // of the rest of the entry over a value the caller did not send.
-                    var error = StoredValues.IsUnchanged(field.Name, value, existing)
-                        ? null
-                        : ValidateChoice(field, value);
-                    if (error is not null)
-                        errors.Add(error);
-                }
-                else if (MoneyFields.ValueError(field, value) is { } moneyError)
-                {
-                    errors.Add(moneyError);
-                }
-                else
-                {
-                    errors.AddRange(FieldRules.ValueErrors(field, value));
-                }
-            }
+                errors.AddRange(await ValueErrorsAsync(field, keyDetails.Value, existing, caller));
         }
 
         // Only when everything else passed. This one costs a query the slug route's own comment
@@ -313,6 +253,113 @@ public class ContentValidatorService(
         }
 
         return (errors.Count == 0, errors);
+    }
+
+    /// <summary>What is wrong with the value a write sends for one field, by the field's type.</summary>
+    /// <remarks>
+    /// The type's own check first, through the shared registry (the same source of truth the
+    /// content-type validator uses), then whatever the definition adds to it.
+    /// </remarks>
+    private async Task<IEnumerable<string>> ValueErrorsAsync(
+        FieldDefinition field,
+        object value,
+        Models.Content? existing,
+        System.Security.Claims.ClaimsPrincipal? caller)
+    {
+        var expectedType = field.Type.ToLower();
+
+        if (InlineImageFields.Is(expectedType))
+        {
+            return InlineImageFields.IsUnchanged(field, value, existing) ? [] : One(InlineImageFields.ValueError(field, value));
+        }
+
+        if (ReferenceFields.IsMultiple(field))
+        {
+            return One(await ReferenceFields.ValueErrorAsync(session, field, value));
+        }
+
+        // Ahead of the shape check, so text that is not an id is answered in the same words as an
+        // id the caller may not use.
+        if (expectedType == FileFields.TypeName)
+        {
+            return One(await ValidateFileAsync(field, value, existing, caller));
+        }
+
+        // An address stored before the email check was tightened is still the entry's own, and an
+        // edit of another field keeps it as it is.
+        if (expectedType == "email" && StoredValues.IsUnchanged(field.Name, value, existing))
+        {
+            return [];
+        }
+
+        if (!FieldTypeRegistry.IsValidValue(expectedType, value))
+        {
+            return [$"Field '{field.DisplayName}' expects type '{expectedType}' but received '{GetActualTypeName(value)}'"];
+        }
+
+        // The registry checked the shape. Whether the target exists, and is the type this field
+        // declares, needs the database, which is why it is here and not there. Checked on write
+        // rather than on read: a reference that pointed at nothing would otherwise be stored happily
+        // and fail for whoever renders it.
+        if (expectedType == "reference")
+        {
+            return One(await ValidateReferenceAsync(field, value));
+        }
+
+        // What the entry already holds is not checked again. The options may have changed since it
+        // was stored, and a field the caller may not see is put back to its stored value before this
+        // runs, so refusing it would block every edit of the rest of the entry over a value the
+        // caller did not send.
+        if (expectedType == "choice")
+        {
+            return StoredValues.IsUnchanged(field.Name, value, existing) ? [] : One(ValidateChoice(field, value));
+        }
+
+        if (BlockFields.Is(expectedType))
+        {
+            return await BlockFields.ValueErrorsAsync(session, field, value, existing);
+        }
+
+        if (expectedType == "json" && JsonFieldSchemas.Declares(field))
+        {
+            return JsonFieldSchemas.ValueErrors(field, value, existing);
+        }
+
+        var typed = ArrayItems.ValueError(field, value, existing) ?? MoneyFields.ValueError(field, value);
+        return typed is not null ? [typed] : FieldRules.ValueErrors(field, value);
+    }
+
+    private static IEnumerable<string> One(string? error) => error is null ? [] : [error];
+
+    /// <summary>
+    /// Refuses a key the type does not declare as a field, so nothing is stored that no field
+    /// describes, no validator checked and no sensitivity setting covers.
+    /// </summary>
+    /// <remarks>
+    /// Names are matched ignoring case, as every other reader of a field does. A key the entry
+    /// already holds with the same value is let through: an entry stored before this check, or before
+    /// a field was removed from its type, can still be edited without first being cleaned.
+    /// </remarks>
+    private static List<string> UndeclaredFieldErrors(
+        ContentTypeDefinition schema,
+        string contentType,
+        Dictionary<string, object> data,
+        Models.Content? existing)
+    {
+        var undeclared = data
+            .Where(kv => !schema.Fields.Any(f => string.Equals(f.Name, kv.Key, StringComparison.OrdinalIgnoreCase))
+                && !StoredValues.IsUnchanged(kv.Key, kv.Value, existing))
+            .Select(kv => kv.Key)
+            .ToList();
+
+        if (undeclared.Count == 0)
+        {
+            return [];
+        }
+
+        var named = string.Join(", ", undeclared.Take(5).Select(k => $"'{k}'"))
+            + (undeclared.Count > 5 ? $" and {undeclared.Count - 5} more" : string.Empty);
+        return [$"'{contentType}' does not declare {named}. Add each to the type as a field, or leave it out."];
     }
 
     /// <summary>

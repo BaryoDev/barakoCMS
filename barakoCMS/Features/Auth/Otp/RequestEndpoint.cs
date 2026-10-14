@@ -20,7 +20,15 @@ internal class OtpRequestResponse
 /// POST /api/auth/otp/request — email a 6-digit sign-in code to a registered user.
 /// Always responds 200 with the same message so callers can't probe which emails exist.
 /// </summary>
-internal class RequestEndpoint(IDocumentSession session, IOtpService otp) : Endpoint<OtpRequest, OtpRequestResponse>
+/// <remarks>
+/// A tenant that does not allow sign-in codes answers 403 to everybody, before any address is read.
+/// The code a password sign-in sends to approve a new device does not come through here, so it
+/// still works on such a tenant.
+/// </remarks>
+internal class RequestEndpoint(
+    IDocumentSession session,
+    IOtpService otp,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<OtpRequest, OtpRequestResponse>
 {
     public override void Configure()
     {
@@ -31,6 +39,12 @@ internal class RequestEndpoint(IDocumentSession session, IOtpService otp) : Endp
 
     public override async Task HandleAsync(OtpRequest req, CancellationToken ct)
     {
+        if (!await barakoCMS.Infrastructure.Auth.TenantSignIn.AllowsAsync(session, tenant.Slug, TenantSignInPolicy.Otp, ct))
+        {
+            ThrowError(barakoCMS.Infrastructure.Auth.TenantSignIn.RefusedMessage(TenantSignInPolicy.Otp), 403);
+            return;
+        }
+
         var email = (req.Email ?? string.Empty).Trim().ToLowerInvariant();
         var ok = new OtpRequestResponse { Message = "If that email is registered, a sign-in code has been sent." };
 

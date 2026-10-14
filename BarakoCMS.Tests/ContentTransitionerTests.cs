@@ -742,7 +742,7 @@ public class ContentTransitionerTests
         using (var scope = _factory.Services.CreateScope())
         {
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug, IsActive = true });
+            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug });
             await session.SaveChangesAsync();
         }
 
