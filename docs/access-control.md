@@ -1104,6 +1104,22 @@ is. Admin holds both by default, matching what it reached before.
 
 Third-party modules calling `Roles(...)` are unaffected and compile unchanged.
 
+## Resetting a user's two-factor authentication
+
+`POST /api/users/{userId}/mfa/reset` with `{ "Reason": "..." }` removes another user's MFA
+enrollment: the secret, the recovery codes and any setup still pending. Use it when someone has lost
+both their authenticator and their recovery codes. The caller needs `manage_users` (or SuperAdmin),
+the same as an administrator's password reset.
+
+- `Reason` is required, not blank, and at most 500 characters. It is stored in the audit row.
+- The user's refresh tokens are revoked. At the next sign-in `GET /api/auth/mfa/status` reports
+  `Enabled: false`, and a user whose role requires MFA is asked to enroll again.
+- A user with no MFA still gets 200, so the call can be repeated.
+- You cannot reset your own: that answers 400. Turn your own MFA off with `POST /api/auth/mfa/disable`.
+- An unknown user, or in a registered tenant a user with no active membership there, answers 404.
+- The row is `auth.mfa.reset`, with the acting admin, the target user (`targetType` `User`) and the
+  reason in `metadata`.
+
 ## What the audit log records about grants
 
 The requests in the table below each write one row to `GET /api/audit`. For those requests the row is
@@ -1120,6 +1136,7 @@ display prefix.
 | Role deleted | `role.deleted` | `name`, `capabilities`, `permissions` |
 | Global role given to a user | `user.role.assigned` | `roleId`, `roleName` |
 | Global role taken from a user | `user.role.removed` | `roleId`, `roleName` |
+| A user's MFA reset by an administrator | `auth.mfa.reset` | `reason` |
 | Tenant created | `tenant.member.added` in the new tenant's log | `invited` (false), `roleIds`, `roleNames`, `tenantCreated` |
 | Tenant status changed | `tenant.deactivated`, `tenant.activated` in that tenant's log | `from`, `to` |
 | Tenant sign-up policy changed | `tenant.signup_changed` in that tenant's log | `from`, `to`, `roleId` |
