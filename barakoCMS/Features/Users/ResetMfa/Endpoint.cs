@@ -53,7 +53,7 @@ internal class Endpoint(
             return;
         }
 
-        if (await PlatformRoles.HoldsPlatformRoleAsync(session, user, ct)
+        if (await PlatformRoles.HoldsPlatformRoleAsync(session, configuration, user, ct)
             && !await PlatformRoles.IsSuperAdminAsync(session, User, ct))
         {
             await Send.ResponseAsync(new Response { Message = PlatformTargetMessage }, 403, ct);

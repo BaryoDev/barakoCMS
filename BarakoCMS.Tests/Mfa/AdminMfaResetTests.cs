@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 using FluentAssertions;
 using Marten;
@@ -239,28 +240,33 @@ public class AdminMfaResetTests
     public async Task The_reset_revokes_the_users_refresh_tokens()
     {
         var (id, username) = await SeedUserAsync();
-        await EnrollAsync(username);
-        var token = $"before-reset-{Guid.NewGuid():N}";
-        using (var scope = _factory.Services.CreateScope())
-        {
-            var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            s.Store(new RefreshToken
-            {
-                Id = Guid.NewGuid(),
-                Token = token,
-                UserId = id,
-                ExpiresAt = DateTime.UtcNow.AddDays(7),
-                CreatedAt = DateTime.UtcNow,
-                IsRevoked = false,
-            });
-            await s.SaveChangesAsync();
-        }
-        var refresh = () => Client().PostAsJsonAsync("/api/auth/refresh",
-            new barakoCMS.Features.Auth.Refresh.Request { RefreshToken = token });
+        var login = await LoginAsync(username);
+        login.RequiresMfa.Should().BeFalse();
+        var before = await Client().PostAsJsonAsync("/api/auth/refresh",
+            new barakoCMS.Features.Auth.Refresh.Request { RefreshToken = login.RefreshToken });
+        before.StatusCode.Should().Be(HttpStatusCode.OK, "the control: the token works until the reset");
+        var rotated = (await before.Content.ReadFromJsonAsync<barakoCMS.Features.Auth.Refresh.Response>())!.RefreshToken;
+        rotated.Should().NotBeNullOrEmpty();
 
         (await ResetAsync(await AdminAsync(), id)).StatusCode.Should().Be(HttpStatusCode.OK);
 
-        (await refresh()).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        var after = await Client().PostAsJsonAsync("/api/auth/refresh",
+            new barakoCMS.Features.Auth.Refresh.Request { RefreshToken = rotated });
+        after.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task An_access_token_issued_before_the_reset_is_refused_after_it()
+    {
+        var (id, username) = await SeedUserAsync();
+        var token = (await LoginAsync(username)).Token;
+        (await Client(token).GetAsync("/api/auth/mfa/status")).StatusCode
+            .Should().Be(HttpStatusCode.OK, "the control: the token works until the reset");
+        await Task.Delay(1100);
+
+        (await ResetAsync(await AdminAsync(), id)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await Client(token).GetAsync("/api/auth/mfa/status")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
     [Fact]
@@ -434,5 +440,116 @@ public class AdminMfaResetTests
 
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
         (await StoredSecretAsync(target)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_token_for_no_stored_user_answers_403_and_changes_nothing()
+    {
+        var (id, username) = await SeedUserAsync();
+        await EnrollAsync(username);
+        var stray = Client(_factory.CreateToken(["SuperAdmin"]));
+
+        var response = await ResetAsync(stray, id);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await StoredSecretAsync(id)).Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task An_API_key_acting_as_an_administrator_is_refused()
+    {
+        var (id, username) = await SeedUserAsync();
+        await EnrollAsync(username);
+        var adminId = Guid.Parse(new JwtSecurityTokenHandler()
+            .ReadJwtToken(await _factory.StoredUserTokenAsync("SuperAdmin")).Claims.First(c => c.Type == "UserId").Value);
+        var secret = "bcms_" + Guid.NewGuid().ToString("N");
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            s.Store(new ApiKey
+            {
+                Id = Guid.NewGuid(), Name = "mfa-reset", KeyHash = ApiKeyService.Hash(secret), Prefix = secret[..12],
+                UserId = adminId, TenantSlug = Tenant.DefaultSlug, Scopes = ["content:read", "content:write"],
+            });
+            await s.SaveChangesAsync();
+        }
+
+        var response = await ResetAsync(Client(secret), id);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await StoredSecretAsync(id)).Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task In_the_default_tenant_no_membership_is_needed()
+    {
+        var (id, username) = await SeedUserAsync();
+        await EnrollAsync(username);
+
+        var response = await ResetAsync(await AdminAsync(Tenant.DefaultSlug), id);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        (await StoredSecretAsync(id)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task In_a_tenant_slug_nobody_registered_no_membership_is_needed()
+    {
+        var (id, username) = await SeedUserAsync();
+        await EnrollAsync(username);
+
+        var response = await ResetAsync(await AdminAsync($"club-{Guid.NewGuid():N}"), id);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        (await StoredSecretAsync(id)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_non_SuperAdmin_cannot_reset_a_user_who_holds_a_platform_role_only_through_a_membership()
+    {
+        var caller = await StoreUserAsync(await StoreCapabilityRoleAsync("manage_users"));
+        var target = await StoreUserAsync();
+        var platformRole = await StoreCapabilityRoleAsync("manage_roles");
+        await GiveEnrollmentAsync(target);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            s.Store(new Membership
+            {
+                Id = Guid.NewGuid(), UserId = target, TenantSlug = $"club-{Guid.NewGuid():N}",
+                Status = MembershipStatus.Active, RoleIds = [platformRole],
+            });
+            await s.SaveChangesAsync();
+        }
+
+        var response = await ResetAsync(As(caller), target);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await StoredSecretAsync(target)).Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task With_the_legacy_fallback_on_a_role_named_SuperAdmin_makes_its_holder_a_platform_user()
+    {
+        var caller = await StoreUserAsync(await StoreCapabilityRoleAsync("manage_users"));
+        Guid namedRole;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            namedRole = Guid.NewGuid();
+            s.Store(new Role { Id = namedRole, Name = "SuperAdmin", TenantSlug = $"club-{Guid.NewGuid():N}", SystemCapabilities = [] });
+            await s.SaveChangesAsync();
+        }
+        var target = await StoreUserAsync(namedRole);
+        await GiveEnrollmentAsync(target);
+        var legacy = _factory.WithSetting(barakoCMS.Infrastructure.Auth.CapabilityGateProcessor.LegacyRoleFallbackKey, "true");
+        var client = legacy.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", _factory.CreateToken([], caller.ToString()));
+
+        var response = await ResetAsync(client, target);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await StoredSecretAsync(target)).Should().NotBeNull();
     }
 }
