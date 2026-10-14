@@ -333,4 +333,106 @@ public class AdminMfaResetTests
         own.StatusCode.Should().Be(HttpStatusCode.OK, await own.Content.ReadAsStringAsync());
         (await StoredSecretAsync(inA)).Should().BeNull();
     }
+
+    private async Task<Guid> StoreUserAsync(params Guid[] roleIds)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var id = Guid.NewGuid();
+        var username = $"mfar-{id:N}";
+        s.Store(new User
+        {
+            Id = id,
+            Username = username,
+            Email = $"{username}@test.com",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(Password),
+            RoleIds = [.. roleIds],
+        });
+        await s.SaveChangesAsync();
+        return id;
+    }
+
+    private async Task<Guid> StoreCapabilityRoleAsync(params string[] capabilities)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var id = Guid.NewGuid();
+        s.Store(new Role { Id = id, Name = $"cap-{Guid.NewGuid():N}"[..20], SystemCapabilities = [.. capabilities] });
+        await s.SaveChangesAsync();
+        return id;
+    }
+
+    private async Task GiveEnrollmentAsync(Guid userId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        s.Store(new MfaSecret { Id = userId, EncryptedSecret = "x", Enabled = true, RecoveryCodeHashes = ["h"] });
+        await s.SaveChangesAsync();
+    }
+
+    private HttpClient As(Guid userId, string? tenant = null) =>
+        Client(_factory.CreateToken([], userId.ToString()), tenant);
+
+    [Fact]
+    public async Task A_member_whose_manage_users_comes_only_from_a_tenant_membership_answers_403()
+    {
+        var slug = $"club-{Guid.NewGuid():N}";
+        var memberRole = await StoreCapabilityRoleAsync("manage_users");
+        var caller = await StoreUserAsync();
+        var target = await StoreUserAsync();
+        await GiveEnrollmentAsync(target);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            s.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug });
+            s.Store(new Membership { Id = Guid.NewGuid(), UserId = caller, TenantSlug = slug, Status = MembershipStatus.Active, RoleIds = [memberRole] });
+            s.Store(new Membership { Id = Guid.NewGuid(), UserId = target, TenantSlug = slug, Status = MembershipStatus.Active });
+            await s.SaveChangesAsync();
+        }
+
+        var response = await ResetAsync(As(caller, slug), target);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await StoredSecretAsync(target)).Should().NotBeNull("a refused call changes nothing");
+    }
+
+    [Fact]
+    public async Task An_administrator_who_is_not_a_SuperAdmin_cannot_reset_a_SuperAdmin()
+    {
+        var caller = await StoreUserAsync(await StoreCapabilityRoleAsync("manage_users"));
+        var target = await StoreUserAsync(SystemRoles.SuperAdminRoleId);
+        await GiveEnrollmentAsync(target);
+
+        var response = await ResetAsync(As(caller), target);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("only a platform administrator (SuperAdmin)");
+        (await StoredSecretAsync(target)).Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task An_administrator_who_is_not_a_SuperAdmin_cannot_reset_a_holder_of_a_platform_capability_role()
+    {
+        var caller = await StoreUserAsync(await StoreCapabilityRoleAsync("manage_users"));
+        var target = await StoreUserAsync(await StoreCapabilityRoleAsync("manage_roles"));
+        await GiveEnrollmentAsync(target);
+
+        var response = await ResetAsync(As(caller), target);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await StoredSecretAsync(target)).Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task A_SuperAdmin_can_reset_another_SuperAdmin()
+    {
+        var caller = await StoreUserAsync(SystemRoles.SuperAdminRoleId);
+        var target = await StoreUserAsync(SystemRoles.SuperAdminRoleId);
+        await GiveEnrollmentAsync(target);
+
+        var response = await ResetAsync(As(caller), target);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        (await StoredSecretAsync(target)).Should().BeNull();
+    }
 }

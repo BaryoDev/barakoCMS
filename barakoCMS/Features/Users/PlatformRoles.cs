@@ -61,9 +61,34 @@ internal static class PlatformRoles
     /// <see cref="CapabilityGateProcessor.LegacyRoleFallbackKey"/> on, carries one of the legacy
     /// role names the endpoint's gate still honours.
     /// </summary>
-    public static async Task<bool> MayChangeAsync(
+    public static Task<bool> MayChangeAsync(
         IQuerySession session, ClaimsPrincipal principal, IConfiguration configuration,
-        IReadOnlyCollection<string> legacyRoles, CancellationToken ct)
+        IReadOnlyCollection<string> legacyRoles, CancellationToken ct) =>
+        HoldsGloballyAsync(session, principal, configuration, SystemCapabilities.ManageUserMembership, legacyRoles, ct);
+
+    /// <summary>
+    /// Whether one of the caller's global roles grants manage_users, or the caller is SuperAdmin.
+    /// For routes that act on something global to the user, such as their MFA enrollment.
+    /// </summary>
+    public static Task<bool> MayManageUsersAsync(
+        IQuerySession session, ClaimsPrincipal principal, IConfiguration configuration,
+        IReadOnlyCollection<string> legacyRoles, CancellationToken ct) =>
+        HoldsGloballyAsync(session, principal, configuration, SystemCapabilities.ManageUsers, legacyRoles, ct);
+
+    /// <summary>Whether the user's global roles include SuperAdmin or a role carrying a platform capability.</summary>
+    public static async Task<bool> HoldsPlatformRoleAsync(IQuerySession session, User user, CancellationToken ct)
+    {
+        if (user.RoleIds.Contains(SystemRoles.SuperAdminRoleId)) return true;
+        if (user.RoleIds.Count == 0) return false;
+
+        var ids = user.RoleIds;
+        var roles = await session.Query<Role>().Where(r => ids.Contains(r.Id)).ToListAsync(ct);
+        return roles.Any(CarriesPlatformCapability);
+    }
+
+    private static async Task<bool> HoldsGloballyAsync(
+        IQuerySession session, ClaimsPrincipal principal, IConfiguration configuration,
+        string capability, IReadOnlyCollection<string> legacyRoles, CancellationToken ct)
     {
         var caller = await CallerAsync(session, principal, ct);
         if (caller is null || caller.RoleIds.Count == 0) return false;
@@ -73,7 +98,7 @@ internal static class PlatformRoles
         var ids = caller.RoleIds;
         var roles = await session.Query<Role>().Where(r => ids.Contains(r.Id)).ToListAsync(ct);
 
-        return roles.Any(r => SystemCapabilities.Satisfies(r.SystemCapabilities ?? [], SystemCapabilities.ManageUserMembership)
+        return roles.Any(r => SystemCapabilities.Satisfies(r.SystemCapabilities ?? [], capability)
                               || (legacy && legacyRoles.Contains(r.Name)));
     }
 

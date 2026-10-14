@@ -1109,7 +1109,10 @@ Third-party modules calling `Roles(...)` are unaffected and compile unchanged.
 `POST /api/users/{userId}/mfa/reset` with `{ "Reason": "..." }` removes another user's MFA
 enrollment: the secret, the recovery codes and any setup still pending. Use it when someone has lost
 both their authenticator and their recovery codes. The caller needs `manage_users` (or SuperAdmin),
-the same as an administrator's password reset.
+the same as an administrator's password reset. MFA belongs to the user in every tenant, so the
+capability has to come from one of the caller's global roles; `manage_users` held only through a
+tenant membership answers 403. A caller who is not a SuperAdmin also gets 403 when the target holds
+SuperAdmin or any role carrying a platform capability.
 
 - `Reason` is required, not blank, and at most 500 characters. It is stored in the audit row.
 - The user's refresh tokens are revoked. At the next sign-in `GET /api/auth/mfa/status` reports

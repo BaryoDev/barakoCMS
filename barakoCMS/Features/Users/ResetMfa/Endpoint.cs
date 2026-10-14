@@ -14,9 +14,16 @@ namespace barakoCMS.Features.Users.ResetMfa;
 /// </summary>
 internal class Endpoint(
     IDocumentSession session,
-    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<Request, Response>
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
+    IConfiguration configuration) : Endpoint<Request, Response>
 {
     internal const string SelfResetMessage = "Use your own two-factor settings to turn off MFA.";
+
+    internal const string GlobalRoleMessage =
+        "Resetting MFA needs manage_users in a global role, not only through a tenant membership.";
+
+    internal const string PlatformTargetMessage =
+        "This user holds a platform role, so only a platform administrator (SuperAdmin) can reset their MFA.";
 
     public override void Configure()
     {
@@ -26,6 +33,12 @@ internal class Endpoint(
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
+        if (!await PlatformRoles.MayManageUsersAsync(session, User, configuration, ["SuperAdmin"], ct))
+        {
+            await Send.ResponseAsync(new Response { Message = GlobalRoleMessage }, 403, ct);
+            return;
+        }
+
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
         if (actorId == req.UserId)
         {
@@ -37,6 +50,13 @@ internal class Endpoint(
         if (user is null || !await InTenantAsync(user, ct))
         {
             await Send.NotFoundAsync(ct);
+            return;
+        }
+
+        if (await PlatformRoles.HoldsPlatformRoleAsync(session, user, ct)
+            && !await PlatformRoles.IsSuperAdminAsync(session, User, ct))
+        {
+            await Send.ResponseAsync(new Response { Message = PlatformTargetMessage }, 403, ct);
             return;
         }
 
