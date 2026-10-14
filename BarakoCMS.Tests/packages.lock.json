@@ -27,15 +27,15 @@
       },
       "Marten": {
         "type": "Direct",
-        "requested": "[9.49.0, )",
-        "resolved": "9.49.0",
-        "contentHash": "c4iNEOzXZcS+88ogstEwG2GshxydpuZ8CrKxLhKRWDboCEK+bRk3+nbnzvcuG+vQGPYdCpjgTN+72paCgJuLqw==",
+        "requested": "[9.50.1, )",
+        "resolved": "9.50.1",
+        "contentHash": "N6ve/95HJziATeMtpDOk5vLAwO30jAB9448fQysxmNOp5lCdlABMrgwwo6yPQNIOgdZ193c4tTUGaHYZDZhSEA==",
         "dependencies": {
-          "JasperFx": "2.84.0",
-          "JasperFx.Events": "2.84.0",
+          "JasperFx": "2.87.1",
+          "JasperFx.Events": "2.87.1",
           "Microsoft.IO.RecyclableMemoryStream": "3.0.1",
-          "Weasel.Postgresql": "9.42.0",
-          "Weasel.Storage": "9.42.0"
+          "Weasel.Postgresql": "9.45.0",
+          "Weasel.Storage": "9.45.0"
         }
       },
       "Microsoft.AspNetCore.Mvc.Testing": {
@@ -50,12 +50,12 @@
       },
       "Microsoft.AspNetCore.SignalR.Client": {
         "type": "Direct",
-        "requested": "[10.0.12, )",
-        "resolved": "10.0.12",
-        "contentHash": "p5EFZrp20HlS1MbYkreyhHy4nXeq/LrXVLWbQLBuAz2eFCdSnKfoNVlxZYbFoEjzJxa68CYdEFe9ObCaYTUP8Q==",
+        "requested": "[10.0.13, )",
+        "resolved": "10.0.13",
+        "contentHash": "17fMUI5gkRwR9qXXTELd5OChcFn3lkgWpiblaaELQ45zOL7VuU7HJYAYnMk+Irjf2jpRxHT7b0imy+NVIFyoYQ==",
         "dependencies": {
-          "Microsoft.AspNetCore.Http.Connections.Client": "10.0.12",
-          "Microsoft.AspNetCore.SignalR.Client.Core": "10.0.12"
+          "Microsoft.AspNetCore.Http.Connections.Client": "10.0.13",
+          "Microsoft.AspNetCore.SignalR.Client.Core": "10.0.13"
         }
       },
       "Microsoft.IdentityModel.JsonWebTokens": {
@@ -79,12 +79,12 @@
       },
       "Microsoft.Testing.Extensions.TrxReport": {
         "type": "Direct",
-        "requested": "[2.4.1, )",
-        "resolved": "2.4.1",
-        "contentHash": "KGAvJKRqhod45ecH4L1cCKIjGrzziUcLo3L4hRlfOg/Ww2Q7MnA30qHY2rnKzGyLVWf91tc2VleGe8c33FmPaQ==",
+        "requested": "[2.5.1, )",
+        "resolved": "2.5.1",
+        "contentHash": "NHqpG2UAVsXoNnNZtyIjxgsfPe9N/E6eTHjHCs7uaSbdOCOsbX5I7N0d1BHyjM7vv3Q5R2nlvngKSHWT+ZCRXQ==",
         "dependencies": {
-          "Microsoft.Testing.Extensions.TrxReport.Abstractions": "2.4.1",
-          "Microsoft.Testing.Platform": "[2.4.1, 3.0.0)"
+          "Microsoft.Testing.Extensions.TrxReport.Abstractions": "2.5.1",
+          "Microsoft.Testing.Platform": "[2.5.1, 3.0.0)"
         }
       },
       "Moq": {
@@ -113,9 +113,9 @@
       },
       "OpenFeature.Providers.Ofrep": {
         "type": "Direct",
-        "requested": "[0.1.5, )",
-        "resolved": "0.1.5",
-        "contentHash": "wlC5jE2Xc17LmhrtB4uqMLmYSmcR2F6K+ZS2E6k/8efLO5tjHQJeKbloBUXWt+EA+YvWW0oYuFA5hcN9HCUmeA==",
+        "requested": "[0.1.6, )",
+        "resolved": "0.1.6",
+        "contentHash": "A9LjalzMUAWPDA9XXTWRVMc/ZYSE3zKvzt8TVu2RmOuh0fomAQBByvtkLkfO2Ct851fxut9P+Pr/2KWoP1rC7w==",
         "dependencies": {
           "OpenFeature.Hosting": "[2.9.0, 2.99999.0]"
         }
@@ -142,18 +142,18 @@
       },
       "Testcontainers.PostgreSql": {
         "type": "Direct",
-        "requested": "[4.15.0, )",
-        "resolved": "4.15.0",
-        "contentHash": "45ZvqAzrh9BoI15Z4id7WEfhk1pVKqVeAX76aef8fR5ScglD75fSQtYuXhKFx4kIcgRL5aLKt3pRiqCVIgsL9g==",
+        "requested": "[4.16.0, )",
+        "resolved": "4.16.0",
+        "contentHash": "QqvFS8Oj+i6deH3QJOMd7jgFF9P3h7RZ37wOaoR97ZahMcSYMYCb+COR4nUVznT1d7EavEcZdUs1QV0ow69JiA==",
         "dependencies": {
-          "Testcontainers": "4.15.0"
+          "Testcontainers": "4.16.0"
         }
       },
       "xunit.runner.visualstudio": {
         "type": "Direct",
-        "requested": "[4.0.0, )",
-        "resolved": "4.0.0",
-        "contentHash": "kzLFyBYUnoidpGOXvpNOfIo8C92gVgVR6X8ncHwhcrDYugiOut5rrhDkr0L3cWHd7J2pKXf6LgaeXoBBDlx1ag=="
+        "requested": "[4.0.1, )",
+        "resolved": "4.0.1",
+        "contentHash": "8CoAaZkniVekR1ycJyxn+hOz+6ZQCDPcoIsIs6ujd4WyFcBMlxGNU15Qb8Uxd4iO4UmOuETb0M6vzBbwX/mfLA=="
       },
       "xunit.v3": {
         "type": "Direct",
@@ -421,10 +421,10 @@
       },
       "JasperFx.Events": {
         "type": "Transitive",
-        "resolved": "2.84.0",
-        "contentHash": "mL3rJSOZ3pwX2c7N/qr3OTh7aa/ou9l+C7pAZqbuq1eoG3JXGKOHp8pRxabiHLs6LVYFj6O8XojkxePpS+Iv3A==",
+        "resolved": "2.87.1",
+        "contentHash": "2FcNo7/DQs5/3V9tpHKbUCkIuCWGxR2Zno2+pZIvVH96h9hmMWSuTsitZZj1R/gP0Oi5ccC/4bWV37vre+U7Ew==",
         "dependencies": {
-          "JasperFx": "2.84.0"
+          "JasperFx": "2.87.1"
         }
       },
       "Microsoft.ApplicationInsights": {
@@ -442,13 +442,13 @@
       },
       "Microsoft.AspNetCore.Http.Connections.Client": {
         "type": "Transitive",
-        "resolved": "10.0.12",
-        "contentHash": "HEO648tD8OyX6aUNQwJSl1eKQk5eQChuHTqpybv2ep7/518/M27yeDDFxAh2M/LW+22tbbooao6raNEHm7lBhA=="
+        "resolved": "10.0.13",
+        "contentHash": "r9hlU+te+QWFJlUCt2C22TDKY3oMER8ayC7Qzeq6yJ5toHBKcSqshhyyaLKK1jgBuyNi4ejly0wE8ANV8TyfWQ=="
       },
       "Microsoft.AspNetCore.SignalR.Client.Core": {
         "type": "Transitive",
-        "resolved": "10.0.12",
-        "contentHash": "+kCyWCOvZteBkqfbpmoi+ejIR1XVJOY4ydDNYrYt1WdXv/ruJS4WjDfCizGZ5lvn/OmRdMuVdh8opopbNveQcw=="
+        "resolved": "10.0.13",
+        "contentHash": "zfCQ0/J/rATKKcpwcpQYFz8sxhvrzgGyblsATcfxqSCibRkPFmDZcFmfD0UfLi38q+VDMpwEVuzOCO3TpRy99Q=="
       },
       "Microsoft.Bcl.AsyncInterfaces": {
         "type": "Transitive",
@@ -615,16 +615,16 @@
       },
       "Microsoft.Testing.Extensions.TrxReport.Abstractions": {
         "type": "Transitive",
-        "resolved": "2.4.1",
-        "contentHash": "tDxLLic2IfeChbyo8oeGZj/eBdFpPe3Dp80hUoIOefSCqqMHbsob+lX1TfFWV75PJCPouxj2zz0zzPHZxiM4nQ==",
+        "resolved": "2.5.1",
+        "contentHash": "DYTZAguaHz0wNJdHDTTGYOXtnlDoLoIbTMDKSApNNcytm55DJcnwpwELfQGLk5DB5QlgaEjNhnGo1Pu5QvL5VA==",
         "dependencies": {
-          "Microsoft.Testing.Platform": "[2.4.1, 3.0.0)"
+          "Microsoft.Testing.Platform": "[2.5.1, 3.0.0)"
         }
       },
       "Microsoft.Testing.Platform": {
         "type": "Transitive",
-        "resolved": "2.4.1",
-        "contentHash": "3nW9NyhN1BnHRF994DCOOUQCqVA9pDT+gPpbuhI/xUntZnGnXO4ySovKxFlFuoT/48pnI74LK/DeKVlve1L3VQ=="
+        "resolved": "2.5.1",
+        "contentHash": "FAMaFFWnULW+hDHMb40Qzhcgz9cAU2/EtgRCBNX/DdQoKo0sPG2EiY+w7bQdl/BgHnf/DbpXLbf5Xy0o15M8NA=="
       },
       "Microsoft.Testing.Platform.MSBuild": {
         "type": "Transitive",
@@ -1018,8 +1018,8 @@
       },
       "Testcontainers": {
         "type": "Transitive",
-        "resolved": "4.15.0",
-        "contentHash": "8tCZKMm++C/9dHIr8lsE1iDBIBmthbo2XlGFDr4gorT1vgZrJwU36fNkCGuX7h7V39rpQoTK/aG+FhJz3jhY3A==",
+        "resolved": "4.16.0",
+        "contentHash": "JmMUZk6ZXQovbGQjaMB+YxOR0PbJTdYjOYjRcrm5LrA2dhLVMuCbhVGGunzCGIQfFMUB5Lno2LPOHMMuaGmuIg==",
         "dependencies": {
           "Docker.DotNet.Enhanced": "4.3.3",
           "Docker.DotNet.Enhanced.X509": "4.3.3",
@@ -1029,31 +1029,31 @@
       },
       "Weasel.Core": {
         "type": "Transitive",
-        "resolved": "9.42.0",
-        "contentHash": "tQtY+mSAnDlRstdiEECDn8iit1c98KZ8JP55QoTmwV2F5t581Etm3deNNbE/o6KAqE3NoaIBTBgDf2WABkCPKA==",
+        "resolved": "9.45.0",
+        "contentHash": "L71PT8hKs1ELXBqPvPTqNsLQg7OXB0fZRcADTE1uJcLk62tBDLdlNPv0IYTXoaYiUjtRgPuN0u5+rbxnuzdodQ==",
         "dependencies": {
           "JasperFx": "2.76.0"
         }
       },
       "Weasel.Postgresql": {
         "type": "Transitive",
-        "resolved": "9.42.0",
-        "contentHash": "HonYZU7QgOeRZxOsGyNkCIjEswCZaX1raIWjM+WwopX47kRXCREK//3+cbukYqTnYT3mzrt6fLRQzyhmRQxHlQ==",
+        "resolved": "9.45.0",
+        "contentHash": "UyTqn18Qd6i7D+GgDC2i2p9eigea9K0oCVrl32AjuCNG1Vad7fpJmNq4JjSIUHbkJ3qvENo5M6oSx5TyylPWhw==",
         "dependencies": {
           "JasperFx.Events": "2.76.0",
           "Npgsql": "9.0.4",
           "Npgsql.NetTopologySuite": "9.0.4",
           "Patched.DistributedLock.Postgres": "1.3.3",
-          "Weasel.Core": "9.42.0"
+          "Weasel.Core": "9.45.0"
         }
       },
       "Weasel.Storage": {
         "type": "Transitive",
-        "resolved": "9.42.0",
-        "contentHash": "gezrBk/aQGr++416wcoQxhfjGjltRMZkDKqXwOU3o46gJvV+j94saJ2H+lQJapA5MQWNGVH5lkrFIj/aqBMh7A==",
+        "resolved": "9.45.0",
+        "contentHash": "yO7pfTJ1bePwaJ6Pnbh5SWyw8xMX8uOHVYyAposf+qi86Fje59iwVZWaSvtXUnOK6js/VuFLpUhTJHb+fzrxnQ==",
         "dependencies": {
           "JasperFx.Events": "2.76.0",
-          "Weasel.Core": "9.42.0"
+          "Weasel.Core": "9.45.0"
         }
       },
       "xunit.analyzers": {
@@ -1130,18 +1130,18 @@
           "AspNetCore.HealthChecks.UI.Client": "[9.0.0, )",
           "AspNetCore.HealthChecks.UI.InMemory.Storage": "[9.0.0, )",
           "BCrypt.Net-Next": "[4.2.0, )",
-          "BarakoCMS.Abstractions": "[4.9.0, )",
+          "BarakoCMS.Abstractions": "[5.0.0, )",
           "Carom": "[2.0.1, )",
           "Carom.Extensions": "[2.0.1, )",
           "FastEndpoints": "[8.3.0, )",
           "FastEndpoints.Security": "[8.3.0, )",
           "FastEndpoints.Swagger": "[8.3.0, )",
           "IdentityModel": "[7.0.0, )",
-          "JasperFx": "[2.84.1, )",
+          "JasperFx": "[2.87.1, )",
           "KubernetesClient": "[18.0.13, )",
           "Markdig": "[1.4.0, )",
-          "Marten": "[9.49.0, )",
-          "Microsoft.Extensions.DependencyModel": "[10.0.12, )",
+          "Marten": "[9.50.1, )",
+          "Microsoft.Extensions.DependencyModel": "[10.0.13, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "OpenTelemetry.Exporter.OpenTelemetryProtocol": "[1.19.1, )",
           "OpenTelemetry.Extensions.Hosting": "[1.19.1, )",
@@ -1159,16 +1159,16 @@
         "type": "Project",
         "dependencies": {
           "FastEndpoints": "[8.3.0, )",
-          "JasperFx": "[2.84.1, )",
-          "Marten": "[9.49.0, )",
-          "Microsoft.Extensions.DependencyModel": "[10.0.12, )"
+          "JasperFx": "[2.87.1, )",
+          "Marten": "[9.50.1, )",
+          "Microsoft.Extensions.DependencyModel": "[10.0.13, )"
         }
       },
       "barakocms.accounting": {
         "type": "Project",
         "dependencies": {
-          "BarakoCMS": "[4.9.0, )",
-          "BarakoCMS.Abstractions": "[4.9.0, )",
+          "BarakoCMS": "[5.0.0, )",
+          "BarakoCMS.Abstractions": "[5.0.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
@@ -1176,8 +1176,8 @@
       "barakocms.ai": {
         "type": "Project",
         "dependencies": {
-          "BarakoCMS": "[4.9.0, )",
-          "BarakoCMS.Abstractions": "[4.9.0, )",
+          "BarakoCMS": "[5.0.0, )",
+          "BarakoCMS.Abstractions": "[5.0.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
@@ -1185,8 +1185,8 @@
       "barakocms.analytics.umami": {
         "type": "Project",
         "dependencies": {
-          "BarakoCMS": "[4.9.0, )",
-          "BarakoCMS.Abstractions": "[4.9.0, )",
+          "BarakoCMS": "[5.0.0, )",
+          "BarakoCMS.Abstractions": "[5.0.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
@@ -1194,8 +1194,8 @@
       "barakocms.devicetrust": {
         "type": "Project",
         "dependencies": {
-          "BarakoCMS": "[4.9.0, )",
-          "BarakoCMS.Abstractions": "[4.9.0, )",
+          "BarakoCMS": "[5.0.0, )",
+          "BarakoCMS.Abstractions": "[5.0.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
@@ -1203,8 +1203,8 @@
       "barakocms.diagnostics": {
         "type": "Project",
         "dependencies": {
-          "BarakoCMS": "[4.9.0, )",
-          "BarakoCMS.Abstractions": "[4.9.0, )",
+          "BarakoCMS": "[5.0.0, )",
+          "BarakoCMS.Abstractions": "[5.0.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
@@ -1212,8 +1212,8 @@
       "barakocms.email.resend": {
         "type": "Project",
         "dependencies": {
-          "BarakoCMS": "[4.9.0, )",
-          "BarakoCMS.Abstractions": "[4.9.0, )",
+          "BarakoCMS": "[5.0.0, )",
+          "BarakoCMS.Abstractions": "[5.0.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
@@ -1221,16 +1221,16 @@
       "barakocms.email.smtp": {
         "type": "Project",
         "dependencies": {
-          "BarakoCMS": "[4.9.0, )",
-          "BarakoCMS.Abstractions": "[4.9.0, )",
+          "BarakoCMS": "[5.0.0, )",
+          "BarakoCMS.Abstractions": "[5.0.0, )",
           "MailKit": "[4.18.1, )"
         }
       },
       "barakocms.externalauth": {
         "type": "Project",
         "dependencies": {
-          "BarakoCMS": "[4.9.0, )",
-          "BarakoCMS.Abstractions": "[4.9.0, )",
+          "BarakoCMS": "[5.0.0, )",
+          "BarakoCMS.Abstractions": "[5.0.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
@@ -1238,8 +1238,8 @@
       "barakocms.featureflags": {
         "type": "Project",
         "dependencies": {
-          "BarakoCMS": "[4.9.0, )",
-          "BarakoCMS.Abstractions": "[4.9.0, )",
+          "BarakoCMS": "[5.0.0, )",
+          "BarakoCMS.Abstractions": "[5.0.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
@@ -1247,8 +1247,8 @@
       "barakocms.files": {
         "type": "Project",
         "dependencies": {
-          "BarakoCMS": "[4.9.0, )",
-          "BarakoCMS.Abstractions": "[4.9.0, )",
+          "BarakoCMS": "[5.0.0, )",
+          "BarakoCMS.Abstractions": "[5.0.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "SkiaSharp": "[4.153.1, )",
           "SkiaSharp.NativeAssets.Linux.NoDependencies": "[4.153.1, )",
@@ -1259,8 +1259,8 @@
         "type": "Project",
         "dependencies": {
           "AWSSDK.S3": "[3.7.511.8, )",
-          "BarakoCMS.Abstractions": "[4.9.0, )",
-          "BarakoCMS.Files": "[4.7.0, )",
+          "BarakoCMS.Abstractions": "[5.0.0, )",
+          "BarakoCMS.Files": "[5.0.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
@@ -1268,8 +1268,8 @@
       "barakocms.forms": {
         "type": "Project",
         "dependencies": {
-          "BarakoCMS": "[4.9.0, )",
-          "BarakoCMS.Abstractions": "[4.9.0, )",
+          "BarakoCMS": "[5.0.0, )",
+          "BarakoCMS.Abstractions": "[5.0.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
@@ -1277,18 +1277,18 @@
       "barakocms.import": {
         "type": "Project",
         "dependencies": {
-          "BarakoCMS": "[4.9.0, )",
-          "BarakoCMS.Abstractions": "[4.9.0, )",
+          "BarakoCMS": "[5.0.0, )",
+          "BarakoCMS.Abstractions": "[5.0.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )",
-          "Talaan": "[0.2.0, )"
+          "Talaan": "[0.3.0, )"
         }
       },
       "barakocms.pages": {
         "type": "Project",
         "dependencies": {
-          "BarakoCMS": "[4.9.0, )",
-          "BarakoCMS.Abstractions": "[4.9.0, )",
+          "BarakoCMS": "[5.0.0, )",
+          "BarakoCMS.Abstractions": "[5.0.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
@@ -1296,8 +1296,8 @@
       "barakocms.portability": {
         "type": "Project",
         "dependencies": {
-          "BarakoCMS": "[4.9.0, )",
-          "BarakoCMS.Abstractions": "[4.9.0, )",
+          "BarakoCMS": "[5.0.0, )",
+          "BarakoCMS.Abstractions": "[5.0.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
@@ -1305,8 +1305,8 @@
       "barakocms.pwa": {
         "type": "Project",
         "dependencies": {
-          "BarakoCMS": "[4.9.0, )",
-          "BarakoCMS.Abstractions": "[4.9.0, )",
+          "BarakoCMS": "[5.0.0, )",
+          "BarakoCMS.Abstractions": "[5.0.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
@@ -1326,12 +1326,12 @@
       "barakocms.testing": {
         "type": "Project",
         "dependencies": {
-          "BarakoCMS": "[4.9.0, )",
-          "BarakoCMS.Abstractions": "[4.9.0, )",
-          "Marten": "[9.49.0, )",
-          "Microsoft.AspNetCore.TestHost": "[10.0.12, )",
+          "BarakoCMS": "[5.0.0, )",
+          "BarakoCMS.Abstractions": "[5.0.0, )",
+          "Marten": "[9.50.1, )",
+          "Microsoft.AspNetCore.TestHost": "[10.0.13, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )",
-          "Testcontainers.PostgreSql": "[4.15.0, )",
+          "Testcontainers.PostgreSql": "[4.16.0, )",
           "xunit.v3.extensibility.core": "[4.0.0, )"
         }
       },
@@ -1473,9 +1473,9 @@
       },
       "JasperFx": {
         "type": "CentralTransitive",
-        "requested": "[2.84.1, )",
-        "resolved": "2.84.1",
-        "contentHash": "G3pyf3R2aAufCL49ckcwkBzqNZipnEQ0NI84Y5cNNny+dQ/fkc07X7kWerb2ytPiZ3zE4eiUEMoNk2MJ8NU0xQ==",
+        "requested": "[2.87.1, )",
+        "resolved": "2.87.1",
+        "contentHash": "DeSLf4+LdJU/u28fA8U6oIL/bfw4yHLOXmDxYvVI1ltFSiyUMyHDtIwh8V4cV3+zQG7HPFQhL/iJz+ridR0lNg==",
         "dependencies": {
           "FastExpressionCompiler": "5.4.1",
           "ImTools": "4.0.0",
@@ -1512,15 +1512,15 @@
       },
       "Microsoft.AspNetCore.TestHost": {
         "type": "CentralTransitive",
-        "requested": "[10.0.12, )",
-        "resolved": "10.0.12",
-        "contentHash": "bTHgbcjSrLxlqSasYRDU9BcJ3hDGoqIjtDY0soLNrndOWi3kxtOyddwUMaNZgtoI2Uf6y7ZQs2EuVj0c20B7mA=="
+        "requested": "[10.0.13, )",
+        "resolved": "10.0.13",
+        "contentHash": "8xzbDfEOWg5GRp5byA42Axr4TbockbxCvdHTYk27ZIdst79DO0CLBp/Zw5sduK2goRii7of4EeuTjG/yPH4tsg=="
       },
       "Microsoft.Extensions.DependencyModel": {
         "type": "CentralTransitive",
-        "requested": "[10.0.12, )",
-        "resolved": "10.0.12",
-        "contentHash": "rDPQVTxh/zMTDF7wHlRqL/jjZbwjAP6315ydBxj51pZW7qkAwGwjoSiMutxYI91xmOE3ZXjAGHbYRqzyJV7Urw=="
+        "requested": "[10.0.13, )",
+        "resolved": "10.0.13",
+        "contentHash": "6TyllZsToy3S/Ziu67GddljRTttuVJ8bbrbVUrsdHqH5678Oax5MpaEubxLoPoWLvgUBYo4KfcAig0mkBtktXQ=="
       },
       "OpenTelemetry.Exporter.OpenTelemetryProtocol": {
         "type": "CentralTransitive",
@@ -1623,9 +1623,9 @@
       },
       "Talaan": {
         "type": "CentralTransitive",
-        "requested": "[0.2.0, )",
-        "resolved": "0.2.0",
-        "contentHash": "YozDrBwzgFlqlW/V6p49SsbuUUriiY/2B85ns9+97KESKF1Dm91P8lz1PKylBTkmmDr+hjEf3Z4tbGFCuP0zvA=="
+        "requested": "[0.3.0, )",
+        "resolved": "0.3.0",
+        "contentHash": "SX914SN43jyPksMfca3R+3stpDXZiBptp0pcnMpPavGsqKdVezM6ZGdRl7Lway4cuvNnlNhOrAsmRwBMju2FNQ=="
       },
       "xunit.v3.extensibility.core": {
         "type": "CentralTransitive",
