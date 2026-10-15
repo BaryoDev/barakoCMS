@@ -20,6 +20,23 @@ public sealed class ProbeTicket
     public string? Counter { get; set; }
 }
 
+/// <summary>A document with Marten numeric revisions, whose writes read their own result set.</summary>
+public sealed class ProbeRevisioned
+{
+    public Guid Id { get; set; }
+    public string Note { get; set; } = string.Empty;
+
+    [Marten.Schema.Version]
+    public long Version { get; set; }
+}
+
+/// <summary>A document with optimistic concurrency, whose writes read a guid version back.</summary>
+public sealed class ProbeGuarded
+{
+    public Guid Id { get; set; }
+    public string Note { get; set; } = string.Empty;
+}
+
 public sealed class ProbeTicketProjection : SingleStreamProjection<ProbeTicket, Guid>
 {
     public ProbeTicket Create(ProbeTicketIssued e) => new() { Id = e.TicketId, Label = e.Label };
@@ -38,6 +55,8 @@ internal sealed class ClinicProbeModule : IBarakoModule
     {
         // Events are conjoined per tenant, so the projected document is too.
         schema.For<ProbeTicket>().MultiTenanted();
+        schema.For<ProbeRevisioned>().MultiTenanted().UseNumericRevisions(true);
+        schema.For<ProbeGuarded>().MultiTenanted().UseOptimisticConcurrency(true);
         schema.AddEventType<ProbeTicketIssued>();
         schema.AddEventType<ProbeTicketCalled>();
         schema.AddEventType<ProbeSecretNoted>();
