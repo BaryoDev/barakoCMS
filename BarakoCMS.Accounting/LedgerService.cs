@@ -138,6 +138,7 @@ public class LedgerService
 
         return PostResult.Success(new JournalEntry
         {
+            Id = contentId,
             EntryNumber = ContentData.AsString(ContentData.Get(data, "EntryNumber")) ?? string.Empty,
             Date = cmd.Date,
             Memo = cmd.Memo,
