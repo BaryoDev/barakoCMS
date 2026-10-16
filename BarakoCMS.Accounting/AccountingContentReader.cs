@@ -40,10 +40,14 @@ internal static class AccountingContentReader
         // aggregating; roadmap U.18 tracks pushing this into a projection.
         // A voided entry is out of the books whether it was voided through the lifecycle or carries
         // the older Status value, so it drops out of balances, ledgers and cash flow.
+        // The reversal of a voided entry leaves with it: the original is out of the books, so the
+        // entry that cancelled it would otherwise count a second time.
+        var voided = rows.Where(r => r.LifecycleState == AccountingContentTypes.VoidedState).Select(r => r.Id).ToHashSet();
         return rows
             .Where(r => r.LifecycleState != AccountingContentTypes.VoidedState)
             .Select(r => ToEntry(r))
             .Where(e => e.Status == JournalStatus.Posted)
+            .Where(e => e.VoidsEntryId is not { } target || !voided.Contains(target))
             .Where(e => asOf is not { } d || e.Date <= d)
             .ToList();
     }
