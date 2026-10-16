@@ -71,4 +71,14 @@ internal static class AccountingTestData
         return all.Where(c => c.Data.TryGetValue("Reference", out var r)
                               && r?.ToString()?.StartsWith(referencePrefix, StringComparison.Ordinal) == true).ToList();
     }
+
+    /// <summary>A text field of an entry's data, or empty.</summary>
+    public static string Text(Content entry, string field) =>
+        entry.Data.FirstOrDefault(kv => string.Equals(kv.Key, field, StringComparison.OrdinalIgnoreCase)).Value?.ToString() ?? string.Empty;
+
+    /// <summary>The account, debit and credit of each line of an entry.</summary>
+    public static List<(string Account, decimal Debit, decimal Credit)> Lines(Content entry) =>
+        ((System.Collections.IEnumerable)entry.Data["Lines"]).Cast<IDictionary<string, object>>()
+        .Select(l => (l["AccountCode"].ToString()!, Convert.ToDecimal(l["Debit"]), Convert.ToDecimal(l["Credit"])))
+        .ToList();
 }
