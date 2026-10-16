@@ -121,4 +121,37 @@ public class ModuleEventRegistrationTests
 
         act.Should().Throw<NotSupportedException>().WithMessage("*4.9*");
     }
+
+    [Fact]
+    public void EnableEventHeaders_TurnsHeadersOnInTheEventStore()
+    {
+        var options = new StoreOptions();
+        options.Events.MetadataConfig.HeadersEnabled.Should().BeFalse();
+
+        new ModuleSchema(options, new Probe()).EnableEventHeaders();
+
+        options.Events.MetadataConfig.HeadersEnabled.Should().BeTrue();
+    }
+
+    [Fact]
+    public void EnableEventHeaders_CalledTwice_StaysOn()
+    {
+        var options = new StoreOptions();
+        var schema = new ModuleSchema(options, new Probe());
+
+        schema.EnableEventHeaders();
+        schema.EnableEventHeaders();
+
+        options.Events.MetadataConfig.HeadersEnabled.Should().BeTrue();
+    }
+
+    [Fact]
+    public void EnableEventHeaders_OnAHostThatLacksIt_Throws()
+    {
+        IModuleSchema schema = new BareSchema();
+
+        var act = () => schema.EnableEventHeaders();
+
+        act.Should().Throw<NotSupportedException>().WithMessage("*EnableEventHeaders*");
+    }
 }

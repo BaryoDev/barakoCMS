@@ -53,4 +53,18 @@ public interface IModuleSchema
         where TProjection : ProjectionBase, IProjectionSource<IDocumentOperations, IQuerySession>, new() =>
         throw new NotSupportedException(
             "This host does not let modules register projections. It needs barakoCMS 4.9 or later.");
+
+    /// <summary>
+    /// Store the headers a caller sets on an event (<c>session.Events.Append(...)</c> then
+    /// <c>SetHeader</c>) in the event's <c>headers</c> column. The setting belongs to the event
+    /// store, which every module shares, so it is on for all modules once any module asks for it.
+    /// Calling it twice is harmless.
+    /// </summary>
+    /// <remarks>
+    /// Adds a <c>headers</c> column to <c>mt_events</c> and changes <c>mt_quick_append_events</c>, so
+    /// a database that already exists needs the matching migration before the host starts.
+    /// </remarks>
+    void EnableEventHeaders() =>
+        throw new NotSupportedException(
+            "This host does not let modules enable event headers. It needs a barakoCMS build that has IModuleSchema.EnableEventHeaders.");
 }
