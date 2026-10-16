@@ -298,6 +298,23 @@ public class ChangeFieldTests : IAsyncLifetime
     }
 
     [Theory]
+    [InlineData("""{ "remove": true, "allowDestructive": true }""")]
+    [InlineData("""{ "toType": "json", "allowDestructive": true }""")]
+    public async Task An_array_another_field_is_listed_in_is_not_removed_or_converted(string json)
+    {
+        var type = await TypeWithEntriesAsync(0,
+            new { name = "ShownFields", type = "array" },
+            new { name = "Phone", type = "string", shownWhenListedIn = "ShownFields" });
+
+        var res = await _client.PostAsync($"/api/content-types/{type}/fields/ShownFields/change",
+            new StringContent(json, System.Text.Encoding.UTF8, "application/json"), Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await res.Content.ReadAsStringAsync(Ct)).Should().Contain("Phone").And.Contain("ShownWhenListedIn");
+        (await DefinitionAsync(type)).Fields.Select(f => f.Name).Should().Contain("ShownFields");
+    }
+
+    [Theory]
     [InlineData("""{ "toType": "geopoint" }""", "converts to one of")]
     [InlineData("""{ "toType": "choice" }""", "options")]
     [InlineData("""{ "newName": "Other", "remove": true }""", "one change at a time")]
