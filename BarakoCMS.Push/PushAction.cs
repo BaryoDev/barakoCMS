@@ -1,0 +1,37 @@
+using barakoCMS.Features.Workflows;
+using barakoCMS.Infrastructure.Attributes;
+using barakoCMS.Models;
+
+namespace BarakoCMS.Push;
+
+[WorkflowActionMetadata(
+    Description = "Send a web push notification to everyone in the tenant who has subscribed.",
+    Group = WorkflowActionGroup.Comms,
+    RequiredParameters = ["Title", "Body"],
+    OptionalParameters = ["Url"],
+    ExampleJson = "{\"Title\":\"{{data.Title}}\",\"Body\":\"{{data.Body}}\",\"Url\":\"/my-club/home\"}")]
+public sealed class PushAction(IPushSender sender) : IWorkflowAction
+{
+    public string Type => "Push";
+
+    public Task ExecuteAsync(Dictionary<string, string> parameters, Content content, CancellationToken ct) =>
+        RunAsync(new WorkflowContext { Parameters = parameters, Content = content, TriggerEvent = "" }, ct);
+
+    public async Task<WorkflowActionResult> RunAsync(WorkflowContext context, CancellationToken ct)
+    {
+        if (!context.Parameters.TryGetValue("Title", out var title) || string.IsNullOrWhiteSpace(title))
+            return WorkflowActionResult.PermanentFailure("Push needs a Title.");
+        if (!context.Parameters.TryGetValue("Body", out var body) || string.IsNullOrWhiteSpace(body))
+            return WorkflowActionResult.PermanentFailure("Push needs a Body.");
+        context.Parameters.TryGetValue("Url", out var url);
+
+        var n = new PushNotification(Trim(title, 80), Trim(body, 140), PushNotification.SafeUrl(url));
+        try { n.ToJson(); }
+        catch (ArgumentException) { return WorkflowActionResult.PermanentFailure("Push payload is too large."); }
+
+        await sender.SendToTenantAsync(context.TenantId, n, ct);
+        return WorkflowActionResult.Success();
+    }
+
+    private static string Trim(string s, int max) => s.Length <= max ? s : s[..(max - 3)] + "...";
+}

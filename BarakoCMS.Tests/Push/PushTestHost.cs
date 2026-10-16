@@ -53,6 +53,14 @@ public static class PushTestHost
         }
     }
 
+    public static async Task GrantSendPushAsync(IntegrationTestFixture fx)
+    {
+        var store = fx.Services.GetRequiredService<IDocumentStore>();
+        await using var session = store.LightweightSession();
+        await PushCapabilities.Defaults.GrantAsync(session, CancellationToken.None);
+        await session.SaveChangesAsync();
+    }
+
     public static IDocumentSession Open(IDocumentStore store, string tenant) =>
         tenant == DefaultTenant ? store.LightweightSession() : store.LightweightSession(tenant);
 

@@ -1,4 +1,6 @@
+using barakoCMS.Features.Workflows;
 using barakoCMS.Modules;
+using Marten;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -18,6 +20,7 @@ public sealed class PushModule : IBarakoModule
             ? sp.GetRequiredService<WebPushTransport>()
             : new NullPushTransport());
         services.AddScoped<IPushSender, PushSender>();
+        services.AddScoped<IWorkflowAction, PushAction>();
     }
 
     private sealed class NullPushTransport : IPushTransport
@@ -37,4 +40,7 @@ public sealed class PushModule : IBarakoModule
             })
             .Index(x => x.UserId);
     }
+
+    public Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) =>
+        PushCapabilities.Defaults.GrantAsync(session, ct);
 }
