@@ -159,7 +159,8 @@ internal static class ReferenceConditions
     public static bool IsComparable(ContentTypeDefinition? target, string name) =>
         target is not null
         && target.Fields.Any(f =>
-            string.Equals(f.Name, name, StringComparison.Ordinal) && f.Sensitivity == SensitivityLevel.Public);
+            string.Equals(f.Name, name, StringComparison.Ordinal) && f.Sensitivity == SensitivityLevel.Public
+            && !barakoCMS.Core.Validation.PublicFields.IsOwnerHidden(f));
 
     public static Task<ContentTypeDefinition?> DefinitionAsync(
         IQuerySession session, string name, CancellationToken cancellationToken) =>

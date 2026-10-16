@@ -87,7 +87,7 @@ internal static class PublicDelivery
     {
         var field = SlugFieldForAuthoring(def);
         return field is not null
-               && def.Fields.Any(f => f.Name == field && f.Sensitivity == SensitivityLevel.Public)
+               && def.Fields.Any(f => f.Name == field && f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.PublicFields.IsOwnerHidden(f))
             ? field
             : null;
     }

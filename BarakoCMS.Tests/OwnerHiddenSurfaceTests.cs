@@ -283,7 +283,7 @@ public sealed class OwnerHiddenSurfaceTests
             definition.Fields.Single(f => f.Name == "Phone").ShownWhenListedIn = "ShownFields";
             barakoCMS.Infrastructure.Services.OwnerHiddenReindex.Gained(before, definition).Should().BeTrue();
             session.Store(definition);
-            await barakoCMS.Infrastructure.Services.OwnerHiddenReindex.RebuildAsync(session, definition, Ct);
+            await barakoCMS.Infrastructure.Services.OwnerHiddenReindex.RebuildAsync(session, definition, _factory.Services.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>(), Ct);
             await session.SaveChangesAsync(Ct);
         }
 
@@ -312,5 +312,151 @@ public sealed class OwnerHiddenSurfaceTests
 
         BarakoCMS.Pages.Features.Resolve.BoundBlocks.PublicField(definition, "Phone").Should().BeNull();
         BarakoCMS.Pages.Features.Resolve.BoundBlocks.PublicField(definition, "Name").Should().Be("Name");
+    }
+
+    [Fact]
+    public async Task An_anonymous_slug_lookup_cannot_find_an_entry_by_an_owner_hidden_slug()
+    {
+        var tag = Guid.NewGuid().ToString("N")[..10];
+        var (hiddenType, plainType) = ($"ohs{tag}", $"ohp{tag}");
+        var slug = $"s-{tag}";
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            foreach (var (type, hide) in new[] { (hiddenType, true), (plainType, false) })
+            {
+                var fields = MemberFields();
+                fields.Single(f => f.Name == "Slug").ShownWhenListedIn = hide ? "ShownFields" : null;
+                session.Store(new ContentTypeDefinition
+                {
+                    Id = Guid.NewGuid(), Name = type, DisplayName = type, IsPubliclyDeliverable = true, Fields = fields,
+                });
+                var id = Guid.NewGuid();
+                var data = new Dictionary<string, object>
+                {
+                    ["Name"] = "Bea", ["Slug"] = slug, ["Phone"] = "1", ["ShownFields"] = new List<object>(),
+                };
+                session.Events.StartStream<Content>(
+                    id, new barakoCMS.Events.ContentCreated(id, type, data, ContentStatus.Published, Guid.NewGuid(), "Bea", SensitivityLevel.Public));
+                session.Store(new Content
+                {
+                    Id = id, ContentType = type, Status = ContentStatus.Published, Sensitivity = SensitivityLevel.Public,
+                    Data = data, SearchText = "Bea", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+                });
+            }
+
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var anon = _factory.CreateClient();
+        (await anon.GetAsync($"/api/public/{plainType}/{slug}", Ct)).StatusCode.Should().Be(HttpStatusCode.OK, "the control: a plain slug finds the entry");
+        (await anon.GetAsync($"/api/public/{hiddenType}/{slug}", Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public void A_permission_condition_cannot_compare_an_owner_hidden_field()
+    {
+        var definition = new ContentTypeDefinition { Name = "Member", Fields = MemberFields() };
+
+        barakoCMS.Infrastructure.Services.ReferenceConditions.IsComparable(definition, "Name").Should().BeTrue();
+        barakoCMS.Infrastructure.Services.ReferenceConditions.IsComparable(definition, "Phone").Should().BeFalse();
+    }
+
+    [Fact]
+    public void The_public_openapi_document_does_not_name_an_owner_hidden_field()
+    {
+        var definition = new ContentTypeDefinition { Name = "Member", IsPubliclyDeliverable = true, Fields = MemberFields() };
+
+        var json = barakoCMS.Infrastructure.OpenApi.DeliveryDocument.Build([definition]).ToJsonString();
+
+        json.Should().Contain("\"Name\"", "the control: a Public field is documented");
+        json.Should().NotContain("\"Phone\"");
+    }
+
+    [Fact]
+    public async Task A_config_apply_that_hides_a_field_removes_it_from_anonymous_search()
+    {
+        var tag = Guid.NewGuid().ToString("N")[..10];
+        var type = $"ohc{tag}";
+        var id = Guid.NewGuid();
+        var phone = $"zephyrphone{tag}";
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var fields = MemberFields();
+            fields.Single(f => f.Name == "Phone").ShownWhenListedIn = null;
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(), Name = type, DisplayName = type, IsPubliclyDeliverable = true, Fields = fields,
+            });
+            var data = new Dictionary<string, object>
+            {
+                ["Name"] = "Bea", ["Slug"] = $"s-{tag}", ["Phone"] = phone, ["ShownFields"] = new List<object>(),
+            };
+            var indexed = $"Bea s-{tag} {phone}";
+            session.Events.StartStream<Content>(
+                id, new barakoCMS.Events.ContentCreated(id, type, data, ContentStatus.Published, Guid.NewGuid(), indexed, SensitivityLevel.Public));
+            session.Store(new Content
+            {
+                Id = id, ContentType = type, Status = ContentStatus.Published, Sensitivity = SensitivityLevel.Public,
+                Data = data, SearchText = indexed, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var anon = _factory.CreateClient();
+        async Task<int> CountAsync(string term) => JsonDocument
+            .Parse(await anon.GetStringAsync($"/api/public/{type}/search?q={term}", Ct))
+            .RootElement.GetProperty("count").GetInt32();
+
+        (await CountAsync(phone)).Should().Be(1, "the control: indexed before the owner could hide it");
+
+        var hidden = BarakoCMS.Tests.Features.Config.ConfigCallers.Type(type);
+        hidden.IsPubliclyDeliverable = true;
+        hidden.Fields = MemberFields();
+        var admin = await new BarakoCMS.Tests.Features.Config.ConfigCallers(_factory).SuperAdminAsync(null);
+        var (applied, body) = await BarakoCMS.Tests.Features.Config.ConfigCallers.ApplyAsync(admin, new
+        {
+            version = 1,
+            contentTypes = new Dictionary<string, object> { [type] = hidden },
+        });
+        applied.StatusCode.Should().Be(HttpStatusCode.OK, body.ToString());
+
+        (await CountAsync(phone)).Should().Be(0, "the apply rebuilt the stored search text without the field");
+        (await CountAsync("Bea")).Should().Be(1, "the control: the rest of the text stays");
+    }
+
+    [Fact]
+    public async Task The_rebuild_stores_a_document_type_without_an_event_when_appending_is_off()
+    {
+        var tag = Guid.NewGuid().ToString("N")[..10];
+        var type = $"ohd{tag}";
+        var id = Guid.NewGuid();
+        var configuration = new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { [barakoCMS.Infrastructure.Services.ContentWriter.DocumentTypesAppendKey] = "false" })
+            .Build();
+
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var definition = new ContentTypeDefinition { Id = Guid.NewGuid(), Name = type, DisplayName = type, Fields = MemberFields() };
+        session.Store(definition);
+        session.Store(new Content
+        {
+            Id = id, ContentType = type, Status = ContentStatus.Published, Sensitivity = SensitivityLevel.Public,
+            Data = new Dictionary<string, object> { ["Name"] = "Bea", ["Phone"] = "0917", ["ShownFields"] = new List<object>() },
+            SearchText = "Bea 0917", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+        });
+        await session.SaveChangesAsync(Ct);
+
+        await barakoCMS.Infrastructure.Services.OwnerHiddenReindex.RebuildAsync(session, definition, configuration, Ct);
+        await session.SaveChangesAsync(Ct);
+
+        await using var read = _factory.Services.GetRequiredService<IDocumentStore>().QuerySession();
+        var stored = (await read.LoadAsync<Content>(id, Ct))!;
+        stored.SearchText.Should().Contain("Bea");
+        stored.SearchText.Should().NotContain("0917");
+        (await read.Events.FetchStreamStateAsync(id, Ct)).Should().BeNull("a document type with appending off has no event for the rebuild");
     }
 }

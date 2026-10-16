@@ -3,6 +3,7 @@ using barakoCMS.Events;
 using barakoCMS.Infrastructure.Jobs;
 using barakoCMS.Models;
 using Marten;
+using Microsoft.Extensions.Configuration;
 
 namespace barakoCMS.Infrastructure.Services;
 
@@ -23,13 +24,18 @@ public static class OwnerHiddenReindex
         HiddenNames(definition).Any(name => !before.Contains(name));
 
     /// <summary>
-    /// Appends a search text rewrite to every indexed entry of the type whose text changes. The caller
-    /// saves the session.
+    /// Rewrites the search text of every indexed entry of the type whose text changes, through a writer
+    /// built as the update path builds it: a document type is stored without an event when
+    /// DocumentTypesAppend is off, an event sourced type gets an event because its stream is the
+    /// record, and a write is refused while a field change runs on the type. The caller saves the
+    /// session.
     /// </summary>
-    public static async Task RebuildAsync(IDocumentSession session, ContentTypeDefinition definition, CancellationToken ct)
+    public static async Task RebuildAsync(
+        IDocumentSession session, ContentTypeDefinition definition, IConfiguration configuration, CancellationToken ct,
+        Guid changedBy = default)
     {
         var lowered = definition.Name.ToLowerInvariant();
-        var writer = new ContentWriter(session, new ContentSourcingPolicyService(session)) { WritesForFieldChange = true };
+        var writer = new ContentWriter(session, new ContentSourcingPolicyService(session), configuration);
         Guid? cursor = null;
 
         while (true)
@@ -58,7 +64,7 @@ public static class OwnerHiddenReindex
                 await writer.AppendAsync(
                     content,
                     new ContentFieldSensitivityChanged(
-                        content.Id, field.Name, field.Sensitivity, field.Sensitivity, rebuilt, Guid.Empty, DateTime.UtcNow),
+                        content.Id, field.Name, field.Sensitivity, field.Sensitivity, rebuilt, changedBy, DateTime.UtcNow),
                     ct);
             }
 

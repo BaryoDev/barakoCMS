@@ -119,7 +119,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
             // Entries already stored were indexed before the type hid a field from public readers.
             foreach (var definition in reindex)
             {
-                await OwnerHiddenReindex.RebuildAsync(session, definition, token);
+                await OwnerHiddenReindex.RebuildAsync(session, definition, configuration, token, userId);
             }
 
             await session.SaveChangesAsync(token);

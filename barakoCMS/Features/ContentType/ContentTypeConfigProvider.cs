@@ -235,7 +235,8 @@ internal sealed class ContentTypeConfigProvider(
                 session.Store(match);
                 if (barakoCMS.Infrastructure.Services.OwnerHiddenReindex.Gained(hiddenBefore, match))
                 {
-                    await barakoCMS.Infrastructure.Services.OwnerHiddenReindex.RebuildAsync(session, match, ct);
+                    await barakoCMS.Infrastructure.Services.OwnerHiddenReindex.RebuildAsync(
+                        session, match, configuration, ct, Guid.TryParse(caller.Principal?.FindFirst("UserId")?.Value, out var actor) ? actor : default);
                 }
 
                 await AuditAsync(match, delivered, route, caller, ct);
