@@ -5,6 +5,8 @@ using BarakoCMS.Accounting;
 using BarakoCMS.Accounting.Domain;
 using FluentAssertions;
 using Marten;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace BarakoCMS.Tests.Features.Accounting;
@@ -47,7 +49,7 @@ public class PostJournalActionTests(IntegrationTestFixture fixture)
     };
 
     private async Task<WorkflowActionResult> RunAsync(
-        Content subject, string mapping, string actionKey, Guid? runId = null, string? amount = null, string? mappingName = null)
+        Content subject, string mapping, string actionKey, Guid? runId = null, string? amount = null, string? mappingName = null, string? memo = null)
     {
         var parameters = new Dictionary<string, string>
         {
@@ -57,6 +59,7 @@ public class PostJournalActionTests(IntegrationTestFixture fixture)
             ["RunId"] = (runId ?? Guid.NewGuid()).ToString(),
         };
         if (amount is not null) parameters["Amount"] = amount;
+        if (memo is not null) parameters["Memo"] = memo;
 
         using var scope = fixture.Services.CreateScope();
         IWorkflowAction action = ActivatorUtilities.CreateInstance<PostJournalAction>(scope.ServiceProvider);
@@ -200,6 +203,104 @@ public class PostJournalActionTests(IntegrationTestFixture fixture)
         result.Retryable.Should().BeFalse();
         result.Error.Should().Contain("Line 1").And.Contain("lots");
         (await EntriesForAsync(subject)).Should().BeEmpty();
+    }
+
+    private async Task StoreEntryAsync(Guid id, string reference)
+    {
+        using var scope = fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(new Content
+        {
+            Id = id,
+            ContentType = AccountingContentTypes.JournalEntry,
+            Data = new Dictionary<string, object> { ["Reference"] = reference, ["Status"] = "Posted" },
+        });
+        await session.SaveChangesAsync(Ct);
+    }
+
+    [Fact]
+    public async Task A_user_made_entry_on_the_postings_id_fails_the_run_with_the_conflict()
+    {
+        var setup = await SetupAsync();
+        var subject = Subject(80m);
+        var reference = $"{subject.Id:N}:receipt";
+        await StoreEntryAsync(new Guid(SHA256.HashData(Encoding.UTF8.GetBytes(reference))[..16]), reference);
+
+        var result = await RunAsync(subject, setup.Mapping, "receipt");
+
+        result.Succeeded.Should().BeFalse();
+        result.Retryable.Should().BeFalse();
+        result.Error.Should().Contain("no workflow run made it");
+    }
+
+    [Fact]
+    public async Task A_user_made_entry_carrying_the_reference_under_another_id_does_not_stop_the_posting()
+    {
+        var setup = await SetupAsync();
+        var subject = Subject(80m);
+        await StoreEntryAsync(Guid.NewGuid(), $"{subject.Id:N}:receipt");
+
+        var result = await RunAsync(subject, setup.Mapping, "receipt");
+
+        result.Succeeded.Should().BeTrue(result.Error);
+        (await EntriesForAsync(subject)).Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task A_manual_reference_in_the_reserved_form_is_refused()
+    {
+        var cash = await AccountingTestData.AccountAsync(fixture, "1010", AccountType.Asset);
+        var income = await AccountingTestData.AccountAsync(fixture, "4010", AccountType.Income);
+        var reserved = $"{Guid.NewGuid():N}:receipt";
+
+        var post = () => AccountingTestData.PostAsync(fixture, new DateOnly(2026, 10, 5), cash, income, 10m, reserved);
+
+        (await post.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain("reserved");
+        (await AccountingTestData.PostAsync(fixture, new DateOnly(2026, 10, 5), cash, income, 10m, "INV-1")).Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_memo_or_amount_naming_a_sensitive_field_fails()
+    {
+        var setup = await SetupAsync();
+        var type = "rcpt" + Guid.NewGuid().ToString("N")[..8];
+        using (var scope = fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(),
+                Name = type,
+                DisplayName = type,
+                Fields =
+                [
+                    new FieldDefinition { Name = "Total", DisplayName = "Total", Type = "decimal" },
+                    new FieldDefinition { Name = "Diagnosis", DisplayName = "Diagnosis", Type = "string", Sensitivity = SensitivityLevel.Sensitive },
+                ],
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        Content Sick() => new()
+        {
+            Id = Guid.NewGuid(),
+            ContentType = type,
+            Data = new Dictionary<string, object> { ["Total"] = 40m, ["Diagnosis"] = "asthma" },
+        };
+
+        var byValue = await RunAsync(Sick(), setup.Mapping, "receipt", memo: "visit for asthma");
+        var byName = await RunAsync(Sick(), setup.Mapping, "receipt", memo: "visit for {{Data.Diagnosis}}");
+        var plain = Sick();
+        var allowed = await RunAsync(plain, setup.Mapping, "receipt", memo: "consultation");
+
+        byValue.Succeeded.Should().BeFalse();
+        byValue.Retryable.Should().BeFalse();
+        byValue.Error.Should().Contain("Diagnosis");
+        byName.Succeeded.Should().BeFalse();
+        allowed.Succeeded.Should().BeTrue(allowed.Error);
+
+        var amountFromSensitive = await SetupAsync(true, ("debit", "{{Data.Diagnosis}}"), ("credit", "{{Data.Diagnosis}}"));
+        (await RunAsync(Sick(), amountFromSensitive.Mapping, "receipt")).Succeeded.Should().BeFalse();
     }
 
     [Fact]

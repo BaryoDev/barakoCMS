@@ -45,11 +45,15 @@ public sealed class JournalEntryHook : IContentLifecycleHook
 
     public string ContentType => AccountingContentTypes.JournalEntry;
 
-    public async Task<IReadOnlyList<string>> OnBeforeSaveAsync(
-        ContentLifecycleContext context, CancellationToken ct)
+    public Task<IReadOnlyList<string>> OnBeforeSaveAsync(ContentLifecycleContext context, CancellationToken ct) =>
+        CheckAsync(context, allowReserved: false, ct);
+
+    internal async Task<IReadOnlyList<string>> CheckAsync(ContentLifecycleContext context, bool allowReserved, CancellationToken ct)
     {
         var errors = new List<string>();
         var data = context.Data;
+        if (ReservedReferenceError(context, allowReserved) is { } reserved)
+            errors.Add(reserved);
 
         // Immutability, failing closed: an entry has no draft state, so an update never changes its
         // lines, a voided entry takes no update at all, and Status moves only through the Void
@@ -92,7 +96,29 @@ public sealed class JournalEntryHook : IContentLifecycleHook
         if (totalDebit == 0 && lines.Count > 0)
             errors.Add("Entry total must be greater than zero.");
 
-        // Every referenced account must exist and be active.
+        errors.AddRange(await AccountErrorsAsync(context, lines, ct));
+
+        if (errors.Count > 0)
+            return errors;
+
+        // Server-owned fields. Only stamped once the entry is known to be valid, so a rejected post
+        // never consumes a sequence number.
+        if (context.IsCreate)
+        {
+            ContentData.Set(data, "Amount", totalDebit);
+            ContentData.Set(data, "EntryNumber", await NextEntryNumberAsync(context.Session, data, ct));
+            if (string.IsNullOrWhiteSpace(ContentData.AsString(ContentData.Get(data, "Status"))))
+                ContentData.Set(data, "Status", "Posted");
+        }
+
+        return Array.Empty<string>();
+    }
+
+    /// <summary>Every referenced account must exist and be active.</summary>
+    private static async Task<List<string>> AccountErrorsAsync(
+        ContentLifecycleContext context, List<(string Code, decimal Debit, decimal Credit)> lines, CancellationToken ct)
+    {
+        var errors = new List<string>();
         var codes = lines.Select(l => l.Code)
             .Where(c => !string.IsNullOrWhiteSpace(c))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -120,20 +146,21 @@ public sealed class JournalEntryHook : IContentLifecycleHook
             }
         }
 
-        if (errors.Count > 0)
-            return errors;
+        return errors;
+    }
 
-        // Server-owned fields. Only stamped once the entry is known to be valid, so a rejected post
-        // never consumes a sequence number.
-        if (context.IsCreate)
-        {
-            ContentData.Set(data, "Amount", totalDebit);
-            ContentData.Set(data, "EntryNumber", await NextEntryNumberAsync(context.Session, data, ct));
-            if (string.IsNullOrWhiteSpace(ContentData.AsString(ContentData.Get(data, "Status"))))
-                ContentData.Set(data, "Status", "Posted");
-        }
-
-        return Array.Empty<string>();
+    /// <summary>
+    /// A manual entry may not take a reference in the form a workflow posting uses, since the posting
+    /// action is keyed by it. The ledger service passes <paramref name="allowReserved"/> for the
+    /// entries a workflow run makes.
+    /// </summary>
+    private static string? ReservedReferenceError(ContentLifecycleContext context, bool allowReserved)
+    {
+        var reference = ContentData.AsString(ContentData.Get(context.Data, "Reference"));
+        var unchanged = !context.IsCreate && reference == ContentData.AsString(ContentData.Get(context.Existing!, "Reference"));
+        return !allowReserved && !unchanged && PostingReference.IsReserved(reference)
+            ? "A reference of the form '<32 hex digits>:<key>' is reserved for workflow postings."
+            : null;
     }
 
     private static async Task<List<string>> ImmutabilityErrorsAsync(ContentLifecycleContext context, CancellationToken ct)
