@@ -275,6 +275,9 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             // schema so those endpoints can run.
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Pwa.PwaModule(), opts));
 
+            new BarakoCMS.Push.PushModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Push"));
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Push.PushModule(), opts));
+
             // Pages: its hook guards the probe type configured above, and its three endpoints read
             // the same options. Registered with its own section, as the host scopes it.
             new BarakoCMS.Pages.PagesModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Pages"));
@@ -377,6 +380,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         typeof(BarakoCMS.Accounting.AccountingModule).Assembly,
         typeof(BarakoCMS.Diagnostics.DiagnosticsModule).Assembly,
         typeof(BarakoCMS.Pwa.PwaModule).Assembly,
+        typeof(BarakoCMS.Push.PushModule).Assembly,
         typeof(BarakoCMS.Pages.PagesModule).Assembly,
 
         typeof(BarakoCMS.Forms.FormsModule).Assembly,

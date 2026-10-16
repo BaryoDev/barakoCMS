@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>BarakoCMS.Push</RootNamespace>
+
+    <IsPackable>true</IsPackable>
+    <PackageId>BarakoCMS.Push</PackageId>
+    <Version>5.0.0</Version>
+    <Description>Web Push for barakoCMS: stores a push subscription per user and device, sends notifications with VAPID, and removes subscriptions the push service has retired. Includes a Push workflow action.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BarakoCMS.Abstractions\BarakoCMS.Abstractions.csproj" />
+    <ProjectReference Include="..\barakoCMS\barakoCMS.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Lib.Net.Http.WebPush" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="BarakoCMS.Tests" />
+  </ItemGroup>
+</Project>
