@@ -11329,6 +11329,48 @@
         "type": "object",
         "x-deprecatedMessage": "Use the config engine instead: GET /api/config/export, and POST /api/config/plan and /api/config/apply, which accept a Portability bundle as a document. Removal planned for barakoCMS 6.0."
       },
+      "BarakoCMSPushFeaturesSendRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "url": {
+            "nullable": true,
+            "type": "string"
+          },
+          "userIds": {
+            "items": {
+              "format": "guid",
+              "type": "string"
+            },
+            "nullable": true,
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSPushFeaturesSubscribeRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "auth": {
+            "nullable": true,
+            "type": "string"
+          },
+          "endpoint": {
+            "nullable": true,
+            "type": "string"
+          },
+          "p256dh": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSPwaFeaturesInstallDto": {
         "additionalProperties": false,
         "properties": {
@@ -11405,12 +11447,15 @@
       },
       "FastEndpointsEmptyRequest": {
         "additionalProperties": false,
+        "description": "a request dto that doesn't have any properties",
         "type": "object"
       },
       "FastEndpointsProblemDetails": {
         "additionalProperties": false,
+        "description": "RFC9457 compatible problem details/ error response class. this can be used by configuring startup like so:\napp.UseFastEndpoints(c => c.Errors.UseProblemDetails())",
         "properties": {
           "detail": {
+            "description": "the details of the error",
             "nullable": true,
             "type": "string"
           },
@@ -11446,20 +11491,25 @@
       },
       "FastEndpointsProblemDetails_Error": {
         "additionalProperties": false,
+        "description": "the error details object",
         "properties": {
           "code": {
+            "description": "the code of the error",
             "nullable": true,
             "type": "string"
           },
           "name": {
             "default": "Error or field name",
+            "description": "the name of the error or property of the dto that caused the error",
             "type": "string"
           },
           "reason": {
             "default": "Error reason",
+            "description": "the reason for the error",
             "type": "string"
           },
           "severity": {
+            "description": "the severity of the error",
             "nullable": true,
             "type": "string"
           }
@@ -19090,6 +19140,166 @@
         "summary": "GET /api/public/{type}/{slug} \u2014 a single Published entry by slug; 404 if draft/archived/sensitive/missing.\nWith a valid ?preview=<token> (see PreviewToken),\nan unpublished entry is returned too \u2014 the token authorizes only that one entry, and the response is\nstill projected to Public fields and marked no-store. An invalid token falls back to published-only.",
         "tags": [
           "Public"
+        ]
+      }
+    },
+    "/api/push/config": {
+      "get": {
+        "operationId": "BarakoCMSPushFeaturesConfigEndpoint",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "tags": [
+          "Push"
+        ]
+      }
+    },
+    "/api/push/send": {
+      "post": {
+        "operationId": "BarakoCMSPushFeaturesSendEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSPushFeaturesSendRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "SendRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "tags": [
+          "Push"
+        ]
+      }
+    },
+    "/api/push/subscriptions": {
+      "get": {
+        "operationId": "BarakoCMSPushFeaturesListSubscriptionsEndpoint",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "tags": [
+          "Push"
+        ]
+      },
+      "post": {
+        "operationId": "BarakoCMSPushFeaturesSubscribeEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSPushFeaturesSubscribeRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "SubscribeRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "tags": [
+          "Push"
+        ]
+      }
+    },
+    "/api/push/subscriptions/{id}": {
+      "delete": {
+        "operationId": "BarakoCMSPushFeaturesDeleteSubscriptionEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "tags": [
+          "Push"
+        ]
+      }
+    },
+    "/api/push/test": {
+      "post": {
+        "operationId": "BarakoCMSPushFeaturesTestEndpoint",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "tags": [
+          "Push"
         ]
       }
     },

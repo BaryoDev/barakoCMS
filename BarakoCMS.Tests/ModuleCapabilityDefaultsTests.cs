@@ -180,6 +180,7 @@ public class ModuleCapabilityDefaultsTests
             typeof(BarakoCMS.Forms.FormsCapabilities),
             typeof(BarakoCMS.Import.ImportCapabilities),
             typeof(BarakoCMS.Portability.PortabilityCapabilities),
+            typeof(BarakoCMS.Push.PushCapabilities),
             typeof(BarakoCMS.Pwa.PwaCapabilities),
         ];
 

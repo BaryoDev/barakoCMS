@@ -1,0 +1,1 @@
+- **The Push action sends a title-only notification, and sending no longer logs endpoints.** A missing or empty `Body`, or a `{{data.X}}` hole that did not resolve, now sends the title with an empty body instead of failing or showing the template. The push client's default HTTP logging is removed, because it wrote each subscription endpoint to the log.

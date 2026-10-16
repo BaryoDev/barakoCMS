@@ -72,6 +72,7 @@ public class SuiteCompositionTests
             "Import",
             "Pages",
             "Portability",
+            "Push",
             "Pwa",
             DiscoverableProbeModule.ModuleName,
         ]);
