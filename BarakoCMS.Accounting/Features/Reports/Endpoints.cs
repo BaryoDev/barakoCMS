@@ -39,3 +39,57 @@ public class AccountLedgerEndpoint(ReportingService reports) : Endpoint<AccountL
         await Send.ResponseAsync(ledger, cancellation: ct);
     }
 }
+
+/// <summary>
+/// GET /api/accounting/cash-flow?year=2026&amp;month=10&amp;cash=1010,1020 — receipts and disbursements
+/// of one month over the listed cash accounts, with the opening and closing balance.
+/// </summary>
+public class CashFlowEndpoint(
+    ReportingService reports, AccountService accounts) : Endpoint<CashFlowEndpoint.Request, CashFlow>
+{
+    private const int MaxCodes = 20;
+
+    public class Request
+    {
+        public int Year { get; set; }
+        public int Month { get; set; }
+        public string Cash { get; set; } = string.Empty;
+    }
+
+    public override void Configure()
+    {
+        Get("/api/accounting/cash-flow");
+        Definition.RequireCapability(
+            AccountingCapabilities.ViewLedger, AccountingCapabilities.Defaults.LegacyRoles);
+    }
+
+    public override async Task HandleAsync(Request req, CancellationToken ct)
+    {
+        var codes = req.Cash.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct(StringComparer.Ordinal).ToList();
+        if (req.Year is < 1 or > 9999)
+            AddError("year must be between 1 and 9999.");
+        if (req.Month is < 1 or > 12)
+            AddError("month must be between 1 and 12.");
+        if (codes.Count == 0)
+            AddError("cash needs at least one account code.");
+        else if (codes.Count > MaxCodes)
+            AddError($"cash takes at most {MaxCodes} account codes.");
+        else
+        {
+            foreach (var code in codes)
+            {
+                if (await accounts.GetByCodeAsync(code, ct) is null)
+                    AddError($"Account '{code}' is not in the chart.");
+            }
+        }
+
+        if (ValidationFailures.Count > 0)
+        {
+            await Send.ErrorsAsync(400, ct);
+            return;
+        }
+
+        await Send.ResponseAsync(await reports.CashFlowAsync(codes, req.Year, req.Month, ct), cancellation: ct);
+    }
+}
