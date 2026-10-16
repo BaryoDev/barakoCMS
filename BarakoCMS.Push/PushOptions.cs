@@ -8,6 +8,17 @@ public sealed class PushOptions
     public string? PrivateKey { get; init; }
     public string? Subject { get; init; }
 
+    public static readonly string[] DefaultAllowedHosts =
+    [
+        "fcm.googleapis.com",
+        "*.push.services.mozilla.com",
+        "*.notify.windows.com",
+        "web.push.apple.com",
+        "*.push.apple.com",
+    ];
+
+    public IReadOnlyList<string> AllowedHosts { get; init; } = DefaultAllowedHosts;
+
     public bool IsConfigured => PublicKey is not null && PrivateKey is not null;
 
     public static PushOptions From(IConfiguration configuration)
@@ -15,9 +26,12 @@ public sealed class PushOptions
         var pub = configuration["PublicKey"];
         var priv = configuration["PrivateKey"];
         var subject = configuration["Subject"]?.Trim();
+        var hosts = configuration.GetSection("AllowedHosts").Get<string[]>() is { Length: > 0 } h
+            ? h.Select(x => x.Trim().ToLowerInvariant()).Where(x => x.Length > 0).ToArray()
+            : DefaultAllowedHosts;
 
         if (string.IsNullOrWhiteSpace(pub) && string.IsNullOrWhiteSpace(priv))
-            return new PushOptions();
+            return new PushOptions { AllowedHosts = hosts };
 
         // Messages name the setting, never the value.
         if (string.IsNullOrWhiteSpace(pub))
@@ -33,6 +47,26 @@ public sealed class PushOptions
                  || subject.StartsWith("https:", StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException("Modules:Push:Subject must be set to a mailto: or https: address when keys are set.");
 
-        return new PushOptions { PublicKey = pub, PrivateKey = priv, Subject = subject };
+        return new PushOptions { PublicKey = pub, PrivateKey = priv, Subject = subject, AllowedHosts = hosts };
+    }
+
+    /// <summary>True for an absolute https URL on an allowed push service host: no IP literal,
+    /// no userinfo, and no port other than 443.</summary>
+    public bool IsAllowedEndpoint(string? endpoint)
+    {
+        if (string.IsNullOrEmpty(endpoint) || endpoint.Length >= 2048) return false;
+        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri)) return false;
+        if (uri.Scheme != Uri.UriSchemeHttps || uri.UserInfo.Length > 0 || uri.Port != 443) return false;
+        if (uri.HostNameType != UriHostNameType.Dns) return false;
+
+        var host = uri.IdnHost.ToLowerInvariant().TrimEnd('.');
+        foreach (var entry in AllowedHosts)
+        {
+            if (entry.StartsWith("*.", StringComparison.Ordinal)
+                ? host.EndsWith(entry[1..], StringComparison.Ordinal) && host.Length > entry.Length - 1
+                : host == entry)
+                return true;
+        }
+        return false;
     }
 }

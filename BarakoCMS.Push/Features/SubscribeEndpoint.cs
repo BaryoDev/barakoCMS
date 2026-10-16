@@ -6,14 +6,16 @@ namespace BarakoCMS.Push.Features;
 
 public sealed class SubscribeRequest
 {
-    public string Endpoint { get; set; } = string.Empty;
-    public string P256dh { get; set; } = string.Empty;
-    public string Auth { get; set; } = string.Empty;
+    public string? Endpoint { get; set; }
+    public string? P256dh { get; set; }
+    public string? Auth { get; set; }
 }
 
 public sealed class SubscribeEndpoint(IDocumentSession session, PushOptions options)
     : Endpoint<SubscribeRequest>
 {
+    private const int MaxPerUser = 20;
+
     public override void Configure() => Post("/api/push/subscriptions");
 
     public override async Task HandleAsync(SubscribeRequest req, CancellationToken ct)
@@ -38,16 +40,23 @@ public sealed class SubscribeEndpoint(IDocumentSession session, PushOptions opti
 
         var now = DateTime.UtcNow;
         var row = await session.Query<StoredSubscription>()
-            .FirstOrDefaultAsync(x => x.Endpoint == req.Endpoint, ct);
+            .FirstOrDefaultAsync(x => x.Endpoint == req.Endpoint!, ct);
+        if (row is not null && row.UserId != userId && (row.P256dh != req.P256dh || row.Auth != req.Auth))
+        {
+            await Send.ResultAsync(Results.Conflict(new { error = "Subscription belongs to another user." }));
+            return;
+        }
+
         if (row is null)
         {
             row = new StoredSubscription { Id = Guid.NewGuid(), CreatedAt = now };
+            await TrimToCapAsync(userId, ct);
         }
 
         row.UserId = userId;
-        row.Endpoint = req.Endpoint;
-        row.P256dh = req.P256dh;
-        row.Auth = req.Auth;
+        row.Endpoint = req.Endpoint!;
+        row.P256dh = req.P256dh!;
+        row.Auth = req.Auth!;
         row.UserAgent = HttpContext.Request.Headers.UserAgent.ToString() is { Length: > 0 } ua
             ? ua[..Math.Min(ua.Length, 512)]
             : null;
@@ -59,10 +68,18 @@ public sealed class SubscribeEndpoint(IDocumentSession session, PushOptions opti
         await Send.ResultAsync(Results.Created((string?)null, new { id = row.Id }));
     }
 
-    private static bool IsValid(SubscribeRequest req) =>
-        req.Endpoint.Length is > 0 and < 2048
-        && Uri.TryCreate(req.Endpoint, UriKind.Absolute, out var uri)
-        && uri.Scheme == Uri.UriSchemeHttps
+    private async Task TrimToCapAsync(Guid userId, CancellationToken ct)
+    {
+        var mine = await session.Query<StoredSubscription>()
+            .Where(x => x.UserId == userId)
+            .OrderBy(x => x.LastSeenAt)
+            .ToListAsync(ct);
+        foreach (var old in mine.Take(Math.Max(0, mine.Count - (MaxPerUser - 1))))
+            session.Delete(old);
+    }
+
+    private bool IsValid(SubscribeRequest req) =>
+        options.IsAllowedEndpoint(req.Endpoint)
         && VapidKeyGenerator.TryDecode(req.P256dh, 65, out var p) && p[0] == 0x04
         && VapidKeyGenerator.TryDecode(req.Auth, 16, out _);
 }

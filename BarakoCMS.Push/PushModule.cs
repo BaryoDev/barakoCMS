@@ -15,7 +15,11 @@ public sealed class PushModule : IBarakoModule
     {
         schema.For<StoredSubscription>()
             .DocumentAlias("push_subscriptions")
-            .Index(x => x.Endpoint)
+            .Index(x => x.Endpoint, idx =>
+            {
+                idx.IsUnique = true;
+                idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
+            })
             .Index(x => x.UserId);
     }
 }
