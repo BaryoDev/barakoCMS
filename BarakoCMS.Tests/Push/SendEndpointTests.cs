@@ -98,4 +98,57 @@ public class SendEndpointTests(IntegrationTestFixture fx)
         Assert.DoesNotContain(PushTestHost.PrivateKey, doc);
         Assert.Contains("/api/push/subscriptions", doc);
     }
+
+    [Fact]
+    public async Task An_empty_user_list_sends_nothing()
+    {
+        await PushTestHost.GrantSendPushAsync(fx);
+        var h = await PushSenderHost.Create(fx, respond: _ => 201);
+        var (admin, _) = await h.SignedInClient("Admin");
+        var (_, u) = await h.SignedInClient("User");
+        await h.Subscribe("https://push.example/empty", u);
+
+        var res = await admin.PostAsJsonAsync("/api/push/send", new { title = "t", body = "b", userIds = new Guid[0] });
+
+        Assert.True(res.IsSuccessStatusCode);
+        Assert.Empty(h.Fake.Sent);
+        var result = await res.Content.ReadFromJsonAsync<PushSendResult>();
+        Assert.Equal(0, result!.Attempted);
+    }
+
+    [Fact]
+    public async Task Named_users_get_the_message_and_others_do_not()
+    {
+        await PushTestHost.GrantSendPushAsync(fx);
+        var h = await PushSenderHost.Create(fx, respond: _ => 201);
+        var (admin, _) = await h.SignedInClient("Admin");
+        var (_, a) = await h.SignedInClient("User");
+        var (_, b) = await h.SignedInClient("User");
+        var (_, c) = await h.SignedInClient("User");
+        await h.Subscribe("https://push.example/na", a);
+        await h.Subscribe("https://push.example/nb", b);
+        await h.Subscribe("https://push.example/nc", c);
+
+        var res = await admin.PostAsJsonAsync("/api/push/send", new { title = "t", body = "b", userIds = new[] { a, b } });
+
+        Assert.True(res.IsSuccessStatusCode);
+        var ids = h.Fake.Sent.Select(x => x.SubscriptionId).ToHashSet();
+        Assert.Equal(2, ids.Count);
+        Assert.Contains(await h.SubscriptionIdOf(a), ids);
+        Assert.Contains(await h.SubscriptionIdOf(b), ids);
+        Assert.DoesNotContain(await h.SubscriptionIdOf(c), ids);
+    }
+
+    [Fact]
+    public async Task More_than_500_user_ids_is_a_400()
+    {
+        await PushTestHost.GrantSendPushAsync(fx);
+        var h = await PushSenderHost.Create(fx, respond: _ => 201);
+        var (admin, _) = await h.SignedInClient("Admin");
+        var ids = Enumerable.Range(0, 501).Select(_ => Guid.NewGuid()).ToArray();
+
+        var res = await admin.PostAsJsonAsync("/api/push/send", new { title = "t", body = "b", userIds = ids });
+
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+    }
 }

@@ -82,4 +82,30 @@ public class PushActionTests
         Assert.False(result.Succeeded);
         Assert.Empty(sender.Tenant);
     }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("  ")]
+    public async Task An_empty_tenant_is_a_permanent_failure_and_sends_nothing(string tenant)
+    {
+        var sender = new RecordingSender();
+
+        var result = await new PushAction(sender).RunAsync(ContextWith(tenant, ("Title", "T"), ("Body", "b")), default);
+
+        Assert.False(result.Succeeded);
+        Assert.False(result.Retryable);
+        Assert.Empty(sender.Tenant);
+    }
+
+    [Fact]
+    public async Task The_obsolete_execute_overload_throws_and_sends_nothing()
+    {
+        var sender = new RecordingSender();
+#pragma warning disable CS0618
+        await Assert.ThrowsAsync<NotSupportedException>(() => new PushAction(sender).ExecuteAsync(
+            new Dictionary<string, string> { ["Title"] = "T", ["Body"] = "b" },
+            new Content { Id = Guid.NewGuid(), ContentType = "x" }, default));
+#pragma warning restore CS0618
+        Assert.Empty(sender.Tenant);
+    }
 }

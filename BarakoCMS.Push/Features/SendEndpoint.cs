@@ -15,6 +15,8 @@ public sealed class SendRequest
 
 public sealed class SendEndpoint(IPushSender sender, TenantContext tenant) : Endpoint<SendRequest>
 {
+    private const int MaxUserIds = 500;
+
     public override void Configure()
     {
         Post("/api/push/send");
@@ -29,6 +31,12 @@ public sealed class SendEndpoint(IPushSender sender, TenantContext tenant) : End
             return;
         }
 
+        if (req.UserIds is { Count: > MaxUserIds })
+        {
+            await Send.ResultAsync(Results.BadRequest($"Send to at most {MaxUserIds} users at a time."));
+            return;
+        }
+
         PushNotification n = new(req.Title, req.Body, PushNotification.SafeUrl(req.Url));
         try { n.ToJson(); }
         catch (ArgumentException)
@@ -37,9 +45,10 @@ public sealed class SendEndpoint(IPushSender sender, TenantContext tenant) : End
             return;
         }
 
-        var result = req.UserIds is { Count: > 0 }
-            ? await sender.SendToUsersAsync(tenant.Slug, req.UserIds, n, ct)
-            : await sender.SendToTenantAsync(tenant.Slug, n, ct);
+        // Null means everyone. An empty list means no one, and must never fall back to a broadcast.
+        var result = req.UserIds is null
+            ? await sender.SendToTenantAsync(tenant.Slug, n, ct)
+            : await sender.SendToUsersAsync(tenant.Slug, req.UserIds, n, ct);
         await Send.OkAsync(result, ct);
     }
 }

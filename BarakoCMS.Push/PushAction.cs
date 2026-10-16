@@ -15,10 +15,12 @@ public sealed class PushAction(IPushSender sender) : IWorkflowAction
     public string Type => "Push";
 
     public Task ExecuteAsync(Dictionary<string, string> parameters, Content content, CancellationToken ct) =>
-        RunAsync(new WorkflowContext { Parameters = parameters, Content = content, TriggerEvent = "" }, ct);
+        throw new NotSupportedException("Push needs the tenant, so it only runs through RunAsync(WorkflowContext).");
 
     public async Task<WorkflowActionResult> RunAsync(WorkflowContext context, CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(context.TenantId))
+            return WorkflowActionResult.PermanentFailure("Push needs a tenant.");
         if (!context.Parameters.TryGetValue("Title", out var title) || string.IsNullOrWhiteSpace(title))
             return WorkflowActionResult.PermanentFailure("Push needs a Title.");
         if (!context.Parameters.TryGetValue("Body", out var body) || string.IsNullOrWhiteSpace(body))
