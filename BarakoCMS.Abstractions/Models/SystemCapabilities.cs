@@ -336,6 +336,13 @@ public static class SystemCapabilities
     /// </remarks>
     public const string ManageConfig = "manage_config";
 
+    /// <summary>
+    /// Invite a person into the caller's tenant with a role marked <see cref="Role.Invitable"/>, and
+    /// nothing else. Narrower than <see cref="ManageTenantMembers"/>, which also changes and removes
+    /// members and hands out any role: a holder cannot promote anyone.
+    /// </summary>
+    public const string InviteTenantMembers = "invite_tenant_members";
+
     public static readonly IReadOnlySet<string> Known = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         All, ManageRoles, ManagePlatformRoles, ManageTenants, ManageTenantMembers, ManageUsers, ManageUserMembership, ManageUserGroups,
@@ -343,7 +350,7 @@ public static class SystemCapabilities
         ViewMonitoring, ManageRedirects, ManageQueries, ManageRequests, ViewConnectors, ManageConnectors,
         ManageWorkflows, ViewWorkflowRuns, RetryWorkflowActions, RollbackContent, EraseContent, ViewModules,
         ViewJobs, ViewWebhookResponseBodies, ManageCollectionSyncs, ViewSensitive, ViewHidden,
-        ViewNumberGaps, ManageStations, ManageConfig,
+        ViewNumberGaps, ManageStations, ManageConfig, InviteTenantMembers,
     };
 
     public static bool IsKnown(string capability) =>
@@ -380,6 +387,7 @@ public static class SystemCapabilities
         ManageStations,
         // #921: new with the config engine, no gate to preserve, and it widens nothing (see its summary).
         ManageConfig,
+        InviteTenantMembers,
     ];
 
     /// <summary>

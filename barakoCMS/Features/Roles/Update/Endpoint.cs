@@ -64,6 +64,8 @@ internal class Endpoint(
         role.SystemCapabilities = req.SystemCapabilities;
         if (req.RequireMfa is { } requireMfa)
             role.RequireMfa = requireMfa;
+        if (req.Invitable is { } invitable)
+            role.Invitable = invitable;
 
         session.Store(role);
 

@@ -51,6 +51,12 @@ public class Role
     public bool IsPlatform { get; set; }
 
     /// <summary>
+    /// An invite may grant this role. Only a role marked here can be handed out by a holder of
+    /// <see cref="SystemCapabilities.InviteTenantMembers"/>.
+    /// </summary>
+    public bool Invitable { get; set; }
+
+    /// <summary>
     /// When this role was created
     /// </summary>
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

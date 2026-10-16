@@ -58,6 +58,7 @@ internal class Endpoint(
             Permissions = req.Permissions,
             SystemCapabilities = req.SystemCapabilities,
             RequireMfa = req.RequireMfa,
+            Invitable = req.Invitable,
             TenantSlug = owner,
             IsPlatform = req.IsPlatform,
             CreatedAt = DateTime.UtcNow
