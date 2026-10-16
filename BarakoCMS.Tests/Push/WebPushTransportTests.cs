@@ -3,13 +3,14 @@ using System.Security.Cryptography;
 using BarakoCMS.Push;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace BarakoCMS.Tests.Push;
 
 public class WebPushTransportTests
 {
-    private static WebPushTransport Transport()
+    private static WebPushTransport Transport(ILoggerProvider? logs = null)
     {
         var k = VapidKeyGenerator.Generate();
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
@@ -19,7 +20,7 @@ public class WebPushTransportTests
             ["Subject"] = "mailto:ops@example.org",
         }).Build();
         var services = new ServiceCollection();
-        services.AddLogging();
+        services.AddLogging(b => { if (logs is not null) b.AddProvider(logs); });
         new PushModule().ConfigureServices(services, config);
         return services.BuildServiceProvider().GetRequiredService<WebPushTransport>();
     }
@@ -100,5 +101,18 @@ public class WebPushTransportTests
 
         Assert.Equal(429, status);
         Assert.Single(svc.Paths);
+    }
+
+    [Fact]
+    public async Task A_send_through_the_registered_client_never_logs_the_endpoint()
+    {
+        using var svc = new LocalPushService();
+        CapturingLoggerProvider.Clear();
+        var endpoint = svc.Base + "/secret-device-token-xyz";
+
+        var status = await Transport(new CapturingLoggerProvider()).SendAsync(SubscriptionAt(endpoint), "{}", default);
+
+        Assert.Equal(201, status);
+        Assert.DoesNotContain(CapturingLoggerProvider.Captured, l => l.Contains("secret-device-token-xyz"));
     }
 }

@@ -12,7 +12,7 @@ namespace BarakoCMS.Push;
 /// </remarks>
 public static class PushCapabilities
 {
-    /// <summary>Send a push notification to the club or to named users.</summary>
+    /// <summary>Send a push notification to the tenant or to named users.</summary>
     public const string SendPush = "send_push";
 
     internal static readonly string[] All = [SendPush];

@@ -15,6 +15,7 @@ public sealed class PushModule : IBarakoModule
         var options = PushOptions.From(configuration);
         services.AddSingleton(options);
         services.AddHttpClient<WebPushTransport>()
+            .RemoveAllLoggers() // the default handlers log the full request URL, which is the endpoint
             .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
         services.AddScoped<IPushTransport>(sp => options.IsConfigured
             ? sp.GetRequiredService<WebPushTransport>()

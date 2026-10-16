@@ -70,7 +70,6 @@ public class PushActionTests
 
     [Theory]
     [InlineData("Title")]
-    [InlineData("Body")]
     public async Task A_missing_field_is_a_permanent_failure_and_sends_nothing(string missing)
     {
         var sender = new RecordingSender();
@@ -81,6 +80,33 @@ public class PushActionTests
 
         Assert.False(result.Succeeded);
         Assert.Empty(sender.Tenant);
+    }
+
+    [Fact]
+    public async Task A_missing_Body_sends_the_title_with_an_empty_body()
+    {
+        var sender = new RecordingSender();
+
+        var result = await new PushAction(sender).RunAsync(ContextWith("t", ("Title", "Dinner")), default);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("Dinner", sender.Tenant[0].N.Title);
+        Assert.Equal("", sender.Tenant[0].N.Body);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("  ")]
+    [InlineData("{{data.Body}}")]
+    [InlineData(" {{data.Body}} ")]
+    public async Task An_empty_or_unresolved_Body_sends_the_title_with_an_empty_body(string body)
+    {
+        var sender = new RecordingSender();
+
+        var result = await new PushAction(sender).RunAsync(ContextWith("t", ("Title", "Dinner"), ("Body", body)), default);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("", sender.Tenant[0].N.Body);
     }
 
     [Theory]
