@@ -133,6 +133,16 @@ public sealed class ContentCreator(
         else
             await sensitivity.ApplyWriteAsync(schema, request.Data, existing: null, httpContext, ct);
 
+        // A key the caller left out takes its field's default, before validation and the permission
+        // check, so both see the entry as it will be stored. A key that is sent is never touched.
+        var typed = schema ?? await session.Query<ContentTypeDefinition>()
+            .FirstOrDefaultAsync(d => d.Name == request.ContentType, ct);
+        foreach (var field in typed?.Fields.Where(f => f.DefaultValue is not null) ?? [])
+        {
+            if (!request.Data.Keys.Any(k => string.Equals(k, field.Name, StringComparison.OrdinalIgnoreCase)))
+                request.Data[field.Name] = field.DefaultValue!;
+        }
+
         bool isValid;
         List<string> errors;
         using (barakoCMS.Core.Validation.ReferenceFields.Expecting(batch?.Expected))
