@@ -129,7 +129,7 @@ public class LedgerService
                 Existing = null,
                 Session = _session,
                 UserId = userId,
-            }, allowReserved: options?.EntryId is not null, ct);
+            }, allowWorkflow: options?.EntryId is not null, ct);
 
         if (errors.Count > 0)
         {

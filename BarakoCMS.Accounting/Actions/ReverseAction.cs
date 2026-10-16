@@ -47,6 +47,10 @@ public sealed class ReverseAction(LedgerService ledger, IContentTransitioner tra
         if (!Guid.TryParse(parameters.GetValueOrDefault("RunId"), out _))
             return WorkflowActionResult.PermanentFailure("This action reverses only from a workflow run.");
 
+        var sensitive = await SubjectSensitivity.FieldsAsync(session, content, ct);
+        if (SubjectSensitivity.Problem([actionKey, reason, text], content, sensitive) is { } shown)
+            return WorkflowActionResult.PermanentFailure(shown);
+
         var originalLookup = await PostingReference.FindAsync(session, PostingReference.For(subjectId, actionKey), ct);
         var reference = PostingReference.For(subjectId, actionKey) + ":reverse";
         var reversalLookup = await PostingReference.FindAsync(session, reference, ct);

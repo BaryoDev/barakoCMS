@@ -52,9 +52,9 @@ public sealed class PostJournalAction(LedgerService ledger, AccountMappingStore 
         if (posted.Entry is { } existing)
             return Done(existing.Id, ContentData.AsString(ContentData.Get(existing.Data, "EntryNumber")) ?? string.Empty);
 
-        var sensitive = await SensitiveFieldsAsync(content, ct);
+        var sensitive = await SubjectSensitivity.FieldsAsync(session, content, ct);
         var (lines, problem) = ResolveLines(rule, parameters, content, sensitive);
-        problem ??= MemoProblem(parameters.GetValueOrDefault("Memo"), content, sensitive);
+        problem ??= SubjectSensitivity.Problem([parameters.GetValueOrDefault("Memo"), actionKey], content, sensitive);
         if (problem is not null)
             return WorkflowActionResult.PermanentFailure(problem);
         if (lines.Count == 0)
@@ -73,36 +73,6 @@ public sealed class PostJournalAction(LedgerService ledger, AccountMappingStore 
 
         await session.SaveChangesAsync(ct);
         return Done(entryId, result.Entry!.EntryNumber);
-    }
-
-    /// <summary>The fields of the subject's type that are not Public, which an entry accounting users read must not carry.</summary>
-    private async Task<HashSet<string>> SensitiveFieldsAsync(Content subject, CancellationToken ct)
-    {
-        var definition = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == subject.ContentType, ct);
-        return (definition?.Fields ?? []).Where(f => f.Sensitivity != SensitivityLevel.Public)
-            .Select(f => f.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-    }
-
-    /// <summary>
-    /// Why the memo may not be used: it names a sensitive field, or carries its value. The workflow
-    /// runner fills a <c>{{Data.Field}}</c> in a parameter before the action runs, with no regard to
-    /// sensitivity, so the value is what shows up here. A short value can match by chance, and that
-    /// errs on the side of refusing.
-    /// </summary>
-    private static string? MemoProblem(string? memo, Content subject, HashSet<string> sensitive)
-    {
-        if (string.IsNullOrEmpty(memo))
-            return null;
-
-        foreach (var field in sensitive)
-        {
-            var value = ContentData.AsString(ContentData.Get(subject.Data, field));
-            if (memo.Contains($"{{{{Data.{field}}}}}", StringComparison.OrdinalIgnoreCase)
-                || (!string.IsNullOrEmpty(value) && memo.Contains(value, StringComparison.OrdinalIgnoreCase)))
-                return $"The memo shows the sensitive field '{field}', which an accounting entry must not carry.";
-        }
-
-        return null;
     }
 
     private static WorkflowActionResult Done(Guid id, string number) => WorkflowActionResult.Success(

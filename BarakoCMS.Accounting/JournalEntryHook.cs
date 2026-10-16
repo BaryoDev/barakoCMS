@@ -46,14 +46,13 @@ public sealed class JournalEntryHook : IContentLifecycleHook
     public string ContentType => AccountingContentTypes.JournalEntry;
 
     public Task<IReadOnlyList<string>> OnBeforeSaveAsync(ContentLifecycleContext context, CancellationToken ct) =>
-        CheckAsync(context, allowReserved: false, ct);
+        CheckAsync(context, allowWorkflow: false, ct);
 
-    internal async Task<IReadOnlyList<string>> CheckAsync(ContentLifecycleContext context, bool allowReserved, CancellationToken ct)
+    internal async Task<IReadOnlyList<string>> CheckAsync(ContentLifecycleContext context, bool allowWorkflow, CancellationToken ct)
     {
         var errors = new List<string>();
         var data = context.Data;
-        if (ReservedReferenceError(context, allowReserved) is { } reserved)
-            errors.Add(reserved);
+        errors.AddRange(WorkflowOnlyErrors(context, allowWorkflow));
 
         // Immutability, failing closed: an entry has no draft state, so an update never changes its
         // lines, a voided entry takes no update at all, and Status moves only through the Void
@@ -151,16 +150,22 @@ public sealed class JournalEntryHook : IContentLifecycleHook
 
     /// <summary>
     /// A manual entry may not take a reference in the form a workflow posting uses, since the posting
-    /// action is keyed by it. The ledger service passes <paramref name="allowReserved"/> for the
-    /// entries a workflow run makes.
+    /// action is keyed by it, and may not say it voids another entry, since a reversal is what takes
+    /// the voided entry's place in the books. The ledger service passes <paramref name="allowWorkflow"/>
+    /// for the entries a workflow run makes. A value an update leaves as it was is not a change.
     /// </summary>
-    private static string? ReservedReferenceError(ContentLifecycleContext context, bool allowReserved)
+    private static IEnumerable<string> WorkflowOnlyErrors(ContentLifecycleContext context, bool allowWorkflow)
     {
-        var reference = ContentData.AsString(ContentData.Get(context.Data, "Reference"));
-        var unchanged = !context.IsCreate && reference == ContentData.AsString(ContentData.Get(context.Existing!, "Reference"));
-        return !allowReserved && !unchanged && PostingReference.IsReserved(reference)
-            ? "A reference of the form '<32 hex digits>:<key>' is reserved for workflow postings."
-            : null;
+        if (allowWorkflow)
+            yield break;
+
+        string? Sent(string field) => ContentData.AsString(ContentData.Get(context.Data, field));
+        bool Changed(string field) => context.IsCreate || Sent(field) != ContentData.AsString(ContentData.Get(context.Existing!, field));
+
+        if (Changed("Reference") && PostingReference.IsReserved(Sent("Reference")))
+            yield return "A reference of the form '<32 hex digits>:<key>' is reserved for workflow postings.";
+        if (Changed("VoidsEntryId") && !string.IsNullOrWhiteSpace(Sent("VoidsEntryId")))
+            yield return "An entry cannot be made to void another. Void it with the Void transition.";
     }
 
     private static async Task<List<string>> ImmutabilityErrorsAsync(ContentLifecycleContext context, CancellationToken ct)

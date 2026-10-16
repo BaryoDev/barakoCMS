@@ -134,4 +134,88 @@ public class ReverseActionTests(IntegrationTestFixture fixture)
         var later = await after.ServiceProvider.GetRequiredService<ReportingService>().BalancesAsync(null, Ct);
         later.Where(b => b.Code == cash || b.Code == income).Select(b => b.Balance).Should().OnlyContain(b => b == 0m);
     }
+
+    [Fact]
+    public async Task A_reason_naming_a_sensitive_field_fails_the_action()
+    {
+        var (_, _, mapping) = await MappingAsync();
+        var type = "rcpt" + Guid.NewGuid().ToString("N")[..8];
+        using (var scope = fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(),
+                Name = type,
+                DisplayName = type,
+                Fields =
+                [
+                    new FieldDefinition { Name = "Total", DisplayName = "Total", Type = "decimal" },
+                    new FieldDefinition { Name = "Diagnosis", DisplayName = "Diagnosis", Type = "string", Sensitivity = SensitivityLevel.Sensitive },
+                ],
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var subject = new Content
+        {
+            Id = Guid.NewGuid(),
+            ContentType = type,
+            Data = new Dictionary<string, object> { ["Total"] = 40m, ["Diagnosis"] = "asthma" },
+        };
+        (await PostAsync(subject, mapping)).Succeeded.Should().BeTrue();
+
+        var byValue = await ReverseAsync(subject, "cancelled, asthma visit");
+        var byName = await ReverseAsync(subject, "cancelled {{Data.Diagnosis}}");
+
+        byValue.Succeeded.Should().BeFalse();
+        byValue.Retryable.Should().BeFalse();
+        byValue.Error.Should().Contain("Diagnosis");
+        byName.Succeeded.Should().BeFalse();
+        var original = (await AccountingTestData.EntriesAsync(fixture, $"{subject.Id:N}:")).Single();
+        original.LifecycleState.Should().Be("Posted");
+        (await ReverseAsync(subject, "cancelled by patient")).Succeeded.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_manual_entry_with_VoidsEntryId_is_refused()
+    {
+        await AccountingTestData.EnsureTypesAsync(fixture);
+        var id = Guid.NewGuid();
+        var data = new Dictionary<string, object>
+        {
+            ["Date"] = "2026-10-05",
+            ["Lines"] = new List<object>(),
+            ["VoidsEntryId"] = id.ToString(),
+        };
+
+        using var scope = fixture.Services.CreateScope();
+        var errors = await scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Services.IContentLifecycleRunner>()
+            .RunBeforeSaveAsync(AccountingContentTypes.JournalEntry, Guid.NewGuid(), data, null, Guid.NewGuid(), Ct);
+
+        errors.Should().Contain(e => e.Contains("cannot be made to void another"));
+    }
+
+    [Fact]
+    public async Task An_entry_that_points_at_a_voided_one_still_counts_in_balances()
+    {
+        var cash = await AccountingTestData.AccountAsync(fixture, "1010", AccountType.Asset);
+        var income = await AccountingTestData.AccountAsync(fixture, "4010", AccountType.Income);
+        var voidedId = await AccountingTestData.PostAsync(fixture, new DateOnly(2026, 10, 5), cash, income, 30m);
+        var otherId = await AccountingTestData.PostAsync(fixture, new DateOnly(2026, 10, 6), cash, income, 70m);
+        using (var scope = fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var voided = (await session.LoadAsync<Content>(voidedId, Ct))!;
+            voided.LifecycleState = "Voided";
+            var other = (await session.LoadAsync<Content>(otherId, Ct))!;
+            other.Data["VoidsEntryId"] = voidedId.ToString();
+            session.Store(voided, other);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        using var read = fixture.Services.CreateScope();
+        var balances = await read.ServiceProvider.GetRequiredService<ReportingService>().BalancesAsync(null, Ct);
+        balances.Single(b => b.Code == cash).Balance.Should().Be(70m);
+    }
 }
