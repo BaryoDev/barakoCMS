@@ -52,6 +52,9 @@ internal sealed class Request
     /// <summary>What the field is to the entry: one of <c>fieldRoles</c> in <c>GET /api/meta/describe</c>.</summary>
     public string? Role { get; set; }
 
+    /// <summary>An array field on the same type that lists the fields its owner shows. Other callers see this field only while the array lists it.</summary>
+    public string? ShownWhenListedIn { get; set; }
+
     /// <summary>For a token field, how many characters a generated token has, from 16 to 128. Defaults to 32.</summary>
     public int? TokenLength { get; set; }
 
@@ -163,6 +166,7 @@ internal sealed class Endpoint(
             Editor = req.Editor,
             Section = req.Section,
             Role = req.Role,
+            ShownWhenListedIn = req.ShownWhenListedIn,
             TokenLength = req.TokenLength,
             IsRequired = req.IsRequired,
             DefaultValue = req.DefaultValue,
