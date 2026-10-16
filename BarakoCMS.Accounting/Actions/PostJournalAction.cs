@@ -43,16 +43,23 @@ public sealed class PostJournalAction(LedgerService ledger, AccountMappingStore 
             return WorkflowActionResult.PermanentFailure($"No mapping named '{mappingName}'.");
 
         var reference = PostingReference.For(content.Id, actionKey);
-        if (await PostingReference.FindAsync(session, reference, ct) is { } existing)
+        if (!Guid.TryParse(parameters.GetValueOrDefault("RunId"), out var runId))
+            return WorkflowActionResult.PermanentFailure("This action posts only from a workflow run.");
+
+        var posted = await PostingReference.FindAsync(session, reference, ct);
+        if (posted.Conflict is not null)
+            return WorkflowActionResult.PermanentFailure(posted.Conflict);
+        if (posted.Entry is { } existing)
             return Done(existing.Id, ContentData.AsString(ContentData.Get(existing.Data, "EntryNumber")) ?? string.Empty);
 
-        var (lines, problem) = ResolveLines(rule, parameters, content);
+        var sensitive = await SensitiveFieldsAsync(content, ct);
+        var (lines, problem) = ResolveLines(rule, parameters, content, sensitive);
+        problem ??= MemoProblem(parameters.GetValueOrDefault("Memo"), content, sensitive);
         if (problem is not null)
             return WorkflowActionResult.PermanentFailure(problem);
         if (lines.Count == 0)
             return WorkflowActionResult.Success(new Dictionary<string, string> { ["id"] = string.Empty, ["entryNumber"] = string.Empty });
 
-        var runId = Guid.TryParse(parameters.GetValueOrDefault("RunId"), out var run) ? run : (Guid?)null;
         var command = new PostEntryCommand(date, parameters.GetValueOrDefault("Memo") ?? mappingName, lines, reference);
         var entryId = PostingReference.EntryId(reference);
         var result = await ledger.StageAsync(command, Guid.Empty, new StageOptions(entryId, stored =>
@@ -68,6 +75,36 @@ public sealed class PostJournalAction(LedgerService ledger, AccountMappingStore 
         return Done(entryId, result.Entry!.EntryNumber);
     }
 
+    /// <summary>The fields of the subject's type that are not Public, which an entry accounting users read must not carry.</summary>
+    private async Task<HashSet<string>> SensitiveFieldsAsync(Content subject, CancellationToken ct)
+    {
+        var definition = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == subject.ContentType, ct);
+        return (definition?.Fields ?? []).Where(f => f.Sensitivity != SensitivityLevel.Public)
+            .Select(f => f.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Why the memo may not be used: it names a sensitive field, or carries its value. The workflow
+    /// runner fills a <c>{{Data.Field}}</c> in a parameter before the action runs, with no regard to
+    /// sensitivity, so the value is what shows up here. A short value can match by chance, and that
+    /// errs on the side of refusing.
+    /// </summary>
+    private static string? MemoProblem(string? memo, Content subject, HashSet<string> sensitive)
+    {
+        if (string.IsNullOrEmpty(memo))
+            return null;
+
+        foreach (var field in sensitive)
+        {
+            var value = ContentData.AsString(ContentData.Get(subject.Data, field));
+            if (memo.Contains($"{{{{Data.{field}}}}}", StringComparison.OrdinalIgnoreCase)
+                || (!string.IsNullOrEmpty(value) && memo.Contains(value, StringComparison.OrdinalIgnoreCase)))
+                return $"The memo shows the sensitive field '{field}', which an accounting entry must not carry.";
+        }
+
+        return null;
+    }
+
     private static WorkflowActionResult Done(Guid id, string number) => WorkflowActionResult.Success(
         new Dictionary<string, string> { ["id"] = id.ToString(), ["entryNumber"] = number },
         [new CreatedRef("journalEntry", id, number)]);
@@ -80,13 +117,13 @@ public sealed class PostJournalAction(LedgerService ledger, AccountMappingStore 
     }
 
     /// <summary>The lines to post, with zero lines dropped when the rule says so, or the reason one cannot be read.</summary>
-    private static (List<PostLine> Lines, string? Problem) ResolveLines(MappingRule rule, Dictionary<string, string> parameters, Content subject)
+    private static (List<PostLine> Lines, string? Problem) ResolveLines(MappingRule rule, Dictionary<string, string> parameters, Content subject, HashSet<string> sensitive)
     {
         var lines = new List<PostLine>();
         for (var i = 0; i < rule.Lines.Count; i++)
         {
             var line = rule.Lines[i];
-            if (!TryAmount(line.Amount, parameters, subject, out var amount))
+            if (!TryAmount(line.Amount, parameters, subject, sensitive, out var amount))
                 return ([], $"Line {i + 1}: '{line.Amount}' is not {{{{Amount}}}}, {{{{Data.<Field>}}}} with a number in it, or a decimal.");
             if (rule.SkipIfZero && amount == 0m)
                 continue;
@@ -98,7 +135,7 @@ public sealed class PostJournalAction(LedgerService ledger, AccountMappingStore 
         return (lines, null);
     }
 
-    private static bool TryAmount(string text, Dictionary<string, string> parameters, Content subject, out decimal amount)
+    private static bool TryAmount(string text, Dictionary<string, string> parameters, Content subject, HashSet<string> sensitive, out decimal amount)
     {
         amount = 0m;
         var trimmed = text.Trim();
@@ -108,7 +145,8 @@ public sealed class PostJournalAction(LedgerService ledger, AccountMappingStore 
         if (trimmed.StartsWith("{{Data.", StringComparison.Ordinal) && trimmed.EndsWith("}}", StringComparison.Ordinal))
         {
             var field = trimmed[7..^2];
-            return ContentData.Get(subject.Data, field) is { } value && TryDecimal(Convert.ToString(value, CultureInfo.InvariantCulture), out amount);
+            return !sensitive.Contains(field)
+                && ContentData.Get(subject.Data, field) is { } value && TryDecimal(Convert.ToString(value, CultureInfo.InvariantCulture), out amount);
         }
 
         return TryDecimal(trimmed, out amount);

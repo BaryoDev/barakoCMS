@@ -120,7 +120,9 @@ public class LedgerService
 
         // The hook both validates and stamps EntryNumber/Amount. A rejected post never reaches the
         // store and never consumes a sequence number.
-        var errors = await _hook.OnBeforeSaveAsync(
+        // A caller that fixes the entry id is a workflow posting, the only one that may use the
+        // reserved reference form.
+        var errors = await _hook.CheckAsync(
             new barakoCMS.Core.Interfaces.ContentLifecycleContext
             {
                 ContentType = AccountingContentTypes.JournalEntry,
@@ -128,7 +130,7 @@ public class LedgerService
                 Existing = null,
                 Session = _session,
                 UserId = userId,
-            }, ct);
+            }, allowReserved: options?.EntryId is not null, ct);
 
         if (errors.Count > 0)
         {
