@@ -52,16 +52,13 @@ public sealed class JournalEntryHook : IContentLifecycleHook
         var errors = new List<string>();
         var data = context.Data;
 
-        // Immutability: a posted entry may only be voided, never edited. Voiding flips Status and
-        // is the one field change allowed, so compare everything else against what is stored.
+        // Immutability, failing closed: an entry has no draft state, so an update never changes its
+        // lines, a voided entry takes no update at all, and Status moves only through the Void
+        // transition (which sends neither). The check reads the stored entry, never the caller's data.
         if (!context.IsCreate)
         {
             var previous = context.Existing!;
-            var wasPosted = await WasPostedAsync(context, ct);
-            var linesChanged = System.Text.Json.JsonSerializer.Serialize(ContentData.Get(data, "Lines"))
-                            != System.Text.Json.JsonSerializer.Serialize(ContentData.Get(previous, "Lines"));
-            if (wasPosted && linesChanged)
-                errors.Add("A posted journal entry cannot be edited. Post a reversing entry instead.");
+            errors.AddRange(await ImmutabilityErrorsAsync(context, ct));
 
             // The server owns these; an update must not rewrite them.
             ContentData.Set(data, "EntryNumber", ContentData.Get(previous, "EntryNumber") ?? string.Empty);
@@ -139,6 +136,25 @@ public sealed class JournalEntryHook : IContentLifecycleHook
 
         return Array.Empty<string>();
     }
+
+    private static async Task<List<string>> ImmutabilityErrorsAsync(ContentLifecycleContext context, CancellationToken ct)
+    {
+        var errors = new List<string>();
+        var previous = context.Existing!;
+        var linesChanged = System.Text.Json.JsonSerializer.Serialize(ContentData.Get(context.Data, "Lines"))
+                        != System.Text.Json.JsonSerializer.Serialize(ContentData.Get(previous, "Lines"));
+        if (!await WasPostedAsync(context, ct))
+            errors.Add("A voided journal entry cannot be edited.");
+        else if (linesChanged)
+            errors.Add("A posted journal entry cannot be edited. Post a reversing entry instead.");
+        if (StatusChanged(context.Data, previous))
+            errors.Add("The status of a journal entry changes only by voiding it.");
+        return errors;
+    }
+
+    private static bool StatusChanged(IReadOnlyDictionary<string, object> data, IReadOnlyDictionary<string, object> previous) =>
+        ContentData.AsString(ContentData.Get(data, "Status")) is { Length: > 0 } sent
+        && sent != (ContentData.AsString(ContentData.Get(previous, "Status")) ?? string.Empty);
 
     /// <summary>Whether the stored entry is still posted: neither the older Voided status nor the Void transition has been applied.</summary>
     private static async Task<bool> WasPostedAsync(ContentLifecycleContext context, CancellationToken ct)

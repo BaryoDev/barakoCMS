@@ -82,6 +82,51 @@ public class JournalLifecycleTests(IntegrationTestFixture fixture)
         flow.Lines.Should().BeEmpty();
     }
 
+    private async Task<IReadOnlyList<string>> UpdateErrorsAsync(Guid id, Action<Dictionary<string, object>> change)
+    {
+        var entry = await AccountingTestData.LoadAsync(fixture, id);
+        var data = new Dictionary<string, object>(entry.Data);
+        change(data);
+        using var scope = fixture.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Services.IContentLifecycleRunner>()
+            .RunBeforeSaveAsync(AccountingContentTypes.JournalEntry, id, data, entry.Data, Guid.NewGuid(), Ct);
+    }
+
+    private static void ChangeLines(Dictionary<string, object> data) => data["Lines"] = new List<object>
+    {
+        new Dictionary<string, object> { ["AccountCode"] = "X", ["Debit"] = 5m, ["Credit"] = 0m },
+        new Dictionary<string, object> { ["AccountCode"] = "Y", ["Debit"] = 0m, ["Credit"] = 5m },
+    };
+
+    [Fact]
+    public async Task An_update_that_sets_Status_to_Voided_is_refused()
+    {
+        var (_, _, id) = await PostedAsync();
+
+        var errors = await UpdateErrorsAsync(id, d => d["Status"] = "Voided");
+
+        errors.Should().Contain(e => e.Contains("changes only by voiding"));
+        (await AccountingTestData.LoadAsync(fixture, id)).LifecycleState.Should().Be("Posted");
+    }
+
+    [Fact]
+    public async Task A_posted_entrys_lines_cannot_be_changed()
+    {
+        var (_, _, id) = await PostedAsync();
+
+        (await UpdateErrorsAsync(id, ChangeLines)).Should().Contain(e => e.Contains("cannot be edited"));
+    }
+
+    [Fact]
+    public async Task A_voided_entry_cannot_be_edited_or_have_its_lines_changed()
+    {
+        var (_, _, id) = await PostedAsync();
+        (await VoidAsync(id, "wrong account")).Succeeded.Should().BeTrue();
+
+        (await UpdateErrorsAsync(id, ChangeLines)).Should().Contain(e => e.Contains("voided journal entry cannot be edited"));
+        (await UpdateErrorsAsync(id, d => d["Memo"] = "changed")).Should().Contain(e => e.Contains("voided journal entry cannot be edited"));
+    }
+
     [Fact]
     public async Task The_migration_states_legacy_entries_and_adds_the_lifecycle_and_runs_twice_without_change()
     {
