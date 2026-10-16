@@ -41,15 +41,33 @@ internal static class AccountingContentReader
         // A voided entry is out of the books whether it was voided through the lifecycle or carries
         // the older Status value, so it drops out of balances, ledgers and cash flow.
         // The reversal of a voided entry leaves with it: the original is out of the books, so the
-        // entry that cancelled it would otherwise count a second time.
-        var voided = rows.Where(r => r.LifecycleState == AccountingContentTypes.VoidedState).Select(r => r.Id).ToHashSet();
+        // entry that cancelled it would otherwise count a second time. Only the reversal the
+        // Accounting.Reverse action made is dropped, found by the id it always has and by the run
+        // that made it. An entry a user made and pointed at a voided one stays in the books.
+        var reversals = ReversalsOfVoided(rows);
         return rows
             .Where(r => r.LifecycleState != AccountingContentTypes.VoidedState)
+            .Where(r => !(r.SourceRunId is not null && reversals.TryGetValue(r.Id, out var original)
+                          && Guid.TryParse(ContentData.AsString(ContentData.Get(r.Data, "VoidsEntryId")), out var voids)
+                          && voids == original))
             .Select(r => ToEntry(r))
             .Where(e => e.Status == JournalStatus.Posted)
-            .Where(e => e.VoidsEntryId is not { } target || !voided.Contains(target))
             .Where(e => asOf is not { } d || e.Date <= d)
             .ToList();
+    }
+
+    /// <summary>The id each voided workflow posting's reversal has, mapped to the posting it reverses.</summary>
+    private static Dictionary<Guid, Guid> ReversalsOfVoided(IReadOnlyList<barakoCMS.Models.Content> rows)
+    {
+        var reversals = new Dictionary<Guid, Guid>();
+        foreach (var row in rows.Where(r => r.LifecycleState == AccountingContentTypes.VoidedState))
+        {
+            var reference = ContentData.AsString(ContentData.Get(row.Data, "Reference"));
+            if (PostingReference.IsReserved(reference))
+                reversals.TryAdd(PostingReference.EntryId(reference + ":reverse"), row.Id);
+        }
+
+        return reversals;
     }
 
     private static Account ToAccount(barakoCMS.Models.Content row) => ToAccount(row.Data, row.Id);
