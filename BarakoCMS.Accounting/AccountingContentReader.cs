@@ -38,7 +38,10 @@ internal static class AccountingContentReader
         // Status and Date live inside the JSON bag, so filtering happens here rather than in SQL.
         // Same shape as the previous implementation, which also materialised posted entries before
         // aggregating; roadmap U.18 tracks pushing this into a projection.
+        // A voided entry is out of the books whether it was voided through the lifecycle or carries
+        // the older Status value, so it drops out of balances, ledgers and cash flow.
         return rows
+            .Where(r => r.LifecycleState != AccountingContentTypes.VoidedState)
             .Select(r => ToEntry(r))
             .Where(e => e.Status == JournalStatus.Posted)
             .Where(e => asOf is not { } d || e.Date <= d)

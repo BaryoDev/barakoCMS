@@ -135,7 +135,13 @@ public class LedgerService
             barakoCMS.Models.ContentStatus.Published, userId, searchText,
             barakoCMS.Models.SensitivityLevel.Public);
 
-        await _contentWriter.CreateAsync(created, ct);
+        var stored = await _contentWriter.CreateAsync(created, ct);
+
+        // The lifecycle starts at Posted. The writer does not read the type's initial state, and a
+        // row with no state would read as Posted anyway, but stating it keeps the migration and a
+        // new post the same shape.
+        stored.LifecycleState = AccountingContentTypes.PostedState;
+        _session.Store(stored);
 
         return PostResult.Success(new JournalEntry
         {

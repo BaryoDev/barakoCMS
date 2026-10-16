@@ -57,7 +57,7 @@ public sealed class JournalEntryHook : IContentLifecycleHook
         if (!context.IsCreate)
         {
             var previous = context.Existing!;
-            var wasPosted = ContentData.AsString(ContentData.Get(previous, "Status")) != "Voided";
+            var wasPosted = await WasPostedAsync(context, ct);
             var linesChanged = System.Text.Json.JsonSerializer.Serialize(ContentData.Get(data, "Lines"))
                             != System.Text.Json.JsonSerializer.Serialize(ContentData.Get(previous, "Lines"));
             if (wasPosted && linesChanged)
@@ -138,6 +138,15 @@ public sealed class JournalEntryHook : IContentLifecycleHook
         }
 
         return Array.Empty<string>();
+    }
+
+    /// <summary>Whether the stored entry is still posted: neither the older Voided status nor the Void transition has been applied.</summary>
+    private static async Task<bool> WasPostedAsync(ContentLifecycleContext context, CancellationToken ct)
+    {
+        if (ContentData.AsString(ContentData.Get(context.Existing!, "Status")) == "Voided") return false;
+        if (context.EntryId is not { } id) return true;
+        var stored = await context.Session.LoadAsync<barakoCMS.Models.Content>(id, ct);
+        return stored?.LifecycleState != AccountingContentTypes.VoidedState;
     }
 
     /// <remarks>
