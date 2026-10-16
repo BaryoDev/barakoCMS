@@ -416,6 +416,12 @@ public class FieldDefinition
     public string? Role { get; set; }
 
     /// <summary>
+    /// Name of an array field on the same entry. When set, the field is shown to other callers
+    /// only while this array lists the field's name. A missing or empty array hides it.
+    /// </summary>
+    public string? ShownWhenListedIn { get; set; }
+
+    /// <summary>
     /// For a <c>token</c> field, how many characters a generated token has, from 16 to 128.
     /// </summary>
     /// <remarks>
