@@ -105,7 +105,7 @@ internal sealed class DeliveryQuery
         // sort on one would read it off by which entries come back.
         Func<FieldDefinition, bool> canRead = readable
             ?? (f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.TokenFields.IsToken(f.Type)
-                 && string.IsNullOrEmpty(f.ShownWhenListedIn));
+                 && !barakoCMS.Core.Validation.PublicFields.IsOwnerHidden(f));
 
         // The first spelling wins. Nothing on the save path stops a type declaring two fields that
         // differ only by case, and a dictionary that threw on the second would fail every request

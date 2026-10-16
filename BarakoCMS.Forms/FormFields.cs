@@ -27,6 +27,7 @@ internal static class FormFields
     public static IReadOnlyList<FieldDefinition> Submittable(ContentTypeDefinition definition) =>
         definition.Fields
             .Where(f => f.Sensitivity == SensitivityLevel.Public
+                     && !barakoCMS.Core.Validation.PublicFields.IsOwnerHidden(f)
                      && RenderableTypes.Contains(f.Type)
                      && !string.Equals(f.Name, "slug", StringComparison.OrdinalIgnoreCase))
             .ToList();

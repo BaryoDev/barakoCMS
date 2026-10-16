@@ -206,7 +206,7 @@ internal sealed class Endpoint(
 
         var response = new Response();
         var searchable = definition.Fields
-            .Where(f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.InlineImageFields.Is(f.Type) && string.IsNullOrEmpty(f.ShownWhenListedIn))
+            .Where(barakoCMS.Core.Validation.PublicFields.InSearchText)
             .Select(f => f.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var eventSourced = await sourcing.IsEventSourcedAsync(req.Type, ct);

@@ -25,9 +25,12 @@ public sealed class OwnerHiddenFieldTests : IDisposable
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private ISensitivityService Service() => new SensitivityService(
+    private ISensitivityService Service(string? mode = null) => new SensitivityService(
         _scope.ServiceProvider.GetRequiredService<IQuerySession>(),
-        new ConfigurationBuilder().Build(), new TenantContext());
+        new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Sensitivity:Mode"] = mode })
+            .Build(),
+        new TenantContext());
 
     /// <summary>
     /// A stored user. "SuperAdmin" gives them the seeded SuperAdmin role, a capability name gives
@@ -95,9 +98,10 @@ public sealed class OwnerHiddenFieldTests : IDisposable
         ["Name"] = "Bea", ["Profession"] = "Pediatrics", ["Phone"] = "09170001111", ["ShownFields"] = shown.ToList<object>(),
     };
 
-    private async Task<Dictionary<string, object>> ReadAsAsync(ClaimsPrincipal caller, string type, Dictionary<string, object> data)
+    private async Task<Dictionary<string, object>> ReadAsAsync(
+        ClaimsPrincipal caller, string type, Dictionary<string, object> data, string? mode = null)
     {
-        await Service().ApplyAsync(type, SensitivityLevel.Public, data, new DefaultHttpContext { User = caller }, Ct);
+        await Service(mode).ApplyAsync(type, SensitivityLevel.Public, data, new DefaultHttpContext { User = caller }, Ct);
         return data;
     }
 
@@ -237,5 +241,107 @@ public sealed class OwnerHiddenFieldTests : IDisposable
             [new KeyValuePair<string, string?>("filter[Phone][eq]", "09170001111")], definition);
 
         parsed.IsValid.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_lowercase_key_is_removed_like_the_declared_one()
+    {
+        var type = await StoreMemberTypeAsync();
+        var (other, _) = await CallerAsync("Viewer");
+        var entry = Entry("Profession");
+        entry.Remove("Phone");
+        entry["phone"] = "09170001111";
+
+        (await ReadAsAsync(other, type, entry)).Should().NotContainKey("phone");
+    }
+
+    [Fact]
+    public async Task A_string_array_list_is_honoured()
+    {
+        var type = await StoreMemberTypeAsync();
+        var (other, _) = await CallerAsync("Viewer");
+
+        var listed = Entry();
+        listed["ShownFields"] = new[] { "Phone" };
+        (await ReadAsAsync(other, type, listed)).Should().ContainKey("Phone");
+
+        var unlisted = Entry();
+        unlisted["ShownFields"] = new[] { "Profession" };
+        (await ReadAsAsync(other, type, unlisted)).Should().NotContainKey("Phone");
+    }
+
+    [Fact]
+    public async Task A_json_string_holding_an_array_fails_closed()
+    {
+        var type = await StoreMemberTypeAsync();
+        var (other, _) = await CallerAsync("Viewer");
+        var entry = Entry();
+        entry["ShownFields"] = """["Phone"]""";
+
+        (await ReadAsAsync(other, type, entry)).Should().NotContainKey("Phone");
+    }
+
+    [Fact]
+    public async Task A_past_version_hides_a_field_the_owner_has_since_unlisted()
+    {
+        var type = await StoreMemberTypeAsync();
+        var (other, _) = await CallerAsync("Viewer");
+        var current = new Content
+        {
+            Id = Guid.NewGuid(), ContentType = type, Status = ContentStatus.Published, Data = Entry("Profession"),
+        };
+
+        var oldVersion = Entry("Phone");
+        await Service().ApplyAsync(current, oldVersion, new DefaultHttpContext { User = other }, Ct);
+
+        oldVersion.Should().NotContainKey("Phone", "the owner's current choice decides, whatever an older version listed");
+        oldVersion.Should().ContainKey("Name");
+    }
+
+    [Fact]
+    public async Task A_past_version_shows_a_field_the_owner_lists_now()
+    {
+        var type = await StoreMemberTypeAsync();
+        var (other, _) = await CallerAsync("Viewer");
+        var current = new Content
+        {
+            Id = Guid.NewGuid(), ContentType = type, Status = ContentStatus.Published, Data = Entry("Phone"),
+        };
+
+        var oldVersion = Entry("Profession");
+        await Service().ApplyAsync(current, oldVersion, new DefaultHttpContext { User = other }, Ct);
+
+        oldVersion.Should().ContainKey("Phone", "the control: the current entry lists it");
+    }
+
+    [Fact]
+    public async Task With_the_mode_off_an_owner_hidden_field_is_still_removed()
+    {
+        var type = await StoreMemberTypeAsync();
+        var (other, _) = await CallerAsync("Viewer");
+
+        var data = await ReadAsAsync(other, type, Entry("Profession"), mode: "Off");
+
+        data.Should().NotContainKey("Phone");
+        data.Should().ContainKey("Name");
+    }
+
+    [Fact]
+    public async Task With_the_mode_off_a_Hidden_sensitivity_field_is_left_as_it_is()
+    {
+        var name = $"ownerhidden_{Guid.NewGuid():N}";
+        var session = _scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var fields = MemberFields();
+        fields.Add(new FieldDefinition { Name = "Salary", DisplayName = "Salary", Type = "string", Sensitivity = SensitivityLevel.Hidden });
+        session.Store(new ContentTypeDefinition { Id = Guid.NewGuid(), Name = name, DisplayName = name, Fields = fields });
+        await session.SaveChangesAsync(Ct);
+        var (other, _) = await CallerAsync("Viewer");
+        var entry = Entry("Phone");
+        entry["Salary"] = "60000";
+
+        var data = await ReadAsAsync(other, name, entry, mode: "Off");
+
+        data.Should().ContainKey("Salary", "Off mode masks no sensitivity level");
+        data.Should().ContainKey("Phone");
     }
 }

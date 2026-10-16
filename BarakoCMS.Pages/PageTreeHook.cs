@@ -147,6 +147,7 @@ public sealed class PageTreeHook : IContentLifecycleHook
         return definition.Fields.FirstOrDefault(f =>
             string.Equals(f.Name, "slug", StringComparison.OrdinalIgnoreCase)
             && f.Sensitivity == SensitivityLevel.Public
+            && !barakoCMS.Core.Validation.PublicFields.IsOwnerHidden(f)
             && (string.Equals(f.Type, "string", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(f.Type, "text", StringComparison.OrdinalIgnoreCase)))?.Name;
     }

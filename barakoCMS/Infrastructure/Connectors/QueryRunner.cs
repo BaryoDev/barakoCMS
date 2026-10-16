@@ -54,7 +54,7 @@ internal sealed class QueryRunner(IQuerySession session) : IQueryRunner
         // workflow author could binary-search a Sensitive salary by watching how many rows come
         // back, without the value ever appearing in a payload.
         var allowed = schema.Fields
-            .Where(f => f.Sensitivity == SensitivityLevel.Public)
+            .Where(f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.PublicFields.IsOwnerHidden(f))
             .ToDictionary(f => f.Name, f => f.Type ?? string.Empty, StringComparer.OrdinalIgnoreCase);
 
         // Null, not just empty. A request binding `filters` or `fields` to null reaches here, and

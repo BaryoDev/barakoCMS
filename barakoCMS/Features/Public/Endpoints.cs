@@ -348,7 +348,7 @@ internal static class PublicDelivery
     /// <c>ShownWhenListedIn</c> is never served here, whatever its sensitivity.
     /// </remarks>
     public static bool IsDeliveredField(FieldDefinition field) =>
-        field.Sensitivity == SensitivityLevel.Public && !IsToken(field) && string.IsNullOrEmpty(field.ShownWhenListedIn);
+        field.Sensitivity == SensitivityLevel.Public && !IsToken(field) && !barakoCMS.Core.Validation.PublicFields.IsOwnerHidden(field);
 
     /// <summary>A token is never delivered, even from a definition stored with the field Public.</summary>
     /// <remarks>

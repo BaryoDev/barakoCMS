@@ -194,7 +194,9 @@ public class SensitivityService : ISensitivityService
         // 2b. Fields the entry's owner has not listed.
         if (ownerHides && !await ExemptFromOwnerHidingAsync(user, ct))
         {
-            foreach (var field in definition!.Fields.Where(f => OwnerHiddenFields.Hides(f, data)).ToList())
+            // The owner's current choice decides, so an older version is judged by the entry itself.
+            var source = entry?.Data ?? data;
+            foreach (var field in definition!.Fields.Where(f => OwnerHiddenFields.Hides(f, source)).ToList())
             {
                 foreach (var key in MatchingKeys(data, field.Name))
                     data.Remove(key);

@@ -57,7 +57,7 @@ public sealed class AiModule : IBarakoModule
 internal static class PublicText
 {
     public static HashSet<string> PublicFieldNames(ContentTypeDefinition def) =>
-        def.Fields.Where(f => f.Sensitivity == SensitivityLevel.Public)
+        def.Fields.Where(f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.PublicFields.IsOwnerHidden(f))
             .Select(f => f.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
@@ -78,7 +78,8 @@ internal static class PublicText
                 string.Equals(f.Name, "slug", StringComparison.OrdinalIgnoreCase)
                 && (string.Equals(f.Type, "string", StringComparison.OrdinalIgnoreCase)
                     || string.Equals(f.Type, "text", StringComparison.OrdinalIgnoreCase))
-                && f.Sensitivity == SensitivityLevel.Public);
+                && f.Sensitivity == SensitivityLevel.Public
+                && !barakoCMS.Core.Validation.PublicFields.IsOwnerHidden(f));
         return field is { Sensitivity: SensitivityLevel.Public } ? field.Name : null;
     }
 

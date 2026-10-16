@@ -206,6 +206,12 @@ internal class Endpoint(
         // produce a short or empty page while permitted items exist further down the raw ordering.
         var sensitivity = Resolve<barakoCMS.Core.Interfaces.ISensitivityService>();
         var permittedItems = new List<ContentResponse>();
+
+        // Across types the SQL search sees every value, so one type's owner-hidden field is matched
+        // too. When any type has such a field this caller may not read, each row is rechecked below.
+        var crossTypeHides = !string.IsNullOrEmpty(term) && string.IsNullOrEmpty(req.ContentType)
+            && await AnyTypeHidesOwnerFieldsAsync(sensitivity, ct);
+
         foreach (var item in candidates)
         {
             if (await permissionResolver.CanPerformActionAsync(user, item.ContentType, "read", item, ct))
@@ -229,7 +235,7 @@ internal class Endpoint(
                 // are shown, so which entries match cannot tell them what a field they may not read
                 // holds. A named type's search was narrowed in SQL instead, before paging.
                 if (!string.IsNullOrEmpty(term) && string.IsNullOrEmpty(req.ContentType)
-                    && !(await permissionResolver.FieldSetAsync(user, item.ContentType, "read", item, ct)).IsAll
+                    && (crossTypeHides || !(await permissionResolver.FieldSetAsync(user, item.ContentType, "read", item, ct)).IsAll)
                     && !ShownValueContains(response.Data, term))
                     continue;
 
@@ -369,6 +375,19 @@ internal class Endpoint(
         }
 
         return keys.ToArray();
+    }
+
+    /// <summary>Whether any content type has an owner-hidden field this caller may not read.</summary>
+    private async Task<bool> AnyTypeHidesOwnerFieldsAsync(barakoCMS.Core.Interfaces.ISensitivityService sensitivity, CancellationToken ct)
+    {
+        var definitions = await session.Query<ContentTypeDefinition>().ToListAsync(ct);
+        foreach (var definition in definitions)
+        {
+            if (await TypeHidesOwnerFieldsFromAsync(definition, sensitivity, ct))
+                return true;
+        }
+
+        return false;
     }
 
     /// <summary>Whether the type has a field its owner can hide that this caller may not read on every entry.</summary>
