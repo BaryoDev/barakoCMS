@@ -12,7 +12,8 @@ public sealed class PushModule : IBarakoModule
     {
         var options = PushOptions.From(configuration);
         services.AddSingleton(options);
-        services.AddHttpClient<WebPushTransport>();
+        services.AddHttpClient<WebPushTransport>()
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
         services.AddScoped<IPushTransport>(sp => options.IsConfigured
             ? sp.GetRequiredService<WebPushTransport>()
             : new NullPushTransport());

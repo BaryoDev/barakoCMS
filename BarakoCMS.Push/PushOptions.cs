@@ -19,6 +19,8 @@ public sealed class PushOptions
 
     public IReadOnlyList<string> AllowedHosts { get; init; } = DefaultAllowedHosts;
 
+    public TimeSpan SendTimeout { get; init; } = TimeSpan.FromSeconds(10);
+
     public bool IsConfigured => PublicKey is not null && PrivateKey is not null;
 
     public static PushOptions From(IConfiguration configuration)
@@ -26,12 +28,15 @@ public sealed class PushOptions
         var pub = configuration["PublicKey"];
         var priv = configuration["PrivateKey"];
         var subject = configuration["Subject"]?.Trim();
+        var timeout = int.TryParse(configuration["SendTimeoutSeconds"], out var secs) && secs > 0
+            ? TimeSpan.FromSeconds(secs)
+            : TimeSpan.FromSeconds(10);
         var hosts = configuration.GetSection("AllowedHosts").Get<string[]>() is { Length: > 0 } h
             ? h.Select(x => x.Trim().ToLowerInvariant()).Where(x => x.Length > 0).ToArray()
             : DefaultAllowedHosts;
 
         if (string.IsNullOrWhiteSpace(pub) && string.IsNullOrWhiteSpace(priv))
-            return new PushOptions { AllowedHosts = hosts };
+            return new PushOptions { AllowedHosts = hosts, SendTimeout = timeout };
 
         // Messages name the setting, never the value.
         if (string.IsNullOrWhiteSpace(pub))
@@ -47,7 +52,7 @@ public sealed class PushOptions
                  || subject.StartsWith("https:", StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException("Modules:Push:Subject must be set to a mailto: or https: address when keys are set.");
 
-        return new PushOptions { PublicKey = pub, PrivateKey = priv, Subject = subject, AllowedHosts = hosts };
+        return new PushOptions { PublicKey = pub, PrivateKey = priv, Subject = subject, AllowedHosts = hosts, SendTimeout = timeout };
     }
 
     /// <summary>True for an absolute https URL on an allowed push service host: no IP literal,

@@ -31,6 +31,13 @@ public class PushNotificationTests
     [InlineData("//evil.example/x", "/")]
     [InlineData("javascript:alert(1)", "/")]
     [InlineData("me", "/")]
+    [InlineData("/\\evil.com", "/")]
+    [InlineData("/\t/evil.com", "/")]
+    [InlineData("/%5Cevil.com", "/")]
+    [InlineData("/%5cevil.com", "/")]
+    [InlineData("/x\ny", "/")]
+    [InlineData("/x\u007fy", "/")]
+    [InlineData("/me/dues?x=1", "/me/dues?x=1")]
     public void SafeUrl_keeps_only_same_origin_paths(string? input, string expected) =>
         Assert.Equal(expected, PushNotification.SafeUrl(input));
 }

@@ -11,6 +11,7 @@ public sealed class WebPushTransport : IPushTransport
     {
         _client = new PushServiceClient(http)
         {
+            AutoRetryAfter = false,
             DefaultAuthentication = new VapidAuthentication(options.PublicKey!, options.PrivateKey!)
             {
                 Subject = options.Subject!,

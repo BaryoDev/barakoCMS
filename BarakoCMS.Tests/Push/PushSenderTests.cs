@@ -1,4 +1,7 @@
 using BarakoCMS.Push;
+using Marten;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace BarakoCMS.Tests.Push;
@@ -138,5 +141,62 @@ public class PushSenderTests(IntegrationTestFixture fx)
         var sent = Assert.Single(h.Fake.Sent);
         Assert.Equal((await h.RowsFor(userId)).Single(r => r.Endpoint.EndsWith("/ok")).Id, sent.SubscriptionId);
         Assert.Equal(3, (await h.RowsFor(userId)).Count);
+    }
+
+    [Fact]
+    public async Task A_hanging_send_times_out_counts_as_failed_and_moves_on()
+    {
+        var h = await PushSenderHost.Create(fx, respond: _ => 201);
+        var userId = await h.Subscribe("https://push.example/hang");
+        await h.Subscribe("https://push.example/fine", userId);
+        var options = new PushOptions
+        {
+            PublicKey = PushTestHost.PublicKey,
+            PrivateKey = PushTestHost.PrivateKey,
+            Subject = "mailto:ops@example.org",
+            AllowedHosts = ["push.example"],
+            SendTimeout = TimeSpan.FromSeconds(1),
+        };
+        var sender = new PushSender(
+            fx.Services.GetRequiredService<IDocumentStore>(), new HangingTransport(), options,
+            NullLogger<PushSender>.Instance);
+
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var result = await sender.SendToUsersAsync(h.Tenant, [userId], new("Hi", "There"), default);
+
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(5), $"took {clock.Elapsed}");
+        Assert.Equal(1, result.Failed);
+        Assert.Equal(1, result.Delivered);
+        Assert.Equal(2, (await h.RowsFor(userId)).Count);
+    }
+
+    [Fact]
+    public async Task The_callers_token_still_cancels_the_whole_run()
+    {
+        var h = await PushSenderHost.Create(fx, respond: _ => 201);
+        var userId = await h.Subscribe("https://push.example/hang");
+        var options = new PushOptions
+        {
+            PublicKey = PushTestHost.PublicKey,
+            PrivateKey = PushTestHost.PrivateKey,
+            Subject = "mailto:ops@example.org",
+            AllowedHosts = ["push.example"],
+        };
+        var sender = new PushSender(
+            fx.Services.GetRequiredService<IDocumentStore>(), new HangingTransport(), options,
+            NullLogger<PushSender>.Instance);
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            sender.SendToUsersAsync(h.Tenant, [userId], new("Hi", "There"), cts.Token));
+    }
+
+    private sealed class HangingTransport : IPushTransport
+    {
+        public async Task<int> SendAsync(StoredSubscription subscription, string payloadJson, CancellationToken ct)
+        {
+            if (subscription.Endpoint.EndsWith("/hang")) await Task.Delay(Timeout.Infinite, ct);
+            return 201;
+        }
     }
 }

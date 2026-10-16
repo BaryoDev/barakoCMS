@@ -41,14 +41,16 @@ public sealed class PushSender(
             if (!options.IsAllowedEndpoint(row.Endpoint))
             {
                 failed++;
-                errorType ??= "DisallowedEndpoint";
+                errorType = "DisallowedEndpoint";
                 continue;
             }
 
             int status;
             try
             {
-                status = await transport.SendAsync(row, payload, ct);
+                using var sendCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                sendCts.CancelAfter(options.SendTimeout);
+                status = await transport.SendAsync(row, payload, sendCts.Token);
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
@@ -63,14 +65,18 @@ public sealed class PushSender(
                 session.Delete(row);
                 pruned++;
             }
-            else failed++;
+            else
+            {
+                failed++;
+                errorType = "HttpStatus";
+            }
         }
 
         await session.SaveChangesAsync(ct);
 
         if (failed > 0)
             logger.LogWarning("Push send: {Attempted} attempted, {Delivered} delivered, {Pruned} pruned, {Failed} failed ({ErrorType})",
-                rows.Count, delivered, pruned, failed, errorType ?? "HttpStatus");
+                rows.Count, delivered, pruned, failed, errorType ?? "Unknown");
         else
             logger.LogInformation("Push send: {Attempted} attempted, {Delivered} delivered, {Pruned} pruned, {Failed} failed",
                 rows.Count, delivered, pruned, failed);
