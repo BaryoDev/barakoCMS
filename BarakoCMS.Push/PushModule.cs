@@ -8,8 +8,22 @@ public sealed class PushModule : IBarakoModule
 {
     public string Name => "Push";
 
-    public void ConfigureServices(IServiceCollection services, IConfiguration configuration) =>
-        services.AddSingleton(PushOptions.From(configuration));
+    public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
+    {
+        var options = PushOptions.From(configuration);
+        services.AddSingleton(options);
+        services.AddHttpClient<WebPushTransport>();
+        services.AddScoped<IPushTransport>(sp => options.IsConfigured
+            ? sp.GetRequiredService<WebPushTransport>()
+            : new NullPushTransport());
+        services.AddScoped<IPushSender, PushSender>();
+    }
+
+    private sealed class NullPushTransport : IPushTransport
+    {
+        public Task<int> SendAsync(StoredSubscription subscription, string payloadJson, CancellationToken ct) =>
+            throw new InvalidOperationException("Push is not configured.");
+    }
 
     public void ConfigureSchema(IModuleSchema schema)
     {
