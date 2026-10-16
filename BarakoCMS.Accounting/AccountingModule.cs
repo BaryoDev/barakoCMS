@@ -49,6 +49,9 @@ public sealed class AccountingModule : IBarakoModule
         services.AddScoped<barakoCMS.Core.Interfaces.IContentLifecycleHook, JournalEntryHook>();
     }
 
+    public void ConfigureWorkflowActions(IModuleWorkflowActions actions) =>
+        actions.Add<PostJournalAction>("Accounting.PostJournal");
+
     public void ConfigureSchema(IModuleSchema schema)
     {
         schema.For<Account>()
