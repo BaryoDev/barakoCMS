@@ -1,5 +1,6 @@
 using System.Text.Json;
 using barakoCMS.Core.Interfaces;
+using barakoCMS.Core.Validation;
 using barakoCMS.Models;
 using Marten;
 using Microsoft.AspNetCore.Http;
@@ -169,12 +170,16 @@ public class SensitivityService : ISensitivityService
 
         var shown = await RuleFieldsAsync(user, contentType, "read", entry, ct);
 
-        // Nothing below can mask with the mode off and no set, so the schema is not read.
-        if (_mode == SensitivityMode.Off && shown.IsAll)
+        // Owner hiding is the owner's choice and not a sensitivity mode, so it runs with the mode off.
+        var definition = await LoadDefinitionAsync(contentType, ct);
+
+        // Nothing below can mask with the mode off and no set, so the rest is skipped when the type
+        // has no owner-hidden field.
+        var ownerHides = definition?.Fields.Any(f => !string.IsNullOrEmpty(f.ShownWhenListedIn)) == true;
+        if (_mode == SensitivityMode.Off && shown.IsAll && !ownerHides)
             return false;
 
         // 2. Field-level, from the content type's schema.
-        var definition = await LoadDefinitionAsync(contentType, ct);
         if (definition != null && _mode != SensitivityMode.Off)
         {
             foreach (var field in definition.Fields)
@@ -183,6 +188,16 @@ public class SensitivityService : ISensitivityService
                     continue;
                 foreach (var key in MatchingKeys(data, field.Name))
                     ApplyMask(data, key, field);
+            }
+        }
+
+        // 2b. Fields the entry's owner has not listed.
+        if (ownerHides && !await ExemptFromOwnerHidingAsync(user, ct))
+        {
+            foreach (var field in definition!.Fields.Where(f => OwnerHiddenFields.Hides(f, data)).ToList())
+            {
+                foreach (var key in MatchingKeys(data, field.Name))
+                    data.Remove(key);
             }
         }
 
@@ -244,7 +259,17 @@ public class SensitivityService : ISensitivityService
     public async ValueTask<bool> MayReadFieldAsync(
         string contentType, FieldDefinition field, Content? entry, System.Security.Claims.ClaimsPrincipal user, CancellationToken ct = default)
         => await MaySeeFieldAsync(field, user, ct)
+           && (string.IsNullOrEmpty(field.ShownWhenListedIn)
+               || await ExemptFromOwnerHidingAsync(user, ct)
+               || (entry is not null && !OwnerHiddenFields.Hides(field, entry.Data)))
            && (await RuleFieldsAsync(user, contentType, "read", entry, ct)).Allows(field.Name);
+
+    /// <summary>Whether the stored caller is the seeded SuperAdmin or holds view_sensitive, and so sees fields an owner has not listed.</summary>
+    private async ValueTask<bool> ExemptFromOwnerHidingAsync(System.Security.Claims.ClaimsPrincipal user, CancellationToken ct)
+    {
+        var caller = await StoredCallerAsync(user, ct);
+        return IsSuperAdmin(caller) || caller.HasClaim(StoredCapability, SystemCapabilities.ViewSensitive);
+    }
 
     /// <summary>Whether the caller reads this entry's data at all: its own level, and a Read rule granting it.</summary>
     private async ValueTask<bool> MayReadEntryAsync(Content entry, System.Security.Claims.ClaimsPrincipal user, CancellationToken ct)

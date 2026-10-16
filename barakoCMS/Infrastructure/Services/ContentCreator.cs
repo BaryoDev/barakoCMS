@@ -195,7 +195,7 @@ public sealed class ContentCreator(
         await NumberAsync(definition, request.ContentType, request.Data, ct);
 
         var publicFields = definition?.Fields
-            .Where(f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.InlineImageFields.Is(f.Type))
+            .Where(f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.InlineImageFields.Is(f.Type) && string.IsNullOrEmpty(f.ShownWhenListedIn))
             .Select(f => f.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase)
             ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);

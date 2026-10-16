@@ -655,7 +655,7 @@ internal sealed class CollectionSyncRunner(
     private static string SearchText(IReadOnlyDictionary<string, object> data, ContentTypeDefinition schema)
     {
         var publicFields = schema.Fields
-            .Where(f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.InlineImageFields.Is(f.Type))
+            .Where(f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.InlineImageFields.Is(f.Type) && string.IsNullOrEmpty(f.ShownWhenListedIn))
             .Select(f => f.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 

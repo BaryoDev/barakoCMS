@@ -1,0 +1,1 @@
+Fields an owner has not listed are removed from list, read, history and by-slug responses for callers without view_sensitive, and are refused in field filters and left out of search. Anonymous delivery never serves them.

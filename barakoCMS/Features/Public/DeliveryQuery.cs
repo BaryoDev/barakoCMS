@@ -104,7 +104,8 @@ internal sealed class DeliveryQuery
         // A token is left out by type as well, as ToPublic leaves it out: an anonymous filter or
         // sort on one would read it off by which entries come back.
         Func<FieldDefinition, bool> canRead = readable
-            ?? (f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.TokenFields.IsToken(f.Type));
+            ?? (f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.TokenFields.IsToken(f.Type)
+                 && string.IsNullOrEmpty(f.ShownWhenListedIn));
 
         // The first spelling wins. Nothing on the save path stops a type declaring two fields that
         // differ only by case, and a dictionary that threw on the second would fail every request

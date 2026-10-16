@@ -342,9 +342,13 @@ internal static class PublicDelivery
         return data;
     }
 
-    /// <summary>Whether a field's value is delivered: Public, and not a token.</summary>
+    /// <summary>Whether a field's value is delivered: Public, not a token, and not one an owner can hide.</summary>
+    /// <remarks>
+    /// Anonymous delivery has no owner to list a field for it, so a field with
+    /// <c>ShownWhenListedIn</c> is never served here, whatever its sensitivity.
+    /// </remarks>
     public static bool IsDeliveredField(FieldDefinition field) =>
-        field.Sensitivity == SensitivityLevel.Public && !IsToken(field);
+        field.Sensitivity == SensitivityLevel.Public && !IsToken(field) && string.IsNullOrEmpty(field.ShownWhenListedIn);
 
     /// <summary>A token is never delivered, even from a definition stored with the field Public.</summary>
     /// <remarks>

@@ -344,13 +344,15 @@ internal class Endpoint(
     /// </remarks>
     private async Task<string[]?> SearchableKeysAsync(barakoCMS.Models.User user, string contentType, CancellationToken ct)
     {
-        if ((await permissionResolver.FieldSetAsync(user, contentType, "read", null, ct)).IsAll)
-            return null;
-
         var definition = await session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(d => d.Name == contentType, ct);
 
         var sensitivity = Resolve<barakoCMS.Core.Interfaces.ISensitivityService>();
+
+        if ((await permissionResolver.FieldSetAsync(user, contentType, "read", null, ct)).IsAll
+            && !await TypeHidesOwnerFieldsFromAsync(definition, sensitivity, ct))
+            return null;
+
         var keys = new List<string>();
         foreach (var group in (definition?.Fields ?? new List<FieldDefinition>()).GroupBy(f => f.Name.ToLowerInvariant()))
         {
@@ -367,6 +369,19 @@ internal class Endpoint(
         }
 
         return keys.ToArray();
+    }
+
+    /// <summary>Whether the type has a field its owner can hide that this caller may not read on every entry.</summary>
+    private async Task<bool> TypeHidesOwnerFieldsFromAsync(
+        ContentTypeDefinition? definition, barakoCMS.Core.Interfaces.ISensitivityService sensitivity, CancellationToken ct)
+    {
+        foreach (var field in (definition?.Fields ?? []).Where(f => !string.IsNullOrEmpty(f.ShownWhenListedIn)))
+        {
+            if (!await sensitivity.MayReadFieldAsync(definition!.Name, field, null, User, ct))
+                return true;
+        }
+
+        return false;
     }
 
     /// <summary>

@@ -195,8 +195,8 @@ public sealed class SensitivityReadRuleTests : IDisposable
     {
         var data = new Dictionary<string, object> { ["Salary"] = 60000 };
 
-        var hidden = await WithNoStore("Off").ApplyAsync(
-            "staff", SensitivityLevel.Hidden, data, new DefaultHttpContext { User = NobodyStored() }, Ct);
+        var hidden = await Service("Off").ApplyAsync(
+            $"staff_{Guid.NewGuid():N}", SensitivityLevel.Hidden, data, new DefaultHttpContext { User = NobodyStored() }, Ct);
 
         hidden.Should().BeFalse();
         data.Should().ContainKey("Salary");

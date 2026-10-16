@@ -8,6 +8,24 @@ namespace barakoCMS.Core.Validation;
 /// </summary>
 public static class OwnerHiddenFields
 {
+    /// <summary>Whether the owner has not listed this field, so other readers do not see it.</summary>
+    public static bool Hides(FieldDefinition field, IDictionary<string, object> data)
+    {
+        if (string.IsNullOrEmpty(field.ShownWhenListedIn)) return false;
+
+        var key = data.Keys.FirstOrDefault(k => string.Equals(k, field.ShownWhenListedIn, StringComparison.OrdinalIgnoreCase));
+        if (key is null || data[key] is null) return true;
+
+        IEnumerable<string?> listed = data[key] switch
+        {
+            System.Text.Json.JsonElement { ValueKind: System.Text.Json.JsonValueKind.Array } el
+                => el.EnumerateArray().Select(x => x.ValueKind == System.Text.Json.JsonValueKind.String ? x.GetString() : null),
+            System.Collections.IEnumerable items and not string => items.Cast<object?>().Select(i => i?.ToString()),
+            _ => Enumerable.Empty<string?>(),
+        };
+        return !listed.Contains(field.Name, StringComparer.OrdinalIgnoreCase);
+    }
+
     /// <summary>What is wrong with the ShownWhenListedIn declarations of a type's fields.</summary>
     public static IEnumerable<string> DefinitionErrors(IReadOnlyList<FieldDefinition> fields)
     {
