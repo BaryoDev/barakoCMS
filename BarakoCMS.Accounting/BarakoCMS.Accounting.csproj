@@ -26,5 +26,6 @@
   <ItemGroup>
     <!-- The module's own migrations, for db-migrate (docs/migrations.md). -->
     <EmbeddedResource Include="..\migrations\5.0.0\accounting-number-sequences.sql" LogicalName="barako-migrations/5.0.0/accounting-number-sequences.sql" />
+    <EmbeddedResource Include="..\migrations\5.1.0\accounting-journal-lifecycle.sql" LogicalName="barako-migrations/5.1.0/accounting-journal-lifecycle.sql" />
   </ItemGroup>
 </Project>
