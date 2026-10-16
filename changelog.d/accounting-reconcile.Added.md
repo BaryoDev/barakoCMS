@@ -1,0 +1,1 @@
+- **`GET /api/accounting/reconcile`.** Lists the entries of a content type, made within a range of at most 366 days, whose workflow posting is missing or differs from their `Total`. A posting that was reversed counts as settled. Needs `view_ledger`.
