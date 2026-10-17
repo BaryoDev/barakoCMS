@@ -227,7 +227,10 @@ public class ContentTypeValidatorService : IContentTypeValidatorService
             .Concat(TokenFields.DefinitionErrors(field))
             .Concat(FieldPresentation.DefinitionErrors(field))
             .Concat(ArrayItems.DefinitionErrors(field))
-            .Concat(JsonFieldSchemas.DefinitionErrors(field));
+            .Concat(JsonFieldSchemas.DefinitionErrors(field))
+            .Concat(field.FileFollowsEntry && !FileFields.IsFileField(field)
+                ? [$"FileFollowsEntry applies only to a file field. Field '{field.Name}' is of type '{field.Type}'."]
+                : []);
 
     /// <inheritdoc />
     public (bool IsValid, List<string> Errors) ValidateLifecycle(LifecycleDefinition? lifecycle)

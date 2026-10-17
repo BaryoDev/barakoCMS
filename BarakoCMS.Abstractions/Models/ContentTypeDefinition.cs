@@ -422,6 +422,12 @@ public class FieldDefinition
     public string? ShownWhenListedIn { get; set; }
 
     /// <summary>
+    /// Only on a "file" field. When true, a caller who may read an entry that holds this file in this field
+    /// may also download the file. Absent or false changes nothing.
+    /// </summary>
+    public bool FileFollowsEntry { get; set; }
+
+    /// <summary>
     /// For a <c>token</c> field, how many characters a generated token has, from 16 to 128.
     /// </summary>
     /// <remarks>

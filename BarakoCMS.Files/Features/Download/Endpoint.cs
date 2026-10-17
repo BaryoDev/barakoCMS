@@ -59,7 +59,7 @@ public class Endpoint(
         // sufficient here: PublicDownload is the route for public files, it sets its own caching and
         // headers, and honouring the flag on this route too would mean two paths to the same bytes
         // with different rules.
-        if (!await FileAccessRule.MayAccessAsync(User, file, tenant.Slug, permissions, configuration, ct))
+        if (!await FileAccessRule.MayReadAsync(User, file, tenant.Slug, session, permissions, configuration, ct))
         {
             // 404, not 403, matching PublicDownload: a 403 confirms the id exists, which turns a
             // leaked id into a probe for what else is there.

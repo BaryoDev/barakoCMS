@@ -317,7 +317,7 @@ internal sealed class FileStore(
     /// one rule for reading a file for a caller, one id or many.
     /// </summary>
     private async Task<bool> MayReadAsync(StoredFile file, ClaimsPrincipal caller, CancellationToken ct) =>
-        file.IsPublic || await FileAccessRule.MayAccessAsync(caller, file, tenant.Slug, permissions, configuration, ct);
+        file.IsPublic || await FileAccessRule.MayReadAsync(caller, file, tenant.Slug, session, permissions, configuration, ct);
 
     /// <summary><see cref="FileAccessRule.IsSignedInHere"/>, for the scope's tenant.</summary>
     private bool IsSignedInHere(ClaimsPrincipal caller) => FileAccessRule.IsSignedInHere(caller, tenant.Slug);

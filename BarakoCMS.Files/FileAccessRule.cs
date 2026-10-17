@@ -1,6 +1,8 @@
 using System.Security.Claims;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Services;
+using barakoCMS.Models;
+using Marten;
 using Microsoft.Extensions.Configuration;
 
 namespace BarakoCMS.Files;
@@ -55,6 +57,35 @@ internal static class FileAccessRule
         return Guid.TryParse(caller.FindFirst("UserId")?.Value, out var userId)
             && userId != Guid.Empty
             && await permissions.HasCapabilityAsync(userId, FileCapabilities.ManageAllFiles, ct);
+    }
+
+    /// <summary>
+    /// Download only: <see cref="MayAccessAsync"/>, or an entry the caller may read that holds the
+    /// file in a field marked FileFollowsEntry. Delete keeps asking <see cref="MayAccessAsync"/>.
+    /// </summary>
+    public static async Task<bool> MayReadAsync(
+        ClaimsPrincipal caller,
+        StoredFile file,
+        string tenantSlug,
+        IQuerySession session,
+        IPermissionResolver permissions,
+        IConfiguration configuration,
+        CancellationToken ct)
+    {
+        if (await MayAccessAsync(caller, file, tenantSlug, permissions, configuration, ct))
+        {
+            return true;
+        }
+
+        if (!IsSignedInHere(caller, tenantSlug)
+            || !Guid.TryParse(caller.FindFirst("UserId")?.Value, out var userId)
+            || userId == Guid.Empty)
+        {
+            return false;
+        }
+
+        var user = await session.LoadAsync<User>(userId, ct);
+        return user is not null && await EntryFileAccess.MayReadViaEntryAsync(file, user, session, permissions, ct);
     }
 
     /// <summary>
