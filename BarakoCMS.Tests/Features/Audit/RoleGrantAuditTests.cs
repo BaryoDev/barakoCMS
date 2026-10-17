@@ -208,6 +208,29 @@ public class RoleGrantAuditTests
     }
 
     [Fact]
+    public async Task Toggling_only_invitable_writes_a_row_that_says_so()
+    {
+        var client = await SuperAdminAsync();
+        var name = RoleName();
+        var id = await CreateAsync(client, name, []);
+
+        var update = await client.PutAsJsonAsync($"/api/roles/{id}", new
+        {
+            name,
+            description = "for the audit tests",
+            permissions = Array.Empty<object>(),
+            systemCapabilities = Array.Empty<string>(),
+            invitable = true,
+        });
+        update.StatusCode.Should().Be(HttpStatusCode.OK, await update.Content.ReadAsStringAsync());
+
+        var rows = await AuditRows.ForTargetAsync(_factory, "role.updated", id.ToString());
+        rows.Should().HaveCount(1);
+        rows[0].Element("invitableBefore").GetBoolean().Should().BeFalse();
+        rows[0].Element("invitable").GetBoolean().Should().BeTrue();
+    }
+
+    [Fact]
     public async Task Deleting_a_role_records_the_capabilities_it_held()
     {
         var client = await SuperAdminAsync();

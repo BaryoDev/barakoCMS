@@ -23,6 +23,7 @@ public class InviteMemberTests
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private sealed record InviteHarness(
+        string Slug,
         HttpClient Client,
         Guid MemberRoleId,
         Guid PromotedRoleId,
@@ -148,7 +149,7 @@ public class InviteMemberTests
             }
         }
 
-        return new InviteHarness(client, member.Id, promoted.Id, otherTenantRole.Id, self, otherUser,
+        return new InviteHarness(slug, client, member.Id, promoted.Id, otherTenantRole.Id, self, otherUser,
             RolesOfAsync, UserExistsAsync, AddOfficerAsync, AddAndRemoveAsync, RevokeAsync);
     }
 
@@ -258,5 +259,57 @@ public class InviteMemberTests
         json.GetProperty("roles").EnumerateArray().Select(r => r.GetProperty("id").GetGuid()).Should().Equal(h.MemberRoleId);
         var no = await InviterAsync(holdsCapability: false);
         (await no.Client.GetAsync("/api/tenants/members/invite", Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task A_role_flagged_invitable_before_it_gained_a_capability_or_platform_status_is_refused()
+    {
+        var h = await InviterAsync(holdsCapability: true);
+        var strong = new Role
+        {
+            Id = Guid.NewGuid(), Name = "OldFlag", TenantSlug = h.Slug, IsPlatform = true,
+            Invitable = true, SystemCapabilities = [SystemCapabilities.ManageTenantMembers],
+        };
+        var withCap = new Role
+        {
+            Id = Guid.NewGuid(), Name = "OldFlag2", TenantSlug = h.Slug, Invitable = true,
+            SystemCapabilities = [SystemCapabilities.ViewSensitive],
+        };
+        await StoreAsync(strong, withCap);
+        foreach (var id in new[] { strong.Id, withCap.Id })
+        {
+            var resp = await h.Client.PostAsJsonAsync("/api/tenants/members/invite",
+                new { Email = "old@example.test", RoleIds = new[] { id } }, Ct);
+            ((int)resp.StatusCode).Should().BeOneOf([400, 403], id.ToString());
+        }
+
+        (await h.UserExistsAsync("old@example.test")).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Only_the_member_number_key_is_accepted_and_nothing_is_stored_for_another()
+    {
+        var h = await InviterAsync(holdsCapability: true);
+        var resp = await h.Client.PostAsJsonAsync("/api/tenants/members/invite",
+            new { Email = "dept@example.test", Profile = new { department = "finance" } }, Ct);
+        resp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await h.UserExistsAsync("dept@example.test")).Should().BeFalse();
+        (await h.Client.PostAsJsonAsync("/api/tenants/members/invite",
+            new { Email = "mixed@example.test", Profile = new { memberNo = "N-1", department = "finance" } }, Ct))
+            .StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await h.UserExistsAsync("mixed@example.test")).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_shared_value_under_another_key_is_never_a_clash()
+    {
+        var h = await InviterAsync(holdsCapability: true);
+        await h.AddOfficerAsync("nurse1@example.test", new() { ["profession"] = "Nurse", ["memberNo"] = "N-90" });
+        (await h.Client.PostAsJsonAsync("/api/tenants/members/invite",
+            new { Email = "nurse2@example.test", Profile = new { memberNo = "N-91" } }, Ct))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await h.Client.PostAsJsonAsync("/api/tenants/members/invite",
+            new { Email = "nurse3@example.test", Profile = new { profession = "Nurse" } }, Ct))
+            .StatusCode.Should().Be(HttpStatusCode.BadRequest, "profession is not a key an invite may set, and never a clash");
     }
 }

@@ -46,6 +46,10 @@ internal class Endpoint(
         foreach (var error in await FieldSetRules.CheckAsync(session, req.Permissions, role?.Permissions, ct))
             AddError(r => r.Permissions, error);
 
+        if (role is not null && (req.Invitable ?? role.Invitable)
+            && !InvitableRule.Allows(role.Id, role.IsPlatform, req.SystemCapabilities))
+            AddError(r => r.Invitable, InvitableRule.Message);
+
         ThrowIfAnyErrors();
 
         if (role == null)

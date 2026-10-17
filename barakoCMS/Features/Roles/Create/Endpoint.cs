@@ -38,6 +38,9 @@ internal class Endpoint(
         foreach (var error in await FieldSetRules.CheckAsync(session, req.Permissions, stored: null, ct))
             AddError(r => r.Permissions, error);
 
+        if (req.Invitable && !InvitableRule.Allows(Guid.Empty, req.IsPlatform, req.SystemCapabilities))
+            AddError(r => r.Invitable, InvitableRule.Message);
+
         ThrowIfAnyErrors();
 
         var platformCaller = await RoleScope.IsPlatformCallerAsync(HttpContext, ct);

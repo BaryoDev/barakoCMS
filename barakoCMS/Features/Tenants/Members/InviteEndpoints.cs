@@ -32,6 +32,12 @@ internal sealed class InviteValidator : Validator<InviteRequest>
     {
         RuleFor(x => x.Profile).Custom((profile, context) =>
         {
+            if (profile is not null && profile.Keys.Any(k => k != Invites.UniqueKey))
+            {
+                context.AddFailure($"An invite carries only {Invites.UniqueKey}.");
+                return;
+            }
+
             if (CallerAttributes.ProfileError(profile) is { } error)
                 context.AddFailure(error);
         });
@@ -40,6 +46,9 @@ internal sealed class InviteValidator : Validator<InviteRequest>
 
 internal static class Invites
 {
+    /// <summary>The one profile key an invite may set, and the one that must be unique among active members.</summary>
+    public const string UniqueKey = "memberNo";
+
     public const string RoleRefused = "That role cannot be granted by an invite.";
     public const string RoleNeeded = "Name the role to grant.";
     public const string Removed = "This person was removed. A manager must add them again.";
@@ -48,20 +57,19 @@ internal static class Invites
     /// <summary>The roles of this tenant an invite may grant. SuperAdmin never is, whatever it says.</summary>
     public static async Task<List<Role>> InvitableRolesAsync(IQuerySession session, string slug, CancellationToken ct) =>
         (await RoleScope.In(session.Query<Role>(), slug).Where(r => r.Invitable).ToListAsync(ct))
-            .Where(r => Members.IsAssignable(r.Id))
+            .Where(r => Members.IsAssignable(r.Id) && InvitableRule.Allows(r))
             .OrderBy(r => r.Name, StringComparer.Ordinal)
             .ToList();
 
     private const string HoldsValueSql = "lower(btrim(d.data -> 'Profile' ->> ?)) = ?";
 
     /// <summary>
-    /// Whether another active member of the tenant holds one of these profile values under the same
-    /// name. Values compare trimmed and ignoring case. A removed member holds nothing.
+    /// Whether another active member of the tenant holds this member number. Values compare trimmed and ignoring case. A removed member holds nothing.
     /// </summary>
     public static async Task<bool> ProfileValueTakenAsync(
         IQuerySession session, string slug, Guid? except, Dictionary<string, string>? profile, CancellationToken ct)
     {
-        foreach (var (name, value) in profile ?? new())
+        foreach (var (name, value) in (profile ?? new()).Where(p => p.Key == UniqueKey))
         {
             var wanted = value.Trim().ToLowerInvariant();
             var holders = session.Query<Membership>()

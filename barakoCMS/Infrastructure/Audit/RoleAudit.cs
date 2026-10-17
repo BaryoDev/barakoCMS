@@ -38,7 +38,8 @@ internal static class RoleAudit
         List<string> Capabilities,
         List<Dictionary<string, object>> Permissions,
         Dictionary<string, string> ConditionPrints,
-        bool RequireMfa);
+        bool RequireMfa,
+        bool Invitable);
 
     public static Snapshot Of(Role role)
     {
@@ -59,7 +60,8 @@ internal static class RoleAudit
             (role.SystemCapabilities ?? new List<string>()).Where(c => c is not null).Select(Clip).ToList(),
             permissions.Select(p => DescribePermission(p)).ToList(),
             prints,
-            role.RequireMfa);
+            role.RequireMfa,
+            role.Invitable);
     }
 
     /// <summary>The metadata for a row about one state of a role: created, or deleted.</summary>
@@ -69,6 +71,7 @@ internal static class RoleAudit
         ["capabilities"] = Capped(role.Capabilities),
         ["permissions"] = Capped(role.Permissions),
         ["requireMfa"] = role.RequireMfa,
+        ["invitable"] = role.Invitable,
     };
 
     /// <summary>The metadata for a row about a role going from one state to another.</summary>
@@ -84,6 +87,8 @@ internal static class RoleAudit
             ["permissionsAfter"] = Capped(after.Permissions),
             ["requireMfa"] = after.RequireMfa,
             ["requireMfaBefore"] = before.RequireMfa,
+            ["invitable"] = after.Invitable,
+            ["invitableBefore"] = before.Invitable,
         };
 
         var added = after.Capabilities.Except(before.Capabilities, StringComparer.OrdinalIgnoreCase).ToList();
