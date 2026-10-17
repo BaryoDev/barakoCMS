@@ -113,6 +113,25 @@ nothing is sent. Webhooks without a secret are unaffected.
 for a lab talking to a loopback receiver. `WebhookDeliveryTests` verifies the signing recipe over a
 loopback `http` listener, which is the case the setting exists for.
 
+## Reaching a receiver on the same network
+
+By default a webhook cannot reach a loopback, private or carrier-grade address. `Webhooks:AllowedHosts`
+is an array of host names, compared without regard to case, for a receiver that lives in the same
+network:
+
+```json
+{
+  "Webhooks": {
+    "AllowedHosts": ["press.internal"]
+  }
+}
+```
+
+A listed host may resolve to a loopback, private (10/8, 172.16/12, 192.168/16) or carrier-grade
+(100.64/10) address, or to fc00::/7. Link-local (including the cloud metadata address), unspecified,
+multicast and reserved addresses stay refused for it, so listing a name cannot open the metadata
+service. If a name answers with one such address among others, the whole host is refused.
+
 ## The headers
 
 Every delivery carries:

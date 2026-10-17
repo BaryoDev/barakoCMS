@@ -29,12 +29,15 @@ internal sealed class OutboundAddressGuard
     private readonly Func<string, CancellationToken, Task<IPAddress[]>> _resolve;
     private readonly Func<IPAddress, bool> _isBlocked;
     private readonly Func<IPAddress, int, CancellationToken, ValueTask<Stream>> _connect;
+    private readonly HashSet<string> _allowed;
 
     public OutboundAddressGuard(
         Func<string, CancellationToken, Task<IPAddress[]>>? resolve = null,
         Func<IPAddress, bool>? isBlocked = null,
-        Func<IPAddress, int, CancellationToken, ValueTask<Stream>>? connect = null)
+        Func<IPAddress, int, CancellationToken, ValueTask<Stream>>? connect = null,
+        IReadOnlyCollection<string>? allowedHosts = null)
     {
+        _allowed = new HashSet<string>(allowedHosts ?? [], StringComparer.OrdinalIgnoreCase);
         _resolve = resolve ?? ((host, ct) => Dns.GetHostAddressesAsync(host, ct));
         _isBlocked = isBlocked ?? IsBlockedAddress;
         _connect = connect ?? ConnectSocketAsync;
@@ -53,9 +56,13 @@ internal sealed class OutboundAddressGuard
         if (addresses.Length == 0)
             throw new HttpRequestException($"Host '{host}' did not resolve to any address.");
 
+        // A listed host relaxes only the ranges an internal receiver lives on. Link-local (the
+        // metadata address), unspecified, multicast and reserved stay refused for it.
+        var blocked = _allowed.Contains(host) ? (Func<IPAddress, bool>)IsBlockedEvenWhenListed : _isBlocked;
+
         foreach (var address in addresses)
         {
-            if (_isBlocked(address))
+            if (blocked(address))
                 throw new BlockedAddressException($"Host '{host}' resolves to a blocked address.");
         }
 
@@ -125,6 +132,34 @@ internal sealed class OutboundAddressGuard
                 return true;
             var b = ip.GetAddressBytes();
             if ((b[0] & 0xFE) == 0xFC) return true;                      // fc00::/7 unique-local
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The addresses that stay refused for a host on the allow list: unspecified, link-local
+    /// (including the cloud metadata address), multicast, reserved and site-local.
+    /// </summary>
+    public static bool IsBlockedEvenWhenListed(IPAddress ip)
+    {
+        if (ip.IsIPv4MappedToIPv6)
+            ip = ip.MapToIPv4();
+
+        if (ip.Equals(IPAddress.Any) || ip.Equals(IPAddress.IPv6Any))
+            return true;
+
+        if (ip.AddressFamily == AddressFamily.InterNetwork)
+        {
+            var b = ip.GetAddressBytes();
+            if (b[0] == 0) return true;                                  // 0.0.0.0/8
+            if (b[0] == 169 && b[1] == 254) return true;                 // 169.254.0.0/16 link-local
+            if (b[0] >= 224) return true;                                // 224.0.0.0/4 multicast + reserved
+        }
+        else if (ip.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            if (ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal || ip.IsIPv6Multicast)
+                return true;
         }
 
         return false;
