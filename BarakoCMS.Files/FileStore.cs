@@ -39,6 +39,7 @@ internal sealed class FileStore(
     BarakoCMS.Files.Storage.FileStorageResolver storage,
     IFileScanner scanner,
     IPermissionResolver permissions,
+    barakoCMS.Core.Interfaces.ISensitivityService sensitivity,
     IConfiguration configuration,
     TenantContext tenant) : IFileStore
 {
@@ -82,7 +83,7 @@ internal sealed class FileStore(
         var found = new Dictionary<Guid, StoredFileInfo>();
         foreach (var file in await LoadManyAsync(ids, cancellationToken))
         {
-            if (await MayReadAsync(file, caller, cancellationToken))
+            if (await MayReadAsync(file, caller, viaEntry: true, cancellationToken))
             {
                 found[file.Id] = Info(file);
             }
@@ -139,13 +140,13 @@ internal sealed class FileStore(
 
     public async Task<StoredFileInfo?> FindAsync(Guid id, ClaimsPrincipal caller, CancellationToken cancellationToken = default)
     {
-        var file = await LoadForAsync(id, caller, cancellationToken);
+        var file = await LoadForAsync(id, caller, viaEntry: false, cancellationToken);
         return file is null ? null : Info(file);
     }
 
     public async Task<Stream?> OpenAsync(Guid id, ClaimsPrincipal caller, CancellationToken cancellationToken = default)
     {
-        var file = await LoadForAsync(id, caller, cancellationToken);
+        var file = await LoadForAsync(id, caller, viaEntry: true, cancellationToken);
         if (file is null)
         {
             return null;
@@ -299,7 +300,7 @@ internal sealed class FileStore(
     /// The file when <paramref name="caller"/> could download it through one of the two download
     /// routes: any public file, or a private one the authenticated route would hand this caller.
     /// </summary>
-    private async Task<StoredFile?> LoadForAsync(Guid id, ClaimsPrincipal caller, CancellationToken ct)
+    private async Task<StoredFile?> LoadForAsync(Guid id, ClaimsPrincipal caller, bool viaEntry, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(caller);
 
@@ -309,15 +310,18 @@ internal sealed class FileStore(
             return null;
         }
 
-        return await MayReadAsync(file, caller, ct) ? file : null;
+        return await MayReadAsync(file, caller, viaEntry, ct) ? file : null;
     }
 
     /// <summary>
     /// Whether <paramref name="caller"/> may download this file, which is not a cached resize. The
     /// one rule for reading a file for a caller, one id or many.
     /// </summary>
-    private async Task<bool> MayReadAsync(StoredFile file, ClaimsPrincipal caller, CancellationToken ct) =>
-        file.IsPublic || await FileAccessRule.MayReadAsync(caller, file, tenant.Slug, session, permissions, configuration, ct);
+    private async Task<bool> MayReadAsync(StoredFile file, ClaimsPrincipal caller, bool viaEntry, CancellationToken ct) =>
+        file.IsPublic
+        || (viaEntry
+            ? await FileAccessRule.MayReadAsync(caller, file, tenant.Slug, session, permissions, sensitivity, configuration, ct)
+            : await FileAccessRule.MayAccessAsync(caller, file, tenant.Slug, permissions, configuration, ct));
 
     /// <summary><see cref="FileAccessRule.IsSignedInHere"/>, for the scope's tenant.</summary>
     private bool IsSignedInHere(ClaimsPrincipal caller) => FileAccessRule.IsSignedInHere(caller, tenant.Slug);
