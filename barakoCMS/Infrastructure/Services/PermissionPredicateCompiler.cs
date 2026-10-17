@@ -159,6 +159,29 @@ internal static class PermissionPredicateCompiler
             {
                 var expected = Normalize(rawExpected);
 
+                if (op == "_has")
+                {
+                    // Needs the jsonb form of the field, which TryValueExpression's text form is not.
+                    // The jsonb_typeof guard is load bearing: '"Member"'::jsonb @> '"Member"'::jsonb is
+                    // true, so a string field would match without it. The evaluator only matches an
+                    // array, and only a string item in it.
+                    if (field.StartsWith('$') || presence is null
+                        || expected is not string literal
+                        || literal.StartsWith("$CURRENT_USER", StringComparison.Ordinal))
+                    {
+                        return false;
+                    }
+
+                    parts.Add(
+                        $"{presence} AND jsonb_typeof(d.data -> 'Data' -> ?) = 'array' "
+                        + "AND (d.data -> 'Data' -> ?) @> to_jsonb(?::text)");
+                    parameters.Add(field);
+                    parameters.Add(field);
+                    parameters.Add(field);
+                    parameters.Add(literal);
+                    continue;
+                }
+
                 if (!TryCompileOperator(op, value, expected, userId, callerProfile, out var comparison, out var opParameters))
                 {
                     return false;
