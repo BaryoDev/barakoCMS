@@ -47,6 +47,9 @@ public class OutboundAllowedHostsTests
     [InlineData("0.0.0.0")]
     [InlineData("224.0.0.1")]
     [InlineData("fe80::1")]
+    [InlineData("::ffff:169.254.169.254")]
+    [InlineData("240.0.0.1")]
+    [InlineData("fec0::1")]
     public async Task A_listed_host_still_cannot_reach_link_local_unspecified_or_multicast(string address)
     {
         var act = () => Guard(address, "press.internal").SelectAddressAsync("press.internal", CancellationToken.None);

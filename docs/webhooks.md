@@ -132,6 +132,8 @@ A listed host may resolve to a loopback, private (10/8, 172.16/12, 192.168/16) o
 multicast and reserved addresses stay refused for it, so listing a name cannot open the metadata
 service. If a name answers with one such address among others, the whole host is refused.
 
+The list applies only to webhook delivery, an IP literal in it matches only as written, and an entry with a trailing dot matches nothing.
+
 ## The headers
 
 Every delivery carries:
