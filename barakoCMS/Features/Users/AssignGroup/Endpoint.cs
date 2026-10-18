@@ -8,6 +8,7 @@ namespace barakoCMS.Features.Users.AssignGroup;
 
 internal class Endpoint(
     IDocumentSession session,
+    barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<Request, Response>
 {
     public override void Configure()
@@ -42,6 +43,7 @@ internal class Endpoint(
             await AuditLog.RecordAsync(session, tenant.Slug, "user.group.assigned", actorId, User.FindFirst("Username")?.Value,
                 targetType: "User", targetId: req.UserId.ToString(), metadata: new() { ["groupId"] = req.GroupId.ToString() }, ct: ct);
             await session.SaveChangesAsync(ct);
+            permissionResolver.InvalidateUserPermissions(req.UserId);
         }
 
         await Send.OkAsync(new Response { Message = "User added to group successfully" }, ct);
