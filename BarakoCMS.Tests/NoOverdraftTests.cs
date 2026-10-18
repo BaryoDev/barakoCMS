@@ -103,6 +103,59 @@ public class NoOverdraftTests
     }
 
     [Fact]
+    public async Task A_child_of_another_type_is_measured_on_the_flagged_accounts_side()
+    {
+        var c = await SeedAsync(flagCash: true);
+        var liability = $"2000-{c.Cash[5..]}";
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            await new AccountService(session).UpsertAsync(
+                new Account { Code = liability, Name = "Held for others", Type = AccountType.Liability, ParentCode = c.Cash },
+                TestContext.Current.CancellationToken);
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        // Credit-normal on its own, so crediting it looks like an increase. Under a flagged asset it is a decrease.
+        var result = await PostAsync(c.Equity, liability, 5m);
+
+        result.Ok.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Un_voiding_an_entry_cannot_overdraw()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var c = await SeedAsync(flagCash: true);
+        (await PostAsync(c.Cash, c.Equity, 100m)).Ok.Should().BeTrue();
+        var spend = await PostAsync(c.Equity, c.Cash, 100m);
+        spend.Ok.Should().BeTrue();
+
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var row = await session.LoadAsync<barakoCMS.Models.Content>(spend.Entry!.Id, ct);
+        var voided = new Dictionary<string, object>(row!.Data) { ["Status"] = "Voided" };
+        row.Data = voided;
+        session.Store(row);
+        await session.SaveChangesAsync(ct);
+        (await PostAsync(c.Equity, c.Cash, 100m)).Ok.Should().BeTrue();
+
+        var hook = scope.ServiceProvider.GetServices<barakoCMS.Core.Interfaces.IContentLifecycleHook>()
+            .OfType<JournalEntryHook>().Single();
+        var errors = await hook.OnBeforeSaveAsync(new barakoCMS.Core.Interfaces.ContentLifecycleContext
+        {
+            ContentType = AccountingContentTypes.JournalEntry,
+            Data = new Dictionary<string, object>(voided) { ["Status"] = "Posted" },
+            Existing = voided,
+            EntryId = row.Id,
+            Session = session,
+            UserId = Guid.NewGuid(),
+        }, ct);
+
+        errors.Should().ContainSingle().Which.Should().Contain("below zero");
+    }
+
+    [Fact]
     public async Task The_generic_route_answers_400_not_500()
     {
         var c = await SeedAsync(flagCash: true);

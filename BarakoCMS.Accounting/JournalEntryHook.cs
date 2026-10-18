@@ -126,12 +126,9 @@ public sealed class JournalEntryHook : IContentLifecycleHook
         if (errors.Count > 0)
             return errors;
 
-        if (context.IsCreate)
-        {
-            errors.AddRange(await CheckNoOverdraftAsync(context, data, lines, ct));
-            if (errors.Count > 0)
-                return errors;
-        }
+        errors.AddRange(await CheckNoOverdraftAsync(context, data, lines, ct));
+        if (errors.Count > 0)
+            return errors;
 
         // Server-owned fields. Only stamped once the entry is known to be valid, so a rejected post
         // never consumes a sequence number.
@@ -147,35 +144,48 @@ public sealed class JournalEntryHook : IContentLifecycleHook
     }
 
     /// <summary>
-    /// Refuses an entry that lowers a NoOverdraft account (or one under it) to below zero. The
-    /// balance is read after a transaction-scoped advisory lock keyed on the tenant, taken only when
-    /// the entry touches such an account, so posts racing in other processes take turns and the
-    /// second one sees the first's committed entry. The lock is released when the endpoint saves.
+    /// Refuses a write that lowers a NoOverdraft account (or one under it) to below zero. It runs on
+    /// create and on update, and judges the change: what the entry does to the ledger after the
+    /// write, minus what it did before (a void or an un-void counts). The balance is read after a
+    /// transaction-scoped advisory lock keyed on the tenant, taken only when the entry touches such
+    /// an account, so posts racing in other processes take turns and the second one sees the first's
+    /// committed entry. The lock is released when the endpoint saves. A guarded account is measured
+    /// on the normal side of the account that carries the flag, so a child of another type under it
+    /// cannot flip the sign.
     /// </summary>
     private static async Task<List<string>> CheckNoOverdraftAsync(
         ContentLifecycleContext context,
         Dictionary<string, object> data,
-        List<(string Code, decimal Debit, decimal Credit)> lines,
+        List<(string Code, decimal Debit, decimal Credit)> newLines,
         CancellationToken ct)
     {
         var errors = new List<string>();
         var accounts = (await AccountingContentReader.AccountsAsync(context.Session, ct))
             .ToDictionary(a => a.Code, StringComparer.OrdinalIgnoreCase);
 
-        bool Guarded(Account a)
+        // The nearest account at or above this one that carries the flag.
+        Account? Guard(Account? a)
         {
             for (var depth = 0; a is not null && depth < 64; depth++)
             {
-                if (a.NoOverdraft) return true;
-                if (a.ParentCode is null || !accounts.TryGetValue(a.ParentCode, out a!)) return false;
+                if (a.NoOverdraft) return a;
+                if (a.ParentCode is null || !accounts.TryGetValue(a.ParentCode, out a)) return null;
             }
-            return false;
+            return null;
         }
 
-        var touched = lines
+        static bool IsPosted(object? status) =>
+            !string.Equals(ContentData.AsString(status), "Voided", StringComparison.OrdinalIgnoreCase);
+
+        var oldLines = new List<(string Code, decimal Debit, decimal Credit)>();
+        if (!context.IsCreate && IsPosted(ContentData.Get(context.Existing!, "Status")))
+            oldLines = ReadLines(ContentData.Get(context.Existing!, "Lines"), new List<string>());
+        var effective = IsPosted(ContentData.Get(data, "Status")) ? newLines : new();
+
+        var touched = effective.Concat(oldLines)
             .Select(l => l.Code)
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Where(c => accounts.TryGetValue(c, out var a) && Guarded(a))
+            .Where(c => accounts.TryGetValue(c, out var a) && Guard(a) is not null)
             .ToList();
         if (touched.Count == 0) return errors;
 
@@ -188,15 +198,15 @@ public sealed class JournalEntryHook : IContentLifecycleHook
         foreach (var code in touched.OrderBy(c => c, StringComparer.Ordinal))
         {
             var account = accounts[code];
-            decimal Net(string c, decimal debit, decimal credit) =>
-                account.IsDebitNormal ? debit - credit : credit - debit;
+            var debitNormal = Guard(account)!.IsDebitNormal;
+            decimal Net(decimal debit, decimal credit) => debitNormal ? debit - credit : credit - debit;
+            bool Same(string c) => string.Equals(c, code, StringComparison.OrdinalIgnoreCase);
 
             var current = posted.SelectMany(e => e.Lines)
-                .Where(l => string.Equals(l.AccountCode, code, StringComparison.OrdinalIgnoreCase))
-                .Sum(l => Net(code, l.Debit, l.Credit));
-            var change = lines
-                .Where(l => string.Equals(l.Code, code, StringComparison.OrdinalIgnoreCase))
-                .Sum(l => Net(code, l.Debit, l.Credit));
+                .Where(l => Same(l.AccountCode))
+                .Sum(l => Net(l.Debit, l.Credit));
+            var change = effective.Where(l => Same(l.Code)).Sum(l => Net(l.Debit, l.Credit))
+                       - oldLines.Where(l => Same(l.Code)).Sum(l => Net(l.Debit, l.Credit));
 
             if (change < 0 && current + change < 0)
                 errors.Add($"Account '{code}' ({account.Name}) cannot go below zero. " +
