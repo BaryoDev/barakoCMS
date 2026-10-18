@@ -1892,6 +1892,9 @@ public static class ServiceCollectionExtensions
         // Reject tokens minted for a different tenant than the resolved host.
         app.UseMiddleware<barakoCMS.Infrastructure.Multitenancy.TenantAccessMiddleware>();
 
+        // A tenant whose site Mode is Private serves no delivery route without a link or a viewer.
+        app.UseMiddleware<barakoCMS.Infrastructure.Multitenancy.PrivateSiteMiddleware>();
+
         app.UseAuthorization();
     }
 

@@ -142,7 +142,9 @@ public class SiteFieldSchemasTests
 
         var mode = fields.Single(f => f!["name"]!.GetValue<string>() == "Mode")!;
         var options = Regex.Match(sql, @"mode_options\s+constant jsonb := '(.*?)'::jsonb;").Groups[1].Value;
+        // 5.0.0 shipped before Private (#858); a type created earlier gains Private through set-field-options.
         var expected = new JsonArray(mode["options"]!.AsArray()
+            .Where(o => o!["value"]!.GetValue<string>() != "Private")
             .Select(o => (JsonNode)new JsonObject { ["Value"] = o!["value"]!.DeepClone(), ["Label"] = o["label"]!.DeepClone() })
             .ToArray());
         JsonNode.DeepEquals(JsonNode.Parse(options), expected).Should().BeTrue();

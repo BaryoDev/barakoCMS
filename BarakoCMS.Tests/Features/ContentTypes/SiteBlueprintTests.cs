@@ -264,7 +264,7 @@ public class SiteBlueprintTests
         fields.Should().NotBeEmpty();
         fields["Mode"].GetProperty("type").GetString().Should().Be("choice", "Mode is a choice of Live and Holding from 5.0 (#924)");
         fields["Mode"].GetProperty("options").EnumerateArray().Select(o => o.GetProperty("value").GetString())
-            .Should().BeEquivalentTo(["Live", "Holding"]);
+            .Should().BeEquivalentTo(["Live", "Holding", "Private"]);
         fields["Mode"].GetProperty("isRequired").GetBoolean().Should().BeFalse("unset means Live");
         fields["HoldingPath"].GetProperty("type").GetString().Should().Be("string");
         fields.Keys.Should().NotContain(["ComingSoon", "ComingSoonBlocks", "ComingSoonPath", "PreviewKeyHash"]);
