@@ -93,18 +93,22 @@ public class ReportingService(IQuerySession session)
         var lines = new List<LedgerLine>();
 
         foreach (var e in entries.OrderBy(e => e.Date).ThenBy(e => e.EntryNumber))
-        foreach (var l in e.Lines.Where(l => cashCodes.Contains(l.AccountCode)))
         {
-            var delta = l.Debit - l.Credit; // cash is debit-normal
+            var cashLines = e.Lines.Where(l => cashCodes.Contains(l.AccountCode)).ToList();
+            if (cashLines.Count == 0) continue;
+
+            var net = cashLines.Sum(l => l.Debit - l.Credit); // cash is debit-normal
             if (e.Date < start)
             {
-                opening += delta;
+                opening += net;
+                continue;
             }
-            else
-            {
-                if (delta >= 0) receipts += delta; else disbursements += -delta;
+
+            // A transfer between cash accounts nets to zero and is neither a receipt nor a disbursement.
+            if (net > 0) receipts += net; else if (net < 0) disbursements += -net;
+
+            foreach (var l in cashLines)
                 lines.Add(new LedgerLine(e.Date, e.EntryNumber, l.Memo ?? e.Memo, l.Debit, l.Credit, opening + receipts - disbursements, e.Attachments));
-            }
         }
 
         return new CashFlow($"{year:0000}-{month:00}", opening, receipts, disbursements, opening + receipts - disbursements, lines);
