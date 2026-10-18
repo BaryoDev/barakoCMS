@@ -18,6 +18,7 @@ internal sealed class EmailSettingsProvider(
     IQuerySession session,
     ISecretProtector protector,
     IConfiguration config,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
     ILogger<EmailSettingsProvider> logger) : IEmailSettingsProvider
 {
     public async Task<ResolvedEmailSettings> GetAsync(CancellationToken ct = default)
@@ -25,14 +26,21 @@ internal sealed class EmailSettingsProvider(
         var configuredKey = Trimmed(config["Resend:ApiKey"]) ?? Trimmed(Environment.GetEnvironmentVariable("RESEND_API_KEY"));
         var configuredFrom = Trimmed(config["Resend:From"]);
 
-        var stored = await session.LoadAsync<EmailSettings>(EmailSettings.SingletonId, ct);
+        var host = await session.LoadAsync<EmailSettings>(EmailSettings.SingletonId, ct);
+        var own = tenant.IsDefault
+            ? null
+            : await session.LoadAsync<EmailSettings>(EmailSettings.IdForTenant(tenant.Slug), ct);
 
         var apiKey = configuredKey;
         var apiKeySource = configuredKey is null ? EmailSettingSource.None : EmailSettingSource.Configuration;
 
-        if (!string.IsNullOrEmpty(stored?.ProtectedApiKey))
+        // Per field: the tenant's own value when it set one, else the host default stored in the
+        // admin, else configuration. A tenant that sets only a sender keeps the host's key.
+        var protectedKey = !string.IsNullOrEmpty(own?.ProtectedApiKey) ? own.ProtectedApiKey : host?.ProtectedApiKey;
+
+        if (!string.IsNullOrEmpty(protectedKey))
         {
-            var decrypted = Trimmed(protector.Unprotect(stored.ProtectedApiKey));
+            var decrypted = Trimmed(protector.Unprotect(protectedKey));
             if (decrypted is not null)
             {
                 apiKey = decrypted;
@@ -53,7 +61,7 @@ internal sealed class EmailSettingsProvider(
         var from = configuredFrom;
         var fromSource = configuredFrom is null ? EmailSettingSource.None : EmailSettingSource.Configuration;
 
-        if (Trimmed(stored?.FromAddress) is { } storedFrom)
+        if ((Trimmed(own?.FromAddress) ?? Trimmed(host?.FromAddress)) is { } storedFrom)
         {
             from = storedFrom;
             fromSource = EmailSettingSource.Stored;

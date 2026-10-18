@@ -1,0 +1,1 @@
+- **A tenant can override the mail sender and API key.** `GET` and `PUT /api/tenant-settings/email` set a tenant's own `fromAddress` and `apiKey` (write-only, encrypted). Mail for that tenant uses them field by field, and any tenant without an override keeps the host default. See `docs/tenant-settings-896.md` (#896).
