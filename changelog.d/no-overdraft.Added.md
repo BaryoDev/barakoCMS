@@ -1,0 +1,1 @@
+Accounting: an account can be marked NoOverdraft. An entry that would take it, or an account under it, below zero is refused with a 400, under a per-tenant advisory lock so concurrent posts cannot both pass.
