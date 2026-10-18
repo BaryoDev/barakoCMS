@@ -33,6 +33,10 @@ public class ArrayHasPredicateAgreementTests
         ("a string holding Member inside it", new() { ["VisibleToRoles"] = "Member,Auditor" }, false),
         ("different case",          new() { ["VisibleToRoles"] = new List<object> { "member" } }, false),
         ("an array of numbers",     new() { ["VisibleToRoles"] = new List<object> { 1, 2 } }, false),
+        ("a nested array",          new() { ["VisibleToRoles"] = new List<object> { new List<object> { "Member" } } }, false),
+        ("a mixed array with Member", new() { ["VisibleToRoles"] = new List<object> { 1, "Member", null! } }, true),
+        ("a string that looks like an array", new() { ["VisibleToRoles"] = "[\"Member\"]" }, false),
+        ("an array of objects",     new() { ["VisibleToRoles"] = new List<object> { new Dictionary<string, object> { ["r"] = "Member" } } }, false),
     ];
 
     [Fact]
@@ -75,7 +79,7 @@ public class ArrayHasPredicateAgreementTests
             .Select(c => c.Id).Order().ToList();
 
         var wanted = Shapes.Where(x => x.Selected).Select(x => ids[x.Name]).Order().ToList();
-        wanted.Should().HaveCount(2);
+        wanted.Should().HaveCount(3);
         byEvaluator.Should().Equal(wanted, "the evaluator selects arrays that list the value and nothing else");
         bySql.Should().Equal(byEvaluator, "the predicate and the evaluator must select the same rows");
     }
@@ -85,6 +89,48 @@ public class ArrayHasPredicateAgreementTests
     {
         PermissionPredicateCompiler.Compile(
             [new PermissionRule { Enabled = true, Conditions = Rule("$CURRENT_USER") }], Caller).Compiled.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_caller_attribute_reference_as_the_expected_value_selects_nothing_in_the_predicate_and_the_evaluator()
+    {
+        var conditions = Rule("$CURRENT_USER.branch");
+        var predicate = PermissionPredicateCompiler.Compile(
+            [new PermissionRule { Enabled = true, Conditions = conditions }], Caller);
+
+        var user = new User { Id = Caller, Username = "caller", Email = "caller@example.com" };
+        var type = "has" + Guid.NewGuid().ToString("N")[..8];
+        var literal = new Content
+        {
+            Id = Guid.NewGuid(), ContentType = type, CreatedBy = Caller, LastModifiedBy = Caller,
+            Data = new() { ["VisibleToRoles"] = new List<object> { "$CURRENT_USER.branch" } },
+        };
+        var other = new Content
+        {
+            Id = Guid.NewGuid(), ContentType = type, CreatedBy = Caller, LastModifiedBy = Caller,
+            Data = new() { ["VisibleToRoles"] = new List<object> { "Manila" } },
+        };
+
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(literal, other);
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        using var read = _fixture.Services.CreateScope();
+        var query = read.ServiceProvider.GetRequiredService<IQuerySession>();
+        var stored = await query.Query<Content>().Where(c => c.ContentType == type).ToListAsync(TestContext.Current.CancellationToken);
+        stored.Where(c => new ConditionEvaluator().Evaluate(conditions, c, user)).Should().BeEmpty(
+            "the evaluator refuses a variable as a _has value, even when an entry lists that exact text");
+
+        if (predicate.Compiled)
+        {
+            var bySql = await query.Query<Content>()
+                .Where(c => c.ContentType == type && c.MatchesSql(predicate.Sql!, predicate.Parameters))
+                .ToListAsync(TestContext.Current.CancellationToken);
+            bySql.Should().BeEmpty();
+        }
     }
 
     [Fact]

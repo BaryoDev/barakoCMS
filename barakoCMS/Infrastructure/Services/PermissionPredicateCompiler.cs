@@ -172,13 +172,18 @@ internal static class PermissionPredicateCompiler
                         return false;
                     }
 
-                    parts.Add(
-                        $"{presence} AND jsonb_typeof(d.data -> 'Data' -> ?) = 'array' "
-                        + "AND (d.data -> 'Data' -> ?) @> to_jsonb(?::text)");
-                    parameters.Add(field);
-                    parameters.Add(field);
-                    parameters.Add(field);
-                    parameters.Add(literal);
+                    var hasSql = $"{presence} AND jsonb_typeof(d.data -> 'Data' -> ?) = 'array' "
+                        + "AND (d.data -> 'Data' -> ?) @> to_jsonb(?::text)";
+                    var hasParameters = new List<object> { field, field, field, literal };
+
+                    // The same count check the comparisons get below.
+                    if (hasSql.Count(ch => ch == '?') != hasParameters.Count)
+                    {
+                        return false;
+                    }
+
+                    parts.Add(hasSql);
+                    parameters.AddRange(hasParameters);
                     continue;
                 }
 
