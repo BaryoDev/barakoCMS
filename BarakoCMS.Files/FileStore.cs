@@ -320,8 +320,14 @@ internal sealed class FileStore(
     private async Task<bool> MayReadAsync(StoredFile file, ClaimsPrincipal caller, bool viaEntry, CancellationToken ct) =>
         file.IsPublic
         || (viaEntry
-            ? await FileAccessRule.MayReadAsync(caller, file, tenant.Slug, session, permissions, sensitivity, configuration, ct)
+            ? await FileAccessRule.MayReadAsync(caller, file, tenant.Slug, session, permissions, sensitivity, configuration, ct, FollowedFieldsAsync)
             : await FileAccessRule.MayAccessAsync(caller, file, tenant.Slug, permissions, configuration, ct));
+
+    private Task<IReadOnlyList<EntryFileAccess.FollowedField>>? followedFields;
+
+    /// <summary>The FileFollowsEntry fields, read once for this scope and shared by every file in it.</summary>
+    private Task<IReadOnlyList<EntryFileAccess.FollowedField>> FollowedFieldsAsync() =>
+        followedFields ??= EntryFileAccess.LoadFollowedFieldsAsync(session, CancellationToken.None);
 
     /// <summary><see cref="FileAccessRule.IsSignedInHere"/>, for the scope's tenant.</summary>
     private bool IsSignedInHere(ClaimsPrincipal caller) => FileAccessRule.IsSignedInHere(caller, tenant.Slug);

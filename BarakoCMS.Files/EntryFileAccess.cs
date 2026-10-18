@@ -18,6 +18,25 @@ internal static class EntryFileAccess
     private const string FieldHoldsId =
         "exists (select 1 from jsonb_each_text(d.data -> 'Data') e where lower(e.key) = lower(?) and lower(e.value) = lower(?))";
 
+    /// <summary>A file field marked FileFollowsEntry: the content type and the field name.</summary>
+    internal readonly record struct FollowedField(string Type, string Name);
+
+    /// <summary>
+    /// Every FileFollowsEntry file field. One read of the definitions; a caller that checks many
+    /// files in a request loads this once and passes it to <see cref="MayReadViaEntryAsync"/>.
+    /// </summary>
+    public static async Task<IReadOnlyList<FollowedField>> LoadFollowedFieldsAsync(IQuerySession session, CancellationToken ct)
+    {
+        var definitions = await session.Query<ContentTypeDefinition>().ToListAsync(ct);
+        return definitions
+            .SelectMany(d => d.Fields
+                .Where(f => f.FileFollowsEntry && string.Equals(f.Type, "file", StringComparison.OrdinalIgnoreCase))
+                .Select(f => new FollowedField(d.Name, f.Name)))
+            .ToList();
+    }
+
+    // The match scans the type's entries for each followed field (jsonb_each_text over Data). A
+    // lookup that does not scan needs an index or a reference table, which is a schema change.
     public static async Task<bool> MayReadViaEntryAsync(
         StoredFile file,
         ClaimsPrincipal principal,
@@ -25,29 +44,23 @@ internal static class EntryFileAccess
         IQuerySession session,
         IPermissionResolver permissions,
         ISensitivityService sensitivity,
+        IReadOnlyList<FollowedField>? followed,
         CancellationToken ct)
     {
         var id = file.Id.ToString("D");
 
-        var definitions = await session.Query<ContentTypeDefinition>().ToListAsync(ct);
-        foreach (var definition in definitions)
+        foreach (var (type, name) in followed ?? await LoadFollowedFieldsAsync(session, ct))
         {
-            foreach (var field in definition.Fields.Where(f =>
-                f.FileFollowsEntry && string.Equals(f.Type, "file", StringComparison.OrdinalIgnoreCase)))
-            {
-                var type = definition.Name;
-                var name = field.Name;
-                var entries = await session.Query<Content>()
-                    .Where(c => c.ContentType == type && c.MatchesSql(FieldHoldsId, name, id))
-                    .ToListAsync(ct);
+            var entries = await session.Query<Content>()
+                .Where(c => c.ContentType == type && c.MatchesSql(FieldHoldsId, name, id))
+                .ToListAsync(ct);
 
-                foreach (var entry in entries)
+            foreach (var entry in entries)
+            {
+                if (await permissions.CanPerformActionAsync(caller, entry.ContentType, "read", entry, ct)
+                    && await FieldShownAsync(entry, name, id, principal, sensitivity, ct))
                 {
-                    if (await permissions.CanPerformActionAsync(caller, entry.ContentType, "read", entry, ct)
-                        && await FieldShownAsync(entry, name, id, principal, sensitivity, ct))
-                    {
-                        return true;
-                    }
+                    return true;
                 }
             }
         }

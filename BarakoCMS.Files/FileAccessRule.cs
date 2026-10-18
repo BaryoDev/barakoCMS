@@ -73,7 +73,8 @@ internal static class FileAccessRule
         IPermissionResolver permissions,
         ISensitivityService sensitivity,
         IConfiguration configuration,
-        CancellationToken ct)
+        CancellationToken ct,
+        Func<Task<IReadOnlyList<EntryFileAccess.FollowedField>>>? followedFields = null)
     {
         if (await MayAccessAsync(caller, file, tenantSlug, permissions, configuration, ct))
         {
@@ -88,7 +89,8 @@ internal static class FileAccessRule
         }
 
         var user = await session.LoadAsync<User>(userId, ct);
-        return user is not null && await EntryFileAccess.MayReadViaEntryAsync(file, caller, user, session, permissions, sensitivity, ct);
+        return user is not null && await EntryFileAccess.MayReadViaEntryAsync(
+            file, caller, user, session, permissions, sensitivity, followedFields is null ? null : await followedFields(), ct);
     }
 
     /// <summary>
