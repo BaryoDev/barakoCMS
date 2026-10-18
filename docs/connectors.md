@@ -188,3 +188,19 @@ do.
 retention sweep over these rows (after a rollback, or beside this release during a rolling
 deploy), clearing a response body stores the row again without them, and the row then reads as a
 webhook delivery in `GET /api/webhook-deliveries`.
+
+## Deleting a saved query
+
+`DELETE /api/queries/{slug}` marks the query deleted. It disappears from the list, from `GET` and
+preview, and a request definition that names it reports the query as missing. It is not gone:
+
+- `GET /api/queries/deleted` lists deleted queries.
+- `POST /api/queries/{slug}/restore` brings one back.
+- `DELETE /api/queries/{slug}/erase` removes a deleted query for good. A live query cannot be
+  erased in one call.
+- Saving a query over a deleted slug replaces the deleted one, as a create after a delete always
+  did.
+
+All three routes need the same capability as delete (`ManageQueries`). There is no automatic purge
+window yet; that waits for the retention primitive in #622. Roles, groups, connectors and request
+definitions are still hard deletes (#625).
