@@ -135,7 +135,7 @@ service. If a name answers with one such address among others, the whole host is
 
 A value that is not an array (a single string) allows nothing and logs a warning at startup.
 
-IPv4-mapped, IPv4-compatible (`::a.b.c.d`) and NAT64 (`64:ff9b::a.b.c.d`) forms are judged by the IPv4 address they carry.
+An IPv6 address that carries an IPv4 address is judged by the IPv4 address.
 
 The list applies only to webhook delivery, an IP literal in it matches only as written, and an entry with a trailing dot matches nothing.
 
