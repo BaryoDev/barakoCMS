@@ -445,7 +445,7 @@ internal class WebhookAction : IWorkflowAction
         if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
             return false;
 
-        return await _addressGuard.IsHostAllowedAsync(uri.Host, ct);
+        return await _addressGuard.IsHostAllowedAsync(uri.Host, uri.Port, ct);
     }
     /// <summary>
     /// The part of a webhook URL that is safe to write down.

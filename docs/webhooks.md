@@ -117,12 +117,13 @@ loopback `http` listener, which is the case the setting exists for.
 
 By default a webhook cannot reach a loopback, private or carrier-grade address. `Webhooks:AllowedHosts`
 is an array of host names, compared without regard to case, for a receiver that lives in the same
-network:
+network. An entry is `host` or `host:port`. An entry without a port allows ports 80 and 443 only; an
+entry with a port allows that port only. Several entries for one host add up:
 
 ```json
 {
   "Webhooks": {
-    "AllowedHosts": ["press.internal"]
+    "AllowedHosts": ["press.internal", "press.internal:3000"]
   }
 }
 ```
@@ -131,6 +132,10 @@ A listed host may resolve to a loopback, private (10/8, 172.16/12, 192.168/16) o
 (100.64/10) address, or to fc00::/7. Link-local (including the cloud metadata address), unspecified,
 multicast and reserved addresses stay refused for it, so listing a name cannot open the metadata
 service. If a name answers with one such address among others, the whole host is refused.
+
+A value that is not an array (a single string) allows nothing and logs a warning at startup.
+
+IPv4-mapped, IPv4-compatible (`::a.b.c.d`) and NAT64 (`64:ff9b::a.b.c.d`) forms are judged by the IPv4 address they carry.
 
 The list applies only to webhook delivery, an IP literal in it matches only as written, and an entry with a trailing dot matches nothing.
 

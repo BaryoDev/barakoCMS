@@ -1063,8 +1063,10 @@ public static class ServiceCollectionExtensions
         // survived, so the pre-flight check in WebhookAction is now an early refusal rather than the
         // thing standing between a workflow and the metadata service.
         // Webhooks:AllowedHosts names receivers on the same network. See docs/webhooks.md.
-        services.AddSingleton(new barakoCMS.Infrastructure.Http.OutboundAddressGuard(
-            allowedHosts: configuration.GetSection("Webhooks:AllowedHosts").Get<string[]>()));
+        services.AddSingleton(sp => new barakoCMS.Infrastructure.Http.OutboundAddressGuard(
+            allowedHosts: barakoCMS.Infrastructure.Http.OutboundAddressGuard.AllowedHostsFrom(
+                configuration,
+                sp.GetRequiredService<ILoggerFactory>().CreateLogger("barakoCMS.Webhooks"))));
         // A proxy would resolve and connect to the target itself, so the guard would be inspecting
         // the hop to the proxy rather than the destination. Off unless an operator says otherwise,
         // because a system proxy can arrive from an environment variable nobody chose.
