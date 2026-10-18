@@ -126,6 +126,13 @@ public sealed class JournalEntryHook : IContentLifecycleHook
         if (errors.Count > 0)
             return errors;
 
+        if (context.IsCreate)
+        {
+            errors.AddRange(await CheckNoOverdraftAsync(context, data, lines, ct));
+            if (errors.Count > 0)
+                return errors;
+        }
+
         // Server-owned fields. Only stamped once the entry is known to be valid, so a rejected post
         // never consumes a sequence number.
         if (context.IsCreate)
@@ -137,6 +144,66 @@ public sealed class JournalEntryHook : IContentLifecycleHook
         }
 
         return Array.Empty<string>();
+    }
+
+    /// <summary>
+    /// Refuses an entry that lowers a NoOverdraft account (or one under it) to below zero. The
+    /// balance is read after a transaction-scoped advisory lock keyed on the tenant, taken only when
+    /// the entry touches such an account, so posts racing in other processes take turns and the
+    /// second one sees the first's committed entry. The lock is released when the endpoint saves.
+    /// </summary>
+    private static async Task<List<string>> CheckNoOverdraftAsync(
+        ContentLifecycleContext context,
+        Dictionary<string, object> data,
+        List<(string Code, decimal Debit, decimal Credit)> lines,
+        CancellationToken ct)
+    {
+        var errors = new List<string>();
+        var accounts = (await AccountingContentReader.AccountsAsync(context.Session, ct))
+            .ToDictionary(a => a.Code, StringComparer.OrdinalIgnoreCase);
+
+        bool Guarded(Account a)
+        {
+            for (var depth = 0; a is not null && depth < 64; depth++)
+            {
+                if (a.NoOverdraft) return true;
+                if (a.ParentCode is null || !accounts.TryGetValue(a.ParentCode, out a!)) return false;
+            }
+            return false;
+        }
+
+        var touched = lines
+            .Select(l => l.Code)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(c => accounts.TryGetValue(c, out var a) && Guarded(a))
+            .ToList();
+        if (touched.Count == 0) return errors;
+
+        await context.Session.BeginTransactionAsync(ct);
+        await context.Session.QueryAsync<int>(
+            "select 1 from pg_advisory_xact_lock(hashtextextended(?, 0))", ct,
+            $"barakocms:accounting-no-overdraft:{context.Session.TenantId}");
+
+        var posted = await AccountingContentReader.PostedEntriesAsync(context.Session, null, ct);
+        foreach (var code in touched.OrderBy(c => c, StringComparer.Ordinal))
+        {
+            var account = accounts[code];
+            decimal Net(string c, decimal debit, decimal credit) =>
+                account.IsDebitNormal ? debit - credit : credit - debit;
+
+            var current = posted.SelectMany(e => e.Lines)
+                .Where(l => string.Equals(l.AccountCode, code, StringComparison.OrdinalIgnoreCase))
+                .Sum(l => Net(code, l.Debit, l.Credit));
+            var change = lines
+                .Where(l => string.Equals(l.Code, code, StringComparison.OrdinalIgnoreCase))
+                .Sum(l => Net(code, l.Debit, l.Credit));
+
+            if (change < 0 && current + change < 0)
+                errors.Add($"Account '{code}' ({account.Name}) cannot go below zero. " +
+                           $"Balance is {current:0.00}, this entry would make it {current + change:0.00}.");
+        }
+
+        return errors;
     }
 
     /// <remarks>

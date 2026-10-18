@@ -44,6 +44,12 @@ public class Account
 
     public bool IsActive { get; set; } = true;
 
+    /// <summary>
+    /// When true, no entry may take this account's balance below zero, and the same holds for every
+    /// account beneath it (by <see cref="ParentCode"/>). Off by default.
+    /// </summary>
+    public bool NoOverdraft { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>True when this account increases with a debit (Asset, Expense).</summary>

@@ -137,5 +137,6 @@ public class AccountService
         ["MemberId"] = a.MemberId?.ToString() ?? string.Empty,
         ["PayeeName"] = a.PayeeName ?? string.Empty,
         ["IsActive"] = a.IsActive,
+        ["NoOverdraft"] = a.NoOverdraft,
     };
 }
