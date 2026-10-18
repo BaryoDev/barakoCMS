@@ -32,7 +32,7 @@ public sealed record CheckedCapability(string Capability);
 /// This replaces the role gate rather than adding to it. FastEndpoints combines role gates with AND,
 /// so keeping <c>Roles("SuperAdmin")</c> alongside a capability would mean a caller needed both, and
 /// a role created at runtime still could not reach anything. Enforcement is
-/// <see cref="CapabilityGateProcessor"/>; authentication is still FastEndpoints' default, so an
+/// <c>CapabilityGateProcessor</c> in the core; authentication is still FastEndpoints' default, so an
 /// anonymous caller is refused with 401 before any of this runs.
 /// </remarks>
 public static class CapabilityGate
