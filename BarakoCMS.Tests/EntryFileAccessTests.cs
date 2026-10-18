@@ -79,6 +79,25 @@ public class EntryFileAccessTests
     }
 
     [Fact]
+    public async Task A_has_row_rule_opens_the_file_of_a_matching_entry()
+    {
+        var (_, reader, _, fileId, _) = await DocumentWithFileAsync(
+            follows: true, tags: ["club"], conditions: HasTag("club"));
+        (await SendAsync(_client, HttpMethod.Get, $"/api/files/{fileId}", reader)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task A_has_row_rule_does_not_open_the_file_of_an_entry_it_excludes()
+    {
+        var (_, reader, _, fileId, _) = await DocumentWithFileAsync(
+            follows: true, tags: ["staff"], conditions: HasTag("club"));
+        (await SendAsync(_client, HttpMethod.Get, $"/api/files/{fileId}", reader)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    private static Dictionary<string, object> HasTag(string tag) =>
+        new() { ["Tags"] = new Dictionary<string, object> { ["_has"] = tag } };
+
+    [Fact]
     public async Task A_hidden_entry_does_not_open_its_file()
     {
         var (_, reader, _, fileId, _) = await DocumentWithFileAsync(follows: true, sensitivity: SensitivityLevel.Hidden);
@@ -108,7 +127,9 @@ public class EntryFileAccessTests
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", reader);
         var response = await _client.SendAsync(request, Ct);
 
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync(Ct));
+        var body = await response.Content.ReadAsStringAsync(Ct);
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, body);
+        body.Should().Contain("Field 'Attachment' takes the id of a stored file you may use");
     }
 
     [Fact]
@@ -163,7 +184,8 @@ public class EntryFileAccessTests
 
     private async Task<(string Type, string Reader, string Outsider, Guid FileId, Guid EntryId)> DocumentWithFileAsync(
         bool follows, string holdIn = "File", List<string>? readable = null,
-        SensitivityLevel sensitivity = SensitivityLevel.Public, bool lowerKeyUpperId = false, bool canCreate = false)
+        SensitivityLevel sensitivity = SensitivityLevel.Public, bool lowerKeyUpperId = false, bool canCreate = false,
+        string[]? tags = null, Dictionary<string, object>? conditions = null)
     {
         var type = "doc" + Guid.NewGuid().ToString("N")[..8];
         var owner = await OwnerTokenAsync();
@@ -175,7 +197,7 @@ public class EntryFileAccessTests
             Permissions = [new ContentTypePermission
             {
                 ContentTypeSlug = type,
-                Read = new PermissionRule { Enabled = true, ReadableFields = readable },
+                Read = new PermissionRule { Enabled = true, ReadableFields = readable, Conditions = conditions },
                 Create = canCreate ? new PermissionRule { Enabled = true } : null,
             }],
         };
@@ -186,6 +208,7 @@ public class EntryFileAccessTests
             Data = new Dictionary<string, object>
             {
                 ["Title"] = "Minutes",
+                ["Tags"] = tags ?? [],
                 [lowerKeyUpperId ? holdIn.ToLowerInvariant() : holdIn] =
                     lowerKeyUpperId ? fileId.ToString().ToUpperInvariant() : fileId.ToString(),
             },
@@ -201,6 +224,7 @@ public class EntryFileAccessTests
                 Fields =
                 [
                     new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" },
+                    new FieldDefinition { Name = "Tags", DisplayName = "Tags", Type = "string" },
                     new FieldDefinition { Name = "File", DisplayName = "File", Type = "file", FileFollowsEntry = follows },
                     new FieldDefinition { Name = "Attachment", DisplayName = "Attachment", Type = "file" },
                 ],
