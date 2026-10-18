@@ -60,6 +60,8 @@ internal sealed class ModuleSchema : IModuleSchema
         _options.Projections.Add<TProjection>(lifecycle);
     }
 
+    public void EnableEventHeaders() => _options.Events.MetadataConfig.HeadersEnabled = true;
+
     private void Own(Type type, string attempt, string rule)
     {
         var owner = type.Assembly;

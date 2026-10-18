@@ -79,6 +79,36 @@ public class NumberAllocatorTests(ClinicProbeHost host) : IClassFixture<ClinicPr
     }
 
     [Fact]
+    public async Task Allocator_SaveWithNothingElse_KeepsTheNumber()
+    {
+        var series = Fresh();
+
+        (await TakeAsync(series)).Value.Should().Be(1);
+        (await TakeAsync(series)).Value.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Allocator_ThenGuidVersionedWriteThenNumericRevisionWrite_BothCommit()
+    {
+        var series = Fresh();
+        var guarded = Guid.NewGuid();
+        var revisioned = Guid.NewGuid();
+
+        await using (var session = host.OpenSession())
+        {
+            var number = await Allocator.NextAsync(session, series);
+            session.Store(new ProbeGuarded { Id = guarded, Note = number.Formatted });
+            session.Store(new ProbeRevisioned { Id = revisioned, Note = number.Formatted });
+            await session.SaveChangesAsync();
+        }
+
+        await using var read = host.OpenSession();
+        (await read.LoadAsync<ProbeGuarded>(guarded))!.Note.Should().Be("00001");
+        (await read.LoadAsync<ProbeRevisioned>(revisioned))!.Note.Should().Be("00001");
+        (await TakeAsync(series)).Value.Should().Be(2);
+    }
+
+    [Fact]
     public async Task Allocator_TwoTenants_CountSeparately()
     {
         var series = Fresh();

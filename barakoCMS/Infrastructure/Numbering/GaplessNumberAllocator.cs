@@ -40,7 +40,10 @@ internal sealed class GaplessNumberAllocator(TimeProvider clock) : INumberAlloca
 
         // Marten commits only when the session has queued work, so a save with no other change
         // would roll the increment back and hand the number out twice. Queue a no-op to force it.
-        session.QueueSqlCommand("select 1");
+        // QueueSqlCommand is a no-data operation, which Marten does not step past when it reads
+        // results, so the statement must not return a result set (a select does, one row). An empty
+        // DO block returns none, so the operations queued after it read their own results.
+        session.QueueSqlCommand("do $$ begin end $$");
 
         return new AllocatedNumber(series.Name, period, value, series.Format(value, period));
     }
