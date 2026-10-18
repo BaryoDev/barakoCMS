@@ -456,5 +456,148 @@ public class ApiKeyIntegrationTests
             "a by-slug read needs content:read, and a missing slug is 404 whatever the type is called");
     }
 
+    // ---- files scopes and rotation (#906) -------------------------------------
+
+    private async Task<HttpResponseMessage> UploadWithKeyAsync(string secret)
+    {
+        var form = new MultipartFormDataContent();
+        var file = new ByteArrayContent(FileSamples.Png(1, 2, 3));
+        file.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+        form.Add(file, "file", "pic.png");
+        var req = WithKey(HttpMethod.Post, "/api/files", secret);
+        req.Content = form;
+        return await _client.SendAsync(req);
+    }
+
+    [Fact]
+    public async Task A_key_with_files_write_can_upload_a_file()
+    {
+        var (userId, _) = await SuperAdminAsync();
+        var secret = await StoreKeyAsync(userId, new[] { "files:write" });
+
+        var res = await UploadWithKeyAsync(secret);
+
+        res.StatusCode.Should().Be(HttpStatusCode.Created, await res.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task A_key_without_files_write_cannot_upload_a_file()
+    {
+        var (userId, _) = await SuperAdminAsync();
+        var secret = await StoreKeyAsync(userId, new[] { "content:write", "files:read" });
+
+        var res = await UploadWithKeyAsync(secret);
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task A_files_read_key_lists_files_and_a_content_key_does_not()
+    {
+        var (userId, _) = await SuperAdminAsync();
+        var reader = await StoreKeyAsync(userId, new[] { "files:read" });
+        var content = await StoreKeyAsync(userId, new[] { "content:read" });
+
+        (await _client.SendAsync(Get("/api/files", reader))).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await _client.SendAsync(Get("/api/files", content))).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    private async Task<(Guid Id, string Secret)> RotateAsync(string jwt, Guid keyId, int overlapMinutes)
+    {
+        var req = WithKey(HttpMethod.Post, $"/api/api-keys/{keyId}/rotate", jwt);
+        req.Content = JsonContent.Create(new { overlapMinutes });
+        var res = await _client.SendAsync(req);
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+        var body = await res.Content.ReadFromJsonAsync<CreatedKey>();
+        return (body!.Id, body.Key);
+    }
+
+    private async Task<Guid> KeyIdOfAsync(string secret)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        var hash = ApiKeyService.Hash(secret);
+        return (await session.Query<ApiKey>().FirstAsync(k => k.KeyHash == hash)).Id;
+    }
+
+    [Fact]
+    public async Task Rotating_a_key_keeps_both_valid_during_the_overlap()
+    {
+        var (userId, jwt) = await SuperAdminAsync();
+        var oldSecret = await StoreKeyAsync(userId, new[] { "content:read" });
+        var oldId = await KeyIdOfAsync(oldSecret);
+
+        var (newId, newSecret) = await RotateAsync(jwt, oldId, 60);
+
+        newSecret.Should().NotBe(oldSecret);
+        newId.Should().NotBe(oldId);
+        (await _client.SendAsync(Get("/api/contents", oldSecret))).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await _client.SendAsync(Get("/api/contents", newSecret))).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Rotating_with_no_overlap_leaves_only_the_new_key()
+    {
+        var (userId, jwt) = await SuperAdminAsync();
+        var oldSecret = await StoreKeyAsync(userId, new[] { "content:read" });
+
+        var (_, newSecret) = await RotateAsync(jwt, await KeyIdOfAsync(oldSecret), 0);
+        await Task.Delay(50);
+
+        (await _client.SendAsync(Get("/api/contents", oldSecret))).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await _client.SendAsync(Get("/api/contents", newSecret))).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task The_old_key_stops_working_once_the_overlap_has_passed()
+    {
+        var (userId, jwt) = await SuperAdminAsync();
+        var oldSecret = await StoreKeyAsync(userId, new[] { "content:read" });
+        var oldId = await KeyIdOfAsync(oldSecret);
+
+        var (_, newSecret) = await RotateAsync(jwt, oldId, 60);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var old = await session.LoadAsync<ApiKey>(oldId);
+            old!.ExpiresAt.Should().NotBeNull();
+            old.ExpiresAt!.Value.Should().BeCloseTo(DateTime.UtcNow.AddMinutes(60), TimeSpan.FromMinutes(1));
+            old.ExpiresAt = DateTime.UtcNow.AddSeconds(-1);
+            session.Store(old);
+            await session.SaveChangesAsync();
+        }
+
+        (await _client.SendAsync(Get("/api/contents", oldSecret))).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await _client.SendAsync(Get("/api/contents", newSecret))).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task A_revoked_key_cannot_be_rotated_and_a_key_cannot_rotate_itself()
+    {
+        var (userId, jwt) = await SuperAdminAsync();
+        var revoked = await StoreKeyAsync(userId, new[] { "content:read" }, revoked: true);
+        var live = await StoreKeyAsync(userId, new[] { "*" });
+
+        var req = WithKey(HttpMethod.Post, $"/api/api-keys/{await KeyIdOfAsync(revoked)}/rotate", jwt);
+        req.Content = JsonContent.Create(new { overlapMinutes = 5 });
+        (await _client.SendAsync(req)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var self = WithKey(HttpMethod.Post, $"/api/api-keys/{await KeyIdOfAsync(live)}/rotate", live);
+        self.Content = JsonContent.Create(new { overlapMinutes = 5 });
+        (await _client.SendAsync(self)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task Rotating_with_an_overlap_over_the_limit_is_rejected()
+    {
+        var (userId, jwt) = await SuperAdminAsync();
+        var secret = await StoreKeyAsync(userId, new[] { "content:read" });
+
+        var req = WithKey(HttpMethod.Post, $"/api/api-keys/{await KeyIdOfAsync(secret)}/rotate", jwt);
+        req.Content = JsonContent.Create(new { overlapMinutes = 10081 });
+        (await _client.SendAsync(req)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
     private sealed record CreatedKey(Guid Id, string Key, string Prefix, string Name);
 }

@@ -65,6 +65,12 @@ public static class ApiKeyScopes
     public const string ContentTypeRead = "contenttype:read";
     public const string ContentTypeWrite = "contenttype:write";
 
+    /// <summary>Reading under <c>/api/files</c>: the list, metadata, downloads and usage.</summary>
+    public const string FilesRead = "files:read";
+
+    /// <summary>Uploading, changing and deleting under <c>/api/files</c>.</summary>
+    public const string FilesWrite = "files:write";
+
     /// <summary>
     /// Erasing an entry (<c>DELETE /api/contents/{id}/erase</c>) and rolling one back
     /// (<c>POST /api/contents/{id}/rollback/{versionId}</c>). Not implied by <see cref="ContentWrite"/>,
@@ -76,6 +82,7 @@ public static class ApiKeyScopes
     public static readonly IReadOnlySet<string> Known = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         All, ContentRead, ContentWrite, ContentDestructive, ContentTypeRead, ContentTypeWrite,
+        FilesRead, FilesWrite,
     };
 
     public static bool IsKnown(string scope) => !string.IsNullOrWhiteSpace(scope) && Known.Contains(scope);
