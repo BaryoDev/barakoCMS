@@ -123,24 +123,26 @@ public sealed class JournalEntryHook : IContentLifecycleHook
             }
         }
 
+        if (errors.Count == 0) errors.AddRange(await CheckNoOverdraftAsync(context, data, lines, ct));
         if (errors.Count > 0)
             return errors;
 
-        errors.AddRange(await CheckNoOverdraftAsync(context, data, lines, ct));
-        if (errors.Count > 0)
-            return errors;
-
-        // Server-owned fields. Only stamped once the entry is known to be valid, so a rejected post
-        // never consumes a sequence number.
-        if (context.IsCreate)
-        {
-            ContentData.Set(data, "Amount", totalDebit);
-            ContentData.Set(data, "EntryNumber", await NextEntryNumberAsync(context.Session, data, ct));
-            if (string.IsNullOrWhiteSpace(ContentData.AsString(ContentData.Get(data, "Status"))))
-                ContentData.Set(data, "Status", "Posted");
-        }
+        if (context.IsCreate) await StampNewEntryAsync(context, totalDebit, ct);
 
         return Array.Empty<string>();
+    }
+
+    /// <summary>
+    /// Server-owned fields. Only stamped once the entry is known to be valid, so a rejected post
+    /// never consumes a sequence number.
+    /// </summary>
+    private async Task StampNewEntryAsync(ContentLifecycleContext context, decimal totalDebit, CancellationToken ct)
+    {
+        var data = context.Data;
+        ContentData.Set(data, "Amount", totalDebit);
+        ContentData.Set(data, "EntryNumber", await NextEntryNumberAsync(context.Session, data, ct));
+        if (string.IsNullOrWhiteSpace(ContentData.AsString(ContentData.Get(data, "Status"))))
+            ContentData.Set(data, "Status", "Posted");
     }
 
     /// <summary>
