@@ -222,6 +222,7 @@ public class AccountingReportingTests
         flow.Disbursements.Should().Be(0m);
         flow.Closing.Should().Be(1000.50m);
         flow.Lines.Should().HaveCount(3);
+        flow.Lines.TakeLast(2).Should().OnlyContain(l => l.RunningBalance == 1000.50m);
     }
 
     [Fact]
@@ -252,5 +253,20 @@ public class AccountingReportingTests
         var flow = await Reporting(scope).CashFlowAsync(new[] { bank }, 2026, 8, default);
 
         flow.Opening.Should().Be(0.01m);
+    }
+
+    [Fact]
+    public async Task Cash_flow_counts_a_payment_out_as_a_disbursement()
+    {
+        var bank = await AccountAsync("1000", "Asset");
+        var expense = await AccountAsync("5100", "Expense");
+
+        await PostEntryAsync("2026-08-03", (expense, 100.00m, 0m), (bank, 0m, 100.00m));
+
+        using var scope = _factory.Services.CreateScope();
+        var flow = await Reporting(scope).CashFlowAsync(new[] { bank }, 2026, 8, default);
+
+        flow.Disbursements.Should().Be(100m);
+        flow.Receipts.Should().Be(0m);
     }
 }
