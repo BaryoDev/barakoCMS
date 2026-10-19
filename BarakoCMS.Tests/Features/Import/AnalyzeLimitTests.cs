@@ -120,6 +120,18 @@ public class AnalyzeLimitTests
         (await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).Should().Contain("positions");
     }
 
+    [Theory]
+    [InlineData("<row r=\"5000000000\"></row>", "5000000000")]
+    [InlineData("<row r=\"x1\"></row>", "x1")]
+    [InlineData("<row><c r=\"1A\" t=\"inlineStr\"><is><t>x</t></is></c></row>", "1A")]
+    public async Task A_row_or_cell_address_out_of_range_or_unreadable_is_refused(string sheetData, string named)
+    {
+        var response = await AnalyzeAsync(XlsxOf(sheetData), "odd.xlsx");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).Should().Contain(named);
+    }
+
     [Fact]
     public void A_non_archive_reports_no_declared_expansion()
     {

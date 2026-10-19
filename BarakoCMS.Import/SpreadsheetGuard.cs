@@ -81,12 +81,16 @@ internal static class SpreadsheetGuard
             var address = reader.GetAttribute("r");
             if (reader.LocalName == "row")
             {
-                row = int.TryParse(address, out var explicitRow) && explicitRow > row + 1 ? explicitRow : row + 1;
+                if (address is not null && !long.TryParse(address, out _))
+                    return Unreadable(address);
+                row = Math.Max(row + 1, address is null ? 0 : long.Parse(address));
                 column = 0;
             }
             else if (reader.LocalName == "c")
             {
                 var cell = address is null ? null : ReadAddress(address);
+                if (address is not null && cell is null)
+                    return Unreadable(address);
                 column = Math.Max(column + 1, cell?.Column ?? 0);
                 row = Math.Max(row, cell?.Row ?? 0);
                 if (column > maxColumns)
@@ -109,6 +113,9 @@ internal static class SpreadsheetGuard
 
         return null;
     }
+
+    private static string Unreadable(string address) =>
+        $"The sheet holds an address this instance cannot read: {address[..Math.Min(address.Length, 20)]}. Nothing was read.";
 
     private static string RowRefusal(long row, long maxRowIndex) =>
         $"A cell sits in row {row}, past the {maxRowIndex} rows this instance will read. Nothing was read. "
