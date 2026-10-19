@@ -16,7 +16,7 @@ namespace barakoCMS.Core;
 /// <item>JSON web tokens, and the value after <c>Bearer</c> or <c>Basic</c>.</item>
 /// <item>Every query string value, and the user and password in a URL.</item>
 /// <item>The value after a key named like a credential (password, secret, token, api key, access
-/// key, private key, auth, session, cookie, signature, otp).</item>
+/// key, private key, auth (as a word or a compound), session, cookie, signature, otp).</item>
 /// <item>Email addresses, and any unbroken run of 32 or more letters, digits, <c>-</c> or <c>_</c>
 /// holding at least one letter and one digit.</item>
 /// </list>
@@ -29,8 +29,12 @@ public static class CredentialRedaction
 
     private const RegexOptions Options = RegexOptions.CultureInvariant | RegexOptions.IgnoreCase;
 
+    // "auth" counts only as a whole word or a segment of a compound (auth, auth_token, x-auth-token),
+    // since as a substring it also matches Unauthorized and takes the reason with it. The other
+    // names are unambiguous as substrings (apiToken, clientSecret).
     private const string CredentialNames =
-        @"[\w-]*(?:password|passwd|pwd|secret|token|api[_\s-]?key|access[_\s-]?key|private[_\s-]?key|authorization|auth|session|cookie|signature|otp)[\w-]*";
+        @"(?:[\w-]*(?:password|passwd|pwd|secret|token|api[_\s-]?key|access[_\s-]?key|private[_\s-]?key|authorization|session|cookie|signature|otp)[\w-]*"
+        + @"|(?:[\w-]*[_-])?auth(?:[_-][\w-]*)?)";
 
     // A value: a double-quoted string with escapes, an escaped-JSON string, a single-quoted string,
     // or bare text up to a delimiter. An already-masked value is left alone.

@@ -33,4 +33,26 @@ public class CredentialRedactionTests
         redacted.Should().NotContain(id.ToString());
         redacted.Should().Contain("not found");
     }
+
+    [Fact]
+    public void A_reason_that_only_contains_the_letters_auth_is_kept_and_an_authorization_header_is_not()
+    {
+        const string reason = "Unauthorized: invalid API credentials";
+
+        CredentialRedaction.Redact(reason).Should().Be(reason);
+
+        var header = CredentialRedaction.Redact("Authorization: Bearer abc");
+        header.Should().NotContain("abc");
+        header.Should().StartWith("Authorization");
+    }
+
+    [Theory]
+    [InlineData("auth: hunter2value", "hunter2value")]
+    [InlineData("auth_token=hunter2value", "hunter2value")]
+    [InlineData("x-auth-token: hunter2value", "hunter2value")]
+    [InlineData("Authorization: hunter2value", "hunter2value")]
+    public void A_value_after_an_auth_key_is_removed(string message, string secret)
+    {
+        CredentialRedaction.Redact(message).Should().NotContain(secret);
+    }
 }
