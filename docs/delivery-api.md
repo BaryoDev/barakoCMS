@@ -8,16 +8,19 @@ query parameter:
 
 - its content type has `isPubliclyDeliverable: true`,
 - the entry's status is `Published`, and
-- the entry's document sensitivity is `Public`.
+- the entry's document sensitivity is `Public`, or `Members` and the caller holds a viewer token
+  (see [Members and viewer tokens](#members-and-viewer-tokens)).
 
-Any field the content type marks as something other than `Public` is stripped from the payload.
+Any field the content type marks as something other than `Public` is stripped from the payload. A
+`Members` field is kept for a viewer token.
 
 A type that has not opted in and a type that does not exist both return 404. That is deliberate:
 answering differently would confirm which types exist.
 
-Responses carry `Cache-Control: public, max-age=60` and `Vary: X-Tenant`, because the tenant can be
+Responses carry `Cache-Control: public, max-age=60` and `Vary: X-Tenant, X-Viewer-Token`. The tenant can be
 resolved from the `X-Tenant` header (see `docs/multi-tenancy.md`) and the payload is built entirely
-from that tenant's content. The one exception is a slug read served under a valid `?preview=` token,
+from that tenant's content. The viewer header is listed so a cache never hands an anonymous copy to a
+caller who sent a token (see [Members and viewer tokens](#members-and-viewer-tokens)). The one exception is a slug read served under a valid `?preview=` token,
 which is `no-store` because it can return an unpublished entry. `Vary` tells a conforming cache to
 key on the header, but it is not a CDN setting on its own: see the caching section of
 `docs/deploy-in-production.md` for what the CDN itself has to be configured to do.
@@ -458,6 +461,45 @@ put a `richtext` value into `innerHTML` without sanitising it first. This is why
 blueprints use `markdown` for every body field: the ordinary way to render markdown is already safe,
 and the only way to render richtext is not. The feed and the sitemap are the exceptions, and only
 because they build a document rather than hand you a field, so they escape what they put in it.
+
+## Members and viewer tokens
+
+`Members` is a sensitivity level between `Public` and staff, on an entry and on a field. It is
+appended after `Hidden`, so no stored value changes number, and nothing is `Members` until someone
+sets it. Existing entries and fields stay `Public`, and a request without a viewer token is answered
+exactly as before.
+
+A site with its own sign-in mints a token for one of its members with
+`POST /api/viewer-tokens` (`{ "subject": "member-9", "lifetimeMinutes": 60 }`), which needs the
+`manage_public_delivery` capability. Lifetime defaults to 60 minutes, at most 480. Each mint is written to the audit trail as
+`viewer.token.minted` (subject, tenant, expiry and the actor, never the token). If `JWT:Key` is not
+set the route answers 503. The token goes in
+the `X-Viewer-Token` header of `GET /api/public/{type}` and `GET /api/public/{type}/{slug}`.
+
+- An anonymous call never sees a `Members` entry (404 on a slug, absent from a page) or field. The
+  feed, the sitemap, search, the lookup route, the event stream, the type description and the
+  OpenAPI document are anonymous only: they never serve `Members`, with or without the header.
+- A viewer sees `Public` and `Members` entries, and `Public` and `Members` fields. `Sensitive` and
+  `Hidden` stay staff-only. Staff read a `Members` value in the authoring API as they read a `Public` one.
+- The token is bound to the tenant that minted it. A token for tenant A is a 401 on tenant B.
+- A token that is expired, malformed or for another tenant is a 401, not an anonymous read, so an
+  expired session shows as one instead of as a missing page.
+- A token cannot be revoked. The short lifetime is the control, so mint for as little time as the
+  session needs. Rotating `JWT:Key` signs out every viewer at once, and every staff session with them.
+- The token is signed under its own `:viewer` audience. The bearer scheme rejects it, so it opens no
+  authoring route and cannot mint another token.
+- A response served with a token is `Cache-Control: private, no-store`, `Vary: Authorization,
+  X-Tenant, X-Viewer-Token`, with no cache tags, ETag or Last-Modified. It is never the same
+  response an anonymous caller is given, and no shared cache keeps it.
+- A reference or file field on a `Members` entry resolves only to targets anonymous delivery serves.
+  `filter`, `sort` and `include` work on `Public` fields only, for a viewer as for anyone.
+- A row condition (own record) is not evaluated for a viewer yet: `Members` means every verified
+  viewer of the tenant.
+
+**On a private site.** Private mode (see [site-settings.md](site-settings.md)) gates every
+`/api/public/*` route before the handler runs, for a visitor with a site-wide share key or a
+signed-in user who may read the `site` type. A viewer token is not a way in: on a private tenant a
+member needs the site pass and the token, and the response is `private, no-store` either way.
 
 ## Change events
 

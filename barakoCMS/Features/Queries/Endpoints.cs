@@ -69,8 +69,14 @@ internal static class QueryGate
         System.Text.RegularExpressions.Regex.IsMatch(value, "^[a-z0-9][a-z0-9-]{0,62}$");
 }
 
+/// <summary>A query list request. <c>deleted=true</c> lists the deleted queries instead of the live ones.</summary>
+internal sealed class ListQueriesRequest : ListRequest
+{
+    public bool? Deleted { get; set; }
+}
+
 internal sealed class ListQueriesEndpoint(
-    IQuerySession session) : Endpoint<ListRequest, PaginatedResponse<QueryResponse>>
+    IQuerySession session) : Endpoint<ListQueriesRequest, PaginatedResponse<QueryResponse>>
 {
     public override void Configure()
     {
@@ -78,9 +84,13 @@ internal sealed class ListQueriesEndpoint(
         Definition.RequireCapability(SystemCapabilities.ManageQueries, QueryGate.LegacyRoles);
     }
 
-    public override async Task HandleAsync(ListRequest req, CancellationToken ct)
+    public override async Task HandleAsync(ListQueriesRequest req, CancellationToken ct)
     {
-        var page = await session.Query<QueryDefinition>().OrderBy(q => q.Name).ToPagedResponseAsync(req, ct);
+        var all = session.Query<QueryDefinition>();
+        var wanted = req.Deleted == true ? all.Where(q => q.DeletedAt != null) : all.Where(q => q.DeletedAt == null);
+        var page = await wanted
+            .OrderBy(q => q.Name)
+            .ToPagedResponseAsync(req, ct);
 
         await Send.ResponseAsync(new PaginatedResponse<QueryResponse>
         {
@@ -110,7 +120,7 @@ internal sealed class GetQueryEndpoint(IQuerySession session) : EndpointWithoutR
             return;
         }
 
-        var found = await session.Query<QueryDefinition>().FirstOrDefaultAsync(q => q.Slug == slug, ct);
+        var found = await session.Query<QueryDefinition>().FirstOrDefaultAsync(q => q.Slug == slug && q.DeletedAt == null, ct);
         if (found is null)
         {
             await Send.NotFoundAsync(ct);
@@ -142,6 +152,14 @@ internal sealed class SaveQueryEndpoint(
         }
 
         var existing = await session.Query<QueryDefinition>().FirstOrDefaultAsync(q => q.Slug == req.Slug, ct);
+        // A deleted query still holds the slug. Saving over it reuses the row, so creating after a
+        // delete works as it always did, and the old definition is gone for good.
+        var replacesDeleted = existing?.DeletedAt is not null;
+        if (replacesDeleted)
+        {
+            existing!.CreatedAt = DateTime.UtcNow;
+            existing.DeletedAt = null;
+        }
         var definition = existing ?? new QueryDefinition { Id = Guid.NewGuid(), Slug = req.Slug.ToLowerInvariant() };
 
         definition.Name = req.Name.Trim();
@@ -167,7 +185,7 @@ internal sealed class SaveQueryEndpoint(
 
         var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
         await AuditLog.RecordAsync(session, tenant.Slug,
-            existing is null ? "query.created" : "query.updated",
+            existing is null || replacesDeleted ? "query.created" : "query.updated",
             actorId, User.FindFirst("Username")?.Value,
             targetType: nameof(QueryDefinition), targetId: definition.Id.ToString(),
             metadata: new Dictionary<string, object>
@@ -205,7 +223,94 @@ internal sealed class DeleteQueryEndpoint(
             return;
         }
 
-        var found = await session.Query<QueryDefinition>().FirstOrDefaultAsync(q => q.Slug == slug, ct);
+        var found = await session.Query<QueryDefinition>().FirstOrDefaultAsync(q => q.Slug == slug && q.DeletedAt == null, ct);
+        if (found is null)
+        {
+            await Send.NotFoundAsync(ct);
+            return;
+        }
+
+        found.DeletedAt = DateTime.UtcNow;
+        session.Store(found);
+
+        var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
+        await AuditLog.RecordAsync(session, tenant.Slug, "query.deleted", actorId,
+            User.FindFirst("Username")?.Value,
+            targetType: nameof(QueryDefinition), targetId: found.Id.ToString(),
+            metadata: new Dictionary<string, object> { ["slug"] = found.Slug }, ct: ct);
+
+        await session.SaveChangesAsync(ct);
+        await Send.NoContentAsync(ct);
+    }
+}
+
+internal sealed class RestoreQueryEndpoint(
+    IDocumentSession session,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : EndpointWithoutRequest<QueryResponse>
+{
+    public override void Configure()
+    {
+        Post("/api/queries/{slug}/restore");
+        Definition.RequireCapability(SystemCapabilities.ManageQueries, QueryGate.LegacyRoles);
+    }
+
+    public override async Task HandleAsync(CancellationToken ct)
+    {
+        var slug = Route<string>("slug") ?? string.Empty;
+        if (!QueryGate.IsSlug(slug))
+        {
+            ThrowError("That is not a query slug: lowercase letters, digits and hyphens only.", 400);
+            return;
+        }
+
+        var found = await session.Query<QueryDefinition>()
+            .FirstOrDefaultAsync(q => q.Slug == slug && q.DeletedAt != null, ct);
+        if (found is null)
+        {
+            await Send.NotFoundAsync(ct);
+            return;
+        }
+
+        found.DeletedAt = null;
+        found.UpdatedAt = DateTime.UtcNow;
+        session.Store(found);
+
+        var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
+        await AuditLog.RecordAsync(session, tenant.Slug, "query.restored", actorId,
+            User.FindFirst("Username")?.Value,
+            targetType: nameof(QueryDefinition), targetId: found.Id.ToString(),
+            metadata: new Dictionary<string, object> { ["slug"] = found.Slug }, ct: ct);
+
+        await session.SaveChangesAsync(ct);
+        await Send.ResponseAsync(QueryResponse.From(found), cancellation: ct);
+    }
+}
+
+/// <summary>
+/// Removes a deleted query for good. Mirrors content's archive versus erase split. It only takes a
+/// query that is already deleted, so a live one cannot be destroyed in one call.
+/// </summary>
+internal sealed class EraseQueryEndpoint(
+    IDocumentSession session,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : EndpointWithoutRequest
+{
+    public override void Configure()
+    {
+        Delete("/api/queries/{slug}/erase");
+        Definition.RequireCapability(SystemCapabilities.ManageQueries, QueryGate.LegacyRoles);
+    }
+
+    public override async Task HandleAsync(CancellationToken ct)
+    {
+        var slug = Route<string>("slug") ?? string.Empty;
+        if (!QueryGate.IsSlug(slug))
+        {
+            ThrowError("That is not a query slug: lowercase letters, digits and hyphens only.", 400);
+            return;
+        }
+
+        var found = await session.Query<QueryDefinition>()
+            .FirstOrDefaultAsync(q => q.Slug == slug && q.DeletedAt != null, ct);
         if (found is null)
         {
             await Send.NotFoundAsync(ct);
@@ -215,7 +320,7 @@ internal sealed class DeleteQueryEndpoint(
         session.Delete(found);
 
         var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
-        await AuditLog.RecordAsync(session, tenant.Slug, "query.deleted", actorId,
+        await AuditLog.RecordAsync(session, tenant.Slug, "query.erased", actorId,
             User.FindFirst("Username")?.Value,
             targetType: nameof(QueryDefinition), targetId: found.Id.ToString(),
             metadata: new Dictionary<string, object> { ["slug"] = found.Slug }, ct: ct);
@@ -253,7 +358,7 @@ internal sealed class PreviewQueryEndpoint(
             return;
         }
 
-        var definition = await session.Query<QueryDefinition>().FirstOrDefaultAsync(q => q.Slug == slug, ct);
+        var definition = await session.Query<QueryDefinition>().FirstOrDefaultAsync(q => q.Slug == slug && q.DeletedAt == null, ct);
         if (definition is null)
         {
             await Send.NotFoundAsync(ct);

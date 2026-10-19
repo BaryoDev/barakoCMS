@@ -79,7 +79,7 @@ internal sealed class WhoAmIEndpoint(IQuerySession session, TenantContext tenant
         var roleIds = await MembershipRoles.EffectiveRoleIdsAsync(session, user, slug, ct);
         IReadOnlyList<Role> roles = roleIds.Count == 0
             ? []
-            : await session.Query<Role>().Where(r => r.Id.In(roleIds)).ToListAsync(ct);
+            : await session.Query<Role>().Where(r => r.DeletedAt == null && r.Id.In(roleIds)).ToListAsync(ct);
 
         var capabilities = roles
             .SelectMany(r => r.SystemCapabilities ?? [])

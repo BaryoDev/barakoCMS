@@ -33,6 +33,10 @@ internal static class SensitiveReadAudit
 {
     public const string Action = "content.sensitive.read";
 
+    /// <summary>Public and Members are audience rules, not secrets: staff read both as they read Public.</summary>
+    private static bool IsAudience(SensitivityLevel level) =>
+        level is SensitivityLevel.Public or SensitivityLevel.Members;
+
     /// <summary>The non-Public fields of <paramref name="definition"/> that <paramref name="shown"/> carries unmasked.</summary>
     public static List<string> FieldsShown(
         ContentTypeDefinition? definition,
@@ -47,7 +51,7 @@ internal static class SensitiveReadAudit
         var names = new List<string>();
         foreach (var field in fields)
         {
-            if (field is null || field.Sensitivity == SensitivityLevel.Public)
+            if (field is null || IsAudience(field.Sensitivity))
             {
                 continue;
             }
@@ -75,7 +79,7 @@ internal static class SensitiveReadAudit
         HttpContext http,
         CancellationToken ct)
     {
-        var document = entry.Sensitivity != SensitivityLevel.Public
+        var document = !IsAudience(entry.Sensitivity)
                        && await sensitivity.MaySeeDocumentAsync(entry.Sensitivity, http.User, ct);
         return new SensitiveRead(
             entry.Id, entry.ContentType, entry.Sensitivity, FieldsShown(definition, entry.Data, shown), document);
@@ -98,7 +102,7 @@ internal static class SensitiveReadAudit
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         var document = versions.Count > 0
-                       && entry.Sensitivity != SensitivityLevel.Public
+                       && !IsAudience(entry.Sensitivity)
                        && await sensitivity.MaySeeDocumentAsync(entry.Sensitivity, http.User, ct);
         return new SensitiveRead(entry.Id, entry.ContentType, entry.Sensitivity, fields, document);
     }

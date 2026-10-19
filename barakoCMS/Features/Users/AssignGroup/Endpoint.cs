@@ -8,7 +8,9 @@ namespace barakoCMS.Features.Users.AssignGroup;
 
 internal class Endpoint(
     IDocumentSession session,
-    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<Request, Response>
+    barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
+    IConfiguration configuration) : Endpoint<Request, Response>
 {
     public override void Configure()
     {
@@ -28,9 +30,16 @@ internal class Endpoint(
         }
 
         var group = await session.LoadAsync<UserGroup>(req.GroupId, ct);
-        if (group == null)
+        if (group == null || group.DeletedAt is not null)
         {
             await Send.NotFoundAsync(ct);
+            return;
+        }
+
+        if (group.RoleIds.Count > 0
+            && await barakoCMS.Features.UserGroups.GroupRoleGuard.CheckAsync(session, User, configuration, [], group.RoleIds, ct) is { } refused)
+        {
+            await Send.ResponseAsync(new Response { Message = refused.Message }, refused.Status, ct);
             return;
         }
 
@@ -42,6 +51,7 @@ internal class Endpoint(
             await AuditLog.RecordAsync(session, tenant.Slug, "user.group.assigned", actorId, User.FindFirst("Username")?.Value,
                 targetType: "User", targetId: req.UserId.ToString(), metadata: new() { ["groupId"] = req.GroupId.ToString() }, ct: ct);
             await session.SaveChangesAsync(ct);
+            permissionResolver.InvalidateUserPermissions(req.UserId);
         }
 
         await Send.OkAsync(new Response { Message = "User added to group successfully" }, ct);

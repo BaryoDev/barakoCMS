@@ -1,9 +1,12 @@
 using FastEndpoints;
 using Marten;
-using Marten.Patching;
+using barakoCMS.Infrastructure;
 using barakoCMS.Infrastructure.Audit;
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Auth.Mfa;
+using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
+using System.Security.Claims;
 using System.Security.Cryptography;
 
 namespace barakoCMS.Features.Auth.Mfa;
@@ -21,10 +24,13 @@ internal class VerifyEndpoint(
     IQuerySession query,
     IConfiguration config,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
-    barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer,
     barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
-    barakoCMS.Infrastructure.Auth.AccountLockout lockout) : Endpoint<VerifyRequest, VerifyResponse>
+    AccountLockout lockout,
+    IPermissionResolver permissions,
+    IContentBatchRunner transaction) : Endpoint<VerifyRequest, VerifyResponse>
 {
+    private sealed record SignedIn(TokenIssueResult Issued, string Refresh, DateTime RefreshExpiry);
+
     public override void Configure()
     {
         Post("/api/auth/mfa/verify");
@@ -34,16 +40,16 @@ internal class VerifyEndpoint(
 
     public override async Task HandleAsync(VerifyRequest req, CancellationToken ct)
     {
-        var device = barakoCMS.Infrastructure.DeviceContext.From(HttpContext);
+        var device = DeviceContext.From(HttpContext);
 
-        var userId = MfaChallengeToken.ValidatedUserId(config, req.ChallengeToken);
-        if (userId is null)
+        var challenge = MfaChallengeToken.Validated(config, req.ChallengeToken);
+        if (challenge is null)
         {
             ThrowError("Your sign-in session expired. Enter your password again.");
             return;
         }
 
-        var user = await query.LoadAsync<User>(userId.Value, ct);
+        var user = await query.LoadAsync<User>(challenge.Value.UserId, ct);
         if (user is null || !await mfa.IsEnabledAsync(user.Id, ct))
         {
             // The challenge was minted for this user, so this is an odd state; stay generic.
@@ -52,7 +58,7 @@ internal class VerifyEndpoint(
         }
 
         // Same lockout gate as password login — a locked account can't be MFA-brute-forced either.
-        if (barakoCMS.Infrastructure.Auth.AccountLockout.LockedMessage(user) is { } locked)
+        if (AccountLockout.LockedMessage(user) is { } locked)
         {
             ThrowError(locked);
             return;
@@ -67,47 +73,135 @@ internal class VerifyEndpoint(
             return;
         }
 
-        // Success: clear the failed-attempt counter, mint tokens through the issuer (which still runs the
-        // tenant-access check), and drop a refresh token — the same shape as password login.
-        barakoCMS.Infrastructure.Auth.AccountLockout.ClearFailures(session, user);
+        // Success: clear the failed-attempts, then mint as password login does.
+        AccountLockout.ClearFailures(session, user);
+        await session.SaveChangesAsync(ct);
 
         // Completing MFA proves possession of this device; trust it and bind the token to it, so
         // MFA-issued tokens carry the same device claim (did) as the password and OTP paths.
         var deviceClaims = await deviceGate.TrustOnOtpAsync(user, device, ct);
-        var issued = await tokenIssuer.IssueAccessTokenAsync(user, tenant.Slug, deviceClaims, ct);
-        if (!issued.Allowed)
+        var signedIn = await SignInAsync(user, challenge.Value.Grant, deviceClaims, device, ct);
+        if (signedIn is null)
         {
-            await session.SaveChangesAsync(ct);
             ThrowError("Invalid code.");
             return;
         }
 
-        var refreshTokenString = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
-        var refreshTokenExpiry = DateTime.UtcNow.Add(issued.RefreshLifetime);
-        session.Store(new RefreshToken
+        // Also in a cookie page script cannot read. The body still carries it for
+        // non-browser callers; see RefreshTokenCookie for why this is an addition.
+        RefreshTokenCookie.Set(HttpContext, signedIn.Refresh, signedIn.RefreshExpiry);
+
+        await Send.ResponseAsync(new VerifyResponse
+        {
+            Token = signedIn.Issued.Token,
+            Expiry = signedIn.Issued.ExpiresAt,
+            RefreshToken = signedIn.Refresh,
+            RefreshTokenExpiry = signedIn.RefreshExpiry,
+        });
+    }
+
+    /// <summary>
+    /// Grants what the challenge carries, issues the token and stores the refresh token in one
+    /// database transaction, or null when the issuer refused. The issuer reads memberships, and it
+    /// reads the grant through that transaction, so a refused sign-in grants nothing.
+    /// </summary>
+    private async Task<SignedIn?> SignInAsync(
+        User user, PendingExternalGrant? grant, IReadOnlyList<Claim> deviceClaims, DeviceContext device,
+        CancellationToken ct)
+    {
+        var granted = false;
+        SignedIn? signedIn;
+        try
+        {
+            signedIn = await transaction.RunAsync<SignedIn?>(async (scope, token) =>
+            {
+                var writes = scope.GetRequiredService<IDocumentSession>();
+                granted = await StageGrantAsync(writes, user, grant, token);
+                await writes.SaveChangesAsync(token);
+
+                var issued = await scope.GetRequiredService<ITokenIssuer>()
+                    .IssueAccessTokenAsync(user, tenant.Slug, deviceClaims, token);
+                if (!issued.Allowed)
+                {
+                    return new ContentBatchOutcome<SignedIn?>(null, Commit: false);
+                }
+
+                var result = await StageSignInAsync(writes, user, issued, device, token);
+                return new ContentBatchOutcome<SignedIn?>(result, Commit: true);
+            }, ct);
+        }
+        catch (Exception ex) when (barakoCMS.Infrastructure.Filters.IdempotencyFilter.IsUniqueViolation(ex))
+        {
+            // Another verify of this challenge spent its grant first.
+            return null;
+        }
+
+        if (signedIn is not null && granted)
+        {
+            permissions.InvalidateUserPermissions(user.Id);
+        }
+
+        return signedIn;
+    }
+
+    /// <summary>
+    /// Stages the roles an external sign-in earned at first factor, now that the second has passed,
+    /// and records the grant as spent, so the same challenge with another valid code grants nothing.
+    /// The roles are checked again and the membership must still be Active, as at a sign-in with no
+    /// second factor.
+    /// </summary>
+    /// <returns>True when a membership changed.</returns>
+    private async Task<bool> StageGrantAsync(
+        IDocumentSession writes, User user, PendingExternalGrant? grant, CancellationToken ct)
+    {
+        if (grant is null || !string.Equals(grant.TenantSlug, tenant.Slug, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var spent = SpentGrantJti(grant);
+        if (await writes.Query<RevokedToken>().AnyAsync(r => r.TokenJti == spent, ct))
+        {
+            return false;
+        }
+
+        // Insert, not Store: a second verify racing this one fails on the unique jti at commit.
+        writes.Insert(new RevokedToken
         {
             Id = Guid.NewGuid(),
-            TokenHash = RefreshToken.HashOf(refreshTokenString),
+            TokenJti = spent,
             UserId = user.Id,
-            ExpiresAt = refreshTokenExpiry,
+            RevokedAt = DateTime.UtcNow,
+            ExpiresAt = DateTime.UtcNow.Add(MfaChallengeToken.Lifetime).AddMinutes(1),
+            Reason = "mfa_grant_spent",
+        });
+
+        return await ExternalRoleGrant.StageAsync(writes, user, grant.TenantSlug, grant.RoleIds, grant.Source, ct);
+    }
+
+    /// <summary>
+    /// The spent grant's key in the revoked token store, which already expires and purges what it
+    /// holds. Prefixed so it can never equal an access token's jti, which is a bare guid.
+    /// </summary>
+    private static string SpentGrantJti(PendingExternalGrant grant) => $"mfa-grant:{grant.Id:N}";
+
+    private async Task<SignedIn> StageSignInAsync(
+        IDocumentSession writes, User user, TokenIssueResult issued, DeviceContext device, CancellationToken ct)
+    {
+        var refresh = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
+        var refreshExpiry = DateTime.UtcNow.Add(issued.RefreshLifetime);
+        writes.Store(new RefreshToken
+        {
+            Id = Guid.NewGuid(),
+            TokenHash = RefreshToken.HashOf(refresh),
+            UserId = user.Id,
+            ExpiresAt = refreshExpiry,
             CreatedAt = DateTime.UtcNow,
             IsRevoked = false,
             DeviceId = device.DeviceId,
         });
-        await AuditLog.RecordAsync(session, tenant.Slug, "auth.mfa.succeeded", user.Id, user.Username,
+        await AuditLog.RecordAsync(writes, tenant.Slug, "auth.mfa.succeeded", user.Id, user.Username,
             ipAddress: device.IpAddress, ct: ct);
-        await session.SaveChangesAsync(ct);
-
-        // Also in a cookie page script cannot read. The body still carries it for
-        // non-browser callers; see RefreshTokenCookie for why this is an addition.
-        barakoCMS.Infrastructure.Auth.RefreshTokenCookie.Set(HttpContext, refreshTokenString, refreshTokenExpiry);
-
-        await Send.ResponseAsync(new VerifyResponse
-        {
-            Token = issued.Token,
-            Expiry = issued.ExpiresAt,
-            RefreshToken = refreshTokenString,
-            RefreshTokenExpiry = refreshTokenExpiry,
-        });
+        return new SignedIn(issued, refresh, refreshExpiry);
     }
 }

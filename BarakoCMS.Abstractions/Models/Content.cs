@@ -33,7 +33,13 @@ public enum SensitivityLevel
 {
     Public,
     Sensitive,
-    Hidden
+    Hidden,
+
+    /// <summary>
+    /// Delivered to a caller holding a viewer token, never to an anonymous one. Staff read it like
+    /// a Public value. Appended after Hidden so the stored numbers of the other levels hold.
+    /// </summary>
+    Members
 }
 
 public class Content

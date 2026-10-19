@@ -113,7 +113,7 @@ public sealed class CapabilityDefaults
         {
             var name = seeded.Name;
             var role = staged.FirstOrDefault(r => r.Id == seeded.Id)
-                       ?? await session.LoadAsync<Role>(seeded.Id, ct)
+                       ?? await LoadLiveAsync(session, seeded.Id, ct)
                        ?? staged.FirstOrDefault(r => DeploymentRoleNames.Matches(r, name))
                        ?? await DeploymentRoleNames.FindAsync(session, name, ct);
 
@@ -147,5 +147,12 @@ public sealed class CapabilityDefaults
         }
 
         return changed;
+    }
+
+    /// <summary>The role under <paramref name="id"/>, unless it is deleted: a deleted role is granted nothing.</summary>
+    private static async Task<Role?> LoadLiveAsync(IDocumentSession session, Guid id, CancellationToken ct)
+    {
+        var role = await session.LoadAsync<Role>(id, ct);
+        return role?.DeletedAt is null ? role : null;
     }
 }

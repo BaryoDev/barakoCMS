@@ -154,7 +154,7 @@ internal class Endpoint : Endpoint<Request, Response>
     /// </summary>
     internal static async Task<List<Guid>> UserRoleIdsAsync(IQuerySession session, CancellationToken ct)
     {
-        var userRole = await session.Query<Role>().FirstOrDefaultAsync(r => r.Name == "User", ct);
+        var userRole = await session.Query<Role>().FirstOrDefaultAsync(r => r.Name == "User" && r.DeletedAt == null, ct);
         return userRole is null ? new List<Guid>() : new List<Guid> { userRole.Id };
     }
 

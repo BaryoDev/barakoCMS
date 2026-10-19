@@ -109,8 +109,15 @@ public static class DataSeeder
         {
             // By id before by name. A seeded role an operator renamed holds the id, and storing a new
             // role under that id replaced it, name and permissions included, on every start.
-            var existing = await session.LoadAsync<Role>(role.Id)
-                           ?? await session.Query<Role>().FirstOrDefaultAsync(r => r.Name == role.Name);
+            var existing = await session.LoadAsync<Role>(role.Id);
+            if (existing?.DeletedAt is not null)
+            {
+                // A deleted seeded role comes back on start, as it did when a delete removed the row.
+                session.Delete(existing);
+                existing = null;
+            }
+
+            existing ??= await session.Query<Role>().FirstOrDefaultAsync(r => r.Name == role.Name && r.DeletedAt == null);
             if (existing == null)
             {
                 ApplyCapabilityDefaults(role);

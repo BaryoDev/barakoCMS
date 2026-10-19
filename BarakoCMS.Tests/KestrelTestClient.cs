@@ -19,6 +19,20 @@ internal static class KestrelTestClient
 {
     private static readonly TimeSpan ContinueTimeout = TimeSpan.FromMinutes(1);
 
+    /// <summary>
+    /// Starts a Kestrel host on a port the OS picks. The address is set as well as
+    /// <c>UseKestrel(0)</c> because a host started with only the latter was seen binding Kestrel's
+    /// default, 127.0.0.1:5000, and colliding with another run on the same machine.
+    /// </summary>
+    internal static WebApplicationFactory<TEntryPoint> StartOnFreePort<TEntryPoint>(WebApplicationFactory<TEntryPoint> factory)
+        where TEntryPoint : class
+    {
+        var host = factory.WithWebHostBuilder(builder => builder.UseUrls("http://127.0.0.1:0"));
+        host.UseKestrel(0);
+        host.StartServer();
+        return host;
+    }
+
     internal static HttpClient ExpectContinue<TEntryPoint>(WebApplicationFactory<TEntryPoint> host) where TEntryPoint : class
     {
         var address = host.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.First();

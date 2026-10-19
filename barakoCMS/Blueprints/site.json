@@ -40,7 +40,7 @@
         { "name": "ContactUrl", "displayName": "Contact link", "type": "url" },
         { "name": "SocialHandle", "displayName": "Social handle", "type": "string" },
         { "name": "Copyright", "displayName": "Copyright line", "type": "string" },
-        { "name": "Mode", "displayName": "Site mode", "type": "choice", "options": [{"value": "Live", "label": "Live"}, {"value": "Holding", "label": "Holding"}] },
+        { "name": "Mode", "displayName": "Site mode", "type": "choice", "options": [{"value": "Live", "label": "Live"}, {"value": "Holding", "label": "Holding"}, {"value": "Private", "label": "Private"}] },
         { "name": "HoldingPath", "displayName": "Holding page path", "type": "string" },
         { "name": "HeaderPath", "displayName": "Header page path", "type": "string" },
         { "name": "HeaderTone", "displayName": "Header tone", "type": "choice", "options": [ { "value": "page", "label": "Page" }, { "value": "surface", "label": "Surface" }, { "value": "accent", "label": "Accent" }, { "value": "inverse", "label": "Inverse" }, { "value": "gradient", "label": "Gradient" }, { "value": "wash", "label": "Wash" } ] },

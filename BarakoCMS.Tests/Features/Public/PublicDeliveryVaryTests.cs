@@ -112,9 +112,9 @@ public class PublicDeliveryVaryTests
         // Assert the value, not just that the header exists: a Vary that named some other header, or
         // one that dropped X-Tenant from a multi-value list, would tell a cache nothing about the
         // dimension that actually distinguished bodyA from bodyB above.
-        respA.Headers.Vary.Should().ContainSingle().Which.Should().Be("X-Tenant",
+        respA.Headers.Vary.Should().Equal(new[] { "X-Tenant", "X-Viewer-Token" },
             "a conforming cache is only told the response depends on the tenant if Vary says so");
-        respB.Headers.Vary.Should().ContainSingle().Which.Should().Be("X-Tenant");
+        respB.Headers.Vary.Should().Equal("X-Tenant", "X-Viewer-Token");
     }
 
     /// <summary>
@@ -178,7 +178,7 @@ public class PublicDeliveryVaryTests
             resp.IsSuccessStatusCode.Should().BeTrue(
                 $"{url} must succeed to prove anything about its Vary header, got {resp.StatusCode}: " +
                 $"{await resp.Content.ReadAsStringAsync()}");
-            resp.Headers.Vary.Should().ContainSingle().Which.Should().Be("X-Tenant",
+            resp.Headers.Vary.Should().Equal(new[] { "X-Tenant", "X-Viewer-Token" },
                 $"{url} must vary on the tenant header the same way the list route does");
         }
     }

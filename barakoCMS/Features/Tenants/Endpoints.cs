@@ -30,10 +30,32 @@ internal class PublicTenantEndpoint(IQuerySession session, IDocumentStore store)
         var handle = Route<string>("handle")?.ToLowerInvariant();
         var t = await session.Query<Tenant>().FirstOrDefaultAsync(x => x.Slug == handle, ct);
         if (t is not { Status: TenantStatus.Active }) { await Send.NotFoundAsync(ct); return; }
+        if (await IsRefusedAsPrivateAsync(t.Slug, ct)) { await Send.NotFoundAsync(ct); return; }
         var profile = await TenantProfiles.ReadAsync(store, t, ct);
         await Send.OkAsync(new TenantPublicResponse(
             t.Slug, t.Name, profile.LogoUrl, profile.About, profile.Location, profile.LocationUrl,
             profile.SocialHandle, profile.Email, profile.ContactUrl), ct);
+    }
+
+    /// <summary>
+    /// The profile is the tenant's site entry, so a tenant in Private mode answers it as it answers
+    /// delivery: 404 without a link to the whole site or a viewer who may read the site type. Read in
+    /// a session opened for the named tenant, since this route may resolve none.
+    /// </summary>
+    private async Task<bool> IsRefusedAsPrivateAsync(string slug, CancellationToken ct)
+    {
+        await using var tenantSession = slug == Tenant.DefaultSlug ? store.QuerySession() : store.QuerySession(slug);
+        if (await PrivateSite.FindPrivateEntryAsync(tenantSession, ct) is not { } site)
+            return false;
+
+        if (await PrivateSite.MayViewAsync(HttpContext, tenantSession, site, ct))
+        {
+            HttpContext.Response.Headers.CacheControl = "private, no-store";
+            return false;
+        }
+
+        PrivateSite.Refuse(HttpContext);
+        return true;
     }
 }
 
@@ -204,7 +226,7 @@ internal static class TenantSignUpRole
     public static async Task<string?> RefusalAsync(IQuerySession session, Guid roleId, string tenantSlug, CancellationToken ct)
     {
         var role = await session.LoadAsync<Role>(roleId, ct);
-        if (role is null || !barakoCMS.Features.Roles.RoleScope.Reaches(role, tenantSlug))
+        if (role is null || role.DeletedAt is not null || !barakoCMS.Features.Roles.RoleScope.Reaches(role, tenantSlug))
             return "The sign-up role does not exist.";
 
         if (!barakoCMS.Features.Tenants.Members.Members.IsAssignable(roleId)

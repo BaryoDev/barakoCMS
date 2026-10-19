@@ -75,6 +75,7 @@ internal sealed class Endpoint(
         var candidates = await session.Query<ContentDoc>()
             .Where(c => c.ContentType == def.Name
                         && c.Status != ContentStatus.Archived
+                        && c.Sensitivity != SensitivityLevel.Members
                         && c.MatchesSql(sql, parameters))
             .OrderBy(c => c.CreatedAt)
             .ThenBy(c => c.Id)

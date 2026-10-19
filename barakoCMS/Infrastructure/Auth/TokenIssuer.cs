@@ -52,7 +52,7 @@ public sealed class TokenIssuer(
 
         var roleIds = await MembershipRoles.EffectiveRoleIdsAsync(session, user, slug, ct);
         var roleDocs = await session.Query<Role>()
-            .Where(r => roleIds.Contains(r.Id))
+            .Where(r => r.DeletedAt == null && roleIds.Contains(r.Id))
             .ToListAsync(ct);
         var roles = roleDocs.Select(r => r.Name).ToList();
 

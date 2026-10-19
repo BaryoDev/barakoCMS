@@ -65,7 +65,7 @@ internal static class ApiContract
     /// <see cref="HeaderName"/> as the delivery number, which is what that number meant then.
     /// </para>
     /// </remarks>
-    public const int DeliveryVersion = 8;
+    public const int DeliveryVersion = 9;
 
     /// <summary>The header every response carries <see cref="DeliveryVersion"/> on.</summary>
     public const string DeliveryHeaderName = "X-Delivery-Contract-Version";

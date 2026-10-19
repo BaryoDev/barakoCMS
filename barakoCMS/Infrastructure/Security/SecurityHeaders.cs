@@ -56,7 +56,7 @@ public static class SecurityHeaders
     private static readonly string[] NoStorePrefixes =
     [
         "/api/auth", "/api/me", "/api/api-keys", "/api/preview", "/api/meta/describe",
-        "/api/public/site/share-links",
+        "/api/public/site/share-links", "/api/viewer-tokens",
     ];
 
     public static bool IsNoStorePath(string? path) =>

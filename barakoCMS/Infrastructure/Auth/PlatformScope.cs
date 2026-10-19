@@ -47,7 +47,7 @@ public static class PlatformScope
         if (caller.RoleIds.Contains(SystemRoles.SuperAdminRoleId)) return true;
 
         var ids = caller.RoleIds;
-        var roles = await session.Query<Role>().Where(r => ids.Contains(r.Id)).ToListAsync(ct);
+        var roles = await session.Query<Role>().Where(r => r.DeletedAt == null && ids.Contains(r.Id)).ToListAsync(ct);
         var legacy = configuration.GetValue(CapabilityGateProcessor.LegacyRoleFallbackKey, false);
 
         return roles.Any(r => SystemCapabilities.Satisfies(r.SystemCapabilities ?? [], capability)
