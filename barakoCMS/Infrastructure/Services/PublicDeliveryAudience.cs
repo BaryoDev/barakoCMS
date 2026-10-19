@@ -27,7 +27,7 @@ internal static class PublicDeliveryAudience
 
     private static string Normal(string? name) => barakoCMS.Core.ContentTypeName.Normalize(name);
 
-    private static async Task<List<Role>> RolesAsync(IQuerySession session, CancellationToken ct) =>
+    private static async Task<IReadOnlyList<Role>> RolesAsync(IQuerySession session, CancellationToken ct) =>
         await RoleScope.In(session.Query<Role>(), TenantScopes.SlugFor(session.TenantId)).ToListAsync(ct);
 
     private static IEnumerable<string> LimitedTypes(Role role) =>
