@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using FastEndpoints.Security;
 using Marten;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using barakoCMS.Infrastructure;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Multitenancy;
@@ -86,7 +87,7 @@ public static class SocialSignIn
         }
 
         return await IssueForUserAsync(
-            session, config, deviceGate, tokenIssuer, mfa, http, user, club, created ? signUp : null, ct, profile, null);
+            session, config, deviceGate, tokenIssuer, mfa, http, user, club, created ? signUp : null, ct, profile, null, null);
     }
 
     /// <summary>
@@ -161,24 +162,11 @@ public static class SocialSignIn
             });
         }
 
-        // The tenant's map runs on every sign-in, not only the first, so a person added to a group
-        // at the provider has the role the next time they sign in.
-        if (!string.IsNullOrEmpty(club) && identity.Claims.Count > 0)
-        {
-            var map = await session.LoadAsync<ExternalRoleMap>(club.Trim().ToLowerInvariant(), ct);
-            if (map is not null)
-            {
-                var roles = RoleMaps.RolesFor(map, identity.Claims);
-                if (roles.Count > 0 && await ExternalRoleGrant.StageAsync(session, user, club, roles, provider, ct))
-                {
-                    await session.SaveChangesAsync(ct);
-                }
-            }
-        }
+        var mapped = await MappedRolesAsync(session, identity, provider, club, ct);
 
         var profile = new ProfileData(identity.Name, identity.Picture, null, null, provider);
         return (await IssueForUserAsync(
-            session, config, deviceGate, tokenIssuer, mfa, http, user, club, created ? signUp : null, ct, profile, beforeFinalCommit), false);
+            session, config, deviceGate, tokenIssuer, mfa, http, user, club, created ? signUp : null, ct, profile, beforeFinalCommit, mapped), false);
     }
 
     /// <summary>
@@ -217,7 +205,8 @@ public static class SocialSignIn
         SignUpDecision? signUp,
         CancellationToken ct,
         ProfileData? profile,
-        Action<IDocumentSession>? beforeFinalCommit)
+        Action<IDocumentSession>? beforeFinalCommit,
+        MappedRoles? mapped)
     {
         // Open sign-up makes this person a member before the issuer looks for one. Committed now,
         // with the account it may have just created, because the issuer reads memberships from
@@ -243,6 +232,17 @@ public static class SocialSignIn
             await session.SaveChangesAsync(ct); // persist the user/profile created above
             var (challenge, _) = barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Create(config, user.Id);
             return Tokens.MfaRequired(challenge);
+        }
+
+        // After the second factor, so a provider account takeover cannot reach a role through the
+        // map either. The grant commits with the outcome, which means with the nonce.
+        if (mapped is not null && await StageMappedRolesAsync(session, user, tenantSlug, mapped, ct))
+        {
+            beforeFinalCommit?.Invoke(session);
+            beforeFinalCommit = null;
+            await session.SaveChangesAsync(ct);
+            http.RequestServices?.GetService<barakoCMS.Infrastructure.Services.IPermissionResolver>()
+                ?.InvalidateUserPermissions(user.Id);
         }
 
         var device = DeviceContext.From(http);
@@ -280,6 +280,36 @@ public static class SocialSignIn
 
         return new Tokens(jwt, refresh);
     }
+
+    /// <summary>The roles the tenant's map gives for a sign-in's claims, and the provider they came from.</summary>
+    internal sealed record MappedRoles(List<Guid> RoleIds, string Provider);
+
+    /// <summary>
+    /// Reads the tenant's map and what it gives this sign-in. Nothing is written, so a person who
+    /// still owes a second factor has been given nothing yet. The map runs on every sign-in, so a
+    /// person added to a group at the provider has the role the next time they sign in.
+    /// </summary>
+    private static async Task<MappedRoles?> MappedRolesAsync(
+        IDocumentSession session, OidcIdentity identity, string provider, string club, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(club) || identity.Claims.Count == 0)
+        {
+            return null;
+        }
+
+        var map = await session.LoadAsync<ExternalRoleMap>(club.Trim().ToLowerInvariant(), ct);
+        if (map is null)
+        {
+            return null;
+        }
+
+        var roles = RoleMaps.RolesFor(map, identity.Claims, provider);
+        return roles.Count == 0 ? null : new MappedRoles(roles, provider);
+    }
+
+    private static Task<bool> StageMappedRolesAsync(
+        IDocumentSession session, User user, string tenantSlug, MappedRoles mapped, CancellationToken ct) =>
+        ExternalRoleGrant.StageAsync(session, user, tenantSlug, mapped.RoleIds, mapped.Provider, ct);
 
     /// <summary>Merges what the provider shared into the stored profile, keeping a field it left out.</summary>
     private static async Task StageProfileAsync(IDocumentSession session, User user, ProfileData profile, CancellationToken ct)

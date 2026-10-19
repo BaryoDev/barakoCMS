@@ -388,4 +388,82 @@ public class OidcIdTokenTests : IDisposable
 
         identity!.Picture.Should().Be("https://idp.test.example/p.png");
     }
+
+    private async Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> ClaimsOfAsync(Action<Dictionary<string, object?>> edit)
+    {
+        var (identity, refusal) = await ValidateAsync(OidcTestTokens.Rs256(_key, Claims(edit)));
+        refusal.Should().Be(OidcRefusal.None);
+        identity.Should().NotBeNull();
+        return identity!.Claims;
+    }
+
+    [Fact]
+    public async Task A_string_claim_and_an_array_claim_are_carried_as_lists_of_strings()
+    {
+        var claims = await ClaimsOfAsync(c =>
+        {
+            c["department"] = "physics";
+            c["groups"] = new[] { "staff", "everyone" };
+        });
+
+        claims["department"].Should().Equal("physics");
+        claims["groups"].Should().Equal("staff", "everyone");
+    }
+
+    [Fact]
+    public async Task Items_that_are_not_strings_and_claims_that_are_not_text_are_left_out()
+    {
+        var claims = await ClaimsOfAsync(c =>
+        {
+            c["groups"] = new object[] { "staff", 5, true, new[] { "nested" }, "admins" };
+            c["level"] = 7;
+            c["flag"] = true;
+            c["nested"] = new Dictionary<string, object?> { ["groups"] = "staff" };
+        });
+
+        claims["groups"].Should().Equal("staff", "admins");
+        claims.Should().NotContainKey("level");
+        claims.Should().NotContainKey("flag");
+        claims.Should().NotContainKey("nested", "nested claims are not read");
+    }
+
+    [Fact]
+    public async Task A_claim_carries_at_most_a_hundred_values()
+    {
+        var many = Enumerable.Range(0, 150).Select(i => $"g{i}").ToArray();
+
+        var claims = await ClaimsOfAsync(c => c["groups"] = many);
+
+        claims["groups"].Should().HaveCount(100);
+        claims["groups"].First().Should().Be("g0");
+    }
+
+    [Fact]
+    public async Task A_value_of_more_than_255_characters_is_dropped_and_255_is_kept()
+    {
+        var claims = await ClaimsOfAsync(c =>
+        {
+            c["groups"] = new[] { new string('a', 255), new string('b', 256), "short" };
+            c["long"] = new string('c', 256);
+        });
+
+        claims["groups"].Should().HaveCount(2);
+        claims["groups"].Should().Contain(new string('a', 255));
+        claims["groups"].Should().NotContain(new string('b', 256));
+        claims.Should().NotContainKey("long");
+    }
+
+    [Fact]
+    public async Task At_most_64_claims_are_carried()
+    {
+        var claims = await ClaimsOfAsync(c =>
+        {
+            for (var i = 0; i < 100; i++)
+            {
+                c[$"extra{i:000}"] = "v";
+            }
+        });
+
+        claims.Should().HaveCount(64);
+    }
 }

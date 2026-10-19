@@ -91,9 +91,15 @@ public static class ExternalRoleGrant
             return false;
         }
 
-        await Features.Tenants.Members.Members.ChangeAsync(
-            session, actor, "tenant.member.updated", membership,
-            (membership.RoleIds ?? []).Concat(missing).ToList(), membership.Status, null, details, ct);
+        if (membership.RoleIds is null)
+        {
+            await Features.Tenants.Members.Members.ChangeAsync(
+                session, actor, "tenant.member.updated", membership, missing, membership.Status, null, details, ct);
+            return true;
+        }
+
+        await Features.Tenants.Members.Members.AppendRolesAsync(
+            session, actor, "tenant.member.updated", membership, missing, details, ct);
         return true;
     }
 }

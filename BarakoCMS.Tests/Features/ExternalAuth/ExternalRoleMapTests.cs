@@ -4,6 +4,8 @@ using System.Net.Http.Json;
 using BarakoCMS.ExternalAuth;
 using FluentAssertions;
 using Marten;
+using Marten.Patching;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using barakoCMS.Models;
@@ -25,9 +27,27 @@ namespace BarakoCMS.Tests.Features.ExternalAuth;
 public class ExternalRoleMapTests
 {
     private static int _ipCounter;
+    private static readonly Lock Gate = new();
+    private static Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program>? _host;
     private readonly IntegrationTestFixture _fixture;
 
-    public ExternalRoleMapTests(IntegrationTestFixture fixture) => _fixture = fixture;
+    public ExternalRoleMapTests(IntegrationTestFixture fixture)
+    {
+        _fixture = fixture;
+        lock (Gate)
+        {
+            _host ??= fixture.WithWebHostBuilder(b => b.ConfigureAppConfiguration((_, config) =>
+                config.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["Oidc:Providers:alpha:Authority"] = OidcStubProvider.Authority,
+                    ["Oidc:Providers:alpha:ClientId"] = OidcStubProvider.ClientId,
+                    ["Oidc:Providers:alpha:ClientSecret"] = OidcStubProvider.ClientSecret,
+                    ["Oidc:Providers:beta:Authority"] = OidcStubProvider.Authority,
+                    ["Oidc:Providers:beta:ClientId"] = OidcStubProvider.ClientId,
+                    ["Oidc:Providers:beta:ClientSecret"] = OidcStubProvider.ClientSecret,
+                })));
+        }
+    }
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -58,7 +78,7 @@ public class ExternalRoleMapTests
             new ExternalRoleMap
             {
                 Id = slug, Claim = claim,
-                Rules = [new ExternalRoleRule { Value = value, RoleId = teacher.Id }],
+                Rules = [new ExternalRoleRule { Provider = "stub", Value = value, RoleId = teacher.Id }],
             });
         return (slug, teacher);
     }
@@ -74,13 +94,14 @@ public class ExternalRoleMapTests
     }
 
     private async Task<SocialSignIn.Tokens> SignInAsync(
-        User user, string club, IReadOnlyDictionary<string, IReadOnlyList<string>> claims)
+        User user, string club, IReadOnlyDictionary<string, IReadOnlyList<string>> claims, string provider = "stub")
     {
         using var scope = _fixture.Services.CreateScope();
         var services = scope.ServiceProvider;
         var session = services.GetRequiredService<IDocumentSession>();
         var context = new Microsoft.AspNetCore.Http.DefaultHttpContext();
         context.Request.Headers["User-Agent"] = "role-map-tests";
+        context.RequestServices = services;
 
         var (tokens, _) = await SocialSignIn.IssueForIdentityAsync(
             session,
@@ -93,7 +114,7 @@ public class ExternalRoleMapTests
             {
                 Claims = claims,
             },
-            "stub",
+            provider,
             club,
             Ct);
         return tokens;
@@ -189,8 +210,8 @@ public class ExternalRoleMapTests
                 Id = slug, Claim = "groups",
                 Rules =
                 [
-                    new ExternalRoleRule { Value = "staff", RoleId = SystemRoles.SuperAdminRoleId },
-                    new ExternalRoleRule { Value = "staff", RoleId = elsewhere },
+                    new ExternalRoleRule { Provider = "stub", Value = "staff", RoleId = SystemRoles.SuperAdminRoleId },
+                    new ExternalRoleRule { Provider = "stub", Value = "staff", RoleId = elsewhere },
                 ],
             });
         var user = await PersonAsync();
@@ -235,7 +256,7 @@ public class ExternalRoleMapTests
     /// </summary>
     private HttpClient ClientFor(string slug, string? role)
     {
-        var client = _fixture.CreateClient();
+        var client = _host!.CreateClient();
         if (role is not null)
         {
             var user = new User { Id = Guid.NewGuid(), Email = $"{Unique("c")}@example.com", Username = Unique("c"), PasswordHash = "" };
@@ -275,7 +296,7 @@ public class ExternalRoleMapTests
         var client = ClientFor(slug, "Admin");
 
         var put = await client.PutAsJsonAsync("/api/tenants/external-role-map",
-            new { claim = "groups", rules = new[] { new { value = "staff", roleId = role.Id } } }, Ct);
+            new { claim = "groups", rules = new[] { new { provider = "alpha", value = "staff", roleId = role.Id } } }, Ct);
         put.StatusCode.Should().Be(HttpStatusCode.OK, await put.Content.ReadAsStringAsync(Ct));
 
         var get = await client.GetAsync("/api/tenants/external-role-map", Ct);
@@ -297,7 +318,7 @@ public class ExternalRoleMapTests
         foreach (var roleId in new[] { SystemRoles.SuperAdminRoleId, foreign.Id, Guid.NewGuid() })
         {
             var response = await client.PutAsJsonAsync("/api/tenants/external-role-map",
-                new { claim = "groups", rules = new[] { new { value = "staff", roleId } } }, Ct);
+                new { claim = "groups", rules = new[] { new { provider = "alpha", value = "staff", roleId } } }, Ct);
             response.StatusCode.Should().Be(HttpStatusCode.BadRequest, $"role {roleId} is not one a claim may grant");
         }
 
@@ -346,7 +367,7 @@ public class ExternalRoleMapTests
             new ExternalRoleMap
             {
                 Id = slug, Claim = "groups",
-                Rules = [new ExternalRoleRule { Value = "staff", RoleId = unowned }],
+                Rules = [new ExternalRoleRule { Provider = "stub", Value = "staff", RoleId = unowned }],
             });
         var user = await PersonAsync();
 
@@ -354,7 +375,7 @@ public class ExternalRoleMapTests
 
         (await MembershipsAsync(user.Id, slug)).Should().BeEmpty();
         var put = await ClientFor(slug, "Admin").PutAsJsonAsync("/api/tenants/external-role-map",
-            new { claim = "groups", rules = new[] { new { value = "staff", roleId = unowned } } }, Ct);
+            new { claim = "groups", rules = new[] { new { provider = "alpha", value = "staff", roleId = unowned } } }, Ct);
         put.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
@@ -370,7 +391,7 @@ public class ExternalRoleMapTests
         await StoreAsync(powerful, new ExternalRoleMap
         {
             Id = slug, Claim = "groups",
-            Rules = [new ExternalRoleRule { Value = "staff", RoleId = powerful.Id }],
+            Rules = [new ExternalRoleRule { Provider = "stub", Value = "staff", RoleId = powerful.Id }],
         });
         var user = await PersonAsync();
 
@@ -378,15 +399,16 @@ public class ExternalRoleMapTests
 
         (await MembershipsAsync(user.Id, slug)).Should().BeEmpty();
         (await ClientFor(slug, "Admin").PutAsJsonAsync("/api/tenants/external-role-map",
-            new { claim = "groups", rules = new[] { new { value = "staff", roleId = powerful.Id } } }, Ct))
+            new { claim = "groups", rules = new[] { new { provider = "alpha", value = "staff", roleId = powerful.Id } } }, Ct))
             .StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     // ---- the link endpoints ----
 
-    private async Task<(string Slug, User Member, ExternalIdentity Link)> MemberWithLinkAsync()
+    private async Task<(string SlugA, string SlugB, User Member, ExternalIdentity Link)> MemberInTwoTenantsAsync()
     {
-        var slug = await AdminTenantAsync();
+        var slugA = await AdminTenantAsync();
+        var slugB = await AdminTenantAsync();
         var member = await PersonAsync();
         var link = new ExternalIdentity
         {
@@ -394,20 +416,34 @@ public class ExternalRoleMapTests
             Issuer = "https://idp.test.example", Subject = "s-" + member.Id.ToString("N"),
             UserId = member.Id, Provider = "stub",
         };
-        await StoreAsync(link, new Membership
-        {
-            Id = Guid.NewGuid(), UserId = member.Id, TenantSlug = slug,
-            Status = MembershipStatus.Active, RoleIds = [SystemRoles.UserRoleId],
-        });
-        return (slug, member, link);
+        await StoreAsync(
+            link,
+            new Membership { Id = Guid.NewGuid(), UserId = member.Id, TenantSlug = slugA, Status = MembershipStatus.Active, RoleIds = [SystemRoles.UserRoleId] },
+            new Membership { Id = Guid.NewGuid(), UserId = member.Id, TenantSlug = slugB, Status = MembershipStatus.Active, RoleIds = [SystemRoles.UserRoleId] });
+        return (slugA, slugB, member, link);
+    }
+
+    private async Task<HttpClient> PlatformAdminClientAsync(string slug)
+    {
+        var client = _host!.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", await _fixture.StoredUserTokenAsync("SuperAdmin"));
+        client.DefaultRequestHeaders.Add("X-Tenant", slug);
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"198.51.100.{Interlocked.Increment(ref _ipCounter) % 250 + 1}");
+        return client;
+    }
+
+    private async Task<ExternalIdentity?> LinkAsync(string id)
+    {
+        using var scope = _fixture.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<ExternalIdentity>(id, Ct);
     }
 
     [Fact]
-    public async Task An_administrator_lists_and_removes_a_members_provider_links()
+    public async Task A_platform_administrator_lists_and_removes_the_links_of_a_user_who_is_in_two_tenants()
     {
-        var (slug, member, link) = await MemberWithLinkAsync();
-        var client = ClientFor(slug, "Admin");
-        var route = $"/api/tenants/members/{member.Id}/external-identities";
+        var (slugA, slugB, member, link) = await MemberInTwoTenantsAsync();
+        var client = await PlatformAdminClientAsync(slugA);
+        var route = $"/api/users/{member.Id}/external-identities";
 
         var list = await client.GetAsync(route, Ct);
         list.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -417,59 +453,160 @@ public class ExternalRoleMapTests
 
         (await client.DeleteAsync($"{route}/{link.Id}", Ct)).StatusCode.Should().Be(HttpStatusCode.NoContent);
 
-        using var scope = _fixture.Services.CreateScope();
-        (await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<ExternalIdentity>(link.Id, Ct))
-            .Should().BeNull();
+        (await LinkAsync(link.Id)).Should().BeNull("the link was global, so it is gone for both tenants");
+        (await MembershipsAsync(member.Id, slugA)).Should().HaveCount(1);
+        (await MembershipsAsync(member.Id, slugB)).Should().HaveCount(1, "removing a link takes nobody out of a tenant");
     }
 
     [Fact]
-    public async Task The_link_routes_answer_401_without_a_token_and_403_without_the_capability()
+    public async Task A_tenant_administrator_cannot_list_or_remove_a_users_links_and_an_anonymous_caller_is_refused()
     {
-        var (slug, member, link) = await MemberWithLinkAsync();
-        var route = $"/api/tenants/members/{member.Id}/external-identities";
+        var (slug, _, member, link) = await MemberInTwoTenantsAsync();
+        var route = $"/api/users/{member.Id}/external-identities";
+        var admin = ClientFor(slug, "Admin");
 
+        (await admin.GetAsync(route, Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await admin.DeleteAsync($"{route}/{link.Id}", Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await ClientFor(slug, null).GetAsync(route, Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
-        (await ClientFor(slug, "User").GetAsync(route, Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        (await ClientFor(slug, "User").DeleteAsync($"{route}/{link.Id}", Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await ClientFor(slug, null).DeleteAsync($"{route}/{link.Id}", Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
-        using var scope = _fixture.Services.CreateScope();
-        (await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<ExternalIdentity>(link.Id, Ct))
-            .Should().NotBeNull("the refused delete left the link alone");
+        (await LinkAsync(link.Id)).Should().NotBeNull("the refused delete left the link alone");
     }
 
     [Fact]
-    public async Task An_administrator_cannot_see_or_remove_the_links_of_somebody_outside_their_tenant()
+    public async Task A_link_is_removed_only_through_the_user_it_belongs_to_and_an_unknown_user_is_not_found()
     {
-        var (_, member, link) = await MemberWithLinkAsync();
-        var otherTenant = await AdminTenantAsync();
-        var client = ClientFor(otherTenant, "Admin");
-        var route = $"/api/tenants/members/{member.Id}/external-identities";
-
-        (await client.GetAsync(route, Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
-        (await client.DeleteAsync($"{route}/{link.Id}", Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
-
-        using var scope = _fixture.Services.CreateScope();
-        (await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<ExternalIdentity>(link.Id, Ct))
-            .Should().NotBeNull();
-    }
-
-    [Fact]
-    public async Task A_link_is_removed_only_through_the_user_it_belongs_to()
-    {
-        var (slug, _, link) = await MemberWithLinkAsync();
+        var (slug, _, _, link) = await MemberInTwoTenantsAsync();
         var bystander = await PersonAsync();
-        await StoreAsync(new Membership
+        var client = await PlatformAdminClientAsync(slug);
+
+        (await client.DeleteAsync($"/api/users/{bystander.Id}/external-identities/{link.Id}", Ct))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await client.GetAsync($"/api/users/{Guid.NewGuid()}/external-identities", Ct))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        (await LinkAsync(link.Id)).Should().NotBeNull();
+    }
+
+    // ---- the provider a rule names, and what a rule may read ----
+
+    [Fact]
+    public async Task A_group_from_a_provider_other_than_the_one_the_rule_names_gives_nothing()
+    {
+        var (slug, teacher) = await TenantWithMapAsync();
+        var user = await PersonAsync();
+
+        await SignInAsync(user, slug, Groups("staff"), provider: "another");
+        (await MembershipsAsync(user.Id, slug)).Should().BeEmpty("the rule reads stub, and this sign-in came through another");
+
+        await SignInAsync(user, slug, Groups("staff"), provider: "stub");
+        (await MembershipsAsync(user.Id, slug)).Single().RoleIds.Should().Equal(teacher.Id);
+    }
+
+    [Fact]
+    public async Task A_rule_must_name_a_configured_provider()
+    {
+        var slug = await AdminTenantAsync();
+        var role = new Role { Id = Guid.NewGuid(), Name = Unique("Teacher"), TenantSlug = slug, Permissions = [], SystemCapabilities = [] };
+        await StoreAsync(role);
+        var client = ClientFor(slug, "Admin");
+
+        foreach (var provider in new[] { "gamma", "", "ALPHA", "alpha " })
         {
-            Id = Guid.NewGuid(), UserId = bystander.Id, TenantSlug = slug,
-            Status = MembershipStatus.Active, RoleIds = [SystemRoles.UserRoleId],
-        });
+            (await client.PutAsJsonAsync("/api/tenants/external-role-map",
+                new { claim = "groups", rules = new[] { new { provider, value = "staff", roleId = role.Id } } }, Ct))
+                .StatusCode.Should().Be(HttpStatusCode.BadRequest, $"'{provider}' is not a configured provider");
+        }
 
-        var response = await ClientFor(slug, "Admin")
-            .DeleteAsync($"/api/tenants/members/{bystander.Id}/external-identities/{link.Id}", Ct);
+        (await client.PutAsJsonAsync("/api/tenants/external-role-map",
+            new { claim = "groups", rules = new[] { new { provider = "beta", value = "staff", roleId = role.Id } } }, Ct))
+            .StatusCode.Should().Be(HttpStatusCode.OK, "a configured provider is accepted");
+    }
 
-        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    [Theory]
+    [InlineData("email")]
+    [InlineData("Name")]
+    [InlineData("preferred_username")]
+    [InlineData("sub")]
+    public async Task A_rule_cannot_read_a_claim_the_person_can_edit_about_themselves(string claim)
+    {
+        var slug = await AdminTenantAsync();
+        var role = new Role { Id = Guid.NewGuid(), Name = Unique("Teacher"), TenantSlug = slug, Permissions = [], SystemCapabilities = [] };
+        await StoreAsync(role);
+        var client = ClientFor(slug, "Admin");
+
+        (await client.PutAsJsonAsync("/api/tenants/external-role-map",
+            new { claim, rules = new[] { new { provider = "alpha", value = "staff", roleId = role.Id } } }, Ct))
+            .StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await client.PutAsJsonAsync("/api/tenants/external-role-map",
+            new { claim = "groups", rules = new[] { new { provider = "alpha", value = "staff", roleId = role.Id } } }, Ct))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task A_value_with_a_space_at_either_end_is_refused()
+    {
+        var slug = await AdminTenantAsync();
+        var role = new Role { Id = Guid.NewGuid(), Name = Unique("Teacher"), TenantSlug = slug, Permissions = [], SystemCapabilities = [] };
+        await StoreAsync(role);
+        var client = ClientFor(slug, "Admin");
+
+        foreach (var value in new[] { " staff", "staff ", "staff\t" })
+        {
+            (await client.PutAsJsonAsync("/api/tenants/external-role-map",
+                new { claim = "groups", rules = new[] { new { provider = "alpha", value, roleId = role.Id } } }, Ct))
+                .StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        }
+    }
+
+    [Fact]
+    public async Task Setting_and_removing_the_map_each_leave_an_audit_entry_naming_the_tenant()
+    {
+        var slug = await AdminTenantAsync();
+        var role = new Role { Id = Guid.NewGuid(), Name = Unique("Teacher"), TenantSlug = slug, Permissions = [], SystemCapabilities = [] };
+        await StoreAsync(role);
+        var client = ClientFor(slug, "Admin");
+
+        (await client.PutAsJsonAsync("/api/tenants/external-role-map",
+            new { claim = "groups", rules = new[] { new { provider = "alpha", value = "staff", roleId = role.Id } } }, Ct))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await client.DeleteAsync("/api/tenants/external-role-map", Ct)).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
         using var scope = _fixture.Services.CreateScope();
-        (await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<ExternalIdentity>(link.Id, Ct))
-            .Should().NotBeNull();
+        var actions = (await scope.ServiceProvider.GetRequiredService<IQuerySession>().Query<AuditEvent>()
+            .Where(e => e.TenantSlug == slug).ToListAsync(Ct)).Select(e => e.Action).ToList();
+        actions.Should().Contain("tenant.external_role_map.updated");
+        actions.Should().Contain("tenant.external_role_map.removed");
+    }
+
+    [Fact]
+    public async Task A_role_an_administrator_set_after_the_membership_was_read_is_kept_when_the_grant_commits()
+    {
+        var (slug, teacher) = await TenantWithMapAsync();
+        var user = await PersonAsync();
+        var admins = Guid.NewGuid();
+        await StoreAsync(
+            new Role { Id = admins, Name = Unique("Other"), TenantSlug = slug, Permissions = [], SystemCapabilities = [] },
+            new Membership { Id = Guid.NewGuid(), UserId = user.Id, TenantSlug = slug, Status = MembershipStatus.Active, RoleIds = [] });
+
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var stale = await session.Query<Membership>().SingleAsync(m => m.UserId == user.Id && m.TenantSlug == slug, Ct);
+
+        using (var concurrent = _fixture.Services.CreateScope())
+        {
+            var other = concurrent.ServiceProvider.GetRequiredService<IDocumentSession>();
+            other.Patch<Membership>(stale.Id).Set(x => x.RoleIds, new List<Guid> { admins });
+            await other.SaveChangesAsync(Ct);
+        }
+
+        stale.RoleIds.Should().BeEmpty("the copy in hand predates the administrator's change");
+        var actor = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(
+            [new System.Security.Claims.Claim("UserId", user.Id.ToString())], "test"));
+        await barakoCMS.Features.Tenants.Members.Members.AppendRolesAsync(
+            session, actor, "tenant.member.updated", stale, [teacher.Id], new Dictionary<string, object>(), Ct);
+        await session.SaveChangesAsync(Ct);
+
+        (await MembershipsAsync(user.Id, slug)).Single().RoleIds.Should().BeEquivalentTo([admins, teacher.Id]);
     }
 }

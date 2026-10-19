@@ -167,29 +167,47 @@ with MFA enrolled is still asked for its second factor.
 
 ### Linked accounts
 
-A tenant administrator (capability `manage_tenant_members`) lists a member's provider links with
-`GET /api/tenants/members/{userId}/external-identities` and removes one with
-`DELETE /api/tenants/members/{userId}/external-identities/{id}`. Only people with a membership in
-the caller's tenant are reachable; anyone else answers 404. A link belongs to the person, so
-removing it applies to every tenant. The next sign-in through that provider links again by verified
-email.
+A platform administrator (capability `manage_users`, SuperAdmin) lists a user's provider links with
+`GET /api/users/{userId}/external-identities` and removes one with
+`DELETE /api/users/{userId}/external-identities/{id}`. A tenant administrator cannot: a link belongs
+to the person and works in every tenant they sign in to. An unknown user, or a link that belongs to
+another user, answers 404. The provider's subject is not returned. The next sign-in through that
+provider links again by verified email.
 
 ### Mapping a provider claim to roles
 
 A tenant sets one map with `PUT /api/tenants/external-role-map` (`GET` and `DELETE` read and remove
-it): a claim name from the id token, for example `groups`, and rules from a claim value to a role.
+it, and each change is written to the audit log). The map is one claim name from the id token, for
+example `groups`, and rules from a claim value, read from one provider, to a role:
 
 ```json
-{ "claim": "groups", "rules": [ { "value": "staff", "roleId": "<role id>" } ] }
+{ "claim": "groups", "rules": [ { "provider": "azure", "value": "staff", "roleId": "<role id>" } ] }
 ```
 
+`provider` is the name under `Oidc:Providers` and must be configured. A rule only matches a token
+that came through that provider, so the same group name at another provider gives nothing. Values
+match exactly and case sensitively, and a value cannot start or end with a space. A rule cannot read
+`name`, `given_name`, `family_name`, `nickname`, `picture`, `preferred_username`, `email`,
+`email_verified`, `sub`, `iss` or `aud`.
+
 On every OpenID Connect sign-in for that tenant, each rule the token matches adds its role to the
-person's membership, creating the membership if there is none. Values match exactly and case
-sensitively. The map only adds: a removed or suspended member is not brought back, and a claim that
-stops being sent takes nothing away. It cannot name SuperAdmin, a role carrying a platform capability,
-a role of another tenant, or a role that does not exist; the PUT answers 400, and a map stored some
-other way is filtered the same at sign-in. The map is read from the sign-in's tenant, never from the
-request, and it applies to any configured OpenID Connect provider for that tenant.
+person's membership, creating the membership if there is none. The grant is made after the second
+factor: a person with MFA enrolled is given nothing in that sign-in, and it commits with the outcome
+of the sign-in, the spent nonce included, or not at all. It only adds. A removed or suspended member
+is not brought back, a claim that stops being sent takes nothing away, and taking a mapped role away
+means editing the map or suspending the member. The map is read from the sign-in's tenant, never
+from the request.
+
+It cannot name SuperAdmin, a role carrying a platform capability, a role of another tenant, or a
+role that does not exist; the PUT answers 400, and a map stored some other way is filtered the same
+at sign-in. A map can create a membership in a tenant whose sign-up is Closed, for a person who
+already has an account: Closed stops people signing themselves up, and the map is the
+administrator's own rule.
+
+What is read from the token is bounded. Only top-level claims that are a string or an array of
+strings count, at most 64 claims, 100 values for each, and a value longer than 255 characters is
+dropped. Nested claims, such as a Keycloak `realm_access.roles`, are not supported; ask the provider
+to send a top-level claim. The table is created by `migrations/5.1.0/915-external-auth-role-maps.sql`.
 
 An upgraded database needs `migrations/4.6.0/external-auth-identities.sql` before the new build
 starts, like any new table.

@@ -22,9 +22,12 @@ public class ExternalRoleMap
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }
 
-/// <summary>One claim value and the role in the tenant a person carrying it is given.</summary>
+/// <summary>One claim value, from one provider, and the role in the tenant a person carrying it is given.</summary>
 public class ExternalRoleRule
 {
+    /// <summary>The <c>Oidc:Providers</c> name whose sign-in this rule reads. Another provider's token never matches it.</summary>
+    public string Provider { get; set; } = string.Empty;
+
     public string Value { get; set; } = string.Empty;
 
     public Guid RoleId { get; set; }

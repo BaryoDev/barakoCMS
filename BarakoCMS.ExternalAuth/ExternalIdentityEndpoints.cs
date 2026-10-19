@@ -1,5 +1,4 @@
 using barakoCMS.Infrastructure.Auth;
-using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Models;
 using FastEndpoints;
 using FluentValidation;
@@ -38,28 +37,29 @@ internal sealed class RemoveExternalIdentityValidator : Validator<RemoveExternal
 internal static class ExternalIdentityAccess
 {
     /// <summary>
-    /// Whether the person is a current member of the tenant. A link belongs to the person, not to a
-    /// tenant, so membership is the only reason a tenant's administrator may see or remove one. A
-    /// stranger answers as if they did not exist.
+    /// A link belongs to the person and works in every tenant they sign in to, so a tenant
+    /// administrator may not list or remove one. Only a platform user administrator may.
     /// </summary>
-    public static Task<bool> IsMemberAsync(IQuerySession session, Guid userId, string slug, CancellationToken ct) =>
-        session.Query<Membership>().AnyAsync(
-            m => m.UserId == userId && m.TenantSlug == slug && m.Status != MembershipStatus.Removed, ct);
+    public static void RequirePlatformUserAdmin(EndpointDefinition definition) =>
+        definition.RequireCapability(SystemCapabilities.ManageUsers, "SuperAdmin");
+
+    public static Task<bool> UserExistsAsync(IQuerySession session, Guid userId, CancellationToken ct) =>
+        session.Query<User>().AnyAsync(u => u.Id == userId, ct);
 }
 
-/// <summary>GET /api/tenants/members/{userId}/external-identities: the provider accounts linked to a member.</summary>
-internal sealed class ListExternalIdentitiesEndpoint(IQuerySession session, TenantContext tenant)
+/// <summary>GET /api/users/{userId}/external-identities: the provider accounts linked to a user.</summary>
+internal sealed class ListExternalIdentitiesEndpoint(IQuerySession session)
     : Endpoint<ExternalIdentitiesRequest, PaginatedResponse<ExternalIdentityResponse>>
 {
     public override void Configure()
     {
-        Get("/api/tenants/members/{userId}/external-identities");
-        Definition.RequireCapability(SystemCapabilities.ManageTenantMembers, "SuperAdmin", "Admin");
+        Get("/api/users/{userId}/external-identities");
+        ExternalIdentityAccess.RequirePlatformUserAdmin(Definition);
     }
 
     public override async Task HandleAsync(ExternalIdentitiesRequest req, CancellationToken ct)
     {
-        if (!await ExternalIdentityAccess.IsMemberAsync(session, req.UserId, tenant.Slug, ct))
+        if (!await ExternalIdentityAccess.UserExistsAsync(session, req.UserId, ct))
         {
             await Send.NotFoundAsync(ct);
             return;
@@ -75,17 +75,17 @@ internal sealed class ListExternalIdentitiesEndpoint(IQuerySession session, Tena
 }
 
 /// <summary>
-/// DELETE /api/tenants/members/{userId}/external-identities/{id}: unlinks a provider account. The
+/// DELETE /api/users/{userId}/external-identities/{id}: unlinks a provider account. The
 /// person's next sign-in through it links again by verified email, so this cuts a stale link and
 /// does not ban the account.
 /// </summary>
-internal sealed class RemoveExternalIdentityEndpoint(IDocumentSession session, TenantContext tenant)
+internal sealed class RemoveExternalIdentityEndpoint(IDocumentSession session)
     : Endpoint<RemoveExternalIdentityRequest>
 {
     public override void Configure()
     {
-        Delete("/api/tenants/members/{userId}/external-identities/{id}");
-        Definition.RequireCapability(SystemCapabilities.ManageTenantMembers, "SuperAdmin", "Admin");
+        Delete("/api/users/{userId}/external-identities/{id}");
+        ExternalIdentityAccess.RequirePlatformUserAdmin(Definition);
     }
 
     public override async Task HandleAsync(RemoveExternalIdentityRequest req, CancellationToken ct)
@@ -93,7 +93,7 @@ internal sealed class RemoveExternalIdentityEndpoint(IDocumentSession session, T
         var link = await session.LoadAsync<ExternalIdentity>(req.Id, ct);
         if (link is null
             || link.UserId != req.UserId
-            || !await ExternalIdentityAccess.IsMemberAsync(session, req.UserId, tenant.Slug, ct))
+            || !await ExternalIdentityAccess.UserExistsAsync(session, req.UserId, ct))
         {
             await Send.NotFoundAsync(ct);
             return;
