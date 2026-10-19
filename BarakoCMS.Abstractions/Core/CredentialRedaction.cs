@@ -76,6 +76,11 @@ public static class CredentialRedaction
             return false;
         }
 
+        if (!IsWellFormedUtf16(key))
+        {
+            return true;
+        }
+
         try
         {
             return key.Normalize(NormalizationForm.FormKC).Split(':').Any(CredentialSegment.IsMatch);
@@ -85,6 +90,23 @@ public static class CredentialRedaction
             // A timeout, or text that is not valid Unicode (a lone surrogate): fail closed.
             return true;
         }
+    }
+
+    private static bool IsWellFormedUtf16(string text)
+    {
+        for (var i = 0; i < text.Length; i++)
+        {
+            if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+            {
+                i++;
+            }
+            else if (char.IsSurrogate(text[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>
