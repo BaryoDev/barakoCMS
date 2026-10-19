@@ -212,10 +212,7 @@ internal static class OidcIdToken
             email,
             email is not null && verified,
             Bounded(Text(payload, "name"), MaxNameLength),
-            Picture(Text(payload, "picture")))
-        {
-            Claims = StringClaims(payload),
-        }, OidcRefusal.None);
+            Picture(Text(payload, "picture"))) { Claims = StringClaims(payload) }, OidcRefusal.None);
     }
 
     private const int MaxClaims = 64;

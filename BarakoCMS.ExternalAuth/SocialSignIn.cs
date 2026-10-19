@@ -230,19 +230,14 @@ public static class SocialSignIn
         {
             beforeFinalCommit?.Invoke(session);
             await session.SaveChangesAsync(ct); // persist the user/profile created above
-            var (challenge, _) = barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Create(config, user.Id);
+            var challenge = await MfaChallengeAsync(session, config, user, tenantSlug, mapped, ct);
             return Tokens.MfaRequired(challenge);
         }
 
-        // After the second factor, so a provider account takeover cannot reach a role through the
-        // map either. The grant commits with the outcome, which means with the nonce.
-        if (mapped is not null && await StageMappedRolesAsync(session, user, tenantSlug, mapped, ct))
+        if (mapped is not null && await GrantMappedRolesAsync(
+                session, http, user, tenantSlug, mapped, beforeFinalCommit, ct))
         {
-            beforeFinalCommit?.Invoke(session);
             beforeFinalCommit = null;
-            await session.SaveChangesAsync(ct);
-            http.RequestServices?.GetService<barakoCMS.Infrastructure.Services.IPermissionResolver>()
-                ?.InvalidateUserPermissions(user.Id);
         }
 
         var device = DeviceContext.From(http);
@@ -264,21 +259,69 @@ public static class SocialSignIn
 
         var jwt = issued.Token;
 
+        var refresh = StageRefreshToken(session, user, issued.RefreshLifetime, device.DeviceId);
+        beforeFinalCommit?.Invoke(session);
+        await session.SaveChangesAsync(ct);
+
+        return new Tokens(jwt, refresh);
+    }
+
+    /// <summary>
+    /// The challenge for a person who owes a second factor. It carries the roles the map earned,
+    /// minus any a claim may not grant, for core's verify step to grant once the factor passes.
+    /// </summary>
+    private static async Task<string> MfaChallengeAsync(
+        IDocumentSession session, IConfiguration config, User user, string tenantSlug, MappedRoles? mapped,
+        CancellationToken ct)
+    {
+        barakoCMS.Infrastructure.Auth.Mfa.PendingExternalGrant? grant = null;
+        if (mapped is not null && tenantSlug != Tenant.DefaultSlug)
+        {
+            var refused = await barakoCMS.Infrastructure.Auth.ExternalRoleGrant.RefusedAsync(session, tenantSlug, mapped.RoleIds, ct);
+            var roles = mapped.RoleIds.Except(refused).ToList();
+            grant = roles.Count == 0 ? null : new(tenantSlug, mapped.Provider, roles);
+        }
+
+        return barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Create(config, user.Id, grant).Token;
+    }
+
+    private static string StageRefreshToken(IDocumentSession session, User user, TimeSpan lifetime, string? deviceId)
+    {
         var refresh = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
         session.Store(new RefreshToken
         {
             Id = Guid.NewGuid(),
             TokenHash = RefreshToken.HashOf(refresh),
             UserId = user.Id,
-            ExpiresAt = DateTime.UtcNow.Add(issued.RefreshLifetime),
+            ExpiresAt = DateTime.UtcNow.Add(lifetime),
             CreatedAt = DateTime.UtcNow,
             IsRevoked = false,
-            DeviceId = device.DeviceId,
+            DeviceId = deviceId,
         });
+        return refresh;
+    }
+
+    /// <summary>
+    /// Stages the mapped roles and, when that changed a membership, commits them. Runs after the
+    /// second factor: a person with one enrolled is returned a challenge before this is reached, and
+    /// core's verify step grants what the challenge carries. A grant commits together with <paramref name="beforeFinalCommit"/>,
+    /// so the nonce is spent with the grant, before the access token is issued.
+    /// </summary>
+    /// <returns>True when it committed, and with it <paramref name="beforeFinalCommit"/>.</returns>
+    private static async Task<bool> GrantMappedRolesAsync(
+        IDocumentSession session, HttpContext http, User user, string tenantSlug, MappedRoles mapped,
+        Action<IDocumentSession>? beforeFinalCommit, CancellationToken ct)
+    {
+        if (!await StageMappedRolesAsync(session, user, tenantSlug, mapped, ct))
+        {
+            return false;
+        }
+
         beforeFinalCommit?.Invoke(session);
         await session.SaveChangesAsync(ct);
-
-        return new Tokens(jwt, refresh);
+        http.RequestServices?.GetService<barakoCMS.Infrastructure.Services.IPermissionResolver>()
+            ?.InvalidateUserPermissions(user.Id);
+        return true;
     }
 
     /// <summary>The roles the tenant's map gives for a sign-in's claims, and the provider they came from.</summary>
@@ -303,7 +346,7 @@ public static class SocialSignIn
             return null;
         }
 
-        var roles = RoleMaps.RolesFor(map, identity.Claims, provider);
+        var roles = RoleMaps.RolesFor(map, identity.Claims, provider, identity.Issuer);
         return roles.Count == 0 ? null : new MappedRoles(roles, provider);
     }
 

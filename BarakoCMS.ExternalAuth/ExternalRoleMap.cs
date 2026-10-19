@@ -31,4 +31,10 @@ public class ExternalRoleRule
     public string Value { get; set; } = string.Empty;
 
     public Guid RoleId { get; set; }
+
+    /// <summary>
+    /// The exact issuer the token must carry. Required when the provider's issuer is a template,
+    /// where the provider name alone matches every directory.
+    /// </summary>
+    public string? Issuer { get; set; }
 }

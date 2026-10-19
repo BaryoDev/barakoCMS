@@ -1,4 +1,6 @@
+using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Auth;
+using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Models;
 using FastEndpoints;
 using FluentValidation;
@@ -43,6 +45,28 @@ internal static class ExternalIdentityAccess
     public static void RequirePlatformUserAdmin(EndpointDefinition definition) =>
         definition.RequireCapability(SystemCapabilities.ManageUsers, "SuperAdmin");
 
+    /// <summary>
+    /// Whether the caller may touch this user's links. A holder of manage_users who is not a
+    /// SuperAdmin may not touch a SuperAdmin's, since removing one is a step toward taking the account.
+    /// </summary>
+    public static async Task<bool> MayTouchAsync(
+        IQuerySession session, System.Security.Claims.ClaimsPrincipal caller, Guid targetId, CancellationToken ct)
+    {
+        var target = await session.LoadAsync<User>(targetId, ct);
+        if (target is null || !target.RoleIds.Contains(SystemRoles.SuperAdminRoleId))
+        {
+            return true;
+        }
+
+        if (!Guid.TryParse(caller.FindFirst("UserId")?.Value, out var callerId))
+        {
+            return false;
+        }
+
+        var self = await session.LoadAsync<User>(callerId, ct);
+        return self?.RoleIds.Contains(SystemRoles.SuperAdminRoleId) == true;
+    }
+
     public static Task<bool> UserExistsAsync(IQuerySession session, Guid userId, CancellationToken ct) =>
         session.Query<User>().AnyAsync(u => u.Id == userId, ct);
 }
@@ -65,6 +89,12 @@ internal sealed class ListExternalIdentitiesEndpoint(IQuerySession session)
             return;
         }
 
+        if (!await ExternalIdentityAccess.MayTouchAsync(session, User, req.UserId, ct))
+        {
+            await Send.ForbiddenAsync(ct);
+            return;
+        }
+
         var links = await session.Query<ExternalIdentity>()
             .Where(i => i.UserId == req.UserId)
             .OrderBy(i => i.LinkedAt)
@@ -79,7 +109,7 @@ internal sealed class ListExternalIdentitiesEndpoint(IQuerySession session)
 /// person's next sign-in through it links again by verified email, so this cuts a stale link and
 /// does not ban the account.
 /// </summary>
-internal sealed class RemoveExternalIdentityEndpoint(IDocumentSession session)
+internal sealed class RemoveExternalIdentityEndpoint(IDocumentSession session, TenantContext tenant)
     : Endpoint<RemoveExternalIdentityRequest>
 {
     public override void Configure()
@@ -99,7 +129,17 @@ internal sealed class RemoveExternalIdentityEndpoint(IDocumentSession session)
             return;
         }
 
+        if (!await ExternalIdentityAccess.MayTouchAsync(session, User, req.UserId, ct))
+        {
+            await Send.ForbiddenAsync(ct);
+            return;
+        }
+
         session.Delete(link);
+        Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
+        await AuditLog.RecordAsync(session, tenant.Slug, "user.external_identity.removed", actorId,
+            User.FindFirst("Username")?.Value, targetType: "User", targetId: req.UserId.ToString(),
+            metadata: new Dictionary<string, object> { ["provider"] = link.Provider, ["issuer"] = link.Issuer }, ct: ct);
         await session.SaveChangesAsync(ct);
         await Send.NoContentAsync(ct);
     }

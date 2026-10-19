@@ -23,7 +23,8 @@ internal class VerifyEndpoint(
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
     barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer,
     barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
-    barakoCMS.Infrastructure.Auth.AccountLockout lockout) : Endpoint<VerifyRequest, VerifyResponse>
+    barakoCMS.Infrastructure.Auth.AccountLockout lockout,
+    barakoCMS.Infrastructure.Services.IPermissionResolver permissions) : Endpoint<VerifyRequest, VerifyResponse>
 {
     public override void Configure()
     {
@@ -36,14 +37,14 @@ internal class VerifyEndpoint(
     {
         var device = barakoCMS.Infrastructure.DeviceContext.From(HttpContext);
 
-        var userId = MfaChallengeToken.ValidatedUserId(config, req.ChallengeToken);
-        if (userId is null)
+        var challenge = MfaChallengeToken.Validated(config, req.ChallengeToken);
+        if (challenge is null)
         {
             ThrowError("Your sign-in session expired. Enter your password again.");
             return;
         }
 
-        var user = await query.LoadAsync<User>(userId.Value, ct);
+        var user = await query.LoadAsync<User>(challenge.Value.UserId, ct);
         if (user is null || !await mfa.IsEnabledAsync(user.Id, ct))
         {
             // The challenge was minted for this user, so this is an odd state; stay generic.
@@ -67,9 +68,9 @@ internal class VerifyEndpoint(
             return;
         }
 
-        // Success: clear the failed-attempt counter, mint tokens through the issuer (which still runs the
-        // tenant-access check), and drop a refresh token — the same shape as password login.
+        // Success: clear the failed-attempts, grant what the claims earned, then mint as password login does.
         barakoCMS.Infrastructure.Auth.AccountLockout.ClearFailures(session, user);
+        await GrantExternalRolesAsync(user, challenge.Value.Grant, ct);
 
         // Completing MFA proves possession of this device; trust it and bind the token to it, so
         // MFA-issued tokens carry the same device claim (did) as the password and OTP paths.
@@ -109,5 +110,25 @@ internal class VerifyEndpoint(
             RefreshToken = refreshTokenString,
             RefreshTokenExpiry = refreshTokenExpiry,
         });
+    }
+
+    /// <summary>
+    /// Gives the roles an external sign-in earned at first factor, now that the second has passed.
+    /// The roles are checked again and the membership must still be Active, as at a sign-in with no
+    /// second factor. Committed before the token is issued, which reads memberships.
+    /// </summary>
+    private async Task GrantExternalRolesAsync(User user, PendingExternalGrant? grant, CancellationToken ct)
+    {
+        if (grant is null || !string.Equals(grant.TenantSlug, tenant.Slug, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (await barakoCMS.Infrastructure.Auth.ExternalRoleGrant.StageAsync(
+                session, user, grant.TenantSlug, grant.RoleIds, grant.Source, ct))
+        {
+            await session.SaveChangesAsync(ct);
+            permissions.InvalidateUserPermissions(user.Id);
+        }
     }
 }

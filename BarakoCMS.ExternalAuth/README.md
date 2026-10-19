@@ -188,14 +188,26 @@ example `groups`, and rules from a claim value, read from one provider, to a rol
 that came through that provider, so the same group name at another provider gives nothing. Values
 match exactly and case sensitively, and a value cannot start or end with a space. A rule cannot read
 `name`, `given_name`, `family_name`, `nickname`, `picture`, `preferred_username`, `email`,
-`email_verified`, `sub`, `iss` or `aud`.
+`email_verified`, `sub`, `iss`, `aud`, `phone_number`, `address`, `website`, `profile`,
+`middle_name`, `gender`, `birthdate`, `locale`, `zoneinfo` or `updated_at`. A map stored some other
+way on one of them is ignored at sign-in.
+
+A rule can also carry `issuer`, which must equal the token's issuer exactly. It is required when the
+provider's issuer is a template, as with Entra `common` or `organizations`: there the provider name
+matches a token from any directory, and any directory's administrator could assign themselves a
+value the rule names. Give the issuer with the directory filled in, such as
+`https://login.microsoftonline.com/<tenant id>/v2.0`. The PUT answers 400 without it.
 
 On every OpenID Connect sign-in for that tenant, each rule the token matches adds its role to the
-person's membership, creating the membership if there is none. The grant is made after the second
-factor: a person with MFA enrolled is given nothing in that sign-in, and it commits with the outcome
-of the sign-in, the spent nonce included, or not at all. It only adds. A removed or suspended member
-is not brought back, a claim that stops being sent takes nothing away, and taking a mapped role away
-means editing the map or suspending the member. The map is read from the sign-in's tenant, never
+person's membership, creating the membership if there is none. A person with a second factor
+enrolled is given nothing at first factor. The roles the map earned travel in the signed MFA
+challenge, and `/api/auth/mfa/verify` grants them once the code passes, after checking them again
+and that the membership is still Active. A wrong code, an expired challenge or a tampered one grants
+nothing. The grant commits with the outcome of
+the sign-in, the spent nonce included, or not at all. It only adds. A removed or suspended member is
+not brought back, and a claim that stops being sent takes nothing away. Taking a mapped role away
+means removing it from the member by hand, and the map adds it back at their next sign-in unless the
+map is edited too. The map is read from the sign-in's tenant, never
 from the request.
 
 It cannot name SuperAdmin, a role carrying a platform capability, a role of another tenant, or a

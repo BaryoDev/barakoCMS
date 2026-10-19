@@ -15,6 +15,9 @@ namespace barakoCMS.Infrastructure.Auth.Mfa;
 /// </summary>
 public static class MfaChallengeToken
 {
+    private const string GrantClaim = "mfagrant";
+    private const int MaxGrantRoles = 100;
+
     public static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(5);
 
     private const string PurposeClaim = "purpose";
@@ -23,7 +26,16 @@ public static class MfaChallengeToken
 
     private static string Audience(IConfiguration config) => (config["JWT:Audience"] ?? string.Empty) + ":mfa";
 
-    public static (string Token, DateTime ExpiresAt) Create(IConfiguration config, Guid userId)
+    public static (string Token, DateTime ExpiresAt) Create(IConfiguration config, Guid userId) =>
+        Create(config, userId, null);
+
+    /// <summary>
+    /// As <see cref="Create(IConfiguration, Guid)"/>, carrying the roles an external sign-in's claims
+    /// earned, to be granted once the second factor passes. The token is signed, so the client
+    /// cannot add to the list, and it expires with the challenge. Roles are checked again at
+    /// verify, not trusted from here.
+    /// </summary>
+    public static (string Token, DateTime ExpiresAt) Create(IConfiguration config, Guid userId, PendingExternalGrant? grant)
     {
         var expiresAt = DateTime.UtcNow.Add(Lifetime);
         var token = JwtBearer.CreateToken(o =>
@@ -35,6 +47,10 @@ public static class MfaChallengeToken
             var u = o.User;
                 u.Claims.Add(new(PurposeClaim, PurposeValue));
                 u.Claims.Add(new(UserClaim, userId.ToString()));
+                if (grant is { RoleIds.Count: > 0 and <= MaxGrantRoles })
+                {
+                    u.Claims.Add(new(GrantClaim, grant.Encode()));
+                }
             });
         return (token, expiresAt);
     }
@@ -43,7 +59,11 @@ public static class MfaChallengeToken
     /// Returns the user id when the token verifies (signature + expiry + <c>:mfa</c> audience + purpose);
     /// otherwise null. Any failure returns null so the caller responds with a generic error.
     /// </summary>
-    public static Guid? ValidatedUserId(IConfiguration config, string token)
+    public static Guid? ValidatedUserId(IConfiguration config, string token) =>
+        Validated(config, token)?.UserId;
+
+    /// <summary>The user the challenge was minted for and any external grant it carries, or null when it does not verify.</summary>
+    public static (Guid UserId, PendingExternalGrant? Grant)? Validated(IConfiguration config, string token)
     {
         if (string.IsNullOrWhiteSpace(token)) return null;
 
@@ -66,11 +86,35 @@ public static class MfaChallengeToken
         {
             var principal = new JwtSecurityTokenHandler().ValidateToken(token, parameters, out _);
             if (principal.FindFirst(PurposeClaim)?.Value != PurposeValue) return null;
-            return Guid.TryParse(principal.FindFirst(UserClaim)?.Value, out var id) ? id : null;
+            if (!Guid.TryParse(principal.FindFirst(UserClaim)?.Value, out var id)) return null;
+            return (id, PendingExternalGrant.Decode(principal.FindFirst(GrantClaim)?.Value));
         }
         catch
         {
             return null;
         }
+    }
+}
+
+/// <summary>
+/// Roles in one tenant that an external identity provider's claims earned at first factor, carried by
+/// the MFA challenge and granted at verify. Plain data, so core does not reference the module that
+/// computed it.
+/// </summary>
+public sealed record PendingExternalGrant(string TenantSlug, string Source, IReadOnlyList<Guid> RoleIds)
+{
+    internal string Encode() => $"{TenantSlug}|{Source}|{string.Join(',', RoleIds)}";
+
+    internal static PendingExternalGrant? Decode(string? value)
+    {
+        var parts = value?.Split('|');
+        if (parts is not { Length: 3 })
+        {
+            return null;
+        }
+
+        var ids = parts[2].Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(p => Guid.TryParse(p, out var id) ? id : Guid.Empty).ToList();
+        return ids.Count == 0 || ids.Contains(Guid.Empty) ? null : new PendingExternalGrant(parts[0], parts[1], ids);
     }
 }

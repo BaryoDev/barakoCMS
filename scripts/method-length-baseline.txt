@@ -14,7 +14,7 @@
 150 BarakoCMS.ExternalAuth/OidcIdToken.cs::OidcIdToken.ValidateAsync
 87 BarakoCMS.ExternalAuth/OidcIdTokenGrant.cs::OidcIdTokenGrantEndpoint.HandleAsync
 97 BarakoCMS.ExternalAuth/OidcProviders.cs::OidcProviders.Read
-75 BarakoCMS.ExternalAuth/SocialSignIn.cs::SocialSignIn.IssueForUserAsync
+72 BarakoCMS.ExternalAuth/SocialSignIn.cs::SocialSignIn.IssueForUserAsync
 92 BarakoCMS.Files/Features/Upload/Endpoint.cs::Endpoint.HandleAsync
 124 BarakoCMS.Files/SkiaImageResizer.cs::SkiaImageResizer.ResizeAsync
 86 BarakoCMS.Forms/Features/Manage/SetEndpoint.cs::SetEndpoint.HandleAsync

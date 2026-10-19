@@ -8,7 +8,7 @@ using Marten;
 
 namespace BarakoCMS.ExternalAuth;
 
-internal sealed record RoleRuleDto(string Provider, string Value, Guid RoleId);
+internal sealed record RoleRuleDto(string Provider, string Value, Guid RoleId, string? Issuer = null);
 
 internal sealed record RoleMapRequest(string Claim, List<RoleRuleDto> Rules);
 
@@ -28,6 +28,8 @@ internal static class RoleMaps
     {
         "name", "given_name", "family_name", "nickname", "picture", "preferred_username",
         "email", "email_verified", "sub", "iss", "aud",
+        "phone_number", "address", "website", "profile", "middle_name", "gender", "birthdate",
+        "locale", "zoneinfo", "updated_at",
     };
 
     /// <summary>Stages the audit entry for a change to the tenant's map, with the rules it held or now holds.</summary>
@@ -40,30 +42,34 @@ internal static class RoleMaps
         {
             ["claim"] = map.Claim,
             ["rules"] = map.Rules
-                .Select(r => $"{r.Provider}|{r.Value}|{r.RoleId}").ToList(),
+                .Select(r => $"{r.Provider}|{r.Value}|{r.RoleId}|{r.Issuer}").ToList(),
         };
         return AuditLog.RecordAsync(session, map.Id, action, actorId, actor.FindFirst("Username")?.Value,
             targetType: "ExternalRoleMap", targetId: map.Id, metadata: metadata, ct: ct);
     }
 
     public static RoleMapResponse ToResponse(ExternalRoleMap map) =>
-        new(map.Claim, map.Rules.Select(r => new RoleRuleDto(r.Provider, r.Value, r.RoleId)).ToList(), map.UpdatedAt);
+        new(map.Claim, map.Rules.Select(r => new RoleRuleDto(r.Provider, r.Value, r.RoleId, r.Issuer)).ToList(), map.UpdatedAt);
 
     /// <summary>
     /// The roles a person carrying these id token claims is given by the tenant's map. Values match
     /// exactly, since a group name differing only in case is another group, and only for the
-    /// provider the rule names: the same group name at another provider is another group.
+    /// provider the rule names: the same group name at another provider is another group. A rule
+    /// that names an issuer also needs the token's resolved issuer to be exactly it, since a
+    /// provider with a templated issuer signs in people from every directory.
     /// </summary>
     public static List<Guid> RolesFor(
-        ExternalRoleMap map, IReadOnlyDictionary<string, IReadOnlyList<string>> claims, string provider)
+        ExternalRoleMap map, IReadOnlyDictionary<string, IReadOnlyList<string>> claims, string provider,
+        string issuer)
     {
-        if (!claims.TryGetValue(map.Claim, out var values))
+        if (RefusedClaims.Contains(map.Claim.Trim()) || !claims.TryGetValue(map.Claim, out var values))
         {
             return [];
         }
 
         return map.Rules
             .Where(rule => string.Equals(rule.Provider, provider, StringComparison.Ordinal)
+                           && (rule.Issuer is null || string.Equals(rule.Issuer, issuer, StringComparison.Ordinal))
                            && values.Contains(rule.Value, StringComparer.Ordinal))
             .Select(rule => rule.RoleId)
             .Distinct()
@@ -85,12 +91,21 @@ internal sealed class RoleMapValidator : Validator<RoleMapRequest>
             rule.RuleFor(r => r.Provider).NotEmpty()
                 .Must(p => p is not null && OidcProviders.Enabled(config).Any(e => e.Name == p))
                 .WithMessage("The provider is not a configured OpenID Connect provider.");
+            rule.RuleFor(r => r.Issuer)
+                .Must(i => i is null || (OidcProviders.IsIssuerUrl(i) && !i.Contains(OidcProvider.TenantPlaceholder, StringComparison.Ordinal)))
+                .WithMessage("The issuer must be the exact issuer URL of the token, with the directory filled in.");
+            rule.RuleFor(r => r).Must(r => !TemplatedWithoutIssuer(config, r))
+                .WithMessage("This provider signs in people from many directories, so the rule must name the exact issuer.");
             rule.RuleFor(r => r.Value).NotEmpty().MaximumLength(RoleMaps.MaxValueLength)
                 .Must(v => v is null || v == v.Trim())
                 .WithMessage("A value cannot start or end with a space.");
             rule.RuleFor(r => r.RoleId).NotEmpty();
         });
     }
+
+    private static bool TemplatedWithoutIssuer(IConfiguration config, RoleRuleDto rule) =>
+        string.IsNullOrWhiteSpace(rule.Issuer)
+        && OidcProviders.Enabled(config).FirstOrDefault(e => e.Name == rule.Provider)?.IssuerIsTemplate == true;
 }
 
 /// <summary>GET /api/tenants/external-role-map: the caller's tenant's claim-to-role map.</summary>
@@ -148,7 +163,7 @@ internal sealed class PutRoleMapEndpoint(IDocumentSession session, TenantContext
         {
             Id = slug,
             Claim = req.Claim.Trim(),
-            Rules = req.Rules.Select(r => new ExternalRoleRule { Provider = r.Provider, Value = r.Value, RoleId = r.RoleId }).ToList(),
+            Rules = req.Rules.Select(r => new ExternalRoleRule { Provider = r.Provider, Value = r.Value, RoleId = r.RoleId, Issuer = r.Issuer?.Trim() }).ToList(),
             UpdatedAt = DateTime.UtcNow,
         };
         session.Store(map);

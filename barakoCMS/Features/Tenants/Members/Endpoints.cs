@@ -244,7 +244,8 @@ internal static class Members
     {
         var before = Held.By(membership);
         foreach (var roleId in roleIds)
-            session.Patch<Membership>(membership.Id).AppendIfNotExists(x => x.RoleIds, roleId);
+            session.Patch<Membership>(x => x.Id == membership.Id && x.Status == MembershipStatus.Active)
+                .AppendIfNotExists(x => x.RoleIds, roleId);
 
         var after = before.RoleIds.Concat(roleIds).Distinct().ToList();
         await RecordAsync(session, actor, action, membership, after, before, membership.Profile, details, ct);

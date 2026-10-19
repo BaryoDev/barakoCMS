@@ -45,8 +45,19 @@ public class ExternalRoleMapTests
                     ["Oidc:Providers:beta:Authority"] = OidcStubProvider.Authority,
                     ["Oidc:Providers:beta:ClientId"] = OidcStubProvider.ClientId,
                     ["Oidc:Providers:beta:ClientSecret"] = OidcStubProvider.ClientSecret,
+                    ["Oidc:Providers:entra:Authority"] = OidcStubProvider.SharedAuthority,
+                    ["Oidc:Providers:entra:Issuer"] = OidcStubProvider.SharedIssuerTemplate,
+                    ["Oidc:Providers:entra:ClientId"] = OidcStubProvider.ClientId,
+                    ["Oidc:Providers:entra:ClientSecret"] = OidcStubProvider.ClientSecret,
                 })));
         }
+    }
+
+    private sealed class WithResolver(IServiceProvider inner, barakoCMS.Infrastructure.Services.IPermissionResolver resolver)
+        : IServiceProvider
+    {
+        public object? GetService(Type serviceType) =>
+            serviceType == typeof(barakoCMS.Infrastructure.Services.IPermissionResolver) ? resolver : inner.GetService(serviceType);
     }
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -94,14 +105,16 @@ public class ExternalRoleMapTests
     }
 
     private async Task<SocialSignIn.Tokens> SignInAsync(
-        User user, string club, IReadOnlyDictionary<string, IReadOnlyList<string>> claims, string provider = "stub")
+        User user, string club, IReadOnlyDictionary<string, IReadOnlyList<string>> claims, string provider = "stub",
+        string issuer = "https://idp.test.example",
+        barakoCMS.Infrastructure.Services.IPermissionResolver? resolver = null)
     {
         using var scope = _fixture.Services.CreateScope();
         var services = scope.ServiceProvider;
         var session = services.GetRequiredService<IDocumentSession>();
         var context = new Microsoft.AspNetCore.Http.DefaultHttpContext();
         context.Request.Headers["User-Agent"] = "role-map-tests";
-        context.RequestServices = services;
+        context.RequestServices = resolver is null ? services : new WithResolver(services, resolver);
 
         var (tokens, _) = await SocialSignIn.IssueForIdentityAsync(
             session,
@@ -110,7 +123,7 @@ public class ExternalRoleMapTests
             services.GetRequiredService<barakoCMS.Infrastructure.Auth.ITokenIssuer>(),
             services.GetRequiredService<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>(),
             context,
-            new OidcIdentity("https://idp.test.example", "sub-" + Guid.NewGuid().ToString("N"), user.Email, true, null, null)
+            new OidcIdentity(issuer, "sub-" + Guid.NewGuid().ToString("N"), user.Email, true, null, null)
             {
                 Claims = claims,
             },
@@ -503,6 +516,57 @@ public class ExternalRoleMapTests
         (await MembershipsAsync(user.Id, slug)).Single().RoleIds.Should().Equal(teacher.Id);
     }
 
+    private static string DirectoryIssuer(string directory) =>
+        OidcStubProvider.SharedIssuerTemplate.Replace("{tenantid}", directory);
+
+    [Fact]
+    public async Task A_rule_for_a_provider_with_a_templated_issuer_must_name_the_exact_issuer()
+    {
+        var slug = await AdminTenantAsync();
+        var role = new Role { Id = Guid.NewGuid(), Name = Unique("Teacher"), TenantSlug = slug, Permissions = [], SystemCapabilities = [] };
+        await StoreAsync(role);
+        var client = ClientFor(slug, "Admin");
+        var directory = Guid.NewGuid().ToString();
+
+        foreach (var issuer in new[] { null, "", " ", OidcStubProvider.SharedIssuerTemplate, "not a url" })
+        {
+            (await client.PutAsJsonAsync("/api/tenants/external-role-map",
+                new { claim = "groups", rules = new[] { new { provider = "entra", value = "staff", roleId = role.Id, issuer } } }, Ct))
+                .StatusCode.Should().Be(HttpStatusCode.BadRequest, $"'{issuer}' does not name one directory");
+        }
+
+        var ok = await client.PutAsJsonAsync("/api/tenants/external-role-map",
+            new { claim = "groups", rules = new[] { new { provider = "entra", value = "staff", roleId = role.Id, issuer = DirectoryIssuer(directory) } } }, Ct);
+        ok.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await ok.Content.ReadFromJsonAsync<RoleMapResponse>(Ct);
+        body!.Rules.Should().HaveCount(1);
+        body.Rules[0].Issuer.Should().Be(DirectoryIssuer(directory));
+
+        (await client.PutAsJsonAsync("/api/tenants/external-role-map",
+            new { claim = "groups", rules = new[] { new { provider = "beta", value = "staff", roleId = role.Id } } }, Ct))
+            .StatusCode.Should().Be(HttpStatusCode.OK, "a provider with a fixed issuer needs none");
+    }
+
+    [Fact]
+    public async Task A_rule_with_an_issuer_gives_the_role_only_to_a_token_from_that_issuer()
+    {
+        var (slug, teacher) = await TenantWithMapAsync();
+        var mine = DirectoryIssuer(Guid.NewGuid().ToString());
+        var other = DirectoryIssuer(Guid.NewGuid().ToString());
+        await StoreAsync(new ExternalRoleMap
+        {
+            Id = slug, Claim = "groups",
+            Rules = [new ExternalRoleRule { Provider = "entra", Value = "staff", RoleId = teacher.Id, Issuer = mine }],
+        });
+        var user = await PersonAsync();
+
+        await SignInAsync(user, slug, Groups("staff"), provider: "entra", issuer: other);
+        (await MembershipsAsync(user.Id, slug)).Should().BeEmpty("another directory's token carries the group name but not the issuer");
+
+        await SignInAsync(user, slug, Groups("staff"), provider: "entra", issuer: mine);
+        (await MembershipsAsync(user.Id, slug)).Single().RoleIds.Should().Equal(teacher.Id);
+    }
+
     [Fact]
     public async Task A_rule_must_name_a_configured_provider()
     {
@@ -528,6 +592,16 @@ public class ExternalRoleMapTests
     [InlineData("Name")]
     [InlineData("preferred_username")]
     [InlineData("sub")]
+    [InlineData("phone_number")]
+    [InlineData("address")]
+    [InlineData("website")]
+    [InlineData("profile")]
+    [InlineData("middle_name")]
+    [InlineData("gender")]
+    [InlineData("birthdate")]
+    [InlineData("locale")]
+    [InlineData("zoneinfo")]
+    [InlineData("updated_at")]
     public async Task A_rule_cannot_read_a_claim_the_person_can_edit_about_themselves(string claim)
     {
         var slug = await AdminTenantAsync();
@@ -608,5 +682,250 @@ public class ExternalRoleMapTests
         await session.SaveChangesAsync(Ct);
 
         (await MembershipsAsync(user.Id, slug)).Single().RoleIds.Should().BeEquivalentTo([admins, teacher.Id]);
+    }
+
+    [Fact]
+    public async Task A_stored_map_on_a_claim_the_person_can_edit_gives_nothing()
+    {
+        var (slug, teacher) = await TenantWithMapAsync();
+        await StoreAsync(new ExternalRoleMap
+        {
+            Id = slug, Claim = "phone_number",
+            Rules = [new ExternalRoleRule { Provider = "stub", Value = "staff", RoleId = teacher.Id }],
+        });
+        var user = await PersonAsync();
+        var claims = new Dictionary<string, IReadOnlyList<string>> { ["phone_number"] = ["staff"] };
+
+        await SignInAsync(user, slug, claims);
+        (await MembershipsAsync(user.Id, slug)).Should().BeEmpty("a map on a claim the person edits is filtered at sign-in");
+
+        await StoreAsync(new ExternalRoleMap
+        {
+            Id = slug, Claim = "groups",
+            Rules = [new ExternalRoleRule { Provider = "stub", Value = "staff", RoleId = teacher.Id }],
+        });
+        await SignInAsync(user, slug, Groups("staff"));
+        (await MembershipsAsync(user.Id, slug)).Single().RoleIds.Should().Equal(teacher.Id);
+    }
+
+    [Fact]
+    public async Task A_grant_does_not_reach_a_membership_suspended_after_it_was_read()
+    {
+        var (slug, teacher) = await TenantWithMapAsync();
+        var user = await PersonAsync();
+        await StoreAsync(new Membership
+        {
+            Id = Guid.NewGuid(), UserId = user.Id, TenantSlug = slug, Status = MembershipStatus.Active, RoleIds = [],
+        });
+
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var stale = await session.Query<Membership>().SingleAsync(m => m.UserId == user.Id && m.TenantSlug == slug, Ct);
+
+        using (var concurrent = _fixture.Services.CreateScope())
+        {
+            var other = concurrent.ServiceProvider.GetRequiredService<IDocumentSession>();
+            other.Patch<Membership>(stale.Id).Set(x => x.Status, MembershipStatus.Suspended);
+            await other.SaveChangesAsync(Ct);
+        }
+
+        stale.Status.Should().Be(MembershipStatus.Active, "the copy in hand predates the suspension");
+        var actor = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(
+            [new System.Security.Claims.Claim("UserId", user.Id.ToString())], "test"));
+        await barakoCMS.Features.Tenants.Members.Members.AppendRolesAsync(
+            session, actor, "tenant.member.updated", stale, [teacher.Id], new Dictionary<string, object>(), Ct);
+        await session.SaveChangesAsync(Ct);
+
+        var after = (await MembershipsAsync(user.Id, slug)).Single();
+        after.Status.Should().Be(MembershipStatus.Suspended);
+        after.RoleIds.Should().BeEmpty("a suspension is not undone by a grant that read the membership earlier");
+    }
+
+    [Fact]
+    public async Task A_sign_in_that_grants_a_role_drops_the_cached_permissions_and_one_that_grants_nothing_does_not()
+    {
+        var (slug, _) = await TenantWithMapAsync();
+        var user = await PersonAsync();
+        var spy = new Moq.Mock<barakoCMS.Infrastructure.Services.IPermissionResolver>();
+
+        await SignInAsync(user, slug, Groups("nothing-mapped"), resolver: spy.Object);
+        spy.Verify(r => r.InvalidateUserPermissions(user.Id), Moq.Times.Never());
+
+        await SignInAsync(user, slug, Groups("staff"), resolver: spy.Object);
+        spy.Verify(r => r.InvalidateUserPermissions(user.Id), Moq.Times.Once());
+    }
+
+    [Fact]
+    public async Task Removing_a_link_is_audited_with_the_provider_and_issuer()
+    {
+        var (slug, _, member, link) = await MemberInTwoTenantsAsync();
+        var client = await PlatformAdminClientAsync(slug);
+
+        (await client.DeleteAsync($"/api/users/{member.Id}/external-identities/{link.Id}", Ct))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        using var scope = _fixture.Services.CreateScope();
+        var entries = (await scope.ServiceProvider.GetRequiredService<IQuerySession>().Query<AuditEvent>()
+            .Where(e => e.Action == "user.external_identity.removed" && e.TargetId == member.Id.ToString())
+            .ToListAsync(Ct)).ToList();
+        entries.Should().HaveCount(1);
+        entries[0].Metadata!["provider"].ToString().Should().Be("stub");
+        entries[0].Metadata!["issuer"].ToString().Should().Be(link.Issuer);
+    }
+
+    [Fact]
+    public async Task A_user_manager_who_is_not_a_SuperAdmin_cannot_list_or_remove_a_SuperAdmins_links()
+    {
+        var slug = await AdminTenantAsync();
+        var manager = new Role
+        {
+            Id = Guid.NewGuid(), Name = Unique("Manager"), Permissions = [],
+            SystemCapabilities = [SystemCapabilities.ManageUsers],
+        };
+        var caller = await PersonAsync();
+        var target = await PersonAsync();
+        var plain = await PersonAsync();
+        var link = new ExternalIdentity
+        {
+            Id = ExternalIdentity.KeyOf("https://idp.test.example", "s-" + target.Id.ToString("N")),
+            Issuer = "https://idp.test.example", Subject = "s-" + target.Id.ToString("N"),
+            UserId = target.Id, Provider = "stub",
+        };
+        var plainLink = new ExternalIdentity
+        {
+            Id = ExternalIdentity.KeyOf("https://idp.test.example", "s-" + plain.Id.ToString("N")),
+            Issuer = "https://idp.test.example", Subject = "s-" + plain.Id.ToString("N"),
+            UserId = plain.Id, Provider = "stub",
+        };
+        caller.RoleIds = [manager.Id];
+        target.RoleIds = [SystemRoles.SuperAdminRoleId];
+        await StoreAsync(manager, caller, target, link, plainLink);
+
+        var client = _host!.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
+            _fixture.CreateToken(
+                roles: [manager.Name],
+                userId: caller.Id.ToString(),
+                additionalClaims: new Dictionary<string, string> { ["tenant"] = slug, ["Username"] = caller.Username }));
+        client.DefaultRequestHeaders.Add("X-Tenant", slug);
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"198.51.100.{Interlocked.Increment(ref _ipCounter) % 250 + 1}");
+
+        (await client.GetAsync($"/api/users/{plain.Id}/external-identities", Ct))
+            .StatusCode.Should().Be(HttpStatusCode.OK, "the manager holds manage_users, so an ordinary user's links are theirs to list");
+        (await client.GetAsync($"/api/users/{target.Id}/external-identities", Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await client.DeleteAsync($"/api/users/{target.Id}/external-identities/{link.Id}", Ct))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await LinkAsync(link.Id)).Should().NotBeNull("the refused delete left the link alone");
+
+        (await (await PlatformAdminClientAsync(slug)).DeleteAsync($"/api/users/{target.Id}/external-identities/{link.Id}", Ct))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent, "a SuperAdmin may");
+    }
+
+    // ---- a person with a second factor ----
+
+    private async Task<byte[]> EnrollMfaAsync(User user)
+    {
+        var key = OtpNet.KeyGeneration.GenerateRandomKey(20);
+        using var scope = _fixture.Services.CreateScope();
+        var protector = scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Auth.Mfa.IMfaSecretProtector>();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(new MfaSecret
+        {
+            Id = user.Id, EncryptedSecret = protector.Protect(OtpNet.Base32Encoding.ToString(key)),
+            Enabled = true, ConfirmedAt = DateTime.UtcNow,
+        });
+        await session.SaveChangesAsync(Ct);
+        return key;
+    }
+
+    private async Task<HttpResponseMessage> VerifyAsync(string slug, string challenge, string code)
+    {
+        var client = _host!.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Tenant", slug);
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"198.51.100.{Interlocked.Increment(ref _ipCounter) % 250 + 1}");
+        return await client.PostAsJsonAsync("/api/auth/mfa/verify", new { challengeToken = challenge, code }, Ct);
+    }
+
+    [Fact]
+    public async Task A_person_with_a_second_factor_gets_the_mapped_role_only_after_it_passes()
+    {
+        var (slug, teacher) = await TenantWithMapAsync();
+        var user = await PersonAsync();
+        var key = await EnrollMfaAsync(user);
+
+        var first = await SignInAsync(user, slug, Groups("staff"));
+
+        first.RequiresMfa.Should().BeTrue();
+        (await MembershipsAsync(user.Id, slug)).Should().BeEmpty("nothing is granted at first factor");
+
+        var wrong = await VerifyAsync(slug, first.MfaChallenge!, "000000");
+        wrong.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await MembershipsAsync(user.Id, slug)).Should().BeEmpty("a wrong code grants nothing");
+
+        var ok = await VerifyAsync(slug, first.MfaChallenge!, new OtpNet.Totp(key).ComputeTotp());
+        ok.StatusCode.Should().Be(HttpStatusCode.OK, await ok.Content.ReadAsStringAsync(Ct));
+        var memberships = await MembershipsAsync(user.Id, slug);
+        memberships.Should().HaveCount(1);
+        memberships[0].RoleIds.Should().Equal(teacher.Id);
+
+        var replay = await VerifyAsync(slug, first.MfaChallenge!, new OtpNet.Totp(key).ComputeTotp());
+        replay.StatusCode.Should().Be(HttpStatusCode.BadRequest, "the code was spent");
+        (await MembershipsAsync(user.Id, slug)).Single().RoleIds.Should().Equal(teacher.Id);
+    }
+
+    [Fact]
+    public async Task A_tampered_challenge_and_a_challenge_with_nothing_mapped_grant_nothing()
+    {
+        var (slug, _) = await TenantWithMapAsync();
+        var user = await PersonAsync();
+        var key = await EnrollMfaAsync(user);
+
+        var first = await SignInAsync(user, slug, Groups("staff"));
+        var parts = first.MfaChallenge!.Split('.');
+        var tampered = $"{parts[0]}.{parts[1]}.{(parts[2][0] == 'A' ? 'B' : 'A')}{parts[2][1..]}";
+        (await VerifyAsync(slug, tampered, new OtpNet.Totp(key).ComputeTotp())).StatusCode
+            .Should().Be(HttpStatusCode.BadRequest);
+        (await MembershipsAsync(user.Id, slug)).Should().BeEmpty();
+
+        var other = await SignInAsync(user, slug, Groups("nothing-mapped"));
+        other.RequiresMfa.Should().BeTrue();
+        await VerifyAsync(slug, other.MfaChallenge!, new OtpNet.Totp(key).ComputeTotp());
+        (await MembershipsAsync(user.Id, slug)).Should().BeEmpty("a challenge that carried no roles grants none");
+    }
+
+    [Fact]
+    public async Task A_role_that_now_carries_a_platform_capability_is_not_given_when_the_second_factor_passes()
+    {
+        var (slug, teacher) = await TenantWithMapAsync();
+        var user = await PersonAsync();
+        var key = await EnrollMfaAsync(user);
+
+        var first = await SignInAsync(user, slug, Groups("staff"));
+        teacher.SystemCapabilities = [SystemCapabilities.ManageUsers];
+        await StoreAsync(teacher);
+
+        await VerifyAsync(slug, first.MfaChallenge!, new OtpNet.Totp(key).ComputeTotp());
+
+        (await MembershipsAsync(user.Id, slug)).Should().BeEmpty("the role now carries a platform capability");
+    }
+
+    [Fact]
+    public async Task A_role_deleted_before_the_second_factor_passed_is_not_given()
+    {
+        var (slug, teacher) = await TenantWithMapAsync();
+        var user = await PersonAsync();
+        var key = await EnrollMfaAsync(user);
+
+        var first = await SignInAsync(user, slug, Groups("staff"));
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Delete<Role>(teacher.Id);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        await VerifyAsync(slug, first.MfaChallenge!, new OtpNet.Totp(key).ComputeTotp());
+
+        (await MembershipsAsync(user.Id, slug)).Should().BeEmpty("the role no longer exists");
     }
 }
