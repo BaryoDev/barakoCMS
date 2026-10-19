@@ -176,6 +176,73 @@ public class PublicDeliveryAuditTests
         (await IsDeliverableAsync(type)).Should().BeTrue();
     }
 
+    /// <summary>
+    /// A role whose read rule is limited to some rows of the type keeps the type off the anonymous route.
+    /// </summary>
+    /// <remarks>
+    /// Anonymous delivery serves every published entry. A role that reads only the rows listing it
+    /// says some entries are not for everyone, and the public route has no role to test that against.
+    /// </remarks>
+    [Fact]
+    public async Task Enabling_is_refused_when_a_role_reads_only_some_rows_of_the_type()
+    {
+        var (type, _) = await SeedAsync(published: 2, drafts: 0);
+        await StoreRoleAsync(type, new Dictionary<string, object>
+        {
+            ["VisibleToRoles"] = new Dictionary<string, object> { ["_has"] = "Member" },
+            ["$status"] = new Dictionary<string, object> { ["_eq"] = "Published" },
+        });
+
+        var res = await SetAsync(await Client(), type, true);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, "got {0}: {1}", res.StatusCode, await res.Content.ReadAsStringAsync());
+        (await IsDeliverableAsync(type)).Should().BeFalse();
+        (await AuditEntriesAsync(type)).Should().BeEmpty("refused means nothing happened");
+    }
+
+    [Fact]
+    public async Task A_status_only_read_rule_does_not_block_enabling()
+    {
+        var (type, _) = await SeedAsync(published: 2, drafts: 0);
+        await StoreRoleAsync(type, new Dictionary<string, object>
+        {
+            ["$status"] = new Dictionary<string, object> { ["_eq"] = "Published" },
+        });
+
+        (await SetAsync(await Client(), type, true)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await IsDeliverableAsync(type)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Turning_it_off_is_allowed_whatever_the_roles_read()
+    {
+        var (type, _) = await SeedAsync(published: 1, drafts: 0, deliverable: true);
+        await StoreRoleAsync(type, new Dictionary<string, object> { ["VisibleToRoles"] = new Dictionary<string, object> { ["_has"] = "Member" } });
+
+        (await SetAsync(await Client(), type, false)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await IsDeliverableAsync(type)).Should().BeFalse();
+    }
+
+    private async Task StoreRoleAsync(string type, Dictionary<string, object> conditions)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(new Role
+        {
+            Id = Guid.NewGuid(),
+            Name = "pdrole" + Guid.NewGuid().ToString("n")[..8],
+            Permissions =
+            [
+                new ContentTypePermission
+                {
+                    ContentTypeSlug = type,
+                    Read = new PermissionRule { Enabled = true, Conditions = conditions },
+                },
+            ],
+        });
+        await session.SaveChangesAsync();
+    }
+
     private async Task<HttpClient> Client(Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program>? host = null)
     {
         var client = (host ?? (Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program>)_factory).CreateClient();
