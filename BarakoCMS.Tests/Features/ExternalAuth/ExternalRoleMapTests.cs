@@ -1012,6 +1012,7 @@ public class ExternalRoleMapTests
         var user = await PersonAsync();
         var key = await EnrollMfaAsync(user);
         var first = await SignInAsync(user, slug, Groups("staff"));
+        using var resolver = FastEndpointsResolver.Keep();
         using var refusing = _host!.WithWebHostBuilder(b => b.ConfigureTestServices(s =>
             s.AddScoped<barakoCMS.Infrastructure.Auth.ITokenIssuer, RefusingIssuer>()));
 
@@ -1030,6 +1031,7 @@ public class ExternalRoleMapTests
     {
         var (slug, teacher) = await TenantWithMapAsync();
         var user = await PersonAsync();
+        using var resolver = FastEndpointsResolver.Keep();
         using var refusing = _host!.WithWebHostBuilder(b => b.ConfigureTestServices(s =>
             s.AddScoped<barakoCMS.Infrastructure.Auth.ITokenIssuer, RefusingIssuer>()));
 
@@ -1049,6 +1051,7 @@ public class ExternalRoleMapTests
         var user = await PersonAsync();
         var key = await EnrollMfaAsync(user);
         var spy = new Moq.Mock<barakoCMS.Infrastructure.Services.IPermissionResolver>();
+        using var resolver = FastEndpointsResolver.Keep();
         using var spied = _host!.WithWebHostBuilder(b => b.ConfigureTestServices(s =>
             s.AddScoped(_ => spy.Object)));
 

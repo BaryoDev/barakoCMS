@@ -1,6 +1,8 @@
-using Microsoft.AspNetCore.Hosting.Server;
-using Microsoft.AspNetCore.Hosting.Server.Features;
+using System.Net;
+using System.Net.Sockets;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace BarakoCMS.Tests;
@@ -20,22 +22,33 @@ internal static class KestrelTestClient
     private static readonly TimeSpan ContinueTimeout = TimeSpan.FromMinutes(1);
 
     /// <summary>
-    /// Starts a Kestrel host on a port the OS picks. The address is set as well as
-    /// <c>UseKestrel(0)</c> because a host started with only the latter was seen binding Kestrel's
-    /// default, 127.0.0.1:5000, and colliding with another run on the same machine.
+    /// Starts a Kestrel host on a port picked here and set as the host's URL. <c>UseKestrel(0)</c>
+    /// alone does nothing for a minimal-hosting entry point (the factory only applies the port to a
+    /// web host it builds itself), so the host bound Kestrel's default, 127.0.0.1:5000, and collided
+    /// with another run on the same machine. A URL with port 0 binds a free port but leaves the
+    /// server's address list without it, so the port is chosen first and read back from the setting.
     /// </summary>
     internal static WebApplicationFactory<TEntryPoint> StartOnFreePort<TEntryPoint>(WebApplicationFactory<TEntryPoint> factory)
         where TEntryPoint : class
     {
-        var host = factory.WithWebHostBuilder(builder => builder.UseUrls("http://127.0.0.1:0"));
-        host.UseKestrel(0);
+        var port = FreePort();
+        var host = factory.WithWebHostBuilder(builder => builder.UseUrls($"http://127.0.0.1:{port}"));
+        host.UseKestrel(port);
         host.StartServer();
         return host;
     }
 
+    private static int FreePort()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        return ((IPEndPoint)listener.LocalEndpoint).Port;
+    }
+
     internal static HttpClient ExpectContinue<TEntryPoint>(WebApplicationFactory<TEntryPoint> host) where TEntryPoint : class
     {
-        var address = host.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.First();
+        var address = host.Services.GetRequiredService<IConfiguration>()[WebHostDefaults.ServerUrlsKey]
+            ?? throw new InvalidOperationException("The host was not started with StartOnFreePort.");
         var handler = new SocketsHttpHandler { UseProxy = false, Expect100ContinueTimeout = ContinueTimeout };
         return new HttpClient(handler) { BaseAddress = new Uri(address) };
     }

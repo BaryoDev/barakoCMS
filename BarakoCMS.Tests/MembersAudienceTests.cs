@@ -296,7 +296,7 @@ public class MembersAudienceTests
         {
             var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
             userId = Guid.NewGuid();
-            s.Store(new User { Id = userId, Username = $"admin-{userId}", RoleIds = new() { barakoCMS.Data.DataSeeder.SuperAdminRoleId } });
+            s.Store(new User { Id = userId, Username = $"admin-{userId}", Email = $"admin-{userId}@example.com", RoleIds = new() { barakoCMS.Data.DataSeeder.SuperAdminRoleId } });
             await s.SaveChangesAsync();
         }
         client.DefaultRequestHeaders.Authorization =
@@ -426,22 +426,21 @@ public class MembersAudienceTests
         }
         var client = _factory.CreateClient();
 
-        var positive = await client.GetAsync($"/api/public/{type}/control?include=Next");
-        positive.StatusCode.Should().Be(HttpStatusCode.OK);
-        (await positive.Content.ReadAsStringAsync()).Should().Contain("public-target-name",
-            "positive control: the same setup resolves a Public target through include");
+        // Only the list route resolves include; the single entry route ignores it, so a check there
+        // cannot fail and proves nothing.
+        var listed = await client.GetAsync($"/api/public/{type}?include=Next");
+        listed.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await listed.Content.ReadAsStringAsync();
+
+        body.Should().Contain("T-open").And.Contain("T-control", "both entries are in the page");
+        body.Should().Contain("public-target-name",
+            "positive control: the same request resolves a Public target through include");
+        body.Should().NotContain("members-only-name",
+            "the Members target the open entry points at is not resolved for an anonymous caller");
 
         var plain = await client.GetAsync($"/api/public/{type}/open");
         plain.StatusCode.Should().Be(HttpStatusCode.OK);
         (await plain.Content.ReadAsStringAsync()).Should().Contain("T-open").And.NotContain("members-only-name");
-
-        var included = await client.GetAsync($"/api/public/{type}/open?include=Next");
-        included.StatusCode.Should().Be(HttpStatusCode.OK);
-        (await included.Content.ReadAsStringAsync()).Should().Contain("T-open").And.NotContain("members-only-name");
-
-        var listed = await client.GetAsync($"/api/public/{type}?include=Next");
-        listed.StatusCode.Should().Be(HttpStatusCode.OK);
-        (await listed.Content.ReadAsStringAsync()).Should().Contain("T-open").And.NotContain("members-only-name");
     }
 
     [Fact]

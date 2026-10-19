@@ -55,7 +55,7 @@ public class ContractSurfaceVersionTests
 
         response.Headers.TryGetValues(DeliveryHeader, out var delivery).Should().BeTrue(
             "a site reads the delivery number from whatever answer it gets first, as a console reads the admin one");
-        delivery!.Should().ContainSingle().Which.Should().Be("8");
+        delivery!.Should().ContainSingle().Which.Should().Be("9");
     }
 
     [Fact]
@@ -69,7 +69,7 @@ public class ContractSurfaceVersionTests
 
         var delivery = meta.RootElement.GetProperty("deliveryContractVersion");
         delivery.ValueKind.Should().Be(JsonValueKind.Number);
-        delivery.GetInt32().Should().Be(8);
+        delivery.GetInt32().Should().Be(9);
 
         meta.RootElement.GetProperty("version").ValueKind.Should().Be(JsonValueKind.String);
         meta.RootElement.GetProperty("swaggerEnabled").ValueKind.Should().BeOneOf(JsonValueKind.True, JsonValueKind.False);

@@ -186,6 +186,18 @@ public class RoleGateTests
         new("DELETE", "/api/blocks/presets/{id}", $"/api/blocks/presets/{NotAGuid}"),
         new("PUT", "/api/blocks/bindings/{id}", $"/api/blocks/bindings/{NotAGuid}"),
         new("DELETE", "/api/blocks/bindings/{id}", $"/api/blocks/bindings/{NotAGuid}"),
+        new("DELETE", "/api/queries/{slug}/erase", $"/api/queries/{NotASlug}/erase"),
+        new("POST", "/api/queries/{slug}/restore", $"/api/queries/{NotASlug}/restore"),
+        new("DELETE", "/api/roles/{id}/erase", $"/api/roles/{NotAGuid}/erase"),
+        new("POST", "/api/roles/{id}/restore", $"/api/roles/{NotAGuid}/restore"),
+        new("GET", "/api/roles/deleted", "/api/roles/deleted"),
+        new("DELETE", "/api/user-groups/{id}/erase", $"/api/user-groups/{NotAGuid}/erase"),
+        new("POST", "/api/user-groups/{id}/restore", $"/api/user-groups/{NotAGuid}/restore"),
+        new("GET", "/api/user-groups/deleted", "/api/user-groups/deleted"),
+        new("GET", "/api/tenant-settings/email", "/api/tenant-settings/email"),
+        new("PUT", "/api/tenant-settings/email", "/api/tenant-settings/email"),
+        new("POST", "/api/api-keys/{id}/rotate", $"/api/api-keys/{NotAGuid}/rotate"),
+        new("POST", "/api/viewer-tokens", "/api/viewer-tokens"),
     ];
 
     public static TheoryData<GatedRoute> AllGatedRoutes()

@@ -142,7 +142,7 @@ public class PreviewTests
         {
             var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
             userId = Guid.NewGuid();
-            s.Store(new User { Id = userId, Username = $"admin-{userId}", RoleIds = new() { barakoCMS.Data.DataSeeder.SuperAdminRoleId } });
+            s.Store(new User { Id = userId, Username = $"admin-{userId}", Email = $"admin-{userId}@example.com", RoleIds = new() { barakoCMS.Data.DataSeeder.SuperAdminRoleId } });
             await s.SaveChangesAsync();
         }
         _client.DefaultRequestHeaders.Authorization =
