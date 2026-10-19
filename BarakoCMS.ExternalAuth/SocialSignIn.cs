@@ -161,6 +161,21 @@ public static class SocialSignIn
             });
         }
 
+        // The tenant's map runs on every sign-in, not only the first, so a person added to a group
+        // at the provider has the role the next time they sign in.
+        if (!string.IsNullOrEmpty(club) && identity.Claims.Count > 0)
+        {
+            var map = await session.LoadAsync<ExternalRoleMap>(club.Trim().ToLowerInvariant(), ct);
+            if (map is not null)
+            {
+                var roles = RoleMaps.RolesFor(map, identity.Claims);
+                if (roles.Count > 0 && await ExternalRoleGrant.StageAsync(session, user, club, roles, provider, ct))
+                {
+                    await session.SaveChangesAsync(ct);
+                }
+            }
+        }
+
         var profile = new ProfileData(identity.Name, identity.Picture, null, null, provider);
         return (await IssueForUserAsync(
             session, config, deviceGate, tokenIssuer, mfa, http, user, club, created ? signUp : null, ct, profile, beforeFinalCommit), false);

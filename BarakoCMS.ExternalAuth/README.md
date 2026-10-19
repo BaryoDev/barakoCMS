@@ -165,6 +165,32 @@ that a provider you run yourself (a Keycloak realm, for instance) is as trustwor
 edit its users. Two providers that assert the same address land on the same account. An account
 with MFA enrolled is still asked for its second factor.
 
+### Linked accounts
+
+A tenant administrator (capability `manage_tenant_members`) lists a member's provider links with
+`GET /api/tenants/members/{userId}/external-identities` and removes one with
+`DELETE /api/tenants/members/{userId}/external-identities/{id}`. Only people with a membership in
+the caller's tenant are reachable; anyone else answers 404. A link belongs to the person, so
+removing it applies to every tenant. The next sign-in through that provider links again by verified
+email.
+
+### Mapping a provider claim to roles
+
+A tenant sets one map with `PUT /api/tenants/external-role-map` (`GET` and `DELETE` read and remove
+it): a claim name from the id token, for example `groups`, and rules from a claim value to a role.
+
+```json
+{ "claim": "groups", "rules": [ { "value": "staff", "roleId": "<role id>" } ] }
+```
+
+On every OpenID Connect sign-in for that tenant, each rule the token matches adds its role to the
+person's membership, creating the membership if there is none. Values match exactly and case
+sensitively. The map only adds: a removed or suspended member is not brought back, and a claim that
+stops being sent takes nothing away. It cannot name SuperAdmin, a role carrying a platform capability,
+a role of another tenant, or a role that does not exist; the PUT answers 400, and a map stored some
+other way is filtered the same at sign-in. The map is read from the sign-in's tenant, never from the
+request, and it applies to any configured OpenID Connect provider for that tenant.
+
 An upgraded database needs `migrations/4.6.0/external-auth-identities.sql` before the new build
 starts, like any new table.
 
