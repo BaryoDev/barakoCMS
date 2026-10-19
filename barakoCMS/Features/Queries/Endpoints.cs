@@ -72,7 +72,7 @@ internal static class QueryGate
 /// <summary>A query list request. <c>deleted=true</c> lists the deleted queries instead of the live ones.</summary>
 internal sealed class ListQueriesRequest : ListRequest
 {
-    public bool Deleted { get; set; }
+    public bool? Deleted { get; set; }
 }
 
 internal sealed class ListQueriesEndpoint(
@@ -87,7 +87,7 @@ internal sealed class ListQueriesEndpoint(
     public override async Task HandleAsync(ListQueriesRequest req, CancellationToken ct)
     {
         var all = session.Query<QueryDefinition>();
-        var wanted = req.Deleted ? all.Where(q => q.DeletedAt != null) : all.Where(q => q.DeletedAt == null);
+        var wanted = req.Deleted == true ? all.Where(q => q.DeletedAt != null) : all.Where(q => q.DeletedAt == null);
         var page = await wanted
             .OrderBy(q => q.Name)
             .ToPagedResponseAsync(req, ct);
