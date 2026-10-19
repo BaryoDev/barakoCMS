@@ -34,6 +34,7 @@ public class CashFlowTests
         flow.Disbursements.Should().Be(0);
         flow.Closing.Should().Be(7000.49m);
         flow.Lines.Should().HaveCount(5);
+        flow.Lines.Select(l => l.RunningBalance).Should().Equal(7000.49m, 12000.49m, 7000.49m, 15000.49m, 7000.49m);
     }
 
     [Fact]
