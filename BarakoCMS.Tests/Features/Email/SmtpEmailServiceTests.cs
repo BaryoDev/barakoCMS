@@ -37,14 +37,14 @@ public class SmtpEmailServiceTests
                 source));
     }
 
-    /// <summary>A tenant has set its own sender, which only the tenant-aware lookup returns.</summary>
+    /// <summary>A tenant has set its own sender, which only the tenant lookup returns.</summary>
     private sealed class TenantAwareSettings(string tenantFrom, string hostFrom) : IEmailSettingsProvider
     {
         public Task<ResolvedEmailSettings> GetAsync(CancellationToken ct = default) =>
-            Task.FromResult(new ResolvedEmailSettings(null, tenantFrom, EmailSettingSource.None, EmailSettingSource.Stored));
-
-        public Task<ResolvedEmailSettings> GetHostAsync(CancellationToken ct = default) =>
             Task.FromResult(new ResolvedEmailSettings(null, hostFrom, EmailSettingSource.None, EmailSettingSource.Stored));
+
+        public Task<ResolvedEmailSettings> GetForTenantAsync(string tenant, CancellationToken ct = default) =>
+            Task.FromResult(new ResolvedEmailSettings(null, tenantFrom, EmailSettingSource.None, EmailSettingSource.Stored));
     }
 
     private static SmtpEmailService Service(SmtpOptions options, IEmailSettingsProvider? settings = null) =>

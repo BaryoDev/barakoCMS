@@ -180,7 +180,7 @@ public sealed class SmtpEmailService : IEmailService
     /// </remarks>
     private async Task<string> ResolveFromAsync(SmtpOptions options, CancellationToken ct)
     {
-        var resolved = await _settings.GetHostAsync(ct);
+        var resolved = await _settings.GetAsync(ct);
 
         if (resolved.FromAddressSource == EmailSettingSource.Stored
             && !string.IsNullOrWhiteSpace(resolved.FromAddress))

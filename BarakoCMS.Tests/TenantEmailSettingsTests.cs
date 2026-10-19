@@ -166,6 +166,51 @@ public class TenantEmailSettingsTests
     }
 
     [Fact]
+    public async Task A_tenant_key_that_will_not_decrypt_leaves_the_host_sender_in_force()
+    {
+        var tenant = await TenantAsync();
+        await SetHostFromAsync(HostFrom);
+        var otherRing = new barakoCMS.Infrastructure.Security.SecretProtector(
+            new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["Secrets:Key"] = "some other key material that this deployment never had, 0123456789abcdef",
+                })
+                .Build());
+        await StoreAsync(new EmailSettings
+        {
+            Id = EmailSettings.IdForTenant(tenant),
+            TenantSlug = tenant,
+            ProtectedApiKey = otherRing.Protect("placeholder-not-a-key"),
+            FromAddress = "ceo@bigbank.example",
+        });
+
+        var resolved = await ResolveAsync(tenant);
+
+        resolved.ApiKey.Should().NotBe("placeholder-not-a-key");
+        resolved.FromAddress.Should().Be(HostFrom, "the tenant key was not the one in use, so its sender must not be either");
+    }
+
+    [Fact]
+    public async Task The_plain_lookup_never_returns_a_tenant_key_or_sender()
+    {
+        var tenant = await TenantAsync();
+        await SetHostFromAsync(HostFrom);
+        var admin = await MemberClientAsync(tenant, SystemRoles.AdminRoleId, "Admin");
+        (await admin.PutAsJsonAsync("/api/tenant-settings/email",
+            new { apiKey = TenantKey, fromAddress = "hello@tenant.example" },
+            TestContext.Current.CancellationToken)).IsSuccessStatusCode.Should().BeTrue();
+
+        using var scope = _factory.Services.CreateScope();
+        scope.ServiceProvider.GetRequiredService<TenantContext>().Slug = tenant;
+        var resolved = await scope.ServiceProvider.GetRequiredService<IEmailSettingsProvider>()
+            .GetAsync(TestContext.Current.CancellationToken);
+
+        resolved.ApiKey.Should().NotBe(TenantKey);
+        resolved.FromAddress.Should().Be(HostFrom);
+    }
+
+    [Fact]
     public async Task Account_mail_under_a_tenant_with_its_own_key_resolves_the_host_key_and_sender()
     {
         var tenant = await TenantAsync();
@@ -287,7 +332,7 @@ public class TenantEmailSettingsTests
         using var scope = _factory.Services.CreateScope();
         scope.ServiceProvider.GetRequiredService<TenantContext>().Slug = slug;
         return await scope.ServiceProvider.GetRequiredService<IEmailSettingsProvider>()
-            .GetAsync(TestContext.Current.CancellationToken);
+            .GetForTenantAsync(slug, TestContext.Current.CancellationToken);
     }
 
     private async Task SetHostFromAsync(string from)
