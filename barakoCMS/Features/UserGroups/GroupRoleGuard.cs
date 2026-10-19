@@ -30,7 +30,7 @@ internal static class GroupRoleGuard
         var touched = added.Concat(removed).ToList();
         var roles = await session.Query<Role>().Where(r => touched.Contains(r.Id)).ToListAsync(ct);
 
-        var missing = added.Except(roles.Select(r => r.Id)).ToList();
+        var missing = added.Except(roles.Where(r => r.DeletedAt == null).Select(r => r.Id)).ToList();
         if (missing.Count > 0)
             return (400, $"Role not found: {string.Join(", ", missing)}.");
 

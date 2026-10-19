@@ -72,7 +72,7 @@ public static class MembershipRoles
     {
         var groupIds = user.GroupIds ?? [];
         var groups = await session.Query<UserGroup>()
-            .Where(g => g.UserIds.Contains(user.Id) || groupIds.Contains(g.Id))
+            .Where(g => g.DeletedAt == null && (g.UserIds.Contains(user.Id) || groupIds.Contains(g.Id)))
             .ToListAsync(ct);
         return groups.SelectMany(g => g.RoleIds ?? []).Distinct().ToList();
     }

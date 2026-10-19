@@ -226,7 +226,7 @@ internal static class TenantSignUpRole
     public static async Task<string?> RefusalAsync(IQuerySession session, Guid roleId, string tenantSlug, CancellationToken ct)
     {
         var role = await session.LoadAsync<Role>(roleId, ct);
-        if (role is null || !barakoCMS.Features.Roles.RoleScope.Reaches(role, tenantSlug))
+        if (role is null || role.DeletedAt is not null || !barakoCMS.Features.Roles.RoleScope.Reaches(role, tenantSlug))
             return "The sign-up role does not exist.";
 
         if (!barakoCMS.Features.Tenants.Members.Members.IsAssignable(roleId)

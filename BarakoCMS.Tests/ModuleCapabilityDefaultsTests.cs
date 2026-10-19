@@ -446,6 +446,28 @@ public class ModuleCapabilityDefaultsTests
         }
     }
 
+    [Fact]
+    public async Task A_deleted_role_holding_the_seeded_id_is_granted_nothing()
+    {
+        var deleted = await StoreRoleAsync(NewName("Deleted Seeded"), "held_before");
+        await MarkDeletedAsync(deleted.Id);
+
+        var changed = await GrantAsync(CapabilityDefaults.For("cap_one").GrantedTo(new SeededRole(deleted.Id, deleted.Name)));
+
+        changed.Should().Be(0);
+        (await LoadAsync(deleted.Id))!.SystemCapabilities.Should().Equal("held_before");
+    }
+
+    private async Task MarkDeletedAsync(Guid id)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var role = await session.LoadAsync<Role>(id, Ct);
+        role!.DeletedAt = DateTime.UtcNow;
+        session.Store(role);
+        await session.SaveChangesAsync(Ct);
+    }
+
     private static string NewName(string prefix) => $"{prefix} {Guid.NewGuid():N}";
 
     private async Task<int> GrantAsync(CapabilityDefaults defaults)

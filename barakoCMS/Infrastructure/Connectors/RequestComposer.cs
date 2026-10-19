@@ -255,7 +255,7 @@ internal sealed class RequestComposer(
         }
 
         var queryDefinition = await session.Query<QueryDefinition>()
-            .FirstOrDefaultAsync(q => q.Slug == definition.QuerySlug, ct);
+            .FirstOrDefaultAsync(q => q.Slug == definition.QuerySlug && q.DeletedAt == null, ct);
 
         if (queryDefinition is null)
         {

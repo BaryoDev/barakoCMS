@@ -85,7 +85,7 @@ public sealed class ApiKeyAuthenticationHandler : AuthenticationHandler<ApiKeyAu
 
         var roleIds = await MembershipRoles.EffectiveRoleIdsAsync(lookup, user, slug, ct);
         var roleNames = await lookup.Query<Role>()
-            .Where(r => roleIds.Contains(r.Id))
+            .Where(r => r.DeletedAt == null && roleIds.Contains(r.Id))
             .Select(r => r.Name)
             .ToListAsync(ct);
 

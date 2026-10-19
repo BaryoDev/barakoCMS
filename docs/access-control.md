@@ -602,6 +602,35 @@ those rules follow a reference, a push of more than ten existing entries resolve
 the way a list does, and past its bound answers 403 with the condition's reason. A role with no set
 asks nothing new.
 
+## Deleting a role or a group
+
+`DELETE /api/roles/{id}` and `DELETE /api/user-groups/{id}` mark the item deleted. They do not remove
+it, and the refusals are unchanged: a role still held by a user or membership, or named as a
+tenant's sign-up or MFA role, answers 409 as before.
+
+What a deleted role does:
+
+- It grants nothing. The permission resolver, token issue, API key sign-in, field sensitivity and
+  `/api/me` all read live roles only, and the delete evicts cached permission decisions, so a
+  holder loses it on the next request.
+- It is not listed, read, edited or assigned (404). It cannot be named as a sign-up role.
+- It keeps its name until it is erased. Creating or renaming another role to that name still works:
+  it erases the deleted role first, the same outcome a delete always had.
+
+`GET /api/roles/deleted` and `GET /api/user-groups/deleted` list what can be restored.
+`POST .../{id}/restore` brings an item back exactly as it was deleted, with the permissions and
+capabilities it had then. Nothing held it at the time (the delete refuses a held role), and a
+restore assigns it to nobody, so a restored role grants nothing until someone is given it. Restoring
+a role that is a platform role, or carries a platform capability, needs `manage_platform_roles`,
+which is what creating one needs. `DELETE .../{id}/erase` removes a deleted item for good and
+refuses a live one with 404. All three routes need the capability the delete needs, and the system
+roles cannot be deleted so they cannot reach any of this.
+
+**Rolling back.** A release before this one does not know the deleted marker, so it lists, reads and
+assigns a deleted role or group as if it were live. Erase what should stay gone before rolling back.
+
+There is no automatic purge window yet. That waits for the retention primitive in #622.
+
 ## Tested (2026-07-16): the bug this replaced
 
 Ran as real HTTP integration tests (Testcontainers Postgres, role tokens,
@@ -1131,6 +1160,8 @@ display prefix.
 | Role created | `role.created` | `name`, `capabilities`, `permissions` |
 | Role changed | `role.updated` | `name`, `nameBefore`, `capabilitiesBefore`, `capabilitiesAfter`, `permissionsBefore`, `permissionsAfter`, `conditionsChanged`; `capabilitiesAdded` and `capabilitiesRemoved` when the lists differ; `conditionsChangedIn` when a condition changed |
 | Role deleted | `role.deleted` | `name`, `capabilities`, `permissions` |
+| Role restored | `role.restored` | `name`, `capabilities`, `permissions` |
+| Role erased | `role.erased` | `name`, `capabilities`, `permissions`; `name`, `reason` when a new role took the name |
 | Global role given to a user | `user.role.assigned` | `roleId`, `roleName` |
 | Global role taken from a user | `user.role.removed` | `roleId`, `roleName` |
 | Tenant created | `tenant.member.added` in the new tenant's log | `invited` (false), `roleIds`, `roleNames`, `tenantCreated` |

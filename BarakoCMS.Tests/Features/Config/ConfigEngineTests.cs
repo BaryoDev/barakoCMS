@@ -239,6 +239,25 @@ public class ConfigEngineTests
     }
 
     [Fact]
+    public async Task A_role_can_be_applied_under_the_name_of_a_deleted_one_in_the_same_tenant()
+    {
+        var tenant = await _callers.TenantAsync();
+        var name = Unique("Was Deleted ");
+        var deleted = new Role { Id = Guid.NewGuid(), Name = name, TenantSlug = tenant, DeletedAt = DateTime.UtcNow };
+        await _callers.StoreInTenantAsync(null, deleted);
+        var document = new { version = 1, roles = new Dictionary<string, object> { [name] = new { description = "fresh" } } };
+
+        var (applied, body) = await ApplyAsync(await _callers.SuperAdminAsync(tenant), document);
+
+        applied.StatusCode.Should().Be(HttpStatusCode.OK, body.ToString());
+        var named = await _callers.InTenantAsync(null, s => s.Query<Role>().Where(r => r.Name == name).ToListAsync(Ct));
+        named.Should().HaveCount(1, "the deleted holder of the name was erased with the create");
+        named![0].Id.Should().NotBe(deleted.Id);
+        named[0].DeletedAt.Should().BeNull();
+        named[0].Description.Should().Be("fresh");
+    }
+
+    [Fact]
     public async Task A_tenant_export_and_apply_reach_neither_another_tenants_role_nor_list_it()
     {
         var mine = await _callers.TenantAsync();

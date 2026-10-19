@@ -135,7 +135,13 @@ internal sealed class RoleConfigProvider(
             }
 
             var before = role is null ? null : RoleAudit.Of(role);
-            role ??= new Role { Id = Guid.NewGuid(), Name = change.Key, TenantSlug = tenant.Slug, CreatedAt = DateTime.UtcNow };
+            if (role is null)
+            {
+                // Queued with the create below, so both commit in one save.
+                await RoleScope.ReleaseDeletedNameAsync(session, change.Key, tenant.Slug, tenant.Slug,
+                    actorId == Guid.Empty ? null : actorId, caller.Principal?.FindFirst("Username")?.Value ?? "system", ct);
+                role = new Role { Id = Guid.NewGuid(), Name = change.Key, TenantSlug = tenant.Slug, CreatedAt = DateTime.UtcNow };
+            }
 
             role.Description = desired.Description ?? string.Empty;
             role.SystemCapabilities = desired.SystemCapabilities ?? [];

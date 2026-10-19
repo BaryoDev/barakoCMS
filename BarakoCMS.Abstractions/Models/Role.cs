@@ -54,4 +54,10 @@ public class Role
     /// When this role was created
     /// </summary>
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// When the role was deleted, or null while it is live. A deleted role grants nothing, cannot be
+    /// listed, read, edited or assigned, and still holds its name until it is erased.
+    /// </summary>
+    public DateTime? DeletedAt { get; set; }
 }
