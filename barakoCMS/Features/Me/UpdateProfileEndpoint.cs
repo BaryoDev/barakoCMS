@@ -1,6 +1,7 @@
 using FastEndpoints;
 using FluentValidation;
 using Marten;
+using Marten.Patching;
 using barakoCMS.Models;
 
 namespace barakoCMS.Features.Me;
@@ -24,9 +25,13 @@ internal class UpdateProfileValidator : Validator<UpdateProfileRequest>
     {
         RuleFor(x => x.DisplayName)
             .MaximumLength(UpdateProfileRequest.DisplayNameMaxLength)
-            .Must(name => name is null || !name.Any(char.IsControl))
-            .WithMessage("Display name must not contain control characters.");
+            .Must(name => name is null || !name.Any(IsHidden))
+            .WithMessage("Display name must not contain control or invisible formatting characters.");
     }
+
+    // Format characters (bidi overrides, zero-width joiners) let a name render as someone else's.
+    private static bool IsHidden(char c) =>
+        char.IsControl(c) || char.GetUnicodeCategory(c) == System.Globalization.UnicodeCategory.Format;
 }
 
 /// <summary>
@@ -53,13 +58,17 @@ internal class UpdateProfileEndpoint(IDocumentSession session) : Endpoint<Update
             return;
         }
 
-        user.DisplayName = string.IsNullOrWhiteSpace(req.DisplayName) ? null : req.DisplayName.Trim();
-        session.Store(user);
+        var displayName = string.IsNullOrWhiteSpace(req.DisplayName)
+            ? null
+            : req.DisplayName.Trim().Normalize(System.Text.NormalizationForm.FormC);
+
+        // Patch the one field, so a lockout or role change saved meanwhile is not overwritten.
+        session.Patch<User>(userId).Set(u => u.DisplayName, displayName);
         await session.SaveChangesAsync(ct);
 
         await Send.OkAsync(new UpdateProfileResponse
         {
-            DisplayName = user.DisplayName ?? user.Username,
+            DisplayName = displayName ?? user.Username,
         }, ct);
     }
 }

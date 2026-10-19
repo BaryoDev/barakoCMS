@@ -154,6 +154,19 @@ public class DisplayNameTests
         (await StoredDisplayNameAsync(id)).Should().BeNull();
     }
 
+    [Theory]
+    [InlineData("Ada\u202ELovelace")]
+    [InlineData("Ada\u200BLovelace")]
+    public async Task A_display_name_with_an_invisible_formatting_character_is_refused(string name)
+    {
+        var (id, _) = await UserAsync();
+
+        var response = await Client(id).PutAsJsonAsync(ProfileRoute, new { DisplayName = name }, Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await StoredDisplayNameAsync(id)).Should().BeNull();
+    }
+
     [Fact]
     public async Task Setting_a_display_name_changes_only_the_callers_own_user()
     {
