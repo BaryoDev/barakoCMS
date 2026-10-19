@@ -64,7 +64,7 @@
 87 barakoCMS/Features/EmailTemplates/EmailTemplateRenderer.cs::EmailTemplateRenderer.RenderAsync
 82 barakoCMS/Features/EmailTemplates/Preview/Endpoint.cs::Endpoint.HandleAsync
 151 barakoCMS/Features/Public/DeliveryQuery.cs::DeliveryQuery.Parse
-111 barakoCMS/Features/Public/Endpoints.cs::GetBySlugEndpoint.HandleAsync
+109 barakoCMS/Features/Public/Endpoints.cs::GetBySlugEndpoint.HandleAsync
 79 barakoCMS/Features/Public/Endpoints.cs::ListPublishedEndpoint.HandleAsync
 75 barakoCMS/Features/Public/Endpoints.cs::PublicDelivery.ResolveIncludesAsync
 99 barakoCMS/Features/Public/Events/ContentChangeListener.cs::ContentChangeListener.BroadcastAsync
