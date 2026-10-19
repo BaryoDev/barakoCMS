@@ -165,7 +165,6 @@ core_rollbacks_all=$(grep '^rollback ' <<< "$out" | while read -r _ path; do
 done)
 expected_rollbacks=$(reverse_lines <<< "$core_50" | sed 's#/\([^/]*\)$#/rollback-\1#')
 core_without_later=$(grep -vxF -f <(printf '%s\n' "$core_later" "") <<< "$core_all" || true)
-rollbacks_later=$(head -n "$count_later" <<< "$core_rollbacks_all")
 rollbacks_50=$(tail -n +"$((count_later + 1))" <<< "$core_rollbacks_all" | head -n "$count_50")
 if [ "$count_50" -gt 0 ] \
     && grep -qxF migrations/5.0.0/marten-9-49-quick-append-events.sql <<< "$core_50" \
