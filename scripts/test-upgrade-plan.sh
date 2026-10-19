@@ -144,6 +144,8 @@ fi
 # so module rollbacks are skipped when comparing, whatever the module.
 module_files=$(cd "$ROOT" && . "$LIB" && module_migration_paths)
 plan "$ROOT" 4.1.0
+# Folders after 5.0.0 are newer than what this proves, so they are dropped before comparing.
+out=$(grep -vE ' migrations/(5\.[1-9]|5\.[0-9]{2,}|[6-9]\.|[1-9][0-9]+\.)' <<< "$out" || true)
 core_50=$(grep '^core migrations/5\.0\.0/' <<< "$out" | sed 's/^core //' || true)
 count_50=$(grep -c . <<< "$core_50" || true)
 core_rollbacks=$(grep '^rollback ' <<< "$out" | while read -r _ path; do
