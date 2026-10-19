@@ -41,4 +41,15 @@ public class TypeForwardingTests
         page.Should().NotBeNull("a generic type is forwarded by its open definition");
         page!.Assembly.GetName().Name.Should().Be("BarakoCMS.Abstractions");
     }
+
+    [Fact]
+    public void CapabilityGate_lives_in_Abstractions_so_a_module_can_gate_a_route_without_the_core()
+    {
+        var gate = Type.GetType("barakoCMS.Infrastructure.Auth.CapabilityGate, barakoCMS");
+        var required = typeof(barakoCMS.Infrastructure.Auth.RequiredCapability);
+
+        gate.Should().NotBeNull();
+        gate!.Assembly.GetName().Name.Should().Be("BarakoCMS.Abstractions");
+        required.Assembly.GetName().Name.Should().Be("BarakoCMS.Abstractions");
+    }
 }
