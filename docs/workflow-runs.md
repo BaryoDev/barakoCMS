@@ -550,6 +550,22 @@ sum by (action) (rate(barakocms_workflow_attempts_total{outcome=~"failed|retried
 Do not alert on queued against finished. A run cancelled through the API is queued and never
 counted as finished, and so is a run of a workflow with no actions.
 
+## Every try of an action, and what changed since
+
+An action keeps a history of its tries. Each entry has the try number, when it started and finished, the outcome, the response status the remote call answered with, the error, whether it could be retried, and how long it took. The attempt itself still shows the latest try, so a client that ignores the history sees what it saw before.
+
+The history holds the newest 20 entries, oldest first. When a twenty-first arrives the oldest is dropped and `droppedAttempts` goes up by one. A manual retry adds to the same history and never clears it. A run stored before this existed shows one entry built from what it has, and reading it does not rewrite it.
+
+Errors are redacted before they are stored, on the attempt and in the history alike: bearer tokens, credential-shaped query parameters and the like are replaced, then the text is cut to 500 characters. The rules are in `CredentialRedaction` in the abstractions package, and the diagnostics module uses the same ones. Ids and addresses in error text are masked too, since an API key can look like a GUID; the run and action carry their ids in their own fields.
+
+Worst case for the document is every action holding 20 entries with 500-character errors. One such entry is about 680 bytes of JSON, so one action is about 14 KB, and a run of ten such actions is about 137 KB. Compensation (`CompensationState.Attempts`) keeps no history.
+
+`GET /api/workflow-runs` takes `changedSince` to read what changed. The first call passes a timestamp, and every response then carries a `cursor` to pass back. Runs come back oldest change first, ordered by `updatedAt` and then id, and paged with the usual `page` and `pageSize`. A page whose last run changed more than 5 seconds ago returns the cursor of that run. Any other page, with more behind it or not, returns a cursor 5 seconds behind now, so a run whose write committed late is still seen on the next poll. When a page lies wholly inside that margin and more follows, the cursor of its last run is returned instead, so a client always moves forward. That means a run can be returned twice, and a client should replace by id. The lag is 5 seconds, so a repeat is the worst case, never a skip, with one exception: a save held for more than 5 seconds on a lock can commit after the cursor has passed its stamp, and that run is missed until it is written again. This is accepted. Without `changedSince` the list is newest first as before and `cursor` is null.
+
+The list response also carries `statusCounts`, the number of runs in each status for the current `contentId` filter, whatever the `status` filter and page, except that it is null when `changedSince` is given, since a poll should not pay for a count of the table. It carries too `succeededRetainedFrom` and `failedRetainedFrom`, the times before which the retention sweep removes finished runs (null when the sweep is off or keeps them).
+
+`updatedAt` is set by the store on every write of a run and is indexed. A run written before it existed has none until it is next written.
+
 ## This is not an audit trail
 
 Say it plainly, because a retention setting is exactly the kind of thing that quietly becomes a

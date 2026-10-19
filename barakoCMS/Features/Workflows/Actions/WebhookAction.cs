@@ -249,11 +249,11 @@ internal class WebhookAction : IWorkflowAction
             if (response.IsSuccessStatusCode)
             {
                 _logger.LogInformation("Webhook successfully sent to {Url} for content {ContentId}", Redact(url), content.Id);
-                return WorkflowActionResult.Success();
+                return WorkflowActionResult.Success() with { ResponseStatus = (int)response.StatusCode };
             }
 
             _logger.LogWarning("Webhook to {Url} returned status {StatusCode}", Redact(url), response.StatusCode);
-            return WorkflowActionResult.Failure($"Webhook to {Redact(url)} returned status {(int)response.StatusCode}.");
+            return WorkflowActionResult.Failure($"Webhook to {Redact(url)} returned status {(int)response.StatusCode}.") with { ResponseStatus = (int)response.StatusCode };
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
