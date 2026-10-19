@@ -745,7 +745,7 @@ public static class ServiceCollectionExtensions
             // The claim is a read, a check and a write with nothing between them, and two nodes
             // must not both take the same attempt. This is what refuses the second one.
             .UseOptimisticConcurrency(true)
-            .Index(x => x.Status).Index(x => x.CreatedAt).Index(WorkflowRunUpdatedAtThenId, idx => idx.Name = WorkflowRunUpdatedAtThenIdIndex);
+            .Index(x => x.Status).Index(x => x.CreatedAt).Index(WorkflowRunUpdatedAtThenId, idx => idx.Name = WorkflowRunUpdatedAtThenIdIndex).Index(x => new { x.WorkflowDefinitionId, x.UpdatedAt, x.Id }, idx => idx.Name = "mt_doc_workflow_runs_idx_workflow_updated_at");
         options.Listeners.Add(new barakoCMS.Infrastructure.Workflows.WorkflowRunStampListener());
 
         options.Schema.For<WebhookDelivery>()
@@ -986,8 +986,8 @@ public static class ServiceCollectionExtensions
             MapContentDocuments(options);
 
             MapIdentityAndSettingsDocuments(options);
-
             MapTenantScopedDocuments(options);
+            options.Schema.For<barakoCMS.Data.SeedMarker>().SingleTenanted().DocumentAlias("seed_markers");
 
             MapGlobalDocuments(options);
 

@@ -137,8 +137,48 @@ public static class DataSeeder
             Console.WriteLine("[DataSeeder] Granted view_sensitive to the seeded HR role");
         }
 
+        // A role of the operator's own that can author workflows could start them by hand before
+        // there was a gate for it, as nothing was gated that way. It keeps that, once: the marker
+        // stops the next start giving it back to a role an administrator took it from.
+        if (await session.LoadAsync<SeedMarker>(RunWorkflowsGrantKey) is null)
+        {
+            foreach (var held in await session.Query<Role>().ToListAsync())
+            {
+                if (GrantRunWorkflows(held))
+                {
+                    session.Store(held);
+                    Console.WriteLine($"[DataSeeder] Granted run_workflows to role: {held.Name}");
+                }
+            }
+
+            session.Store(new SeedMarker { Key = RunWorkflowsGrantKey });
+        }
+
         // Save roles to database before querying for them in next step
         await session.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Gives a role holding <c>manage_workflows</c> the <c>run_workflows</c> that split from it, and
+    /// reports whether that changed anything.
+    /// </summary>
+    /// <remarks>
+    /// Called once per deployment, guarded by <see cref="RunWorkflowsGrantKey"/>, so a grant an
+    /// administrator removed later stays removed.
+    /// </remarks>
+    internal const string RunWorkflowsGrantKey = "grant-run-workflows-to-workflow-managers";
+
+    internal static bool GrantRunWorkflows(Role role)
+    {
+        var held = role.SystemCapabilities;
+        if (!held.Contains(barakoCMS.Models.SystemCapabilities.ManageWorkflows, StringComparer.OrdinalIgnoreCase)
+            || held.Contains(barakoCMS.Models.SystemCapabilities.RunWorkflows, StringComparer.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        role.SystemCapabilities = [.. held, barakoCMS.Models.SystemCapabilities.RunWorkflows];
+        return true;
     }
 
     /// <summary>

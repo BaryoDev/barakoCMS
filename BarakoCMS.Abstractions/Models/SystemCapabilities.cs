@@ -221,6 +221,14 @@ public static class SystemCapabilities
     /// </remarks>
     public const string ManageWorkflows = "manage_workflows";
 
+    /// <summary>Start one workflow on one entry by hand: <c>POST /api/workflows/{id}/run</c>.</summary>
+    /// <remarks>
+    /// A manual run makes real actions happen, the mail is sent and the webhook is called, so it is
+    /// not folded into <see cref="ManageWorkflows"/> for a role created later. Every role that holds
+    /// <see cref="ManageWorkflows"/> today is granted this one at startup, so nobody loses access.
+    /// </remarks>
+    public const string RunWorkflows = "run_workflows";
+
     /// <summary>
     /// Read workflow runs, one run's detail, and a workflow's execution history.
     /// </summary>
@@ -353,7 +361,8 @@ public static class SystemCapabilities
         All, ManageRoles, ManagePlatformRoles, ManageTenants, ManageTenantMembers, ManageUsers, ManageUserMembership, ManageUserGroups,
         ManageApiKeys, ViewAuditLog, ManageSettings, ManageEmailSettings, ManageContentTypes, ManagePublicDelivery,
         ViewMonitoring, ManageRedirects, ManageQueries, ManageRequests, ViewConnectors, ManageConnectors,
-        ManageWorkflows, ViewWorkflowRuns, RetryWorkflowActions, RollbackContent, EraseContent, ViewModules, ViewModuleConfiguration,
+        ManageWorkflows, RunWorkflows, ViewWorkflowRuns, RetryWorkflowActions, RollbackContent, EraseContent, ViewModules,
+        ViewModuleConfiguration,
         ViewJobs, ViewWebhookResponseBodies, ManageCollectionSyncs, ViewSensitive, ViewHidden,
         ViewNumberGaps, ManageStations, ManageConfig,
     };
@@ -378,7 +387,7 @@ public static class SystemCapabilities
         // gate carved out of ViewWorkflowRuns, and Admin picking it up here would be exactly the
         // widening a narrower gate exists to stop.
         ViewMonitoring, ManageRedirects, ManageQueries, ManageRequests, ViewConnectors,
-        ManageConnectors, ManageWorkflows, ViewWorkflowRuns, RetryWorkflowActions, RollbackContent,
+        ManageConnectors, ManageWorkflows, RunWorkflows, ViewWorkflowRuns, RetryWorkflowActions, RollbackContent,
         // Modules: GET /api/modules was Roles("SuperAdmin", "Admin"), so Admin read it already.
         ViewModules,
         // New with the queue, no gate to preserve. Watching jobs sits with watching workflow runs.

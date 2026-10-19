@@ -172,6 +172,8 @@ public class RoleGateTests
         new("POST", "/api/workflows/dry-run", "/api/workflows/dry-run"),
         new("POST", "/api/email-templates/{id}/preview", $"/api/email-templates/{NotASlug}/preview"),
         new("GET", "/api/workflows/{id}/debug", $"/api/workflows/{NotAGuid}/debug"),
+        new("POST", "/api/workflows/{id}/run", $"/api/workflows/{NotAGuid}/run"),
+        new("GET", "/api/workflows/health", "/api/workflows/health"),
         new("PUT", "/api/workflows/{id}", $"/api/workflows/{NotAGuid}"),
         new("PUT", "/api/workflows/{id}/enabled", $"/api/workflows/{NotAGuid}/enabled"),
         new("DELETE", "/api/workflows/{id}", $"/api/workflows/{NotAGuid}"),

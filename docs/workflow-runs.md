@@ -566,6 +566,30 @@ The list response also carries `statusCounts`, the number of runs in each status
 
 `updatedAt` is set by the store on every write of a run and is indexed. A run written before it existed has none until it is next written.
 
+## Running one by hand, and how healthy a workflow is
+
+`POST /api/workflows/{id}/run` with `{ "entryId": "..." }` queues one run of that workflow on that entry and answers 202 with `{ "runId": "..." }`. The run has trigger `Manual` and `startedBy` set to the caller, and the runner picks it up like any other. It needs `run_workflows` and read access to the entry. A role of your own that holds `manage_workflows` is given `run_workflows` once, on the first start after the upgrade, so it keeps being able to run what it could edit. The seeder records that it did and does not give it again, so a grant you remove from such a role stays removed. The seeded Admin and SuperAdmin roles are different: they get their default capabilities back on every start, like every other default capability, `run_workflows` included.
+
+Refusals:
+
+| Status | When |
+| --- | --- |
+| 404 | The workflow or the entry is not in the caller's tenant, or the caller cannot read the entry. |
+| 400 | The entry's content type is not one the workflow runs on. |
+| 409 | The workflow is switched off, or the entry fails its conditions (the body names the first one). |
+
+Conditions are checked, not bypassed. A definition stored without an `Enabled` key counts as enabled.
+
+Send an `Idempotency-Key` header to make a retry safe. The run id is derived from the tenant, the workflow, the entry and the key, so a repeat by the same caller answers 200 with the same `runId` and `repeated: true`, two requests at once make one run, and the same key on another workflow or entry, or from another caller, makes another run. The repeat holds until retention removes the run, not past it. This route reads the header itself, and the global idempotency filter leaves it alone.
+
+The action is recorded in the audit log as `workflow.run.manual`, with the actor and the run id.
+
+`GET /api/workflows/health` (needs `view_workflow_runs`) is paged by workflow. Each item has the last 10 finished runs, `successRate`, `finishedRuns` and `averageActionDurationMs`. The rate is succeeded over succeeded, failed and partially failed in the window. Pending, running and cancelled runs are left out, and a workflow with no finished run has a null rate. `windowDays` defaults to 7 and is clamped to what retention keeps (at most 90); the response says the window it used. The average skips actions with no recorded duration and looks at the newest 200 runs in the window.
+
+The `lastOutcomes` list includes cancelled and abandoned runs. Workflows are ordered by name, then id.
+
+`GET /api/workflow-runs` takes `workflowId`. `statusCounts` follow it. When you page with a `changedSince` cursor, send the same filters (`workflowId`, `contentId`, `status`) on every page: the cursor does not remember them.
+
 ## This is not an audit trail
 
 Say it plainly, because a retention setting is exactly the kind of thing that quietly becomes a
