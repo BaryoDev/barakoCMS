@@ -50,7 +50,7 @@ public class RoleSoftDeleteTests
     public async Task A_deleted_role_cannot_be_edited_or_assigned_until_it_is_restored()
     {
         var client = await ClientFor("SuperAdmin");
-        var (id, name) = await CreateRoleAsync(client);
+        var (id, name) = await CreateRoleAsync(client, isPlatform: true);
         var userId = await StoreUserAsync();
 
         (await AssignAsync(client, userId, id)).StatusCode.Should().Be(HttpStatusCode.OK, "a live role is assignable, so the refusals below are about deletion");
@@ -228,12 +228,15 @@ public class RoleSoftDeleteTests
     private static Task<HttpResponseMessage> AssignAsync(HttpClient client, Guid userId, Guid roleId) =>
         client.PostAsJsonAsync($"/api/users/{userId}/roles", new { roleId }, Ct);
 
-    private static async Task<(Guid Id, string Name)> CreateRoleAsync(HttpClient client, string? name = null)
+    /// <param name="isPlatform">The global assign route takes only a platform role.</param>
+    private static async Task<(Guid Id, string Name)> CreateRoleAsync(
+        HttpClient client, string? name = null, bool isPlatform = false)
     {
         name ??= "role" + Guid.NewGuid().ToString("n")[..10];
         var res = await client.PostAsJsonAsync("/api/roles", new
         {
             name,
+            isPlatform,
             description = "d",
             permissions = new[] { new { contentTypeSlug = "softdelarticle", read = new { enabled = true } } },
             systemCapabilities = Array.Empty<string>(),
