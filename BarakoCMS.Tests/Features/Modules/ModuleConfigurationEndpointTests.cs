@@ -55,8 +55,11 @@ public class ModuleConfigurationEndpointTests
                     [$"Modules:{Silent}:Host"] = "silent.example.com",
                     [$"Modules:{Off}:Host"] = "off.example.com",
                 }));
-                builder.ConfigureLogging(logging => logging.AddProvider(Logs));
-                builder.ConfigureServices(services => services.AddSingleton(new ModuleCatalogue(
+                builder.ConfigureServices(services =>
+                {
+                    services.AddSingleton<ILoggerFactory>(_ => LoggerFactory.Create(logging =>
+                        logging.SetMinimumLevel(LogLevel.Trace).AddProvider(Logs)));
+                    services.AddSingleton(new ModuleCatalogue(
                 [
                     new ModuleCatalogueEntry(Declared, 1, Enabled: true)
                     {
@@ -73,7 +76,8 @@ public class ModuleConfigurationEndpointTests
                     {
                         ConfigurationView = new ModuleConfigurationView([new("Host")]),
                     },
-                ])));
+                ]));
+                });
             });
         }
     }
