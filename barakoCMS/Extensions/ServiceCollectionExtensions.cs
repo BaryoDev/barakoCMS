@@ -2164,6 +2164,8 @@ public static class ServiceCollectionExtensions
             try
             {
                 await module.SeedAsync(session, scope.ServiceProvider, ct);
+                if (module.ContentPermissions is { } contentPermissions)
+                    await contentPermissions.GrantAsync(session, ct);
                 await session.SaveChangesAsync(ct);
             }
             catch (OperationCanceledException)

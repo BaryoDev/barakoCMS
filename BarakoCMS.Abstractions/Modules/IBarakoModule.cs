@@ -114,6 +114,19 @@ public interface IBarakoModule
     ModuleConfigurationView? ConfigurationView => null;
 
     /// <summary>
+    /// Which seeded roles start with which rights on the content types this module seeds. Optional.
+    /// </summary>
+    /// <remarks>
+    /// Seeding a content type in <see cref="SeedAsync"/> gives no role any right on it, and only
+    /// SuperAdmin passes a content check without a rule. Declare the rights here and the host
+    /// grants them after <see cref="SeedAsync"/> returns, in the same session. See
+    /// <see cref="ContentPermissionDefaults"/> for what is and is not overwritten.
+    ///
+    /// The default declares nothing, and a module that declares nothing grants nothing, as before.
+    /// </remarks>
+    ContentPermissionDefaults? ContentPermissions => null;
+
+    /// <summary>
     /// Register the module's own document types and indexes.
     /// </summary>
     /// <remarks>
