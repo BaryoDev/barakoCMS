@@ -855,15 +855,7 @@ public static class ServiceCollectionExtensions
             // requests with the same code can't both read the old LastUsedTimeStep and both win.
             .UseOptimisticConcurrency(true);
 
-        options.Schema.For<ApiKey>()
-            .SingleTenanted() // credentials are global, like users and tokens
-            .DocumentAlias("api_keys")
-            // A rotation reads the key and writes it back; this makes a revoke that lands between
-            // the two fail the rotation instead of being overwritten.
-            .UseOptimisticConcurrency(true)
-            .Index(x => x.KeyHash, idx => idx.IsUnique = true) // hash lookup at auth time
-            .Index(x => x.UserId)
-            .Index(x => x.TenantSlug);
+        MapApiKeys(options);
 
         options.Schema.For<Station>()
             .SingleTenanted() // credentials are global, like API keys; the tenant is kept as data
@@ -905,6 +897,17 @@ public static class ServiceCollectionExtensions
                 idx.Name = MembershipUniqueIndex;
             });
     }
+
+    private static void MapApiKeys(StoreOptions options) =>
+        options.Schema.For<ApiKey>()
+            .SingleTenanted() // credentials are global, like users and tokens
+            .DocumentAlias("api_keys")
+            // A rotation reads the key and writes it back; this makes a revoke that lands between
+            // the two fail the rotation instead of being overwritten.
+            .UseOptimisticConcurrency(true)
+            .Index(x => x.KeyHash, idx => idx.IsUnique = true) // hash lookup at auth time
+            .Index(x => x.UserId)
+            .Index(x => x.TenantSlug);
 
     private static void AddMartenStore(
         IServiceCollection services,
