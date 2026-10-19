@@ -40,7 +40,7 @@ public class TenantEmailSettingsTests
 
         var admin = await MemberClientAsync(tenantA, SystemRoles.AdminRoleId, "Admin");
         var put = await admin.PutAsJsonAsync("/api/tenant-settings/email",
-            new { fromAddress = "hello@tenant-a.example" }, TestContext.Current.CancellationToken);
+            new { apiKey = TenantKey, fromAddress = "hello@tenant-a.example" }, TestContext.Current.CancellationToken);
         put.StatusCode.Should().Be(HttpStatusCode.OK, await put.Content.ReadAsStringAsync());
 
         (await ResolveAsync(tenantA)).FromAddress.Should().Be("hello@tenant-a.example");
@@ -50,19 +50,20 @@ public class TenantEmailSettingsTests
     }
 
     [Fact]
-    public async Task A_tenant_that_sets_only_a_sender_keeps_the_host_key()
+    public async Task A_tenant_that_sets_only_a_sender_keeps_the_host_key_and_the_host_sender()
     {
         var tenant = await TenantAsync();
         var host = await HostAdminAsync();
         (await host.PutAsJsonAsync("/api/settings/email", new { apiKey = "re_host_key_value" },
             TestContext.Current.CancellationToken)).IsSuccessStatusCode.Should().BeTrue();
 
+        await SetHostFromAsync(HostFrom);
         var admin = await MemberClientAsync(tenant, SystemRoles.AdminRoleId, "Admin");
         (await admin.PutAsJsonAsync("/api/tenant-settings/email", new { fromAddress = "x@tenant.example" },
             TestContext.Current.CancellationToken)).IsSuccessStatusCode.Should().BeTrue();
 
         var resolved = await ResolveAsync(tenant);
-        resolved.FromAddress.Should().Be("x@tenant.example");
+        resolved.FromAddress.Should().Be(HostFrom, "a tenant sender without its own key would send as a host domain");
         resolved.ApiKey.Should().Be("re_host_key_value");
     }
 
@@ -155,13 +156,130 @@ public class TenantEmailSettingsTests
         await SetHostFromAsync(HostFrom);
         var admin = await MemberClientAsync(tenant, SystemRoles.AdminRoleId, "Admin");
 
-        await admin.PutAsJsonAsync("/api/tenant-settings/email", new { fromAddress = "t@tenant.example" },
+        await admin.PutAsJsonAsync("/api/tenant-settings/email", new { apiKey = TenantKey, fromAddress = "t@tenant.example" },
             TestContext.Current.CancellationToken);
         (await ResolveAsync(tenant)).FromAddress.Should().Be("t@tenant.example");
 
         await admin.PutAsJsonAsync("/api/tenant-settings/email", new { fromAddress = "" },
             TestContext.Current.CancellationToken);
         (await ResolveAsync(tenant)).FromAddress.Should().Be(HostFrom);
+    }
+
+    [Fact]
+    public async Task Account_mail_under_a_tenant_with_its_own_key_resolves_the_host_key_and_sender()
+    {
+        var tenant = await TenantAsync();
+        await SetHostFromAsync(HostFrom);
+        var host = await HostAdminAsync();
+        (await host.PutAsJsonAsync("/api/settings/email", new { apiKey = "re_host_key_value" },
+            TestContext.Current.CancellationToken)).IsSuccessStatusCode.Should().BeTrue();
+        var admin = await MemberClientAsync(tenant, SystemRoles.AdminRoleId, "Admin");
+        (await admin.PutAsJsonAsync("/api/tenant-settings/email",
+            new { apiKey = TenantKey, fromAddress = "hello@tenant.example" },
+            TestContext.Current.CancellationToken)).IsSuccessStatusCode.Should().BeTrue();
+
+        var sent = await SendUnderTenantAsync(tenant, (email, ct) =>
+            email.SendEmailAsync("victim@example.com", "Your sign-in code", "123456", ct));
+
+        sent.Authorization.Should().Be("Bearer re_host_key_value");
+        sent.From.Should().Be(HostFrom);
+    }
+
+    [Fact]
+    public async Task Tenant_business_mail_still_resolves_the_tenant_key_and_sender()
+    {
+        var tenant = await TenantAsync();
+        await SetHostFromAsync(HostFrom);
+        var admin = await MemberClientAsync(tenant, SystemRoles.AdminRoleId, "Admin");
+        (await admin.PutAsJsonAsync("/api/tenant-settings/email",
+            new { apiKey = TenantKey, fromAddress = "hello@tenant.example" },
+            TestContext.Current.CancellationToken)).IsSuccessStatusCode.Should().BeTrue();
+
+        var sent = await SendUnderTenantAsync(tenant, (email, ct) =>
+            email.SendForTenantAsync(tenant, "customer@example.com", "Order shipped", "hi", ct));
+
+        sent.Authorization.Should().Be($"Bearer {TenantKey}");
+        sent.From.Should().Be("hello@tenant.example");
+    }
+
+    [Fact]
+    public async Task A_tenant_with_only_a_sender_sends_business_mail_from_the_host_sender()
+    {
+        var tenant = await TenantAsync();
+        await SetHostFromAsync(HostFrom);
+        var admin = await MemberClientAsync(tenant, SystemRoles.AdminRoleId, "Admin");
+        (await admin.PutAsJsonAsync("/api/tenant-settings/email", new { fromAddress = "ceo@bigbank.example" },
+            TestContext.Current.CancellationToken)).IsSuccessStatusCode.Should().BeTrue();
+
+        var resolved = await ResolveAsync(tenant);
+        resolved.FromAddress.Should().Be(HostFrom);
+        resolved.FromAddressSource.Should().Be(EmailSettingSource.Stored);
+
+        var sent = await SendUnderTenantAsync(tenant, (email, ct) =>
+            email.SendForTenantAsync(tenant, "customer@example.com", "Hello", "hi", ct));
+        sent.From.Should().Be(HostFrom);
+    }
+
+    [Theory]
+    [InlineData("a@b.example\r\nBcc: victim@example.com")]
+    [InlineData("a@b.example\nBcc: victim@example.com")]
+    [InlineData("not an address")]
+    [InlineData("two@one.example, two@two.example")]
+    public async Task A_sender_that_is_not_one_clean_address_is_rejected(string from)
+    {
+        var tenant = await TenantAsync();
+        var admin = await MemberClientAsync(tenant, SystemRoles.AdminRoleId, "Admin");
+
+        var res = await admin.PutAsJsonAsync("/api/tenant-settings/email", new { fromAddress = from },
+            TestContext.Current.CancellationToken);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task A_sender_with_a_display_name_is_accepted()
+    {
+        var tenant = await TenantAsync();
+        var admin = await MemberClientAsync(tenant, SystemRoles.AdminRoleId, "Admin");
+
+        var res = await admin.PutAsJsonAsync("/api/tenant-settings/email",
+            new { fromAddress = "Shop <hello@tenant.example>" }, TestContext.Current.CancellationToken);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+    }
+
+    private sealed record SentMessage(string? Authorization, string? From);
+
+    private sealed class CapturingHandler : HttpMessageHandler
+    {
+        public SentMessage? Sent { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var body = await request.Content!.ReadAsStringAsync(ct);
+            using var json = JsonDocument.Parse(body);
+            Sent = new SentMessage(
+                $"{request.Headers.Authorization?.Scheme} {request.Headers.Authorization?.Parameter}",
+                json.RootElement.GetProperty("from").GetString());
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"id\":\"abc\"}"),
+            };
+        }
+    }
+
+    private async Task<SentMessage> SendUnderTenantAsync(string slug, Func<IEmailService, CancellationToken, Task> send)
+    {
+        using var scope = _factory.Services.CreateScope();
+        scope.ServiceProvider.GetRequiredService<TenantContext>().Slug = slug;
+        var handler = new CapturingHandler();
+        var service = new BarakoCMS.Email.Resend.ResendEmailService(
+            new HttpClient(handler), scope.ServiceProvider.GetRequiredService<IEmailSettingsProvider>());
+
+        await send(service, TestContext.Current.CancellationToken);
+
+        handler.Sent.Should().NotBeNull();
+        return handler.Sent!;
     }
 
     private async Task<ResolvedEmailSettings> ResolveAsync(string slug)

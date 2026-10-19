@@ -14,6 +14,14 @@ namespace barakoCMS.Core.Interfaces;
 public interface IEmailSettingsProvider
 {
     Task<ResolvedEmailSettings> GetAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// The host's settings only, never a tenant's key or sender. Account mail (sign-in codes, password
+    /// resets, verification, device approval) uses this, because the tenant that triggers it does not
+    /// own the account and must not read its tokens through its own provider.
+    /// </summary>
+    /// <remarks>The default returns <see cref="GetAsync"/>, so an implementor with no tenant concept still compiles.</remarks>
+    Task<ResolvedEmailSettings> GetHostAsync(CancellationToken ct = default) => GetAsync(ct);
 }
 
 /// <summary>Where each value came from as well as what it is.</summary>

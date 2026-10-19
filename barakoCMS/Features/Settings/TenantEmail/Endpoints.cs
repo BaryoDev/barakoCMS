@@ -67,9 +67,18 @@ internal sealed class UpdateTenantEmailSettingsValidator : Validator<UpdateTenan
 {
     public UpdateTenantEmailSettingsValidator()
     {
-        RuleFor(x => x.FromAddress).MaximumLength(320);
+        RuleFor(x => x.FromAddress)
+            .MaximumLength(320)
+            .Must(BeAMailbox)
+            .When(x => !string.IsNullOrWhiteSpace(x.FromAddress))
+            .WithMessage("FromAddress must be a single valid email address, optionally with a display name.");
         RuleFor(x => x.ApiKey).MaximumLength(2048);
     }
+
+    private static bool BeAMailbox(string? value) =>
+        value is not null
+        && value.AsSpan().IndexOfAny(['\r', '\n', ',', ';']) < 0
+        && System.Net.Mail.MailAddress.TryCreate(value.Trim(), out _);
 }
 
 internal sealed class UpdateTenantEmailSettingsEndpoint(

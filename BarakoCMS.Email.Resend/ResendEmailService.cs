@@ -69,19 +69,21 @@ public class ResendEmailService : IEmailService
 
     public async Task SendEmailAsync(string to, string subject, string body, IReadOnlyList<EmailAttachment> attachments, CancellationToken cancellationToken = default)
     {
-        using var response = await SendAsync(to, subject, body, attachments, cancellationToken);
+        using var response = await SendAsync(to, subject, body, attachments, hostOnly: true, cancellationToken);
     }
 
     public async Task SendForTenantAsync(string tenant, string to, string subject, string body, IReadOnlyList<EmailAttachment> attachments, CancellationToken cancellationToken = default)
     {
-        using var response = await SendAsync(to, subject, body, attachments, cancellationToken);
+        using var response = await SendAsync(to, subject, body, attachments, hostOnly: false, cancellationToken);
         await RecordSenderAsync(tenant, response, cancellationToken);
     }
 
     private async Task<HttpResponseMessage> SendAsync(
-        string to, string subject, string body, IReadOnlyList<EmailAttachment> attachments, CancellationToken cancellationToken)
+        string to, string subject, string body, IReadOnlyList<EmailAttachment> attachments, bool hostOnly, CancellationToken cancellationToken)
     {
-        var resolved = await settings.GetAsync(cancellationToken);
+        var resolved = hostOnly
+            ? await settings.GetHostAsync(cancellationToken)
+            : await settings.GetAsync(cancellationToken);
 
         var apiKey = resolved.ApiKey;
         if (string.IsNullOrWhiteSpace(apiKey))

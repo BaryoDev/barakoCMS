@@ -21,21 +21,27 @@ internal sealed class EmailSettingsProvider(
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
     ILogger<EmailSettingsProvider> logger) : IEmailSettingsProvider
 {
-    public async Task<ResolvedEmailSettings> GetAsync(CancellationToken ct = default)
+    public Task<ResolvedEmailSettings> GetAsync(CancellationToken ct = default) =>
+        ResolveAsync(tenant.IsDefault ? null : tenant.Slug, ct);
+
+    public Task<ResolvedEmailSettings> GetHostAsync(CancellationToken ct = default) =>
+        ResolveAsync(null, ct);
+
+    private async Task<ResolvedEmailSettings> ResolveAsync(string? tenantSlug, CancellationToken ct)
     {
         var configuredKey = Trimmed(config["Resend:ApiKey"]) ?? Trimmed(Environment.GetEnvironmentVariable("RESEND_API_KEY"));
         var configuredFrom = Trimmed(config["Resend:From"]);
 
         var host = await session.LoadAsync<EmailSettings>(EmailSettings.SingletonId, ct);
-        var own = tenant.IsDefault
+        var own = tenantSlug is null
             ? null
-            : await session.LoadAsync<EmailSettings>(EmailSettings.IdForTenant(tenant.Slug), ct);
+            : await session.LoadAsync<EmailSettings>(EmailSettings.IdForTenant(tenantSlug), ct);
 
         var apiKey = configuredKey;
         var apiKeySource = configuredKey is null ? EmailSettingSource.None : EmailSettingSource.Configuration;
 
         // Per field: the tenant's own value when it set one, else the host default stored in the
-        // admin, else configuration. A tenant that sets only a sender keeps the host's key.
+        // admin, else configuration.
         var protectedKey = !string.IsNullOrEmpty(own?.ProtectedApiKey) ? own.ProtectedApiKey : host?.ProtectedApiKey;
 
         if (!string.IsNullOrEmpty(protectedKey))
@@ -61,7 +67,11 @@ internal sealed class EmailSettingsProvider(
         var from = configuredFrom;
         var fromSource = configuredFrom is null ? EmailSettingSource.None : EmailSettingSource.Configuration;
 
-        if ((Trimmed(own?.FromAddress) ?? Trimmed(host?.FromAddress)) is { } storedFrom)
+        // A tenant sender counts only with the tenant's own key. Without one the message goes out on
+        // the host's key, and a tenant-chosen From would let it send as any domain the host verified.
+        var ownFrom = string.IsNullOrEmpty(own?.ProtectedApiKey) ? null : Trimmed(own.FromAddress);
+
+        if ((ownFrom ?? Trimmed(host?.FromAddress)) is { } storedFrom)
         {
             from = storedFrom;
             fromSource = EmailSettingSource.Stored;

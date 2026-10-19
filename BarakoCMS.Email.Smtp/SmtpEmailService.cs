@@ -175,11 +175,12 @@ public sealed class SmtpEmailService : IEmailService
     /// The stored from address is the one part of the email settings surface that is not about
     /// Resend, so it carries across: an operator who types a sender at Settings, Email gets that
     /// sender, whichever provider is registered. The API key beside it does not carry across,
-    /// because SMTP has no use for one.
+    /// because SMTP has no use for one. Always the host's: SMTP has no tenant credential, so a tenant
+    /// sender would go out over the host's login.
     /// </remarks>
     private async Task<string> ResolveFromAsync(SmtpOptions options, CancellationToken ct)
     {
-        var resolved = await _settings.GetAsync(ct);
+        var resolved = await _settings.GetHostAsync(ct);
 
         if (resolved.FromAddressSource == EmailSettingSource.Stored
             && !string.IsNullOrWhiteSpace(resolved.FromAddress))
