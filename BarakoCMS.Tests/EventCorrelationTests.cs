@@ -26,7 +26,7 @@ namespace BarakoCMS.Tests;
 /// nothing another test stores can satisfy or fail an assertion.
 /// </remarks>
 [Collection("Sequential")]
-public class EventCorrelationTests
+public sealed class EventCorrelationTests : IDisposable
 {
     private const string CorrelationHeader = "X-Correlation-ID";
 
@@ -34,12 +34,26 @@ public class EventCorrelationTests
 
     private readonly IntegrationTestFixture _factory;
     private readonly HttpClient _client;
+    private readonly ActivityListener _hostingListener;
 
     public EventCorrelationTests(IntegrationTestFixture factory)
     {
         _factory = factory;
         _client = factory.CreateClient();
+
+        // ASP.NET Core starts the request Activity, and so reads traceparent, only when something
+        // listens: its source, its diagnostic listener, or an enabled hosting logger. A deployment
+        // with no exporter still has the logger. In this shared host whether the logger is enabled
+        // depends on which test ran before, so the listener stands in for it.
+        _hostingListener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == "Microsoft.AspNetCore",
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+        };
+        ActivitySource.AddActivityListener(_hostingListener);
     }
+
+    public void Dispose() => _hostingListener.Dispose();
 
     [Fact]
     public async Task A_traceparent_sent_with_a_request_is_on_the_event_the_request_stores()
