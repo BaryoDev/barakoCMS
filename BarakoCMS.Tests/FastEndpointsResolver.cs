@@ -37,32 +37,57 @@ internal static class FastEndpointsResolver
     private static readonly PropertyInfo InstanceNotSet =
         Resolver.GetProperty("InstanceNotSet", AnyStatic) ?? throw Moved("ServiceResolver.InstanceNotSet");
 
+    /// <summary>
+    /// Held around every read-then-write of the static, so a host disposed on one thread is never
+    /// written back by another. <see cref="Lock"/> is reentrant, so a holder may call back in.
+    /// </summary>
+    private static readonly Lock Gate = new();
+
+    private static readonly List<Func<IEnumerable<IServiceProvider>>> Fallbacks = [];
+
     /// <summary>Takes the resolver the process has now, and puts it back when the result is disposed.</summary>
     public static IDisposable Keep()
     {
-        var previous = (bool)InstanceNotSet.GetValue(null)! ? null : Instance.GetValue(null);
-        return new Restore(previous);
+        lock (Gate)
+        {
+            return new Restore(Current());
+        }
     }
+
+    /// <summary>The resolver the process has now, or null when none has been set.</summary>
+    public static IServiceResolver? Current() =>
+        (bool)InstanceNotSet.GetValue(null)! ? null : (IServiceResolver?)Instance.GetValue(null);
 
     /// <summary>
     /// True when the resolver the process has now still answers, which it does not once the host it
     /// points at is disposed.
     /// </summary>
-    public static bool IsUsable()
+    public static bool IsUsable() => Answers(Current());
+
+    private static bool Answers(IServiceResolver? resolver)
     {
-        if ((bool)InstanceNotSet.GetValue(null)!)
+        if (resolver is null)
         {
             return false;
         }
 
         try
         {
-            ((IServiceResolver)Instance.GetValue(null)!).TryResolve<IServiceResolver>();
+            resolver.TryResolve<IServiceResolver>();
             return true;
         }
         catch (ObjectDisposedException)
         {
             return false;
+        }
+    }
+
+    /// <summary>Runs <paramref name="action"/> while no other thread can read or write the static.</summary>
+    public static void Exclusively(Action action)
+    {
+        lock (Gate)
+        {
+            action();
         }
     }
 
@@ -72,21 +97,28 @@ internal static class FastEndpointsResolver
     /// </summary>
     public static void RepairIfDisposed(IEnumerable<IServiceProvider> hosts)
     {
-        if (IsUsable())
+        lock (Gate)
         {
-            return;
-        }
-
-        foreach (var host in hosts)
-        {
-            try
+            if (IsUsable())
             {
-                Instance.SetValue(null, host.GetRequiredService<IServiceResolver>());
                 return;
             }
-            catch (ObjectDisposedException)
+
+            foreach (var host in hosts)
             {
+                try
+                {
+                    Instance.SetValue(null, host.GetRequiredService<IServiceResolver>());
+                    return;
+                }
+                catch (ObjectDisposedException)
+                {
+                }
             }
+
+            Console.Error.WriteLine(
+                "FastEndpointsResolver: the static resolver points at a disposed host and no live host was left to "
+                + "move it to (#1171). The next lookup made outside a request throws ObjectDisposedException.");
         }
     }
 
@@ -94,20 +126,44 @@ internal static class FastEndpointsResolver
         new($"FastEndpoints no longer has {what}, so FastEndpointsResolver cannot restore the static resolver. "
             + "Find where this FastEndpoints version keeps it and update FastEndpointsResolver.");
 
-    private static readonly System.Collections.Concurrent.ConcurrentQueue<Func<IEnumerable<IServiceProvider>>> Fallbacks = new();
-
     /// <summary>
     /// Hosts, newest first, that <see cref="Keep"/> may fall back to when the resolver it captured
-    /// belongs to a host disposed since. The shared fixture registers its own.
+    /// belongs to a host disposed since. Disposing the result takes them off the list.
     /// </summary>
-    public static void RegisterFallbacks(Func<IEnumerable<IServiceProvider>> hosts) => Fallbacks.Enqueue(hosts);
+    public static IDisposable RegisterFallbacks(Func<IEnumerable<IServiceProvider>> hosts)
+    {
+        lock (Gate)
+        {
+            Fallbacks.Add(hosts);
+        }
 
-    private sealed class Restore(object? previous) : IDisposable
+        return new Unregister(hosts);
+    }
+
+    private sealed class Unregister(Func<IEnumerable<IServiceProvider>> hosts) : IDisposable
     {
         public void Dispose()
         {
-            Instance.SetValue(null, previous);
-            RepairIfDisposed(Fallbacks.Reverse().SelectMany(f => f()));
+            lock (Gate)
+            {
+                Fallbacks.Remove(hosts);
+            }
+        }
+    }
+
+    private sealed class Restore(IServiceResolver? previous) : IDisposable
+    {
+        public void Dispose()
+        {
+            lock (Gate)
+            {
+                if (previous is null || Answers(previous))
+                {
+                    Instance.SetValue(null, previous);
+                }
+
+                RepairIfDisposed(Fallbacks.AsEnumerable().Reverse().SelectMany(f => f()).ToList());
+            }
         }
     }
 }

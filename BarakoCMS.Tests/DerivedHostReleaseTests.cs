@@ -23,15 +23,33 @@ public class DerivedHostReleaseTests(IntegrationTestFixture fixture)
     public void A_host_a_class_derived_is_disposed_once_another_class_derives_one()
     {
         var host = fixture.WithSetting("Release:Probe", "one");
-        _ = host.Services;
+        var services = host.Services;
         fixture.LiveDerivedHosts(ThisClass).Should().BeGreaterThan(0, "the host was derived by this class, so the count below means something");
 
         var released = fixture.ReleaseDerivedHostsExcept(AnotherClass);
 
         released.Should().BeGreaterThan(0);
         fixture.LiveDerivedHosts(ThisClass).Should().Be(0);
-        var probe = () => host.Services.GetRequiredService<IServiceProvider>();
+        var probe = () => services.GetRequiredService<IServiceProvider>();
         probe.Should().Throw<ObjectDisposedException>("a derived host left up keeps polling the shared database");
+    }
+
+    [Fact]
+    public void A_released_host_handed_out_again_names_the_class_that_built_it()
+    {
+        var host = fixture.WithSetting("Release:Probe", "six");
+        _ = host.Services;
+
+        fixture.ReleaseDerivedHostsExcept(AnotherClass);
+
+        var services = () => host.Services;
+        services.Should().Throw<InvalidOperationException>()
+            .WithMessage($"*{ThisClass}*{AnotherClass}*WithRunScopedHost*")
+            .Which.Should().NotBeOfType<ObjectDisposedException>();
+        var client = () => host.CreateClient();
+        client.Should().Throw<InvalidOperationException>()
+            .WithMessage("*WithRunScopedHost*")
+            .Which.Should().NotBeOfType<ObjectDisposedException>();
     }
 
     [Fact]
@@ -75,13 +93,16 @@ public class DerivedHostReleaseTests(IntegrationTestFixture fixture)
     public void Restoring_a_resolver_captured_from_a_host_since_disposed_lands_on_a_live_host()
     {
         var host = fixture.WithSetting("Release:Probe", "five");
-        _ = host.Services;
+        var hostResolver = host.Services.GetRequiredService<FastEndpoints.IServiceResolver>();
+        FastEndpointsResolver.Current().Should().BeSameAs(hostResolver,
+            "the resolver Keep captures must be the derived host's, or this test proves nothing about restoring it");
         var keep = FastEndpointsResolver.Keep();
 
         fixture.ReleaseDerivedHostsExcept(AnotherClass);
         keep.Dispose();
 
-        FastEndpointsResolver.IsUsable().Should().BeTrue("Restore must not put the static back on the disposed host");
+        FastEndpointsResolver.Current().Should().NotBeSameAs(hostResolver, "Restore must not put the static back on the disposed host");
+        FastEndpointsResolver.IsUsable().Should().BeTrue();
     }
 
     [Fact]

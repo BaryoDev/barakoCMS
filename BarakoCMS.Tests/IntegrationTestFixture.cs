@@ -42,8 +42,10 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
     {
         Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", "Development");
         Environment.SetEnvironmentVariable("JWT__Key", JwtKey);
-        FastEndpointsResolver.RegisterFallbacks(() => _startedHosts.Reverse());
+        _fallbacks = FastEndpointsResolver.RegisterFallbacks(() => _startedHosts.Reverse());
     }
+
+    private readonly IDisposable _fallbacks;
 
     /// <summary>The API key this host is configured with, standing in for a deployment's own.</summary>
     public const string ConfiguredResendKey = "re_from_the_deployment_not_the_admin";
@@ -56,10 +58,63 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
     public const string RunOwner = "";
 
     private readonly Lock _derivedGate = new();
-    private readonly List<(string Owner, WebApplicationFactory<Program> Factory)> _derived = [];
+    private readonly List<DerivedHost> _derived = [];
 
     /// <summary>Resolvable from a derived host's provider, so teardown knows which class built it.</summary>
     private sealed record DerivedHostOwner(string Owner);
+
+    /// <summary>
+    /// A host derived from the fixture that fails clearly once released, instead of handing out a
+    /// disposed provider that throws <see cref="ObjectDisposedException"/> deep inside whatever test
+    /// cached it.
+    /// </summary>
+    /// <remarks>
+    /// Built the way <c>WebApplicationFactory.WithWebHostBuilder</c> builds one, the fixture's own
+    /// configuration and then the caller's, but as a type this file owns so <see cref="Services"/>
+    /// and every client can check whether the host was released.
+    /// </remarks>
+    private sealed class DerivedHost(IntegrationTestFixture root, string owner, Action<IWebHostBuilder> configuration)
+        : WebApplicationFactory<Program>
+    {
+        private string? _releasedBy;
+
+        public string Owner => owner;
+
+        public void MarkReleased(string releasedBy) => _releasedBy = releasedBy;
+
+        public override IServiceProvider Services
+        {
+            get
+            {
+                ThrowIfReleased();
+                return base.Services;
+            }
+        }
+
+        protected override void ConfigureWebHost(IWebHostBuilder builder)
+        {
+            root.ConfigureWebHost(builder);
+            configuration(builder);
+            builder.ConfigureServices(services => services.AddSingleton(new DerivedHostOwner(owner)));
+        }
+
+        protected override void ConfigureClient(HttpClient client)
+        {
+            ThrowIfReleased();
+            base.ConfigureClient(client);
+        }
+
+        private void ThrowIfReleased()
+        {
+            if (_releasedBy is { } next)
+            {
+                throw new InvalidOperationException(
+                    $"IntegrationTestFixture: this host was derived by {owner} and disposed when {next} derived its "
+                    + "first host (#1171). Something kept it past its class, most likely a cache shared by more than "
+                    + "one test class. Build a shared host with WithRunScopedHost or WithRunScopedSettings.");
+            }
+        }
+    }
 
     private static string CurrentClass() =>
         TestContext.Current.TestClass?.TestClassName
@@ -73,9 +128,10 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
     /// </summary>
     /// <remarks>
     /// The Sequential collection runs one class at a time, so by the time another class derives a
-    /// host the earlier class has finished with its own. A static host cache in a class is
-    /// therefore safe, and one shared by several classes is not: such a host asks for
-    /// <see cref="WithRunScopedHost"/> instead.
+    /// host the earlier class has finished with its own. A static host cache only its own class
+    /// reaches is therefore safe, and one several classes reach is not: such a host asks for
+    /// <see cref="WithRunScopedHost"/> instead. A released host handed out again throws, naming
+    /// the class that built it.
     /// </remarks>
     public new WebApplicationFactory<Program> WithWebHostBuilder(Action<IWebHostBuilder> configuration) =>
         Derive(CurrentClass(), configuration);
@@ -94,14 +150,10 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             ReleaseDerivedHostsExcept(owner);
         }
 
-        var derived = base.WithWebHostBuilder(builder =>
-        {
-            configuration(builder);
-            builder.ConfigureServices(services => services.AddSingleton(new DerivedHostOwner(owner)));
-        });
+        var derived = new DerivedHost(this, owner, configuration);
         lock (_derivedGate)
         {
-            _derived.Add((owner, derived));
+            _derived.Add(derived);
         }
 
         return derived;
@@ -132,14 +184,13 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
     /// <returns>How many factories were disposed.</returns>
     internal int ReleaseDerivedHostsExcept(string owner)
     {
-        List<WebApplicationFactory<Program>> doomed;
+        List<DerivedHost> doomed;
         HashSet<string> owners;
         lock (_derivedGate)
         {
-            var leaving = _derived.Where(d => d.Owner != owner && d.Owner != RunOwner).ToList();
-            doomed = leaving.Select(d => d.Factory).ToList();
-            owners = leaving.Select(d => d.Owner).ToHashSet();
-            _derived.RemoveAll(d => leaving.Contains(d));
+            doomed = _derived.Where(d => d.Owner != owner && d.Owner != RunOwner).ToList();
+            owners = doomed.Select(d => d.Owner).ToHashSet();
+            _derived.RemoveAll(doomed.Contains);
         }
 
         if (doomed.Count > 0)
@@ -156,13 +207,18 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                     + $"hosts (#1171). Disposal carries on.{Environment.NewLine}{e}");
             }
 
-            foreach (var factory in doomed)
-            {
-                factory.Dispose();
-            }
         }
 
-        FastEndpointsResolver.RepairIfDisposed(_startedHosts.Reverse());
+        FastEndpointsResolver.Exclusively(() =>
+        {
+            foreach (var factory in doomed)
+            {
+                factory.MarkReleased(owner);
+                factory.Dispose();
+            }
+
+            FastEndpointsResolver.RepairIfDisposed(_startedHosts.Reverse());
+        });
         return doomed.Count;
     }
 
@@ -650,14 +706,32 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
     {
         await StopProjectionCoordinatorsAsync(_startedHosts.Reverse());
 
-        // The host first. Stopping it stops the projection daemon and the workflow runner, and with
+        // The hosts first. Stopping one stops the projection daemon and the workflow runner, and with
         // the database already gone those fail their passes and Marten's coordinator threw
         // ObjectDisposedException out of StopAsync, failing every test in the collection.
+        // A derived host is not one the root made, so the root's disposal does not reach it.
+        List<DerivedHost> derived;
+        lock (_derivedGate)
+        {
+            derived = [.. _derived];
+            _derived.Clear();
+        }
+
+        FastEndpointsResolver.Exclusively(() =>
+        {
+            foreach (var host in derived)
+            {
+                host.MarkReleased("the fixture's own disposal");
+                host.Dispose();
+            }
+        });
+
         await base.DisposeAsync();
+        _fallbacks.Dispose();
         await _postgresContainer.DisposeAsync();
 
-        // Disposing the root disposes every derived factory it made. Anything still up after that
-        // is a host the fixture lost track of, and the run would have kept it polling.
+        // Anything still up now is a host the fixture lost track of, and the run would have kept
+        // it polling.
         var leftover = _startedHosts.Count(IsUp);
         if (leftover > 0)
         {
@@ -772,8 +846,17 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
     /// Do not dispose the result, for the reason given above.
     /// </summary>
     public WebApplicationFactory<Program> WithSettings(IDictionary<string, string?> settings) =>
-        WithWebHostBuilder(b => b.ConfigureAppConfiguration((_, config) =>
-            config.AddInMemoryCollection(settings)));
+        WithWebHostBuilder(Settings(settings));
+
+    /// <summary>
+    /// <see cref="WithSettings"/> for a host cached where more than one test class reaches it.
+    /// Disposed with the fixture rather than with the class that first asked.
+    /// </summary>
+    public WebApplicationFactory<Program> WithRunScopedSettings(IDictionary<string, string?> settings) =>
+        WithRunScopedHost(Settings(settings));
+
+    private static Action<IWebHostBuilder> Settings(IDictionary<string, string?> settings) =>
+        b => b.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(settings));
 
     private static readonly Lock StoredCallers = new();
     private static readonly Dictionary<string, Task<string>> StoredTokens = new(StringComparer.Ordinal);

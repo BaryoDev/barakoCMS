@@ -16,7 +16,8 @@ namespace BarakoCMS.Tests;
 /// data they all need.
 /// </summary>
 /// <remarks>
-/// The host is not disposed, for the reason <see cref="IntegrationTestFixture.WithSetting"/> gives.
+/// The host is run-scoped, since several classes share it: a class-owned host would be disposed
+/// when the next class derives one, and every later class would get it disposed (#1171).
 ///
 /// Tenants are written through the fixture's own host, which runs in Single and shares the
 /// database. The Multi host caches which slugs are active tenants, and a write on another host
@@ -33,7 +34,8 @@ internal static class MultiTenancyHost
     {
         lock (Gate)
         {
-            return _host ??= fixture.WithSetting(TenancyOptions.ModeKey, "Multi");
+            return _host ??= fixture.WithRunScopedSettings(
+                new Dictionary<string, string?> { [TenancyOptions.ModeKey] = "Multi" });
         }
     }
 
