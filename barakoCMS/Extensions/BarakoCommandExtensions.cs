@@ -12,7 +12,7 @@ public static class BarakoCommandExtensions
 {
     /// <summary>
     /// The last line of a host's <c>Program.cs</c>: runs <c>db-migrate</c> when that is the first
-    /// argument, and otherwise hands over to JasperFx, which runs <c>db-assert</c>, <c>db-patch</c>
+    /// argument, serves when the first argument is a flag, and otherwise hands over to JasperFx, which runs <c>db-assert</c>, <c>db-patch</c>
     /// and <c>db-apply</c>, or serves when no command was named.
     /// </summary>
     /// <returns>The process exit code. A failed command is a return value, not an exception.</returns>
@@ -20,6 +20,15 @@ public static class BarakoCommandExtensions
     {
         ArgumentNullException.ThrowIfNull(host);
         ArgumentNullException.ThrowIfNull(args);
+
+        // Flags with no command mean serve. JasperFx reads them as arguments to a command and exits
+        // on one it does not know, such as the --HTTP_PORTS= WebApplicationFactory passes when the
+        // environment sets ASPNETCORE_HTTP_PORTS. The host reads its flags through configuration.
+        if (args.Length > 0 && args[0].StartsWith('-'))
+        {
+            await host.RunAsync();
+            return 0;
+        }
 
         if (!MigrationCommand.IsNamed(args))
         {
