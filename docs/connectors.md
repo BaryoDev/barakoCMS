@@ -194,13 +194,14 @@ webhook delivery in `GET /api/webhook-deliveries`.
 `DELETE /api/queries/{slug}` marks the query deleted. It disappears from the list, from `GET` and
 preview, and a request definition that names it reports the query as missing. It is not gone:
 
-- `GET /api/queries/deleted` lists deleted queries.
+- `GET /api/queries?deleted=true` lists deleted queries. (It is a filter on the list, not a
+  `/deleted` path, so a query slugged `deleted` is still read by `GET /api/queries/deleted`.)
 - `POST /api/queries/{slug}/restore` brings one back.
 - `DELETE /api/queries/{slug}/erase` removes a deleted query for good. A live query cannot be
   erased in one call.
 - Saving a query over a deleted slug replaces the deleted one, as a create after a delete always
   did.
 
-All three routes need the same capability as delete (`ManageQueries`). There is no automatic purge
+Restore and erase need the same capability as delete (`ManageQueries`). There is no automatic purge
 window yet; that waits for the retention primitive in #622. Roles and user groups behave the same
 way (docs/access-control.md). Connectors and request definitions are still hard deletes (#625).

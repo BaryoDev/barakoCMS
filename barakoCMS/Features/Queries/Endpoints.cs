@@ -69,8 +69,14 @@ internal static class QueryGate
         System.Text.RegularExpressions.Regex.IsMatch(value, "^[a-z0-9][a-z0-9-]{0,62}$");
 }
 
+/// <summary>A query list request. <c>deleted=true</c> lists the deleted queries instead of the live ones.</summary>
+internal sealed class ListQueriesRequest : ListRequest
+{
+    public bool Deleted { get; set; }
+}
+
 internal sealed class ListQueriesEndpoint(
-    IQuerySession session) : Endpoint<ListRequest, PaginatedResponse<QueryResponse>>
+    IQuerySession session) : Endpoint<ListQueriesRequest, PaginatedResponse<QueryResponse>>
 {
     public override void Configure()
     {
@@ -78,9 +84,12 @@ internal sealed class ListQueriesEndpoint(
         Definition.RequireCapability(SystemCapabilities.ManageQueries, QueryGate.LegacyRoles);
     }
 
-    public override async Task HandleAsync(ListRequest req, CancellationToken ct)
+    public override async Task HandleAsync(ListQueriesRequest req, CancellationToken ct)
     {
-        var page = await session.Query<QueryDefinition>().Where(q => q.DeletedAt == null).OrderBy(q => q.Name).ToPagedResponseAsync(req, ct);
+        var page = await session.Query<QueryDefinition>()
+            .Where(q => req.Deleted ? q.DeletedAt != null : q.DeletedAt == null)
+            .OrderBy(q => q.Name)
+            .ToPagedResponseAsync(req, ct);
 
         await Send.ResponseAsync(new PaginatedResponse<QueryResponse>
         {
@@ -231,32 +240,6 @@ internal sealed class DeleteQueryEndpoint(
 
         await session.SaveChangesAsync(ct);
         await Send.NoContentAsync(ct);
-    }
-}
-
-internal sealed class ListDeletedQueriesEndpoint(
-    IQuerySession session) : Endpoint<ListRequest, PaginatedResponse<QueryResponse>>
-{
-    public override void Configure()
-    {
-        Get("/api/queries/deleted");
-        Definition.RequireCapability(SystemCapabilities.ManageQueries, QueryGate.LegacyRoles);
-    }
-
-    public override async Task HandleAsync(ListRequest req, CancellationToken ct)
-    {
-        var page = await session.Query<QueryDefinition>()
-            .Where(q => q.DeletedAt != null)
-            .OrderBy(q => q.Name)
-            .ToPagedResponseAsync(req, ct);
-
-        await Send.ResponseAsync(new PaginatedResponse<QueryResponse>
-        {
-            Items = page.Items.Select(QueryResponse.From).ToList(),
-            Page = page.Page,
-            PageSize = page.PageSize,
-            TotalItems = page.TotalItems,
-        }, cancellation: ct);
     }
 }
 

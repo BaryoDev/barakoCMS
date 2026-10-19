@@ -104,8 +104,10 @@ internal static class RoleScope
 
     /// <summary>
     /// Erases the deleted roles in the same owner that still hold <paramref name="name"/>, so a new
-    /// role can take it, as it always could after a delete. Saved on its own because the unique
-    /// index on the name is checked per statement and the order of one batch is not the caller's.
+    /// role can take it, as it always could after a delete. Only queues the deletes: the caller
+    /// stores the new or renamed role and saves once, so the erase and the take commit together
+    /// (a batch runs the deletes of a document type before its inserts in the order queued, and
+    /// a failed save loses neither).
     /// </summary>
     public static async Task ReleaseDeletedNameAsync(
         IDocumentSession session, string name, string? ownerSlug, string tenantSlug,
@@ -126,7 +128,5 @@ internal static class RoleScope
                 targetType: "Role", targetId: role.Id.ToString(),
                 metadata: new Dictionary<string, object> { ["name"] = role.Name, ["reason"] = "name reused" }, ct: ct);
         }
-
-        await session.SaveChangesAsync(ct);
     }
 }

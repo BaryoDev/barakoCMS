@@ -34,7 +34,7 @@ public class QueryDeleteTests
         (await client.PostAsync($"/api/queries/{slug}/preview", null, TestContext.Current.CancellationToken))
             .StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await ListSlugsAsync(client, "/api/queries")).Should().NotContain(slug);
-        (await ListSlugsAsync(client, "/api/queries/deleted")).Should().Contain(slug);
+        (await ListSlugsAsync(client, "/api/queries?deleted=true")).Should().Contain(slug);
 
         (await client.PostAsync($"/api/queries/{slug}/restore", null, TestContext.Current.CancellationToken))
             .StatusCode.Should().Be(HttpStatusCode.OK);
@@ -43,7 +43,7 @@ public class QueryDeleteTests
             .StatusCode.Should().Be(HttpStatusCode.OK);
         (await client.PostAsync($"/api/queries/{slug}/preview", null, TestContext.Current.CancellationToken))
             .StatusCode.Should().Be(HttpStatusCode.OK);
-        (await ListSlugsAsync(client, "/api/queries/deleted")).Should().NotContain(slug);
+        (await ListSlugsAsync(client, "/api/queries?deleted=true")).Should().NotContain(slug);
     }
 
     [Fact]
@@ -88,7 +88,7 @@ public class QueryDeleteTests
 
         var got = await client.GetFromJsonAsync<JsonElement>($"/api/queries/{slug}", TestContext.Current.CancellationToken);
         got.GetProperty("name").GetString().Should().Be("New");
-        (await ListSlugsAsync(client, "/api/queries/deleted")).Should().NotContain(slug);
+        (await ListSlugsAsync(client, "/api/queries?deleted=true")).Should().NotContain(slug);
         (await client.PostAsync($"/api/queries/{slug}/restore", null, TestContext.Current.CancellationToken))
             .StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -125,7 +125,7 @@ public class QueryDeleteTests
 
     private static async Task<List<string>> ListSlugsAsync(HttpClient client, string url)
     {
-        var page = await client.GetFromJsonAsync<JsonElement>(url + "?pageSize=100", TestContext.Current.CancellationToken);
+        var page = await client.GetFromJsonAsync<JsonElement>(url + (url.Contains('?') ? "&" : "?") + "pageSize=100", TestContext.Current.CancellationToken);
         return page.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("slug").GetString()!).ToList();
     }
 

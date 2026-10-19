@@ -31,6 +31,9 @@ internal class Endpoint(
             return;
         }
 
+        // Only a platform role is refused here. Erasing a tenant's role that carries a platform
+        // capability removes a grant, where restoring it would hand the capability back to whoever
+        // is given the role next, so restore refuses it and erase does not.
         if (role.IsPlatform && !platformCaller)
         {
             await Send.ResponseAsync(new Response { Message = RoleScope.PlatformRoleMessage }, 403, ct);

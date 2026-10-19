@@ -64,9 +64,16 @@ public sealed class AccountingModule : IBarakoModule
         // operator renamed, and with it every permission they gave it. By name only among the
         // deployment's roles: a tenant's own role named Accountant is not this module's.
         var accountant = AccountingCapabilities.Accountant.Name;
-        var existing = await session.LoadAsync<Role>(AccountantRoleId, ct)
-                       ?? (await session.Query<Role>()
-                               .Where(r => r.Name == accountant && (r.TenantSlug == null || r.TenantSlug == Tenant.DefaultSlug))
+        var existing = await session.LoadAsync<Role>(AccountantRoleId, ct);
+        if (existing?.DeletedAt is not null)
+        {
+            // A deleted seeded role comes back on start, as it did when a delete removed the row.
+            session.Delete(existing);
+            existing = null;
+        }
+
+        existing ??= (await session.Query<Role>()
+                               .Where(r => r.DeletedAt == null && r.Name == accountant && (r.TenantSlug == null || r.TenantSlug == Tenant.DefaultSlug))
                                .ToListAsync(ct))
                            .OrderBy(r => r.TenantSlug is null ? 0 : 1)
                            .FirstOrDefault();

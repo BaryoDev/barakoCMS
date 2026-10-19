@@ -9,7 +9,8 @@ namespace barakoCMS.Features.UserGroups.Restore;
 /// <summary>POST /api/user-groups/{id}/restore: brings a deleted group back.</summary>
 internal class Endpoint(
     IDocumentSession session,
-    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<Request, Response>
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
+    barakoCMS.Infrastructure.Services.IPermissionResolver permissions) : Endpoint<Request, Response>
 {
     public override void Configure()
     {
@@ -32,6 +33,10 @@ internal class Endpoint(
         await AuditLog.RecordAsync(session, tenant.Slug, "usergroup.restored", actorId, User.FindFirst("Username")?.Value,
             targetType: "UserGroup", targetId: group.Id.ToString(), metadata: new() { ["name"] = group.Name }, ct: ct);
         await session.SaveChangesAsync(ct);
+        if (group.RoleIds is { Count: > 0 })
+        {
+            permissions.InvalidateAllPermissions();
+        }
 
         await Send.OkAsync(new Response { Message = "User group restored successfully" }, ct);
     }
