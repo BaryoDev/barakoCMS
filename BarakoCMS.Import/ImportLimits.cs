@@ -14,6 +14,22 @@ public static class ImportLimits
 
     public const int DefaultMaxRecords = 5000;
 
+    public const string MaxUploadBytesKey = "Import:MaxUploadBytes";
+
+    public const long DefaultMaxUploadBytes = 10L * 1024 * 1024;
+
+    public const string MaxSecondsKey = "Import:MaxSeconds";
+
+    public const int DefaultMaxSeconds = 120;
+
+    /// <summary>Largest spreadsheet <c>POST /api/import/spreadsheet</c> reads. Default 10 MB.</summary>
+    public static long MaxUploadBytes(IConfiguration configuration) =>
+        configuration.GetValue<long?>(MaxUploadBytesKey) is > 0 and var bytes ? bytes : DefaultMaxUploadBytes;
+
+    /// <summary>How long a spreadsheet import may run before it is stopped and rolled back. Default 120.</summary>
+    public static int MaxSeconds(IConfiguration configuration) =>
+        configuration.GetValue<int?>(MaxSecondsKey) is > 0 and var seconds ? seconds : DefaultMaxSeconds;
+
     /// <summary>The configured limit, or the default when it is missing or not positive.</summary>
     public static int MaxRecords(IConfiguration configuration)
     {

@@ -8470,6 +8470,67 @@
         },
         "type": "object"
       },
+      "BarakoCMSImportFeaturesImportSheetRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "contentType": {
+            "type": "string"
+          },
+          "continueOnError": {
+            "description": "False (default): any bad row writes nothing. True: good rows are written, bad ones reported.",
+            "type": "boolean"
+          },
+          "dryRun": {
+            "description": "Check every row and write nothing.",
+            "type": "boolean"
+          },
+          "headerRow": {
+            "description": "Zero-based row of the header, as /api/import/analyze numbers rows. Data starts on the next row.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "mapping": {
+            "description": "JSON object of content field name to zero-based column index, for example {\"Title\":0,\"Body\":2}.",
+            "type": "string"
+          },
+          "status": {
+            "description": "Draft, Published or Archived. Published when empty.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSImportFeaturesImportSheetResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "created": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "dataRows": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "dryRun": {
+            "type": "boolean"
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSImportFeaturesBulkCreateResponse_RowError"
+            },
+            "type": "array"
+          },
+          "failed": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "skippedBlankRows": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSInfrastructureAuthKnownCapability": {
         "additionalProperties": false,
         "description": "One name a role can be granted, and where it comes from.",
@@ -18167,6 +18228,49 @@
           }
         ],
         "summary": "POST /api/import/content \u2014 bulk-create content items from mapped records (typically the output of\n/api/import/analyze after column mapping). Reuses the CMS's content-type validation, per-type\ncreate permission, and event-sourced creation; all creates commit in one transaction.",
+        "tags": [
+          "Import"
+        ]
+      }
+    },
+    "/api/import/spreadsheet": {
+      "post": {
+        "description": "Authorised like the bulk create: the target content type's own create permission. One transaction. Refused or rolled back past Import:MaxUploadBytes, Import:MaxExpandedBytes, Import:MaxRecords or Import:MaxSeconds (408); nothing is written. A second run creates the entries again.",
+        "operationId": "BarakoCMSImportFeaturesImportSheetEndpoint",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSImportFeaturesImportSheetRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "Request",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSImportFeaturesImportSheetResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/import/spreadsheet. Uploads an .xlsx/CSV with the header row, content type and column mapping, and creates an entry from every data row, not only the 500 that analyze previews.",
         "tags": [
           "Import"
         ]
