@@ -488,6 +488,53 @@ public class ContentTransitionerTests
         allowed.Outcome.Should().Be(ContentTransitionOutcome.Transitioned, string.Join(" ", allowed.Errors));
     }
 
+    private static readonly string ScopedA = NewTypeName();
+    private static readonly string ScopedB = NewTypeName();
+    private static readonly Lock ScopedGate = new();
+    private static WebApplicationFactory<Program>? _scoped;
+
+    private WebApplicationFactory<Program> ScopedHost()
+    {
+        lock (ScopedGate)
+        {
+            return _scoped ??= _factory.WithSettings(new Dictionary<string, string?>
+            {
+                [$"Lifecycle:AllowSelfTransition:{ScopedA}:Submit"] = "true",
+            });
+        }
+    }
+
+    private async Task<ContentTransitionResult> MoveOnAsync(
+        WebApplicationFactory<Program> host, Guid id, string transition, Guid actor)
+    {
+        using var scope = host.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var transitioner = scope.ServiceProvider.GetRequiredService<IContentTransitioner>();
+        var content = await session.LoadAsync<Content>(id);
+        return await transitioner.TransitionAsync(content!, transition, ContentTransitionActor.ForUser(actor), Trusted);
+    }
+
+    /// <summary>
+    /// The scoped key names a type. Another type with a transition of the same name is still
+    /// refused, which the unscoped key could not do.
+    /// </summary>
+    [Fact]
+    public async Task A_self_transition_allowed_for_one_type_is_still_refused_on_another_with_the_same_transition_name()
+    {
+        var host = ScopedHost();
+        await TypeAsync(Review(), name: ScopedA);
+        await TypeAsync(Review(), name: ScopedB);
+        var (idB, creatorB) = await EntryAsync(ScopedB);
+        var (idA, creatorA) = await EntryAsync(ScopedA);
+
+        var refused = await MoveOnAsync(host, idB, "Submit", creatorB.Id);
+        refused.Outcome.Should().Be(ContentTransitionOutcome.Forbidden);
+        (await LoadAsync(idB)).LifecycleState.Should().Be("Draft");
+
+        var allowed = await MoveOnAsync(host, idA, "Submit", creatorA.Id);
+        allowed.Outcome.Should().Be(ContentTransitionOutcome.Transitioned, string.Join(" ", allowed.Errors));
+    }
+
     // ---- field sensitivity -------------------------------------------------------------------
 
     private static ContentTransitionOptions WithReason() => new()
