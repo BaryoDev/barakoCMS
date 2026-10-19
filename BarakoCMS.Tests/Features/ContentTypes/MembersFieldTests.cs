@@ -122,7 +122,9 @@ public class MembersFieldTests
         }, Ct);
 
         added.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await Probe.StoredTypeAsync(_factory, type)).Fields.Should().NotContain(f => f.Name == "Perk");
+        var stored = (await Probe.StoredTypeAsync(_factory, type)).Fields;
+        stored.Should().HaveCount(2, "the seeded Name and Secret fields are still there");
+        stored.Should().NotContain(f => f.Name == "Perk");
     }
 
     [Fact]
@@ -135,6 +137,26 @@ public class MembersFieldTests
 
         res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await StoredLevelAsync(type, Probe.Field)).Should().Be(SensitivityLevel.Hidden);
+    }
+
+    [Fact]
+    public async Task A_mask_sent_with_an_added_Members_field_is_not_stored()
+    {
+        var (type, admin) = await TypeWithSecretAsync(SensitivityLevel.Public);
+
+        var added = await admin.PostAsJsonAsync($"/api/content-types/{type}/fields", new
+        {
+            fieldName = "Perk",
+            displayName = "Perk",
+            type = "string",
+            sensitivity = "Members",
+            mask = "Redact",
+        }, Ct);
+
+        added.StatusCode.Should().Be(HttpStatusCode.OK, await added.Content.ReadAsStringAsync(Ct));
+        var perk = (await Probe.StoredTypeAsync(_factory, type)).Fields.Single(f => f.Name == "Perk");
+        perk.Sensitivity.Should().Be(SensitivityLevel.Members);
+        perk.Mask.Should().Be(FieldMask.Default, "AddField has no mask property, so the one sent is not stored");
     }
 
     [Fact]
@@ -151,7 +173,9 @@ public class MembersFieldTests
         }, Ct);
 
         added.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await Probe.StoredTypeAsync(_factory, type)).Fields.Should().NotContain(f => f.Name == "ClaimToken");
+        var stored = (await Probe.StoredTypeAsync(_factory, type)).Fields;
+        stored.Should().HaveCount(2, "the seeded Name and Secret fields are still there");
+        stored.Should().NotContain(f => f.Name == "ClaimToken");
     }
 
     [Fact]

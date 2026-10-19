@@ -78,7 +78,7 @@ public class SensitiveReadAuditTests
         var rows = await RowsAsync(tenant, "content.sensitive.read");
         rows.Should().HaveCount(1, "the Sensitive field is still recorded");
         rows[0].Strings("fields").Should().Equal("Secret");
-            }
+    }
 
     [Fact]
     public async Task Reading_an_entry_whose_sensitive_field_the_caller_sees_writes_one_row_naming_the_field()
