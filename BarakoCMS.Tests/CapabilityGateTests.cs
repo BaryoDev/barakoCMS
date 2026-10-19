@@ -983,6 +983,7 @@ public class CapabilityGateTests
         ("POST", "/api/workflows/dry-run", HttpStatusCode.BadRequest),
         ("POST", $"/api/email-templates/{NotASlug}/preview", HttpStatusCode.BadRequest),
         ("GET", "/api/workflows/variables", HttpStatusCode.OK),
+        ("GET", "/api/workflows/health", HttpStatusCode.OK),
         ("GET", $"/api/workflows/{NotAGuid}/debug", HttpStatusCode.BadRequest),
         ("PUT", $"/api/workflows/{NotAGuid}", HttpStatusCode.BadRequest),
         ("PUT", $"/api/workflows/{NotAGuid}/enabled", HttpStatusCode.BadRequest),
