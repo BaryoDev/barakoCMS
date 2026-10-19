@@ -58,8 +58,13 @@ public static class CredentialRedaction
         @"(?<![A-Za-z0-9_-])(?=[A-Za-z0-9_-]{32})(?=[A-Za-z_-]*[0-9])(?=[0-9_-]*[A-Za-z])[A-Za-z0-9_-]{32,}", Options, Timeout);
 
     /// <summary>Applies every rule. Null and empty pass through.</summary>
-    public static string? Redact(string? text) =>
-        RedactIdentifiers(RedactCredentials(text));
+    /// <param name="text">The text to clean.</param>
+    /// <param name="keepGuids">
+    /// Leave a value that is exactly a GUID alone, so "Content (id) not found" keeps its id. Every
+    /// other opaque run is still masked.
+    /// </param>
+    public static string? Redact(string? text, bool keepGuids = false) =>
+        RedactIdentifiers(RedactCredentials(text), keepGuids);
 
     /// <summary>Applies the rules for tokens, URLs and credential-named values.</summary>
     public static string? RedactCredentials(string? text)
@@ -86,7 +91,7 @@ public static class CredentialRedaction
     }
 
     /// <summary>Applies the rules for email addresses and opaque identifiers.</summary>
-    public static string? RedactIdentifiers(string? text)
+    public static string? RedactIdentifiers(string? text, bool keepGuids = false)
     {
         if (string.IsNullOrEmpty(text))
         {
@@ -95,13 +100,17 @@ public static class CredentialRedaction
 
         try
         {
-            return OpaqueRun.Replace(Email.Replace(text, Mask), Mask);
+            return OpaqueRun.Replace(Email.Replace(text, Mask),
+                m => keepGuids && IsGuid(m.Value) ? m.Value : Mask);
         }
         catch (RegexMatchTimeoutException)
         {
             return Mask;
         }
     }
+
+    private static bool IsGuid(string value) =>
+        Guid.TryParseExact(value, "D", out _) || Guid.TryParseExact(value, "N", out _);
 
     /// <summary>
     /// A rule that masks the value after any of <paramref name="names"/> used as a key, or null when

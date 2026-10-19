@@ -1155,9 +1155,12 @@ internal sealed class WorkflowRunner(
         undo.CompletedAt = DateTimeOffset.UtcNow;
     }
 
-    /// <summary>An error as it is stored: credentials removed first, so a cut cannot leave half of one.</summary>
+    /// <summary>
+    /// An error as it is stored: credentials removed first, so a cut cannot leave half of one. A
+    /// value that is exactly a GUID stays, since "Content (id) not found" is no use without the id.
+    /// </summary>
     private static string? Clean(string? error) =>
-        error is null ? null : Truncate(barakoCMS.Core.CredentialRedaction.Redact(error) ?? string.Empty);
+        error is null ? null : Truncate(barakoCMS.Core.CredentialRedaction.Redact(error, keepGuids: true) ?? string.Empty);
 
     private static string Truncate(string value) =>
         value.Length <= 500 ? value : value[..500] + "...";

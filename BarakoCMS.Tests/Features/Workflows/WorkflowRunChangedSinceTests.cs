@@ -156,6 +156,22 @@ public class WorkflowRunChangedSinceTests
         res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
+    [Theory]
+    [InlineData("3155378976000000000_0123456789abcdef0123456789abcdef", "ticks past the last date")]
+    [InlineData("99999999999999999999_0123456789abcdef0123456789abcdef", "ticks past a long")]
+    [InlineData("-5_0123456789abcdef0123456789abcdef", "negative ticks")]
+    [InlineData("638000000000000000_not-a-guid", "a bad id")]
+    [InlineData("1_2_0123456789abcdef0123456789abcdef", "extra underscores")]
+    [InlineData("", "an empty value")]
+    public async Task A_tampered_cursor_is_refused(string cursor, string why)
+    {
+        var admin = await _harness.AdminAsync();
+
+        var res = await admin.GetAsync($"/api/workflow-runs?changedSince={Uri.EscapeDataString(cursor)}", Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, why);
+    }
+
     [Fact]
     public async Task A_list_without_changedSince_has_no_cursor_and_stays_newest_first()
     {
@@ -178,10 +194,14 @@ public class WorkflowRunChangedSinceTests
         await _harness.SeedRunAsync(workflowId, contentId, [WorkflowStopHarness.Waiting()]);
         await _harness.SeedRunAsync(workflowId, contentId, [WorkflowStopHarness.Finished(AttemptStatus.Succeeded)]);
         await _harness.SeedRunAsync(workflowId, contentId, [WorkflowStopHarness.Finished(AttemptStatus.Failed)]);
+        await _harness.SeedRunAsync(workflowId, contentId, [WorkflowStopHarness.Finished(AttemptStatus.Failed)]);
+        await _harness.SeedRunAsync(workflowId, contentId, [WorkflowStopHarness.Finished(AttemptStatus.Succeeded), WorkflowStopHarness.Finished(AttemptStatus.Failed)]);
+        await _harness.SeedRunAsync(workflowId, contentId, [WorkflowStopHarness.RunningElsewhere()]);
+        await _harness.SeedRunAsync(workflowId, contentId, [WorkflowStopHarness.Finished(AttemptStatus.Cancelled)]);
 
         var expected = new Dictionary<string, int>
         {
-            ["Pending"] = 2, ["Running"] = 0, ["Succeeded"] = 1, ["Failed"] = 1, ["PartiallyFailed"] = 0, ["Cancelled"] = 0,
+            ["Pending"] = 2, ["Running"] = 1, ["Succeeded"] = 1, ["Failed"] = 2, ["PartiallyFailed"] = 1, ["Cancelled"] = 1,
         };
 
         foreach (var query in new[]
@@ -195,6 +215,7 @@ public class WorkflowRunChangedSinceTests
             var counts = doc.RootElement.GetProperty("statusCounts").EnumerateObject()
                 .ToDictionary(p => p.Name, p => p.Value.GetInt32());
 
+            counts.Should().HaveCount(6, query);
             counts.Should().BeEquivalentTo(expected, query);
         }
 

@@ -22,4 +22,25 @@ public class CredentialRedactionTests
     {
         CredentialRedaction.Redact("the provider answered 503").Should().Be("the provider answered 503");
     }
+
+    [Fact]
+    public void A_guid_is_kept_when_asked_while_a_bare_key_and_an_email_are_still_masked()
+    {
+        var id = Guid.NewGuid();
+        const string key = "sk9aB3dE5fG7hJ1kL2mN4pQ6rS8tU0vW2xY4zA6b";
+
+        var redacted = CredentialRedaction.Redact($"Content {id} not found for a@b.test with {key}", keepGuids: true);
+
+        redacted.Should().Contain(id.ToString());
+        redacted.Should().NotContain(key);
+        redacted.Should().NotContain("a@b.test");
+    }
+
+    [Fact]
+    public void A_guid_is_masked_by_default()
+    {
+        var id = Guid.NewGuid();
+
+        CredentialRedaction.Redact($"Content {id} not found").Should().NotContain(id.ToString());
+    }
 }

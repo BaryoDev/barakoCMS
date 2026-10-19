@@ -7,4 +7,5 @@
 -- Safe to run twice.
 -- barako:rerunnable
 
+DROP INDEX IF EXISTS public.mt_doc_workflow_runs_idx_updated_at_id;
 DROP INDEX IF EXISTS public.mt_doc_workflow_runs_idx_updated_at;

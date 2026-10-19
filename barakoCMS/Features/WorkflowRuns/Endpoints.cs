@@ -310,7 +310,7 @@ internal sealed class ListRunsEndpoint(
         if (since is { } from)
         {
             query = query
-                .Where(r => r.MatchesSql(RunCursor.AfterSql, from.At.UtcDateTime, from.Id))
+                .Where(r => r.MatchesSql(RunCursor.AfterSql, from.At.UtcDateTime, from.At.UtcDateTime, from.Id))
                 .OrderBy(r => r.UpdatedAt)
                 .ThenBy(r => r.Id);
         }
@@ -341,15 +341,23 @@ internal sealed class ListRunsEndpoint(
 
     private async Task<Dictionary<string, int>> CountByStatusAsync(Guid? contentId, CancellationToken ct)
     {
-        var counts = new Dictionary<string, int>();
-        foreach (var each in Enum.GetValues<RunStatus>())
-        {
-            var q = session.Query<WorkflowRun>().Where(r => r.Status == each);
-            if (contentId is { } id) q = q.Where(r => r.ContentId == id);
-            counts[each.ToString()] = await q.CountAsync(ct);
-        }
+        var q = session.Query<WorkflowRun>().AsQueryable();
+        if (contentId is { } id) q = q.Where(r => r.ContentId == id);
 
+        var groups = await q
+            .GroupBy(r => r.Status)
+            .Select(g => new StatusCount { Status = g.Key, Count = g.Count() })
+            .ToListAsync(ct);
+
+        var counts = Enum.GetValues<RunStatus>().ToDictionary(each => each.ToString(), _ => 0);
+        foreach (var group in groups) counts[group.Status.ToString()] = group.Count;
         return counts;
+    }
+
+    private sealed class StatusCount
+    {
+        public RunStatus Status { get; set; }
+        public int Count { get; set; }
     }
 }
 
