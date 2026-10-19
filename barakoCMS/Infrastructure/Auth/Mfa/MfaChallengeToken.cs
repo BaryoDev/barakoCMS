@@ -33,7 +33,8 @@ public static class MfaChallengeToken
     /// As <see cref="Create(IConfiguration, Guid)"/>, carrying the roles an external sign-in's claims
     /// earned, to be granted once the second factor passes. The token is signed, so the client
     /// cannot add to the list, and it expires with the challenge. Roles are checked again at
-    /// verify, not trusted from here.
+    /// verify, not trusted from here. The grant is given a fresh <see cref="PendingExternalGrant.Id"/>
+    /// here, which verify records as spent with the grant, so one challenge grants at most once.
     /// </summary>
     public static (string Token, DateTime ExpiresAt) Create(IConfiguration config, Guid userId, PendingExternalGrant? grant)
     {
@@ -49,7 +50,7 @@ public static class MfaChallengeToken
                 u.Claims.Add(new(UserClaim, userId.ToString()));
                 if (grant is { RoleIds.Count: > 0 and <= MaxGrantRoles })
                 {
-                    u.Claims.Add(new(GrantClaim, grant.Encode()));
+                    u.Claims.Add(new(GrantClaim, (grant with { Id = Guid.NewGuid() }).Encode()));
                 }
             });
         return (token, expiresAt);
@@ -103,18 +104,41 @@ public static class MfaChallengeToken
 /// </summary>
 public sealed record PendingExternalGrant(string TenantSlug, string Source, IReadOnlyList<Guid> RoleIds)
 {
-    internal string Encode() => $"{TenantSlug}|{Source}|{string.Join(',', RoleIds)}";
+    /// <summary>
+    /// Names this grant once it is in a challenge, so verify can spend it. Empty until
+    /// <see cref="MfaChallengeToken.Create(IConfiguration, Guid, PendingExternalGrant?)"/> sets it.
+    /// </summary>
+    public Guid Id { get; init; }
+
+    private sealed record Wire(Guid Id, string TenantSlug, string Source, List<Guid> RoleIds);
+
+    /// <summary>JSON, so a slug or source holding any character reads back as it was written.</summary>
+    internal string Encode() =>
+        System.Text.Json.JsonSerializer.Serialize(new Wire(Id, TenantSlug, Source, RoleIds.ToList()));
 
     internal static PendingExternalGrant? Decode(string? value)
     {
-        var parts = value?.Split('|');
-        if (parts is not { Length: 3 })
+        if (string.IsNullOrEmpty(value))
         {
             return null;
         }
 
-        var ids = parts[2].Split(',', StringSplitOptions.RemoveEmptyEntries)
-            .Select(p => Guid.TryParse(p, out var id) ? id : Guid.Empty).ToList();
-        return ids.Count == 0 || ids.Contains(Guid.Empty) ? null : new PendingExternalGrant(parts[0], parts[1], ids);
+        Wire? wire;
+        try
+        {
+            wire = System.Text.Json.JsonSerializer.Deserialize<Wire>(value);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+
+        if (wire is not { TenantSlug: not null, Source: not null, RoleIds: { Count: > 0 } ids }
+            || wire.Id == Guid.Empty || ids.Contains(Guid.Empty))
+        {
+            return null;
+        }
+
+        return new PendingExternalGrant(wire.TenantSlug, wire.Source, ids) { Id = wire.Id };
     }
 }

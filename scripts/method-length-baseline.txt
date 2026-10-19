@@ -39,7 +39,6 @@
 72 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.UseHealthEndpoints
 72 barakoCMS/Features/ApiKeys/Endpoints.cs::CreateApiKeyEndpoint.HandleAsync
 200 barakoCMS/Features/Auth/Login/Endpoint.cs::Endpoint.HandleAsync
-78 barakoCMS/Features/Auth/Mfa/VerifyEndpoint.cs::VerifyEndpoint.HandleAsync
 108 barakoCMS/Features/Auth/Otp/VerifyEndpoint.cs::VerifyEndpoint.HandleAsync
 156 barakoCMS/Features/Auth/Refresh/Endpoint.cs::Endpoint.HandleAsync
 125 barakoCMS/Features/Collections/Endpoints.cs::CollectionSyncRules.CheckAsync
