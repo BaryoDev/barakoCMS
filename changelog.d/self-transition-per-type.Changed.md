@@ -1,0 +1,1 @@
+`Lifecycle:AllowSelfTransition` can be scoped to one content type: `Lifecycle:AllowSelfTransition:<ContentType>:<Transition>`. The unscoped `Lifecycle:AllowSelfTransition:<Transition>` still works and applies to every type with that transition, and now logs a warning at start.

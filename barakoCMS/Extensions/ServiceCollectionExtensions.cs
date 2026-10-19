@@ -1308,6 +1308,7 @@ public static class ServiceCollectionExtensions
     {
         services.AddScoped<barakoCMS.Features.Config.ConfigEngine>();
         services.AddHostedService<barakoCMS.Features.Config.ConfigSectionCheck>();
+        services.AddHostedService<barakoCMS.Features.Config.SelfTransitionConfigCheck>();
         services.AddScoped<barakoCMS.Core.Interfaces.IConfigProvider, barakoCMS.Features.ContentType.ContentTypeConfigProvider>();
         services.AddScoped<barakoCMS.Core.Interfaces.IConfigProvider, barakoCMS.Features.Roles.RoleConfigProvider>();
         services.AddScoped<barakoCMS.Core.Interfaces.IConfigProvider, barakoCMS.Features.Roles.PermissionRuleConfigProvider>();
