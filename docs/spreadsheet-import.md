@@ -29,7 +29,7 @@ row the answer is 400 with the same body and nothing is written.
 
 ## Limits
 
-Analyze applies the same column and row-address check, so a sheet with a cell far past the limits is refused there too. Nothing is truncated. Past a limit the request is refused and nothing is written.
+Analyze applies the column check and caps row addresses at Excel's own 1,048,576, so a sheet with a cell far past those is refused there too; it accepts every sheet it accepted before. Nothing is truncated. Past a limit the request is refused and nothing is written.
 
 | Limit | Default | Setting | Past it |
 | --- | --- | --- | --- |

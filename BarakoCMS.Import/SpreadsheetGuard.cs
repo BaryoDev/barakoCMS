@@ -15,6 +15,13 @@ namespace BarakoCMS.Import;
 /// </remarks>
 internal static class SpreadsheetGuard
 {
+    /// <summary>
+    /// Excel's own row limit, the row cap for analyze. Analyze accepted any row count before, so its
+    /// cap sits at what a real sheet can hold. Padding rows share one empty array, so a million
+    /// references is a few MB.
+    /// </summary>
+    public const long ExcelMaxRows = 1_048_576;
+
     /// <summary>Blank rows tolerated past the row limit, so a trailing formatted range does not refuse a sheet.</summary>
     public const int RowMargin = 100;
 

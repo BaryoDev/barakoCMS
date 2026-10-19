@@ -79,7 +79,7 @@ public class Endpoint(
 
         var tooBig = SpreadsheetGuard.Check(
             buffer, SpreadsheetLimits.MaxColumns(configuration),
-            (long)ImportLimits.MaxRecords(configuration) + SpreadsheetGuard.RowMargin);
+            SpreadsheetGuard.ExcelMaxRows);
         if (tooBig is not null)
         {
             AddError(tooBig);

@@ -225,17 +225,23 @@ public class SpreadsheetImportTests
         var ordinary = Xlsx(["A1", "B1", "A2", "B2"]);
         var farColumn = Xlsx(["A1", "B1", "A2", "ZZZZZZ2"]);
         var farRow = Xlsx(["A1", "B1", "A2", "A4000000000"]);
+        var row6000 = Xlsx(["A1", "B1", "A2", "A6000"]);
 
         (await UploadAsync(client, "/api/import/analyze", ordinary)).StatusCode.Should().Be(HttpStatusCode.OK);
         (await UploadAsync(client, "/api/import/spreadsheet", ordinary, type)).StatusCode.Should().Be(HttpStatusCode.OK);
         (await CountAsync(type)).Should().Be(1);
+
+        (await UploadAsync(client, "/api/import/analyze", row6000)).StatusCode.Should().Be(
+            HttpStatusCode.OK, "analyze accepted sheets this long before the guard, and only the import has the row cap");
+        (await UploadAsync(client, "/api/import/spreadsheet", row6000, type)).StatusCode.Should().Be(
+            HttpStatusCode.BadRequest, "the import is bounded by Import:MaxRecords, and says so");
 
         foreach (var bad in new[] { farColumn, farRow })
         {
             var analyze = await UploadAsync(client, "/api/import/analyze", bad);
             analyze.StatusCode.Should().Be(HttpStatusCode.BadRequest);
             (await analyze.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))
-                .Should().ContainAny("Import:MaxColumns", "Import:MaxRecords");
+                .Should().ContainAny("Import:MaxColumns", "rows this instance will read");
 
             var import = await UploadAsync(client, "/api/import/spreadsheet", bad, type);
             import.StatusCode.Should().Be(HttpStatusCode.BadRequest);

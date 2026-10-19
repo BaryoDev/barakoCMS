@@ -4,5 +4,5 @@
   `POST /api/import/content`, one transaction, and a `dryRun` flag. Past `Import:MaxRecords`,
   `Import:MaxUploadBytes`, the expanded size limit, `Import:MaxColumns` or `Import:MaxSeconds` it refuses or stops and
   writes nothing. The new route is additive, so no contract number moves. See `docs/spreadsheet-import.md`.
-  Analyze now also refuses a sheet with a cell past `Import:MaxColumns` or far past
-  `Import:MaxRecords` rows, because the parser pads to the highest address it sees.
+  Analyze now also refuses a sheet with a cell past `Import:MaxColumns` or past Excel's
+  1,048,576 rows, because the parser pads to the highest address it sees.
