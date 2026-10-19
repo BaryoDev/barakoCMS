@@ -150,6 +150,10 @@ public sealed class GlossaryModule : IBarakoModule
 
     public int ContractVersion => ModuleContract.Version;
 
+    // Seeding the type gives no role any right on it. This says who may use it from the first start.
+    public ContentPermissionDefaults? ContentPermissions => ContentPermissionDefaults.None()
+        .Allow(GlossaryContentTypes.Term, SystemRoles.Admin, ContentAction.Create, ContentAction.Read);
+
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
     {
         services.AddScoped<IContentLifecycleHook, GlossaryTermHook>();
@@ -173,6 +177,10 @@ What each member does, briefly, with the rule behind it linked:
 - `ContractVersion` tells core which module contract you built against, so a future incompatible
   core refuses your module by name at startup instead of failing somewhere later. See
   [Contract version](../MODULES.md#contract-version).
+- `ContentPermissions` gives the seeded Admin role create and read on the type you seed. Without
+  it only SuperAdmin could use the type until someone added permission rules by hand. The host
+  applies it after `SeedAsync`, only for a role with no entry for the type yet, so rights an admin
+  changed later are kept.
 - `ConfigureServices` registers the hook you write in the next step. `configuration` is your own
   `Modules:Glossary` section, never the application root. See
   [Configuration](../MODULES.md#configuration).

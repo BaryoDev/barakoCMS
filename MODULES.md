@@ -463,6 +463,21 @@ once your seed returns.
   still honours role names under `Auth:LegacyRoleFallback` takes them from the same declaration:
   `Definition.RequireCapability(ReadNotes, Defaults.LegacyRoles)`. `ModuleCapabilities.GrantAsync`,
   which takes role names, still works and is obsolete.
+- **A content type you seed needs rights declared too.** Seeding a type gives no role any right on
+  it, and only SuperAdmin passes a content check without a rule. Override `ContentPermissions`
+  (a default member, so existing modules compile) and the host grants them right after your
+  `SeedAsync`, in the same session:
+
+  ```csharp
+  public ContentPermissionDefaults? ContentPermissions => ContentPermissionDefaults.None()
+      .Allow(NoteTypes.Note, SystemRoles.Admin, ContentAction.Create, ContentAction.Read);
+  ```
+
+  A role is named by seeded id and name, as in `CapabilityDefaults`, and one that does not exist
+  is skipped. Only the deployment's role is matched, never another tenant's role of the same name.
+  The grant seeds an entry only for a role that has none for that type, so a restart is not a
+  write and rights an admin changed are never overwritten, including ones they switched off. The
+  rules carry no conditions or field limits. A module that declares nothing grants nothing.
 - **A capability your handler checks itself needs declaring.** `GET /api/capabilities` and the
   role write check read the vocabulary off the routing table. A name no route requires outright
   (BarakoCMS.Files asks for `manage_all_files` only when the file is somebody else's) is put there
