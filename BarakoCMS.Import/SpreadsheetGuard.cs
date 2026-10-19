@@ -23,7 +23,7 @@ internal static class SpreadsheetGuard
     public const long ExcelMaxRows = 1_048_576;
 
     /// <summary>
-    /// Cells the parser may hold once each row is padded to its last column. Capping rows and columns
+    /// Cells the parser may hold once the sheet is padded to a rectangle. Capping rows and columns
     /// alone still allows their product; an 8 MB sheet of real cells stays far under this.
     /// </summary>
     public const long MaxPaddedCells = 2_000_000;
@@ -69,7 +69,9 @@ internal static class SpreadsheetGuard
     {
         var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null };
         using var reader = XmlReader.Create(xml, settings);
-        long padded = 0, lastColumn = 0;
+        // A row or cell without an address takes the next index, as the parser reads it, so leaving
+        // the addresses out does not hide it from the count.
+        long row = 0, column = 0, highestRow = 0, widest = 0;
 
         while (reader.Read())
         {
@@ -77,31 +79,31 @@ internal static class SpreadsheetGuard
                 continue;
 
             var address = reader.GetAttribute("r");
-            if (address is null)
-                continue;
-
             if (reader.LocalName == "row")
             {
-                lastColumn = 0;
-                if (long.TryParse(address, out var row) && row > maxRowIndex)
-                    return RowRefusal(row, maxRowIndex);
+                row = long.TryParse(address, out var explicitRow) ? explicitRow : row + 1;
+                column = 0;
             }
-
-            if (reader.LocalName == "c" && ReadAddress(address) is { } cell)
+            else if (reader.LocalName == "c")
             {
-                var (column, cellRow) = cell;
+                (column, var cellRow) = address is not null && ReadAddress(address) is { } cell ? cell : (column + 1, row);
+                row = Math.Max(row, cellRow);
                 if (column > maxColumns)
                     return $"A cell sits in column {column}, past the {maxColumns} columns this instance will read. "
                          + $"Nothing was read. Trim the sheet, or raise {SpreadsheetLimits.MaxColumnsKey}.";
-                if (cellRow > maxRowIndex)
-                    return RowRefusal(cellRow, maxRowIndex);
-
-                padded += Math.Max(column - lastColumn, 1);
-                lastColumn = Math.Max(column, lastColumn);
-                if (padded > MaxPaddedCells)
-                    return $"The sheet spreads its cells over more than {MaxPaddedCells:N0} positions. Nothing was read. "
-                         + "Remove the empty columns and rows between the data.";
+                widest = Math.Max(widest, column);
             }
+            else
+                continue;
+
+            if (row > maxRowIndex)
+                return RowRefusal(row, maxRowIndex);
+            highestRow = Math.Max(highestRow, row);
+
+            // The parser pads every row to the widest column in the sheet, so the cost is the rectangle.
+            if (highestRow * widest > MaxPaddedCells)
+                return $"The sheet spreads its cells over more than {MaxPaddedCells:N0} positions. Nothing was read. "
+                     + "Remove the empty columns and rows between the data.";
         }
 
         return null;
