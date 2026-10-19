@@ -99,7 +99,7 @@ public class SmtpEmailServiceTests
         var service = Service(Options(relay.Port),
             new TenantAwareSettings("ceo@tenant-owned.example", "host-sender@example.com"));
 
-        await service.SendForTenantAsync("some-tenant", "someone@example.com", "Order shipped", "<p>Hi</p>",
+        await ((IEmailService)service).SendForTenantAsync("some-tenant", "someone@example.com", "Order shipped", "<p>Hi</p>",
             TestContext.Current.CancellationToken);
         await service.SendEmailAsync("someone@example.com", "Your sign-in code", "<p>Hi</p>",
             TestContext.Current.CancellationToken);
