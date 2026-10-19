@@ -55,18 +55,9 @@ internal class Endpoint(
         var published = await session.Query<ContentDoc>()
             .CountAsync(c => c.ContentType == def.Name && c.Status == ContentStatus.Published, ct);
 
-        if (req.Enabled
-            && !def.IsPubliclyDeliverable
-            && !req.AcknowledgeExposure
-            && configuration.GetValue("PublicDelivery:RequireAcknowledgement", false))
-        {
-            AddError(
-                $"Turning public delivery on for '{def.Name}' serves {published} published "
-                + $"{(published == 1 ? "entry" : "entries")} to anonymous callers, and every entry "
-                + "published afterwards. Resend with acknowledgeExposure set to true.");
-            await Send.ErrorsAsync(400, ct);
+        if (req.Enabled && !def.IsPubliclyDeliverable
+            && (await RefusedRowLimitAsync(def, ct) || await RefusedUnacknowledgedAsync(req, def, published, ct)))
             return;
-        }
 
         // Nothing to record when nothing changed. An audit trail that logs a repeated request as a
         // change makes the entries that were changes harder to find, which is the opposite of what
@@ -115,5 +106,31 @@ internal class Endpoint(
             IsPubliclyDeliverable = def.IsPubliclyDeliverable,
             PublishedEntries = published,
         }, ct);
+    }
+
+    private async Task<bool> RefusedRowLimitAsync(ContentTypeDefinition def, CancellationToken ct)
+    {
+        var limited = await RowLimitedReads.RolesOfAsync(session, tenant.Slug, def.Name, ct);
+        if (limited.Count == 0) return false;
+
+        AddError(
+            $"'{def.Name}' cannot be delivered publicly while a role reads only some of its entries "
+            + $"({string.Join(", ", limited)}). Public delivery serves every published entry to anonymous callers, "
+            + "so it would show the ones those roles are kept from. Remove the row limit from the role first.");
+        await Send.ErrorsAsync(400, ct);
+        return true;
+    }
+
+    private async Task<bool> RefusedUnacknowledgedAsync(Request req, ContentTypeDefinition def, int published, CancellationToken ct)
+    {
+        if (req.AcknowledgeExposure || !configuration.GetValue("PublicDelivery:RequireAcknowledgement", false))
+            return false;
+
+        AddError(
+            $"Turning public delivery on for '{def.Name}' serves {published} published "
+            + $"{(published == 1 ? "entry" : "entries")} to anonymous callers, and every entry "
+            + "published afterwards. Resend with acknowledgeExposure set to true.");
+        await Send.ErrorsAsync(400, ct);
+        return true;
     }
 }
