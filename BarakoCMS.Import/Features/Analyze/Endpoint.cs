@@ -77,6 +77,16 @@ public class Endpoint(
             return;
         }
 
+        var tooBig = SpreadsheetGuard.Check(
+            buffer, SpreadsheetLimits.MaxColumns(configuration),
+            SpreadsheetGuard.ExcelMaxRows);
+        if (tooBig is not null)
+        {
+            AddError(tooBig);
+            await Send.ErrorsAsync(400, ct);
+            return;
+        }
+
         SheetData sheet;
         try
         {
