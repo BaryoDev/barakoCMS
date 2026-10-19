@@ -71,8 +71,8 @@ public partial class CollectionSyncTests
     private static WebApplicationFactory<Program>? _host;
 
     /// <summary>
-    /// One derived host for the whole class, because every host a test builds stays alive for the
-    /// rest of the run. Tests keep out of each other's way through unique route paths instead.
+    /// One derived host for the whole class, because each build costs a server.
+    /// Tests keep out of each other's way through unique route paths instead.
     /// </summary>
     internal WebApplicationFactory<Program> Host
     {

@@ -523,7 +523,7 @@ public class DeliveryRateLimitWiringTests
     [InlineData("/api/public/types/{0}/description")]
     public async Task A_configured_delivery_limit_refuses_the_third_read_from_one_address(string route)
     {
-        // One host for the class: every host a test builds stays alive for the rest of the run.
+        // One host for the class: each build costs a server.
         _limited ??= _fixture.WithSettings(new Dictionary<string, string?> { ["RateLimiting:Delivery:PermitLimit"] = "2" });
         var path = string.Format(route, $"nosuchtype{Guid.NewGuid():N}");
 

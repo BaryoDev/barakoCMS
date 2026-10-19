@@ -58,6 +58,33 @@ public class DerivedHostReleaseTests(IntegrationTestFixture fixture)
     }
 
     [Fact]
+    public void Asking_for_a_run_scoped_host_leaves_the_callers_own_host_alive()
+    {
+        var own = fixture.WithSetting("Release:Probe", "four");
+        _ = own.Services;
+
+        var shared = fixture.WithRunScopedHost(_ => { });
+        _ = shared.Services;
+
+        fixture.LiveDerivedHosts(ThisClass).Should().BeGreaterThan(0);
+        own.Services.GetRequiredService<IServiceProvider>().Should().NotBeNull(
+            "the class still uses the host it derived before it asked for the shared one");
+    }
+
+    [Fact]
+    public void Restoring_a_resolver_captured_from_a_host_since_disposed_lands_on_a_live_host()
+    {
+        var host = fixture.WithSetting("Release:Probe", "five");
+        _ = host.Services;
+        var keep = FastEndpointsResolver.Keep();
+
+        fixture.ReleaseDerivedHostsExcept(AnotherClass);
+        keep.Dispose();
+
+        FastEndpointsResolver.IsUsable().Should().BeTrue("Restore must not put the static back on the disposed host");
+    }
+
+    [Fact]
     public void FastEndpoints_resolver_is_left_on_a_live_host_after_the_host_it_named_is_disposed()
     {
         var host = fixture.WithSetting("Release:Probe", "three");

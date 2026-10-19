@@ -42,6 +42,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
     {
         Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", "Development");
         Environment.SetEnvironmentVariable("JWT__Key", JwtKey);
+        FastEndpointsResolver.RegisterFallbacks(() => _startedHosts.Reverse());
     }
 
     /// <summary>The API key this host is configured with, standing in for a deployment's own.</summary>
@@ -60,7 +61,11 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
     /// <summary>Resolvable from a derived host's provider, so teardown knows which class built it.</summary>
     private sealed record DerivedHostOwner(string Owner);
 
-    private static string CurrentClass() => TestContext.Current.TestClass?.TestClassName ?? RunOwner;
+    private static string CurrentClass() =>
+        TestContext.Current.TestClass?.TestClassName
+        ?? throw new InvalidOperationException(
+            "IntegrationTestFixture: a derived host was requested outside a test class, so no class can own it. "
+            + "Use WithRunScopedHost for a host that should live for the whole run.");
 
     /// <summary>
     /// A host derived from this one. It belongs to the test class that asked for it and is disposed
@@ -84,7 +89,10 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
 
     private WebApplicationFactory<Program> Derive(string owner, Action<IWebHostBuilder> configuration)
     {
-        ReleaseDerivedHostsExcept(owner);
+        if (owner != RunOwner)
+        {
+            ReleaseDerivedHostsExcept(owner);
+        }
 
         var derived = base.WithWebHostBuilder(builder =>
         {
@@ -134,16 +142,24 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             _derived.RemoveAll(d => leaving.Contains(d));
         }
 
-        if (doomed.Count == 0)
+        if (doomed.Count > 0)
         {
-            return 0;
-        }
+            var providers = _startedHosts.Where(sp => OwnerOf(sp) is { } o && owners.Contains(o)).ToList();
+            try
+            {
+                StopProjectionCoordinatorsAsync(providers).GetAwaiter().GetResult();
+            }
+            catch (TimeoutException e)
+            {
+                Console.Error.WriteLine(
+                    "IntegrationTestFixture: a projection coordinator did not stop in time while releasing derived "
+                    + $"hosts (#1171). Disposal carries on.{Environment.NewLine}{e}");
+            }
 
-        var providers = _startedHosts.Where(sp => OwnerOf(sp) is { } o && owners.Contains(o)).ToList();
-        StopProjectionCoordinatorsAsync(providers).GetAwaiter().GetResult();
-        foreach (var factory in doomed)
-        {
-            factory.Dispose();
+            foreach (var factory in doomed)
+            {
+                factory.Dispose();
+            }
         }
 
         FastEndpointsResolver.RepairIfDisposed(_startedHosts.Reverse());
@@ -333,7 +349,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             services.Remove(logRedaction);
 
             // Only this fixture's own host runs the workflow runner. Every host a test derives with
-            // WithWebHostBuilder shares this database and lives until the collection ends, and each
+            // WithWebHostBuilder shares this database and lives until another class derives a host, and each
             // one polled the queue with its own services: its own recording transport, or the mock
             // or failing one a test put there. A run a test queued could be claimed by any of them,
             // so its email landed in a recorder nobody reads, or failed on a provider the test never

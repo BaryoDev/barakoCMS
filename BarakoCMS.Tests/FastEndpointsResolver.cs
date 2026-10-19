@@ -94,8 +94,20 @@ internal static class FastEndpointsResolver
         new($"FastEndpoints no longer has {what}, so FastEndpointsResolver cannot restore the static resolver. "
             + "Find where this FastEndpoints version keeps it and update FastEndpointsResolver.");
 
+    private static readonly System.Collections.Concurrent.ConcurrentQueue<Func<IEnumerable<IServiceProvider>>> Fallbacks = new();
+
+    /// <summary>
+    /// Hosts, newest first, that <see cref="Keep"/> may fall back to when the resolver it captured
+    /// belongs to a host disposed since. The shared fixture registers its own.
+    /// </summary>
+    public static void RegisterFallbacks(Func<IEnumerable<IServiceProvider>> hosts) => Fallbacks.Enqueue(hosts);
+
     private sealed class Restore(object? previous) : IDisposable
     {
-        public void Dispose() => Instance.SetValue(null, previous);
+        public void Dispose()
+        {
+            Instance.SetValue(null, previous);
+            RepairIfDisposed(Fallbacks.Reverse().SelectMany(f => f()));
+        }
     }
 }
