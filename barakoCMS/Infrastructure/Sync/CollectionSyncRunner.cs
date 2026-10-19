@@ -300,7 +300,7 @@ internal sealed class CollectionSyncRunner(
         return new CollectionSyncOutcome(true, created, updated, unchanged, skipped, null, excluded)
         {
             Produced = produced,
-            ReadAll = (payload.Rows.Count > 0 || sync.EmptyIsComplete) && !payload.Truncated && !fetched.HasNextPage && skipped == 0,
+            ReadAll = (payload.Rows.Count > 0 || (sync.EmptyIsComplete && !payload.MarkerMissing)) && !payload.Truncated && !fetched.HasNextPage && skipped == 0,
         };
     }
 

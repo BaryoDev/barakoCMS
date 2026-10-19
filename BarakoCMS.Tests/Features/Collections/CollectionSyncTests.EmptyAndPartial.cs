@@ -203,3 +203,74 @@ public partial class CollectionSyncTests
             .IsSuccessStatusCode.Should().BeTrue("the control: a path and a value save");
     }
 }
+
+public partial class CollectionSyncTests
+{
+    [Fact]
+    public async Task An_empty_answer_without_the_incomplete_field_archives_nothing_when_both_options_are_set()
+    {
+        var source = new Source { Body = Complete("A") };
+        var setup = await ArrangeArchivingAsync(source, tweak: body =>
+        {
+            EmptyComplete(body);
+            RefuseIncomplete(body);
+        });
+
+        (await RunAsync(setup)).GetProperty("created").GetInt32().Should().Be(1);
+
+        source.Body = IssueList(Array.Empty<string>());
+        var bare = await RunAsync(setup);
+
+        bare.GetProperty("succeeded").GetBoolean().Should().BeTrue("got: {0}", bare);
+        bare.GetProperty("archived").GetInt32().Should().Be(0, "the marker field is missing, so the empty answer is not known to be complete");
+        (await StatusesAsync(setup.Type))["A"].Should().Be(ContentStatus.Published);
+
+        source.Body = Complete(Array.Empty<string>());
+        (await RunAsync(setup)).GetProperty("archived").GetInt32().Should().Be(1, "the control: the field says complete");
+    }
+
+    [Fact]
+    public async Task A_non_empty_answer_without_the_incomplete_field_is_read_as_usual()
+    {
+        var source = new Source { Body = Complete("A", "B") };
+        var setup = await ArrangeArchivingAsync(source, tweak: RefuseIncomplete);
+
+        (await RunAsync(setup)).GetProperty("created").GetInt32().Should().Be(2);
+
+        source.Body = IssueList("A");
+        (await RunAsync(setup)).GetProperty("archived").GetInt32().Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Equal_to_is_trimmed_on_save_and_still_refuses_a_partial_body()
+    {
+        var source = new Source { Body = Complete("A", "B") };
+        var setup = await ArrangeArchivingAsync(source, tweak: body =>
+            body["incompleteWhen"] = new JsonObject { ["path"] = " incomplete_results ", ["equalTo"] = " true " });
+
+        var stored = await StoredSyncAsync(setup);
+        stored.IncompleteWhen.Should().NotBeNull();
+        stored.IncompleteWhen!.EqualTo.Should().Be("true");
+        stored.IncompleteWhen.Path.Should().Be("incomplete_results");
+
+        (await RunAsync(setup)).GetProperty("created").GetInt32().Should().Be(2);
+
+        source.Body = Partial("A");
+        var partial = await RunAsync(setup);
+        partial.GetProperty("succeeded").GetBoolean().Should().BeFalse();
+        partial.GetProperty("archived").GetInt32().Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData("""{"n":1.0,"data":[]}""", "1", true)]
+    [InlineData("""{"n":1,"data":[]}""", "1.0", true)]
+    [InlineData("""{"n":2,"data":[]}""", "1", false)]
+    [InlineData("""{"n":"1","data":[]}""", "1", true)]
+    public void A_json_number_is_compared_as_a_number(string body, string equalTo, bool refused)
+    {
+        var read = barakoCMS.Infrastructure.Sync.SyncPayloadReader.ReadJson(
+            body, "data", 10, null, new SyncIncompleteWhen { Path = "n", EqualTo = equalTo });
+
+        read.Ok.Should().Be(!refused);
+    }
+}

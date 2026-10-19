@@ -292,7 +292,13 @@ Some providers answer a partial list with a 200 and say so in the body. GitHub s
 When the value at `path` (dotted, from the root of the response) equals `equalTo`, ignoring case,
 the run fails before anything is written, `lastError` says so, and nothing is archived. A boolean
 is compared as `true` or `false`. A response without the field is read as usual. It is unset by
-default, and a Feed sync cannot set it.
+default, and a Feed sync cannot set it. `equalTo` is trimmed on save, and a JSON number is compared
+as a number, so `"1"` matches `1.0`.
+
+A missing field is read as usual for an answer that has items. On an empty answer it matters: with
+`emptyIsComplete` also set, an empty answer that lacks the `incompleteWhen` field is not a complete
+read and archives nothing, so a bare `{"items": []}` from a provider having a bad moment cannot
+archive everything.
 
 ## The floor
 
