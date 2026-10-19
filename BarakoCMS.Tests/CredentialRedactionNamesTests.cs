@@ -23,8 +23,6 @@ public class CredentialRedactionNamesTests
     [InlineData("admin pin")]
     [InlineData("Admin Pin")]
     [InlineData("Relay/pin")]
-    [InlineData("pass\uD800")]
-    [InlineData("\uD800")]
     [InlineData("pin")]
     [InlineData("pw")]
     [InlineData("admin.pin")]
@@ -51,6 +49,19 @@ public class CredentialRedactionNamesTests
     public void A_name_that_reads_like_a_credential_is_one(string name)
     {
         CredentialRedaction.IsCredentialName(name).Should().BeTrue();
+    }
+
+    /// <remarks>
+    /// Built here rather than in InlineData: theory data crosses to the runner as UTF-8, where a lone
+    /// surrogate turns into U+FFFD and the case no longer tests what it says.
+    /// </remarks>
+    [Fact]
+    public void A_name_that_is_not_well_formed_utf16_is_treated_as_a_credential()
+    {
+        string[] names = [new string('\uD800', 1), "pass" + '\uDC00', "host" + '\uD800'];
+        names.Should().HaveCount(3).And.AllSatisfy(n => n.Any(char.IsSurrogate).Should().BeTrue(n));
+
+        names.Should().AllSatisfy(n => CredentialRedaction.IsCredentialName(n).Should().BeTrue(n));
     }
 
     [Theory]
