@@ -28,7 +28,7 @@ public class PrivateSiteModeTests
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private async Task StoreSiteAsync(string tenant, string? mode)
+    private async Task StoreSiteAsync(string tenant, string? mode, ContentStatus status = ContentStatus.Published)
     {
         var data = new Dictionary<string, object> { ["Name"] = "Club" };
         if (mode is not null)
@@ -42,7 +42,7 @@ public class PrivateSiteModeTests
         {
             Id = Guid.NewGuid(),
             ContentType = "site",
-            Status = ContentStatus.Published,
+            Status = status,
             Sensitivity = SensitivityLevel.Public,
             Data = data,
         });
@@ -171,8 +171,7 @@ public class PrivateSiteModeTests
             .SelectMany(s => s.Endpoints)
             .OfType<RouteEndpoint>()
             .Where(e => e.RoutePattern.RawText is { } t
-                        && t.StartsWith("/api/public", StringComparison.OrdinalIgnoreCase)
-                        && !t.StartsWith("/api/public/site/share-links", StringComparison.OrdinalIgnoreCase))
+                        && t.StartsWith("/api/public", StringComparison.OrdinalIgnoreCase))
             .SelectMany(e => e.Metadata.OfType<IHttpMethodMetadata>().FirstOrDefault()?.HttpMethods
                 .Select(m => (Method: m, Pattern: e.RoutePattern.RawText!)) ?? [])
             .Distinct()
@@ -180,10 +179,19 @@ public class PrivateSiteModeTests
 
         routes.Should().Contain(r => r.Pattern.EndsWith("/sitemap.xml"));
         routes.Should().Contain(r => r.Pattern.EndsWith("/feed.xml"));
+        routes.Should().Contain(r => r.Pattern.StartsWith("/api/public/files/"), "a module route under /api/public/");
+        routes.Should().Contain(r => r.Pattern.StartsWith("/api/public/forms/"), "a module route under /api/public/");
+        routes.Should().Contain(r => r.Pattern.StartsWith("/api/public/pages/"), "a module route under /api/public/");
         routes.Count.Should().BeGreaterThan(8);
 
+        var entrances = new[] { "/api/public/site/share-links/redeem", "/api/public/site/share-links/open" };
+        routes.Where(r => entrances.Contains(r.Pattern)).Select(r => r.Method).Should().OnlyContain(m => m == "POST");
+
         var client = AnonymousIn(tenant);
-        foreach (var (method, pattern) in routes.Where(r => r.Method != "OPTIONS" && r.Method != "HEAD"))
+        var walked = routes.Where(r => r.Method != "OPTIONS" && r.Method != "HEAD"
+                                       && !(r.Method == "POST" && entrances.Contains(r.Pattern))).ToList();
+        walked.Should().NotBeEmpty();
+        foreach (var (method, pattern) in walked)
         {
             var url = System.Text.RegularExpressions.Regex.Replace(pattern, @"\{[^}]+\}", "x");
             var response = await client.SendAsync(new HttpRequestMessage(new HttpMethod(method), url)
@@ -194,5 +202,84 @@ public class PrivateSiteModeTests
             response.StatusCode.Should().Be(HttpStatusCode.NotFound, $"{method} {pattern}");
             response.Headers.CacheControl!.NoStore.Should().BeTrue($"{method} {pattern}");
         }
+    }
+
+    [Fact]
+    public async Task A_get_on_the_share_link_path_is_a_delivery_read_and_is_refused()
+    {
+        var (tenant, _) = await PrivateTenantWithEntryAsync();
+
+        var response = await AnonymousIn(tenant).GetAsync("/api/public/site/share-links", Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        response.Headers.CacheControl!.NoStore.Should().BeTrue("the refusal comes from the gate, not from a missing slug");
+    }
+
+    [Fact]
+    public async Task The_refusal_does_not_depend_on_the_case_of_the_path_the_tenant_header_or_the_mode()
+    {
+        var (tenant, type) = await PrivateTenantWithEntryAsync();
+        var lowerMode = await _host.TenantAsync();
+        var lowerType = await _host.TypeAsync(lowerMode);
+        await _host.EntryAsync(lowerMode, lowerType, "hello", ContentStatus.Published);
+        await StoreSiteAsync(lowerMode, "private");
+
+        var shouted = await AnonymousIn(tenant.ToUpperInvariant()).GetAsync($"/api/public/{type}/hello", Ct);
+        var upperPath = await AnonymousIn(tenant).GetAsync($"/API/PUBLIC/{type}/hello", Ct);
+        var lower = await AnonymousIn(lowerMode).GetAsync($"/api/public/{lowerType}/hello", Ct);
+
+        shouted.StatusCode.Should().Be(HttpStatusCode.NotFound, "the tenant header is matched without regard to case");
+        upperPath.StatusCode.Should().Be(HttpStatusCode.NotFound, "routing matches the path without regard to case");
+        lower.StatusCode.Should().Be(HttpStatusCode.NotFound, "'private' is Private");
+    }
+
+    [Fact]
+    public async Task A_second_published_site_entry_that_says_Live_does_not_open_a_private_tenant_and_a_draft_one_does_not_close_a_live_one()
+    {
+        var (tenant, type) = await PrivateTenantWithEntryAsync();
+        await StoreSiteAsync(tenant, "Live");
+        var draftOnly = await _host.TenantAsync();
+        var draftType = await _host.TypeAsync(draftOnly);
+        await _host.EntryAsync(draftOnly, draftType, "hello", ContentStatus.Published);
+        await StoreSiteAsync(draftOnly, "Private", ContentStatus.Draft);
+
+        (await AnonymousIn(tenant).GetAsync($"/api/public/{type}/hello", Ct)).StatusCode
+            .Should().Be(HttpStatusCode.NotFound);
+        (await AnonymousIn(draftOnly).GetAsync($"/api/public/{draftType}/hello", Ct)).StatusCode
+            .Should().Be(HttpStatusCode.OK, "an unpublished site entry is not what delivery reads");
+    }
+
+    [Fact]
+    public async Task A_page_cached_while_the_tenant_was_live_is_not_served_once_it_is_private()
+    {
+        var tenant = await _host.TenantAsync();
+        var type = await _host.TypeAsync(tenant);
+        await _host.EntryAsync(tenant, type, "hello", ContentStatus.Published);
+        var path = $"/api/public/{type}/hello";
+
+        (await AnonymousIn(tenant).GetAsync(path, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await AnonymousIn(tenant).GetAsync(path, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        await StoreSiteAsync(tenant, "Private");
+
+        (await AnonymousIn(tenant).GetAsync(path, Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task The_tenant_profile_lookup_hides_a_private_tenants_site_entry_from_an_anonymous_caller()
+    {
+        var tenant = await _host.TenantAsync();
+        await StoreSiteAsync(tenant, "Private");
+        var live = await _host.TenantAsync();
+        await StoreSiteAsync(live, "Live");
+        var siteKey = await _host.StoreLinkAsync(tenant, _ => { });
+
+        var refused = await AnonymousIn("default").GetAsync($"/api/tenants/{tenant}/public", Ct);
+        var withLink = await AnonymousIn("default", siteKey).GetAsync($"/api/tenants/{tenant}/public", Ct);
+        var served = await AnonymousIn("default").GetAsync($"/api/tenants/{live}/public", Ct);
+
+        refused.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        refused.Headers.CacheControl!.NoStore.Should().BeTrue();
+        withLink.StatusCode.Should().Be(HttpStatusCode.OK, await withLink.Content.ReadAsStringAsync(Ct));
+        served.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 }

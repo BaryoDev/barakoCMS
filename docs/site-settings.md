@@ -321,15 +321,22 @@ caller who holds neither of these:
 - a sign-in to this tenant whose user may read the `site` type. Which roles that is follows the
   roles' permissions on `site`, so no new setting is involved. SuperAdmin always may.
 
-The two share link routes (`redeem` and `open`) stay reachable, since they are how a visitor gets
-in. One check sits in front of delivery, ahead of the output cache, so a new public route is
-covered without touching it. A refusal carries `Cache-Control: no-store`, and a served response
-`private, no-store`, so a shared cache keeps none of it. Every delivery request of a tenant costs
-one read of its site entry. Another tenant is unaffected, and a tenant with no `Mode` is `Live`.
+The two share link routes (`POST .../share-links/redeem` and `POST .../share-links/open`) stay
+reachable, since they are how a visitor gets in. Nothing else under that path does: a `GET` there is
+a delivery read like any other. `GET /api/tenants/{handle}/public`, which reads the site entry of the
+tenant it names, applies the same rule. One check sits in front of delivery, ahead of the output
+cache, so a new public route is covered without touching it. A refusal carries
+`Cache-Control: no-store`, and a served response `private, no-store`, so a shared cache keeps none of
+it. Every delivery request of a tenant costs one read of its site entries. Another tenant is
+unaffected, and a tenant with no `Mode` is `Live`.
+
+Only a published `site` entry counts, since that is the one delivery reads. If more than one is
+published and any says `Private`, the tenant is private. `Private` is matched without regard to case.
+A preview link from `POST /api/preview` is refused like any other delivery request until the caller
+also holds a link to the whole site or is a viewer.
 
 A `site` type created from the blueprint from this release has `Private` as an option. One created
-earlier gets it with `set-field-options` on `Mode`. The site entry counts in
-any status, draft included.
+earlier gets it with `set-field-options` on `Mode`.
 
 ### Share links
 
