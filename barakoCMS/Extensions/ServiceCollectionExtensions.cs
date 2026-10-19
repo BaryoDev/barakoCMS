@@ -629,6 +629,9 @@ public static class ServiceCollectionExtensions
         options.Schema.For<ContentTypeDefinition>()
             .Index(x => x.Name, idx =>
             {
+                // Lookups compare ignoring case, so the index has to as well (#1158). An existing
+                // database needs migrations/5.1.0/1158-content-type-name-index-ignore-case.sql.
+                idx.Casing = Marten.Schema.ComputedIndex.Casings.Lower;
                 idx.IsUnique = true;
                 idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
             });
