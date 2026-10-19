@@ -5,13 +5,17 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.Accounting</PackageId>
-    <Version>4.4.1</Version>
+    <Version>4.4.2</Version>
     <Description>Optional double-entry accounting module for barakoCMS: accounts, balanced journal entries, and reporting.</Description>
   </PropertyGroup>
 
   <ItemGroup>
     <!-- ASP.NET Core types (FastEndpoints endpoints) in a class library. -->
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="BarakoCMS.Tests" />
   </ItemGroup>
 
   <ItemGroup>
