@@ -556,7 +556,7 @@ An action keeps a history of its tries. Each entry has the try number, when it s
 
 The history holds the newest 20 entries, oldest first. When a twenty-first arrives the oldest is dropped and `droppedAttempts` goes up by one. A manual retry adds to the same history and never clears it. A run stored before this existed shows one entry built from what it has, and reading it does not rewrite it.
 
-Errors are redacted before they are stored, on the attempt and in the history alike: bearer tokens, credential-shaped query parameters and the like are replaced, then the text is cut to 500 characters. The rules are in `CredentialRedaction` in the abstractions package, and the diagnostics module uses the same ones.
+Errors are redacted before they are stored, on the attempt and in the history alike: bearer tokens, credential-shaped query parameters and the like are replaced, then the text is cut to 500 characters. The rules are in `CredentialRedaction` in the abstractions package, and the diagnostics module uses the same ones. Ids and addresses in error text are masked too, since an API key can look like a GUID; the run and action carry their ids in their own fields.
 
 Worst case for the document is every action holding 20 entries with 500-character errors. One such entry is about 680 bytes of JSON, so one action is about 14 KB, and a run of ten such actions is about 137 KB. Compensation (`CompensationState.Attempts`) keeps no history.
 

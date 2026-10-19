@@ -1156,11 +1156,11 @@ internal sealed class WorkflowRunner(
     }
 
     /// <summary>
-    /// An error as it is stored: credentials removed first, so a cut cannot leave half of one. A
-    /// value that is exactly a GUID stays, since "Content (id) not found" is no use without the id.
+    /// An error as it is stored: credentials removed first, so a cut cannot leave half of one. Every rule applies,
+    /// a GUID-shaped value included, since a key can look like one.
     /// </summary>
     private static string? Clean(string? error) =>
-        error is null ? null : Truncate(barakoCMS.Core.CredentialRedaction.Redact(error, keepGuids: true) ?? string.Empty);
+        error is null ? null : Truncate(barakoCMS.Core.CredentialRedaction.Redact(error) ?? string.Empty);
 
     private static string Truncate(string value) =>
         value.Length <= 500 ? value : value[..500] + "...";

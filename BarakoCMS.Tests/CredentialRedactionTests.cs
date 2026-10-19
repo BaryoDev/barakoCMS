@@ -24,23 +24,13 @@ public class CredentialRedactionTests
     }
 
     [Fact]
-    public void A_guid_is_kept_when_asked_while_a_bare_key_and_an_email_are_still_masked()
+    public void A_guid_shaped_value_in_a_message_is_masked_because_a_key_can_look_like_one()
     {
-        var id = Guid.NewGuid();
-        const string key = "sk9aB3dE5fG7hJ1kL2mN4pQ6rS8tU0vW2xY4zA6b";
+        var id = Guid.Parse("3f2b8c1d-9a4e-4b7f-8d21-5c6e0a9b1f34");
 
-        var redacted = CredentialRedaction.Redact($"Content {id} not found for a@b.test with {key}", keepGuids: true);
+        var redacted = CredentialRedaction.Redact($"Content {id} not found");
 
-        redacted.Should().Contain(id.ToString());
-        redacted.Should().NotContain(key);
-        redacted.Should().NotContain("a@b.test");
-    }
-
-    [Fact]
-    public void A_guid_is_masked_by_default()
-    {
-        var id = Guid.NewGuid();
-
-        CredentialRedaction.Redact($"Content {id} not found").Should().NotContain(id.ToString());
+        redacted.Should().NotContain(id.ToString());
+        redacted.Should().Contain("not found");
     }
 }

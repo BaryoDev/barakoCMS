@@ -28,7 +28,7 @@ public class WorkflowAttemptHistoryTests
     }
 
     [Fact]
-    public async Task An_error_keeps_an_id_and_loses_the_token_beside_it()
+    public async Task An_error_loses_a_guid_shaped_value_and_the_token_beside_it()
     {
         var contentId = await _harness.StoreContentAsync();
         var missing = Guid.NewGuid();
@@ -50,7 +50,8 @@ public class WorkflowAttemptHistoryTests
         attempt.History.Should().HaveCount(1);
         foreach (var text in new[] { attempt.Error, attempt.History[0].Error })
         {
-            text.Should().Contain(missing.ToString());
+            text.Should().NotContain(missing.ToString());
+            text.Should().Contain("not found");
             text.Should().NotContain("abcDEF123456xyz");
         }
     }
