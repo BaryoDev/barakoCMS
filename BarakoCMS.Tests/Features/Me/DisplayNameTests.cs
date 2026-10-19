@@ -157,6 +157,9 @@ public class DisplayNameTests
     [Theory]
     [InlineData("Ada\u202ELovelace")]
     [InlineData("Ada\u200BLovelace")]
+    [InlineData("\u3164")]
+    [InlineData("Ada\u2028Lovelace")]
+    [InlineData("Ada\U000E0041Lovelace")]
     public async Task A_display_name_with_an_invisible_formatting_character_is_refused(string name)
     {
         var (id, _) = await UserAsync();

@@ -25,13 +25,24 @@ internal class UpdateProfileValidator : Validator<UpdateProfileRequest>
     {
         RuleFor(x => x.DisplayName)
             .MaximumLength(UpdateProfileRequest.DisplayNameMaxLength)
-            .Must(name => name is null || !name.Any(IsHidden))
+            .Must(name => name is null || !name.EnumerateRunes().Any(IsHidden))
             .WithMessage("Display name must not contain control or invisible formatting characters.");
     }
 
-    // Format characters (bidi overrides, zero-width joiners) let a name render as someone else's.
-    private static bool IsHidden(char c) =>
-        char.IsControl(c) || char.GetUnicodeCategory(c) == System.Globalization.UnicodeCategory.Format;
+    // Format characters (bidi overrides, zero-width joiners, tag characters) and the fillers that draw
+    // as blank let a name render as someone else's, or as nothing. Runes, not chars, so a character
+    // outside the basic plane is judged by its own category; a lone surrogate enumerates as U+FFFD.
+    private static readonly HashSet<int> BlankFillers = [0x115F, 0x1160, 0x2800, 0x3164, 0xFFA0];
+
+    private static bool IsHidden(System.Text.Rune rune) =>
+        System.Text.Rune.IsControl(rune)
+        || rune == System.Text.Rune.ReplacementChar
+        || BlankFillers.Contains(rune.Value)
+        || System.Text.Rune.GetUnicodeCategory(rune) is System.Globalization.UnicodeCategory.Format
+            or System.Globalization.UnicodeCategory.LineSeparator
+            or System.Globalization.UnicodeCategory.ParagraphSeparator
+            or System.Globalization.UnicodeCategory.PrivateUse
+            or System.Globalization.UnicodeCategory.OtherNotAssigned;
 }
 
 /// <summary>
