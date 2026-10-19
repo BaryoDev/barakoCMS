@@ -83,7 +83,7 @@ public class ContentHookEntryIdTests
     private static WebApplicationFactory<Program>? _host;
 
     /// <summary>
-    /// One host for the whole class, carrying the probe hook. Never disposed, per the note on
+    /// One host for the whole class, carrying the probe hook. The fixture disposes it, see
     /// IntegrationTestFixture.WithSetting.
     /// </summary>
     private WebApplicationFactory<Program> HookHost()

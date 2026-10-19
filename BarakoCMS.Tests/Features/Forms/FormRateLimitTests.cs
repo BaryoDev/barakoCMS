@@ -150,7 +150,7 @@ public class FormRateLimitTests
     private static (WebApplicationFactory<Program> Host, string Busy, string Tight)? _limited;
 
     /// <summary>
-    /// One host for the class, since every host a test builds stays alive for the rest of the run.
+    /// One host for the class, since each build costs a server.
     /// Two forms have their own limit on it: seven a minute, and two in the default window. The
     /// slug has to be known before the host is built, because the limit is configuration.
     /// </summary>

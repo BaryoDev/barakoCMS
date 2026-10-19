@@ -37,7 +37,7 @@ internal sealed class OAuthProviderStub : HttpMessageHandler
     {
         lock (HostLock)
         {
-            return _host ??= factory.WithWebHostBuilder(b => b.ConfigureServices(services =>
+            return _host ??= factory.WithRunScopedHost(b => b.ConfigureServices(services =>
             {
                 services.AddHttpClient("ExternalApi").ConfigurePrimaryHttpMessageHandler(() => new OAuthProviderStub());
                 services.AddSingleton<ILoggerFactory>(_ => LoggerFactory.Create(logging =>
