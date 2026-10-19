@@ -76,11 +76,12 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
     private sealed class DerivedHost(IntegrationTestFixture root, string owner, Action<IWebHostBuilder> configuration)
         : WebApplicationFactory<Program>
     {
-        private string? _releasedBy;
+        private string? _released;
 
         public string Owner => owner;
 
-        public void MarkReleased(string releasedBy) => _releasedBy = releasedBy;
+        /// <summary>Marks the host released. <paramref name="when"/> finishes "disposed ...".</summary>
+        public void MarkReleased(string when) => _released = when;
 
         public override IServiceProvider Services
         {
@@ -89,6 +90,14 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                 ThrowIfReleased();
                 return base.Services;
             }
+        }
+
+        // The first step of starting a server, so a released host that never started fails here
+        // rather than starting a new one before ConfigureClient gets a chance to refuse it.
+        protected override Microsoft.Extensions.Hosting.IHostBuilder? CreateHostBuilder()
+        {
+            ThrowIfReleased();
+            return base.CreateHostBuilder();
         }
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -106,11 +115,11 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
 
         private void ThrowIfReleased()
         {
-            if (_releasedBy is { } next)
+            if (_released is { } when)
             {
                 throw new InvalidOperationException(
-                    $"IntegrationTestFixture: this host was derived by {owner} and disposed when {next} derived its "
-                    + "first host (#1171). Something kept it past its class, most likely a cache shared by more than "
+                    $"IntegrationTestFixture: this host was derived by {owner} and disposed {when} "
+                    + "(#1171). Something kept it past its class, most likely a cache shared by more than "
                     + "one test class. Build a shared host with WithRunScopedHost or WithRunScopedSettings.");
             }
         }
@@ -157,6 +166,15 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         }
 
         return derived;
+    }
+
+    /// <summary>Every derived host not yet disposed, for a diagnostic that looks across hosts.</summary>
+    internal IReadOnlyList<WebApplicationFactory<Program>> LiveDerivedHosts()
+    {
+        lock (_derivedGate)
+        {
+            return [.. _derived];
+        }
     }
 
     /// <summary>Derived hosts built by <paramref name="owner"/> and not yet disposed.</summary>
@@ -209,17 +227,42 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
 
         }
 
+        var failures = new List<Exception>();
         FastEndpointsResolver.Exclusively(() =>
         {
-            foreach (var factory in doomed)
-            {
-                factory.MarkReleased(owner);
-                factory.Dispose();
-            }
-
+            failures.AddRange(DisposeEach(doomed, $"when {owner} derived its first host"));
             FastEndpointsResolver.RepairIfDisposed(_startedHosts.Reverse());
         });
+
+        if (failures.Count > 0)
+        {
+            throw new AggregateException(
+                $"IntegrationTestFixture: {failures.Count} derived host(s) failed to dispose (#1171).", failures);
+        }
+
         return doomed.Count;
+    }
+
+    /// <summary>
+    /// Marks and disposes each host, carrying on past one that throws so the rest still stop.
+    /// </summary>
+    private static List<Exception> DisposeEach(IEnumerable<DerivedHost> hosts, string when)
+    {
+        var failures = new List<Exception>();
+        foreach (var host in hosts)
+        {
+            host.MarkReleased(when);
+            try
+            {
+                host.Dispose();
+            }
+            catch (Exception e)
+            {
+                failures.Add(e);
+            }
+        }
+
+        return failures;
     }
 
     private static string? OwnerOf(IServiceProvider services)
@@ -717,18 +760,34 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             _derived.Clear();
         }
 
+        var failures = new List<Exception>();
         FastEndpointsResolver.Exclusively(() =>
-        {
-            foreach (var host in derived)
-            {
-                host.MarkReleased("the fixture's own disposal");
-                host.Dispose();
-            }
-        });
+            failures.AddRange(DisposeEach(derived, "when the fixture was disposed")));
 
-        await base.DisposeAsync();
+        try
+        {
+            await base.DisposeAsync();
+        }
+        catch (Exception e)
+        {
+            failures.Add(e);
+        }
+
         _fallbacks.Dispose();
-        await _postgresContainer.DisposeAsync();
+        try
+        {
+            await _postgresContainer.DisposeAsync();
+        }
+        catch (Exception e)
+        {
+            failures.Add(e);
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new AggregateException(
+                $"IntegrationTestFixture: {failures.Count} failure(s) while disposing the fixture (#1171).", failures);
+        }
 
         // Anything still up now is a host the fixture lost track of, and the run would have kept
         // it polling.

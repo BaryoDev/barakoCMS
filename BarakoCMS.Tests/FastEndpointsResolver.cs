@@ -108,7 +108,7 @@ internal static class FastEndpointsResolver
             {
                 try
                 {
-                    Instance.SetValue(null, host.GetRequiredService<IServiceResolver>());
+                    Write(host.GetRequiredService<IServiceResolver>());
                     return;
                 }
                 catch (ObjectDisposedException)
@@ -120,6 +120,15 @@ internal static class FastEndpointsResolver
                 "FastEndpointsResolver: the static resolver points at a disposed host and no live host was left to "
                 + "move it to (#1171). The next lookup made outside a request throws ObjectDisposedException.");
         }
+    }
+
+    /// <summary>Sees every value written to the static, under the lock. For tests that pin what is written.</summary>
+    internal static Action<IServiceResolver?>? OnWrite { get; set; }
+
+    private static void Write(IServiceResolver? resolver)
+    {
+        OnWrite?.Invoke(resolver);
+        Instance.SetValue(null, resolver);
     }
 
     private static InvalidOperationException Moved(string what) =>
@@ -159,7 +168,7 @@ internal static class FastEndpointsResolver
             {
                 if (previous is null || Answers(previous))
                 {
-                    Instance.SetValue(null, previous);
+                    Write(previous);
                 }
 
                 RepairIfDisposed(Fallbacks.AsEnumerable().Reverse().SelectMany(f => f()).ToList());

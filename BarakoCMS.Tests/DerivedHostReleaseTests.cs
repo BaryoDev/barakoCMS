@@ -47,6 +47,12 @@ public class DerivedHostReleaseTests(IntegrationTestFixture fixture)
             .WithMessage($"*{ThisClass}*{AnotherClass}*WithRunScopedHost*")
             .Which.Should().NotBeOfType<ObjectDisposedException>();
         var client = () => host.CreateClient();
+        var neverStarted = fixture.WithSetting("Release:Probe", "seven");
+        fixture.ReleaseDerivedHostsExcept(AnotherClass);
+        var startAfterRelease = () => neverStarted.CreateClient();
+        startAfterRelease.Should().Throw<InvalidOperationException>()
+            .WithMessage("*WithRunScopedHost*")
+            .Which.Should().NotBeOfType<ObjectDisposedException>();
         client.Should().Throw<InvalidOperationException>()
             .WithMessage("*WithRunScopedHost*")
             .Which.Should().NotBeOfType<ObjectDisposedException>();
@@ -99,9 +105,22 @@ public class DerivedHostReleaseTests(IntegrationTestFixture fixture)
         var keep = FastEndpointsResolver.Keep();
 
         fixture.ReleaseDerivedHostsExcept(AnotherClass);
-        keep.Dispose();
+        var written = new List<FastEndpoints.IServiceResolver?>();
+        FastEndpointsResolver.OnWrite = written.Add;
+        try
+        {
+            keep.Dispose();
+        }
+        finally
+        {
+            FastEndpointsResolver.OnWrite = null;
+        }
 
-        FastEndpointsResolver.Current().Should().NotBeSameAs(hostResolver, "Restore must not put the static back on the disposed host");
+        // The end state alone cannot tell: writing the disposed resolver back and then repairing
+        // lands on a live host too, but leaves a window where another thread reads a dead one.
+        written.Should().NotContain(r => ReferenceEquals(r, hostResolver),
+            "Restore must not put the static back on the disposed host, even for a moment");
+        FastEndpointsResolver.Current().Should().NotBeSameAs(hostResolver);
         FastEndpointsResolver.IsUsable().Should().BeTrue();
     }
 

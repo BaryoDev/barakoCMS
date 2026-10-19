@@ -234,7 +234,8 @@ public class EmailBodyEncodingTests
             : $"run {run.Status}; " + string.Join("; ", run.Actions.Select(a =>
                 $"action {a.Ordinal} {a.Status}, attempts {a.Attempts}, error '{a.Error}', next {a.NextAttemptAt:O}"));
 
-        var hosts = _factory.Factories.Select((host, i) =>
+        var derived = _factory.LiveDerivedHosts();
+        var hosts = derived.Select((host, i) =>
         {
             try
             {
@@ -248,7 +249,7 @@ public class EmailBodyEncodingTests
             }
         }).OfType<string>().ToList();
 
-        return $"{attempts}; {_factory.Factories.Count} derived hosts, "
+        return $"{attempts}; {derived.Count} derived hosts, "
             + (hosts.Count == 0 ? "none recorded it" : string.Join(", ", hosts));
     }
 
