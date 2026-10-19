@@ -50,17 +50,24 @@ public class RoleSoftDeleteScopeTests
     {
         var userId = Guid.NewGuid();
         var username = Unique("u");
+        // The seeded Admin role does not hold manage_roles, so the caller gets a tenant role that does.
+        var managerRole = new Role
+        {
+            Id = Guid.NewGuid(), Name = Unique("mgr"), TenantSlug = slug,
+            SystemCapabilities = [SystemCapabilities.ManageRoles],
+        };
         await StoreAsync(
+            managerRole,
             new User { Id = userId, Username = username, Email = $"{username}@example.com" },
             new Membership
             {
                 Id = Guid.NewGuid(), UserId = userId, TenantSlug = slug,
-                Status = MembershipStatus.Active, RoleIds = [SystemRoles.AdminRoleId],
+                Status = MembershipStatus.Active, RoleIds = [managerRole.Id],
             });
 
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
-            _factory.CreateToken(["Admin"], userId.ToString(),
+            _factory.CreateToken([managerRole.Name], userId.ToString(),
                 new Dictionary<string, string> { ["tenant"] = slug, ["Username"] = username }));
         client.DefaultRequestHeaders.Add("X-Tenant", slug);
         client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"198.51.100.{Interlocked.Increment(ref _ipCounter) % 250 + 1}");
