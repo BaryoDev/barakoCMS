@@ -310,7 +310,7 @@ public class WorkflowRunTests
     [Fact]
     public async Task The_api_returns_no_response_body_and_no_parameters()
     {
-        var runId = await SeedRunAsync(actions: 1, status: AttemptStatus.Failed);
+        var runId = await SeedRunAsync(actions: 1, status: AttemptStatus.Failed, attempts: 2);
         var client = await AdminClient();
 
         var body = await (await client.GetAsync($"/api/workflow-runs/{runId}", TestContext.Current.CancellationToken))
