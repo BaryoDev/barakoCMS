@@ -75,7 +75,7 @@ public class MigrationHostTests
     {
         await using var database = await MigrationScratchDatabase.CreateAsync(_factory, started: false);
 
-        var apply = await RunHostAsync(CoreAssembly, database.ConnectionString, "db-apply");
+        var apply = await RunHostAsync(CoreHostAssemblyPath(), database.ConnectionString, "db-apply");
         var ledger = await database.LedgerAsync();
 
         apply.ExitCode.Should().Be(0, $"output:\n{Truncate(apply.Output)}");
@@ -161,17 +161,25 @@ public class MigrationHostTests
         }
     }
 
-    private static string SuiteAssemblyPath()
+    // JasperFx opens every dll next to the host looking for its extension attribute. The test
+    // output holds the xunit assemblies, which barakoCMS.deps.json does not list, so on macOS the
+    // load fails and db-apply exits 1. The core project's own output holds only what it ships.
+    private static string CoreHostAssemblyPath() => ProjectOutputPath("barakoCMS", "barakoCMS.dll") ?? CoreAssembly;
+
+    private static string SuiteAssemblyPath() =>
+        ProjectOutputPath("BarakoCMS.Suite", "BarakoCMS.Suite.dll") ?? "BarakoCMS.Suite.dll (repository root not found)";
+
+    private static string? ProjectOutputPath(string project, string assembly)
     {
         var output = AppContext.BaseDirectory;
         var root = new DirectoryInfo(output);
         while (root is not null && !File.Exists(Path.Combine(root.FullName, "Directory.Build.props")))
             root = root.Parent;
         if (root is null)
-            return "BarakoCMS.Suite.dll (repository root not found)";
+            return null;
 
         var relative = Path.GetRelativePath(Path.Combine(root.FullName, "BarakoCMS.Tests"), output);
-        return Path.Combine(root.FullName, "BarakoCMS.Suite", relative, "BarakoCMS.Suite.dll");
+        return Path.Combine(root.FullName, project, relative, assembly);
     }
 
     private static async Task<(int ExitCode, string Output)> RunHostAsync(
