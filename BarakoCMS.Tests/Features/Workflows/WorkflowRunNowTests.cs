@@ -389,6 +389,14 @@ public class WorkflowRunNowTests
     }
 
     [Fact]
+    public void A_role_stored_with_no_capability_list_is_left_alone_by_the_run_grant()
+    {
+        var role = new Role { Name = "n", SystemCapabilities = null! };
+
+        barakoCMS.Data.DataSeeder.GrantRunWorkflows(role).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task A_grant_an_administrator_removed_stays_removed_when_the_seeder_runs_again()
     {
         var role = new Role
