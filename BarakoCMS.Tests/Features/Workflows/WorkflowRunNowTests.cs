@@ -398,42 +398,66 @@ public class WorkflowRunNowTests
             SystemCapabilities = [SystemCapabilities.ManageWorkflows],
         };
 
-        using (var scope = _factory.Services.CreateScope())
+        await using (var session = _harness.Store.LightweightSession())
         {
-            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
             session.Store(role);
+            session.Store(new barakoCMS.Data.SeedMarker { Key = barakoCMS.Data.DataSeeder.RunWorkflowsGrantKey });
             await session.SaveChangesAsync(Ct);
-            await barakoCMS.Data.DataSeeder.SeedRolesAsync(session);
         }
 
-        var stored = await LoadRoleAsync(role.Id);
-        stored.SystemCapabilities.Should().Contain(SystemCapabilities.ManageWorkflows);
-        stored.SystemCapabilities.Should().NotContain(SystemCapabilities.RunWorkflows,
-            "the one-time grant already ran at startup, before this role existed");
+        await SeedAsync();
+        (await LoadRoleAsync(role.Id)).SystemCapabilities.Should().NotContain(SystemCapabilities.RunWorkflows,
+            "the marker says the one-time grant already ran");
 
-        // The first run of the grant on a database that has not had it: no marker.
-        using (var scope = _factory.Services.CreateScope())
+        await using (var session = _harness.Store.LightweightSession())
         {
-            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            session.Delete<SeedMarker>(barakoCMS.Data.DataSeeder.RunWorkflowsGrantKey);
+            session.Delete<barakoCMS.Data.SeedMarker>(barakoCMS.Data.DataSeeder.RunWorkflowsGrantKey);
             await session.SaveChangesAsync(Ct);
-            await barakoCMS.Data.DataSeeder.SeedRolesAsync(session);
         }
 
-        (await LoadRoleAsync(role.Id)).SystemCapabilities.Should().Contain(SystemCapabilities.RunWorkflows);
+        await SeedAsync();
+        (await LoadRoleAsync(role.Id)).SystemCapabilities.Should().Contain(SystemCapabilities.RunWorkflows,
+            "with no marker this is the first start, and the role holds manage_workflows");
 
-        // The administrator takes it away, and the seeder runs again.
-        using (var scope = _factory.Services.CreateScope())
+        await using (var session = _harness.Store.LightweightSession())
         {
-            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            var again = await session.LoadAsync<Role>(role.Id, Ct);
-            again!.SystemCapabilities = [SystemCapabilities.ManageWorkflows];
-            session.Store(again);
+            var stored = await session.LoadAsync<Role>(role.Id, Ct);
+            stored!.SystemCapabilities = [SystemCapabilities.ManageWorkflows];
+            session.Store(stored);
             await session.SaveChangesAsync(Ct);
-            await barakoCMS.Data.DataSeeder.SeedRolesAsync(session);
         }
 
-        (await LoadRoleAsync(role.Id)).SystemCapabilities.Should().NotContain(SystemCapabilities.RunWorkflows);
+        await SeedAsync();
+        (await LoadRoleAsync(role.Id)).SystemCapabilities.Should().NotContain(SystemCapabilities.RunWorkflows,
+            "an administrator removed it, and the grant does not run twice");
+    }
+
+    [Fact]
+    public async Task Two_users_sending_one_key_for_one_workflow_and_entry_start_two_runs()
+    {
+        var (first, _) = await AdminCallerAsync();
+        var (second, _) = await AdminCallerAsync();
+        var workflowId = await WorkflowForArticlesAsync();
+        var entryId = await _harness.StoreContentAsync();
+        var key = Guid.NewGuid().ToString("N");
+
+        var a = await first.SendAsync(Post(workflowId, entryId, key), Ct);
+        var b = await second.SendAsync(Post(workflowId, entryId, key), Ct);
+        var again = await first.SendAsync(Post(workflowId, entryId, key), Ct);
+
+        a.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        b.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        (await RunIdOfAsync(b)).Should().NotBe(await RunIdOfAsync(a));
+        again.StatusCode.Should().Be(HttpStatusCode.OK, "the first user's own repeat finds the first user's run");
+        (await RunIdOfAsync(again)).Should().Be(await RunIdOfAsync(a));
+        (await _harness.RunsOfAsync(workflowId)).Should().HaveCount(2);
+    }
+
+    private async Task SeedAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        await barakoCMS.Data.DataSeeder.SeedRolesAsync(session);
     }
 
     private async Task<Role> LoadRoleAsync(Guid id)

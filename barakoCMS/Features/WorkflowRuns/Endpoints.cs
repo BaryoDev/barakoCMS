@@ -308,7 +308,7 @@ internal sealed class ListRunsEndpoint(
         }
 
         var now = DateTimeOffset.UtcNow;
-        var counts = await CountByStatusAsync(req.ContentId, req.WorkflowId, ct);
+        var counts = await RunQueries.CountByStatusAsync(session, req.ContentId, req.WorkflowId, ct);
 
         var query = session.Query<WorkflowRun>().AsQueryable();
         if (status is { } s) query = query.Where(r => r.Status == s);
@@ -345,20 +345,6 @@ internal sealed class ListRunsEndpoint(
             SucceededRetainedFrom = sweeping && windows.SucceededDays > 0 ? now.AddDays(-windows.SucceededDays) : null,
             FailedRetainedFrom = sweeping && windows.FailedDays > 0 ? now.AddDays(-windows.FailedDays) : null,
         }, cancellation: ct);
-    }
-
-    private async Task<Dictionary<string, int>> CountByStatusAsync(Guid? contentId, Guid? workflowId, CancellationToken ct)
-    {
-        var counts = new Dictionary<string, int>();
-        foreach (var each in Enum.GetValues<RunStatus>())
-        {
-            var q = session.Query<WorkflowRun>().Where(r => r.Status == each);
-            if (contentId is { } id) q = q.Where(r => r.ContentId == id);
-            if (workflowId is { } wf) q = q.Where(r => r.WorkflowDefinitionId == wf);
-            counts[each.ToString()] = await q.CountAsync(ct);
-        }
-
-        return counts;
     }
 }
 

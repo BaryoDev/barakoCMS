@@ -7,8 +7,8 @@ namespace barakoCMS.Infrastructure.Filters;
 /// <remarks>
 /// For a route where the same key legitimately names different things, as a key sent to start one
 /// workflow on two entries does. The endpoint derives an id from the key and the target and lets a
-/// second insert of that id say the request was a repeat, which holds past the filter's key
-/// lifetime and needs no stored response.
+/// second insert of that id say the request was a repeat. That needs no stored response, and it
+/// holds for as long as the run it made exists, which is until retention removes it.
 /// </remarks>
 [AttributeUsage(AttributeTargets.Class, Inherited = true)]
 public sealed class ReadsOwnIdempotencyKeyAttribute : Attribute;

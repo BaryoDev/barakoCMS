@@ -43,10 +43,11 @@ internal sealed class Response
 /// Queues and returns, like every other way a run starts: the runner does the work. The workflow's
 /// conditions are checked and not bypassed. Having a run start past them is a different feature.
 ///
-/// Reads <c>Idempotency-Key</c> itself. The run id is derived from the tenant, the workflow, the
-/// entry and the key, so a repeat finds the run and the same key on another workflow or entry is
-/// another run. The global idempotency filter would answer that case with a 422, so it is told to
-/// leave this route alone.
+/// Reads <c>Idempotency-Key</c> itself. The run id is derived from the tenant, the caller, the
+/// workflow, the entry and the key, so a repeat by the same caller finds the run, and the same key
+/// on another workflow or entry, or from another caller, is another run. The repeat holds until
+/// retention removes the run, not past it. The global idempotency filter would answer a key on
+/// another workflow or entry with a 422, so it is told to leave this route alone.
 ///
 /// An entry the caller cannot read is a 404, as an entry that does not exist is: the id of a hidden
 /// entry should not be confirmable by trying to run something on it.
@@ -104,7 +105,7 @@ internal sealed class Endpoint(
         }
 
         var key = HttpContext.Request.Headers[KeyHeader].ToString();
-        Guid? runId = string.IsNullOrWhiteSpace(key) ? null : RunIdFor(tenant.Slug, workflow.Id, entry.Id, key.Trim());
+        Guid? runId = string.IsNullOrWhiteSpace(key) ? null : RunIdFor(tenant.Slug, userId, workflow.Id, entry.Id, key.Trim());
 
         // Before the workflow is judged again: a repeat of a request that worked must find its run
         // even if the entry has changed or the workflow been switched off since.
@@ -171,9 +172,9 @@ internal sealed class Endpoint(
         return null;
     }
 
-    internal static Guid RunIdFor(string tenantSlug, Guid workflowId, Guid entryId, string key)
+    internal static Guid RunIdFor(string tenantSlug, Guid userId, Guid workflowId, Guid entryId, string key)
     {
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes($"{tenantSlug}\u001f{workflowId:N}\u001f{entryId:N}\u001f{key}"));
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes($"{tenantSlug}\u001f{userId:N}\u001f{workflowId:N}\u001f{entryId:N}\u001f{key}"));
         return new Guid(hash.AsSpan(0, 16));
     }
 }

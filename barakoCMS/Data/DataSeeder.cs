@@ -163,7 +163,7 @@ public static class DataSeeder
     /// reports whether that changed anything.
     /// </summary>
     /// <remarks>
-    /// Called once per tenant, guarded by <see cref="RunWorkflowsGrantKey"/>, so a grant an
+    /// Called once per deployment, guarded by <see cref="RunWorkflowsGrantKey"/>, so a grant an
     /// administrator removed later stays removed.
     /// </remarks>
     internal const string RunWorkflowsGrantKey = "grant-run-workflows-to-workflow-managers";

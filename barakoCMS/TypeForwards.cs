@@ -77,7 +77,6 @@ using System.Runtime.CompilerServices;
 [assembly: TypeForwardedTo(typeof(global::barakoCMS.Models.RevokedToken))]
 [assembly: TypeForwardedTo(typeof(global::barakoCMS.Models.Role))]
 [assembly: TypeForwardedTo(typeof(global::barakoCMS.Models.RunStatus))]
-[assembly: TypeForwardedTo(typeof(global::barakoCMS.Models.SeedMarker))]
 [assembly: TypeForwardedTo(typeof(global::barakoCMS.Models.SensitivityLevel))]
 [assembly: TypeForwardedTo(typeof(global::barakoCMS.Models.SensitivityMode))]
 [assembly: TypeForwardedTo(typeof(global::barakoCMS.Models.SettingCategory))]

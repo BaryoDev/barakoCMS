@@ -1,3 +1,4 @@
+using barakoCMS.Features.WorkflowRuns;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 using FastEndpoints;
@@ -28,7 +29,7 @@ internal sealed class WorkflowHealth
     public string Name { get; init; } = string.Empty;
     public bool Enabled { get; init; }
 
-    /// <summary>The newest finished runs, newest first, up to ten, whatever the window. Pending and running runs are not outcomes.</summary>
+    /// <summary>The newest finished runs, newest first, up to ten, whatever the window. Pending and running runs are not outcomes; cancelled and abandoned runs are.</summary>
     public List<Outcome> LastOutcomes { get; init; } = new();
 
     /// <summary>
@@ -81,13 +82,14 @@ internal sealed class Endpoint(IQuerySession session, IConfiguration config) : E
         var window = Math.Clamp(req.WindowDays ?? DefaultWindowDays, 1, WindowCap(config));
         var from = DateTimeOffset.UtcNow.AddDays(-window);
 
-        var page = await session.Query<WorkflowDefinition>().OrderBy(w => w.Name).ToPagedResponseAsync(req, ct);
+        var page = await session.Query<WorkflowDefinition>().OrderBy(w => w.Name).ThenBy(w => w.Id).ToPagedResponseAsync(req, ct);
 
-        var items = new List<WorkflowHealth>();
-        foreach (var workflow in page.Items)
-        {
-            items.Add(await HealthOfAsync(workflow, from, ct));
-        }
+        var ids = page.Items.Select(w => w.Id).ToList();
+        var counts = await RunQueries.CountSinceAsync(session, ids, from, ct);
+        var recent = await RunQueries.RecentFinishedAsync(session, ids, RecentOutcomes, ct);
+        var averages = await RunQueries.AverageDurationAsync(session, ids, from, DurationSample, ct);
+
+        var items = page.Items.Select(w => HealthOf(w, counts, recent[w.Id], averages)).ToList();
 
         await Send.ResponseAsync(new HealthResponse
         {
@@ -109,32 +111,20 @@ internal sealed class Endpoint(IQuerySession session, IConfiguration config) : E
         return kept > 0 ? Math.Min(kept, MaxWindowDays) : MaxWindowDays;
     }
 
-    private async Task<WorkflowHealth> HealthOfAsync(WorkflowDefinition workflow, DateTimeOffset from, CancellationToken ct)
+    private static WorkflowHealth HealthOf(
+        WorkflowDefinition workflow,
+        Dictionary<(Guid Workflow, RunStatus Status), int> counts,
+        IEnumerable<WorkflowRun> recent,
+        Dictionary<Guid, double> averages)
     {
-        var id = workflow.Id;
+        int Count(RunStatus status) => counts.GetValueOrDefault((workflow.Id, status));
 
-        var recent = await session.Query<WorkflowRun>()
-            .Where(r => r.WorkflowDefinitionId == id && r.Status != RunStatus.Pending && r.Status != RunStatus.Running)
-            .OrderByDescending(r => r.CreatedAt)
-            .Take(RecentOutcomes)
-            .ToListAsync(ct);
-
-        var succeeded = await CountAsync(id, RunStatus.Succeeded, from, ct);
-        var failed = await CountAsync(id, RunStatus.Failed, from, ct);
-        var partial = await CountAsync(id, RunStatus.PartiallyFailed, from, ct);
-        var finished = succeeded + failed + partial;
-
-        var sampled = await session.Query<WorkflowRun>()
-            .Where(r => r.WorkflowDefinitionId == id && r.CreatedAt >= from)
-            .OrderByDescending(r => r.CreatedAt)
-            .Take(DurationSample)
-            .ToListAsync(ct);
-
-        var durations = sampled.SelectMany(r => r.Actions).Where(a => a.DurationMs is not null).Select(a => a.DurationMs!.Value).ToList();
+        var succeeded = Count(RunStatus.Succeeded);
+        var finished = succeeded + Count(RunStatus.Failed) + Count(RunStatus.PartiallyFailed);
 
         return new WorkflowHealth
         {
-            WorkflowId = id,
+            WorkflowId = workflow.Id,
             Name = workflow.Name,
             Enabled = workflow.Enabled,
             LastOutcomes = recent.Select(r => new Outcome
@@ -146,12 +136,7 @@ internal sealed class Endpoint(IQuerySession session, IConfiguration config) : E
             }).ToList(),
             SuccessRate = finished == 0 ? null : (double)succeeded / finished,
             FinishedRuns = finished,
-            AverageActionDurationMs = durations.Count == 0 ? null : durations.Average(),
+            AverageActionDurationMs = averages.TryGetValue(workflow.Id, out var average) ? average : null,
         };
     }
-
-    private Task<int> CountAsync(Guid workflowId, RunStatus status, DateTimeOffset from, CancellationToken ct) =>
-        session.Query<WorkflowRun>()
-            .Where(r => r.WorkflowDefinitionId == workflowId && r.Status == status && r.CreatedAt >= from)
-            .CountAsync(ct);
 }
