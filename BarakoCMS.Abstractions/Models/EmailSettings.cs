@@ -23,6 +23,23 @@ public class EmailSettings
 
     public Guid Id { get; set; } = SingletonId;
 
+    /// <summary>
+    /// The tenant this row overrides the host default for, or null for the host default itself.
+    /// </summary>
+    /// <remarks>
+    /// Stored in the same table, one row per tenant that sets anything, so the row every existing
+    /// deployment already has is the host default and nothing needs migrating (#896).
+    /// </remarks>
+    public string? TenantSlug { get; set; }
+
+    /// <summary>The id of the override row for a tenant. The same slug always gives the same id.</summary>
+    public static Guid IdForTenant(string tenantSlug)
+    {
+        var hash = System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes("email-settings:" + tenantSlug.Trim().ToLowerInvariant()));
+        return new Guid(hash.AsSpan(0, 16));
+    }
+
     /// <summary>The provider API key, encrypted with <c>ISecretProtector</c>. Never the plaintext.</summary>
     public string ProtectedApiKey { get; set; } = string.Empty;
 

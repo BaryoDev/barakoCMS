@@ -58,7 +58,7 @@ internal static class Members
         var roleIds = requested.Except(held).ToList();
         if (roleIds.Count == 0) return false;
 
-        var roles = await session.Query<Role>().Where(r => roleIds.Contains(r.Id)).ToListAsync(ct);
+        var roles = await session.Query<Role>().Where(r => r.DeletedAt == null && roleIds.Contains(r.Id)).ToListAsync(ct);
         return roles.Any(barakoCMS.Features.Users.PlatformRoles.CarriesPlatformCapability)
                && !await barakoCMS.Features.Users.PlatformRoles.IsSuperAdminAsync(session, caller, ct);
     }

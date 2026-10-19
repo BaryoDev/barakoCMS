@@ -22,7 +22,7 @@ internal class Endpoint(
         var role = await session.LoadAsync<Role>(req.Id, ct);
 
         var platformCaller = await RoleScope.IsPlatformCallerAsync(HttpContext, ct);
-        if (role == null || (!RoleScope.Reaches(role, tenant.Slug) && !platformCaller))
+        if (role == null || role.DeletedAt is not null || (!RoleScope.Reaches(role, tenant.Slug) && !platformCaller))
         {
             await Send.NotFoundAsync(ct);
             return;
@@ -57,7 +57,8 @@ internal class Endpoint(
             return;
         }
 
-        session.Delete(role);
+        role.DeletedAt = DateTime.UtcNow;
+        session.Store(role);
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
         await AuditLog.RecordAsync(session, tenant.Slug, "role.deleted", actorId, User.FindFirst("Username")?.Value,
             targetType: "Role", targetId: role.Id.ToString(),

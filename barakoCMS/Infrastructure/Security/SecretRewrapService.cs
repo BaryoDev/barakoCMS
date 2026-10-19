@@ -77,15 +77,21 @@ internal sealed class SecretRewrapService(
         await store.Storage.Database.EnsureStorageExistsAsync(typeof(EmailSettings), ct);
         await using var session = store.LightweightSession();
 
-        var stored = await session.LoadAsync<EmailSettings>(EmailSettings.SingletonId, ct);
-        if (stored is null || string.IsNullOrEmpty(stored.ProtectedApiKey)) return default;
+        var rows = await session.Query<EmailSettings>()
+            .Where(x => x.ProtectedApiKey != "")
+            .ToListAsync(ct);
 
         var count = new RewrapCount();
-        if (Rewrap(ring, stored.ProtectedApiKey, ref count) is not { } next) return count;
+        foreach (var stored in rows)
+        {
+            if (Rewrap(ring, stored.ProtectedApiKey, ref count) is not { } next) continue;
 
-        var old = stored.ProtectedApiKey;
-        session.Patch<EmailSettings>(x => x.Id == EmailSettings.SingletonId && x.ProtectedApiKey == old)
-            .Set(x => x.ProtectedApiKey, next);
+            var id = stored.Id;
+            var old = stored.ProtectedApiKey;
+            session.Patch<EmailSettings>(x => x.Id == id && x.ProtectedApiKey == old)
+                .Set(x => x.ProtectedApiKey, next);
+        }
+
         await session.SaveChangesAsync(ct);
         return count;
     }

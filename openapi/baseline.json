@@ -1350,6 +1350,19 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesApiKeysRotateApiKeyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "overlapMinutes": {
+            "description": "Minutes the old key keeps working after the new one is issued. 0 ends it at once.",
+            "format": "int32",
+            "maximum": 10080.0,
+            "minimum": 0.0,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesAuditListAuditEventDto": {
         "additionalProperties": false,
         "properties": {
@@ -5057,6 +5070,18 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesQueriesListQueriesRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BarakoCMSModelsListRequest"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A query list request. deleted=true lists the deleted queries instead of the live ones.",
+            "type": "object"
+          }
+        ]
+      },
       "BarakoCMSFeaturesQueriesQueryPreviewResponse": {
         "additionalProperties": false,
         "properties": {
@@ -5480,6 +5505,30 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesRolesDeletedRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BarakoCMSModelsPaginatedRequest"
+          },
+          {
+            "additionalProperties": false,
+            "type": "object"
+          }
+        ]
+      },
+      "BarakoCMSFeaturesRolesEraseRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSFeaturesRolesEraseResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesRolesGetRequest": {
         "additionalProperties": false,
         "type": "object"
@@ -5495,12 +5544,31 @@
           }
         ]
       },
+      "BarakoCMSFeaturesRolesRestoreRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSFeaturesRolesRestoreResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesRolesRoleResponse": {
         "additionalProperties": false,
         "description": "A role as the API describes it, rather than as it is stored.",
         "properties": {
           "createdAt": {
             "format": "date-time",
+            "type": "string"
+          },
+          "deletedAt": {
+            "description": "When the role was deleted. Null for a live role, which is every role outside the deleted list.",
+            "format": "date-time",
+            "nullable": true,
             "type": "string"
           },
           "description": {
@@ -5724,6 +5792,51 @@
             "type": "string"
           },
           "value": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesSettingsTenantEmailTenantEmailSettingsResponse": {
+        "additionalProperties": false,
+        "description": "The caller's own tenant's mail override. There is no field that could hold the API key.",
+        "properties": {
+          "apiKeySet": {
+            "type": "boolean"
+          },
+          "fromAddress": {
+            "type": "string"
+          },
+          "tenant": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "updatedBy": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesSettingsTenantEmailUpdateTenantEmailSettingsRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "apiKey": {
+            "description": "Null leaves the stored key alone; empty clears it, so the host default applies again.",
+            "maxLength": 2048,
+            "minLength": 0,
+            "nullable": true,
+            "type": "string"
+          },
+          "fromAddress": {
+            "description": "Null leaves it alone; empty clears it, so the host default applies again.",
+            "maxLength": 320,
+            "minLength": 0,
+            "nullable": true,
             "type": "string"
           }
         },
@@ -6415,6 +6528,13 @@
           "name": {
             "type": "string"
           },
+          "roleIds": {
+            "items": {
+              "format": "guid",
+              "type": "string"
+            },
+            "type": "array"
+          },
           "userIds": {
             "items": {
               "format": "guid",
@@ -6451,6 +6571,19 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesUserGroupsEraseRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSFeaturesUserGroupsEraseResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesUserGroupsGetRequest": {
         "additionalProperties": false,
         "type": "object"
@@ -6468,6 +6601,19 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesUserGroupsRestoreRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSFeaturesUserGroupsRestoreResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesUserGroupsUpdateRequest": {
         "additionalProperties": false,
         "properties": {
@@ -6476,6 +6622,14 @@
           },
           "name": {
             "type": "string"
+          },
+          "roleIds": {
+            "items": {
+              "format": "guid",
+              "type": "string"
+            },
+            "nullable": true,
+            "type": "array"
           }
         },
         "type": "object"
@@ -6500,6 +6654,12 @@
             },
             "type": "array"
           },
+          "deletedAt": {
+            "description": "When the group was deleted. Null for a live group, which is every group outside the deleted list.",
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
           "description": {
             "type": "string"
           },
@@ -6514,6 +6674,13 @@
             "format": "guid",
             "nullable": true,
             "type": "string"
+          },
+          "roleIds": {
+            "items": {
+              "format": "guid",
+              "type": "string"
+            },
+            "type": "array"
           },
           "userIds": {
             "items": {
@@ -11405,12 +11572,15 @@
       },
       "FastEndpointsEmptyRequest": {
         "additionalProperties": false,
+        "description": "a request dto that doesn't have any properties",
         "type": "object"
       },
       "FastEndpointsProblemDetails": {
         "additionalProperties": false,
+        "description": "RFC9457 compatible problem details/ error response class. this can be used by configuring startup like so:\napp.UseFastEndpoints(c => c.Errors.UseProblemDetails())",
         "properties": {
           "detail": {
+            "description": "the details of the error",
             "nullable": true,
             "type": "string"
           },
@@ -11446,20 +11616,25 @@
       },
       "FastEndpointsProblemDetails_Error": {
         "additionalProperties": false,
+        "description": "the error details object",
         "properties": {
           "code": {
+            "description": "the code of the error",
             "nullable": true,
             "type": "string"
           },
           "name": {
             "default": "Error or field name",
+            "description": "the name of the error or property of the dto that caused the error",
             "type": "string"
           },
           "reason": {
             "default": "Error reason",
+            "description": "the reason for the error",
             "type": "string"
           },
           "severity": {
+            "description": "the severity of the error",
             "nullable": true,
             "type": "string"
           }
@@ -12299,6 +12474,69 @@
           }
         ],
         "summary": "DELETE /api/api-keys/{id} \u2014 revoke a key (soft; the record is kept). Effective immediately.",
+        "tags": [
+          "ApiKeys"
+        ]
+      }
+    },
+    "/api/api-keys/{id}/rotate": {
+      "post": {
+        "operationId": "barakoCMSFeaturesApiKeysRotateApiKeyEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesApiKeysRotateApiKeyRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "RotateApiKeyRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesApiKeysCreateApiKeyResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/api-keys/{id}/rotate. Issues a new key with the same owner, tenant, scopes and content\ntypes, and shortens the old key's expiry to the end of the overlap window, so both work until\nthen and only the new one after. A key that already expires sooner keeps its earlier expiry.",
         "tags": [
           "ApiKeys"
         ]
@@ -19183,6 +19421,14 @@
         "parameters": [
           {
             "in": "query",
+            "name": "deleted",
+            "schema": {
+              "nullable": true,
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
             "name": "page",
             "required": true,
             "schema": {
@@ -19339,6 +19585,38 @@
         ]
       }
     },
+    "/api/queries/{slug}/erase": {
+      "delete": {
+        "operationId": "barakoCMSFeaturesQueriesEraseQueryEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "Removes a deleted query for good. Mirrors content's archive versus erase split. It only takes a\nquery that is already deleted, so a live one cannot be destroyed in one call.",
+        "tags": [
+          "Queries"
+        ]
+      }
+    },
     "/api/queries/{slug}/preview": {
       "post": {
         "description": "The same shape as the request dry run and for the same reason: a query is written against a\nschema and its rows are read by a third party, and the gap between those is where a recipient\nlist is wrong in ways nobody sees until it is sent.",
@@ -19374,6 +19652,44 @@
           }
         ],
         "summary": "Runs a saved query and returns the rows, so an operator can see what a payload would carry.",
+        "tags": [
+          "Queries"
+        ]
+      }
+    },
+    "/api/queries/{slug}/restore": {
+      "post": {
+        "operationId": "barakoCMSFeaturesQueriesRestoreQueryEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesQueriesQueryResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
         "tags": [
           "Queries"
         ]
@@ -19909,6 +20225,63 @@
         ]
       }
     },
+    "/api/roles/deleted": {
+      "get": {
+        "operationId": "barakoCMSFeaturesRolesDeletedEndpoint",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfRoleResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/roles/deleted: the roles that were deleted and not yet erased, within the caller's reach.",
+        "tags": [
+          "Roles"
+        ]
+      }
+    },
     "/api/roles/{id}": {
       "delete": {
         "operationId": "barakoCMSFeaturesRolesDeleteEndpoint",
@@ -20040,6 +20413,86 @@
             "JWTBearerAuth": []
           }
         ],
+        "tags": [
+          "Roles"
+        ]
+      }
+    },
+    "/api/roles/{id}/erase": {
+      "delete": {
+        "operationId": "barakoCMSFeaturesRolesEraseEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesRolesEraseResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "DELETE /api/roles/{id}/erase: removes a deleted role for good. It only takes a role that is\nalready deleted, so a live one cannot be destroyed in one call.",
+        "tags": [
+          "Roles"
+        ]
+      }
+    },
+    "/api/roles/{id}/restore": {
+      "post": {
+        "operationId": "barakoCMSFeaturesRolesRestoreEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesRolesRestoreResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/roles/{id}/restore: brings a deleted role back with the permissions it had.",
         "tags": [
           "Roles"
         ]
@@ -20678,6 +21131,83 @@
         ]
       }
     },
+    "/api/tenant-settings/email": {
+      "get": {
+        "operationId": "barakoCMSFeaturesSettingsTenantEmailGetTenantEmailSettingsEndpoint",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesSettingsTenantEmailTenantEmailSettingsResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "tags": [
+          "Settings"
+        ]
+      },
+      "put": {
+        "operationId": "barakoCMSFeaturesSettingsTenantEmailUpdateTenantEmailSettingsEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesSettingsTenantEmailUpdateTenantEmailSettingsRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "UpdateTenantEmailSettingsRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesSettingsTenantEmailTenantEmailSettingsResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "tags": [
+          "Settings"
+        ]
+      }
+    },
     "/api/tenants": {
       "get": {
         "operationId": "barakoCMSFeaturesTenantsListTenantsEndpoint",
@@ -21294,6 +21824,63 @@
         ]
       }
     },
+    "/api/user-groups/deleted": {
+      "get": {
+        "operationId": "barakoCMSFeaturesUserGroupsDeletedEndpoint",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfUserGroupResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/user-groups/deleted: the groups that were deleted and not yet erased.",
+        "tags": [
+          "UserGroups"
+        ]
+      }
+    },
     "/api/user-groups/{groupId}/users": {
       "post": {
         "operationId": "barakoCMSFeaturesUserGroupsAddUserEndpoint",
@@ -21515,6 +22102,86 @@
             "JWTBearerAuth": []
           }
         ],
+        "tags": [
+          "UserGroups"
+        ]
+      }
+    },
+    "/api/user-groups/{id}/erase": {
+      "delete": {
+        "operationId": "barakoCMSFeaturesUserGroupsEraseEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesUserGroupsEraseResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "DELETE /api/user-groups/{id}/erase: removes a deleted group for good. It only takes a group that\nis already deleted, so a live one cannot be destroyed in one call.",
+        "tags": [
+          "UserGroups"
+        ]
+      }
+    },
+    "/api/user-groups/{id}/restore": {
+      "post": {
+        "operationId": "barakoCMSFeaturesUserGroupsRestoreEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesUserGroupsRestoreResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/user-groups/{id}/restore: brings a deleted group back.",
         "tags": [
           "UserGroups"
         ]

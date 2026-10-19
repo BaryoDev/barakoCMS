@@ -1,0 +1,1 @@
+- **`CapabilityGate`, `RequiredCapability` and `CheckedCapability` moved into `BarakoCMS.Abstractions`.** A module can declare a capability gate without referencing the core. Namespace is unchanged and `barakoCMS` forwards `CapabilityGate`, so modules built against 4.x or 5.0 still load. Part of #972.

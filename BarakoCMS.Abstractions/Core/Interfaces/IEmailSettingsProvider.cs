@@ -13,7 +13,16 @@ namespace barakoCMS.Core.Interfaces;
 /// </remarks>
 public interface IEmailSettingsProvider
 {
+    /// <summary>The host's settings, never a tenant's key or sender. Everything that sends account mail uses this.</summary>
     Task<ResolvedEmailSettings> GetAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// The settings for mail sent on <paramref name="tenant"/>'s behalf: the tenant's own key and sender
+    /// where it set them, else the host's. A tenant sender is returned only together with the tenant's
+    /// own key.
+    /// </summary>
+    /// <remarks>The default returns <see cref="GetAsync"/>, so an implementor with no tenant concept still compiles.</remarks>
+    Task<ResolvedEmailSettings> GetForTenantAsync(string tenant, CancellationToken ct = default) => GetAsync(ct);
 }
 
 /// <summary>Where each value came from as well as what it is.</summary>

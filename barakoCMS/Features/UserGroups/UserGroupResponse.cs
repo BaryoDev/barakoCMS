@@ -14,8 +14,12 @@ internal sealed class UserGroupResponse
     public string Name { get; init; } = string.Empty;
     public string Description { get; init; } = string.Empty;
     public List<Guid> UserIds { get; init; } = new();
+    public List<Guid> RoleIds { get; init; } = new();
     public Guid? ParentGroupId { get; init; }
     public List<Guid> ChildGroupIds { get; init; } = new();
+
+    /// <summary>When the group was deleted. Null for a live group, which is every group outside the deleted list.</summary>
+    public DateTimeOffset? DeletedAt { get; init; }
 
     public static UserGroupResponse From(UserGroup g) => new()
     {
@@ -23,7 +27,9 @@ internal sealed class UserGroupResponse
         Name = g.Name,
         Description = g.Description,
         UserIds = g.UserIds,
+        RoleIds = g.RoleIds ?? new(),
         ParentGroupId = g.ParentGroupId,
         ChildGroupIds = g.ChildGroupIds,
+        DeletedAt = g.DeletedAt is { } deleted ? new DateTimeOffset(DateTime.SpecifyKind(deleted, DateTimeKind.Utc)) : null,
     };
 }

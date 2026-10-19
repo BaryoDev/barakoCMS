@@ -36,6 +36,9 @@ internal sealed class RoleResponse
     /// <summary>Whether the server refuses to delete this role. Not stored, derived per request.</summary>
     public bool IsSystem { get; init; }
 
+    /// <summary>When the role was deleted. Null for a live role, which is every role outside the deleted list.</summary>
+    public DateTimeOffset? DeletedAt { get; init; }
+
     public static RoleResponse From(Role role) => new()
     {
         Id = role.Id,
@@ -50,5 +53,6 @@ internal sealed class RoleResponse
         IsSystem = SystemRoles.Contains(role.Id),
         TenantSlug = RoleScope.OwnerOf(role),
         IsPlatform = role.IsPlatform,
+        DeletedAt = role.DeletedAt is { } deleted ? new DateTimeOffset(DateTime.SpecifyKind(deleted, DateTimeKind.Utc)) : null,
     };
 }

@@ -69,7 +69,7 @@ applied before 5.0.0 gets the schemas and the `Mode` choice from
 | `ContactUrl` | url | A link to get in touch, such as a contact page |
 | `SocialHandle` | string | One social handle, such as `@acme`. `SocialLinks` holds several |
 | `Copyright` | string | The footer's copyright line |
-| `Mode` | choice | `Live` or `Holding`. Unset means `Live`. See [Holding a site back](#holding-a-site-back) |
+| `Mode` | choice | `Live`, `Holding` or `Private`. Unset means `Live`. See [Holding a site back](#holding-a-site-back) and [Private mode](#private-mode) |
 | `HoldingPath` | string | The site path of the page shown while holding, such as `/holding` |
 | `HeaderPath`, `FooterPath` | string | The site path of a page drawn as the header or footer region in place of the built-in one |
 | `HeaderTone`, `FooterTone` | choice | The tone behind that region: `page`, `surface`, `accent`, `inverse`, `gradient` or `wash` |
@@ -308,6 +308,41 @@ the upgrade (the migration names the tenant); a frontend should still read any o
 hides nothing. While holding, published, publicly deliverable content is still served from
 `/api/public/...` to anyone who asks. To keep content hidden before launch, leave it unpublished and
 schedule the publish ([scheduling.md](scheduling.md)).
+
+### Private mode
+
+`Mode` set to `Private` is access control, unlike `Holding`. While it is set, every `/api/public/*`
+route of that tenant (content, search, the sitemap, feeds, files, forms, pages) answers 404 to a
+caller who holds neither of these:
+
+- a link to the whole site, sent in the `X-Share-Key` header on each delivery request. The
+  frontend redeems the key once, keeps it for its visitor's session, and sends it along. A link to
+  one entry or page does not count, and neither does a revoked, expired or wrong key.
+- a sign-in to this tenant whose user may read the `site` type. Which roles that is follows the
+  roles' permissions on `site`, so no new setting is involved. SuperAdmin always may.
+
+The two share link routes (`POST .../share-links/redeem` and `POST .../share-links/open`) stay
+reachable, since they are how a visitor gets in. Nothing else under that path does: a `GET` there is
+a delivery read like any other. `GET /api/tenants/{handle}/public`, which reads the site entry of the
+tenant it names, applies the same rule. One check sits in front of delivery, ahead of the output
+cache, so a new public route is covered without touching it. A refusal carries
+`Cache-Control: no-store`, and a served response `private, no-store`, so a shared cache keeps none of
+it. Every delivery request of a tenant costs one bounded query. Another tenant is
+unaffected, and a tenant with no `Mode` is `Live`.
+
+Only a published `site` entry counts, since that is the one delivery reads. If more than one is
+published and any says `Private`, the tenant is private. `Private` is matched without regard to case.
+`GET /api/tenants/{handle}/public` lets a signed-in viewer through only when `X-Tenant` names the same
+tenant as the handle, since a token is good for one tenant; any other caller needs a site link. With
+open self-registration and a default role that can read `site`, every registrant is a viewer, so
+Private then keeps out only people who have not signed up. An open event stream (`/api/public/events`)
+asks again about every 30 seconds (`Delivery:Events:GateRecheckSeconds`) and ends when the tenant has
+turned Private or the caller's link has been revoked or has expired.
+A preview link from `POST /api/preview` is refused like any other delivery request until the caller
+also holds a link to the whole site or is a viewer.
+
+A `site` type created from the blueprint from this release has `Private` as an option. One created
+earlier gets it with `set-field-options` on `Mode`.
 
 ### Share links
 

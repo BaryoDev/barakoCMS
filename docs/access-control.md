@@ -602,6 +602,35 @@ those rules follow a reference, a push of more than ten existing entries resolve
 the way a list does, and past its bound answers 403 with the condition's reason. A role with no set
 asks nothing new.
 
+## Deleting a role or a group
+
+`DELETE /api/roles/{id}` and `DELETE /api/user-groups/{id}` mark the item deleted. They do not remove
+it, and the refusals are unchanged: a role still held by a user or membership, or named as a
+tenant's sign-up or MFA role, answers 409 as before.
+
+What a deleted role does:
+
+- It grants nothing. The permission resolver, token issue, API key sign-in, field sensitivity and
+  `/api/me` all read live roles only, and the delete evicts cached permission decisions, so a
+  holder loses it on the next request.
+- It is not listed, read, edited or assigned (404). It cannot be named as a sign-up role.
+- It keeps its name until it is erased. Creating or renaming another role to that name still works:
+  it erases the deleted role first, the same outcome a delete always had.
+
+`GET /api/roles/deleted` and `GET /api/user-groups/deleted` list what can be restored.
+`POST .../{id}/restore` brings an item back exactly as it was deleted, with the permissions and
+capabilities it had then. Nothing held it at the time (the delete refuses a held role), and a
+restore assigns it to nobody, so a restored role grants nothing until someone is given it. Restoring
+a role that is a platform role, or carries a platform capability, needs `manage_platform_roles`,
+which is what creating one needs. `DELETE .../{id}/erase` removes a deleted item for good and
+refuses a live one with 404. All three routes need the capability the delete needs, and the system
+roles cannot be deleted so they cannot reach any of this.
+
+**Rolling back.** A release before this one does not know the deleted marker, so it lists, reads and
+assigns a deleted role or group as if it were live. Erase what should stay gone before rolling back.
+
+There is no automatic purge window yet. That waits for the retention primitive in #622.
+
 ## Tested (2026-07-16): the bug this replaced
 
 Ran as real HTTP integration tests (Testcontainers Postgres, role tokens,
@@ -676,16 +705,29 @@ as its owner, so it can never do more than the owner's own roles and capabilitie
 | `content:destructive` | `DELETE /api/contents/{id}/erase` and `POST /api/contents/{id}/rollback/{versionId}` |
 | `contenttype:read` | `GET` under `/api/content-types` and `/api/schemas` |
 | `contenttype:write` | `POST`, `PUT`, `PATCH` and `DELETE` under `/api/content-types` and `/api/schemas` |
-| `*` | all of the above |
+| `files:read` | `GET` under `/api/files` (list, metadata, download, usage) |
+| `files:write` | `POST`, `PUT`, `PATCH` and `DELETE` under `/api/files` (upload, change, delete) |
+| `*` | all of the above except `files:read` and `files:write` |
 
 `content:destructive` does not include `content:write`, and `content:write` does not include it. Before
 #653 a `content:write` key could erase and roll back; such a key now gets 403 on both routes and needs
 `content:destructive` added. A `*` key is unchanged.
 
+The files scopes are never implied by `*`, so a key made before they existed does not gain file access.
+Name `files:read` or `files:write` on the key to allow it.
+
 A key can also name content types (`contentTypes` on `POST /api/api-keys`). That makes it a push key:
 it reaches `POST /api/collections/{type}/push` for the types it names and gets 403 everywhere else,
 whatever its scopes. A key that names none, which is every key made before this existed, is not
 limited by type. See [collection-push.md](collection-push.md).
+
+### Rotating a key
+
+`POST /api/api-keys/{id}/rotate` with `{ "overlapMinutes": 60 }` (0 to 10080, default 60) issues a new
+key with the same owner, tenant, scopes and content types, and returns its secret once. The old key's
+expiry is set to the end of the overlap window, so both work until then and only the new one after.
+A key that already expires sooner keeps the earlier expiry. A revoked or expired key cannot be rotated.
+See [api-key-service-principals.md](api-key-service-principals.md) for the design and what is left.
 
 ## Administrative endpoints: system capabilities
 
@@ -1118,6 +1160,8 @@ display prefix.
 | Role created | `role.created` | `name`, `capabilities`, `permissions` |
 | Role changed | `role.updated` | `name`, `nameBefore`, `capabilitiesBefore`, `capabilitiesAfter`, `permissionsBefore`, `permissionsAfter`, `conditionsChanged`; `capabilitiesAdded` and `capabilitiesRemoved` when the lists differ; `conditionsChangedIn` when a condition changed |
 | Role deleted | `role.deleted` | `name`, `capabilities`, `permissions` |
+| Role restored | `role.restored` | `name`, `capabilities`, `permissions` |
+| Role erased | `role.erased` | `name`, `capabilities`, `permissions`; `name`, `reason` when a new role took the name |
 | Global role given to a user | `user.role.assigned` | `roleId`, `roleName` |
 | Global role taken from a user | `user.role.removed` | `roleId`, `roleName` |
 | Tenant created | `tenant.member.added` in the new tenant's log | `invited` (false), `roleIds`, `roleNames`, `tenantCreated` |
@@ -1129,6 +1173,7 @@ display prefix.
 | Member removed | `tenant.member.removed` | `previousStatus`, `previousRoleIds`, `previousRoleNames` |
 | API key created | `apikey.created` | `name`, `scopes`, `contentTypes`, `actsAsUserId`, `expiresAt` when set |
 | API key revoked | `apikey.revoked` | `name`, `actsAsUserId` |
+| API key rotated | `apikey.rotated` | `name`, `replacesKeyId`, `overlapMinutes` |
 | Field added | `contenttype.field_added` | `field`, `type`, `required`, `sensitivity`, `visibleToRoleIds`, `visibleToRoles` |
 | Field's level, role list or mask changed | `contenttype.field.sensitivity.changed` or `.lowered` | `from`, `to`, `visibleToRoleIdsFrom`, `visibleToRolesFrom`, `visibleToRoleIdsTo`, `visibleToRolesTo`, `maskFrom`, `maskTo` |
 
