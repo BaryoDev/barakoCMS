@@ -4455,6 +4455,10 @@
             },
             "type": "array"
           },
+          "displayName": {
+            "description": "The name the user set with PUT /api/me/profile, or the username when none is set.",
+            "type": "string"
+          },
           "legacyRoleFallback": {
             "description": "Whether this deployment runs with Auth:LegacyRoleFallback on, so the pre-capability role\nnames (Admin, Editor and the like) still open the gates they used to whatever capabilities the\nrole carries. A console that decides navigation by capability alone would otherwise hide screens\nsuch a role can still use. It describes the deployment, not the caller.",
             "type": "boolean"
@@ -4559,6 +4563,26 @@
           },
           "slug": {
             "description": "The tenant's slug.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesMeUpdateProfileRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "displayName": {
+            "description": "The new display name. Null or blank clears it, and GET /api/me reports the username again.",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesMeUpdateProfileResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "displayName": {
             "type": "string"
           }
         },
@@ -18386,6 +18410,49 @@
         "summary": "GET /api/me/profile \u2014 the signed-in user's social profile (name, photo, birthday, location).",
         "tags": [
           "ExternalAuth"
+        ]
+      },
+      "put": {
+        "operationId": "barakoCMSFeaturesMeUpdateProfileEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesMeUpdateProfileRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "UpdateProfileRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesMeUpdateProfileResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "PUT /api/me/profile, the signed-in user sets their own display name. It sits under the global\n/api/me identity prefix like the password change, so it is not tenant-scoped.",
+        "tags": [
+          "Me"
         ]
       }
     },

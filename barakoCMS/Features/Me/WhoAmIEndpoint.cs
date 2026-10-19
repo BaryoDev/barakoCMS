@@ -8,6 +8,7 @@ namespace barakoCMS.Features.Me;
 
 internal sealed record MyRole(Guid Id, string Name);
 
+/// <param name="DisplayName">The name the user set with <c>PUT /api/me/profile</c>, or the username when none is set.</param>
 /// <param name="Tenant">The tenant the roles and capabilities below were read in.</param>
 /// <param name="Roles">The stored roles the caller holds there: global roles and the active membership's.</param>
 /// <param name="Capabilities">
@@ -24,6 +25,7 @@ internal sealed record MyRole(Guid Id, string Name);
 internal sealed record MeResponse(
     Guid UserId,
     string Username,
+    string DisplayName,
     string Tenant,
     IReadOnlyList<MyRole> Roles,
     IReadOnlyList<string> Capabilities,
@@ -90,6 +92,7 @@ internal sealed class WhoAmIEndpoint(IQuerySession session, TenantContext tenant
         await Send.OkAsync(new MeResponse(
             user.Id,
             user.Username,
+            string.IsNullOrWhiteSpace(user.DisplayName) ? user.Username : user.DisplayName,
             slug,
             roles.OrderBy(r => r.Name, StringComparer.Ordinal).Select(r => new MyRole(r.Id, r.Name)).ToList(),
             capabilities,
