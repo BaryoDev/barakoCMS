@@ -18235,7 +18235,7 @@
     },
     "/api/import/spreadsheet": {
       "post": {
-        "description": "Authorised like the bulk create: the target content type's own create permission. One transaction. Refused or rolled back past Import:MaxUploadBytes, Import:MaxExpandedBytes, Import:MaxRecords or Import:MaxSeconds (408); nothing is written. A second run creates the entries again.",
+        "description": "Authorised like the bulk create: the target content type's own create permission. One transaction. Refused or rolled back past Import:MaxUploadBytes, Import:MaxExpandedBytes, Import:MaxRecords, Import:MaxColumns or Import:MaxSeconds (408); nothing is written. A second run creates the entries again.",
         "operationId": "BarakoCMSImportFeaturesImportSheetEndpoint",
         "requestBody": {
           "content": {

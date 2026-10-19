@@ -28,6 +28,14 @@ public static class SpreadsheetLimits
 
     public const long DefaultMaxExpandedBytes = 8L * 1024 * 1024;
 
+    /// <summary>Widest sheet an upload may declare, in columns. Default 256.</summary>
+    public const string MaxColumnsKey = "Import:MaxColumns";
+
+    public const int DefaultMaxColumns = 256;
+
+    public static int MaxColumns(IConfiguration configuration) =>
+        configuration.GetValue<int?>(MaxColumnsKey) is > 0 and var columns ? columns : DefaultMaxColumns;
+
     public static long MaxExpandedBytes(IConfiguration configuration) =>
         configuration.GetValue<long?>(MaxExpandedBytesKey) is { } configured && configured > 0
             ? configured

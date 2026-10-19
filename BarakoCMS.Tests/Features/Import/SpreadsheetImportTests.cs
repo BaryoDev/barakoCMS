@@ -82,13 +82,15 @@ public class SpreadsheetImportTests
     }
 
     private static Task<HttpResponseMessage> PostAsync(
-        HttpClient client, string type, string csv, bool continueOnError = false, bool dryRun = false)
+        HttpClient client, string type, string csv, bool continueOnError = false, bool dryRun = false,
+        string? status = null, string mapping = "{\"Title\":0,\"Body\":1}")
     {
         var form = new MultipartFormDataContent
         {
             { new StringContent(type), "contentType" },
             { new StringContent("0"), "headerRow" },
-            { new StringContent("{\"Title\":0,\"Body\":1}"), "mapping" },
+            { new StringContent(mapping), "mapping" },
+            { new StringContent(status ?? string.Empty), "status" },
             { new StringContent(continueOnError ? "true" : "false"), "continueOnError" },
             { new StringContent(dryRun ? "true" : "false"), "dryRun" },
         };
@@ -186,6 +188,112 @@ public class SpreadsheetImportTests
         var allowed = await PostAsync(await ClientAsync("SuperAdmin"), type, Csv(3));
         allowed.StatusCode.Should().Be(HttpStatusCode.OK);
         (await CountAsync(type)).Should().Be(3);
+    }
+
+    [Fact]
+    public async Task A_status_that_is_not_a_name_is_refused_and_writes_nothing()
+    {
+        var type = await ContentTypeAsync();
+        var client = await ClientAsync("SuperAdmin");
+
+        (await PostAsync(client, type, Csv(3), status: "Draf")).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await PostAsync(client, type, Csv(3), status: "1")).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await CountAsync(type)).Should().Be(0);
+
+        (await PostAsync(client, type, Csv(3), status: "draft")).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await CountAsync(type)).Should().Be(3);
+    }
+
+    [Fact]
+    public async Task Mapping_keys_that_differ_only_by_case_are_refused()
+    {
+        var type = await ContentTypeAsync();
+        var client = await ClientAsync("SuperAdmin");
+
+        var response = await PostAsync(client, type, Csv(3), mapping: "{\"Title\":0,\"title\":1}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await CountAsync(type)).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_cell_in_a_far_column_or_row_is_refused_before_the_sheet_is_read_by_both_endpoints()
+    {
+        var type = await ContentTypeAsync();
+        var client = await ClientAsync("SuperAdmin");
+
+        var ordinary = Xlsx(["A1", "B1", "A2", "B2"]);
+        var farColumn = Xlsx(["A1", "B1", "A2", "ZZZZZZ2"]);
+        var farRow = Xlsx(["A1", "B1", "A2", "A4000000000"]);
+
+        (await UploadAsync(client, "/api/import/analyze", ordinary)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await UploadAsync(client, "/api/import/spreadsheet", ordinary, type)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await CountAsync(type)).Should().Be(1);
+
+        foreach (var bad in new[] { farColumn, farRow })
+        {
+            var analyze = await UploadAsync(client, "/api/import/analyze", bad);
+            analyze.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            (await analyze.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))
+                .Should().ContainAny("Import:MaxColumns", "Import:MaxRecords");
+
+            var import = await UploadAsync(client, "/api/import/spreadsheet", bad, type);
+            import.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        }
+
+        (await CountAsync(type)).Should().Be(1, "the refused uploads wrote nothing");
+    }
+
+    private static Task<HttpResponseMessage> UploadAsync(HttpClient client, string url, byte[] bytes, string? type = null)
+    {
+        var form = new MultipartFormDataContent();
+        if (type is not null)
+        {
+            form.Add(new StringContent(type), "contentType");
+            form.Add(new StringContent("0"), "headerRow");
+            form.Add(new StringContent("{\"Title\":0,\"Body\":1}"), "mapping");
+        }
+        form.Add(new ByteArrayContent(bytes), "file", "sheet.xlsx");
+        return client.PostAsync(url, form, TestContext.Current.CancellationToken);
+    }
+
+    /// <summary>A tiny xlsx holding one inline-string cell at each given address.</summary>
+    private static byte[] Xlsx(string[] addresses)
+    {
+        var rows = addresses
+            .GroupBy(a => new string(a.SkipWhile(char.IsLetter).ToArray()))
+            .Select(g => $"<row r=\"{g.Key}\">" + string.Concat(g.Select(a =>
+                $"<c r=\"{a}\" t=\"inlineStr\"><is><t>v</t></is></c>")) + "</row>");
+        var sheet = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+            + "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData>"
+            + string.Concat(rows) + "</sheetData></worksheet>";
+
+        using var buffer = new MemoryStream();
+        using (var zip = new System.IO.Compression.ZipArchive(buffer, System.IO.Compression.ZipArchiveMode.Create, true))
+        {
+            const string xml = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>";
+            Add(zip, "[Content_Types].xml", xml + "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
+                + "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>"
+                + "<Default Extension=\"xml\" ContentType=\"application/xml\"/>"
+                + "<Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>"
+                + "<Override PartName=\"/xl/worksheets/sheet1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/></Types>");
+            Add(zip, "_rels/.rels", xml + "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
+                + "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/></Relationships>");
+            Add(zip, "xl/workbook.xml", xml + "<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" "
+                + "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">"
+                + "<sheets><sheet name=\"Sheet1\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>");
+            Add(zip, "xl/_rels/workbook.xml.rels", xml + "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
+                + "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/></Relationships>");
+            Add(zip, "xl/worksheets/sheet1.xml", sheet);
+        }
+
+        return buffer.ToArray();
+    }
+
+    private static void Add(System.IO.Compression.ZipArchive zip, string path, string content)
+    {
+        using var writer = new StreamWriter(zip.CreateEntry(path).Open());
+        writer.Write(content);
     }
 
     [Fact]

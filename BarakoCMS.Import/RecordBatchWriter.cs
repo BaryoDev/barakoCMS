@@ -20,6 +20,11 @@ internal static class RecordBatchWriter
     /// <param name="rowNumbers">
     /// The number reported for each record in an error. Null reports the record's index.
     /// </param>
+    /// <param name="loopLimit">
+    /// Stops the row loop with an <see cref="OperationCanceledException"/> after this long. It does
+    /// not apply to the commit: once every row is written the commit is not abandoned on a timer, so
+    /// a timeout is never reported after a commit.
+    /// </param>
     /// <param name="dryRun">Check and write everything, then roll back and keep nothing.</param>
     public static Task<BatchResult> WriteAsync(
         IContentBatchRunner runner,
@@ -32,16 +37,52 @@ internal static class RecordBatchWriter
         IReadOnlyList<int>? rowNumbers,
         bool continueOnError,
         bool dryRun,
+        TimeSpan? loopLimit,
         Microsoft.AspNetCore.Http.HttpContext httpContext,
         CancellationToken ct)
     {
-        var userId = user.Id;
+        var batch = NewBatch(permissions, user, definition);
 
-        // Every record goes through the content create write path, the same as POST /api/contents:
-        // a field the caller may not see is dropped, the record is validated, and the type's
-        // lifecycle hooks run. The batch carries the definition, and what earlier rows claimed, so
-        // a singleton type takes one row and two rows cannot share a slug. Admit asks whether the
-        // create rule holds for each row as it will be stored, before the batch counts the row.
+        // One transaction, each row written before the next is checked, so a lifecycle hook sees
+        // the rows before it. Rolled back when a row is refused and the import is all or nothing.
+        return runner.RunAsync(async (scope, requestToken) =>
+        {
+            using var limited = CancellationTokenSource.CreateLinkedTokenSource(requestToken);
+            if (loopLimit is { } limit)
+                limited.CancelAfter(limit);
+            var token = limited.Token;
+
+            var batchSession = scope.GetRequiredService<IDocumentSession>();
+            var creator = scope.GetRequiredService<IContentCreator>();
+            var rowErrors = new List<Response.RowError>();
+            var written = 0;
+
+            for (var i = 0; i < records.Count; i++)
+            {
+                var record = records[i] ?? new Dictionary<string, object>();
+                ReadAmounts(definition, record);
+                var request = new ContentCreateRequest { ContentType = contentType, Data = record, Status = status };
+
+                var error = await WriteRowAsync(creator, batchSession, request, user.Id, batch, httpContext, token);
+                if (error is null)
+                    written++;
+                else
+                    rowErrors.Add(new Response.RowError { Row = rowNumbers is null ? i : rowNumbers[i], Messages = error });
+            }
+
+            var commit = !dryRun && (rowErrors.Count == 0 || continueOnError);
+            var created = rowErrors.Count == 0 || continueOnError ? written : 0;
+            return new ContentBatchOutcome<BatchResult>(new BatchResult(created, rowErrors), commit);
+        }, ct);
+    }
+
+    // Every record goes through the content create write path, the same as POST /api/contents:
+    // a field the caller may not see is dropped, the record is validated, and the type's
+    // lifecycle hooks run. The batch carries the definition, and what earlier rows claimed, so
+    // a singleton type takes one row and two rows cannot share a slug. Admit asks whether the
+    // create rule holds for each row as it will be stored, before the batch counts the row.
+    private static ContentCreateBatch NewBatch(IPermissionResolver permissions, User user, ContentTypeDefinition? definition)
+    {
         var batch = new ContentCreateBatch
         {
             Admit = async (request, token) =>
@@ -52,8 +93,8 @@ internal static class RecordBatchWriter
                     ContentType = request.ContentType,
                     Data = new Dictionary<string, object>(request.Data, request.Data.Comparer),
                     Status = request.Status,
-                    CreatedBy = userId,
-                    LastModifiedBy = userId,
+                    CreatedBy = user.Id,
+                    LastModifiedBy = user.Id,
                 };
 
                 return await permissions.CanPerformActionAsync(user, request.ContentType, "create", asStored, token)
@@ -64,52 +105,35 @@ internal static class RecordBatchWriter
         if (definition is not null)
             batch.UseSchema(definition);
 
-        // One transaction, each row written before the next is checked, so a lifecycle hook sees
-        // the rows before it. Rolled back when a row is refused and the import is all or nothing.
-        return runner.RunAsync(async (scope, token) =>
+        return batch;
+    }
+
+    /// <summary>The messages when the row is refused, or null when it was written.</summary>
+    private static async Task<List<string>?> WriteRowAsync(
+        IContentCreator creator, IDocumentSession batchSession, ContentCreateRequest request, Guid userId,
+        ContentCreateBatch batch, Microsoft.AspNetCore.Http.HttpContext httpContext, CancellationToken token)
+    {
+        var messages = await creator.CheckAsync(request, userId, httpContext, batch, token);
+        if (messages.Count > 0)
         {
-            var batchSession = scope.GetRequiredService<IDocumentSession>();
-            var creator = scope.GetRequiredService<IContentCreator>();
-            var rowErrors = new List<Response.RowError>();
-            var written = 0;
+            // Whatever a hook staged for a row it then refused is not this batch's.
+            batchSession.EjectAllPendingChanges();
+            return messages.ToList();
+        }
 
-            for (var i = 0; i < records.Count; i++)
-            {
-                var record = records[i] ?? new Dictionary<string, object>();
-                ReadAmounts(definition, record);
-                var reported = rowNumbers is null ? i : rowNumbers[i];
-
-                var request = new ContentCreateRequest { ContentType = contentType, Data = record, Status = status };
-
-                var messages = await creator.CheckAsync(request, userId, httpContext, batch, token);
-                if (messages.Count > 0)
-                {
-                    rowErrors.Add(new Response.RowError { Row = reported, Messages = messages.ToList() });
-
-                    // Whatever a hook staged for a row it then refused is not this batch's.
-                    batchSession.EjectAllPendingChanges();
-                    continue;
-                }
-
-                try
-                {
-                    await creator.StageAsync(request, userId, batch, token);
-                    await batchSession.SaveChangesAsync(token);
-                    written++;
-                }
-                catch (ContentUniquenessException ex)
-                {
-                    // Another entry, stored or an earlier row, holds this row's values under a
-                    // uniqueness rule of the type. A row error like any other.
-                    rowErrors.Add(new Response.RowError { Row = reported, Messages = [ex.Message] });
-                    batchSession.EjectAllPendingChanges();
-                }
-            }
-
-            var commit = !dryRun && (rowErrors.Count == 0 || continueOnError);
-            var created = rowErrors.Count == 0 || continueOnError ? written : 0;
-            return new ContentBatchOutcome<BatchResult>(new BatchResult(created, rowErrors), commit);
-        }, ct);
+        try
+        {
+            await creator.StageAsync(request, userId, batch, token);
+            await batchSession.SaveChangesAsync(token);
+            return null;
+        }
+        catch (ContentUniquenessException ex)
+        {
+            // Another entry, stored or an earlier row, holds this row's values under a uniqueness
+            // rule of the type. A row error like any other.
+            batchSession.EjectAllPendingChanges();
+            return [ex.Message];
+        }
     }
 
     // A spreadsheet cell arrives as text, and a money field that declares a currency takes a

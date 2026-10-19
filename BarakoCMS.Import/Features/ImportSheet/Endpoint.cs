@@ -66,7 +66,14 @@ internal sealed class Endpoint(
             return;
         }
 
-        var sheet = await ReadSheetAsync(ct);
+        if (!TryReadStatus(req.Status, out var status))
+        {
+            await RefuseAsync(
+                $"Status must be one of {string.Join(", ", Enum.GetNames<ContentStatus>())}, and is {req.Status}.", ct);
+            return;
+        }
+
+        var sheet = await ReadSheetAsync(req, ct);
         if (sheet is null)
             return;
 
@@ -77,23 +84,21 @@ internal sealed class Endpoint(
             return;
         }
 
-        await RunAsync(req, user, definition, plan, ct);
+        await RunAsync(req, user, definition, plan, status, ct);
     }
 
     private async Task RunAsync(
-        Request req, User user, ContentTypeDefinition definition, SheetPlan plan, CancellationToken ct)
+        Request req, User user, ContentTypeDefinition definition, SheetPlan plan,
+        ContentStatus status, CancellationToken ct)
     {
-        var status = Enum.TryParse<ContentStatus>(req.Status, true, out var parsed) ? parsed : ContentStatus.Published;
-
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeout.CancelAfter(TimeSpan.FromSeconds(ImportLimits.MaxSeconds(configuration)));
+        var loopLimit = TimeSpan.FromSeconds(ImportLimits.MaxSeconds(configuration));
 
         BatchResult result;
         try
         {
             result = await RecordBatchWriter.WriteAsync(
                 runner, permissions, user, definition, definition.Name, status, plan.Records, plan.RowNumbers,
-                req.ContinueOnError, req.DryRun, HttpContext, timeout.Token);
+                req.ContinueOnError, req.DryRun, loopLimit, HttpContext, ct);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -116,7 +121,7 @@ internal sealed class Endpoint(
         await Send.ResponseAsync(response, refused ? 400 : 200, ct);
     }
 
-    private async Task<SheetData?> ReadSheetAsync(CancellationToken ct)
+    private async Task<SheetData?> ReadSheetAsync(Request req, CancellationToken ct)
     {
         var file = Files.Count > 0 ? Files[0] : null;
         if (file is null || file.Length == 0)
@@ -145,6 +150,15 @@ internal sealed class Endpoint(
             await RefuseAsync(
                 $"That file expands to {expanded / 1024 / 1024} MB, over the {limit / 1024 / 1024} MB "
               + $"this instance will parse. Split it, or raise {SpreadsheetLimits.MaxExpandedBytesKey}.", ct);
+            return null;
+        }
+
+        var tooBig = SpreadsheetGuard.Check(
+            buffer, SpreadsheetLimits.MaxColumns(configuration),
+            (long)ImportLimits.MaxRecords(configuration) + Math.Max(req.HeaderRow, 0) + SpreadsheetGuard.RowMargin);
+        if (tooBig is not null)
+        {
+            await RefuseAsync(tooBig, ct);
             return null;
         }
 
@@ -248,6 +262,13 @@ internal sealed class Endpoint(
             return null;
         }
 
+        var repeated = mapping.Keys.GroupBy(k => k, StringComparer.OrdinalIgnoreCase).FirstOrDefault(g => g.Count() > 1);
+        if (repeated is not null)
+        {
+            problem = $"Mapping names {repeated.Key} more than once, differing only by case.";
+            return null;
+        }
+
         foreach (var (field, column) in mapping)
         {
             if (!definition.Fields.Any(f => f is not null && string.Equals(f.Name, field, StringComparison.OrdinalIgnoreCase)))
@@ -260,6 +281,21 @@ internal sealed class Endpoint(
         }
 
         return mapping;
+    }
+
+    private static bool TryReadStatus(string text, out ContentStatus status)
+    {
+        status = ContentStatus.Published;
+        if (string.IsNullOrWhiteSpace(text))
+            return true;
+
+        var name = Enum.GetNames<ContentStatus>()
+            .FirstOrDefault(n => string.Equals(n, text.Trim(), StringComparison.OrdinalIgnoreCase));
+        if (name is null)
+            return false;
+
+        status = Enum.Parse<ContentStatus>(name);
+        return true;
     }
 
     private sealed record SheetPlan(

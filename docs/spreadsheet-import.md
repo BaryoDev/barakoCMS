@@ -15,10 +15,10 @@ Multipart form. Needs the create permission on the target content type, the same
 | `headerRow` | Zero-based header row, numbered as analyze numbers rows. Data starts on the next row. Default 0. |
 | `mapping` | JSON object of field name to zero-based column index, for example `{"Title":0,"Body":2}`. |
 | `continueOnError` | `false` (default): one bad row writes nothing. `true`: good rows are written, bad ones reported. |
-| `status` | `Draft`, `Published` or `Archived`. Default `Published`. |
+| `status` | `Draft`, `Published` or `Archived`, by name. Default `Published`. Anything else, a number included, is a 400. |
 | `dryRun` | `true` checks every row and writes nothing. |
 
-Blank cells are left out of the entry, so a required field fails on that row. A row with every
+Mapping keys that differ only by case are refused. Blank cells are left out of the entry, so a required field fails on that row. A row with every
 mapped cell blank is skipped and counted in `skippedBlankRows`.
 
 ## Response
@@ -29,13 +29,14 @@ row the answer is 400 with the same body and nothing is written.
 
 ## Limits
 
-Nothing is truncated. Past a limit the request is refused and nothing is written.
+Analyze applies the same column and row-address check, so a sheet with a cell far past the limits is refused there too. Nothing is truncated. Past a limit the request is refused and nothing is written.
 
 | Limit | Default | Setting | Past it |
 | --- | --- | --- | --- |
 | Upload size | 10 MB | `Import:MaxUploadBytes` | 400 |
 | Expanded size of an .xlsx | 8 MB | `Import:MaxExpandedBytes` | 400 |
 | Data rows | 5000 | `Import:MaxRecords` | 400 |
+| Columns, and row index of any cell | 256 columns, `Import:MaxRecords` plus the header row and 100 rows | `Import:MaxColumns`, `Import:MaxRecords` | 400, before the sheet is read |
 | Run time | 120 seconds | `Import:MaxSeconds` | 408, rolled back |
 
 ## Crash and repeat runs
