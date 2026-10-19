@@ -139,6 +139,16 @@ public class ModuleCapabilityTests
 
         declared.Should().NotBeEmpty("the modules declare capability classes, or this stopped looking");
 
+        // A module endpoint may gate on a capability core declares (the external auth role map asks
+        // for manage_tenant_members). Core's set lives in the abstractions assembly, so the scan
+        // above never reads it. The wildcard is a grant, not a name a gate can ask for.
+        foreach (var field in typeof(SystemCapabilities).GetFields()
+                     .Where(f => f.IsLiteral && f.FieldType == typeof(string)))
+        {
+            var name = (string)field.GetRawConstantValue()!;
+            if (name != SystemCapabilities.All) declared.Add(name);
+        }
+
         var core = typeof(Program).Assembly;
 
         var required = _factory.Services.GetServices<EndpointDataSource>()
