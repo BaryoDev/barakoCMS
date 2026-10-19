@@ -43,9 +43,8 @@ public sealed class EventCorrelationTests : IDisposable
 
         // ASP.NET Core starts the request Activity, and so reads traceparent, only when something
         // listens: its source, its diagnostic listener, or an enabled hosting logger. A deployment
-        // with no exporter still has the logger. Here Program's Log.CloseAndFlush runs when the test
-        // host is built and leaves the static Serilog logger silent, so the listener stands in for it
-        // and the result no longer depends on which test ran before.
+        // with no exporter still has the logger. In this shared host whether the logger is enabled
+        // depends on which test ran before, so the listener stands in for it.
         _hostingListener = new ActivityListener
         {
             ShouldListenTo = source => source.Name == "Microsoft.AspNetCore",
