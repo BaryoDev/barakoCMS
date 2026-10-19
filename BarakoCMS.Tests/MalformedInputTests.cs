@@ -127,9 +127,7 @@ public class MalformedInputTests
     [Fact]
     public async Task A_body_over_the_limit_is_413()
     {
-        using var host = _factory.WithWebHostBuilder(_ => { });
-        host.UseKestrel(0);
-        host.StartServer();
+        using var host = KestrelTestClient.StartOnFreePort(_factory);
         using var client = KestrelTestClient.ExpectContinue(host);
 
         var oversized = new string('a', (int)(10L * 1024 * 1024) + 1024);
@@ -162,9 +160,7 @@ public class MalformedInputTests
     [Fact]
     public async Task A_body_over_the_limit_on_an_auth_path_keeps_no_store()
     {
-        using var host = _factory.WithWebHostBuilder(_ => { });
-        host.UseKestrel(0);
-        host.StartServer();
+        using var host = KestrelTestClient.StartOnFreePort(_factory);
         using var client = KestrelTestClient.ExpectContinue(host);
 
         var oversized = new string('a', (int)(10L * 1024 * 1024) + 1024);
