@@ -1,5 +1,6 @@
 using System.Reflection;
 using FastEndpoints;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace BarakoCMS.Tests;
 
@@ -41,6 +42,52 @@ internal static class FastEndpointsResolver
     {
         var previous = (bool)InstanceNotSet.GetValue(null)! ? null : Instance.GetValue(null);
         return new Restore(previous);
+    }
+
+    /// <summary>
+    /// True when the resolver the process has now still answers, which it does not once the host it
+    /// points at is disposed.
+    /// </summary>
+    public static bool IsUsable()
+    {
+        if ((bool)InstanceNotSet.GetValue(null)!)
+        {
+            return false;
+        }
+
+        try
+        {
+            ((IServiceResolver)Instance.GetValue(null)!).TryResolve<IServiceResolver>();
+            return true;
+        }
+        catch (ObjectDisposedException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// When the resolver points at a disposed host, moves it to the first of <paramref name="hosts"/>
+    /// that is still up. A resolver that still answers is left alone, so a host a test is using keeps it.
+    /// </summary>
+    public static void RepairIfDisposed(IEnumerable<IServiceProvider> hosts)
+    {
+        if (IsUsable())
+        {
+            return;
+        }
+
+        foreach (var host in hosts)
+        {
+            try
+            {
+                Instance.SetValue(null, host.GetRequiredService<IServiceResolver>());
+                return;
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+        }
     }
 
     private static InvalidOperationException Moved(string what) =>
