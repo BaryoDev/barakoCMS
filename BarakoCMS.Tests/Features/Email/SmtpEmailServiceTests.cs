@@ -37,6 +37,16 @@ public class SmtpEmailServiceTests
                 source));
     }
 
+    /// <summary>A tenant has set its own sender, which only the tenant lookup returns.</summary>
+    private sealed class TenantAwareSettings(string tenantFrom, string hostFrom) : IEmailSettingsProvider
+    {
+        public Task<ResolvedEmailSettings> GetAsync(CancellationToken ct = default) =>
+            Task.FromResult(new ResolvedEmailSettings(null, hostFrom, EmailSettingSource.None, EmailSettingSource.Stored));
+
+        public Task<ResolvedEmailSettings> GetForTenantAsync(string tenant, CancellationToken ct = default) =>
+            Task.FromResult(new ResolvedEmailSettings(null, tenantFrom, EmailSettingSource.None, EmailSettingSource.Stored));
+    }
+
     private static SmtpEmailService Service(SmtpOptions options, IEmailSettingsProvider? settings = null) =>
         new(new Snapshot(options), settings ?? new Settings(null, EmailSettingSource.None));
 
@@ -77,6 +87,27 @@ public class SmtpEmailServiceTests
             "the message has to name the key an operator has to set");
         failure.Message.Should().NotContain("535",
             "this is the guard refusing, not a relay: reaching a relay at all would mean the guard did nothing");
+    }
+
+    /// <summary>
+    /// SMTP has no tenant credential, so a tenant sender would go out over the host's login.
+    /// </summary>
+    [Fact]
+    public async Task A_tenant_sender_is_never_used_over_the_host_smtp_login()
+    {
+        using var relay = new FakeSmtpServer();
+        var service = Service(Options(relay.Port),
+            new TenantAwareSettings("ceo@tenant-owned.example", "host-sender@example.com"));
+
+        await service.SendForTenantAsync("some-tenant", "someone@example.com", "Order shipped", "<p>Hi</p>",
+            TestContext.Current.CancellationToken);
+        await service.SendEmailAsync("someone@example.com", "Your sign-in code", "<p>Hi</p>",
+            TestContext.Current.CancellationToken);
+
+        var messages = relay.Messages;
+        messages.Should().HaveCount(2);
+        messages.Should().OnlyContain(m => m.Contains("host-sender@example.com"));
+        messages.Should().NotContain(m => m.Contains("tenant-owned.example"));
     }
 
     /// <summary>

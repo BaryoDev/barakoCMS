@@ -253,7 +253,7 @@ internal sealed class FormEmailVerifier(
         {
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
             deadline.CancelAfter(TimeSpan.FromSeconds(settings.SendTimeoutSeconds));
-            await email.SendForTenantAsync(tenant.Slug, to, $"Your verification code for {name}", body, deadline.Token);
+            await email.SendEmailAsync(to, $"Your verification code for {name}", body, deadline.Token);
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {

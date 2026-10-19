@@ -96,6 +96,31 @@ public class ArchitectureTests
         RequestType(endpoint) is { } request && typeof(barakoCMS.Models.PaginatedRequest).IsAssignableFrom(request);
 
     [Fact]
+    public void Only_the_workflow_email_action_sends_mail_on_a_tenants_behalf()
+    {
+        var root = new DirectoryInfo(AppContext.BaseDirectory);
+        while (root is not null && !Directory.Exists(Path.Combine(root.FullName, "barakoCMS")))
+            root = root.Parent;
+        root.Should().NotBeNull("the repository root is above the test output");
+
+        var callers = Directory.EnumerateFiles(root!.FullName, "*.cs", SearchOption.AllDirectories)
+            .Select(f => (Path: f, Parts: Path.GetRelativePath(root.FullName, f)
+                .Split(Path.DirectorySeparatorChar)))
+            .Where(f => f.Parts[0] is not (".claude" or "BarakoCMS.Tests")
+                     && !f.Parts.Contains("obj") && !f.Parts.Contains("bin"))
+            .Select(f => f.Path)
+            .Where(f => File.ReadLines(f).Any(l =>
+                l.Contains(".SendForTenantAsync(", StringComparison.Ordinal)
+                && !l.TrimStart().StartsWith("//", StringComparison.Ordinal)))
+            .Select(Path.GetFileName)
+            .ToArray();
+
+        callers.Should().NotBeEmpty("the scan has to find the one legitimate caller or it proves nothing");
+        callers.Should().BeEquivalentTo(["EmailAction.cs"],
+            "account mail (codes, verification, resets) must use SendEmailAsync, the host transport");
+    }
+
+    [Fact]
     public void The_scan_finds_the_endpoints_validators_and_list_endpoints_Features_holds()
     {
         FeatureEndpoints().Should().HaveCountGreaterThan(50,
