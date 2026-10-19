@@ -51,6 +51,10 @@ public class CredentialRedactionTests
     [InlineData("auth_token=hunter2value", "hunter2value")]
     [InlineData("x-auth-token: hunter2value", "hunter2value")]
     [InlineData("Authorization: hunter2value", "hunter2value")]
+    [InlineData("authKey: hunter2value", "hunter2value")]
+    [InlineData("authCode=hunter2value", "hunter2value")]
+    [InlineData("basicAuth: hunter2value", "hunter2value")]
+    [InlineData("oauth=hunter2value", "hunter2value")]
     public void A_value_after_an_auth_key_is_removed(string message, string secret)
     {
         CredentialRedaction.Redact(message).Should().NotContain(secret);
