@@ -16,7 +16,8 @@ namespace barakoCMS.Infrastructure.Multitenancy;
 /// site counts; a link to one entry or page opens that entry through the open route and nothing here.
 /// The two share link POST routes stay reachable, since they are how a visitor gets in, and only
 /// those two: <c>GET /api/public/site/share-links</c> is the delivery route for a <c>site</c> entry
-/// whose slug is <c>share-links</c>. Every delivery request costs one bounded read (filtered in Postgres, one row) of the tenant's site
+/// whose slug is <c>share-links</c>. A tenant not in Private mode costs no read per request: that answer is cached per tenant
+/// (<see cref="PrivateSiteCache"/>). Otherwise the check is one bounded read (filtered in Postgres, one row) of the tenant's site
 /// entries. <c>GET /api/tenants/{handle}/public</c>, which reads another tenant's site entry by
 /// name, applies the same rule itself.
 /// </remarks>
@@ -46,7 +47,7 @@ internal sealed class PrivateSiteMiddleware(RequestDelegate next)
         var session = context.RequestServices.GetRequiredService<IQuerySession>();
         var ct = context.RequestAborted;
 
-        if (await PrivateSite.FindPrivateEntryAsync(session, ct) is not { } site)
+        if (await PrivateSite.FindCachedAsync(context, session, ct) is not { } site)
         {
             await next(context);
             return;

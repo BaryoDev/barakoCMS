@@ -89,6 +89,10 @@ public class SemanticSearchScanBoundTests
 
     private async Task<JsonElement> SearchAsync(string type, int limit = 10)
     {
+        // The private site check caches its answer, so it is cached before the statements are counted.
+        (await _client.GetAsync("/api/public/gate-warmup", TestContext.Current.CancellationToken)).Dispose();
+        _logger.RawCommands.Clear();
+
         var response = await _client.GetAsync(
             $"/api/public/{type}/semantic?q={Uri.EscapeDataString(Words)}&limit={limit}",
             TestContext.Current.CancellationToken);
@@ -100,8 +104,6 @@ public class SemanticSearchScanBoundTests
     private List<(string Sql, NpgsqlParameter[] Parameters)> StatementsAgainst(string table) =>
         _logger.RawCommands
             .Where(c => Regex.IsMatch(c.Sql, $@"\b{table}\b", RegexOptions.IgnoreCase))
-            // The private site gate reads the content table once per anonymous request.
-            .Where(c => !c.Sql.Contains("lower(e.key) = 'mode'"))
             .ToList();
 
     [Fact]

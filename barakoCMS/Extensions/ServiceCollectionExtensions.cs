@@ -1015,6 +1015,10 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<barakoCMS.Infrastructure.Realtime.TopicRegistry>(),
                 sp.GetRequiredService<ILogger<barakoCMS.Infrastructure.Realtime.RealtimeEventListener>>()));
 
+            // The private site check forgets its cached answer when a site entry is written.
+            options.Listeners.Add(new barakoCMS.Infrastructure.Multitenancy.PrivateSiteCacheListener(
+                sp.GetRequiredService<barakoCMS.Infrastructure.Multitenancy.PrivateSiteCache>()));
+
             // What goes in the correlation and causation columns is decided here, for every session
             // of the store and not only the scoped one: Marten's own default is the raw parent id of
             // the current span, which is the caller's header as sent.
@@ -1224,6 +1228,7 @@ public static class ServiceCollectionExtensions
         // rather than the one passed in here, so a host that layers settings on after this call
         // (the test fixtures do) is read as configured.
         services.AddSingleton<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>();
+        services.AddSingleton<barakoCMS.Infrastructure.Multitenancy.PrivateSiteCache>();
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<barakoCMS.Core.Interfaces.INumberAllocator, barakoCMS.Infrastructure.Numbering.GaplessNumberAllocator>();
         services.AddSingleton<barakoCMS.Infrastructure.Numbering.SequenceNumberAllocator>();
