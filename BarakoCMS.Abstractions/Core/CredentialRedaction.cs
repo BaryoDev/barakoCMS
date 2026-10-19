@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace barakoCMS.Core;
@@ -60,7 +61,7 @@ public static class CredentialRedaction
     // Matched against one segment of a key at a time. Wider than CredentialNames on purpose: a key
     // that is shown by mistake is a leak, a key that is hidden by mistake is an inconvenience.
     private static readonly Regex CredentialSegment = new(
-        @"pass|pwd|secret|token|key|hmac|salt|cert|pfx|jwt|sas|auth|session|cookie|signature|otp|credential|bearer|dsn|connection[_\s-]?string|^pin$|[_-]pin$|^pin[_-]|pincode",
+        @"pass|pwd|secret|token|key|hmac|salt|cert|pfx|jwt|sas|auth|session|cookie|signature|otp|credential|bearer|dsn|connection[_\s-]?string|pincode|^(?:pin|pw)$|[_.-](?:pin|pw)(?![a-z])|(?:pin|pw)[_.-]|(?-i:(?:^|(?<=[a-z]))(?:Pin|Pw)(?![a-z])|(?:PIN|PW)(?![A-Za-z]))",
         Options, Timeout);
 
     /// <summary>
@@ -77,7 +78,7 @@ public static class CredentialRedaction
 
         try
         {
-            return key.Split(':').Any(CredentialSegment.IsMatch);
+            return key.Normalize(NormalizationForm.FormKC).Split(':').Any(CredentialSegment.IsMatch);
         }
         catch (RegexMatchTimeoutException)
         {

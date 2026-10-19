@@ -624,7 +624,8 @@ public ModuleConfigurationView? ConfigurationView => new(
 - A listed key is still redacted when its name reads as a credential (`Password`, `ApiKey`,
   `ConnectionString`, anything with `secret`, `token` or `auth` in it) or its value holds one
   (`smtp://user:pass@host`, `password=...`, a token). Listing a key by mistake does not leak it.
-  The rules are `barakoCMS.Core.CredentialRedaction`.
+  The rules are `barakoCMS.Core.CredentialRedaction`. A short secret under an innocent name is shown
+  if the module lists it, so the module's listing is the control: list only keys that are safe to read.
 - Scope is `Deployment` unless you say `Tenant`. The route needs `view_module_configuration`, which
   only SuperAdmin holds by default. A caller who holds it through a tenant role sees tenant scope keys
   and nothing else; deployment scope keys are left out of their answer.

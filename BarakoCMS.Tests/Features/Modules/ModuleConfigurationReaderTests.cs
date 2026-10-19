@@ -272,4 +272,20 @@ public class ModuleConfigurationReaderTests
         response.Entries.Should().HaveCount(2);
         Everything(response).Should().NotContain("plain words").And.Contain("h.example.test");
     }
+
+    [Theory]
+    [InlineData(256, true)]
+    [InlineData(257, false)]
+    public void A_value_is_shown_up_to_256_characters_and_redacted_beyond(int length, bool shown)
+    {
+        var value = string.Concat(Enumerable.Repeat("plain words ", 30))[..length];
+        value.Should().HaveLength(length);
+        var reader = new ModuleConfigurationReader(Config(($"{Section}:Note", value)));
+
+        var entries = reader.Read(Declaring(K("Note")), includeDeployment: true).Entries;
+
+        entries.Should().HaveCount(1);
+        entries[0].Redacted.Should().Be(!shown);
+        (entries[0].Value is not null).Should().Be(shown);
+    }
 }
