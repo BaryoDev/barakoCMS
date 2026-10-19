@@ -202,5 +202,5 @@ preview, and a request definition that names it reports the query as missing. It
   did.
 
 All three routes need the same capability as delete (`ManageQueries`). There is no automatic purge
-window yet; that waits for the retention primitive in #622. Roles, groups, connectors and request
-definitions are still hard deletes (#625).
+window yet; that waits for the retention primitive in #622. Roles and user groups behave the same
+way (docs/access-control.md). Connectors and request definitions are still hard deletes (#625).

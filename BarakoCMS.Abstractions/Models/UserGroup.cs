@@ -34,4 +34,10 @@ public class UserGroup
     /// Child group IDs (for nested groups - future feature)
     /// </summary>
     public List<Guid> ChildGroupIds { get; set; } = new();
+
+    /// <summary>
+    /// When the group was deleted, or null while it is live. A deleted group cannot be listed, read,
+    /// edited or joined.
+    /// </summary>
+    public DateTime? DeletedAt { get; set; }
 }

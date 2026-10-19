@@ -19,7 +19,7 @@ internal class Endpoint(
     {
         var role = await session.LoadAsync<Role>(req.Id, ct);
 
-        if (role == null
+        if (role == null || role.DeletedAt is not null
             || (!RoleScope.Reaches(role, tenant.Slug) && !await RoleScope.IsPlatformCallerAsync(HttpContext, ct)))
         {
             await Send.NotFoundAsync(ct);

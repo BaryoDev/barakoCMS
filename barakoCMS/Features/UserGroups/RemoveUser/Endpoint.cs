@@ -17,7 +17,7 @@ internal class Endpoint(IDocumentSession session) : Endpoint<Request, Response>
     {
         var group = await session.LoadAsync<UserGroup>(req.GroupId, ct);
 
-        if (group == null)
+        if (group == null || group.DeletedAt is not null)
         {
             await Send.NotFoundAsync(ct);
             return;

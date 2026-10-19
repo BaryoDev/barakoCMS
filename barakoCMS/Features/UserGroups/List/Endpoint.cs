@@ -17,6 +17,7 @@ internal class Endpoint(
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
         var page = await session.Query<UserGroup>()
+            .Where(g => g.DeletedAt == null)
             .OrderBy(g => g.Name)
             .ToPagedResponseAsync(req, ct);
 

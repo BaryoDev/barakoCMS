@@ -20,7 +20,7 @@ internal class Endpoint(
     {
         var group = await session.LoadAsync<UserGroup>(req.Id, ct);
 
-        if (group == null)
+        if (group == null || group.DeletedAt is not null)
         {
             await Send.NotFoundAsync(ct);
             return;
@@ -39,7 +39,8 @@ internal class Endpoint(
             return;
         }
 
-        session.Delete(group);
+        group.DeletedAt = DateTime.UtcNow;
+        session.Store(group);
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
         await AuditLog.RecordAsync(session, tenant.Slug, "usergroup.deleted", actorId, User.FindFirst("Username")?.Value,
             targetType: "UserGroup", targetId: group.Id.ToString(), metadata: new() { ["name"] = group.Name }, ct: ct);

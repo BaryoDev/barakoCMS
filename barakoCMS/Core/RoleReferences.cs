@@ -88,7 +88,7 @@ public static class RoleReferences
         var names = new Dictionary<Guid, string>();
         foreach (var chunk in wanted.Chunk(NamesPerQuery))
         {
-            var roles = await session.Query<Role>().Where(r => r.Id.In(chunk)).ToListAsync(ct);
+            var roles = await session.Query<Role>().Where(r => r.DeletedAt == null && r.Id.In(chunk)).ToListAsync(ct);
             foreach (var role in roles)
                 names[role.Id] = role.Name;
         }

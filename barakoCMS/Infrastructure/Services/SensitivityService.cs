@@ -98,7 +98,7 @@ public class SensitivityService : ISensitivityService
                 .EffectiveRoleIdsAsync(_session, stored, _tenant.Slug, ct);
 
             if (roleIds.Count > 0)
-                roles = await _session.Query<Role>().Where(r => r.Id.In(roleIds)).ToListAsync(ct);
+                roles = await _session.Query<Role>().Where(r => r.DeletedAt == null && r.Id.In(roleIds)).ToListAsync(ct);
         }
 
         var claims = new List<System.Security.Claims.Claim>();

@@ -56,7 +56,7 @@ public partial class PermissionResolver(
         IReadOnlyList<Models.Role> roles = roleIds.Count == 0
             ? Array.Empty<Models.Role>()
             : await session.Query<Models.Role>()
-                .Where(r => r.Id.In(roleIds))
+                .Where(r => r.DeletedAt == null && r.Id.In(roleIds))
                 .ToListAsync(cancellationToken);
 
         _rolesFor = user.Id;
@@ -234,7 +234,7 @@ public partial class PermissionResolver(
             return false;
 
         var roles = await session.Query<Models.Role>()
-            .Where(r => r.Id.In(roleIds))
+            .Where(r => r.DeletedAt == null && r.Id.In(roleIds))
             .ToListAsync(cancellationToken);
 
         if (roles.Count == 0)
