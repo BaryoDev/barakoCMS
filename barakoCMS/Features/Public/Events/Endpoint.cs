@@ -111,6 +111,9 @@ internal sealed class StreamEndpoint(
         [EnumeratorCancellation] CancellationToken ct)
     {
         var reader = subscription.Reader;
+        var wait = options.KeepAlive < options.GateRecheck ? options.KeepAlive : options.GateRecheck;
+        var lastWrite = DateTimeOffset.UtcNow;
+        var lastCheck = lastWrite;
 
         while (!ct.IsCancellationRequested)
         {
@@ -119,7 +122,7 @@ internal sealed class StreamEndpoint(
 
             using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct))
             {
-                timeout.CancelAfter(options.KeepAlive);
+                timeout.CancelAfter(wait);
                 try
                 {
                     change = await reader.ReadAsync(timeout.Token);
@@ -143,13 +146,28 @@ internal sealed class StreamEndpoint(
                 yield break;
             }
 
+            if (DateTimeOffset.UtcNow - lastCheck >= options.GateRecheck)
+            {
+                lastCheck = DateTimeOffset.UtcNow;
+                if (!await barakoCMS.Infrastructure.Multitenancy.PrivateSite.StillAllowedAsync(HttpContext, ct))
+                {
+                    yield break;
+                }
+            }
+
             if (change is null)
             {
-                await HttpContext.Response.WriteAsync(ContentChangeEvents.KeepAliveComment, ct);
-                await HttpContext.Response.Body.FlushAsync(ct);
+                if (DateTimeOffset.UtcNow - lastWrite >= options.KeepAlive)
+                {
+                    await HttpContext.Response.WriteAsync(ContentChangeEvents.KeepAliveComment, ct);
+                    await HttpContext.Response.Body.FlushAsync(ct);
+                    lastWrite = DateTimeOffset.UtcNow;
+                }
+
                 continue;
             }
 
+            lastWrite = DateTimeOffset.UtcNow;
             yield return new StreamItem(change.EventName, change.Payload);
         }
     }
