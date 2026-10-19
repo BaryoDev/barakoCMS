@@ -744,7 +744,7 @@ public class ApiKeyIntegrationTests
         var keyId = await KeyIdOfAsync(await StoreKeyAsync(userId, new[] { "content:read" }));
         var before = await KeyCountAsync();
 
-        RotateApiKeyEndpoint.AfterLoadForTests = async (_, _) =>
+        barakoCMS.Features.ApiKeys.RotateApiKeyEndpoint.AfterLoadForTests = async (_, _) =>
         {
             var revoke = await _client.SendAsync(WithKey(HttpMethod.Delete, $"/api/api-keys/{keyId}", jwt));
             revoke.StatusCode.Should().Be(HttpStatusCode.NoContent);
@@ -755,7 +755,7 @@ public class ApiKeyIntegrationTests
         }
         finally
         {
-            RotateApiKeyEndpoint.AfterLoadForTests = null;
+            barakoCMS.Features.ApiKeys.RotateApiKeyEndpoint.AfterLoadForTests = null;
         }
 
         (await KeyCountAsync()).Should().Be(before, "the replacement must not be stored");
