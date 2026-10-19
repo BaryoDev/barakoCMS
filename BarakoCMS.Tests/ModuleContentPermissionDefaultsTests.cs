@@ -79,6 +79,8 @@ public class ModuleContentPermissionDefaultsTests
         using var scope = _factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         services.AddScoped(_ => session);
+        // The resolver the HTTP calls use, so the seeder's invalidation reaches the cached denial.
+        services.AddScoped(_ => scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Services.IPermissionResolver>());
 
         await using var provider = services.BuildServiceProvider();
         await provider.RunBarakoModuleSeedersAsync(Ct);
@@ -184,7 +186,7 @@ public class ModuleContentPermissionDefaultsTests
         var slug = NewSlug();
         var role = await StoreRoleAsync(new ContentTypePermission
         {
-            ContentTypeSlug = slug.ToUpperInvariant(),
+            ContentTypeSlug = slug,
             Update = new PermissionRule { Enabled = true },
         });
 
@@ -194,6 +196,25 @@ public class ModuleContentPermissionDefaultsTests
         stored.Should().HaveCount(1);
         stored[0].Update.Enabled.Should().BeTrue();
         stored[0].Create.Enabled.Should().BeFalse("the existing entry was not merged with the default");
+    }
+
+    [Fact]
+    public async Task A_declaration_for_a_type_that_does_not_exist_is_skipped_and_reported()
+    {
+        var role = await StoreRoleAsync();
+        var skipped = new List<string>();
+        var defaults = ContentPermissionDefaults.None()
+            .Allow(NewSlug(), new SeededRole(role.Id, role.Name), ContentAction.Read);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            (await defaults.GrantAsync(session, Ct, skipped.Add)).Should().Be(0);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        skipped.Should().ContainSingle();
+        (await LoadAsync(role.Id)).Permissions.Should().BeEmpty();
     }
 
     [Fact]

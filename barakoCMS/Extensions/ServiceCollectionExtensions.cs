@@ -2164,9 +2164,17 @@ public static class ServiceCollectionExtensions
             try
             {
                 await module.SeedAsync(session, scope.ServiceProvider, ct);
+                var granted = 0;
                 if (module.ContentPermissions is { } contentPermissions)
-                    await contentPermissions.GrantAsync(session, ct);
+                {
+                    granted = await contentPermissions.GrantAsync(
+                        session, ct, message => Log.Warning("Module {Module}: {Message}", module.Name, message));
+                }
                 await session.SaveChangesAsync(ct);
+                // A denial is cached for minutes and a new rule would not be seen until it expires.
+                if (granted > 0)
+                    scope.ServiceProvider.GetService<barakoCMS.Infrastructure.Services.IPermissionResolver>()
+                        ?.InvalidateAllPermissions();
             }
             catch (OperationCanceledException)
             {

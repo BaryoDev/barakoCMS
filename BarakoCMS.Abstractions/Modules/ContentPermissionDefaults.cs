@@ -75,9 +75,12 @@ public sealed class ContentPermissionDefaults
     /// <see cref="IBarakoModule.SeedAsync"/>; a test may call it directly.
     /// </summary>
     /// <remarks>
-    /// Seeds an entry only for a role that has none for the type. Does not commit.
+    /// Seeds an entry only for a role that has none for the type, matching the slug exactly as the
+    /// permission check does. An entry whose content type does not exist, stored on this session or
+    /// already saved, is skipped and reported through <paramref name="onSkipped"/>. Does not commit.
     /// </remarks>
-    public async Task<int> GrantAsync(IDocumentSession session, CancellationToken ct = default)
+    public async Task<int> GrantAsync(
+        IDocumentSession session, CancellationToken ct = default, Action<string>? onSkipped = null)
     {
         ArgumentNullException.ThrowIfNull(session);
 
@@ -91,6 +94,12 @@ public sealed class ContentPermissionDefaults
 
         foreach (var (slug, seeded, actions) in _entries)
         {
+            if (!await TypeExistsAsync(session, slug, ct))
+            {
+                onSkipped?.Invoke($"No content type '{slug}' exists, so its default permissions were not granted.");
+                continue;
+            }
+
             var role = await CapabilityDefaults.FindSeededAsync(session, staged, seeded, ct);
             if (role is null)
             {
@@ -103,7 +112,7 @@ public sealed class ContentPermissionDefaults
                 staged.Add(role);
             }
 
-            if (role.Permissions.Any(p => string.Equals(p.ContentTypeSlug, slug, StringComparison.OrdinalIgnoreCase)))
+            if (role.Permissions.Any(p => p.ContentTypeSlug == slug))
             {
                 continue;
             }
@@ -115,6 +124,10 @@ public sealed class ContentPermissionDefaults
 
         return changed.Count;
     }
+
+    private static async Task<bool> TypeExistsAsync(IDocumentSession session, string slug, CancellationToken ct) =>
+        session.PendingChanges.AllChangedFor<ContentTypeDefinition>().Any(t => t.Name == slug)
+        || await session.Query<ContentTypeDefinition>().AnyAsync(t => t.Name == slug, ct);
 
     private static ContentTypePermission Build(string slug, ContentAction[] actions)
     {

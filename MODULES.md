@@ -474,8 +474,8 @@ once your seed returns.
   ```
 
   A role is named by seeded id and name, as in `CapabilityDefaults`, and one that does not exist
-  is skipped. Only the deployment's role is matched, never another tenant's role of the same name.
-  The grant seeds an entry only for a role that has none for that type, so a restart is not a
+  is skipped. Where no role holds the id, a pre-existing role of the seeded name in the default tenant is granted. Only the deployment's role is matched, never another tenant's role of the same name.
+  The grant seeds an entry only for a role that has none for that exact slug, and skips (with a warning) a slug no content type has, so a restart is not a
   write and rights an admin changed are never overwritten, including ones they switched off. The
   rules carry no conditions or field limits. A module that declares nothing grants nothing.
 - **A capability your handler checks itself needs declaring.** `GET /api/capabilities` and the
