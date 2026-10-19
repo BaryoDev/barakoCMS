@@ -169,6 +169,9 @@ public class SystemCapabilitiesTests
             // first and nobody but SuperAdmin for the second.
             SystemCapabilities.ViewSensitive,
             SystemCapabilities.ViewHidden,
+            // #1166: the shape of a deployment's configuration is reconnaissance even with every
+            // secret redacted. New, no gate to preserve, so SuperAdmin only.
+            SystemCapabilities.ViewModuleConfiguration,
         ];
 
         var admin = SystemCapabilities.DefaultsFor("Admin");

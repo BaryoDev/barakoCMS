@@ -102,6 +102,18 @@ public interface IBarakoModule
     string? LegacyConfigurationSection => null;
 
     /// <summary>
+    /// Which of this module's configuration keys <c>GET /api/modules/{name}/configuration</c> may
+    /// show, and to whom. Optional.
+    /// </summary>
+    /// <remarks>
+    /// The default declares nothing, and a module that declares nothing shows nothing: the route
+    /// answers with an empty list rather than every key. Declare the keys that are safe to read
+    /// (a host, a port, a from address), not the ones that are not. A key holding a credential is
+    /// redacted even if listed. See <see cref="ModuleConfigurationView"/>.
+    /// </remarks>
+    ModuleConfigurationView? ConfigurationView => null;
+
+    /// <summary>
     /// Register the module's own document types and indexes.
     /// </summary>
     /// <remarks>

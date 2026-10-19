@@ -892,6 +892,7 @@ says.
 | `Features/Settings/Email/*` | `manage_email_settings` | `PUT /api/settings/email`, `POST /api/settings/email/test` | SuperAdmin |
 | `Features/ContentType/*` | `manage_content_types` | `/api/content-types` (and its `/api/schemas` alias), `POST /api/content-types/{name}/rebuild`, `POST /api/content-types/{name}/seo-fields`, `PUT /api/content-types/{name}/fields/{field}/presentation`, `PUT /api/content-types/{name}/route-template` | SuperAdmin, Admin |
 | `Features/Modules/*` | `view_modules` | `GET /api/modules` | SuperAdmin, Admin |
+| `Features/Modules/Configuration/*` | `view_module_configuration` | `GET /api/modules/{name}/configuration` | SuperAdmin |
 | `Features/ContentType/*` | `manage_public_delivery` | `PUT /api/content-types/{name}/public-delivery`, `PUT /api/content-types/{name}/fields/{field}/sensitivity` | SuperAdmin, Admin |
 | `Features/Monitoring/*` | `view_monitoring` | `GET /api/monitoring/health`, `/k8s`, `/metrics` | SuperAdmin, Admin |
 | `Features/Redirects/*` | `manage_redirects` | `/api/redirects`, `DELETE /api/redirects/{id}`, `POST /api/redirects/import` | SuperAdmin, Admin |

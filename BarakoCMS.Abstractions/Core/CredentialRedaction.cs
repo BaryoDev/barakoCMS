@@ -57,6 +57,53 @@ public static class CredentialRedaction
     private static readonly Regex OpaqueRun = new(
         @"(?<![A-Za-z0-9_-])(?=[A-Za-z0-9_-]{32})(?=[A-Za-z_-]*[0-9])(?=[0-9_-]*[A-Za-z])[A-Za-z0-9_-]{32,}", Options, Timeout);
 
+    private static readonly Regex CredentialKey = new(
+        $@"^{CredentialNames}$|connection[_\s-]?string|credential|bearer|dsn", Options, Timeout);
+
+    /// <summary>True when a key or setting name reads like a credential.</summary>
+    public static bool IsCredentialName(string? key)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return false;
+        }
+
+        try
+        {
+            return CredentialKey.IsMatch(key);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// True when a value holds a credential: a token, an authorization scheme value, a URL with a
+    /// user or password, a credential-named pair, or an opaque run. Text that makes a rule time out
+    /// counts as holding one.
+    /// </summary>
+    public static bool ValueHoldsCredential(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return false;
+        }
+
+        try
+        {
+            return Jwt.IsMatch(value)
+                || AuthScheme.IsMatch(value)
+                || UrlUserInfo.IsMatch(value)
+                || CredentialPair.IsMatch(value)
+                || OpaqueRun.IsMatch(value);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            return true;
+        }
+    }
+
     /// <summary>Applies every rule. Null and empty pass through.</summary>
     public static string? Redact(string? text) =>
         RedactIdentifiers(RedactCredentials(text));

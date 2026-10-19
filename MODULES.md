@@ -603,6 +603,36 @@ Remove it once deployments have moved. It will stop being read in a future major
 A half-finished migration works: if some keys have moved and some have not, both sections are read
 and the scoped value wins where both define the same key. Moving one key at a time is safe.
 
+**Showing configuration to an admin.** `GET /api/modules/{name}/configuration` lists the keys a module
+runs with and where each value came from (`appsettings`, `environment`, `default`, or `unknown` for a
+provider it cannot name). It shows nothing a module has not listed. Declare the keys that are safe to
+read, never the ones that are not, with `ConfigurationView`:
+
+```csharp
+public ModuleConfigurationView? ConfigurationView => new(
+[
+    new("Host"),                                  // deployment scope, the default
+    new("Port"),
+    new("From", ConfigurationScope.Tenant),       // a tenant administrator may read it too
+]);
+```
+
+- The default is `null`: the route answers 200 with an empty list, never every key.
+- A key covers what is beneath it, so `new("Relay")` lists `Relay:Host` and `Relay:Port`.
+- A key you did not list is reported as present with its value redacted, to a platform
+  administrator only.
+- A listed key is still redacted when its name reads as a credential (`Password`, `ApiKey`,
+  `ConnectionString`, anything with `secret`, `token` or `auth` in it) or its value holds one
+  (`smtp://user:pass@host`, `password=...`, a token). Listing a key by mistake does not leak it.
+  The rules are `barakoCMS.Core.CredentialRedaction`.
+- Scope is `Deployment` unless you say `Tenant`. The route needs `view_module_configuration`, which
+  only SuperAdmin holds by default. A caller who holds it through a tenant role sees tenant scope keys
+  and nothing else; deployment scope keys are left out of their answer.
+- The section is `Modules:{Name}` unless `ModuleConfigurationView.Section` says otherwise. A
+  `default` source means no provider holds the key, so the default in your code applies; the route
+  does not know that value.
+- Adding the member does not move `ModuleContract.Version`. The response is never cached.
+
 Under the hood `AddBarakoCMS` collects the modules and:
 
 - calls each `ConfigureServices`,
