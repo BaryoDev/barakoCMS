@@ -10613,13 +10613,15 @@
         "enum": [
           "Public",
           "Sensitive",
-          "Hidden"
+          "Hidden",
+          "Members"
         ],
         "type": "string",
         "x-enumNames": [
           "Public",
           "Sensitive",
-          "Hidden"
+          "Hidden",
+          "Members"
         ]
       },
       "BarakoCMSModelsStateTransition": {
