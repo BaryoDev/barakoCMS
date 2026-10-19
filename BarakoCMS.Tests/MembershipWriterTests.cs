@@ -22,7 +22,7 @@ namespace BarakoCMS.Tests;
 /// <item>A file that loads or queries memberships and also calls <c>.Store(</c>, <c>.Insert(</c> or
 /// <c>.Update(</c> on anything. That is the shape of a membership read, changed and stored back,
 /// which names the type nowhere near the write. It is wider than the rule, on purpose: a file
-/// that reads memberships and stores something else has to say so here.</item>
+/// that reads memberships and stores something else has to say so in <c>StoresSomethingElse</c>.</item>
 /// </list>
 /// What it does not catch: a membership handed to another file that stores it, and a write
 /// through raw SQL. A line inside a block comment is read as code.
@@ -34,6 +34,13 @@ public class MembershipWriterTests
 {
     private const string Home = "barakoCMS/Features/Tenants/Members/Endpoints.cs";
 
+    /// <summary>Files that read memberships and store a different document, with what they store.</summary>
+    private static readonly Dictionary<string, string> StoresSomethingElse = new(StringComparer.Ordinal)
+    {
+        ["barakoCMS/Features/Roles/Delete/Endpoint.cs"] =
+            "reads memberships to refuse deleting a held role, and stores the role it soft deletes",
+    };
+
     private static readonly Regex Constructs = new(
         @"\bnew\s+Membership\b|\bMembership\s+\w+\s*=\s*new\s*\(", RegexOptions.Compiled);
 
@@ -44,6 +51,8 @@ public class MembershipWriterTests
     private static readonly Regex Reads = new(
         @"\b(Query|LoadAsync|LoadManyAsync)<(\w+\.)*Membership>", RegexOptions.Compiled);
 
+    private const string ReadsAndStores = "reads memberships and stores a document";
+
     private static readonly Regex StoresSomething = new(@"\.(Store|Insert|Update)\(", RegexOptions.Compiled);
 
     [Fact]
@@ -53,12 +62,21 @@ public class MembershipWriterTests
         var offenders = new List<string>();
         var scanned = 0;
         var homeSeen = false;
+        var excused = new List<string>();
 
         foreach (var file in SourceFiles(root))
         {
             scanned++;
             var relative = Path.GetRelativePath(root, file).Replace(Path.DirectorySeparatorChar, '/');
-            var found = WritesIn(File.ReadAllLines(file));
+            var lines = File.ReadAllLines(file);
+            var found = WritesIn(lines);
+
+            if (StoresSomethingElse.ContainsKey(relative))
+            {
+                found.Should().Contain(ReadsAndStores, $"{relative} is excused from a rule it no longer trips");
+                found.Remove(ReadsAndStores);
+                excused.Add(relative);
+            }
 
             if (string.Equals(relative, Home, StringComparison.Ordinal))
             {
@@ -73,6 +91,7 @@ public class MembershipWriterTests
 
         scanned.Should().BeGreaterThan(100, "an empty scan would pass having read nothing");
         homeSeen.Should().BeTrue($"{Home} is where memberships are written");
+        excused.Should().BeEquivalentTo(StoresSomethingElse.Keys, "every excused file has to exist");
         offenders.Should().BeEmpty(
             "a membership is written through Members.AddAsync, ChangeAsync or RemoveAsync, which "
             + "stage the audit entry on the same session");
@@ -149,7 +168,7 @@ public class MembershipWriterTests
         }
 
         if (code.Any(line => Reads.IsMatch(line)) && code.Any(line => StoresSomething.IsMatch(line)))
-            found.Add("reads memberships and stores a document");
+            found.Add(ReadsAndStores);
 
         return found;
     }
