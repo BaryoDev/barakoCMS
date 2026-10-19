@@ -170,7 +170,7 @@ public static class DataSeeder
 
     internal static bool GrantRunWorkflows(Role role)
     {
-        var held = role.SystemCapabilities;
+        var held = role.SystemCapabilities ?? [];
         if (!held.Contains(barakoCMS.Models.SystemCapabilities.ManageWorkflows, StringComparer.OrdinalIgnoreCase)
             || held.Contains(barakoCMS.Models.SystemCapabilities.RunWorkflows, StringComparer.OrdinalIgnoreCase))
         {
