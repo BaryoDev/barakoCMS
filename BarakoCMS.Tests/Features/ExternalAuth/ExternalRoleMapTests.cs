@@ -851,6 +851,15 @@ public class ExternalRoleMapTests
     private static string Code(byte[] key, int step = 0) =>
         new OtpNet.Totp(key).ComputeTotp(DateTime.UtcNow.AddSeconds(30 * step));
 
+    /// <summary>
+    /// A member already, so the issuer mints for the tenant when the challenge carries no roles.
+    /// Without a membership it refuses, and verify answers 400 whatever the grant did.
+    /// </summary>
+    private static Membership MemberWithNoRoles(User user, string slug) => new()
+    {
+        Id = Guid.NewGuid(), UserId = user.Id, TenantSlug = slug, Status = MembershipStatus.Active, RoleIds = [],
+    };
+
     private async Task<HttpResponseMessage> VerifyAsync(
         string slug, string challenge, string code,
         Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program>? host = null)
@@ -902,11 +911,13 @@ public class ExternalRoleMapTests
             .Should().Be(HttpStatusCode.BadRequest);
         (await MembershipsAsync(user.Id, slug)).Should().BeEmpty();
 
+        await StoreAsync(MemberWithNoRoles(user, slug));
         var other = await SignInAsync(user, slug, Groups("nothing-mapped"));
         other.RequiresMfa.Should().BeTrue();
         var verified = await VerifyAsync(slug, other.MfaChallenge!, Code(key, 1));
         verified.StatusCode.Should().Be(HttpStatusCode.OK, await verified.Content.ReadAsStringAsync(Ct));
-        (await MembershipsAsync(user.Id, slug)).Should().BeEmpty("a challenge that carried no roles grants none");
+        (await MembershipsAsync(user.Id, slug)).Single().RoleIds
+            .Should().BeEmpty("a challenge that carried no roles grants none");
     }
 
     [Fact]
@@ -1055,6 +1066,7 @@ public class ExternalRoleMapTests
         using var spied = _host!.WithWebHostBuilder(b => b.ConfigureTestServices(s =>
             s.AddScoped(_ => spy.Object)));
 
+        await StoreAsync(MemberWithNoRoles(user, slug));
         var nothing = await SignInAsync(user, slug, Groups("nothing-mapped"));
         (await VerifyAsync(slug, nothing.MfaChallenge!, Code(key), spied)).StatusCode.Should().Be(HttpStatusCode.OK);
         spy.Verify(r => r.InvalidateUserPermissions(user.Id), Moq.Times.Never());
