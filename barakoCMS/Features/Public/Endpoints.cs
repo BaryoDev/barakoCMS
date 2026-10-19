@@ -342,9 +342,53 @@ internal static class PublicDelivery
         return data;
     }
 
+    /// <summary>
+    /// Reads the viewer token the request carries. False when it carries one that does not verify
+    /// for this tenant: the caller answers 401, never an anonymous read, so an expired session
+    /// shows as one rather than as a missing page. <paramref name="member"/> is true for a verified
+    /// viewer and false for no header at all.
+    /// </summary>
+    public static bool ReadAudience(HttpContext http, IConfiguration config, string tenantSlug, out bool member)
+    {
+        member = false;
+        var raw = http.Request.Headers[barakoCMS.Infrastructure.Viewers.ViewerToken.Header].FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(raw))
+            return true;
+
+        member = barakoCMS.Infrastructure.Viewers.ViewerToken.Validate(config, raw, tenantSlug) is not null;
+        return member;
+    }
+
+    /// <summary>Published entries of a type at the audience's level: Public, and Members too for a viewer.</summary>
+    public static IQueryable<ContentDoc> PublishedFor(IQuerySession session, string type, bool member)
+    {
+        var published = session.Query<ContentDoc>()
+            .Where(c => c.ContentType == type && c.Status == ContentStatus.Published);
+        return member
+            ? published.Where(c => c.Sensitivity == SensitivityLevel.Public || c.Sensitivity == SensitivityLevel.Members)
+            : published.Where(c => c.Sensitivity == SensitivityLevel.Public);
+    }
+
+    /// <summary>The cache headers for a read: the shared ones, or private and no-store when it was built for a viewer.</summary>
+    public static void SetCache(HttpContext http, IEnumerable<CacheScope> scopes, bool member)
+    {
+        if (member)
+            DeliveryCache.Private(
+                http,
+                barakoCMS.Infrastructure.Multitenancy.TenantResolutionMiddleware.TenantHeader,
+                barakoCMS.Infrastructure.Viewers.ViewerToken.Header);
+        else
+            SetCache(http, scopes);
+    }
+
     /// <summary>Whether a field's value is delivered: Public, and not a token.</summary>
-    public static bool IsDeliveredField(FieldDefinition field) =>
-        field.Sensitivity == SensitivityLevel.Public && !IsToken(field);
+    public static bool IsDeliveredField(FieldDefinition field) => IsDeliveredField(field, member: false);
+
+    /// <summary>Whether a field's value is delivered to a viewer when <paramref name="member"/>, else to anonymous.</summary>
+    public static bool IsDeliveredField(FieldDefinition field, bool member) =>
+        (field.Sensitivity == SensitivityLevel.Public
+         || (member && field.Sensitivity == SensitivityLevel.Members && field.VisibleToRoles is not { Count: > 0 }))
+        && !IsToken(field);
 
     /// <summary>A token is never delivered, even from a definition stored with the field Public.</summary>
     /// <remarks>
@@ -363,13 +407,15 @@ internal static class PublicDelivery
     /// A reference field still holds the ids it was stored with, drafts included, since this reads
     /// nothing. What a response serves goes through <see cref="PublicReferenceFields.FilterAsync(IReadOnlyList{PublicContentResponse}, ContentTypeDefinition, IQuerySession, CancellationToken)"/> as well.
     /// </remarks>
-    public static PublicContentResponse? ToPublic(ContentDoc c, ContentTypeDefinition? def, string? slugField, bool allowUnpublished = false)
+    public static PublicContentResponse? ToPublic(
+        ContentDoc c, ContentTypeDefinition? def, string? slugField, bool allowUnpublished = false, bool member = false)
     {
         /* Draft preview (allowUnpublished) skips ONLY the Published gate — a valid, tenant-scoped
          * preview token has already authorized it. The document-Sensitivity gate and the field
          * allowlist below still apply, so a preview never exposes a Sensitive doc or a non-Public field. */
         if (!allowUnpublished && c.Status != ContentStatus.Published) return null;
-        if (c.Sensitivity != SensitivityLevel.Public) return null; /* doc-level: never public */
+        /* doc-level: never public. A Members entry is served only to a verified viewer (#912). */
+        if (c.Sensitivity != SensitivityLevel.Public && !(member && c.Sensitivity == SensitivityLevel.Members)) return null;
         if (def is null) return null;                              /* no schema -> fail closed */
         /* Type-level opt-in. Endpoints refuse an un-opted-in type outright; this is the backstop, so
          * that a delivery path added later cannot leak by forgetting the check. */
@@ -383,7 +429,7 @@ internal static class PublicDelivery
          * would leak it. Case-insensitive comparison closes the casing gap too.
          */
         var publicNames = def.Fields
-            .Where(IsDeliveredField)
+            .Where(f => IsDeliveredField(f, member))
             .Select(f => f.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
@@ -420,7 +466,11 @@ internal static class PublicDelivery
     public static void SetCache(HttpContext http, IEnumerable<CacheScope> scopes, DateTimeOffset? lastModified = null)
     {
         http.Response.Headers.CacheControl = "public, max-age=60";
-        http.Response.Headers.Vary = barakoCMS.Infrastructure.Multitenancy.TenantResolutionMiddleware.TenantHeader;
+        http.Response.Headers.Vary = new[]
+        {
+            barakoCMS.Infrastructure.Multitenancy.TenantResolutionMiddleware.TenantHeader,
+            barakoCMS.Infrastructure.Viewers.ViewerToken.Header,
+        };
         DeliveryCache.Shared(http, DeliveryCacheClass.Short, scopes, lastModified);
     }
 
@@ -483,7 +533,8 @@ internal sealed class PublicListRequest : PaginatedRequest
 /// <summary>GET /api/public/{type} — paged Published entries of a content type, masked and cacheable.</summary>
 internal class ListPublishedEndpoint(
     IQuerySession session,
-    IConfiguration config) : Endpoint<PublicListRequest, PaginatedResponse<PublicContentResponse>>
+    IConfiguration config,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<PublicListRequest, PaginatedResponse<PublicContentResponse>>
 {
     public override void Configure()
     {
@@ -500,6 +551,7 @@ internal class ListPublishedEndpoint(
         var def = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
         if (!PublicDelivery.IsDeliverable(def)) { await Send.NotFoundAsync(ct); return; }
         var slugField = PublicDelivery.SlugField(def!);
+        if (!PublicDelivery.ReadAudience(HttpContext, config, tenant.Slug, out var member)) { await Send.UnauthorizedAsync(ct); return; }
 
         /*
          * Parsed and refused before any SQL is built, and only against fields the type marks
@@ -534,12 +586,11 @@ internal class ListPublishedEndpoint(
             return;
         }
 
-        var (page, total) = await PageAsync(type, query, req, ct);
+        var (page, total) = await PageAsync(type, query, req, member, ct);
 
         var items = page
-            .Select(c => PublicDelivery.ToPublic(c, def, slugField))
-            .Where(r => r is not null)
-            .Select(r => r!)
+            .Select(c => PublicDelivery.ToPublic(c, def, slugField, member: member))
+            .OfType<PublicContentResponse>()
             .ToList();
 
         // Read off the projected data, which the field has already survived: a near filter is only
@@ -564,7 +615,7 @@ internal class ListPublishedEndpoint(
         items = await PublicReferenceFields.FilterAsync(items, def!, session, ct);
         items = await PublicDelivery.ResolveIncludesAsync(items, includes, def, session, ct, files);
 
-        PublicDelivery.SetCache(HttpContext, PublicDelivery.Scopes(type, items, def));
+        PublicDelivery.SetCache(HttpContext, PublicDelivery.Scopes(type, items, def), member);
         await Send.ResponseAsync(new PaginatedResponse<PublicContentResponse>
         {
             Items = items,
@@ -582,9 +633,9 @@ internal class ListPublishedEndpoint(
     /// same query is refused.
     /// </remarks>
     private async Task<(IReadOnlyList<ContentDoc> Page, int Total)> PageAsync(
-        string type, DeliveryQuery query, PublicListRequest req, CancellationToken ct)
+        string type, DeliveryQuery query, PublicListRequest req, bool member, CancellationToken ct)
     {
-        var baseQuery = Matching(type, query, req.ChangedSince);
+        var baseQuery = Matching(type, query, req.ChangedSince, member);
 
         /*
          * A requested sort replaces the default rather than adding to it. CreatedAt stays as the
@@ -606,18 +657,15 @@ internal class ListPublishedEndpoint(
             .Take(req.Take)
             .ToListAsync(ct);
         var total = page.Count == 0 && req.Skip > 0
-            ? await Matching(type, query, req.ChangedSince).CountAsync(ct)
+            ? await Matching(type, query, req.ChangedSince, member).CountAsync(ct)
             : (int)stats.TotalResults;
         return (page, total);
     }
 
-    private IQueryable<ContentDoc> Matching(string type, DeliveryQuery query, DateTimeOffset? changedSince)
+    private IQueryable<ContentDoc> Matching(string type, DeliveryQuery query, DateTimeOffset? changedSince, bool member)
     {
-        /* Published + document-Public only; the DB filters the rest out. */
-        var matching = session.Query<ContentDoc>()
-            .Where(c => c.ContentType == type
-                        && c.Status == ContentStatus.Published
-                        && c.Sensitivity == SensitivityLevel.Public);
+        /* Published + document-Public only (Members too for a viewer); the DB filters the rest out. */
+        var matching = PublicDelivery.PublishedFor(session, type, member);
 
         /*
          * Applied on top of the published/public predicate, never instead of it, so no filter can
@@ -788,6 +836,7 @@ internal class GetBySlugEndpoint(
         var slugField = PublicDelivery.SlugField(def!);
         if (slugField is null) { await Send.NotFoundAsync(ct); return; } /* not slug-addressable */
 
+        if (!PublicDelivery.ReadAudience(HttpContext, config, tenant.Slug, out var member)) { await Send.UnauthorizedAsync(ct); return; }
         /* A preview token valid for exactly this tenant+type+slug identifies ONE entry by id, lifting only
          * the Published gate. Binding to the id (not just the slug) means a duplicate-slug draft can't be
          * substituted for the one the token was minted for. */
@@ -843,17 +892,14 @@ internal class GetBySlugEndpoint(
              * between requests after a vacuum or a plan change. Ordering does not make the data
              * unambiguous, it makes the answer stable, and the entry that held the slug first is
              * the one whose links are already out there. */
-            match = await session.Query<ContentDoc>()
-                .Where(c => c.ContentType == type
-                            && c.Status == ContentStatus.Published
-                            && c.Sensitivity == SensitivityLevel.Public
-                            && c.MatchesSql(sql, parameters))
+            match = await PublicDelivery.PublishedFor(session, type, member)
+                .Where(c => c.MatchesSql(sql, parameters))
                 .OrderBy(c => c.CreatedAt)
                 .ThenBy(c => c.Id)
                 .FirstOrDefaultAsync(ct);
         }
 
-        var projected = match is null ? null : PublicDelivery.ToPublic(match, def, slugField, allowUnpublished: previewId is not null);
+        var projected = match is null ? null : PublicDelivery.ToPublic(match, def, slugField, allowUnpublished: previewId is not null, member: member);
         if (projected is null) { await Send.NotFoundAsync(ct); return; }
 
         projected = (await PublicFileFields.ResolveAsync(
@@ -883,10 +929,10 @@ internal class GetBySlugEndpoint(
         // Never cache a draft, and give a shared cache nothing to file it under. No Last-Modified on
         // a published read: a referenced entry or a file can change what is sent without moving any
         // timestamp here, so only the ETag, which hashes the body, can say whether it changed.
-        if (previewId is not null)
+        if (previewId is not null && !member)
             DeliveryCache.NoStore(HttpContext);
         else
-            PublicDelivery.SetCache(HttpContext, PublicDelivery.Scopes(type, [projected], def));
+            PublicDelivery.SetCache(HttpContext, PublicDelivery.Scopes(type, [projected], def), member);
         await Send.OkAsync(projected, ct);
     }
 

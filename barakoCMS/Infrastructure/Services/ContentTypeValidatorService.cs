@@ -225,9 +225,20 @@ public class ContentTypeValidatorService : IContentTypeValidatorService
     private static IEnumerable<string> TypeSettingErrors(FieldDefinition field) =>
         MoneyFields.DefinitionErrors(field)
             .Concat(TokenFields.DefinitionErrors(field))
+            .Concat(MembersFieldErrors(field))
             .Concat(FieldPresentation.DefinitionErrors(field))
             .Concat(ArrayItems.DefinitionErrors(field))
             .Concat(JsonFieldSchemas.DefinitionErrors(field));
+
+    /// <summary>A Members field is read alike by every verified viewer, so a role list or a mask on it would mean nothing.</summary>
+    private static IEnumerable<string> MembersFieldErrors(FieldDefinition field)
+    {
+        if (field.Sensitivity != SensitivityLevel.Members)
+            yield break;
+
+        if (field.VisibleToRoles is { Count: > 0 } || field.Mask != FieldMask.Default)
+            yield return $"Field '{field.Name}' is Members and cannot carry visibleToRoles or a mask: every verified viewer reads it.";
+    }
 
     /// <inheritdoc />
     public (bool IsValid, List<string> Errors) ValidateLifecycle(LifecycleDefinition? lifecycle)

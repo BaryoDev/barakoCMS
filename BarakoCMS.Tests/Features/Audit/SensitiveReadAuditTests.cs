@@ -50,6 +50,37 @@ public class SensitiveReadAuditTests
     }
 
     [Fact]
+    public async Task A_staff_read_of_a_Members_field_writes_no_row_while_a_Sensitive_one_still_does()
+    {
+        var tenant = await _host.TenantAsync();
+        var type = await _host.TypeAsync(tenant);
+        var entry = await _host.EntryAsync(tenant, type, "club");
+
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        await using (var session = store.LightweightSession(tenant))
+        {
+            var def = await session.Query<ContentTypeDefinition>().FirstAsync(d => d.Name == type, Ct);
+            def.Fields.Add(new FieldDefinition
+            {
+                Name = "Perk", DisplayName = "Perk", Type = "string", Sensitivity = SensitivityLevel.Members,
+            });
+            session.Store(def);
+            var content = await session.LoadAsync<Content>(entry, Ct);
+            content!.Data["Perk"] = "perk-value";
+            session.Store(content);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var admin = await _host.SuperAdminInAsync(tenant);
+        var body = await OkJsonAsync(await admin.GetAsync($"/api/contents/{entry}", Ct));
+        body.GetProperty("data").GetProperty("Perk").GetString().Should().Be("perk-value", "staff read it");
+
+        var rows = await RowsAsync(tenant, "content.sensitive.read");
+        rows.Should().HaveCount(1, "the Sensitive field is still recorded");
+        rows[0].Strings("fields").Should().Equal("Secret");
+    }
+
+    [Fact]
     public async Task Reading_an_entry_whose_sensitive_field_the_caller_sees_writes_one_row_naming_the_field()
     {
         var tenant = await _host.TenantAsync();
