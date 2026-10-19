@@ -659,11 +659,7 @@ internal sealed class CollectionSyncRunner(
             .Select(f => f.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        return string.Join(
-            ' ',
-            data.Where(kv => publicFields.Contains(kv.Key))
-                .Select(kv => Text(kv.Value))
-                .Where(v => !string.IsNullOrWhiteSpace(v)));
+        return barakoCMS.Core.Validation.SearchTextBuilder.Build(data, publicFields);
     }
 
     /// <summary>

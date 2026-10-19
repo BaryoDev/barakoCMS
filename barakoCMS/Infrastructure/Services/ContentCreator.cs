@@ -210,12 +210,7 @@ public sealed class ContentCreator(
             .ToHashSet(StringComparer.OrdinalIgnoreCase)
             ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        var searchText = string.Join(
-            ' ',
-            request.Data
-                .Where(kv => publicFields.Contains(kv.Key))
-                .Select(kv => kv.Value?.ToString())
-                .Where(v => !string.IsNullOrWhiteSpace(v)));
+        var searchText = barakoCMS.Core.Validation.SearchTextBuilder.Build(request.Data, publicFields);
 
         // Stored as the caller spelled it, deliberately, and the rebuild is what compares
         // case-insensitively. Normalising here looks like the tidier fix and is not: the type name

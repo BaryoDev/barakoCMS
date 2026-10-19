@@ -352,10 +352,7 @@ internal sealed class Endpoint(
 
     /// <summary>The same derived search text the create and update endpoints write.</summary>
     private static string SearchText(Dictionary<string, object> data, HashSet<string> searchable) =>
-        string.Join(' ', data
-            .Where(kv => searchable.Contains(kv.Key))
-            .Select(kv => kv.Value?.ToString())
-            .Where(v => !string.IsNullOrWhiteSpace(v)));
+        barakoCMS.Core.Validation.SearchTextBuilder.Build(data, searchable);
 
     private static EntryError Error(int index, string? slug, string message) =>
         new() { Index = index, Slug = slug, Messages = [message] };

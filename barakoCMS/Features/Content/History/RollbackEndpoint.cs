@@ -170,12 +170,7 @@ internal class RollbackEndpoint(
             .ToHashSet(StringComparer.OrdinalIgnoreCase)
             ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        var searchText = string.Join(
-            ' ',
-            data
-                .Where(kv => publicFields.Contains(kv.Key))
-                .Select(kv => kv.Value?.ToString())
-                .Where(v => !string.IsNullOrWhiteSpace(v)));
+        var searchText = barakoCMS.Core.Validation.SearchTextBuilder.Build(data, publicFields);
 
         // 5. Create a new update event with the old data and rebuilt SearchText
         var rollbackEvent = new ContentUpdated(req.Id, data, userId, searchText, DateTime.UtcNow);

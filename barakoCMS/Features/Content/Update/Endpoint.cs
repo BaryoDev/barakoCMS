@@ -308,10 +308,6 @@ internal class Endpoint(
             .ToHashSet(StringComparer.OrdinalIgnoreCase)
             ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        return string.Join(
-            ' ',
-            data.Where(kv => publicFields.Contains(kv.Key))
-                .Select(kv => kv.Value?.ToString())
-                .Where(v => !string.IsNullOrWhiteSpace(v)));
+        return barakoCMS.Core.Validation.SearchTextBuilder.Build(data, publicFields);
     }
 }
