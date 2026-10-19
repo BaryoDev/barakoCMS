@@ -320,8 +320,17 @@ public class WorkflowRunTests
         var action = doc.RootElement.GetProperty("actions")[0];
 
         action.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(
-            ["ordinal", "actionType", "status", "attempts", "nextAttemptAt", "responseStatus", "error", "retryable", "completedAt", "durationMs", "onFailure", "haltedBy", "outputs", "compensation"],
+            ["ordinal", "actionType", "status", "attempts", "nextAttemptAt", "responseStatus", "error", "retryable", "completedAt", "durationMs", "history", "droppedAttempts", "onFailure", "haltedBy", "outputs", "compensation"],
             "anything else here is a place a credential could arrive in. outputs holds only what the workflow's capture names (WorkflowOutputTests)");
+
+        var history = action.GetProperty("history");
+        history.GetArrayLength().Should().BeGreaterThan(0);
+        foreach (var entry in history.EnumerateArray())
+        {
+            entry.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(
+                ["number", "startedAt", "finishedAt", "outcome", "responseStatus", "error", "retryable", "durationMs"],
+                "a history entry is the same record as the attempt: no response body and no parameters");
+        }
     }
 
     /// <summary>
