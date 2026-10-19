@@ -108,7 +108,8 @@ public class AnalyzeLimitTests
 
     /// <summary>
     /// The parser pads every row to the widest column in the sheet, and numbers a row or cell with no
-    /// address as the next one, so one wide cell over many unaddressed narrow rows is the same rectangle.
+    /// address, or an address already passed, as the next one, so one wide cell over many such narrow
+    /// rows is the same rectangle.
     /// </summary>
     [Fact]
     public async Task One_wide_cell_over_many_unaddressed_rows_is_refused()
@@ -241,12 +242,14 @@ public class AnalyzeLimitTests
         return XlsxOf(data.ToString());
     }
 
-    /// <summary>One wide cell in the first row, then rows of one cell that carry no address at all.</summary>
+    /// <summary>One wide cell in the first row, then rows of one cell that alternate between no address and row 1 again.</summary>
     private static byte[] XlsxWideFirstRowThenUnaddressed(int rows)
     {
         var data = new StringBuilder("<row><c r=\"IV1\" t=\"inlineStr\"><is><t>x</t></is></c></row>");
         for (var r = 2; r <= rows; r++)
-            data.Append("<row><c t=\"inlineStr\"><is><t>y</t></is></c></row>");
+            data.Append(r % 2 == 0
+                ? "<row><c t=\"inlineStr\"><is><t>y</t></is></c></row>"
+                : "<row r=\"1\"><c r=\"A1\" t=\"inlineStr\"><is><t>y</t></is></c></row>");
 
         return XlsxOf(data.ToString());
     }

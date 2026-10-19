@@ -69,25 +69,26 @@ internal static class SpreadsheetGuard
     {
         var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null };
         using var reader = XmlReader.Create(xml, settings);
-        // A row or cell without an address takes the next index, as the parser reads it, so leaving
-        // the addresses out does not hide it from the count.
+        // Indexed as the parser indexes: every row or cell element takes the next position, or its
+        // address when that is further on, so a missing, repeated or backwards address still counts.
         long row = 0, column = 0, highestRow = 0, widest = 0;
 
         while (reader.Read())
         {
-            if (reader.NodeType != XmlNodeType.Element || reader.Depth > 4)
+            if (reader.NodeType != XmlNodeType.Element)
                 continue;
 
             var address = reader.GetAttribute("r");
             if (reader.LocalName == "row")
             {
-                row = long.TryParse(address, out var explicitRow) ? explicitRow : row + 1;
+                row = int.TryParse(address, out var explicitRow) && explicitRow > row + 1 ? explicitRow : row + 1;
                 column = 0;
             }
             else if (reader.LocalName == "c")
             {
-                (column, var cellRow) = address is not null && ReadAddress(address) is { } cell ? cell : (column + 1, row);
-                row = Math.Max(row, cellRow);
+                var cell = address is null ? null : ReadAddress(address);
+                column = Math.Max(column + 1, cell?.Column ?? 0);
+                row = Math.Max(row, cell?.Row ?? 0);
                 if (column > maxColumns)
                     return $"A cell sits in column {column}, past the {maxColumns} columns this instance will read. "
                          + $"Nothing was read. Trim the sheet, or raise {SpreadsheetLimits.MaxColumnsKey}.";
