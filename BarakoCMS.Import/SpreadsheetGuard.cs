@@ -22,6 +22,12 @@ internal static class SpreadsheetGuard
     /// </summary>
     public const long ExcelMaxRows = 1_048_576;
 
+    /// <summary>
+    /// Cells the parser may hold once each row is padded to its last column. Capping rows and columns
+    /// alone still allows their product; an 8 MB sheet of real cells stays far under this.
+    /// </summary>
+    public const long MaxPaddedCells = 2_000_000;
+
     /// <summary>Blank rows tolerated past the row limit, so a trailing formatted range does not refuse a sheet.</summary>
     public const int RowMargin = 100;
 
@@ -63,6 +69,7 @@ internal static class SpreadsheetGuard
     {
         var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null };
         using var reader = XmlReader.Create(xml, settings);
+        long padded = 0, lastColumn = 0;
 
         while (reader.Read())
         {
@@ -73,8 +80,12 @@ internal static class SpreadsheetGuard
             if (address is null)
                 continue;
 
-            if (reader.LocalName == "row" && long.TryParse(address, out var row) && row > maxRowIndex)
-                return RowRefusal(row, maxRowIndex);
+            if (reader.LocalName == "row")
+            {
+                lastColumn = 0;
+                if (long.TryParse(address, out var row) && row > maxRowIndex)
+                    return RowRefusal(row, maxRowIndex);
+            }
 
             if (reader.LocalName == "c" && ReadAddress(address) is { } cell)
             {
@@ -84,6 +95,12 @@ internal static class SpreadsheetGuard
                          + $"Nothing was read. Trim the sheet, or raise {SpreadsheetLimits.MaxColumnsKey}.";
                 if (cellRow > maxRowIndex)
                     return RowRefusal(cellRow, maxRowIndex);
+
+                padded += Math.Max(column - lastColumn, 1);
+                lastColumn = Math.Max(column, lastColumn);
+                if (padded > MaxPaddedCells)
+                    return $"The sheet spreads its cells over more than {MaxPaddedCells:N0} positions. Nothing was read. "
+                         + "Remove the empty columns and rows between the data.";
             }
         }
 

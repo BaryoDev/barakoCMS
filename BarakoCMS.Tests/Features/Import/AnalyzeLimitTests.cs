@@ -90,6 +90,22 @@ public class AnalyzeLimitTests
         stream.Position.Should().Be(0, "the stream is handed on to the parser afterwards");
     }
 
+    /// <summary>
+    /// Rows and columns each inside their caps can still multiply out: every row is padded to its
+    /// last column, so a few thousand rows holding one cell at the column cap is millions of cells.
+    /// </summary>
+    [Fact]
+    public async Task A_sheet_whose_padded_cells_pass_the_budget_is_refused_and_the_same_rows_narrow_are_not()
+    {
+        var wide = await AnalyzeAsync(Xlsx(rows: 8_000, secondColumn: "IV"), "wide.xlsx");
+        var narrow = await AnalyzeAsync(Xlsx(rows: 8_000), "narrow.xlsx");
+
+        wide.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await wide.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).Should().Contain("positions");
+        narrow.StatusCode.Should().Be(HttpStatusCode.OK,
+            await narrow.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+    }
+
     [Fact]
     public void A_non_archive_reports_no_declared_expansion()
     {
@@ -200,7 +216,7 @@ public class AnalyzeLimitTests
     /// A minimal xlsx with the given number of two-cell rows, built here rather than checked in so
     /// the repository does not carry a file whose only purpose is to be expensive.
     /// </summary>
-    private static byte[] Xlsx(int rows)
+    private static byte[] Xlsx(int rows, string secondColumn = "B")
     {
         var sheet = new StringBuilder();
         sheet.Append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
@@ -208,7 +224,7 @@ public class AnalyzeLimitTests
         for (var r = 1; r <= rows; r++)
         {
             sheet.Append($"<row r=\"{r}\"><c r=\"A{r}\" t=\"inlineStr\"><is><t>x</t></is></c>");
-            sheet.Append($"<c r=\"B{r}\" t=\"inlineStr\"><is><t>y</t></is></c></row>");
+            sheet.Append($"<c r=\"{secondColumn}{r}\" t=\"inlineStr\"><is><t>y</t></is></c></row>");
         }
         sheet.Append("</sheetData></worksheet>");
 

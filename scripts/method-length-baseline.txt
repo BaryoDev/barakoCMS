@@ -21,8 +21,6 @@
 96 BarakoCMS.Forms/Features/Submit/Endpoint.cs::Endpoint.HandleAsync
 102 BarakoCMS.Forms/FormEmailVerifier.cs::FormEmailVerifier.AcceptAsync
 79 BarakoCMS.Forms/FormEmailVerifier.cs::FormEmailVerifier.RequestCodeAsync
-73 BarakoCMS.Import/Features/Analyze/Endpoint.cs::Endpoint.HandleAsync
-157 BarakoCMS.Import/Features/BulkCreate/Endpoint.cs::Endpoint.HandleAsync
 87 BarakoCMS.Portability/ImportEndpoint.cs::ImportEndpoint.HandleAsync
 96 barakoCMS/Core/Validation/FieldRules.cs::FieldRules.DefinitionErrors
 90 barakoCMS/Core/Validation/FieldRules.cs::FieldRules.ValueErrors
