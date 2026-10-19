@@ -27,6 +27,12 @@ internal class Endpoint(
 
         group.UserIds.Remove(req.UserId);
         session.Store(group);
+
+        // Membership is read from either side, so leaving only one would keep the group's roles.
+        var user = await session.LoadAsync<User>(req.UserId, ct);
+        if (user is not null && user.GroupIds.Remove(req.GroupId))
+            session.Store(user);
+
         await session.SaveChangesAsync(ct);
         permissionResolver.InvalidateUserPermissions(req.UserId);
 

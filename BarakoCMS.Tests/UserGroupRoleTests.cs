@@ -342,4 +342,64 @@ public class UserGroupRoleTests
         (await StoredGroupAsync(groupId)).UserIds.Should().Contain(viaGroup);
         (await StoredUserAsync(viaUser)).GroupIds.Should().Equal(groupId);
     }
+
+    [Fact]
+    public async Task Removing_from_the_group_side_takes_back_a_role_added_from_the_user_side()
+    {
+        var (roleId, slug) = await ReaderRoleAsync();
+        var groupId = await GroupAsync(roleId);
+        var member = await UserAsync();
+
+        var admin = await ClientAsync("SuperAdmin");
+        await admin.PostAsJsonAsync($"/api/users/{member}/groups", new { userId = member, groupId });
+        (await CanReadAsync(member, slug)).Should().BeTrue();
+
+        (await admin.DeleteAsync($"/api/user-groups/{groupId}/users/{member}")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await StoredUserAsync(member)).GroupIds.Should().NotContain(groupId);
+        (await CanReadAsync(member, slug)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Removing_from_the_user_side_takes_back_a_role_added_from_the_group_side()
+    {
+        var (roleId, slug) = await ReaderRoleAsync();
+        var groupId = await GroupAsync(roleId);
+        var member = await UserAsync();
+
+        var admin = await ClientAsync("SuperAdmin");
+        await admin.PostAsJsonAsync($"/api/user-groups/{groupId}/users", new { groupId, userId = member });
+        (await CanReadAsync(member, slug)).Should().BeTrue();
+
+        (await admin.DeleteAsync($"/api/users/{member}/groups/{groupId}")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await StoredGroupAsync(groupId)).UserIds.Should().NotContain(member);
+        (await CanReadAsync(member, slug)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_group_whose_only_member_is_listed_on_the_group_side_cannot_be_deleted()
+    {
+        var groupId = await GroupAsync();
+        var member = await UserAsync();
+
+        var admin = await ClientAsync("SuperAdmin");
+        await admin.PostAsJsonAsync($"/api/user-groups/{groupId}/users", new { groupId, userId = member });
+        (await StoredGroupAsync(groupId)).UserIds.Should().Equal(member);
+
+        (await admin.DeleteAsync($"/api/user-groups/{groupId}")).StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await StoredGroupAsync(groupId)).Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task A_caller_who_cannot_grant_roles_cannot_create_a_group_holding_a_role()
+    {
+        var (roleId, _) = await ReaderRoleAsync();
+
+        var caller = await CallerHoldingAsync(SystemCapabilities.ManageUserGroups);
+        var post = await caller.PostAsJsonAsync("/api/user-groups",
+            new { name = $"g_{Guid.NewGuid():n}", description = "d", userIds = Array.Empty<Guid>(), roleIds = new[] { roleId } });
+
+        post.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
 }
