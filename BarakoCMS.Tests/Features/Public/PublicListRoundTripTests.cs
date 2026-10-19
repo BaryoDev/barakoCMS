@@ -117,8 +117,11 @@ public partial class PublicListRoundTripTests
         var response = await client.GetAsync(url, Ct);
 
         statements.Should().NotBeEmpty("the request's own database spans were heard, or the count below proves nothing");
-        return (response, statements.Where(s => ContentTable().IsMatch(s)).ToList());
+        // The private site gate reads the content table once per anonymous request, before the page.
+        return (response, statements.Where(s => ContentTable().IsMatch(s) && !s.Contains(PrivateSiteGate)).ToList());
     }
+
+    private const string PrivateSiteGate = "lower(e.key) = 'mode'";
 
     private static async Task<JsonElement> OkJsonAsync(HttpResponseMessage response)
     {
