@@ -6964,7 +6964,7 @@
       },
       "BarakoCMSFeaturesWorkflowRunsRunListResponse": {
         "additionalProperties": false,
-        "description": "The run list, with what a screen showing it needs besides the page. The page fields are\ndeclared here and not inherited from PaginatedResponse, because a derived type is\npublished as an allOf, which a contract diff reads as every page field removed.",
+        "description": "A page of workflow runs with counts by status.",
         "properties": {
           "cursor": {
             "description": "Pass back as changedSince to read what changed after this response. Present only when\nchangedSince was given.",

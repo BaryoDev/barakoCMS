@@ -225,11 +225,9 @@ internal sealed class ListRunsRequest : ListRequest
     public string? ChangedSince { get; set; }
 }
 
-/// <summary>
-/// The run list, with what a screen showing it needs besides the page. The page fields are
-/// declared here and not inherited from <c>PaginatedResponse</c>, because a derived type is
-/// published as an allOf, which a contract diff reads as every page field removed.
-/// </summary>
+// The page fields are declared here and not inherited from PaginatedResponse, because a derived
+// type is published as an allOf, which a contract diff reads as every page field removed.
+/// <summary>A page of workflow runs with counts by status.</summary>
 internal sealed class RunListResponse
 {
     /// <summary>Items for the current page</summary>
