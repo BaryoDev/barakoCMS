@@ -5,6 +5,7 @@ using BarakoCMS.ExternalAuth;
 using FluentAssertions;
 using Marten;
 using Marten.Patching;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -39,6 +40,9 @@ public class ExternalRoleMapTests
             _host ??= fixture.WithWebHostBuilder(b => b.ConfigureAppConfiguration((_, config) =>
                 config.AddInMemoryCollection(new Dictionary<string, string?>
                 {
+                    ["Oidc:Providers:stub:Authority"] = OidcStubProvider.Authority,
+                    ["Oidc:Providers:stub:ClientId"] = OidcStubProvider.ClientId,
+                    ["Oidc:Providers:stub:ClientSecret"] = OidcStubProvider.ClientSecret,
                     ["Oidc:Providers:alpha:Authority"] = OidcStubProvider.Authority,
                     ["Oidc:Providers:alpha:ClientId"] = OidcStubProvider.ClientId,
                     ["Oidc:Providers:alpha:ClientSecret"] = OidcStubProvider.ClientSecret,
@@ -107,9 +111,11 @@ public class ExternalRoleMapTests
     private async Task<SocialSignIn.Tokens> SignInAsync(
         User user, string club, IReadOnlyDictionary<string, IReadOnlyList<string>> claims, string provider = "stub",
         string issuer = "https://idp.test.example",
-        barakoCMS.Infrastructure.Services.IPermissionResolver? resolver = null)
+        barakoCMS.Infrastructure.Services.IPermissionResolver? resolver = null,
+        Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program>? host = null)
     {
-        using var scope = _fixture.Services.CreateScope();
+        // The host's providers, since a rule for a provider that is not configured grants nothing.
+        using var scope = (host ?? _host!).Services.CreateScope();
         var services = scope.ServiceProvider;
         var session = services.GetRequiredService<IDocumentSession>();
         var context = new Microsoft.AspNetCore.Http.DefaultHttpContext();
@@ -838,9 +844,18 @@ public class ExternalRoleMapTests
         return key;
     }
 
-    private async Task<HttpResponseMessage> VerifyAsync(string slug, string challenge, string code)
+    /// <summary>
+    /// A valid code <paramref name="step"/> time steps ahead. Verify accepts one step either side and
+    /// never a step it already took, so a second verify needs the next one.
+    /// </summary>
+    private static string Code(byte[] key, int step = 0) =>
+        new OtpNet.Totp(key).ComputeTotp(DateTime.UtcNow.AddSeconds(30 * step));
+
+    private async Task<HttpResponseMessage> VerifyAsync(
+        string slug, string challenge, string code,
+        Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program>? host = null)
     {
-        var client = _host!.CreateClient();
+        var client = (host ?? _host!).CreateClient();
         client.DefaultRequestHeaders.Add("X-Tenant", slug);
         client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"198.51.100.{Interlocked.Increment(ref _ipCounter) % 250 + 1}");
         return await client.PostAsJsonAsync("/api/auth/mfa/verify", new { challengeToken = challenge, code }, Ct);
@@ -889,7 +904,8 @@ public class ExternalRoleMapTests
 
         var other = await SignInAsync(user, slug, Groups("nothing-mapped"));
         other.RequiresMfa.Should().BeTrue();
-        await VerifyAsync(slug, other.MfaChallenge!, new OtpNet.Totp(key).ComputeTotp());
+        var verified = await VerifyAsync(slug, other.MfaChallenge!, Code(key, 1));
+        verified.StatusCode.Should().Be(HttpStatusCode.OK, await verified.Content.ReadAsStringAsync(Ct));
         (await MembershipsAsync(user.Id, slug)).Should().BeEmpty("a challenge that carried no roles grants none");
     }
 
@@ -927,5 +943,243 @@ public class ExternalRoleMapTests
         await VerifyAsync(slug, first.MfaChallenge!, new OtpNet.Totp(key).ComputeTotp());
 
         (await MembershipsAsync(user.Id, slug)).Should().BeEmpty("the role no longer exists");
+    }
+
+    // ---- what a rule with no issuer, a spent challenge and a refused sign-in give ----
+
+    [Fact]
+    public async Task A_stored_rule_with_no_issuer_gives_nothing_through_a_provider_with_a_templated_issuer()
+    {
+        var (slug, teacher) = await TenantWithMapAsync();
+        var directory = DirectoryIssuer(Guid.NewGuid().ToString());
+        await StoreAsync(new ExternalRoleMap
+        {
+            Id = slug, Claim = "groups",
+            Rules = [new ExternalRoleRule { Provider = "entra", Value = "staff", RoleId = teacher.Id }],
+        });
+        var user = await PersonAsync();
+
+        await SignInAsync(user, slug, Groups("staff"), provider: "entra", issuer: directory);
+        (await MembershipsAsync(user.Id, slug)).Should().BeEmpty("any directory can sign in through entra, so the rule must name one");
+
+        await StoreAsync(new ExternalRoleMap
+        {
+            Id = slug, Claim = "groups",
+            Rules = [new ExternalRoleRule { Provider = "entra", Value = "staff", RoleId = teacher.Id, Issuer = directory }],
+        });
+        await SignInAsync(user, slug, Groups("staff"), provider: "entra", issuer: directory);
+        (await MembershipsAsync(user.Id, slug)).Single().RoleIds.Should().Equal(teacher.Id);
+    }
+
+    [Fact]
+    public async Task A_challenge_grants_once_even_when_verified_again_with_a_fresh_code()
+    {
+        var (slug, teacher) = await TenantWithMapAsync();
+        var user = await PersonAsync();
+        var key = await EnrollMfaAsync(user);
+        var first = await SignInAsync(user, slug, Groups("staff"));
+
+        var ok = await VerifyAsync(slug, first.MfaChallenge!, Code(key));
+        ok.StatusCode.Should().Be(HttpStatusCode.OK, await ok.Content.ReadAsStringAsync(Ct));
+        var membership = (await MembershipsAsync(user.Id, slug)).Single();
+        membership.RoleIds.Should().Equal(teacher.Id);
+
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Patch<Membership>(membership.Id).Set(x => x.RoleIds, new List<Guid>());
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var again = await VerifyAsync(slug, first.MfaChallenge!, Code(key, 1));
+        again.StatusCode.Should().Be(HttpStatusCode.OK, "the code is new, so the sign-in itself still succeeds");
+        (await MembershipsAsync(user.Id, slug)).Single().RoleIds
+            .Should().BeEmpty("the administrator took the role away and the spent challenge does not give it back");
+    }
+
+    private sealed class RefusingIssuer : barakoCMS.Infrastructure.Auth.ITokenIssuer
+    {
+        public Task<barakoCMS.Infrastructure.Auth.TokenIssueResult> IssueAccessTokenAsync(
+            User user, string tenantSlug, IEnumerable<System.Security.Claims.Claim>? extraClaims = null,
+            CancellationToken ct = default) =>
+            Task.FromResult(barakoCMS.Infrastructure.Auth.TokenIssueResult.Denied("refused by the test"));
+    }
+
+    [Fact]
+    public async Task A_sign_in_the_issuer_refuses_at_the_second_factor_grants_nothing()
+    {
+        var (slug, teacher) = await TenantWithMapAsync();
+        var user = await PersonAsync();
+        var key = await EnrollMfaAsync(user);
+        var first = await SignInAsync(user, slug, Groups("staff"));
+        using var refusing = _host!.WithWebHostBuilder(b => b.ConfigureTestServices(s =>
+            s.AddScoped<barakoCMS.Infrastructure.Auth.ITokenIssuer, RefusingIssuer>()));
+
+        var refused = await VerifyAsync(slug, first.MfaChallenge!, Code(key), refusing);
+        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await MembershipsAsync(user.Id, slug)).Should().BeEmpty("no token was issued, so no role was given");
+
+        var ok = await VerifyAsync(slug, first.MfaChallenge!, Code(key, 1));
+        ok.StatusCode.Should().Be(HttpStatusCode.OK, await ok.Content.ReadAsStringAsync(Ct));
+        (await MembershipsAsync(user.Id, slug)).Single().RoleIds
+            .Should().Equal([teacher.Id], "the refused attempt did not spend the challenge");
+    }
+
+    [Fact]
+    public async Task A_sign_in_the_issuer_refuses_without_a_second_factor_grants_nothing()
+    {
+        var (slug, teacher) = await TenantWithMapAsync();
+        var user = await PersonAsync();
+        using var refusing = _host!.WithWebHostBuilder(b => b.ConfigureTestServices(s =>
+            s.AddScoped<barakoCMS.Infrastructure.Auth.ITokenIssuer, RefusingIssuer>()));
+
+        var refused = await SignInAsync(user, slug, Groups("staff"), host: refusing);
+        refused.Allowed.Should().BeFalse();
+        (await MembershipsAsync(user.Id, slug)).Should().BeEmpty("no token was issued, so no role was given");
+
+        var ok = await SignInAsync(user, slug, Groups("staff"));
+        ok.Allowed.Should().BeTrue();
+        (await MembershipsAsync(user.Id, slug)).Single().RoleIds.Should().Equal(teacher.Id);
+    }
+
+    [Fact]
+    public async Task Verify_drops_the_cached_permissions_only_when_it_grants_a_role()
+    {
+        var (slug, _) = await TenantWithMapAsync();
+        var user = await PersonAsync();
+        var key = await EnrollMfaAsync(user);
+        var spy = new Moq.Mock<barakoCMS.Infrastructure.Services.IPermissionResolver>();
+        using var spied = _host!.WithWebHostBuilder(b => b.ConfigureTestServices(s =>
+            s.AddScoped(_ => spy.Object)));
+
+        var nothing = await SignInAsync(user, slug, Groups("nothing-mapped"));
+        (await VerifyAsync(slug, nothing.MfaChallenge!, Code(key), spied)).StatusCode.Should().Be(HttpStatusCode.OK);
+        spy.Verify(r => r.InvalidateUserPermissions(user.Id), Moq.Times.Never());
+
+        var staff = await SignInAsync(user, slug, Groups("staff"));
+        (await VerifyAsync(slug, staff.MfaChallenge!, Code(key, 1), spied)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await MembershipsAsync(user.Id, slug)).Should().HaveCount(1);
+        spy.Verify(r => r.InvalidateUserPermissions(user.Id), Moq.Times.Once());
+    }
+
+    [Fact]
+    public async Task One_persons_challenge_with_another_persons_code_grants_nothing_to_either()
+    {
+        var (slug, teacher) = await TenantWithMapAsync();
+        var alice = await PersonAsync();
+        var bob = await PersonAsync();
+        var aliceKey = await EnrollMfaAsync(alice);
+        var bobKey = await EnrollMfaAsync(bob);
+        var aliceFirst = await SignInAsync(alice, slug, Groups("staff"));
+
+        var crossed = await VerifyAsync(slug, aliceFirst.MfaChallenge!, Code(bobKey));
+        crossed.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await MembershipsAsync(alice.Id, slug)).Should().BeEmpty();
+        (await MembershipsAsync(bob.Id, slug)).Should().BeEmpty();
+
+        var ok = await VerifyAsync(slug, aliceFirst.MfaChallenge!, Code(aliceKey));
+        ok.StatusCode.Should().Be(HttpStatusCode.OK, await ok.Content.ReadAsStringAsync(Ct));
+        (await MembershipsAsync(alice.Id, slug)).Single().RoleIds.Should().Equal(teacher.Id);
+        (await MembershipsAsync(bob.Id, slug)).Should().BeEmpty("the challenge names Alice, so only Alice is granted");
+    }
+
+    [Fact]
+    public async Task A_soft_deleted_role_is_not_given()
+    {
+        var (slug, teacher) = await TenantWithMapAsync();
+        var user = await PersonAsync();
+        teacher.DeletedAt = DateTime.UtcNow;
+        await StoreAsync(teacher);
+
+        await SignInAsync(user, slug, Groups("staff"));
+        (await MembershipsAsync(user.Id, slug)).Should().BeEmpty("the role was deleted");
+
+        teacher.DeletedAt = null;
+        await StoreAsync(teacher);
+        await SignInAsync(user, slug, Groups("staff"));
+        (await MembershipsAsync(user.Id, slug)).Single().RoleIds.Should().Equal(teacher.Id);
+    }
+
+    [Fact]
+    public void A_grant_whose_tenant_and_source_hold_a_bar_survives_the_challenge_round_trip()
+    {
+        var config = _host!.Services.GetRequiredService<IConfiguration>();
+        var roles = new List<Guid> { Guid.NewGuid(), Guid.NewGuid() };
+        var userId = Guid.NewGuid();
+
+        var (token, _) = barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Create(config, userId,
+            new barakoCMS.Infrastructure.Auth.Mfa.PendingExternalGrant("a|b", "stub|x", roles));
+        var read = barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Validated(config, token);
+
+        read.Should().NotBeNull();
+        read!.Value.UserId.Should().Be(userId);
+        read.Value.Grant!.TenantSlug.Should().Be("a|b");
+        read.Value.Grant.Source.Should().Be("stub|x");
+        read.Value.Grant.RoleIds.Should().Equal(roles);
+        read.Value.Grant.Id.Should().NotBeEmpty("each challenge's grant has its own id, which verify spends");
+    }
+
+    [Fact]
+    public async Task A_grant_that_waited_on_a_suspension_reports_and_audits_nothing()
+    {
+        var (slug, teacher) = await TenantWithMapAsync();
+        var user = await PersonAsync();
+        var membership = new Membership
+        {
+            Id = Guid.NewGuid(), UserId = user.Id, TenantSlug = slug, Status = MembershipStatus.Active, RoleIds = [],
+        };
+        await StoreAsync(membership);
+
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        await using var connection = store.Storage.Database.CreateConnection();
+        await connection.OpenAsync(Ct);
+        await using var hold = await connection.BeginTransactionAsync(Ct);
+        await using (var holder = store.LightweightSession(Marten.Services.SessionOptions.ForTransaction(hold)))
+        {
+            var table = $"{store.Options.DatabaseSchemaName}.mt_doc_memberships";
+            await holder.QueryAsync<int>($"select 1 from {table} where id = ? for update", Ct, membership.Id);
+            holder.Patch<Membership>(membership.Id).Set(x => x.Status, MembershipStatus.Suspended);
+            await holder.SaveChangesAsync(Ct);
+        }
+
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var grant = Task.Run(async () =>
+        {
+            var granted = await barakoCMS.Infrastructure.Auth.ExternalRoleGrant.StageAsync(
+                session, user, slug, [teacher.Id], "stub", Ct);
+            await session.SaveChangesAsync(Ct);
+            return granted;
+        }, Ct);
+
+        await WaitUntilBlockedOrDoneAsync(grant);
+        await hold.CommitAsync(Ct);
+
+        (await grant).Should().BeFalse("the membership was suspended by the time the grant could write");
+        var after = (await MembershipsAsync(user.Id, slug)).Single();
+        after.Status.Should().Be(MembershipStatus.Suspended);
+        after.RoleIds.Should().BeEmpty();
+        using var read = _fixture.Services.CreateScope();
+        (await read.ServiceProvider.GetRequiredService<IQuerySession>().Query<AuditEvent>()
+            .Where(e => e.TenantSlug == slug && e.Action == "tenant.member.updated")
+            .ToListAsync(Ct)).Should().BeEmpty("nothing was granted, so nothing is audited");
+    }
+
+    /// <summary>Returns once a database lock is being waited on, or the task has finished.</summary>
+    private async Task WaitUntilBlockedOrDoneAsync(Task task)
+    {
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        while (!task.IsCompleted && DateTime.UtcNow < deadline)
+        {
+            await using var probe = store.QuerySession();
+            var waiting = await probe.QueryAsync<int>("select count(*)::int from pg_locks where not granted", Ct);
+            if (waiting.Single() > 0)
+            {
+                return;
+            }
+
+            await Task.Delay(50, Ct);
+        }
     }
 }

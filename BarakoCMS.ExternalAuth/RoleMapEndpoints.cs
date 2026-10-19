@@ -55,12 +55,17 @@ internal static class RoleMaps
     /// The roles a person carrying these id token claims is given by the tenant's map. Values match
     /// exactly, since a group name differing only in case is another group, and only for the
     /// provider the rule names: the same group name at another provider is another group. A rule
-    /// that names an issuer also needs the token's resolved issuer to be exactly it, since a
-    /// provider with a templated issuer signs in people from every directory.
+    /// that names an issuer also needs the token's resolved issuer to be exactly it.
     /// </summary>
+    /// <param name="issuerRequired">
+    /// True when the provider's issuer is a template, or the provider is not configured. A
+    /// templated provider signs in people from every directory, so a rule that names no issuer
+    /// matches nothing for it. The PUT validator refuses such a rule, and this holds for one saved
+    /// before the provider was templated or written to the store some other way.
+    /// </param>
     public static List<Guid> RolesFor(
         ExternalRoleMap map, IReadOnlyDictionary<string, IReadOnlyList<string>> claims, string provider,
-        string issuer)
+        string issuer, bool issuerRequired)
     {
         if (RefusedClaims.Contains(map.Claim.Trim()) || !claims.TryGetValue(map.Claim, out var values))
         {
@@ -69,12 +74,24 @@ internal static class RoleMaps
 
         return map.Rules
             .Where(rule => string.Equals(rule.Provider, provider, StringComparison.Ordinal)
-                           && (rule.Issuer is null || string.Equals(rule.Issuer, issuer, StringComparison.Ordinal))
+                           && IssuerMatches(rule.Issuer, issuer, issuerRequired)
                            && values.Contains(rule.Value, StringComparer.Ordinal))
             .Select(rule => rule.RoleId)
             .Distinct()
             .ToList();
     }
+
+    private static bool IssuerMatches(string? ruleIssuer, string issuer, bool issuerRequired) =>
+        string.IsNullOrWhiteSpace(ruleIssuer)
+            ? !issuerRequired
+            : string.Equals(ruleIssuer, issuer, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Whether a rule for <paramref name="provider"/> must name the issuer: when its issuer is a
+    /// template, and when it is not a configured provider, so an unknown one fails closed.
+    /// </summary>
+    public static bool IssuerRequired(IConfiguration config, string provider) =>
+        OidcProviders.Enabled(config).FirstOrDefault(p => p.Name == provider) is not { IssuerIsTemplate: false };
 }
 
 internal sealed class RoleMapValidator : Validator<RoleMapRequest>
