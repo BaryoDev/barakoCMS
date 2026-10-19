@@ -16,7 +16,7 @@ namespace barakoCMS.Infrastructure.Multitenancy;
 /// site counts; a link to one entry or page opens that entry through the open route and nothing here.
 /// The two share link POST routes stay reachable, since they are how a visitor gets in, and only
 /// those two: <c>GET /api/public/site/share-links</c> is the delivery route for a <c>site</c> entry
-/// whose slug is <c>share-links</c>. Every delivery request costs one read of the tenant's site
+/// whose slug is <c>share-links</c>. Every delivery request costs one bounded read (filtered in Postgres, one row) of the tenant's site
 /// entries. <c>GET /api/tenants/{handle}/public</c>, which reads another tenant's site entry by
 /// name, applies the same rule itself.
 /// </remarks>

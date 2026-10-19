@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using FluentAssertions;
 using Marten;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -43,6 +44,21 @@ public class PrivateSiteModeTests
             Id = Guid.NewGuid(),
             ContentType = "site",
             Status = status,
+            Sensitivity = SensitivityLevel.Public,
+            Data = data,
+        });
+        await session.SaveChangesAsync(Ct);
+    }
+
+    private async Task StoreRawSiteAsync(string tenant, Dictionary<string, object> data)
+    {
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        await using var session = store.LightweightSession(tenant);
+        session.Store(new Content
+        {
+            Id = Guid.NewGuid(),
+            ContentType = "site",
+            Status = ContentStatus.Published,
             Sensitivity = SensitivityLevel.Public,
             Data = data,
         });
@@ -282,4 +298,143 @@ public class PrivateSiteModeTests
         withLink.StatusCode.Should().Be(HttpStatusCode.OK, await withLink.Content.ReadAsStringAsync(Ct));
         served.StatusCode.Should().Be(HttpStatusCode.OK);
     }
+
+    [Fact]
+    public async Task A_site_entry_holding_Mode_under_two_spellings_is_private_when_either_says_Private()
+    {
+        var tenant = await _host.TenantAsync();
+        var type = await _host.TypeAsync(tenant);
+        await _host.EntryAsync(tenant, type, "hello", ContentStatus.Published);
+        await StoreRawSiteAsync(tenant, new Dictionary<string, object>
+        {
+            ["mode"] = "Live",
+            ["Mode"] = "Private",
+        });
+
+        (await AnonymousIn(tenant).GetAsync($"/api/public/{type}/hello", Ct)).StatusCode
+            .Should().Be(HttpStatusCode.NotFound, "the first key spelled Mode says Live, the second says Private");
+    }
+
+    [Fact]
+    public async Task An_event_stream_opened_while_live_ends_once_the_tenant_turns_private()
+    {
+        var tenant = await _host.TenantAsync();
+        await StoreSiteAsync(tenant, "Live");
+        using var host = _fixture.WithSettings(new Dictionary<string, string?>
+        {
+            ["Delivery:Events:Enabled"] = "true",
+            ["Delivery:Events:KeepAliveSeconds"] = "1",
+            ["Delivery:Events:GateRecheckSeconds"] = "1",
+        });
+        var client = host.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Tenant", tenant);
+
+        using var response = await client.GetAsync("/api/public/events", HttpCompletionOption.ResponseHeadersRead, Ct);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var reader = new StreamReader(await response.Content.ReadAsStreamAsync(Ct));
+        (await reader.ReadLineAsync(Ct).AsTask().WaitAsync(TimeSpan.FromSeconds(20), Ct))
+            .Should().NotBeNull("the stream is open and sends keepalives while the site is live");
+
+        await StoreSiteAsync(tenant, "Private");
+
+        var ended = false;
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(20);
+        while (DateTimeOffset.UtcNow < deadline && !ended)
+        {
+            ended = await reader.ReadLineAsync(Ct).AsTask().WaitAsync(TimeSpan.FromSeconds(20), Ct) is null;
+        }
+
+        ended.Should().BeTrue("the stream completes when its caller no longer qualifies");
+    }
+
+    [Fact]
+    public async Task A_head_request_to_a_share_link_path_is_refused_and_a_trailing_slash_does_not_hide_the_exemption()
+    {
+        var (tenant, _) = await PrivateTenantWithEntryAsync();
+        var key = await _host.StoreLinkAsync(tenant, _ => { });
+        var client = AnonymousIn(tenant);
+
+        foreach (var path in new[] { "/api/public/site/share-links/redeem", "/api/public/site/share-links/open" })
+        {
+            var head = await client.SendAsync(new HttpRequestMessage(HttpMethod.Head, path), Ct);
+            head.StatusCode.Should().Be(HttpStatusCode.NotFound, path);
+            head.Headers.CacheControl!.NoStore.Should().BeTrue($"HEAD {path} is a delivery read and the gate answered it");
+        }
+
+        var redeem = await client.PostAsJsonAsync("/api/public/site/share-links/redeem/", new { key }, Ct);
+        redeem.StatusCode.Should().Be(HttpStatusCode.OK, await redeem.Content.ReadAsStringAsync(Ct));
+    }
+
+    [Fact]
+    public async Task A_response_served_to_a_link_holder_while_private_is_not_marked_no_store_once_the_tenant_is_live_again()
+    {
+        var (tenant, type) = await PrivateTenantWithEntryAsync();
+        var key = await _host.StoreLinkAsync(tenant, _ => { });
+        var path = $"/api/public/{type}/hello";
+
+        var served = await AnonymousIn(tenant, key).GetAsync(path, Ct);
+        served.StatusCode.Should().Be(HttpStatusCode.OK);
+        served.Headers.CacheControl!.NoStore.Should().BeTrue();
+
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        await using (var session = store.LightweightSession(tenant))
+        {
+            var sites = await session.Query<Content>().Where(c => c.ContentType == "site").ToListAsync(Ct);
+            sites.Should().NotBeEmpty();
+            foreach (var site in sites)
+            {
+                site.Data["Mode"] = "Live";
+                session.Store(site);
+            }
+
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var live = await AnonymousIn(tenant).GetAsync(path, Ct);
+        live.StatusCode.Should().Be(HttpStatusCode.OK);
+        live.Headers.CacheControl?.NoStore.Should().NotBe(true, "the private header must not ride in a cached entry");
+        live.Headers.CacheControl?.Private.Should().NotBe(true);
+    }
+
+    private static readonly (string Match, bool Prefix, string Reason)[] ReviewedAnonymousRoutes =
+    [
+        ("/api/auth/", true, "sign in, register, MFA and social sign in: identity, no tenant content"),
+        ("/api/tenants/by-host/{host}", false, "returns a tenant handle only"),
+        ("/api/tenants/tls-ask", false, "a proxy asks whether a host is a tenant domain; registry only"),
+        ("/api/tenants/{handle}/public", false, "reads a site entry, so it applies the Private rule itself"),
+        ("/ofrep/", true, "feature flag evaluation: flags, no content"),
+        ("/api/feature-flags", false, "feature flag evaluation: flags, no content"),
+        ("/api/client-errors", false, "a write of client error reports"),
+        ("/api/pwa/report", false, "a write of install and usage reports"),
+        ("/api/webhooks/resend", false, "a signed provider webhook"),
+        ("/api/renderer/blocks/schema", false, "a write guarded by the renderer key"),
+    ];
+
+    [Fact]
+    public void Every_anonymous_route_outside_api_public_is_reviewed_as_serving_no_tenant_content()
+    {
+        var anonymous = _fixture.Services.GetServices<EndpointDataSource>()
+            .SelectMany(s => s.Endpoints)
+            .OfType<RouteEndpoint>()
+            .Where(e => e.Metadata.GetMetadata<IAllowAnonymous>() is not null)
+            .Select(e => e.RoutePattern.RawText!)
+            .Where(t => !t.StartsWith("/api/public", StringComparison.OrdinalIgnoreCase))
+            .Distinct()
+            .ToList();
+
+        anonymous.Should().NotBeEmpty();
+        var unreviewed = anonymous.Where(t => !ReviewedAnonymousRoutes.Any(r => Matches(r, t))).ToList();
+        unreviewed.Should().BeEmpty(
+            "an anonymous route outside /api/public is not behind the Private gate: review it, then list it with a reason");
+
+        foreach (var entry in ReviewedAnonymousRoutes)
+        {
+            anonymous.Should().Contain(t => Matches(entry, t), entry.Reason);
+        }
+    }
+
+    private static bool Matches((string Match, bool Prefix, string Reason) entry, string pattern) =>
+        entry.Prefix
+            ? pattern.StartsWith(entry.Match, StringComparison.OrdinalIgnoreCase)
+            : string.Equals(pattern, entry.Match, StringComparison.OrdinalIgnoreCase);
 }

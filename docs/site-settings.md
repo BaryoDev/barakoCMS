@@ -327,11 +327,17 @@ a delivery read like any other. `GET /api/tenants/{handle}/public`, which reads 
 tenant it names, applies the same rule. One check sits in front of delivery, ahead of the output
 cache, so a new public route is covered without touching it. A refusal carries
 `Cache-Control: no-store`, and a served response `private, no-store`, so a shared cache keeps none of
-it. Every delivery request of a tenant costs one read of its site entries. Another tenant is
+it. Every delivery request of a tenant costs one bounded query. Another tenant is
 unaffected, and a tenant with no `Mode` is `Live`.
 
 Only a published `site` entry counts, since that is the one delivery reads. If more than one is
 published and any says `Private`, the tenant is private. `Private` is matched without regard to case.
+`GET /api/tenants/{handle}/public` lets a signed-in viewer through only when `X-Tenant` names the same
+tenant as the handle, since a token is good for one tenant; any other caller needs a site link. With
+open self-registration and a default role that can read `site`, every registrant is a viewer, so
+Private then keeps out only people who have not signed up. An open event stream (`/api/public/events`)
+asks again about every 30 seconds (`Delivery:Events:GateRecheckSeconds`) and ends when the tenant has
+turned Private or the caller's link has been revoked or has expired.
 A preview link from `POST /api/preview` is refused like any other delivery request until the caller
 also holds a link to the whole site or is a viewer.
 

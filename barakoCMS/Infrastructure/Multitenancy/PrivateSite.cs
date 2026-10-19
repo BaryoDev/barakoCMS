@@ -2,6 +2,7 @@ using barakoCMS.Features.Site.ShareLinks;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using Marten;
+using Marten.Linq.MatchesSql;
 using Content = barakoCMS.Models.Content;
 
 namespace barakoCMS.Infrastructure.Multitenancy;
@@ -20,19 +21,34 @@ internal static class PrivateSite
     public const string KeyHeader = "X-Share-Key";
     public const string PrivateMode = "Private";
 
-    public static async Task<Content?> FindPrivateEntryAsync(IQuerySession session, CancellationToken ct)
-    {
-        var entries = await session.Query<Content>()
-            .Where(c => c.ContentType == ShareLinkKeys.SiteType && c.Status == ContentStatus.Published)
-            .ToListAsync(ct);
-        return entries.FirstOrDefault(IsPrivate);
-    }
+    /// <summary>
+    /// Any key spelled <c>Mode</c> in any case, holding <c>Private</c> in any case. Matched over every
+    /// key of the entry, so <c>{"mode":"Live","Mode":"Private"}</c> is private.
+    /// </summary>
+    private const string PrivateModeSql =
+        "exists (select 1 from jsonb_each_text(d.data -> 'Data') e "
+        + "where lower(e.key) = 'mode' and lower(btrim(e.value)) = 'private')";
 
-    public static bool IsPrivate(Content entry) =>
-        entry.Data is { } data
-        && data.FirstOrDefault(p => string.Equals(p.Key, "Mode", StringComparison.OrdinalIgnoreCase)).Value
-            is { } mode
-        && string.Equals(mode.ToString()?.Trim(), PrivateMode, StringComparison.OrdinalIgnoreCase);
+    /// <summary>
+    /// A published site entry in Private mode, or null. One query that filters in Postgres and takes
+    /// one row, so a tenant with any number of site entries costs one bounded read, and a Private one
+    /// among them is found whatever the rest say (fails closed).
+    /// </summary>
+    public static Task<Content?> FindPrivateEntryAsync(IQuerySession session, CancellationToken ct) =>
+        session.Query<Content>()
+            .Where(c => c.ContentType == ShareLinkKeys.SiteType
+                        && c.Status == ContentStatus.Published
+                        && c.MatchesSql(PrivateModeSql))
+            .OrderBy(c => c.CreatedAt)
+            .FirstOrDefaultAsync(ct);
+
+    /// <summary>For a request already being served: false once the tenant is private and the caller no longer qualifies.</summary>
+    public static async Task<bool> StillAllowedAsync(HttpContext context, CancellationToken ct)
+    {
+        var session = context.RequestServices.GetRequiredService<IQuerySession>();
+        return await FindPrivateEntryAsync(session, ct) is not { } site
+               || await MayViewAsync(context, session, site, ct);
+    }
 
     public static async Task<bool> MayViewAsync(
         HttpContext context, IQuerySession session, Content site, CancellationToken ct)

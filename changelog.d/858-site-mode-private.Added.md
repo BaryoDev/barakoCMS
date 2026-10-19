@@ -5,3 +5,5 @@
   tenant, so no existing route changes unless a site is set to `Private`, and neither contract
   number moves. A `site` type made before this release gets the option with `set-field-options` on
   `Mode`. See `docs/site-settings.md`.
+  An open `GET /api/public/events` stream asks again every 30 seconds
+  (`Delivery:Events:GateRecheckSeconds`) and ends when the caller no longer qualifies.
