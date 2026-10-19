@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Xml;
 using System.Xml.Linq;
+using barakoCMS.Models;
 
 namespace barakoCMS.Infrastructure.Sync;
 
@@ -61,7 +62,8 @@ internal static class SyncPayloadReader
     /// <c>labels[].name</c> and <c>labels[0].name</c> both keep every label's name.
     /// </param>
     public static SyncPayload ReadJson(
-        string body, string itemsPath, int maxItems, IReadOnlyCollection<string>? paths = null)
+        string body, string itemsPath, int maxItems, IReadOnlyCollection<string>? paths = null,
+        SyncIncompleteWhen? incompleteWhen = null)
     {
         JsonDocument document;
         try
@@ -79,6 +81,12 @@ internal static class SyncPayloadReader
         using (document)
         {
             var element = document.RootElement;
+
+            if (incompleteWhen is { Path.Length: > 0 } && SaysPartial(element, incompleteWhen))
+            {
+                return SyncPayload.Failed(
+                    $"The response says it is a partial list ('{incompleteWhen.Path}' is '{incompleteWhen.EqualTo}'), so it was not read.");
+            }
 
             foreach (var segment in Segments(itemsPath))
             {
@@ -113,6 +121,30 @@ internal static class SyncPayloadReader
 
             return new SyncPayload(rows, null) { Truncated = element.GetArrayLength() > rows.Count };
         }
+    }
+
+    private static bool SaysPartial(JsonElement root, SyncIncompleteWhen rule)
+    {
+        var element = root;
+
+        foreach (var segment in Segments(rule.Path))
+        {
+            if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty(segment, out var next))
+            {
+                return false;
+            }
+
+            element = next;
+        }
+
+        var value = element.ValueKind switch
+        {
+            JsonValueKind.String => element.GetString(),
+            JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False => element.GetRawText(),
+            _ => null,
+        };
+
+        return string.Equals(value, rule.EqualTo, StringComparison.OrdinalIgnoreCase);
     }
 
     private static IEnumerable<string> Segments(string path) =>

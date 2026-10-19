@@ -43,7 +43,7 @@
 156 barakoCMS/Features/Auth/Refresh/Endpoint.cs::Endpoint.HandleAsync
 125 barakoCMS/Features/Collections/Endpoints.cs::CollectionSyncRules.CheckAsync
 251 barakoCMS/Features/Collections/Push/Endpoint.cs::Endpoint.HandleAsync
-94 barakoCMS/Features/Collections/Validator.cs::SaveCollectionSyncValidator.SaveCollectionSyncValidator
+83 barakoCMS/Features/Collections/Validator.cs::SaveCollectionSyncValidator.SaveCollectionSyncValidator
 143 barakoCMS/Features/Connectors/Endpoints.cs::UpdateConnectorEndpoint.HandleAsync
 118 barakoCMS/Features/Content/ChangeStatus/Endpoint.cs::Endpoint.HandleAsync
 164 barakoCMS/Features/Content/History/RollbackEndpoint.cs::RollbackEndpoint.HandleAsync

@@ -249,6 +249,8 @@ internal static class CollectionSyncRules
         sync.FieldRules = req.FieldRules ?? new();
         sync.Exclude = req.Exclude ?? new();
         sync.ArchiveMissing = req.ArchiveMissing;
+        sync.EmptyIsComplete = req.EmptyIsComplete;
+        sync.IncompleteWhen = req.IncompleteWhen;
         sync.KeyField = req.KeyField.Trim();
         sync.FloorFields = req.FloorFields;
         sync.IntervalMinutes = req.IntervalMinutes;

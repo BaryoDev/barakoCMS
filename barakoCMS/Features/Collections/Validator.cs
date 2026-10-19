@@ -98,6 +98,24 @@ internal sealed class SaveCollectionSyncValidator : Validator<SaveCollectionSync
             }
         });
 
+        AddSourceRules();
+    }
+
+    private void AddSourceRules()
+    {
+        RuleFor(x => x.IncompleteWhen!.Path).NotEmpty().MaximumLength(200)
+            .When(x => x.IncompleteWhen is not null)
+            .WithMessage("IncompleteWhen needs the path of the response field that marks the list as partial.");
+
+        RuleFor(x => x.IncompleteWhen!.EqualTo).NotEmpty().MaximumLength(200)
+            .When(x => x.IncompleteWhen is not null)
+            .WithMessage("IncompleteWhen needs the value of that field that marks the list as partial.");
+
+        RuleFor(x => x.IncompleteWhen)
+            .Null()
+            .When(x => string.Equals(x.Source, nameof(SyncSource.Feed), StringComparison.OrdinalIgnoreCase))
+            .WithMessage("A Feed sync has no response field to read, so IncompleteWhen applies to a Request sync only.");
+
         // An early refusal rather than the guard. The address that gets dialled is checked when the
         // socket opens, which is the only check a DNS answer that changes afterwards cannot evade.
         RuleFor(x => x.FeedUrl)
