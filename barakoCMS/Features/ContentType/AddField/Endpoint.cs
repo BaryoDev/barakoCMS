@@ -93,6 +93,10 @@ internal sealed class Validator : Validator<Request>
     {
         RuleFor(x => x.FieldName).NotEmpty().WithMessage("fieldName is required.");
         RuleFor(x => x.Type).NotEmpty().WithMessage("type is required.");
+        RuleFor(x => x).Must(x => x.Sensitivity != SensitivityLevel.Members || !barakoCMS.Core.Validation.TokenFields.IsToken(x.Type))
+            .WithMessage(x => $"'{x.FieldName}' is a token and cannot be Members. Declare it Hidden or Sensitive.");
+        RuleFor(x => x).Must(x => x.Sensitivity != SensitivityLevel.Members || x.VisibleToRoles is not { Count: > 0 })
+            .WithMessage("A Members field cannot carry visibleToRoles: every verified viewer reads it.");
     }
 }
 

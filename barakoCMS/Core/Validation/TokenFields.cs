@@ -79,7 +79,8 @@ internal static class TokenFields
     /// </summary>
     /// <remarks>
     /// Public is the value a definition holds when sensitivity was left out, so this is the default
-    /// of the type and not a correction. A field already Sensitive or Hidden is left as declared.
+    /// of the type and not a correction. A field already Sensitive or Hidden is left as declared. A
+    /// field declared Members was asked for, so it is left as declared too and <see cref="DefinitionErrors"/> refuses it.
     /// </remarks>
     public static void ApplyDefaults(IEnumerable<FieldDefinition?>? fields)
     {
@@ -109,9 +110,9 @@ internal static class TokenFields
                 + $"{MinLength} to {MaxLength} characters long.");
         }
 
-        if (field.Sensitivity == SensitivityLevel.Public)
+        if (field.Sensitivity is SensitivityLevel.Public or SensitivityLevel.Members)
         {
-            errors.Add($"Field '{field.Name}' is a token and cannot be Public. Declare it Hidden or "
+            errors.Add($"Field '{field.Name}' is a token and cannot be {field.Sensitivity}. Declare it Hidden or "
                 + "Sensitive, with visibleToRoles for the roles that may read it.");
         }
 

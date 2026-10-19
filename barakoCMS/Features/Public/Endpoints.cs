@@ -386,7 +386,8 @@ internal static class PublicDelivery
 
     /// <summary>Whether a field's value is delivered to a viewer when <paramref name="member"/>, else to anonymous.</summary>
     public static bool IsDeliveredField(FieldDefinition field, bool member) =>
-        (field.Sensitivity == SensitivityLevel.Public || (member && field.Sensitivity == SensitivityLevel.Members))
+        (field.Sensitivity == SensitivityLevel.Public
+         || (member && field.Sensitivity == SensitivityLevel.Members && field.VisibleToRoles is not { Count: > 0 }))
         && !IsToken(field);
 
     /// <summary>A token is never delivered, even from a definition stored with the field Public.</summary>
@@ -465,7 +466,11 @@ internal static class PublicDelivery
     public static void SetCache(HttpContext http, IEnumerable<CacheScope> scopes, DateTimeOffset? lastModified = null)
     {
         http.Response.Headers.CacheControl = "public, max-age=60";
-        http.Response.Headers.Vary = barakoCMS.Infrastructure.Multitenancy.TenantResolutionMiddleware.TenantHeader;
+        http.Response.Headers.Vary = new[]
+        {
+            barakoCMS.Infrastructure.Multitenancy.TenantResolutionMiddleware.TenantHeader,
+            barakoCMS.Infrastructure.Viewers.ViewerToken.Header,
+        };
         DeliveryCache.Shared(http, DeliveryCacheClass.Short, scopes, lastModified);
     }
 

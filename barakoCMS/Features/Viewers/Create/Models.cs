@@ -7,7 +7,7 @@ internal sealed class CreateViewerTokenRequest
     /// <summary>The caller's own identifier for the viewer. Opaque to the CMS.</summary>
     public string Subject { get; set; } = string.Empty;
 
-    /// <summary>How long the token lives, in minutes. Defaults to 60, at most 1440.</summary>
+    /// <summary>How long the token lives, in minutes. Defaults to 60, at most 480.</summary>
     public int? LifetimeMinutes { get; set; }
 }
 

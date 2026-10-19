@@ -9,6 +9,10 @@ using barakoCMS.Infrastructure.Viewers;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
+using Microsoft.IdentityModel.Tokens;
 
 namespace BarakoCMS.Tests;
 
@@ -43,6 +47,7 @@ public class MembersAudienceTests
         s.Store(new ContentTypeDefinition
         {
             IsPubliclyDeliverable = true,
+            RouteTemplate = $"/{type}/{{slug}}",
             Lookup = new LookupDefinition { MatchField = "Slug", VerifyFields = ["Title"], ReturnFields = ["Title"] },
             Id = Guid.NewGuid(), Name = type, DisplayName = type,
             Fields = new()
@@ -158,6 +163,7 @@ public class MembersAudienceTests
         feed.Should().NotContain("T-club");
 
         var sitemap = await (await client.GetAsync("/api/public/sitemap.xml")).Content.ReadAsStringAsync();
+        sitemap.Should().Contain($"/{type}/open", "positive control: the Public entry is listed under the type's route");
         sitemap.Should().NotContain($"/{type}/club");
 
         client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, "198.51.100.241");
@@ -166,7 +172,10 @@ public class MembersAudienceTests
         var lookup = await client.PostAsJsonAsync($"/api/public/{type}/lookup", new { reference = "club", verify = "T-club" });
         lookup.StatusCode.Should().Be(HttpStatusCode.NotFound, "a lookup never returns a Members entry");
 
-        var described = await (await client.GetAsync($"/api/public/types/{type}/description")).Content.ReadAsStringAsync();
+        var describedRes = await client.GetAsync($"/api/public/types/{type}/description");
+        describedRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var described = await describedRes.Content.ReadAsStringAsync();
+        described.Should().Contain("Title", "positive control: a Public field is named");
         described.Should().NotContain("Perk", "a Members field is not named to an anonymous caller");
     }
 
@@ -261,12 +270,16 @@ public class MembersAudienceTests
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Viewer());
 
-        (await client.GetAsync("/api/me/tenants")).StatusCode
-            .Should().BeOneOf(HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden);
-        (await client.GetAsync("/api/contents")).StatusCode
-            .Should().BeOneOf(HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden);
+        var access = _factory.CreateClient();
+        access.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", await _factory.StoredUserTokenAsync("SuperAdmin", "Admin"));
+        (await access.GetAsync("/api/me/tenants")).StatusCode.Should().Be(
+            HttpStatusCode.OK, "positive control: a real access token reaches the route");
+
+        (await client.GetAsync("/api/me/tenants")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await client.GetAsync("/api/contents")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         (await client.PostAsJsonAsync("/api/viewer-tokens", new { Subject = "x" })).StatusCode
-            .Should().BeOneOf(HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden);
+            .Should().Be(HttpStatusCode.Unauthorized);
     }
 
     [Fact]
@@ -299,6 +312,189 @@ public class MembersAudienceTests
 
         var anon = _factory.CreateClient();
         (await anon.SendAsync(Get($"/api/public/{type}/club", token))).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    private string Forge(
+        string audienceSuffix = ":viewer", string purpose = "viewer", string tenant = "default",
+        TimeSpan? expiresIn = null, params string[] roles)
+    {
+        var claims = new List<Claim> { new("purpose", purpose), new("vtenant", tenant), new("vsub", "forged") };
+        claims.AddRange(roles.Select(r => new Claim(ClaimTypes.Role, r)));
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(Config["JWT:Key"]!));
+        var span = expiresIn ?? TimeSpan.FromMinutes(30);
+        var now = DateTime.UtcNow;
+        var jwt = new JwtSecurityToken(
+            Config["JWT:Issuer"], Config["JWT:Audience"] + audienceSuffix, claims,
+            notBefore: now - TimeSpan.FromHours(1), expires: now + span,
+            signingCredentials: new SigningCredentials(key, SecurityAlgorithms.HmacSha256));
+        return new JwtSecurityTokenHandler().WriteToken(jwt);
+    }
+
+    [Fact]
+    public void A_normal_access_token_with_admin_roles_is_not_a_viewer_token()
+    {
+        ViewerToken.Validate(Config, Forge(), DefaultTenant).Should().NotBeNull(
+            "positive control: the forged shape verifies when the audience is the viewer one");
+
+        var access = Forge(audienceSuffix: "", roles: ["SuperAdmin", "Admin"]);
+        ViewerToken.Validate(Config, access, DefaultTenant).Should().BeNull(
+            "carrying the viewer claims and the right key is not enough, only the audience tells the two apart");
+    }
+
+    [Fact]
+    public async Task An_expired_viewer_token_and_one_with_another_purpose_answer_401()
+    {
+        var type = "mem_forged"; await SeedAsync(type);
+        var client = _factory.CreateClient();
+
+        (await client.SendAsync(Get($"/api/public/{type}/club", Forge()))).StatusCode
+            .Should().Be(HttpStatusCode.OK, "positive control: the forged shape is served");
+
+        (await client.SendAsync(Get($"/api/public/{type}/club", Forge(expiresIn: TimeSpan.FromMinutes(-10))))).StatusCode
+            .Should().Be(HttpStatusCode.Unauthorized);
+        (await client.SendAsync(Get($"/api/public/{type}/club", Forge(purpose: "refresh")))).StatusCode
+            .Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task A_bad_viewer_token_on_a_type_that_is_not_deliverable_still_answers_404()
+    {
+        var type = "mem_closed"; await SeedAsync(type);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var def = await s.Query<ContentTypeDefinition>().FirstAsync(d => d.Name == type);
+            def.IsPubliclyDeliverable = false;
+            s.Store(def);
+            await s.SaveChangesAsync();
+        }
+        var client = _factory.CreateClient();
+
+        (await client.SendAsync(Get($"/api/public/{type}", "junk"))).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await client.SendAsync(Get($"/api/public/{type}/club", "junk"))).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task A_public_entry_never_shows_a_members_entry_it_references_to_an_anonymous_caller()
+    {
+        var tag = Guid.NewGuid().ToString("N")[..8];
+        var target = $"memtgt{tag}";
+        var type = $"memref{tag}";
+        var members = Guid.NewGuid();
+        var open = Guid.NewGuid();
+        var pub = Guid.NewGuid();
+        var control = Guid.NewGuid();
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
+        await using (var s = store.LightweightSession())
+        {
+            s.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(), Name = target, DisplayName = target, IsPubliclyDeliverable = true,
+                Fields = new() { new FieldDefinition { Name = "Name", DisplayName = "Name", Type = "string" } },
+            });
+            s.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(), Name = type, DisplayName = type, IsPubliclyDeliverable = true,
+                Fields = new()
+                {
+                    new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" },
+                    new FieldDefinition { Name = "Slug", DisplayName = "Slug", Type = "slug" },
+                    new FieldDefinition { Name = "Next", DisplayName = "Next", Type = "reference", ReferenceType = target },
+                },
+            });
+            s.Store(new Content
+            {
+                Id = members, ContentType = target, Status = ContentStatus.Published, Sensitivity = SensitivityLevel.Members,
+                Data = new() { ["Name"] = "members-only-name" },
+            });
+            s.Store(new Content
+            {
+                Id = open, ContentType = type, Status = ContentStatus.Published, Sensitivity = SensitivityLevel.Public,
+                Data = new() { ["Title"] = "T-open", ["Slug"] = "open", ["Next"] = members.ToString() },
+            });
+            s.Store(new Content
+            {
+                Id = pub, ContentType = target, Status = ContentStatus.Published, Sensitivity = SensitivityLevel.Public,
+                Data = new() { ["Name"] = "public-target-name" },
+            });
+            s.Store(new Content
+            {
+                Id = control, ContentType = type, Status = ContentStatus.Published, Sensitivity = SensitivityLevel.Public,
+                Data = new() { ["Title"] = "T-control", ["Slug"] = "control", ["Next"] = pub.ToString() },
+            });
+            await s.SaveChangesAsync();
+        }
+        var client = _factory.CreateClient();
+
+        var positive = await client.GetAsync($"/api/public/{type}/control?include=Next");
+        positive.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await positive.Content.ReadAsStringAsync()).Should().Contain("public-target-name",
+            "positive control: the same setup resolves a Public target through include");
+
+        var plain = await client.GetAsync($"/api/public/{type}/open");
+        plain.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await plain.Content.ReadAsStringAsync()).Should().Contain("T-open").And.NotContain("members-only-name");
+
+        var included = await client.GetAsync($"/api/public/{type}/open?include=Next");
+        included.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await included.Content.ReadAsStringAsync()).Should().Contain("T-open").And.NotContain("members-only-name");
+
+        var listed = await client.GetAsync($"/api/public/{type}?include=Next");
+        listed.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await listed.Content.ReadAsStringAsync()).Should().Contain("T-open").And.NotContain("members-only-name");
+    }
+
+    [Fact]
+    public async Task Minting_with_JWT_Key_unset_answers_503()
+    {
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", await _factory.StoredUserTokenAsync("SuperAdmin", "Admin"));
+        (await client.PostAsJsonAsync("/api/viewer-tokens", new { Subject = "before" })).StatusCode
+            .Should().Be(HttpStatusCode.OK, "positive control: the same caller mints while the key is set");
+
+        var config = (IConfiguration)_factory.Services.GetRequiredService<IConfiguration>();
+        var original = config["JWT:Key"];
+        try
+        {
+            config["JWT:Key"] = "";
+            (await client.PostAsJsonAsync("/api/viewer-tokens", new { Subject = "after" })).StatusCode
+                .Should().Be(HttpStatusCode.ServiceUnavailable);
+        }
+        finally
+        {
+            config["JWT:Key"] = original;
+        }
+    }
+
+    [Fact]
+    public async Task Minting_writes_an_audit_row_and_an_unset_key_is_an_error_not_a_token()
+    {
+        var subject = $"audited-{Guid.NewGuid():N}";
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", await _factory.StoredUserTokenAsync("SuperAdmin", "Admin"));
+
+        var mint = await client.PostAsJsonAsync("/api/viewer-tokens", new { Subject = subject });
+        mint.StatusCode.Should().Be(HttpStatusCode.OK, await mint.Content.ReadAsStringAsync());
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+            var rows = (await session.Query<AuditEvent>()
+                    .Where(e => e.Action == "viewer.token.minted").ToListAsync())
+                .Where(e => e.Metadata != null && e.Metadata["subject"].ToString() == subject)
+                .ToList();
+            rows.Should().HaveCount(1);
+            rows[0].ActorUserId.Should().NotBeNull();
+            var minted = (await mint.Content.ReadFromJsonAsync<MintResult>())!.Token;
+            rows[0].Metadata!.Values.Select(v => v.ToString()).Should().NotContain(minted, "the token is never written down");
+        }
+
+        var unset = new ConfigurationBuilder().AddInMemoryCollection().Build();
+        var thrown = () => ViewerToken.Create(unset, DefaultTenant, "x");
+        thrown.Should().Throw<InvalidOperationException>();
+        ViewerToken.Validate(unset, Viewer(), DefaultTenant).Should().BeNull();
     }
 
     private sealed record MintResult(string Token, DateTime ExpiresAt, string Header);

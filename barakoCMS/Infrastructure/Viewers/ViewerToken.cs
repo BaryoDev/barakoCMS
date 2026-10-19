@@ -23,18 +23,35 @@ internal static class ViewerToken
 {
     public const string Header = "X-Viewer-Token";
     public static readonly TimeSpan DefaultLifetime = TimeSpan.FromHours(1);
-    public static readonly TimeSpan MaxLifetime = TimeSpan.FromHours(24);
+    public static readonly TimeSpan MaxLifetime = TimeSpan.FromHours(8);
 
     private const string PurposeClaim = "purpose";
     private const string PurposeValue = "viewer";
     private const string TenantClaim = "vtenant";
     private const string SubjectClaim = "vsub";
 
+    private static readonly JwtSecurityTokenHandler Handler = new();
+    private sealed record CachedKey(string Raw, SymmetricSecurityKey Key);
+    private static CachedKey? _key;
+
+    public static bool IsConfigured(IConfiguration config) => !string.IsNullOrEmpty(config["JWT:Key"]);
+
+    private static SymmetricSecurityKey KeyFor(string raw)
+    {
+        if (_key is { } cached && cached.Raw == raw) return cached.Key;
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(raw));
+        _key = new CachedKey(raw, key);
+        return key;
+    }
+
     private static string Audience(IConfiguration config) => (config["JWT:Audience"] ?? string.Empty) + ":viewer";
 
     public static (string Token, DateTime ExpiresAt) Create(
         IConfiguration config, string tenant, string subject, TimeSpan? lifetime = null)
     {
+        if (!IsConfigured(config))
+            throw new InvalidOperationException("JWT:Key is not set, so a viewer token cannot be signed.");
+
         var expiresAt = DateTime.UtcNow.Add(lifetime ?? DefaultLifetime);
         var token = JwtBearer.CreateToken(o =>
         {
@@ -60,7 +77,7 @@ internal static class ViewerToken
         var parameters = new TokenValidationParameters
         {
             ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)),
+            IssuerSigningKey = KeyFor(key),
             ValidateLifetime = true,
             ClockSkew = TimeSpan.FromSeconds(30),
             ValidateIssuer = !string.IsNullOrEmpty(config["JWT:Issuer"]),
@@ -71,12 +88,12 @@ internal static class ViewerToken
 
         try
         {
-            var principal = new JwtSecurityTokenHandler().ValidateToken(token, parameters, out _);
+            var principal = Handler.ValidateToken(token, parameters, out _);
             if (Claim(principal, PurposeClaim) != PurposeValue) return null;
             if (!string.Equals(Claim(principal, TenantClaim), tenant, StringComparison.OrdinalIgnoreCase)) return null;
             return Claim(principal, SubjectClaim) is { Length: > 0 } sub ? new ViewerIdentity(sub) : null;
         }
-        catch
+        catch (Exception e) when (e is SecurityTokenException or ArgumentException)
         {
             return null;
         }
