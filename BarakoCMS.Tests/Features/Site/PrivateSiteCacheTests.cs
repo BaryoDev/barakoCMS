@@ -5,6 +5,8 @@ using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
+using barakoCMS.Infrastructure.Multitenancy;
+using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 
 namespace BarakoCMS.Tests.Features.Site;
@@ -160,6 +162,41 @@ public class PrivateSiteCacheTests
             await session.SaveChangesAsync(Ct);
         }
 
+        (await StatusAsync(tenant, type)).Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task A_site_set_private_inside_a_batch_refuses_the_next_request_after_the_batch_commits()
+    {
+        var (tenant, type) = await PublicTenantAsync();
+        await StoreSiteAsync(tenant, "Live");
+        (await StatusAsync(tenant, type)).Should().Be(HttpStatusCode.OK, "this request caches the public answer");
+
+        using var outer = _fixture.Services.CreateScope();
+        outer.ServiceProvider.GetRequiredService<TenantContext>().Slug = tenant;
+        var runner = outer.ServiceProvider.GetRequiredService<IContentBatchRunner>();
+        var duringBatch = HttpStatusCode.Unused;
+
+        await runner.RunAsync(async (sp, ct) =>
+        {
+            var session = sp.GetRequiredService<IDocumentSession>();
+            session.Store(new Content
+            {
+                Id = Guid.NewGuid(),
+                ContentType = "site",
+                Status = ContentStatus.Published,
+                Sensitivity = SensitivityLevel.Public,
+                Data = new Dictionary<string, object> { ["Mode"] = "Private" },
+            });
+            await session.SaveChangesAsync(ct);
+
+            // Another connection: the batch has flushed but not committed, so this still sees a public tenant
+            // and caches that under the generation the flush produced.
+            duringBatch = await StatusAsync(tenant, type);
+            return new ContentBatchOutcome<bool>(true, true);
+        }, Ct);
+
+        duringBatch.Should().Be(HttpStatusCode.OK, "the batch has not committed, or the read between save and commit proves nothing");
         (await StatusAsync(tenant, type)).Should().Be(HttpStatusCode.NotFound);
     }
 

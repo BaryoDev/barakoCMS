@@ -58,6 +58,11 @@ public sealed class ContentBatchRunner(
             batch.StartDeferredStreams(session);
             await session.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
+
+            // The listener cleared this at each flush, before the transaction committed. A request
+            // between the two read the old state on its own connection and cached it, so the tenant
+            // is cleared again now that the writes are visible.
+            scope.ServiceProvider.GetRequiredService<PrivateSiteCache>().Invalidate(tenant.Slug);
         }
         else
         {
