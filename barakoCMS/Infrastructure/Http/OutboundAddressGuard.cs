@@ -159,6 +159,8 @@ internal sealed class OutboundAddressGuard
     /// </remarks>
     public static bool IsBlockedAddress(IPAddress ip)
     {
+        if (IsLocalUseNat64(ip))
+            return true;
         ip = Unwrap(ip);
 
         if (IPAddress.IsLoopback(ip))
@@ -191,8 +193,8 @@ internal sealed class OutboundAddressGuard
 
     /// <summary>
     /// Returns the IPv4 address carried by an IPv4-mapped (::ffff:a.b.c.d), IPv4-compatible
-    /// (::a.b.c.d) or NAT64 (64:ff9b::a.b.c.d) address, so the IPv4 rules judge it. Anything else is
-    /// returned as given.
+    /// (::a.b.c.d), NAT64 (64:ff9b::a.b.c.d) or 6to4 (2002:aabb:ccdd::) address, so the IPv4 rules
+    /// judge it. Anything else is returned as given.
     /// </summary>
     private static IPAddress Unwrap(IPAddress ip)
     {
@@ -205,7 +207,21 @@ internal sealed class OutboundAddressGuard
         var zeroPrefix = b.AsSpan(0, 12).IndexOfAnyExcept((byte)0) < 0;
         var nat64Prefix = b[0] == 0x00 && b[1] == 0x64 && b[2] == 0xFF && b[3] == 0x9B
             && b.AsSpan(4, 8).IndexOfAnyExcept((byte)0) < 0;
+        if (b[0] == 0x20 && b[1] == 0x02)
+            return new IPAddress(b.AsSpan(2, 4));
         return zeroPrefix || nat64Prefix ? new IPAddress(b.AsSpan(12, 4)) : ip;
+    }
+
+    /// <summary>
+    /// 64:ff9b:1::/48 (RFC 8215). Where the IPv4 address sits depends on a prefix length the guard
+    /// cannot know, so the whole range is refused.
+    /// </summary>
+    private static bool IsLocalUseNat64(IPAddress ip)
+    {
+        if (ip.AddressFamily != AddressFamily.InterNetworkV6)
+            return false;
+        var b = ip.GetAddressBytes();
+        return b[0] == 0x00 && b[1] == 0x64 && b[2] == 0xFF && b[3] == 0x9B && b[4] == 0x00 && b[5] == 0x01;
     }
 
     /// <summary>
@@ -214,6 +230,8 @@ internal sealed class OutboundAddressGuard
     /// </summary>
     public static bool IsBlockedEvenWhenListed(IPAddress ip)
     {
+        if (IsLocalUseNat64(ip))
+            return true;
         ip = Unwrap(ip);
 
         if (ip.Equals(IPAddress.Any) || ip.Equals(IPAddress.IPv6Any))
