@@ -4,6 +4,7 @@ using barakoCMS.Models;
 using FastEndpoints;
 using FluentValidation;
 using Marten;
+using Marten.Patching;
 
 namespace barakoCMS.Features.ApiKeys;
 
@@ -176,8 +177,7 @@ internal class RevokeApiKeyEndpoint(IDocumentSession session) : EndpointWithoutR
         // holds one row per revocation, not one per request.
         if (!key.Revoked)
         {
-            key.Revoked = true;
-            session.Store(key);
+            session.Patch<ApiKey>(key.Id).Set(x => x.Revoked, true);
             Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
             await AuditLog.RecordAsync(session, tenant, "apikey.revoked", actorId, User.FindFirst("Username")?.Value,
                 targetType: "ApiKey", targetId: key.Id.ToString(),
@@ -231,6 +231,14 @@ internal class RotateApiKeyEndpoint(
         var old = await session.Query<ApiKey>().FirstOrDefaultAsync(k => k.Id == req.Id && k.TenantSlug == tenant, ct);
         if (old is null) { await Send.NotFoundAsync(ct); return; }
 
+        Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
+        if (old.UserId != actorId
+            && !await barakoCMS.Features.Users.PlatformRoles.IsSuperAdminAsync(session, User, ct))
+        {
+            await Send.ForbiddenAsync(ct);
+            return;
+        }
+
         var now = DateTime.UtcNow;
         if (old.Revoked || (old.ExpiresAt is { } oldExpiry && oldExpiry <= now))
         {
@@ -262,7 +270,6 @@ internal class RotateApiKeyEndpoint(
         session.Store(old);
         session.Store(fresh);
 
-        Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
         await AuditLog.RecordAsync(session, tenant, "apikey.rotated",
             actorId == Guid.Empty ? null : actorId, User.FindFirst("Username")?.Value,
             targetType: "ApiKey", targetId: fresh.Id.ToString(),
@@ -273,7 +280,16 @@ internal class RotateApiKeyEndpoint(
                 ["overlapMinutes"] = req.OverlapMinutes,
             },
             ct: ct);
-        await session.SaveChangesAsync(ct);
+        try
+        {
+            await session.SaveChangesAsync(ct);
+        }
+        catch (JasperFx.ConcurrencyException)
+        {
+            AddError("The key changed while it was being rotated. Try again.");
+            await Send.ErrorsAsync(409, ct);
+            return;
+        }
 
         await Send.OkAsync(new CreateApiKeyResponse(
             fresh.Id, generated.Secret, fresh.Prefix, fresh.Name, fresh.Scopes,

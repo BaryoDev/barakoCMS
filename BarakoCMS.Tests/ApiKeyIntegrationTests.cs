@@ -599,5 +599,103 @@ public class ApiKeyIntegrationTests
         (await _client.SendAsync(req)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
+    private async Task<(Guid userId, string token)> KeyAdminAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var role = new Role
+        {
+            Id = Guid.NewGuid(),
+            Name = $"Key Steward {Guid.NewGuid():N}",
+            Permissions = new(),
+            SystemCapabilities = [SystemCapabilities.ManageApiKeys],
+        };
+        session.Store(role);
+        var userId = Guid.NewGuid();
+        session.Store(new User { Id = userId, Username = $"steward-{userId}", Email = $"steward-{userId}@example.com", RoleIds = new() { role.Id } });
+        await session.SaveChangesAsync();
+        return (userId, _factory.CreateToken(new[] { role.Name }, userId.ToString()));
+    }
+
+    private async Task<int> KeyCountAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<IQuerySession>().Query<ApiKey>().CountAsync();
+    }
+
+    private async Task<HttpResponseMessage> RotateRawAsync(string jwt, Guid keyId)
+    {
+        var req = WithKey(HttpMethod.Post, $"/api/api-keys/{keyId}/rotate", jwt);
+        req.Content = JsonContent.Create(new { overlapMinutes = 60 });
+        return await _client.SendAsync(req);
+    }
+
+    [Fact]
+    public async Task An_admin_cannot_rotate_a_super_admins_key()
+    {
+        var (superId, _) = await SuperAdminAsync();
+        var (_, adminJwt) = await KeyAdminAsync();
+        var secret = await StoreKeyAsync(superId, new[] { "*" });
+        var keyId = await KeyIdOfAsync(secret);
+        var before = await KeyCountAsync();
+
+        var res = await RotateRawAsync(adminJwt, keyId);
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await KeyCountAsync()).Should().Be(before, "no replacement key may be minted");
+        using var scope = _factory.Services.CreateScope();
+        var old = await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<ApiKey>(keyId);
+        old!.ExpiresAt.Should().BeNull("the refused rotation must not touch the old key");
+    }
+
+    [Fact]
+    public async Task An_owner_can_rotate_their_own_key()
+    {
+        var (adminId, adminJwt) = await KeyAdminAsync();
+        var secret = await StoreKeyAsync(adminId, new[] { "content:read" });
+
+        var (newId, newSecret) = await RotateAsync(adminJwt, await KeyIdOfAsync(secret), 60);
+
+        newId.Should().NotBe(Guid.Empty);
+        (await _client.SendAsync(Get("/api/contents", secret))).StatusCode.Should().Be(HttpStatusCode.OK, "the old secret works inside the overlap");
+        (await _client.SendAsync(Get("/api/contents", newSecret))).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task A_super_admin_can_rotate_another_users_key()
+    {
+        var (ownerId, _) = await KeyAdminAsync();
+        var (_, superJwt) = await SuperAdminAsync();
+        var secret = await StoreKeyAsync(ownerId, new[] { "content:read" });
+
+        var (newId, _) = await RotateAsync(superJwt, await KeyIdOfAsync(secret), 60);
+
+        newId.Should().NotBe(Guid.Empty);
+    }
+
+    [Fact]
+    public async Task A_revoke_between_the_rotation_read_and_write_stays_revoked()
+    {
+        var (userId, jwt) = await SuperAdminAsync();
+        var keyId = await KeyIdOfAsync(await StoreKeyAsync(userId, new[] { "content:read" }));
+
+        using var scope = _factory.Services.CreateScope();
+        var rotation = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var loaded = await rotation.LoadAsync<ApiKey>(keyId);
+        loaded!.Revoked.Should().BeFalse();
+
+        var revoke = await _client.SendAsync(WithKey(HttpMethod.Delete, $"/api/api-keys/{keyId}", jwt));
+        revoke.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        loaded.ExpiresAt = DateTime.UtcNow.AddMinutes(60);
+        rotation.Store(loaded);
+        var save = async () => await rotation.SaveChangesAsync();
+        await save.Should().ThrowAsync<JasperFx.ConcurrencyException>();
+
+        using var check = _factory.Services.CreateScope();
+        var after = await check.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<ApiKey>(keyId);
+        after!.Revoked.Should().BeTrue();
+    }
+
     private sealed record CreatedKey(Guid Id, string Key, string Prefix, string Name);
 }
