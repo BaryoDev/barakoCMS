@@ -697,5 +697,72 @@ public class ApiKeyIntegrationTests
         after!.Revoked.Should().BeTrue();
     }
 
+    [Fact]
+    public async Task A_wildcard_key_is_refused_on_files_and_a_files_key_is_allowed()
+    {
+        var (userId, _) = await SuperAdminAsync();
+        var wildcard = await StoreKeyAsync(userId, new[] { "*" });
+        var explicitKey = await StoreKeyAsync(userId, new[] { "files:read", "files:write" });
+
+        (await _client.SendAsync(Get("/api/files", wildcard))).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await UploadWithKeyAsync(wildcard)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await _client.SendAsync(Get("/api/files", explicitKey))).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await UploadWithKeyAsync(explicitKey)).StatusCode.Should().Be(HttpStatusCode.Created);
+    }
+
+    [Fact]
+    public async Task A_denied_rotation_writes_an_audit_row_naming_the_actor_and_key()
+    {
+        var (superId, _) = await SuperAdminAsync();
+        var (adminId, adminJwt) = await KeyAdminAsync();
+        var keyId = await KeyIdOfAsync(await StoreKeyAsync(superId, new[] { "*" }));
+
+        (await RotateRawAsync(adminJwt, keyId)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        using var scope = _factory.Services.CreateScope();
+        var rows = await scope.ServiceProvider.GetRequiredService<IQuerySession>().Query<AuditEvent>()
+            .Where(e => e.Action == "apikey.rotate.denied" && e.TargetId == keyId.ToString()).ToListAsync();
+        rows.Should().HaveCount(1);
+        rows[0].ActorUserId.Should().Be(adminId);
+    }
+
+    [Fact]
+    public async Task Rotating_a_key_whose_owner_no_longer_exists_is_rejected()
+    {
+        var (_, superJwt) = await SuperAdminAsync();
+        var keyId = await KeyIdOfAsync(await StoreKeyAsync(Guid.NewGuid(), new[] { "content:read" }));
+        var before = await KeyCountAsync();
+
+        (await RotateRawAsync(superJwt, keyId)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await KeyCountAsync()).Should().Be(before);
+    }
+
+    [Fact]
+    public async Task A_rotation_that_loses_a_race_with_a_revoke_answers_409_and_the_key_stays_revoked()
+    {
+        var (userId, jwt) = await SuperAdminAsync();
+        var keyId = await KeyIdOfAsync(await StoreKeyAsync(userId, new[] { "content:read" }));
+        var before = await KeyCountAsync();
+
+        RotateApiKeyEndpoint.AfterLoadForTests = async (_, _) =>
+        {
+            var revoke = await _client.SendAsync(WithKey(HttpMethod.Delete, $"/api/api-keys/{keyId}", jwt));
+            revoke.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        };
+        try
+        {
+            (await RotateRawAsync(jwt, keyId)).StatusCode.Should().Be(HttpStatusCode.Conflict);
+        }
+        finally
+        {
+            RotateApiKeyEndpoint.AfterLoadForTests = null;
+        }
+
+        (await KeyCountAsync()).Should().Be(before, "the replacement must not be stored");
+        using var scope = _factory.Services.CreateScope();
+        var after = await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<ApiKey>(keyId);
+        after!.Revoked.Should().BeTrue();
+    }
+
     private sealed record CreatedKey(Guid Id, string Key, string Prefix, string Name);
 }

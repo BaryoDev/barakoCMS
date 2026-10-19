@@ -58,6 +58,9 @@ public class ApiKeyServiceTests
     [InlineData(new string[0], "content:read", false)]      // no scopes satisfies nothing
     [InlineData(new[] { "content:write" }, "content:destructive", false)]
     [InlineData(new[] { "*" }, "content:destructive", true)]
+    [InlineData(new[] { "*" }, "files:read", false)]
+    [InlineData(new[] { "*" }, "files:write", false)]
+    [InlineData(new[] { "files:read" }, "files:read", true)]
     public void Satisfies_EnforcesScopes(string[] granted, string required, bool expected)
     {
         ApiKeyScopes.Satisfies(granted, required).Should().Be(expected);

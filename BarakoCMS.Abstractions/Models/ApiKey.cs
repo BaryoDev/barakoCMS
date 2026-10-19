@@ -65,10 +65,13 @@ public static class ApiKeyScopes
     public const string ContentTypeRead = "contenttype:read";
     public const string ContentTypeWrite = "contenttype:write";
 
-    /// <summary>Reading under <c>/api/files</c>: the list, metadata, downloads and usage.</summary>
+    /// <summary>
+    /// Reading under <c>/api/files</c>: the list, metadata, downloads and usage. Not implied by
+    /// <see cref="All"/>, because keys made before the files routes opened to keys must not gain them.
+    /// </summary>
     public const string FilesRead = "files:read";
 
-    /// <summary>Uploading, changing and deleting under <c>/api/files</c>.</summary>
+    /// <summary>Uploading, changing and deleting under <c>/api/files</c>. Not implied by <see cref="All"/>.</summary>
     public const string FilesWrite = "files:write";
 
     /// <summary>
@@ -87,7 +90,14 @@ public static class ApiKeyScopes
 
     public static bool IsKnown(string scope) => !string.IsNullOrWhiteSpace(scope) && Known.Contains(scope);
 
-    /// <summary>Does a key's granted scope set satisfy a required scope? <c>*</c> satisfies everything.</summary>
-    public static bool Satisfies(IEnumerable<string> granted, string required) =>
-        granted.Any(s => s == All || string.Equals(s, required, StringComparison.OrdinalIgnoreCase));
+    /// <summary>
+    /// Does a key's granted scope set satisfy a required scope? <c>*</c> satisfies everything except
+    /// the files scopes, which a key has to name.
+    /// </summary>
+    public static bool Satisfies(IEnumerable<string> granted, string required)
+    {
+        var explicitOnly = required is FilesRead or FilesWrite;
+        return granted.Any(s => (s == All && !explicitOnly)
+                                || string.Equals(s, required, StringComparison.OrdinalIgnoreCase));
+    }
 }

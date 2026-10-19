@@ -235,6 +235,11 @@ internal class RotateApiKeyEndpoint(
         if (old.UserId != actorId
             && !await barakoCMS.Features.Users.PlatformRoles.IsSuperAdminAsync(session, User, ct))
         {
+            await AuditLog.RecordAsync(session, tenant, "apikey.rotate.denied",
+                actorId == Guid.Empty ? null : actorId, User.FindFirst("Username")?.Value,
+                targetType: "ApiKey", targetId: old.Id.ToString(),
+                metadata: new() { ["name"] = old.Name }, ct: ct);
+            await session.SaveChangesAsync(ct);
             await Send.ForbiddenAsync(ct);
             return;
         }
@@ -247,25 +252,22 @@ internal class RotateApiKeyEndpoint(
             return;
         }
 
-        var generated = keys.Generate();
-        var fresh = new ApiKey
+        if (await session.LoadAsync<User>(old.UserId, ct) is null)
         {
-            Id = Guid.NewGuid(),
-            Name = old.Name,
-            KeyHash = generated.Hash,
-            Prefix = generated.DisplayPrefix,
-            UserId = old.UserId,
-            TenantSlug = old.TenantSlug,
-            Scopes = [.. old.Scopes],
-            ContentTypes = [.. old.ContentTypes ?? []],
-            ExpiresAt = old.ExpiresAt,
-            Revoked = false,
-            CreatedAt = now,
-        };
+            AddError("The user who owns this key no longer exists.");
+            await Send.ErrorsAsync(400, ct);
+            return;
+        }
+
+        var generated = keys.Generate();
+        var fresh = NewKeyFrom(old, generated, now);
 
         var cutoff = now.AddMinutes(req.OverlapMinutes);
         if (old.ExpiresAt is null || cutoff < old.ExpiresAt)
             old.ExpiresAt = cutoff;
+
+        if (AfterLoadForTests is { } hook)
+            await hook(old, ct);
 
         session.Store(old);
         session.Store(fresh);
@@ -295,4 +297,23 @@ internal class RotateApiKeyEndpoint(
             fresh.Id, generated.Secret, fresh.Prefix, fresh.Name, fresh.Scopes,
             fresh.TenantSlug, fresh.ExpiresAt, fresh.CreatedAt, fresh.ContentTypes), ct);
     }
+
+    // Lets a test land a revoke between the read above and the save below, which a request cannot do
+    // deterministically. Null outside tests.
+    internal static Func<ApiKey, CancellationToken, Task>? AfterLoadForTests { get; set; }
+
+    private static ApiKey NewKeyFrom(ApiKey old, ApiKeyService.GeneratedKey generated, DateTime now) => new()
+    {
+        Id = Guid.NewGuid(),
+        Name = old.Name,
+        KeyHash = generated.Hash,
+        Prefix = generated.DisplayPrefix,
+        UserId = old.UserId,
+        TenantSlug = old.TenantSlug,
+        Scopes = [.. old.Scopes],
+        ContentTypes = [.. old.ContentTypes ?? []],
+        ExpiresAt = old.ExpiresAt,
+        Revoked = false,
+        CreatedAt = now,
+    };
 }
