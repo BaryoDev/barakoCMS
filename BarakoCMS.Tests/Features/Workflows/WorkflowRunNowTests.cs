@@ -82,7 +82,7 @@ public class WorkflowRunNowTests
         {
             Id = Guid.NewGuid(),
             Name = $"Runner {Guid.NewGuid():N}",
-            SystemCapabilities = [SystemCapabilities.RunWorkflows],
+            SystemCapabilities = [SystemCapabilities.RunWorkflows, SystemCapabilities.ViewWorkflowRuns],
             Permissions = [new ContentTypePermission { ContentTypeSlug = "article", Read = new PermissionRule { Enabled = true } }],
         }, tenantSlug, ip);
 
