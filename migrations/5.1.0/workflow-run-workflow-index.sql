@@ -1,4 +1,4 @@
--- Index workflow_runs on (WorkflowDefinitionId, UpdatedAt) on a database that existed before it (#1165).
+-- Index workflow_runs on (WorkflowDefinitionId, UpdatedAt, Id) on a database that existed before it (#1165).
 --
 -- GET /api/workflow-runs?workflowId= filters on the workflow and, with a changedSince cursor, orders
 -- on UpdatedAt, and GET /api/workflows/health reads the runs of every workflow on its page. Core
@@ -6,6 +6,9 @@
 -- AutoCreate.CreateOnly, which adds a missing object and never alters one that is there. Without
 -- this file an upgraded database still answers, but those reads scan the table, and db-assert
 -- reports the index as missing.
+--
+-- The run list pages on (UpdatedAt, Id), so the index carries Id. WorkflowRunWorkflowIndexMigrationTests
+-- applies this file next to the table Marten built and fails if the two indexes differ.
 --
 -- Run it with the API stopped, like every upgrade file.
 --
@@ -15,4 +18,4 @@
 -- barako:rerunnable
 
 CREATE INDEX IF NOT EXISTS mt_doc_workflow_runs_idx_workflow_updated_at
-    ON public.mt_doc_workflow_runs USING btree ((CAST(data ->> 'WorkflowDefinitionId' as uuid)), (public.mt_immutable_timestamptz(data ->> 'UpdatedAt')));
+    ON public.mt_doc_workflow_runs USING btree ((CAST(data ->> 'WorkflowDefinitionId' as uuid)), (public.mt_immutable_timestamptz(data ->> 'UpdatedAt')), id);

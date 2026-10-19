@@ -197,4 +197,50 @@ public class WorkflowHealthTests
         counts.GetProperty("Succeeded").GetInt32().Should().Be(1);
         counts.GetProperty("Failed").GetInt32().Should().Be(1, "the other workflow's two failures are not counted");
     }
+
+    [Fact]
+    public async Task Runs_of_the_same_workflow_in_another_tenant_are_not_counted_listed_or_averaged()
+    {
+        var id = await WorkflowAsync();
+        var own = await RunAsync(id, RunStatus.Succeeded, null, 100);
+
+        var otherTenant = "other-" + Guid.NewGuid().ToString("N")[..8];
+        await using (var session = _harness.Store.LightweightSession(otherTenant))
+        {
+            for (var i = 0; i < 3; i++)
+            {
+                var run = new WorkflowRun
+                {
+                    Id = Guid.NewGuid(), WorkflowDefinitionId = id, WorkflowName = "health",
+                    ContentId = Guid.NewGuid(), ContentType = "article", TriggerEvent = WorkflowEvents.Published,
+                    Status = RunStatus.Failed,
+                };
+                run.Actions.Add(new WorkflowActionAttempt
+                {
+                    Ordinal = 0, ActionType = WorkflowStopHarness.Counting, DurationMs = 9000,
+                    IdempotencyKey = $"{run.Id:N}-0",
+                });
+                session.Store(run);
+            }
+
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var (health, doc) = await HealthOfAsync(id);
+        using var _ = doc;
+
+        health.GetProperty("finishedRuns").GetInt32().Should().Be(1, "only the caller's tenant is counted");
+        health.GetProperty("successRate").GetDouble().Should().Be(1.0);
+        health.GetProperty("averageActionDurationMs").GetDouble().Should().Be(100);
+        var outcomes = health.GetProperty("lastOutcomes").EnumerateArray().ToList();
+        outcomes.Should().HaveCount(1);
+        outcomes[0].GetProperty("runId").GetGuid().Should().Be(own.Id);
+
+        var admin = await _harness.AdminAsync();
+        var res = await admin.GetAsync($"/api/workflow-runs?workflowId={id}", Ct);
+        using var list = JsonDocument.Parse(await res.Content.ReadAsStringAsync(Ct));
+        var counts = list.RootElement.GetProperty("statusCounts");
+        counts.GetProperty("Succeeded").GetInt32().Should().Be(1);
+        counts.GetProperty("Failed").GetInt32().Should().Be(0, "the three failures belong to another tenant");
+    }
 }

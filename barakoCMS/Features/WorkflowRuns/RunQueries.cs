@@ -4,111 +4,103 @@ using Marten;
 namespace barakoCMS.Features.WorkflowRuns;
 
 /// <summary>
-/// Reads over many runs at once that one grouped statement answers, where a query per status or per
-/// workflow would not.
+/// Reads over many runs at once. All of them go through Marten's LINQ on the caller's query session,
+/// so the tenant filter is Marten's and not something written into a statement here.
 /// </summary>
-/// <remarks>
-/// Raw SQL because Marten's LINQ has no grouped count over a JSON field. Marten adds no tenant
-/// filter to SQL it is handed, so every statement here names the session's tenant. Ids are embedded
-/// as literals only after being parsed as <see cref="Guid"/>; nothing a caller typed is embedded.
-/// </remarks>
 internal static class RunQueries
 {
-    private const string Created = "public.mt_immutable_timestamptz(data ->> 'CreatedAt')";
-
-    internal static string Table(IQuerySession session) =>
-        $"{session.DocumentStore.Options.DatabaseSchemaName}.mt_doc_workflow_runs";
-
-    internal static string InList(IEnumerable<Guid> ids) =>
-        string.Join(", ", ids.Select(id => $"'{id:D}'"));
-
-    /// <summary>The run count of every status, zero where there is none, in one statement.</summary>
+    /// <summary>The run count of every status, zero where there is none, in one grouped query.</summary>
     internal static async Task<Dictionary<string, int>> CountByStatusAsync(
         IQuerySession session, Guid? contentId, Guid? workflowId, CancellationToken ct)
     {
-        var where = "tenant_id = ?";
-        if (contentId is { } c) where += $" and data ->> 'ContentId' = '{c:D}'";
-        if (workflowId is { } w) where += $" and data ->> 'WorkflowDefinitionId' = '{w:D}'";
+        var q = session.Query<WorkflowRun>().AsQueryable();
+        if (contentId is { } c) q = q.Where(r => r.ContentId == c);
+        if (workflowId is { } w) q = q.Where(r => r.WorkflowDefinitionId == w);
 
-        var rows = await session.QueryAsync<string>(
-            $"select (data ->> 'Status') || ':' || count(*) from {Table(session)} where {where} group by data ->> 'Status'",
-            ct, session.TenantId);
+        var groups = await q
+            .GroupBy(r => r.Status)
+            .Select(g => new StatusCount { Status = g.Key, Count = g.Count() })
+            .ToListAsync(ct);
 
-        var counts = Enum.GetValues<RunStatus>().ToDictionary(s => s.ToString(), _ => 0);
-        foreach (var row in rows)
-        {
-            var parts = row.Split(':');
-            counts[((RunStatus)int.Parse(parts[0])).ToString()] = int.Parse(parts[1]);
-        }
-
+        var counts = Enum.GetValues<RunStatus>().ToDictionary(each => each.ToString(), _ => 0);
+        foreach (var group in groups) counts[group.Status.ToString()] = group.Count;
         return counts;
     }
 
-    /// <summary>Per workflow and status, the runs created at or after a time, in one statement.</summary>
+    /// <summary>
+    /// Per workflow, the runs of one status created at or after a time: one grouped query per status
+    /// asked for, however many workflows are on the page.
+    /// </summary>
     internal static async Task<Dictionary<(Guid Workflow, RunStatus Status), int>> CountSinceAsync(
-        IQuerySession session, IReadOnlyCollection<Guid> workflowIds, DateTimeOffset from, CancellationToken ct)
+        IQuerySession session, IReadOnlyCollection<Guid> workflowIds, DateTimeOffset from,
+        IEnumerable<RunStatus> statuses, CancellationToken ct)
     {
         var result = new Dictionary<(Guid, RunStatus), int>();
         if (workflowIds.Count == 0) return result;
 
-        var rows = await session.QueryAsync<string>(
-            $"select (data ->> 'WorkflowDefinitionId') || ':' || (data ->> 'Status') || ':' || count(*) from {Table(session)} "
-          + $"where tenant_id = ? and data ->> 'WorkflowDefinitionId' in ({InList(workflowIds)}) and {Created} >= ? "
-          + "group by data ->> 'WorkflowDefinitionId', data ->> 'Status'",
-            ct, session.TenantId, from.UtcDateTime);
-
-        foreach (var row in rows)
+        var ids = workflowIds.ToList();
+        foreach (var status in statuses)
         {
-            var parts = row.Split(':');
-            result[(Guid.Parse(parts[0]), (RunStatus)int.Parse(parts[1]))] = int.Parse(parts[2]);
+            var wanted = status;
+            var groups = await session.Query<WorkflowRun>()
+                .Where(r => ids.Contains(r.WorkflowDefinitionId) && r.Status == wanted && r.CreatedAt >= from)
+                .GroupBy(r => r.WorkflowDefinitionId)
+                .Select(g => new WorkflowCount { Workflow = g.Key, Count = g.Count() })
+                .ToListAsync(ct);
+
+            foreach (var group in groups) result[(group.Workflow, wanted)] = group.Count;
         }
 
         return result;
     }
 
     /// <summary>
-    /// Per workflow, the mean recorded duration of the actions of its newest runs created at or after
-    /// a time. An action with no duration is left out, and a workflow with none has no entry.
+    /// The mean recorded duration of the actions of a workflow's newest runs created at or after a
+    /// time, or null when none of them recorded one.
     /// </summary>
-    internal static async Task<Dictionary<Guid, double>> AverageDurationAsync(
-        IQuerySession session, IReadOnlyCollection<Guid> workflowIds, DateTimeOffset from, int sample, CancellationToken ct)
+    internal static async Task<double?> AverageDurationAsync(
+        IQuerySession session, Guid workflowId, DateTimeOffset from, int sample, CancellationToken ct)
     {
-        var result = new Dictionary<Guid, double>();
-        if (workflowIds.Count == 0) return result;
+        var sampled = await session.Query<WorkflowRun>()
+            .Where(r => r.WorkflowDefinitionId == workflowId && r.CreatedAt >= from)
+            .OrderByDescending(r => r.CreatedAt)
+            .Take(sample)
+            .Select(r => new RunActions { Actions = r.Actions })
+            .ToListAsync(ct);
 
-        var rows = await session.QueryAsync<string>(
-            "select s.wf || ':' || avg((a ->> 'DurationMs')::numeric)::text from ("
-          + "select data ->> 'WorkflowDefinitionId' as wf, "
-          + "case when jsonb_typeof(data -> 'Actions') = 'array' then data -> 'Actions' else '[]'::jsonb end as acts, "
-          + $"row_number() over (partition by data ->> 'WorkflowDefinitionId' order by {Created} desc) as rn "
-          + $"from {Table(session)} where tenant_id = ? and data ->> 'WorkflowDefinitionId' in ({InList(workflowIds)}) and {Created} >= ?"
-          + ") s cross join lateral jsonb_array_elements(s.acts) a "
-          + $"where s.rn <= {sample} and (a ->> 'DurationMs') is not null group by s.wf",
-            ct, session.TenantId, from.UtcDateTime);
+        var durations = sampled
+            .SelectMany(r => r.Actions)
+            .Where(a => a.DurationMs is not null)
+            .Select(a => a.DurationMs!.Value)
+            .ToList();
 
-        foreach (var row in rows)
-        {
-            var at = row.IndexOf(':');
-            result[Guid.Parse(row[..at])] = double.Parse(row[(at + 1)..], System.Globalization.CultureInfo.InvariantCulture);
-        }
-
-        return result;
+        return durations.Count == 0 ? null : durations.Average();
     }
 
-    /// <summary>Per workflow, its newest finished runs (not pending, not running), newest first, in one statement.</summary>
-    internal static async Task<ILookup<Guid, WorkflowRun>> RecentFinishedAsync(
-        IQuerySession session, IReadOnlyCollection<Guid> workflowIds, int perWorkflow, CancellationToken ct)
+    /// <summary>A workflow's newest finished runs (not pending, not running), newest first.</summary>
+    internal static async Task<IReadOnlyList<WorkflowRun>> RecentFinishedAsync(
+        IQuerySession session, Guid workflowId, int count, CancellationToken ct) =>
+        await session.Query<WorkflowRun>()
+            .Where(r => r.WorkflowDefinitionId == workflowId
+                        && r.Status != RunStatus.Pending && r.Status != RunStatus.Running)
+            .OrderByDescending(r => r.CreatedAt)
+            .Take(count)
+            .ToListAsync(ct);
+
+    private sealed class StatusCount
     {
-        if (workflowIds.Count == 0) return Array.Empty<WorkflowRun>().ToLookup(r => r.WorkflowDefinitionId);
+        public RunStatus Status { get; set; }
+        public int Count { get; set; }
+    }
 
-        var runs = await session.QueryAsync<WorkflowRun>(
-            "select data from ("
-          + $"select data, row_number() over (partition by data ->> 'WorkflowDefinitionId' order by {Created} desc) as rn "
-          + $"from {Table(session)} where tenant_id = ? and data ->> 'WorkflowDefinitionId' in ({InList(workflowIds)}) "
-          + $"and (data ->> 'Status')::int not in ({(int)RunStatus.Pending}, {(int)RunStatus.Running})"
-          + $") s where rn <= {perWorkflow} order by rn",
-            ct, session.TenantId);
+    private sealed class WorkflowCount
+    {
+        public Guid Workflow { get; set; }
+        public int Count { get; set; }
+    }
 
-        return runs.ToLookup(r => r.WorkflowDefinitionId);
+    private sealed class RunActions
+    {
+        public List<WorkflowActionAttempt> Actions { get; set; } = new();
     }
 }

@@ -85,11 +85,16 @@ internal sealed class Endpoint(IQuerySession session, IConfiguration config) : E
         var page = await session.Query<WorkflowDefinition>().OrderBy(w => w.Name).ThenBy(w => w.Id).ToPagedResponseAsync(req, ct);
 
         var ids = page.Items.Select(w => w.Id).ToList();
-        var counts = await RunQueries.CountSinceAsync(session, ids, from, ct);
-        var recent = await RunQueries.RecentFinishedAsync(session, ids, RecentOutcomes, ct);
-        var averages = await RunQueries.AverageDurationAsync(session, ids, from, DurationSample, ct);
+        var counts = await RunQueries.CountSinceAsync(
+            session, ids, from, [RunStatus.Succeeded, RunStatus.Failed, RunStatus.PartiallyFailed], ct);
 
-        var items = page.Items.Select(w => HealthOf(w, counts, recent[w.Id], averages)).ToList();
+        var items = new List<WorkflowHealth>();
+        foreach (var workflow in page.Items)
+        {
+            var recent = await RunQueries.RecentFinishedAsync(session, workflow.Id, RecentOutcomes, ct);
+            var average = await RunQueries.AverageDurationAsync(session, workflow.Id, from, DurationSample, ct);
+            items.Add(HealthOf(workflow, counts, recent, average));
+        }
 
         await Send.ResponseAsync(new HealthResponse
         {
@@ -115,7 +120,7 @@ internal sealed class Endpoint(IQuerySession session, IConfiguration config) : E
         WorkflowDefinition workflow,
         Dictionary<(Guid Workflow, RunStatus Status), int> counts,
         IEnumerable<WorkflowRun> recent,
-        Dictionary<Guid, double> averages)
+        double? average)
     {
         int Count(RunStatus status) => counts.GetValueOrDefault((workflow.Id, status));
 
@@ -136,7 +141,7 @@ internal sealed class Endpoint(IQuerySession session, IConfiguration config) : E
             }).ToList(),
             SuccessRate = finished == 0 ? null : (double)succeeded / finished,
             FinishedRuns = finished,
-            AverageActionDurationMs = averages.TryGetValue(workflow.Id, out var average) ? average : null,
+            AverageActionDurationMs = average,
         };
     }
 }
