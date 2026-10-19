@@ -37,7 +37,7 @@ internal sealed class ModuleConfigurationReader(IConfiguration configuration)
         var declared = view.Keys
             .Where(k => !string.IsNullOrWhiteSpace(k.Key))
             .GroupBy(k => k.Key.Trim(':'), StringComparer.OrdinalIgnoreCase)
-            .Select(g => g.First() with { Key = g.Key })
+            .Select(g => g.OrderBy(k => k.Scope).First() with { Key = g.Key })
             .ToArray();
 
         var leaves = new List<(string Key, string Value)>();
@@ -46,7 +46,7 @@ internal sealed class ModuleConfigurationReader(IConfiguration configuration)
         var entries = new List<ModuleConfigurationEntry>();
         foreach (var (key, value) in leaves)
         {
-            var match = declared.FirstOrDefault(d => Covers(d.Key, key));
+            var match = declared.Where(d => Covers(d.Key, key)).OrderBy(d => d.Scope).FirstOrDefault();
             if (match is null)
             {
                 // Not listed: only a deployment reader learns that it exists.
@@ -62,7 +62,9 @@ internal sealed class ModuleConfigurationReader(IConfiguration configuration)
                 continue;
             }
 
-            var show = !CredentialRedaction.IsCredentialName(key) && !CredentialRedaction.ValueHoldsCredential(value);
+            var show = value.Length <= MaxShownLength
+                && !CredentialRedaction.IsCredentialName(key)
+                && !CredentialRedaction.ValueHoldsCredential(value);
             entries.Add(Entry(section, key, show ? value : null, match.Scope));
         }
 
@@ -79,6 +81,9 @@ internal sealed class ModuleConfigurationReader(IConfiguration configuration)
         return new ModuleConfigurationResponse(
             module.Name, section, entries.OrderBy(e => e.Key, StringComparer.Ordinal).ToArray());
     }
+
+    // Value scanning misses a passphrase of plain words, and a long value is more likely text than a setting.
+    private const int MaxShownLength = 256;
 
     private ModuleConfigurationEntry Entry(string section, string key, string? shown, ConfigurationScope scope) =>
         new(key, shown, shown is null, ScopeName(scope), SourceOf($"{section}:{key}"));

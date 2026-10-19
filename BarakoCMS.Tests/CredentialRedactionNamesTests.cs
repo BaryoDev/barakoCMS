@@ -10,6 +10,19 @@ public class CredentialRedactionNamesTests
     [InlineData("Smtp:ApiKey")]
     [InlineData("db_connection_string")]
     [InlineData("ClientSecret")]
+    [InlineData("Relay:Password")]
+    [InlineData("A:B:ApiKey")]
+    [InlineData("Secrets:Foo")]
+    [InlineData("SigningKey")]
+    [InlineData("ClientKey")]
+    [InlineData("EncryptionKey")]
+    [InlineData("HmacSecret")]
+    [InlineData("Passphrase")]
+    [InlineData("Salt")]
+    [InlineData("Pin")]
+    [InlineData("SasToken")]
+    [InlineData("CertPfx")]
+    [InlineData("Jwt:Issuer")]
     public void A_name_that_reads_like_a_credential_is_one(string name)
     {
         CredentialRedaction.IsCredentialName(name).Should().BeTrue();
@@ -18,6 +31,8 @@ public class CredentialRedactionNamesTests
     [Theory]
     [InlineData("Host")]
     [InlineData("Region")]
+    [InlineData("Relay:Host")]
+    [InlineData("Shipping")]
     [InlineData("")]
     [InlineData(null)]
     public void A_plain_name_is_not(string? name)

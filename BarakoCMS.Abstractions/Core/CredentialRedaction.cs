@@ -57,10 +57,17 @@ public static class CredentialRedaction
     private static readonly Regex OpaqueRun = new(
         @"(?<![A-Za-z0-9_-])(?=[A-Za-z0-9_-]{32})(?=[A-Za-z_-]*[0-9])(?=[0-9_-]*[A-Za-z])[A-Za-z0-9_-]{32,}", Options, Timeout);
 
-    private static readonly Regex CredentialKey = new(
-        $@"^{CredentialNames}$|connection[_\s-]?string|credential|bearer|dsn", Options, Timeout);
+    // Matched against one segment of a key at a time. Wider than CredentialNames on purpose: a key
+    // that is shown by mistake is a leak, a key that is hidden by mistake is an inconvenience.
+    private static readonly Regex CredentialSegment = new(
+        @"pass|pwd|secret|token|key|hmac|salt|cert|pfx|jwt|sas|auth|session|cookie|signature|otp|credential|bearer|dsn|connection[_\s-]?string|^pin$|[_-]pin$|^pin[_-]|pincode",
+        Options, Timeout);
 
-    /// <summary>True when a key or setting name reads like a credential.</summary>
+    /// <summary>
+    /// True when a key or setting name reads like a credential. A path such as <c>Relay:Password</c>
+    /// is split on <c>:</c> and counts when any segment does, so an ancestor like <c>Secrets</c> covers
+    /// what is under it.
+    /// </summary>
     public static bool IsCredentialName(string? key)
     {
         if (string.IsNullOrWhiteSpace(key))
@@ -70,7 +77,7 @@ public static class CredentialRedaction
 
         try
         {
-            return CredentialKey.IsMatch(key);
+            return key.Split(':').Any(CredentialSegment.IsMatch);
         }
         catch (RegexMatchTimeoutException)
         {

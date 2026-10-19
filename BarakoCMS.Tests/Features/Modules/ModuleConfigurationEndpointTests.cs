@@ -28,6 +28,7 @@ public class ModuleConfigurationEndpointTests
     // Fixture values, not real credentials.
     private const string Pass = "Zx9-fixture-pass";
     private const string Hidden = "internal-relay-9";
+    private const string ShortPass = "hunter2";
 
     private readonly IntegrationTestFixture _fixture;
     private static readonly Lock Gate = new();
@@ -50,6 +51,7 @@ public class ModuleConfigurationEndpointTests
                     [$"Modules:{Declared}:Region"] = "eu-west",
                     [$"Modules:{Declared}:Password"] = Pass,
                     [$"Modules:{Declared}:Relay"] = Hidden,
+                    [$"Modules:{Declared}:Smtp:Password"] = ShortPass,
                     [$"Modules:{Silent}:Host"] = "silent.example.com",
                     [$"Modules:{Off}:Host"] = "off.example.com",
                 }));
@@ -63,6 +65,7 @@ public class ModuleConfigurationEndpointTests
                             new("Host"),
                             new("Region", ConfigurationScope.Tenant),
                             new("Password"),
+                            new("Smtp"),
                         ]),
                     },
                     new ModuleCatalogueEntry(Silent, 1, Enabled: true),
@@ -144,7 +147,7 @@ public class ModuleConfigurationEndpointTests
 
         response.StatusCode.Should().Be(HttpStatusCode.OK, body);
         var entries = Entries(body);
-        entries.Should().HaveCount(4, "Host, Region, Password and the unlisted Relay");
+        entries.Should().HaveCount(5, "Host, Region, Password, Smtp:Password under the listed Smtp, and the unlisted Relay");
 
         var byKey = entries.ToDictionary(e => e.GetProperty("key").GetString()!);
         byKey["Host"].GetProperty("value").GetString().Should().Be("mail.example.com");
@@ -152,7 +155,8 @@ public class ModuleConfigurationEndpointTests
         byKey["Region"].GetProperty("scope").GetString().Should().Be("tenant");
         byKey["Password"].GetProperty("redacted").GetBoolean().Should().BeTrue();
         byKey["Relay"].GetProperty("redacted").GetBoolean().Should().BeTrue();
-        body.Should().NotContain(Pass).And.NotContain(Hidden);
+        byKey["Smtp:Password"].GetProperty("redacted").GetBoolean().Should().BeTrue();
+        body.Should().NotContain(Pass).And.NotContain(Hidden).And.NotContain(ShortPass);
     }
 
     [Fact]

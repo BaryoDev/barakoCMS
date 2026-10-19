@@ -228,4 +228,48 @@ public class ModuleConfigurationReaderTests
         result.Entries.Should().HaveCount(1);
         result.Entries[0].Value.Should().Be("mail.example.com");
     }
+
+    [Fact]
+    public void A_key_listed_under_both_scopes_is_read_as_deployment_whatever_the_order()
+    {
+        var config = Config(($"{Section}:Region", "eu-west"));
+
+        foreach (var keys in new[] { new[] { K("Region"), K("Region", ConfigurationScope.Tenant) },
+                                     new[] { K("Region", ConfigurationScope.Tenant), K("Region") } })
+        {
+            var tenant = new ModuleConfigurationReader(config).Read(Declaring(keys), includeDeployment: false);
+            tenant.Entries.Should().BeEmpty();
+
+            var platform = new ModuleConfigurationReader(config).Read(Declaring(keys), includeDeployment: true);
+            platform.Entries.Should().HaveCount(1);
+            platform.Entries[0].Scope.Should().Be("deployment");
+        }
+    }
+
+    [Fact]
+    public void A_nested_password_under_a_listed_parent_is_not_returned_even_when_short()
+    {
+        var reader = new ModuleConfigurationReader(Config(
+            ($"{Section}:Relay:Host", "relay.example.test"),
+            ($"{Section}:Relay:Password", "hunter2")));
+
+        var response = reader.Read(Declaring(K("Relay")), includeDeployment: true);
+
+        response.Entries.Should().HaveCount(2);
+        Everything(response).Should().NotContain("hunter2").And.Contain("relay.example.test");
+    }
+
+    [Fact]
+    public void A_long_value_is_not_returned()
+    {
+        var longValue = string.Join(" ", Enumerable.Repeat("plain words", 40));
+        var reader = new ModuleConfigurationReader(Config(
+            ($"{Section}:Host", "h.example.test"),
+            ($"{Section}:Note", longValue)));
+
+        var response = reader.Read(Declaring(K("Host"), K("Note")), includeDeployment: true);
+
+        response.Entries.Should().HaveCount(2);
+        Everything(response).Should().NotContain("plain words").And.Contain("h.example.test");
+    }
 }
