@@ -253,9 +253,10 @@ internal sealed class RunListResponse
 
     /// <summary>
     /// How many runs have each status under the content filter, whatever the status filter and the
-    /// page. Every status is present, with zero where there are none.
+    /// page. Every status is present, with zero where there are none. Null when <c>changedSince</c>
+    /// was given, since a poll reads what changed and a count would add a scan to each one.
     /// </summary>
-    public Dictionary<string, int> StatusCounts { get; set; } = new();
+    public Dictionary<string, int>? StatusCounts { get; set; }
 
     /// <summary>
     /// Pass back as <c>changedSince</c> to read what changed after this response. Present only when
@@ -324,7 +325,7 @@ internal sealed class ListRunsEndpoint(
         }
 
         var now = DateTimeOffset.UtcNow;
-        var counts = await CountByStatusAsync(req.ContentId, ct);
+        var counts = since is null ? await CountByStatusAsync(req.ContentId, ct) : null;
 
         var query = session.Query<WorkflowRun>().AsQueryable();
         if (status is { } s) query = query.Where(r => r.Status == s);
