@@ -41,6 +41,12 @@ public class WorkflowRun
 
     public string TriggerEvent { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The user who started the run by hand. Null for a run an event started, and on a run stored
+    /// before this was kept.
+    /// </summary>
+    public Guid? StartedBy { get; set; }
+
     /// <summary>What runs this run, copied from the workflow when it was queued. Null for the built-in runner.</summary>
     public string? Executor { get; set; }
 

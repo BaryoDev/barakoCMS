@@ -79,6 +79,19 @@ internal interface IWorkflowRunQueue
     /// <returns>How many runs were queued.</returns>
     Task<int> FireAsync(barakoCMS.Models.Content content, string trigger, CancellationToken ct);
 
+    /// <summary>
+    /// Stages one run of one chosen workflow on one entry, as an insert on the caller's session and
+    /// without saving, so the run commits with whatever else the caller writes or not at all.
+    /// </summary>
+    /// <remarks>
+    /// An insert and not a store: with a fixed <paramref name="runId"/> a second request for the
+    /// same run fails when the session saves, with <c>JasperFx.DocumentAlreadyExistsException</c>,
+    /// instead of replacing the run that is already there. The caller checks the workflow is on and
+    /// the entry matches; this does not, since the caller is the one that tells the operator why not.
+    /// </remarks>
+    WorkflowRun StageManual(
+        WorkflowDefinition workflow, barakoCMS.Models.Content content, Guid? runId, Guid? startedBy);
+
     /// <summary>Whether any workflow fires on this event for this content type.</summary>
     Task<bool> ListensAsync(string contentType, string eventType, CancellationToken ct);
 }
@@ -189,17 +202,29 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
         return queued;
     }
 
+    public WorkflowRun StageManual(
+        WorkflowDefinition workflow, barakoCMS.Models.Content content, Guid? runId, Guid? startedBy)
+    {
+        // Sequence zero, as for a module's trigger: no stored event caused this run, and a run with
+        // no sequence to compare is never read as overtaken by a later revision of the entry.
+        var run = NewRun(workflow, content.Id, content.ContentType, WorkflowEvents.Manual, eventSequence: 0, runId);
+        run.StartedBy = startedBy;
+        session.Insert(run);
+        return run;
+    }
+
     public async Task<bool> ListensAsync(string contentType, string eventType, CancellationToken ct) =>
         WorkflowTriggers.SwitchedOn(await session.Query<WorkflowDefinition>()
             .Where(WorkflowTriggers.FiredBy(contentType, eventType))
             .ToListAsync(ct)).Count > 0;
 
     private static WorkflowRun NewRun(
-        WorkflowDefinition workflow, Guid contentId, string contentType, string eventType, long eventSequence)
+        WorkflowDefinition workflow, Guid contentId, string contentType, string eventType, long eventSequence,
+        Guid? runId = null)
     {
         var run = new WorkflowRun
         {
-            Id = Guid.NewGuid(),
+            Id = runId ?? Guid.NewGuid(),
             WorkflowDefinitionId = workflow.Id,
             WorkflowName = workflow.Name,
             ContentId = contentId,

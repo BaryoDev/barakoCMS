@@ -33,6 +33,12 @@ public static class WorkflowEvents
     /// Triggered when content that was Published changes to any other status.
     /// </summary>
     public const string Unpublished = "Unpublished";
+
+    /// <summary>
+    /// The trigger of a run an operator started by hand. Stored on the run only: a workflow does not
+    /// list it, so it is not in <see cref="All"/> and no event fires it.
+    /// </summary>
+    public const string Manual = "Manual";
     
     /// <summary>
     /// The prefix a trigger uses to name a lifecycle transition rather than one of the events

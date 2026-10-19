@@ -137,8 +137,41 @@ public static class DataSeeder
             Console.WriteLine("[DataSeeder] Granted view_sensitive to the seeded HR role");
         }
 
+        // A role of the operator's own that can author workflows could start them by hand before
+        // there was a gate for it, as nothing was gated that way. It keeps that.
+        foreach (var held in await session.Query<Role>().ToListAsync())
+        {
+            if (GrantRunWorkflows(held))
+            {
+                session.Store(held);
+                Console.WriteLine($"[DataSeeder] Granted run_workflows to role: {held.Name}");
+            }
+        }
+
         // Save roles to database before querying for them in next step
         await session.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Gives a role holding <c>manage_workflows</c> the <c>run_workflows</c> that split from it, and
+    /// reports whether that changed anything.
+    /// </summary>
+    /// <remarks>
+    /// On every seed, like the capability defaults, with the same cost: a grant an operator removed
+    /// while the role still holds <c>manage_workflows</c> comes back on the next start. Taking it
+    /// away for good means taking <c>manage_workflows</c> away too.
+    /// </remarks>
+    internal static bool GrantRunWorkflows(Role role)
+    {
+        var held = role.SystemCapabilities;
+        if (!held.Contains(barakoCMS.Models.SystemCapabilities.ManageWorkflows, StringComparer.OrdinalIgnoreCase)
+            || held.Contains(barakoCMS.Models.SystemCapabilities.RunWorkflows, StringComparer.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        role.SystemCapabilities = [.. held, barakoCMS.Models.SystemCapabilities.RunWorkflows];
+        return true;
     }
 
     /// <summary>
