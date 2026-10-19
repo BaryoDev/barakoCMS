@@ -186,4 +186,47 @@ public class StationAdminTests(ClinicProbeHost host) : IClassFixture<ClinicProbe
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await response.Content.ReadAsStringAsync()).Should().Contain("manage_stations");
     }
+
+    [Fact]
+    public async Task Station_OrdinaryCapabilityHeldByAPlatformCaller_Returns200()
+    {
+        var client = await host.ClientHoldingAsync(["manage_stations", "manage_tenants", "read_probe_tickets"]);
+
+        var response = await CreateAsync(client, "read_probe_tickets");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+    }
+
+    [Theory]
+    [InlineData("manage_tenants")]
+    [InlineData("manage_roles")]
+    [InlineData("manage_platform_roles")]
+    [InlineData("manage_users")]
+    [InlineData("manage_email_settings")]
+    [InlineData("view_hidden")]
+    public async Task Station_PlatformCapabilityTheCallerHolds_Returns400AndStoresNothing(string platformCapability)
+    {
+        var client = await host.ClientHoldingAsync(["manage_stations", "read_probe_tickets", platformCapability]);
+        var name = $"Platform {platformCapability}";
+
+        var response = await client.PostAsJsonAsync("/api/stations",
+            new CreateStationRequest { Name = name, Capabilities = ["read_probe_tickets", platformCapability] });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Contain(platformCapability);
+
+        var listed = await client.GetStringAsync("/api/stations");
+        listed.Should().NotContain(name);
+    }
+
+    [Fact]
+    public async Task Station_PlatformCapabilityInDifferentCasing_Returns400()
+    {
+        var client = await host.ClientHoldingAsync(["manage_stations", "manage_tenants"]);
+
+        var response = await CreateAsync(client, "MANAGE_TENANTS");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("manage_tenants");
+    }
 }

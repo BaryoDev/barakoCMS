@@ -96,6 +96,10 @@ internal sealed class CreateStationEndpoint(
         }
         ThrowIfAnyErrors();
 
+        foreach (var capability in capabilities.Where(barakoCMS.Features.Users.PlatformRoles.PlatformCapabilities.Contains))
+            AddError(r => r.Capabilities, $"A station cannot hold '{capability}': it is a platform capability, and a station key belongs to one tenant.");
+        ThrowIfAnyErrors();
+
         if (!Guid.TryParse(User.FindFirst("UserId")?.Value, out var createdBy))
         {
             await Send.UnauthorizedAsync(ct);

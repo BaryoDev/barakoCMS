@@ -33,7 +33,7 @@ public class ContractSurfaceVersionTests
     {
         // Both literals in one place. Moving one constant without the other turns exactly one of
         // these red, which is how a reviewer sees which surface a change claimed to break.
-        ApiContract.Version.Should().Be(8, "the admin surface, the number a console compares itself against");
+        ApiContract.Version.Should().Be(9, "the admin surface, the number a console compares itself against");
         ApiContract.DeliveryVersion.Should().Be(9, "the delivery surface, which an admin-only change leaves alone");
         ApiContract.HeaderName.Should().Be(AdminHeader, "a released console reads this name");
         ApiContract.DeliveryHeaderName.Should().Be(DeliveryHeader);
@@ -51,7 +51,7 @@ public class ContractSurfaceVersionTests
 
         response.Headers.TryGetValues(AdminHeader, out var admin).Should().BeTrue(
             "the header a released console reads keeps its name");
-        admin!.Should().ContainSingle().Which.Should().Be("8");
+        admin!.Should().ContainSingle().Which.Should().Be("9");
 
         response.Headers.TryGetValues(DeliveryHeader, out var delivery).Should().BeTrue(
             "a site reads the delivery number from whatever answer it gets first, as a console reads the admin one");
@@ -65,7 +65,7 @@ public class ContractSurfaceVersionTests
 
         var admin = meta.RootElement.GetProperty("apiContractVersion");
         admin.ValueKind.Should().Be(JsonValueKind.Number, "a released console reads it as a number");
-        admin.GetInt32().Should().Be(8);
+        admin.GetInt32().Should().Be(9);
 
         var delivery = meta.RootElement.GetProperty("deliveryContractVersion");
         delivery.ValueKind.Should().Be(JsonValueKind.Number);
