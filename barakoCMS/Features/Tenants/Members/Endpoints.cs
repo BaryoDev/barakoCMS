@@ -229,6 +229,29 @@ internal static class Members
     }
 
     /// <summary>
+    /// Appends roles to an existing membership without writing the list back, and stages the audit
+    /// entry. See <see cref="AddAsync"/>.
+    /// </summary>
+    /// <remarks>
+    /// For a grant made at sign-in, which read the membership moments before its commit. Writing
+    /// the whole list back would undo a role an administrator removed in between. An append that
+    /// skips an id already there cannot.
+    /// </remarks>
+    public static async Task AppendRolesAsync(
+        IDocumentSession session, System.Security.Claims.ClaimsPrincipal actor, string action,
+        Membership membership, IReadOnlyCollection<Guid> roleIds, Dictionary<string, object> details,
+        CancellationToken ct)
+    {
+        var before = Held.By(membership);
+        foreach (var roleId in roleIds)
+            session.Patch<Membership>(x => x.Id == membership.Id && x.Status == MembershipStatus.Active)
+                .AppendIfNotExists(x => x.RoleIds, roleId);
+
+        var after = before.RoleIds.Concat(roleIds).Distinct().ToList();
+        await RecordAsync(session, actor, action, membership, after, before, membership.Profile, details, ct);
+    }
+
+    /// <summary>
     /// Marks a membership Removed, touching no other field, and stages its audit entry. See
     /// <see cref="AddAsync"/>.
     /// </summary>

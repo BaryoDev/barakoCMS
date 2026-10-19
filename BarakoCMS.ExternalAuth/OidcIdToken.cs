@@ -15,7 +15,15 @@ internal sealed record OidcIdentity(
     string? Email,
     bool EmailVerified,
     string? Name,
-    string? Picture);
+    string? Picture)
+{
+    /// <summary>
+    /// The token's string and string-array claims, bounded, for the tenant's claim-to-role map.
+    /// Only a validated token reaches here, so a value is the provider's.
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> Claims { get; init; } =
+        new Dictionary<string, IReadOnlyList<string>>();
+}
 
 /// <summary>Why an id token was refused. Logged by name; never shown to the caller.</summary>
 internal enum OidcRefusal
@@ -204,7 +212,43 @@ internal static class OidcIdToken
             email,
             email is not null && verified,
             Bounded(Text(payload, "name"), MaxNameLength),
-            Picture(Text(payload, "picture"))), OidcRefusal.None);
+            Picture(Text(payload, "picture"))) { Claims = StringClaims(payload) }, OidcRefusal.None);
+    }
+
+    private const int MaxClaims = 64;
+    private const int MaxClaimValues = 100;
+    private const int MaxClaimValueLength = 255;
+
+    /// <summary>Top-level claims that are a string or an array of strings, within the bounds above.</summary>
+    internal static Dictionary<string, IReadOnlyList<string>> StringClaims(JsonElement payload)
+    {
+        var claims = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+        foreach (var property in payload.EnumerateObject())
+        {
+            if (claims.Count >= MaxClaims)
+            {
+                break;
+            }
+
+            var values = property.Value.ValueKind switch
+            {
+                JsonValueKind.String => [property.Value.GetString()!],
+                JsonValueKind.Array => property.Value.EnumerateArray()
+                    .Where(item => item.ValueKind == JsonValueKind.String)
+                    .Select(item => item.GetString()!)
+                    .Take(MaxClaimValues)
+                    .ToList(),
+                _ => new List<string>(),
+            };
+
+            values = values.Where(v => v.Length <= MaxClaimValueLength).ToList();
+            if (values.Count > 0)
+            {
+                claims[property.Name] = values;
+            }
+        }
+
+        return claims;
     }
 
     /// <summary>
