@@ -2,7 +2,9 @@ using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 using FastEndpoints;
+using FluentValidation;
 using Marten;
+using Marten.Patching;
 
 namespace barakoCMS.Features.ApiKeys;
 
@@ -175,8 +177,7 @@ internal class RevokeApiKeyEndpoint(IDocumentSession session) : EndpointWithoutR
         // holds one row per revocation, not one per request.
         if (!key.Revoked)
         {
-            key.Revoked = true;
-            session.Store(key);
+            session.Patch<ApiKey>(key.Id).Set(x => x.Revoked, true);
             Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
             await AuditLog.RecordAsync(session, tenant, "apikey.revoked", actorId, User.FindFirst("Username")?.Value,
                 targetType: "ApiKey", targetId: key.Id.ToString(),
@@ -187,4 +188,137 @@ internal class RevokeApiKeyEndpoint(IDocumentSession session) : EndpointWithoutR
 
         await Send.NoContentAsync(ct);
     }
+}
+
+internal sealed class RotateApiKeyRequest
+{
+    public Guid Id { get; set; }
+
+    /// <summary>Minutes the old key keeps working after the new one is issued. 0 ends it at once.</summary>
+    public int OverlapMinutes { get; set; } = 60;
+}
+
+internal sealed class RotateApiKeyValidator : Validator<RotateApiKeyRequest>
+{
+    public const int MaxOverlapMinutes = 7 * 24 * 60;
+
+    public RotateApiKeyValidator()
+    {
+        RuleFor(r => r.OverlapMinutes).InclusiveBetween(0, MaxOverlapMinutes);
+    }
+}
+
+/// <summary>
+/// POST /api/api-keys/{id}/rotate. Issues a new key with the same owner, tenant, scopes and content
+/// types, and shortens the old key's expiry to the end of the overlap window, so both work until
+/// then and only the new one after. A key that already expires sooner keeps its earlier expiry.
+/// </summary>
+[barakoCMS.Infrastructure.Filters.NoIdempotentReplay]
+internal class RotateApiKeyEndpoint(
+    IDocumentSession session,
+    ApiKeyService keys) : Endpoint<RotateApiKeyRequest, CreateApiKeyResponse>
+{
+    public override void Configure()
+    {
+        Post("/api/api-keys/{id}/rotate");
+        Definition.RequireCapability(SystemCapabilities.ManageApiKeys, "SuperAdmin", "Admin");
+    }
+
+    public override async Task HandleAsync(RotateApiKeyRequest req, CancellationToken ct)
+    {
+        var tenant = (User.FindFirst("tenant")?.Value ?? Tenant.DefaultSlug).Trim().ToLowerInvariant();
+
+        var old = await session.Query<ApiKey>().FirstOrDefaultAsync(k => k.Id == req.Id && k.TenantSlug == tenant, ct);
+        if (old is null) { await Send.NotFoundAsync(ct); return; }
+
+        Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
+        if (old.UserId != actorId
+            && !await barakoCMS.Features.Users.PlatformRoles.IsSuperAdminAsync(session, User, ct))
+        {
+            await RecordDeniedAsync(tenant, actorId, old, ct);
+            await Send.ForbiddenAsync(ct);
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        if (old.Revoked || (old.ExpiresAt is { } oldExpiry && oldExpiry <= now))
+        {
+            AddError("A revoked or expired key cannot be rotated.");
+            await Send.ErrorsAsync(400, ct);
+            return;
+        }
+
+        if (await session.LoadAsync<User>(old.UserId, ct) is null)
+        {
+            AddError("The user who owns this key no longer exists.");
+            await Send.ErrorsAsync(400, ct);
+            return;
+        }
+
+        var generated = keys.Generate();
+        var fresh = NewKeyFrom(old, generated, now);
+
+        var cutoff = now.AddMinutes(req.OverlapMinutes);
+        if (old.ExpiresAt is null || cutoff < old.ExpiresAt)
+            old.ExpiresAt = cutoff;
+
+        if (AfterLoadForTests is { } hook)
+            await hook(old, ct);
+
+        session.Store(old);
+        session.Store(fresh);
+
+        await AuditLog.RecordAsync(session, tenant, "apikey.rotated",
+            actorId == Guid.Empty ? null : actorId, User.FindFirst("Username")?.Value,
+            targetType: "ApiKey", targetId: fresh.Id.ToString(),
+            metadata: new()
+            {
+                ["name"] = fresh.Name,
+                ["replacesKeyId"] = old.Id.ToString(),
+                ["overlapMinutes"] = req.OverlapMinutes,
+            },
+            ct: ct);
+        try
+        {
+            await session.SaveChangesAsync(ct);
+        }
+        catch (JasperFx.ConcurrencyException)
+        {
+            AddError("The key changed while it was being rotated. Try again.");
+            await Send.ErrorsAsync(409, ct);
+            return;
+        }
+
+        await Send.OkAsync(new CreateApiKeyResponse(
+            fresh.Id, generated.Secret, fresh.Prefix, fresh.Name, fresh.Scopes,
+            fresh.TenantSlug, fresh.ExpiresAt, fresh.CreatedAt, fresh.ContentTypes), ct);
+    }
+
+    // Lets a test land a revoke between the read above and the save below, which a request cannot do
+    // deterministically. Null outside tests.
+    internal static Func<ApiKey, CancellationToken, Task>? AfterLoadForTests { get; set; }
+
+    private async Task RecordDeniedAsync(string tenant, Guid actorId, ApiKey key, CancellationToken ct)
+    {
+        await AuditLog.RecordAsync(session, tenant, "apikey.rotate.denied",
+            actorId == Guid.Empty ? null : actorId, User.FindFirst("Username")?.Value,
+            targetType: "ApiKey", targetId: key.Id.ToString(),
+            metadata: new() { ["name"] = key.Name }, ct: ct);
+        await session.SaveChangesAsync(ct);
+    }
+
+    private static ApiKey NewKeyFrom(ApiKey old, ApiKeyService.GeneratedKey generated, DateTime now) => new()
+    {
+        Id = Guid.NewGuid(),
+        Name = old.Name,
+        KeyHash = generated.Hash,
+        Prefix = generated.DisplayPrefix,
+        UserId = old.UserId,
+        TenantSlug = old.TenantSlug,
+        Scopes = [.. old.Scopes],
+        ContentTypes = [.. old.ContentTypes ?? []],
+        ExpiresAt = old.ExpiresAt,
+        Revoked = false,
+        CreatedAt = now,
+    };
 }

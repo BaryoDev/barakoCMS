@@ -858,6 +858,9 @@ public static class ServiceCollectionExtensions
         options.Schema.For<ApiKey>()
             .SingleTenanted() // credentials are global, like users and tokens
             .DocumentAlias("api_keys")
+            // A rotation reads the key and writes it back; this makes a revoke that lands between
+            // the two fail the rotation instead of being overwritten.
+            .UseOptimisticConcurrency(true)
             .Index(x => x.KeyHash, idx => idx.IsUnique = true) // hash lookup at auth time
             .Index(x => x.UserId)
             .Index(x => x.TenantSlug);

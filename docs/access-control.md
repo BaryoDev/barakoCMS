@@ -676,16 +676,29 @@ as its owner, so it can never do more than the owner's own roles and capabilitie
 | `content:destructive` | `DELETE /api/contents/{id}/erase` and `POST /api/contents/{id}/rollback/{versionId}` |
 | `contenttype:read` | `GET` under `/api/content-types` and `/api/schemas` |
 | `contenttype:write` | `POST`, `PUT`, `PATCH` and `DELETE` under `/api/content-types` and `/api/schemas` |
-| `*` | all of the above |
+| `files:read` | `GET` under `/api/files` (list, metadata, download, usage) |
+| `files:write` | `POST`, `PUT`, `PATCH` and `DELETE` under `/api/files` (upload, change, delete) |
+| `*` | all of the above except `files:read` and `files:write` |
 
 `content:destructive` does not include `content:write`, and `content:write` does not include it. Before
 #653 a `content:write` key could erase and roll back; such a key now gets 403 on both routes and needs
 `content:destructive` added. A `*` key is unchanged.
 
+The files scopes are never implied by `*`, so a key made before they existed does not gain file access.
+Name `files:read` or `files:write` on the key to allow it.
+
 A key can also name content types (`contentTypes` on `POST /api/api-keys`). That makes it a push key:
 it reaches `POST /api/collections/{type}/push` for the types it names and gets 403 everywhere else,
 whatever its scopes. A key that names none, which is every key made before this existed, is not
 limited by type. See [collection-push.md](collection-push.md).
+
+### Rotating a key
+
+`POST /api/api-keys/{id}/rotate` with `{ "overlapMinutes": 60 }` (0 to 10080, default 60) issues a new
+key with the same owner, tenant, scopes and content types, and returns its secret once. The old key's
+expiry is set to the end of the overlap window, so both work until then and only the new one after.
+A key that already expires sooner keeps the earlier expiry. A revoked or expired key cannot be rotated.
+See [api-key-service-principals.md](api-key-service-principals.md) for the design and what is left.
 
 ## Administrative endpoints: system capabilities
 
@@ -1129,6 +1142,7 @@ display prefix.
 | Member removed | `tenant.member.removed` | `previousStatus`, `previousRoleIds`, `previousRoleNames` |
 | API key created | `apikey.created` | `name`, `scopes`, `contentTypes`, `actsAsUserId`, `expiresAt` when set |
 | API key revoked | `apikey.revoked` | `name`, `actsAsUserId` |
+| API key rotated | `apikey.rotated` | `name`, `replacesKeyId`, `overlapMinutes` |
 | Field added | `contenttype.field_added` | `field`, `type`, `required`, `sensitivity`, `visibleToRoleIds`, `visibleToRoles` |
 | Field's level, role list or mask changed | `contenttype.field.sensitivity.changed` or `.lowered` | `from`, `to`, `visibleToRoleIdsFrom`, `visibleToRolesFrom`, `visibleToRoleIdsTo`, `visibleToRolesTo`, `maskFrom`, `maskTo` |
 
