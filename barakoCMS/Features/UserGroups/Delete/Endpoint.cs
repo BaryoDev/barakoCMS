@@ -8,6 +8,7 @@ namespace barakoCMS.Features.UserGroups.Delete;
 
 internal class Endpoint(
     IDocumentSession session,
+    barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<Request, Response>
 {
     public override void Configure()
@@ -27,8 +28,8 @@ internal class Endpoint(
         }
 
         // Check referential integrity - ensure no users belong to this group
-        var usersInGroup = await session.Query<User>()
-            .AnyAsync(u => u.GroupIds.Contains(req.Id), ct);
+        var usersInGroup = group.UserIds.Count > 0
+            || await session.Query<User>().AnyAsync(u => u.GroupIds.Contains(req.Id), ct);
 
         if (usersInGroup)
         {
@@ -45,6 +46,7 @@ internal class Endpoint(
         await AuditLog.RecordAsync(session, tenant.Slug, "usergroup.deleted", actorId, User.FindFirst("Username")?.Value,
             targetType: "UserGroup", targetId: group.Id.ToString(), metadata: new() { ["name"] = group.Name }, ct: ct);
         await session.SaveChangesAsync(ct);
+        if (group.RoleIds.Count > 0) permissionResolver.InvalidateAllPermissions();
 
         await Send.OkAsync(new Response { Message = "User group deleted successfully" }, ct);
     }
