@@ -31,7 +31,7 @@
 95 barakoCMS/Data/DataSeeder.cs::DataSeeder.SeedUsersAsync
 71 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddHstsAndCors
 79 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddJwtAndApiKeyAuth
-144 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddMartenStore
+133 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddMartenStore
 83 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddModules
 118 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.MapGlobalDocuments
 109 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.MapTenantScopedDocuments

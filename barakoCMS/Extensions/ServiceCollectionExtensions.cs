@@ -106,6 +106,26 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
+    private static void AddCommitListeners(StoreOptions options, IServiceProvider sp)
+    {
+        // The public event stream learns about content changes after the session that wrote
+        // them commits, on this instance. See ContentChangeListener for why it is not a
+        // projection.
+        options.Listeners.Add(new barakoCMS.Features.Public.Events.ContentChangeListener(
+            sp.GetRequiredService<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>(),
+            sp.GetRequiredService<ILogger<barakoCMS.Features.Public.Events.ContentChangeListener>>()));
+
+        // Realtime topic notices, after commit, on this instance. See RealtimeEventListener.
+        options.Listeners.Add(new barakoCMS.Infrastructure.Realtime.RealtimeEventListener(
+            sp.GetRequiredService<Microsoft.AspNetCore.SignalR.IHubContext<barakoCMS.Infrastructure.Realtime.RealtimeHub>>(),
+            sp.GetRequiredService<barakoCMS.Infrastructure.Realtime.TopicRegistry>(),
+            sp.GetRequiredService<ILogger<barakoCMS.Infrastructure.Realtime.RealtimeEventListener>>()));
+
+        // The private site check forgets its cached answer when a site entry is written.
+        options.Listeners.Add(new barakoCMS.Infrastructure.Multitenancy.PrivateSiteCacheListener(
+            sp.GetRequiredService<barakoCMS.Infrastructure.Multitenancy.PrivateSiteCache>()));
+    }
+
     private static (IReadOnlyList<IBarakoModule> Seen, IReadOnlyList<IBarakoModule> Enabled, IReadOnlyList<IBarakoModule> Ordered, IReadOnlyList<UnloadableModuleAssembly> Unloadable) AddModules(
         IServiceCollection services,
         IConfiguration configuration,
@@ -1002,22 +1022,7 @@ public static class ServiceCollectionExtensions
 
             options.Projections.Add(new WorkflowProjection(sp), JasperFx.Events.Projections.ProjectionLifecycle.Async);
 
-            // The public event stream learns about content changes after the session that wrote
-            // them commits, on this instance. See ContentChangeListener for why it is not a
-            // projection.
-            options.Listeners.Add(new barakoCMS.Features.Public.Events.ContentChangeListener(
-                sp.GetRequiredService<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>(),
-                sp.GetRequiredService<ILogger<barakoCMS.Features.Public.Events.ContentChangeListener>>()));
-
-            // Realtime topic notices, after commit, on this instance. See RealtimeEventListener.
-            options.Listeners.Add(new barakoCMS.Infrastructure.Realtime.RealtimeEventListener(
-                sp.GetRequiredService<Microsoft.AspNetCore.SignalR.IHubContext<barakoCMS.Infrastructure.Realtime.RealtimeHub>>(),
-                sp.GetRequiredService<barakoCMS.Infrastructure.Realtime.TopicRegistry>(),
-                sp.GetRequiredService<ILogger<barakoCMS.Infrastructure.Realtime.RealtimeEventListener>>()));
-
-            // The private site check forgets its cached answer when a site entry is written.
-            options.Listeners.Add(new barakoCMS.Infrastructure.Multitenancy.PrivateSiteCacheListener(
-                sp.GetRequiredService<barakoCMS.Infrastructure.Multitenancy.PrivateSiteCache>()));
+            AddCommitListeners(options, sp);
 
             // What goes in the correlation and causation columns is decided here, for every session
             // of the store and not only the scoped one: Marten's own default is the raw parent id of
