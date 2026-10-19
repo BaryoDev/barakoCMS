@@ -23,8 +23,14 @@ internal sealed record RunCursor(DateTimeOffset At, Guid Id)
     /// </summary>
     public static readonly TimeSpan Margin = TimeSpan.FromSeconds(5);
 
-    /// <summary>The filter for rows strictly after a cursor, with the time and the id as its two parameters.</summary>
-    public const string AfterSql = "(public.mt_immutable_timestamptz(d.data ->> 'UpdatedAt'), d.id) > (?, ?)";
+    /// <summary>
+    /// The filter for rows strictly after a cursor, with the time, the time again and the id as its
+    /// three parameters. The first comparison repeats the row comparison's leading column: Postgres
+    /// cannot start an index range from a row comparison, and can from this.
+    /// </summary>
+    public const string AfterSql =
+        "public.mt_immutable_timestamptz(d.data ->> 'UpdatedAt') >= ? "
+        + "AND (public.mt_immutable_timestamptz(d.data ->> 'UpdatedAt'), d.id) > (?, ?)";
 
     public override string ToString() => $"{At.UtcTicks.ToString(CultureInfo.InvariantCulture)}_{Id:N}";
 

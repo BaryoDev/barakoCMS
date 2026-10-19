@@ -575,6 +575,13 @@ public class WorkflowActionAttempt
     /// <summary>Appends an entry, dropping the oldest ones past <see cref="HistoryCap"/>.</summary>
     public void RecordAttempt(WorkflowAttemptEntry entry)
     {
+        // An attempt stored before history was kept has counted tries with no entries. Those are
+        // dropped ones, so the count of what was never recorded stays honest.
+        if (History.Count == 0 && DroppedAttempts == 0 && entry.Number > 1)
+        {
+            DroppedAttempts = entry.Number - 1;
+        }
+
         History.Add(entry);
 
         var over = History.Count - HistoryCap;

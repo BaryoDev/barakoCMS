@@ -225,9 +225,34 @@ internal sealed class ListRunsRequest : ListRequest
     public string? ChangedSince { get; set; }
 }
 
-/// <summary>The run list, with what a screen showing it needs besides the page.</summary>
-internal sealed class RunListResponse : PaginatedResponse<RunResponse>
+/// <summary>
+/// The run list, with what a screen showing it needs besides the page. The page fields are
+/// declared here and not inherited from <c>PaginatedResponse</c>, because a derived type is
+/// published as an allOf, which a contract diff reads as every page field removed.
+/// </summary>
+internal sealed class RunListResponse
 {
+    /// <summary>Items for the current page</summary>
+    public IReadOnlyList<RunResponse> Items { get; set; } = Array.Empty<RunResponse>();
+
+    /// <summary>Current page number (1-indexed)</summary>
+    public int Page { get; set; }
+
+    /// <summary>Number of items per page</summary>
+    public int PageSize { get; set; }
+
+    /// <summary>Total number of items across all pages</summary>
+    public int TotalItems { get; set; }
+
+    /// <summary>Total number of pages</summary>
+    public int TotalPages => PageSize > 0 ? (int)Math.Ceiling(TotalItems / (double)PageSize) : 0;
+
+    /// <summary>Whether there is a next page</summary>
+    public bool HasNextPage => Page < TotalPages;
+
+    /// <summary>Whether there is a previous page</summary>
+    public bool HasPreviousPage => Page > 1;
+
     /// <summary>
     /// How many runs have each status under the content filter, whatever the status filter and the
     /// page. Every status is present, with zero where there are none.
@@ -310,7 +335,7 @@ internal sealed class ListRunsEndpoint(
         if (since is { } from)
         {
             query = query
-                .Where(r => r.MatchesSql(RunCursor.AfterSql, from.At.UtcDateTime, from.Id))
+                .Where(r => r.MatchesSql(RunCursor.AfterSql, from.At.UtcDateTime, from.At.UtcDateTime, from.Id))
                 .OrderBy(r => r.UpdatedAt)
                 .ThenBy(r => r.Id);
         }
@@ -341,15 +366,23 @@ internal sealed class ListRunsEndpoint(
 
     private async Task<Dictionary<string, int>> CountByStatusAsync(Guid? contentId, CancellationToken ct)
     {
-        var counts = new Dictionary<string, int>();
-        foreach (var each in Enum.GetValues<RunStatus>())
-        {
-            var q = session.Query<WorkflowRun>().Where(r => r.Status == each);
-            if (contentId is { } id) q = q.Where(r => r.ContentId == id);
-            counts[each.ToString()] = await q.CountAsync(ct);
-        }
+        var q = session.Query<WorkflowRun>().AsQueryable();
+        if (contentId is { } id) q = q.Where(r => r.ContentId == id);
 
+        var groups = await q
+            .GroupBy(r => r.Status)
+            .Select(g => new StatusCount { Status = g.Key, Count = g.Count() })
+            .ToListAsync(ct);
+
+        var counts = Enum.GetValues<RunStatus>().ToDictionary(each => each.ToString(), _ => 0);
+        foreach (var group in groups) counts[group.Status.ToString()] = group.Count;
         return counts;
+    }
+
+    private sealed class StatusCount
+    {
+        public RunStatus Status { get; set; }
+        public int Count { get; set; }
     }
 }
 
