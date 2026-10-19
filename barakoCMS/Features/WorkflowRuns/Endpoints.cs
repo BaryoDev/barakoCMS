@@ -2,7 +2,9 @@ using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 using FastEndpoints;
+using barakoCMS.Features.Workflows;
 using Marten;
+using Marten.Linq.MatchesSql;
 
 namespace barakoCMS.Features.WorkflowRuns;
 
@@ -38,6 +40,12 @@ internal sealed class RunResponse
     public string? CorrelationId { get; init; }
     public List<AttemptResponse> Actions { get; init; } = new();
 
+    /// <summary>
+    /// When the run last changed. Null on a run last written before this was kept. This is what
+    /// <c>changedSince</c> on the list orders by.
+    /// </summary>
+    public DateTimeOffset? UpdatedAt { get; init; }
+
     /// <summary>When an operator abandoned the run. Null for a run nobody abandoned.</summary>
     public DateTimeOffset? AbandonedAt { get; init; }
 
@@ -62,6 +70,7 @@ internal sealed class RunResponse
         CompletedAt = r.CompletedAt,
         CancelledAt = r.CancelledAt,
         CorrelationId = barakoCMS.Infrastructure.Tracing.Correlation.Normalise(r.CorrelationId),
+        UpdatedAt = r.UpdatedAt == default ? null : r.UpdatedAt,
         Actions = r.Actions.OrderBy(a => a.Ordinal).Select(AttemptResponse.From).ToList(),
         AbandonedAt = r.AbandonedAt,
         Compensation = r.Compensation?.ToString(),
@@ -91,6 +100,15 @@ internal sealed class AttemptResponse
     public bool? Retryable { get; init; }
     public DateTimeOffset? CompletedAt { get; init; }
     public long? DurationMs { get; init; }
+
+    /// <summary>
+    /// Every try of this action, oldest first, up to 20. A run written before the history was kept
+    /// shows one entry built from what it has.
+    /// </summary>
+    public List<AttemptEntryResponse> History { get; init; } = new();
+
+    /// <summary>How many older tries were dropped to stay within the cap. Zero until there are more than 20.</summary>
+    public int DroppedAttempts { get; init; }
 
     /// <summary>Continue or Halt, as copied from the workflow when the run was queued.</summary>
     public string OnFailure { get; init; } = nameof(WorkflowFailurePolicy.Continue);
@@ -125,10 +143,40 @@ internal sealed class AttemptResponse
         Retryable = a.Retryable,
         CompletedAt = a.CompletedAt,
         DurationMs = a.DurationMs,
+        History = a.HistoryOrSynthetic(out var dropped).Select(AttemptEntryResponse.From).ToList(),
+        DroppedAttempts = dropped,
         OnFailure = a.OnFailure.ToString(),
         HaltedBy = a.HaltedBy,
         Outputs = a.Outputs,
         Compensation = a.Compensation is { } undo ? CompensationResponse.From(undo, a.Compensate?.Type) : null,
+    };
+}
+
+/// <summary>One try of an action. The error is the redacted one, the same text the attempt holds.</summary>
+internal sealed class AttemptEntryResponse
+{
+    public int Number { get; init; }
+    public DateTimeOffset? StartedAt { get; init; }
+    public DateTimeOffset? FinishedAt { get; init; }
+
+    /// <summary>The name of an <see cref="AttemptStatus"/>.</summary>
+    [NJsonSchema.Annotations.JsonSchemaType(typeof(AttemptStatus))]
+    public string Outcome { get; init; } = nameof(AttemptStatus.Failed);
+    public int? ResponseStatus { get; init; }
+    public string? Error { get; init; }
+    public bool? Retryable { get; init; }
+    public long? DurationMs { get; init; }
+
+    public static AttemptEntryResponse From(WorkflowAttemptEntry e) => new()
+    {
+        Number = e.Number,
+        StartedAt = e.StartedAt,
+        FinishedAt = e.FinishedAt,
+        Outcome = e.Outcome.ToString(),
+        ResponseStatus = e.ResponseStatus,
+        Error = e.Error,
+        Retryable = e.Retryable,
+        DurationMs = e.DurationMs,
     };
 }
 
@@ -169,6 +217,37 @@ internal sealed class ListRunsRequest : ListRequest
     [NJsonSchema.Annotations.JsonSchemaType(typeof(RunStatus), IsNullable = true)]
     public string? Status { get; set; }
     public Guid? ContentId { get; set; }
+
+    /// <summary>
+    /// A cursor from an earlier response, or a timestamp for the first call. Left out, the list is
+    /// newest first as before. Given, only runs changed after it are listed, oldest change first.
+    /// </summary>
+    public string? ChangedSince { get; set; }
+}
+
+/// <summary>The run list, with what a screen showing it needs besides the page.</summary>
+internal sealed class RunListResponse : PaginatedResponse<RunResponse>
+{
+    /// <summary>
+    /// How many runs have each status under the content filter, whatever the status filter and the
+    /// page. Every status is present, with zero where there are none.
+    /// </summary>
+    public Dictionary<string, int> StatusCounts { get; set; } = new();
+
+    /// <summary>
+    /// Pass back as <c>changedSince</c> to read what changed after this response. Present only when
+    /// <c>changedSince</c> was given.
+    /// </summary>
+    public string? Cursor { get; set; }
+
+    /// <summary>
+    /// Succeeded runs that finished before this are removed by the retention sweep. Null when the
+    /// sweep is off or keeps them forever.
+    /// </summary>
+    public DateTimeOffset? SucceededRetainedFrom { get; set; }
+
+    /// <summary>The same for failed, partially failed and cancelled runs.</summary>
+    public DateTimeOffset? FailedRetainedFrom { get; set; }
 }
 
 internal static class RunGate
@@ -184,7 +263,8 @@ internal static class RunGate
 }
 
 internal sealed class ListRunsEndpoint(
-    IQuerySession session) : Endpoint<ListRunsRequest, PaginatedResponse<RunResponse>>
+    IQuerySession session,
+    IConfiguration config) : Endpoint<ListRunsRequest, RunListResponse>
 {
     public override void Configure()
     {
@@ -194,11 +274,10 @@ internal sealed class ListRunsEndpoint(
 
     public override async Task HandleAsync(ListRunsRequest req, CancellationToken ct)
     {
-        var query = session.Query<WorkflowRun>().AsQueryable();
-
+        RunStatus? status = null;
         if (!string.IsNullOrWhiteSpace(req.Status))
         {
-            if (!Enum.TryParse<RunStatus>(req.Status, ignoreCase: true, out var status))
+            if (!Enum.TryParse<RunStatus>(req.Status, ignoreCase: true, out var parsed))
             {
                 // Refused rather than ignored. A filter that is silently dropped returns more rows
                 // than the caller asked for, and they cannot tell that from "no matches".
@@ -206,23 +285,71 @@ internal sealed class ListRunsEndpoint(
                 return;
             }
 
-            query = query.Where(r => r.Status == status);
+            status = parsed;
         }
 
-        if (req.ContentId is { } contentId)
+        RunCursor? since = null;
+        if (req.ChangedSince is not null)
         {
-            query = query.Where(r => r.ContentId == contentId);
+            if (!RunCursor.TryParse(req.ChangedSince, out var cursor))
+            {
+                ThrowError("ChangedSince must be a cursor from an earlier response or a timestamp.", 400);
+                return;
+            }
+
+            since = cursor;
         }
 
-        var page = await query.OrderByDescending(r => r.CreatedAt).ToPagedResponseAsync(req, ct);
+        var now = DateTimeOffset.UtcNow;
+        var counts = await CountByStatusAsync(req.ContentId, ct);
 
-        await Send.ResponseAsync(new PaginatedResponse<RunResponse>
+        var query = session.Query<WorkflowRun>().AsQueryable();
+        if (status is { } s) query = query.Where(r => r.Status == s);
+        if (req.ContentId is { } contentId) query = query.Where(r => r.ContentId == contentId);
+
+        if (since is { } from)
+        {
+            query = query
+                .Where(r => r.MatchesSql(RunCursor.AfterSql, from.At.UtcDateTime, from.Id))
+                .OrderBy(r => r.UpdatedAt)
+                .ThenBy(r => r.Id);
+        }
+        else
+        {
+            query = query.OrderByDescending(r => r.CreatedAt);
+        }
+
+        var page = await query.ToPagedResponseAsync(req, ct);
+
+        var windows = WorkflowRunRetentionService.ReadWindows(config);
+        var sweeping = WorkflowRunRetentionService.IsEnabled(config);
+
+        await Send.ResponseAsync(new RunListResponse
         {
             Items = page.Items.Select(RunResponse.From).ToList(),
             Page = page.Page,
             PageSize = page.PageSize,
             TotalItems = page.TotalItems,
+            StatusCounts = counts,
+            Cursor = since is { } input
+                ? RunCursor.Next(input, page.Items, req.Skip + page.Items.Count < page.TotalItems, now).ToString()
+                : null,
+            SucceededRetainedFrom = sweeping && windows.SucceededDays > 0 ? now.AddDays(-windows.SucceededDays) : null,
+            FailedRetainedFrom = sweeping && windows.FailedDays > 0 ? now.AddDays(-windows.FailedDays) : null,
         }, cancellation: ct);
+    }
+
+    private async Task<Dictionary<string, int>> CountByStatusAsync(Guid? contentId, CancellationToken ct)
+    {
+        var counts = new Dictionary<string, int>();
+        foreach (var each in Enum.GetValues<RunStatus>())
+        {
+            var q = session.Query<WorkflowRun>().Where(r => r.Status == each);
+            if (contentId is { } id) q = q.Where(r => r.ContentId == id);
+            counts[each.ToString()] = await q.CountAsync(ct);
+        }
+
+        return counts;
     }
 }
 

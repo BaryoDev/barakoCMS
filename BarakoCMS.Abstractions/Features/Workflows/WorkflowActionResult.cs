@@ -33,6 +33,12 @@ public sealed record WorkflowActionResult
     /// </remarks>
     public bool Retryable { get; } = true;
 
+    /// <summary>
+    /// The HTTP status the action's remote call answered with, when it made one and got an answer.
+    /// Kept on the run's attempt history. Null when the action made no such call or got no answer.
+    /// </summary>
+    public int? ResponseStatus { get; init; }
+
     /// <summary>Whether the action did what it was configured to do.</summary>
     public bool Succeeded { get; }
 

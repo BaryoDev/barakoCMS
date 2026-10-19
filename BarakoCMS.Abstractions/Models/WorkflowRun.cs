@@ -19,6 +19,17 @@ public class WorkflowRun
 {
     public Guid Id { get; set; }
 
+    /// <summary>
+    /// When this run was last written, stamped by the store on every save. The default value on a
+    /// run stored before this was kept.
+    /// </summary>
+    /// <remarks>
+    /// Whole milliseconds, so a cursor built from it compares equal to the stored value. A client
+    /// asking what changed reads this, ordered with <see cref="Id"/> as the tiebreak. A deletion
+    /// does not touch it, so deletions are not visible through it.
+    /// </remarks>
+    public DateTimeOffset UpdatedAt { get; set; }
+
     public Guid WorkflowDefinitionId { get; set; }
 
     /// <summary>The workflow's name when it fired, so a run stays readable after a rename.</summary>
@@ -544,6 +555,67 @@ public class WorkflowActionAttempt
 
     public int Attempts { get; set; }
 
+    /// <summary>The most entries <see cref="History"/> keeps.</summary>
+    public const int HistoryCap = 20;
+
+    /// <summary>
+    /// What each attempt at this action did, oldest first, newest <see cref="HistoryCap"/> kept.
+    /// Empty on an attempt stored before this was kept.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Attempts"/> stays the counter it was. This is the record behind the counter, since
+    /// the fields above are overwritten by every attempt and a success clears the error of the
+    /// failures before it. Add through <see cref="RecordAttempt"/> so the cap holds.
+    /// </remarks>
+    public List<WorkflowAttemptEntry> History { get; set; } = new();
+
+    /// <summary>How many entries have been dropped off the front of <see cref="History"/> by the cap.</summary>
+    public int DroppedAttempts { get; set; }
+
+    /// <summary>Appends an entry, dropping the oldest ones past <see cref="HistoryCap"/>.</summary>
+    public void RecordAttempt(WorkflowAttemptEntry entry)
+    {
+        History.Add(entry);
+
+        var over = History.Count - HistoryCap;
+        if (over > 0)
+        {
+            History.RemoveRange(0, over);
+            DroppedAttempts += over;
+        }
+    }
+
+    /// <summary>
+    /// The history to show: <see cref="History"/>, or for an attempt stored before it was kept, one
+    /// entry built from the counter and the last outcome. Never written back.
+    /// </summary>
+    /// <param name="dropped">Entries the list does not hold, which for a synthetic entry is every earlier attempt.</param>
+    public IReadOnlyList<WorkflowAttemptEntry> HistoryOrSynthetic(out int dropped)
+    {
+        if (History.Count > 0 || Attempts <= 0)
+        {
+            dropped = DroppedAttempts;
+            return History;
+        }
+
+        dropped = Attempts - 1;
+        var finished = CompletedAt;
+        return
+        [
+            new WorkflowAttemptEntry
+            {
+                Number = Attempts,
+                StartedAt = finished is { } at && DurationMs is { } ms ? at - TimeSpan.FromMilliseconds(ms) : null,
+                FinishedAt = finished,
+                Outcome = Status is AttemptStatus.Pending or AttemptStatus.Running ? AttemptStatus.Failed : Status,
+                ResponseStatus = ResponseStatus,
+                Error = Error,
+                Retryable = Retryable,
+                DurationMs = DurationMs,
+            },
+        ];
+    }
+
     public DateTimeOffset? NextAttemptAt { get; set; }
 
     /// <summary>
@@ -610,6 +682,32 @@ public class WorkflowActionAttempt
     /// otherwise.
     /// </summary>
     public CompensationState? Compensation { get; set; }
+}
+
+/// <summary>One attempt at an action: when it ran, how it ended, and why.</summary>
+/// <remarks>
+/// The error is redacted and truncated before it is stored here, for the reason it is on the action.
+/// </remarks>
+public sealed record WorkflowAttemptEntry
+{
+    /// <summary>Which attempt this was, counting from 1. Matches <see cref="WorkflowActionAttempt.Attempts"/> when it was recorded.</summary>
+    public int Number { get; set; }
+
+    public DateTimeOffset? StartedAt { get; set; }
+
+    public DateTimeOffset? FinishedAt { get; set; }
+
+    /// <summary>How the attempt ended. A failure the runner queued again is still Failed here.</summary>
+    public AttemptStatus Outcome { get; set; }
+
+    public int? ResponseStatus { get; set; }
+
+    public string? Error { get; set; }
+
+    /// <summary>For a Failed entry, whether a retry could change the answer. Null otherwise.</summary>
+    public bool? Retryable { get; set; }
+
+    public long? DurationMs { get; set; }
 }
 
 /// <summary>

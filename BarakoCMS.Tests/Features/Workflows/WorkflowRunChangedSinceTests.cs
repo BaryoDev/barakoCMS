@@ -1,0 +1,230 @@
+using System.Globalization;
+using System.Net;
+using System.Text.Json;
+using barakoCMS.Features.Workflows;
+using barakoCMS.Models;
+using FluentAssertions;
+using Marten;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace BarakoCMS.Tests.Features.Workflows;
+
+/// <summary>
+/// The run list's changedSince cursor, its per-status counts and its retention cutoffs.
+/// </summary>
+/// <remarks>
+/// The stamp is written by the store on every save, so a test that needs a particular UpdatedAt
+/// sets it with SQL after seeding, the way an older or slower writer would have left it.
+/// </remarks>
+[Collection("Sequential")]
+public class WorkflowRunChangedSinceTests
+{
+    private const string Long = "2019-12-31T00:00:00Z";
+
+    private readonly IntegrationTestFixture _factory;
+    private readonly WorkflowStopHarness _harness;
+
+    public WorkflowRunChangedSinceTests(IntegrationTestFixture factory)
+    {
+        _factory = factory;
+        _harness = new WorkflowStopHarness(factory);
+    }
+
+    private static CancellationToken Ct => WorkflowStopHarness.Ct;
+
+    private async Task StampAsync(Guid runId, DateTimeOffset at)
+    {
+        await using var session = _harness.Store.LightweightSession();
+        session.QueueSqlCommand(
+            "update public.mt_doc_workflow_runs set data = jsonb_set(data, '{UpdatedAt}', to_jsonb(?::text)) where id = ?",
+            at.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture), runId);
+        await session.SaveChangesAsync(Ct);
+    }
+
+    private async Task<(Guid ContentId, List<WorkflowRun> Runs)> SeedAsync(int count)
+    {
+        var contentId = await _harness.StoreContentAsync();
+        var runs = await _harness.SeedRunsAsync(Guid.NewGuid(), contentId, count);
+        return (contentId, runs);
+    }
+
+    private async Task<JsonDocument> ListAsync(string query)
+    {
+        var admin = await _harness.AdminAsync();
+        var res = await admin.GetAsync($"/api/workflow-runs?{query}", Ct);
+        var body = await res.Content.ReadAsStringAsync(Ct);
+        res.StatusCode.Should().Be(HttpStatusCode.OK, "{0}", body);
+        return JsonDocument.Parse(body);
+    }
+
+    private static List<Guid> Ids(JsonDocument doc) =>
+        doc.RootElement.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("id").GetGuid()).ToList();
+
+    private static string CursorOf(JsonDocument doc) => doc.RootElement.GetProperty("cursor").GetString()!;
+
+    [Fact]
+    public async Task Two_runs_sharing_one_stamp_come_back_exactly_once()
+    {
+        var (contentId, runs) = await SeedAsync(2);
+        var at = DateTimeOffset.UtcNow.AddHours(-1);
+        foreach (var run in runs) await StampAsync(run.Id, at);
+
+        using var first = await ListAsync($"contentId={contentId}&changedSince={Long}");
+        var ids = Ids(first);
+
+        ids.Should().HaveCount(2);
+        ids.Should().BeEquivalentTo(runs.Select(r => r.Id));
+
+        using var second = await ListAsync($"contentId={contentId}&changedSince={CursorOf(first)}");
+
+        Ids(second).Should().BeEmpty("both were read, and neither changed since");
+    }
+
+    [Fact]
+    public async Task More_runs_than_a_page_are_read_by_following_the_cursor_with_none_missed_or_repeated()
+    {
+        var (contentId, runs) = await SeedAsync(5);
+        var start = DateTimeOffset.UtcNow.AddHours(-2);
+        // Three share a stamp, so a page boundary falls inside a tie.
+        var stamps = new[] { 0, 1, 1, 1, 2 };
+        for (var i = 0; i < runs.Count; i++) await StampAsync(runs[i].Id, start.AddMinutes(stamps[i]));
+
+        var seen = new List<Guid>();
+        var cursor = Long;
+        for (var page = 0; page < 10; page++)
+        {
+            using var doc = await ListAsync($"contentId={contentId}&changedSince={cursor}&pageSize=2");
+            var ids = Ids(doc);
+            if (ids.Count == 0) break;
+
+            seen.AddRange(ids);
+            cursor = CursorOf(doc);
+        }
+
+        seen.Should().HaveCount(5);
+        seen.Should().OnlyHaveUniqueItems();
+        seen.Should().BeEquivalentTo(runs.Select(r => r.Id));
+        seen.First().Should().Be(runs[0].Id, "the oldest change comes first");
+        seen.Last().Should().Be(runs[4].Id);
+    }
+
+    [Fact]
+    public async Task A_run_that_commits_late_with_an_older_stamp_still_appears_on_the_next_poll()
+    {
+        var (contentId, runs) = await SeedAsync(2);
+        var now = DateTimeOffset.UtcNow;
+        await StampAsync(runs[0].Id, now.AddSeconds(-1));
+        // runs[1] has not committed its stamp yet.
+        await using (var session = _harness.Store.LightweightSession())
+        {
+            session.QueueSqlCommand("update public.mt_doc_workflow_runs set data = data - 'UpdatedAt' where id = ?", runs[1].Id);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        using var first = await ListAsync($"contentId={contentId}&changedSince={Long}");
+        Ids(first).Should().Equal(runs[0].Id);
+
+        await StampAsync(runs[1].Id, now.AddSeconds(-3));
+
+        using var second = await ListAsync($"contentId={contentId}&changedSince={CursorOf(first)}");
+
+        Ids(second).Should().Contain(runs[1].Id, "the cursor lags behind now by a margin for exactly this");
+    }
+
+    [Fact]
+    public async Task Nothing_changed_returns_an_empty_page_and_the_same_cursor()
+    {
+        var contentId = await _harness.StoreContentAsync();
+
+        using var first = await ListAsync($"contentId={contentId}&changedSince={Long}");
+        Ids(first).Should().BeEmpty();
+
+        using var second = await ListAsync($"contentId={contentId}&changedSince={CursorOf(first)}");
+
+        Ids(second).Should().BeEmpty();
+        CursorOf(second).Should().Be(CursorOf(first));
+    }
+
+    [Fact]
+    public async Task A_changedSince_that_is_not_a_cursor_is_refused()
+    {
+        var admin = await _harness.AdminAsync();
+
+        var res = await admin.GetAsync("/api/workflow-runs?changedSince=not-a-cursor", Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task A_list_without_changedSince_has_no_cursor_and_stays_newest_first()
+    {
+        var (contentId, runs) = await SeedAsync(2);
+
+        using var doc = await ListAsync($"contentId={contentId}");
+
+        Ids(doc).Should().HaveCount(2);
+        doc.RootElement.TryGetProperty("cursor", out var cursor).Should().BeTrue();
+        cursor.ValueKind.Should().Be(JsonValueKind.Null);
+        Ids(doc).Should().BeEquivalentTo(runs.Select(r => r.Id));
+    }
+
+    [Fact]
+    public async Task Status_counts_cover_every_status_and_ignore_the_status_filter_and_the_page()
+    {
+        var contentId = await _harness.StoreContentAsync();
+        var workflowId = Guid.NewGuid();
+        await _harness.SeedRunAsync(workflowId, contentId, [WorkflowStopHarness.Waiting()]);
+        await _harness.SeedRunAsync(workflowId, contentId, [WorkflowStopHarness.Waiting()]);
+        await _harness.SeedRunAsync(workflowId, contentId, [WorkflowStopHarness.Finished(AttemptStatus.Succeeded)]);
+        await _harness.SeedRunAsync(workflowId, contentId, [WorkflowStopHarness.Finished(AttemptStatus.Failed)]);
+
+        var expected = new Dictionary<string, int>
+        {
+            ["Pending"] = 2, ["Running"] = 0, ["Succeeded"] = 1, ["Failed"] = 1, ["PartiallyFailed"] = 0, ["Cancelled"] = 0,
+        };
+
+        foreach (var query in new[]
+        {
+            $"contentId={contentId}",
+            $"contentId={contentId}&status=Failed",
+            $"contentId={contentId}&status=Pending&pageSize=1&page=2",
+        })
+        {
+            using var doc = await ListAsync(query);
+            var counts = doc.RootElement.GetProperty("statusCounts").EnumerateObject()
+                .ToDictionary(p => p.Name, p => p.Value.GetInt32());
+
+            counts.Should().BeEquivalentTo(expected, query);
+        }
+
+        using var page2 = await ListAsync($"contentId={contentId}&status=Pending&pageSize=1&page=2");
+        Ids(page2).Should().HaveCount(1);
+        page2.RootElement.GetProperty("totalItems").GetInt32().Should().Be(2);
+    }
+
+    [Fact]
+    public async Task The_retention_cutoffs_are_returned_and_follow_the_configured_windows()
+    {
+        var config = _factory.Services.GetRequiredService<IConfiguration>();
+        var windows = WorkflowRunRetentionService.ReadWindows(config);
+        var sweeping = WorkflowRunRetentionService.IsEnabled(config);
+
+        using var doc = await ListAsync("pageSize=1");
+
+        void Check(string name, int days)
+        {
+            var value = doc.RootElement.GetProperty(name);
+            if (!sweeping || days <= 0)
+            {
+                value.ValueKind.Should().Be(JsonValueKind.Null, name);
+                return;
+            }
+
+            value.GetDateTimeOffset().Should().BeCloseTo(DateTimeOffset.UtcNow.AddDays(-days), TimeSpan.FromMinutes(5), name);
+        }
+
+        Check("succeededRetainedFrom", windows.SucceededDays);
+        Check("failedRetainedFrom", windows.FailedDays);
+    }
+}

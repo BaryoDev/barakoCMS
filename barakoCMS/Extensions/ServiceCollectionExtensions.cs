@@ -738,8 +738,8 @@ public static class ServiceCollectionExtensions
             // The claim is a read, a check and a write with nothing between them, and two nodes
             // must not both take the same attempt. This is what refuses the second one.
             .UseOptimisticConcurrency(true)
-            .Index(x => x.Status)
-            .Index(x => x.CreatedAt);
+            .Index(x => x.Status).Index(x => x.CreatedAt).Index(x => x.UpdatedAt);
+        options.Listeners.Add(new barakoCMS.Infrastructure.Workflows.WorkflowRunStampListener());
 
         options.Schema.For<WebhookDelivery>()
             .MultiTenanted()
