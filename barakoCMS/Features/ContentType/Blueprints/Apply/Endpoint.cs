@@ -52,6 +52,35 @@ internal sealed class Endpoint(
         Definition.RequireCapability(SystemCapabilities.ManageContentTypes, "SuperAdmin", "Admin");
     }
 
+    private async Task RefuseStandingSourcingAsync(List<ContentTypeDefinition> types, CancellationToken ct)
+    {
+        foreach (var type in types)
+        {
+            // The decision belongs to the name and outlives the definition. A name decided as event
+            // sourced cannot be recreated document sourced, which is what a blueprint type is.
+            var standing = await sourcing.GetAsync(type.Name, ct);
+            if (standing is { EventSourced: true })
+            {
+                ThrowError(
+                    $"'{type.Name}' was created before with eventSourced set to true, on "
+                    + $"{standing.DecidedAt:yyyy-MM-dd}, and a blueprint type is document sourced. "
+                    + "Create that type by hand or choose another blueprint.",
+                    409);
+            }
+        }
+    }
+
+    private async Task RefuseLimitedAudienceAsync(List<ContentTypeDefinition> types, CancellationToken ct)
+    {
+        foreach (var type in types.Where(t => t.IsPubliclyDeliverable))
+        {
+            if (await barakoCMS.Infrastructure.Services.PublicDeliveryAudience.TypeRefusalAsync(session, type.Name, ct) is { } refusal)
+            {
+                ThrowError($"Blueprint '{type.Name}' was not applied: {refusal}", 400);
+            }
+        }
+    }
+
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         var entry = catalog.Find(req.Name);
@@ -99,20 +128,8 @@ internal sealed class Endpoint(
                 409);
         }
 
-        foreach (var type in types)
-        {
-            // The decision belongs to the name and outlives the definition. A name decided as event
-            // sourced cannot be recreated document sourced, which is what a blueprint type is.
-            var standing = await sourcing.GetAsync(type.Name, ct);
-            if (standing is { EventSourced: true })
-            {
-                ThrowError(
-                    $"'{type.Name}' was created before with eventSourced set to true, on "
-                    + $"{standing.DecidedAt:yyyy-MM-dd}, and a blueprint type is document sourced. "
-                    + "Create that type by hand or choose another blueprint.",
-                    409);
-            }
-        }
+        await RefuseStandingSourcingAsync(types, ct);
+        await RefuseLimitedAudienceAsync(types, ct);
 
         // A blueprint file names roles, and a definition is stored with their ids, as on create.
         await barakoCMS.Core.RoleReferences.ToIdsAsync(session, types.SelectMany(t => t.Fields ?? []), ct);

@@ -43,7 +43,7 @@ internal class Endpoint(
         // drop them by saving the role. An empty list is what removes one.
         FieldSetRules.CarryOver(req.Permissions, role?.Permissions);
         FieldSetRules.Normalise(req.Permissions);
-        foreach (var error in await FieldSetRules.CheckAsync(session, req.Permissions, role?.Permissions, ct))
+        foreach (var error in await RoleSaveRules.CheckAsync(session, req.Permissions, role?.Permissions, ct))
             AddError(r => r.Permissions, error);
 
         if (role is not null && (req.Invitable ?? role.Invitable)

@@ -110,13 +110,10 @@ internal class Endpoint(
 
     private async Task<bool> RefusedRowLimitAsync(ContentTypeDefinition def, CancellationToken ct)
     {
-        var limited = await RowLimitedReads.RolesOfAsync(session, tenant.Slug, def.Name, ct);
-        if (limited.Count == 0) return false;
+        if (await barakoCMS.Infrastructure.Services.PublicDeliveryAudience.TypeRefusalAsync(session, def.Name, ct) is not { } refusal)
+            return false;
 
-        AddError(
-            $"'{def.Name}' cannot be delivered publicly while a role reads only some of its entries "
-            + $"({string.Join(", ", limited)}). Public delivery serves every published entry to anonymous callers, "
-            + "so it would show the ones those roles are kept from. Remove the row limit from the role first.");
+        AddError(refusal);
         await Send.ErrorsAsync(400, ct);
         return true;
     }
