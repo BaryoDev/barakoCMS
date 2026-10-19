@@ -270,6 +270,36 @@ When an item the sync archived comes back, the next run publishes the entry agai
 it. The sync remembers the last 1000 keys it archived, and the last 1000 it owns; a key it forgets
 is never archived.
 
+### An empty source
+
+By default an empty answer archives nothing, because a provider having a bad moment also answers
+with an empty list. When the source can really be empty (a search for the open items with a label,
+after the last one is closed), set `"emptyIsComplete": true` next to `archiveMissing`. A run that
+reads no items then counts as a complete read and archives every entry the sync owns. It is off by
+default, it does nothing without `archiveMissing`, and a failed run, a response with a next page or
+one cut by `maxEntries` still archives nothing. It applies to a JSON source; an empty feed still
+fails the run.
+
+### A body that says it is partial
+
+Some providers answer a partial list with a 200 and say so in the body. GitHub search sends
+`"incomplete_results": true`. `incompleteWhen` names that field:
+
+```json
+"incompleteWhen": { "path": "incomplete_results", "equalTo": "true" }
+```
+
+When the value at `path` (dotted, from the root of the response) equals `equalTo`, ignoring case,
+the run fails before anything is written, `lastError` says so, and nothing is archived. A boolean
+is compared as `true` or `false`. A response without the field is read as usual. It is unset by
+default, and a Feed sync cannot set it. `equalTo` is trimmed on save, and a JSON number is compared
+as a number, so `"1"` matches `1.0`.
+
+A missing field is read as usual for an answer that has items. On an empty answer it matters: with
+`emptyIsComplete` also set, an empty answer that lacks the `incompleteWhen` field is not a complete
+read and archives nothing, so a bare `{"items": []}` from a provider having a bad moment cannot
+archive everything.
+
 ## The floor
 
 `floorFields` names fields kept at the greater of the stored and the fetched value. A registry index

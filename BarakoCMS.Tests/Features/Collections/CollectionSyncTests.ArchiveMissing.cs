@@ -46,13 +46,15 @@ public partial class CollectionSyncTests
     }
 
     private async Task<Setup> ArrangeArchivingAsync(
-        Source source, bool archiveMissing = true, int maxEntries = 100, string? exclude = null)
+        Source source, bool archiveMissing = true, int maxEntries = 100, string? exclude = null,
+        Action<Dictionary<string, object?>>? tweak = null)
     {
         var setup = await ArrangeAsync(() => (HttpStatusCode.OK, source.Body), save: false, fields: IssueFields());
 
         var body = IssueSyncBody(setup, "{}", exclude, null);
         body["maxEntries"] = maxEntries;
         if (archiveMissing) body["archiveMissing"] = true;
+        tweak?.Invoke(body);
 
         await PostAsync(await AdminAsync(), "/api/collection-syncs", body);
         return setup;

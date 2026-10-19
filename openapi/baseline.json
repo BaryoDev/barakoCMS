@@ -2016,6 +2016,9 @@
             "format": "date-time",
             "type": "string"
           },
+          "emptyIsComplete": {
+            "type": "boolean"
+          },
           "enabled": {
             "type": "boolean"
           },
@@ -2053,6 +2056,9 @@
           "id": {
             "format": "guid",
             "type": "string"
+          },
+          "incompleteWhen": {
+            "$ref": "#/components/schemas/BarakoCMSModelsSyncIncompleteWhen"
           },
           "intervalMinutes": {
             "format": "int32",
@@ -2242,6 +2248,10 @@
             "nullable": false,
             "type": "string"
           },
+          "emptyIsComplete": {
+            "description": "With ArchiveMissing, a run that read no items counts as complete. Off unless set.",
+            "type": "boolean"
+          },
           "enabled": {
             "type": "boolean"
           },
@@ -2280,6 +2290,9 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "incompleteWhen": {
+            "$ref": "#/components/schemas/BarakoCMSModelsSyncIncompleteWhen"
           },
           "intervalMinutes": {
             "format": "int32",
@@ -11086,6 +11099,21 @@
             },
             "nullable": true,
             "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSModelsSyncIncompleteWhen": {
+        "additionalProperties": false,
+        "description": "Which value of a response body marks it as a partial read.",
+        "properties": {
+          "equalTo": {
+            "description": "The response is partial when the value at the path equals this, ignoring case. A boolean is compared as true or false.",
+            "type": "string"
+          },
+          "path": {
+            "description": "A dotted path from the root of the response, such as incomplete_results.",
+            "type": "string"
           }
         },
         "type": "object"

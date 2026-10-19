@@ -110,6 +110,28 @@ public class CollectionSync
     public bool ArchiveMissing { get; set; }
 
     /// <summary>
+    /// Treat a run that read no items as a complete read, so <see cref="ArchiveMissing"/> archives
+    /// every entry this sync owns. Off by default.
+    /// </summary>
+    /// <remarks>
+    /// For a source that really can be empty, such as a search for the open items with a label,
+    /// where the last item being closed leaves an empty list. Only means something with
+    /// <see cref="ArchiveMissing"/>. A failed run, a truncated read and a next page still archive
+    /// nothing.
+    /// </remarks>
+    public bool EmptyIsComplete { get; set; }
+
+    /// <summary>
+    /// A field of a JSON response that says the list is partial. A response where it matches fails
+    /// the run before anything is written. Unset by default.
+    /// </summary>
+    /// <remarks>
+    /// GitHub search answers a partial list with a 200 and <c>"incomplete_results": true</c>.
+    /// Ignored for a feed.
+    /// </remarks>
+    public SyncIncompleteWhen? IncompleteWhen { get; set; }
+
+    /// <summary>
     /// The keys of the entries this sync has written and not archived, recorded while
     /// <see cref="ArchiveMissing"/> is on.
     /// </summary>
@@ -267,6 +289,16 @@ public class SyncFieldRule
     /// the map does not name writes nothing, as a regex that does not match writes nothing.
     /// </summary>
     public Dictionary<string, string>? Map { get; set; }
+}
+
+/// <summary>Which value of a response body marks it as a partial read.</summary>
+public class SyncIncompleteWhen
+{
+    /// <summary>A dotted path from the root of the response, such as <c>incomplete_results</c>.</summary>
+    public string Path { get; set; } = string.Empty;
+
+    /// <summary>The response is partial when the value at the path equals this, ignoring case. A boolean is compared as true or false.</summary>
+    public string EqualTo { get; set; } = string.Empty;
 }
 
 /// <summary>When a source item is skipped rather than written.</summary>
