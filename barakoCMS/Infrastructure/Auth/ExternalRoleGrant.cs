@@ -17,8 +17,8 @@ public static class ExternalRoleGrant
 {
     /// <summary>
     /// The ids in <paramref name="roleIds"/> that a claim may not grant in <paramref name="tenantSlug"/>:
-    /// a role that does not exist, one that belongs to another tenant, and one carrying a platform
-    /// capability or SuperAdmin, which only a SuperAdmin hands out.
+    /// a role that does not exist or was deleted, one that belongs to another tenant, and one carrying
+    /// a platform capability or SuperAdmin, which only a SuperAdmin hands out.
     /// </summary>
     public static async Task<List<Guid>> RefusedAsync(
         IQuerySession session, string tenantSlug, IReadOnlyCollection<Guid> roleIds, CancellationToken ct)
@@ -32,6 +32,7 @@ public static class ExternalRoleGrant
         {
             var role = found.FirstOrDefault(r => r.Id == id);
             return role is null
+                || role.DeletedAt is not null
                 || !barakoCMS.Features.Roles.RoleScope.Reaches(role, tenantSlug)
                 || !barakoCMS.Features.Tenants.Members.Members.IsAssignable(role.Id)
                 || barakoCMS.Features.Users.PlatformRoles.CarriesPlatformCapability(role);
@@ -39,6 +40,11 @@ public static class ExternalRoleGrant
     }
 
     /// <summary>Stages the roles the person should hold in the tenant. Nothing is saved.</summary>
+    /// <remarks>
+    /// An existing membership is read again under a row lock, in a transaction the caller's next
+    /// save commits, so what this reports and audits is what that save writes. A membership an
+    /// administrator suspended, or gave the role to, after the first read is seen as it now is.
+    /// </remarks>
     /// <returns>
     /// True when a membership was added or widened. False when the tenant is the default one, is
     /// unknown or not Active, the person's membership was removed or suspended (a claim does not
@@ -80,7 +86,8 @@ public static class ExternalRoleGrant
             return true;
         }
 
-        if (membership.Status != MembershipStatus.Active)
+        membership = await LockedAsync(session, membership.Id, ct);
+        if (membership is not { Status: MembershipStatus.Active })
         {
             return false;
         }
@@ -101,5 +108,17 @@ public static class ExternalRoleGrant
         await Features.Tenants.Members.Members.AppendRolesAsync(
             session, actor, "tenant.member.updated", membership, missing, details, ct);
         return true;
+    }
+
+    /// <summary>
+    /// The membership as stored now, locked until the session's transaction ends. Opens one when
+    /// the session has none; inside a caller's transaction it joins that one.
+    /// </summary>
+    private static async Task<Membership?> LockedAsync(IDocumentSession session, Guid id, CancellationToken ct)
+    {
+        await session.BeginTransactionAsync(ct);
+        var table = $"{session.DocumentStore.Options.DatabaseSchemaName}.mt_doc_memberships";
+        await session.QueryAsync<int>($"select 1 from {table} where id = ? for update", ct, id);
+        return await session.LoadAsync<Membership>(id, ct);
     }
 }
