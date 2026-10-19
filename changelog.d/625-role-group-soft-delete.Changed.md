@@ -6,6 +6,7 @@
   Creating a role with the name of a deleted one erases the deleted one in the same save, as a
   create after a delete always worked. Role and group responses gain an optional `deletedAt` (#625).
   Before rolling back to a release without this change, erase every deleted role
-  (`GET /api/roles/deleted`, then `DELETE /api/roles/{id}/erase` for each), because an older
+  in every tenant and on every page (`GET /api/roles/deleted`, then `DELETE /api/roles/{id}/erase`
+  for each), because an older
   release ignores the deleted mark and the roles would grant again. Do the same for groups
   (`GET /api/user-groups/deleted`) and queries (`GET /api/queries?deleted=true`).

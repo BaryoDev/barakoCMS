@@ -47,6 +47,22 @@ public class QueryDeleteTests
     }
 
     [Fact]
+    public async Task The_default_list_holds_a_live_query_and_the_deleted_list_holds_only_the_deleted_one()
+    {
+        var client = await ClientFor("SuperAdmin", "Admin");
+        var live = await SaveAsync(client);
+        var gone = await SaveAsync(client);
+        await client.DeleteAsync($"/api/queries/{gone}", TestContext.Current.CancellationToken);
+
+        var liveList = await ListSlugsAsync(client, "/api/queries");
+        liveList.Should().Contain(live);
+        liveList.Should().NotContain(gone);
+        var deletedList = await ListSlugsAsync(client, "/api/queries?deleted=true");
+        deletedList.Should().Contain(gone);
+        deletedList.Should().NotContain(live);
+    }
+
+    [Fact]
     public async Task Erasing_a_deleted_query_is_final()
     {
         var client = await ClientFor("SuperAdmin", "Admin");

@@ -68,7 +68,7 @@ internal class MyTenantsEndpoint(IQuerySession session, IDocumentStore store) : 
             .ToList();
         var roles = onPage.Count == 0
             ? new Dictionary<Guid, Role>()
-            : (await session.Query<Role>().Where(r => r.Id.In(onPage)).ToListAsync(ct)).ToDictionary(r => r.Id);
+            : (await session.Query<Role>().Where(r => r.DeletedAt == null && r.Id.In(onPage)).ToListAsync(ct)).ToDictionary(r => r.Id);
 
         var items = new List<TenantSummary>(page.Items.Count);
         foreach (var tenant in page.Items)
