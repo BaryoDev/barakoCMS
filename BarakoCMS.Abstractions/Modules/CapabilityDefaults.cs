@@ -111,11 +111,7 @@ public sealed class CapabilityDefaults
 
         foreach (var seeded in Roles)
         {
-            var name = seeded.Name;
-            var role = staged.FirstOrDefault(r => r.Id == seeded.Id)
-                       ?? await LoadLiveAsync(session, seeded.Id, ct)
-                       ?? staged.FirstOrDefault(r => DeploymentRoleNames.Matches(r, name))
-                       ?? await DeploymentRoleNames.FindAsync(session, name, ct);
+            var role = await FindSeededAsync(session, staged, seeded, ct);
 
             if (role is null || !seen.Add(role.Id))
             {
@@ -147,6 +143,20 @@ public sealed class CapabilityDefaults
         }
 
         return changed;
+    }
+
+    /// <summary>
+    /// The role a seeded declaration names: the one holding the id, else the deployment's role
+    /// carrying the name. Null where neither exists. Shared with <see cref="ContentPermissionDefaults"/>.
+    /// </summary>
+    internal static async Task<Role?> FindSeededAsync(
+        IDocumentSession session, IReadOnlyList<Role> staged, SeededRole seeded, CancellationToken ct)
+    {
+        var name = seeded.Name;
+        return staged.FirstOrDefault(r => r.Id == seeded.Id)
+               ?? await LoadLiveAsync(session, seeded.Id, ct)
+               ?? staged.FirstOrDefault(r => DeploymentRoleNames.Matches(r, name))
+               ?? await DeploymentRoleNames.FindAsync(session, name, ct);
     }
 
     /// <summary>The role under <paramref name="id"/>, unless it is deleted: a deleted role is granted nothing.</summary>
