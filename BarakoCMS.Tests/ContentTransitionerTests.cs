@@ -918,7 +918,7 @@ public class ContentTransitionerTests
 
     /// <summary>
     /// One host for the class, with the transitioner wrapped so a call through the interface is
-    /// seen. Never disposed, per the note on IntegrationTestFixture.WithSetting.
+    /// seen. The fixture disposes it, see IntegrationTestFixture.WithSetting.
     /// </summary>
     private WebApplicationFactory<Program> RecordingHost()
     {

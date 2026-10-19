@@ -81,7 +81,6 @@ public class BlueprintTokenFieldTests : IDisposable
         }
         """;
 
-    // Never disposed: a derived host shares the fixture's server.
     private WebApplicationFactory<Program> BlueprintHost()
     {
         lock (Gate)

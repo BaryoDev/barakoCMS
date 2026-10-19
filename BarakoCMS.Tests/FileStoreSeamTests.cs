@@ -706,7 +706,8 @@ public class FileStoreSeamTests
 
         // A host of its own because the shared one has no scanner and no way to swap one in
         // (UploadScanningTests derives a host for the same reason). One host, three answers.
-        // Never disposed: FastEndpoints keeps a pointer to the last host that mapped endpoints.
+        // The fixture disposes it once this class is done and repoints FastEndpoints' static
+        // resolver, which names the last host that mapped endpoints (see ReleaseDerivedHostsExcept).
         var host = _factory.WithWebHostBuilder(builder =>
             builder.ConfigureServices(services =>
             {
