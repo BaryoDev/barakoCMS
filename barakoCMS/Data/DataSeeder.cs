@@ -138,14 +138,20 @@ public static class DataSeeder
         }
 
         // A role of the operator's own that can author workflows could start them by hand before
-        // there was a gate for it, as nothing was gated that way. It keeps that.
-        foreach (var held in await session.Query<Role>().ToListAsync())
+        // there was a gate for it, as nothing was gated that way. It keeps that, once: the marker
+        // stops the next start giving it back to a role an administrator took it from.
+        if (await session.LoadAsync<SeedMarker>(RunWorkflowsGrantKey) is null)
         {
-            if (GrantRunWorkflows(held))
+            foreach (var held in await session.Query<Role>().ToListAsync())
             {
-                session.Store(held);
-                Console.WriteLine($"[DataSeeder] Granted run_workflows to role: {held.Name}");
+                if (GrantRunWorkflows(held))
+                {
+                    session.Store(held);
+                    Console.WriteLine($"[DataSeeder] Granted run_workflows to role: {held.Name}");
+                }
             }
+
+            session.Store(new SeedMarker { Key = RunWorkflowsGrantKey });
         }
 
         // Save roles to database before querying for them in next step
@@ -157,10 +163,11 @@ public static class DataSeeder
     /// reports whether that changed anything.
     /// </summary>
     /// <remarks>
-    /// On every seed, like the capability defaults, with the same cost: a grant an operator removed
-    /// while the role still holds <c>manage_workflows</c> comes back on the next start. Taking it
-    /// away for good means taking <c>manage_workflows</c> away too.
+    /// Called once per tenant, guarded by <see cref="RunWorkflowsGrantKey"/>, so a grant an
+    /// administrator removed later stays removed.
     /// </remarks>
+    internal const string RunWorkflowsGrantKey = "grant-run-workflows-to-workflow-managers";
+
     internal static bool GrantRunWorkflows(Role role)
     {
         var held = role.SystemCapabilities;

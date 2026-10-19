@@ -902,7 +902,7 @@ says.
 | `Features/Workflows/*` | `manage_workflows` | `/api/workflows`, `/api/workflows/actions`, `/variables`, `/validate`, `/dry-run`, `PUT /api/workflows/{id}`, `PUT /api/workflows/{id}/enabled`, `DELETE /api/workflows/{id}`, `POST /api/workflow-runs/{id}/cancel` | SuperAdmin, Admin |
 | `Features/EmailTemplates/*` | `manage_workflows` | `POST /api/email-templates/{id}/preview`, which also needs read on the template and the entry ([email-templates.md](email-templates.md#preview)) | SuperAdmin, Admin |
 | `Features/WorkflowRuns/*` | `view_workflow_runs` | `GET /api/workflow-runs`, `GET /api/workflow-runs/{id}`, `GET /api/workflows/health`, `GET /api/workflows/{id}/debug`, `GET /api/webhook-deliveries`, `GET /api/connector-deliveries` | SuperAdmin, Admin |
-| `Features/Workflows/RunWorkflow` | `run_workflows` | `POST /api/workflows/{id}/run`. Also needs read on the entry. Granted to every role that holds `manage_workflows` when the seeder runs | SuperAdmin, Admin |
+| `Features/Workflows/RunWorkflow` | `run_workflows` | `POST /api/workflows/{id}/run`. Also needs read on the entry. Granted once to every role that holds `manage_workflows`, and not again after an administrator removes it | SuperAdmin, Admin |
 | `Features/WorkflowRuns/*` | `retry_workflow_actions` | `POST /api/workflow-runs/{id}/actions/{ordinal}/retry` | SuperAdmin, Admin |
 | `Features/WebhookDeliveries/*`, `Features/ConnectorDeliveries/*` | `view_webhook_response_bodies` | The `responseBody` field on `GET /api/webhook-deliveries`, and the `responseBody` and `requestHeaders` fields on `GET /api/connector-deliveries`, nothing else on the row | SuperAdmin |
 | `Features/Content/History/*` | `rollback_content` | `POST /api/contents/{id}/rollback/{versionId}` | SuperAdmin, Admin |

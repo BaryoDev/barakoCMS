@@ -388,6 +388,62 @@ public class WorkflowRunNowTests
         other.SystemCapabilities.Should().NotContain(SystemCapabilities.RunWorkflows);
     }
 
+    [Fact]
+    public async Task A_grant_an_administrator_removed_stays_removed_when_the_seeder_runs_again()
+    {
+        var role = new Role
+        {
+            Id = Guid.NewGuid(),
+            Name = $"Flow author {Guid.NewGuid():N}",
+            SystemCapabilities = [SystemCapabilities.ManageWorkflows],
+        };
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(role);
+            await session.SaveChangesAsync(Ct);
+            await barakoCMS.Data.DataSeeder.SeedRolesAsync(session);
+        }
+
+        var stored = await LoadRoleAsync(role.Id);
+        stored.SystemCapabilities.Should().Contain(SystemCapabilities.ManageWorkflows);
+        stored.SystemCapabilities.Should().NotContain(SystemCapabilities.RunWorkflows,
+            "the one-time grant already ran at startup, before this role existed");
+
+        // The first run of the grant on a database that has not had it: no marker.
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Delete<SeedMarker>(barakoCMS.Data.DataSeeder.RunWorkflowsGrantKey);
+            await session.SaveChangesAsync(Ct);
+            await barakoCMS.Data.DataSeeder.SeedRolesAsync(session);
+        }
+
+        (await LoadRoleAsync(role.Id)).SystemCapabilities.Should().Contain(SystemCapabilities.RunWorkflows);
+
+        // The administrator takes it away, and the seeder runs again.
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var again = await session.LoadAsync<Role>(role.Id, Ct);
+            again!.SystemCapabilities = [SystemCapabilities.ManageWorkflows];
+            session.Store(again);
+            await session.SaveChangesAsync(Ct);
+            await barakoCMS.Data.DataSeeder.SeedRolesAsync(session);
+        }
+
+        (await LoadRoleAsync(role.Id)).SystemCapabilities.Should().NotContain(SystemCapabilities.RunWorkflows);
+    }
+
+    private async Task<Role> LoadRoleAsync(Guid id)
+    {
+        await using var session = _harness.Store.QuerySession();
+        var role = await session.LoadAsync<Role>(id, Ct);
+        role.Should().NotBeNull();
+        return role!;
+    }
+
     private async Task StripAsync(string table, string field, Guid id)
     {
         await using var session = _harness.Store.LightweightSession();

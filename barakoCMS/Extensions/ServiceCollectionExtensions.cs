@@ -979,8 +979,8 @@ public static class ServiceCollectionExtensions
             MapContentDocuments(options);
 
             MapIdentityAndSettingsDocuments(options);
-
             MapTenantScopedDocuments(options);
+            options.Schema.For<SeedMarker>().MultiTenanted().DocumentAlias("seed_markers");
 
             MapGlobalDocuments(options);
 

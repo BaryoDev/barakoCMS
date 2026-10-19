@@ -568,7 +568,7 @@ The list response also carries `statusCounts`, the number of runs in each status
 
 ## Running one by hand, and how healthy a workflow is
 
-`POST /api/workflows/{id}/run` with `{ "entryId": "..." }` queues one run of that workflow on that entry and answers 202 with `{ "runId": "..." }`. The run has trigger `Manual` and `startedBy` set to the caller, and the runner picks it up like any other. It needs `run_workflows` and read access to the entry. The seeder grants `run_workflows` to every role that holds `manage_workflows`, so a role that could edit workflows keeps being able to run them. A restart grants it again to a role that had it taken off.
+`POST /api/workflows/{id}/run` with `{ "entryId": "..." }` queues one run of that workflow on that entry and answers 202 with `{ "runId": "..." }`. The run has trigger `Manual` and `startedBy` set to the caller, and the runner picks it up like any other. It needs `run_workflows` and read access to the entry. The seeder grants `run_workflows` once per tenant to every role that holds `manage_workflows`, so a role that could edit workflows keeps being able to run them. It records that it did (a `SeedMarker` document) and never grants it again, so a grant an administrator removes stays removed.
 
 Refusals:
 
