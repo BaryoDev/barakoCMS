@@ -232,9 +232,34 @@ internal sealed class ListRunsRequest : ListRequest
     public string? ChangedSince { get; set; }
 }
 
-/// <summary>The run list, with what a screen showing it needs besides the page.</summary>
-internal sealed class RunListResponse : PaginatedResponse<RunResponse>
+/// <summary>
+/// The run list, with what a screen showing it needs besides the page. The page fields are
+/// declared here and not inherited from <c>PaginatedResponse</c>, because a derived type is
+/// published as an allOf, which a contract diff reads as every page field removed.
+/// </summary>
+internal sealed class RunListResponse
 {
+    /// <summary>Items for the current page</summary>
+    public IReadOnlyList<RunResponse> Items { get; set; } = Array.Empty<RunResponse>();
+
+    /// <summary>Current page number (1-indexed)</summary>
+    public int Page { get; set; }
+
+    /// <summary>Number of items per page</summary>
+    public int PageSize { get; set; }
+
+    /// <summary>Total number of items across all pages</summary>
+    public int TotalItems { get; set; }
+
+    /// <summary>Total number of pages</summary>
+    public int TotalPages => PageSize > 0 ? (int)Math.Ceiling(TotalItems / (double)PageSize) : 0;
+
+    /// <summary>Whether there is a next page</summary>
+    public bool HasNextPage => Page < TotalPages;
+
+    /// <summary>Whether there is a previous page</summary>
+    public bool HasPreviousPage => Page > 1;
+
     /// <summary>
     /// How many runs have each status under the content and workflow filters, whatever the status filter and the
     /// page. Every status is present, with zero where there are none.
@@ -318,7 +343,7 @@ internal sealed class ListRunsEndpoint(
         if (since is { } from)
         {
             query = query
-                .Where(r => r.MatchesSql(RunCursor.AfterSql, from.At.UtcDateTime, from.Id))
+                .Where(r => r.MatchesSql(RunCursor.AfterSql, from.At.UtcDateTime, from.At.UtcDateTime, from.Id))
                 .OrderBy(r => r.UpdatedAt)
                 .ThenBy(r => r.Id);
         }

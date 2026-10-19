@@ -1155,7 +1155,10 @@ internal sealed class WorkflowRunner(
         undo.CompletedAt = DateTimeOffset.UtcNow;
     }
 
-    /// <summary>An error as it is stored: credentials removed first, so a cut cannot leave half of one.</summary>
+    /// <summary>
+    /// An error as it is stored: credentials removed first, so a cut cannot leave half of one. Every rule applies,
+    /// a GUID-shaped value included, since a key can look like one.
+    /// </summary>
     private static string? Clean(string? error) =>
         error is null ? null : Truncate(barakoCMS.Core.CredentialRedaction.Redact(error) ?? string.Empty);
 

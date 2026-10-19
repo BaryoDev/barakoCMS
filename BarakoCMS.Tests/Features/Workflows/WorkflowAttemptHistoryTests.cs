@@ -28,6 +28,58 @@ public class WorkflowAttemptHistoryTests
     }
 
     [Fact]
+    public async Task An_error_loses_a_guid_shaped_value_and_the_token_beside_it()
+    {
+        var contentId = await _harness.StoreContentAsync();
+        var missing = Guid.NewGuid();
+        WorkflowRun run = null!;
+
+        await _harness.WithHostedRunnerPausedAsync(async () =>
+        {
+            run = await _harness.SeedRunAsync(Guid.NewGuid(), contentId,
+            [
+                Action(failTimes: 5, error: $"Content {missing} not found, sent Bearer abcDEF123456xyz"),
+            ]);
+
+            await _harness.MakeDueAsync(run.Id);
+            await _harness.DrainAsync();
+        });
+
+        var attempt = (await _harness.LoadRunAsync(run.Id)).Actions.Single();
+
+        attempt.History.Should().HaveCount(1);
+        foreach (var text in new[] { attempt.Error, attempt.History[0].Error })
+        {
+            text.Should().NotContain(missing.ToString());
+            text.Should().Contain("not found");
+            text.Should().NotContain("abcDEF123456xyz");
+        }
+    }
+
+    [Fact]
+    public async Task A_run_stored_before_history_counts_its_earlier_attempts_as_dropped_when_it_gets_a_new_one()
+    {
+        var contentId = await _harness.StoreContentAsync();
+        var legacy = Action(failTimes: 9);
+        legacy.Attempts = 3;
+        WorkflowRun run = null!;
+
+        await _harness.WithHostedRunnerPausedAsync(async () =>
+        {
+            run = await _harness.SeedRunAsync(Guid.NewGuid(), contentId, [legacy]);
+            await _harness.MakeDueAsync(run.Id);
+            await _harness.DrainAsync();
+        });
+
+        var attempt = (await _harness.LoadRunAsync(run.Id)).Actions.Single();
+
+        attempt.Attempts.Should().Be(4);
+        attempt.History.Should().HaveCount(1);
+        attempt.History[0].Number.Should().Be(4);
+        attempt.DroppedAttempts.Should().Be(3);
+    }
+
+    [Fact]
     public async Task An_action_that_fails_twice_then_succeeds_keeps_three_entries_in_order()
     {
         var contentId = await _harness.StoreContentAsync();

@@ -6715,6 +6715,53 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesWorkflowRunsAttemptEntryResponse": {
+        "additionalProperties": false,
+        "description": "One try of an action. The error is the redacted one, the same text the attempt holds.",
+        "properties": {
+          "durationMs": {
+            "format": "int64",
+            "nullable": true,
+            "type": "integer"
+          },
+          "error": {
+            "nullable": true,
+            "type": "string"
+          },
+          "finishedAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "number": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "outcome": {
+            "description": "The name of an AttemptStatus.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsAttemptStatus"
+              }
+            ]
+          },
+          "responseStatus": {
+            "format": "int32",
+            "nullable": true,
+            "type": "integer"
+          },
+          "retryable": {
+            "nullable": true,
+            "type": "boolean"
+          },
+          "startedAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesWorkflowRunsAttemptResponse": {
         "additionalProperties": false,
         "description": "One action's outcome as the API describes it.",
@@ -6740,6 +6787,11 @@
             "nullable": true,
             "type": "string"
           },
+          "droppedAttempts": {
+            "description": "How many older tries were dropped to stay within the cap. Zero until there are more than 20.",
+            "format": "int32",
+            "type": "integer"
+          },
           "durationMs": {
             "format": "int64",
             "nullable": true,
@@ -6754,6 +6806,13 @@
             "format": "int32",
             "nullable": true,
             "type": "integer"
+          },
+          "history": {
+            "description": "Every try of this action, oldest first, up to 20. A run written before the history was kept\nshows one entry built from what it has.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesWorkflowRunsAttemptEntryResponse"
+            },
+            "type": "array"
           },
           "nextAttemptAt": {
             "format": "date-time",
@@ -6850,6 +6909,73 @@
           }
         ]
       },
+      "BarakoCMSFeaturesWorkflowRunsRunListResponse": {
+        "additionalProperties": false,
+        "description": "The run list, with what a screen showing it needs besides the page. The page fields are\ndeclared here and not inherited from PaginatedResponse, because a derived type is\npublished as an allOf, which a contract diff reads as every page field removed.",
+        "properties": {
+          "cursor": {
+            "description": "Pass back as changedSince to read what changed after this response. Present only when\nchangedSince was given.",
+            "nullable": true,
+            "type": "string"
+          },
+          "failedRetainedFrom": {
+            "description": "The same for failed, partially failed and cancelled runs.",
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "hasNextPage": {
+            "description": "Whether there is a next page",
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "description": "Whether there is a previous page",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Items for the current page",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesWorkflowRunsRunResponse"
+            },
+            "type": "array"
+          },
+          "page": {
+            "description": "Current page number (1-indexed)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "pageSize": {
+            "description": "Number of items per page",
+            "format": "int32",
+            "type": "integer"
+          },
+          "statusCounts": {
+            "additionalProperties": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "description": "How many runs have each status under the content and workflow filters, whatever the status filter and the\npage. Every status is present, with zero where there are none.",
+            "type": "object"
+          },
+          "succeededRetainedFrom": {
+            "description": "Succeeded runs that finished before this are removed by the retention sweep. Null when the\nsweep is off or keeps them forever.",
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "totalItems": {
+            "description": "Total number of items across all pages",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalPages": {
+            "description": "Total number of pages",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesWorkflowRunsRunResponse": {
         "additionalProperties": false,
         "properties": {
@@ -6909,6 +7035,12 @@
             "format": "guid",
             "type": "string"
           },
+          "startedBy": {
+            "description": "The user who started the run by hand. Null for a run an event started.",
+            "format": "guid",
+            "nullable": true,
+            "type": "string"
+          },
           "status": {
             "description": "The name of a RunStatus.",
             "oneOf": [
@@ -6918,6 +7050,12 @@
             ]
           },
           "triggerEvent": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "description": "When the run last changed. Null on a run last written before this was kept. This is what\nchangedSince on the list orders by.",
+            "format": "date-time",
+            "nullable": true,
             "type": "string"
           },
           "workflowDefinitionId": {
@@ -7043,6 +7181,137 @@
       "BarakoCMSFeaturesWorkflowsGetWorkflowDebugInfoRequest": {
         "additionalProperties": false,
         "description": "Request to get workflow debug information.",
+        "type": "object"
+      },
+      "BarakoCMSFeaturesWorkflowsGetWorkflowHealthHealthResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfWorkflowHealth"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "windowDays": {
+                "description": "The window used, in days, after it was clamped.",
+                "format": "int32",
+                "type": "integer"
+              },
+              "windowFrom": {
+                "description": "The start of that window.",
+                "format": "date-time",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ]
+      },
+      "BarakoCMSFeaturesWorkflowsGetWorkflowHealthOutcome": {
+        "additionalProperties": false,
+        "properties": {
+          "completedAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "runId": {
+            "format": "guid",
+            "type": "string"
+          },
+          "status": {
+            "description": "The name of a RunStatus.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsRunStatus"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesWorkflowsGetWorkflowHealthRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BarakoCMSModelsPaginatedRequest"
+          },
+          {
+            "additionalProperties": false,
+            "type": "object"
+          }
+        ]
+      },
+      "BarakoCMSFeaturesWorkflowsGetWorkflowHealthWorkflowHealth": {
+        "additionalProperties": false,
+        "properties": {
+          "averageActionDurationMs": {
+            "description": "The mean of the recorded durations of the actions of the newest 200 runs in the window. An\naction with no recorded duration is left out. Null when none has one.",
+            "format": "double",
+            "nullable": true,
+            "type": "number"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "finishedRuns": {
+            "description": "The runs SuccessRate was taken over.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "lastOutcomes": {
+            "description": "The newest finished runs, newest first, up to ten, whatever the window. Pending and running runs are not outcomes; cancelled and abandoned runs are.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesWorkflowsGetWorkflowHealthOutcome"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "successRate": {
+            "description": "Succeeded over succeeded, failed and partially failed, inside the window. Cancelled, pending\nand running runs are left out. Null when no run in the window has finished that way, which is\nnot the same as 0 or 100.",
+            "format": "double",
+            "nullable": true,
+            "type": "number"
+          },
+          "workflowId": {
+            "format": "guid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesWorkflowsRunWorkflowRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "entryId": {
+            "description": "The entry to run the workflow on.",
+            "format": "guid",
+            "minLength": 1,
+            "nullable": false,
+            "type": "string"
+          }
+        },
+        "required": [
+          "entryId"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSFeaturesWorkflowsRunWorkflowResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "repeated": {
+            "description": "True when an Idempotency-Key found the run an earlier request started.",
+            "type": "boolean"
+          },
+          "runId": {
+            "format": "guid",
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "BarakoCMSFeaturesWorkflowsSetWorkflowEnabledRequest": {
@@ -9925,48 +10194,6 @@
         },
         "type": "object"
       },
-      "BarakoCMSModelsPaginatedResponseOfRunResponse": {
-        "additionalProperties": false,
-        "description": "Generic paginated response with metadata.",
-        "properties": {
-          "hasNextPage": {
-            "description": "Whether there is a next page",
-            "type": "boolean"
-          },
-          "hasPreviousPage": {
-            "description": "Whether there is a previous page",
-            "type": "boolean"
-          },
-          "items": {
-            "description": "Items for the current page",
-            "items": {
-              "$ref": "#/components/schemas/BarakoCMSFeaturesWorkflowRunsRunResponse"
-            },
-            "type": "array"
-          },
-          "page": {
-            "description": "Current page number (1-indexed)",
-            "format": "int32",
-            "type": "integer"
-          },
-          "pageSize": {
-            "description": "Number of items per page",
-            "format": "int32",
-            "type": "integer"
-          },
-          "totalItems": {
-            "description": "Total number of items across all pages",
-            "format": "int32",
-            "type": "integer"
-          },
-          "totalPages": {
-            "description": "Total number of pages",
-            "format": "int32",
-            "type": "integer"
-          }
-        },
-        "type": "object"
-      },
       "BarakoCMSModelsPaginatedResponseOfShareLinkResponse": {
         "additionalProperties": false,
         "description": "Generic paginated response with metadata.",
@@ -10277,6 +10504,48 @@
             "description": "Items for the current page",
             "items": {
               "$ref": "#/components/schemas/BarakoCMSFeaturesWebhookDeliveriesWebhookDeliveryResponse"
+            },
+            "type": "array"
+          },
+          "page": {
+            "description": "Current page number (1-indexed)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "pageSize": {
+            "description": "Number of items per page",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalItems": {
+            "description": "Total number of items across all pages",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalPages": {
+            "description": "Total number of pages",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSModelsPaginatedResponseOfWorkflowHealth": {
+        "additionalProperties": false,
+        "description": "Generic paginated response with metadata.",
+        "properties": {
+          "hasNextPage": {
+            "description": "Whether there is a next page",
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "description": "Whether there is a previous page",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Items for the current page",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesWorkflowsGetWorkflowHealthWorkflowHealth"
             },
             "type": "array"
           },
@@ -11405,12 +11674,15 @@
       },
       "FastEndpointsEmptyRequest": {
         "additionalProperties": false,
+        "description": "a request dto that doesn't have any properties",
         "type": "object"
       },
       "FastEndpointsProblemDetails": {
         "additionalProperties": false,
+        "description": "RFC9457 compatible problem details/ error response class. this can be used by configuring startup like so:\napp.UseFastEndpoints(c => c.Errors.UseProblemDetails())",
         "properties": {
           "detail": {
+            "description": "the details of the error",
             "nullable": true,
             "type": "string"
           },
@@ -11446,20 +11718,25 @@
       },
       "FastEndpointsProblemDetails_Error": {
         "additionalProperties": false,
+        "description": "the error details object",
         "properties": {
           "code": {
+            "description": "the code of the error",
             "nullable": true,
             "type": "string"
           },
           "name": {
             "default": "Error or field name",
+            "description": "the name of the error or property of the dto that caused the error",
             "type": "string"
           },
           "reason": {
             "default": "Error reason",
+            "description": "the reason for the error",
             "type": "string"
           },
           "severity": {
+            "description": "the severity of the error",
             "nullable": true,
             "type": "string"
           }
@@ -21940,6 +22217,25 @@
             }
           },
           {
+            "description": "Only the runs of this workflow. Left out, every workflow's runs are listed.",
+            "in": "query",
+            "name": "workflowId",
+            "schema": {
+              "format": "guid",
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "A cursor from an earlier response, or a timestamp for the first call. Left out, the list is\nnewest first as before. Given, only runs changed after it are listed, oldest change first.",
+            "in": "query",
+            "name": "changedSince",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
             "in": "query",
             "name": "page",
             "required": true,
@@ -21971,7 +22267,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfRunResponse"
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesWorkflowRunsRunListResponse"
                 }
               }
             },
@@ -22316,6 +22612,74 @@
         ]
       }
     },
+    "/api/workflows/health": {
+      "get": {
+        "description": "Read with the runs, so it asks for view_workflow_runs. The window cannot reach past what\nthe retention sweep keeps: a longer one would divide the successes it kept by failures it did\nnot, and the response says the window it used.",
+        "operationId": "barakoCMSFeaturesWorkflowsGetWorkflowHealthEndpoint",
+        "parameters": [
+          {
+            "description": "How many days back the rate and the average look. Left out, seven. Clamped to what retention keeps.",
+            "in": "query",
+            "name": "windowDays",
+            "schema": {
+              "format": "int32",
+              "nullable": true,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesWorkflowsGetWorkflowHealthHealthResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/workflows/health. Each workflow's recent outcomes, success rate and action time, paged by workflow.",
+        "tags": [
+          "Workflows"
+        ]
+      }
+    },
     "/api/workflows/validate": {
       "post": {
         "operationId": "barakoCMSFeaturesWorkflowsValidateWorkflowEndpoint",
@@ -22594,6 +22958,70 @@
           }
         ],
         "summary": "Switches one workflow on or off.",
+        "tags": [
+          "Workflows"
+        ]
+      }
+    },
+    "/api/workflows/{id}/run": {
+      "post": {
+        "description": "Queues and returns, like every other way a run starts: the runner does the work. The workflow's\nconditions are checked and not bypassed. Having a run start past them is a different feature.\n            \nReads Idempotency-Key itself. The run id is derived from the tenant, the caller, the\nworkflow, the entry and the key, so a repeat by the same caller finds the run, and the same key\non another workflow or entry, or from another caller, is another run. The repeat holds until\nretention removes the run, not past it. The global idempotency filter would answer a key on\nanother workflow or entry with a 422, so it is told to leave this route alone.\n            \nAn entry the caller cannot read is a 404, as an entry that does not exist is: the id of a hidden\nentry should not be confirmable by trying to run something on it.",
+        "operationId": "barakoCMSFeaturesWorkflowsRunWorkflowEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesWorkflowsRunWorkflowRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "Request",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesWorkflowsRunWorkflowResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/workflows/{id}/run. Starts one workflow on one entry, as a run with trigger Manual.",
         "tags": [
           "Workflows"
         ]
