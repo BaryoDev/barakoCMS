@@ -235,11 +235,7 @@ internal class RotateApiKeyEndpoint(
         if (old.UserId != actorId
             && !await barakoCMS.Features.Users.PlatformRoles.IsSuperAdminAsync(session, User, ct))
         {
-            await AuditLog.RecordAsync(session, tenant, "apikey.rotate.denied",
-                actorId == Guid.Empty ? null : actorId, User.FindFirst("Username")?.Value,
-                targetType: "ApiKey", targetId: old.Id.ToString(),
-                metadata: new() { ["name"] = old.Name }, ct: ct);
-            await session.SaveChangesAsync(ct);
+            await RecordDeniedAsync(tenant, actorId, old, ct);
             await Send.ForbiddenAsync(ct);
             return;
         }
@@ -301,6 +297,15 @@ internal class RotateApiKeyEndpoint(
     // Lets a test land a revoke between the read above and the save below, which a request cannot do
     // deterministically. Null outside tests.
     internal static Func<ApiKey, CancellationToken, Task>? AfterLoadForTests { get; set; }
+
+    private async Task RecordDeniedAsync(string tenant, Guid actorId, ApiKey key, CancellationToken ct)
+    {
+        await AuditLog.RecordAsync(session, tenant, "apikey.rotate.denied",
+            actorId == Guid.Empty ? null : actorId, User.FindFirst("Username")?.Value,
+            targetType: "ApiKey", targetId: key.Id.ToString(),
+            metadata: new() { ["name"] = key.Name }, ct: ct);
+        await session.SaveChangesAsync(ct);
+    }
 
     private static ApiKey NewKeyFrom(ApiKey old, ApiKeyService.GeneratedKey generated, DateTime now) => new()
     {
