@@ -229,4 +229,117 @@ public class UserGroupRoleTests
             new { id = groupId, name = "g", description = "d", roleIds = new[] { Guid.NewGuid() } });
         put.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
+
+    private async Task<HttpClient> CallerHoldingAsync(params string[] capabilities)
+    {
+        var name = $"Caller {Guid.NewGuid():n}";
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var role = new Role { Id = Guid.NewGuid(), Name = name, SystemCapabilities = capabilities.ToList() };
+        session.Store(role);
+        var userId = Guid.NewGuid();
+        session.Store(new User
+        {
+            Id = userId,
+            Username = $"cap-{userId:n}",
+            Email = $"cap-{userId:n}@example.com",
+            RoleIds = [role.Id],
+        });
+        await session.SaveChangesAsync();
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", _factory.CreateToken([name], userId.ToString()));
+        return client;
+    }
+
+    private async Task<UserGroup> StoredGroupAsync(Guid id)
+    {
+        using var scope = _factory.Services.CreateScope();
+        return (await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<UserGroup>(id))!;
+    }
+
+    private async Task<User> StoredUserAsync(Guid id)
+    {
+        using var scope = _factory.Services.CreateScope();
+        return (await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<User>(id))!;
+    }
+
+    [Fact]
+    public async Task A_caller_who_cannot_grant_roles_cannot_add_a_user_to_a_role_bearing_group_from_the_group_side()
+    {
+        var (roleId, slug) = await ReaderRoleAsync();
+        var groupId = await GroupAsync(roleId);
+        var member = await UserAsync();
+
+        var caller = await CallerHoldingAsync(SystemCapabilities.ManageUserGroups);
+        var post = await caller.PostAsJsonAsync($"/api/user-groups/{groupId}/users", new { groupId, userId = member });
+
+        post.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await StoredGroupAsync(groupId)).UserIds.Should().BeEmpty();
+        (await CanReadAsync(member, slug)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_caller_who_cannot_grant_roles_cannot_put_a_user_in_a_group_holding_SuperAdmin_from_the_user_side()
+    {
+        var groupId = await GroupAsync(SystemRoles.SuperAdminRoleId);
+        var member = await UserAsync();
+
+        var admin = await ClientAsync("Admin");
+        var post = await admin.PostAsJsonAsync($"/api/users/{member}/groups", new { userId = member, groupId });
+
+        post.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await StoredUserAsync(member)).GroupIds.Should().BeEmpty();
+        (await StoredGroupAsync(groupId)).UserIds.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_caller_allowed_to_grant_roles_can_assign_a_role_bearing_group_from_the_user_side()
+    {
+        var (roleId, slug) = await ReaderRoleAsync();
+        var groupId = await GroupAsync(roleId);
+        var member = await UserAsync();
+
+        var caller = await CallerHoldingAsync(SystemCapabilities.ManageUserMembership);
+        var post = await caller.PostAsJsonAsync($"/api/users/{member}/groups", new { userId = member, groupId });
+
+        post.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await StoredUserAsync(member)).GroupIds.Should().Equal(groupId);
+        (await CanReadAsync(member, slug)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_caller_allowed_to_grant_roles_can_add_a_member_from_the_group_side()
+    {
+        var (roleId, slug) = await ReaderRoleAsync();
+        var groupId = await GroupAsync(roleId);
+        var member = await UserAsync();
+
+        var caller = await CallerHoldingAsync(SystemCapabilities.ManageUserGroups, SystemCapabilities.ManageUserMembership);
+        (await caller.PostAsJsonAsync($"/api/user-groups/{groupId}/users", new { groupId, userId = member }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await StoredGroupAsync(groupId)).UserIds.Should().Equal(member);
+        (await CanReadAsync(member, slug)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Adding_a_member_to_a_group_with_no_roles_needs_no_role_rights()
+    {
+        var groupId = await GroupAsync();
+        var viaGroup = await UserAsync();
+        var viaUser = await UserAsync();
+
+        var groupsOnly = await CallerHoldingAsync(SystemCapabilities.ManageUserGroups);
+        (await groupsOnly.PostAsJsonAsync($"/api/user-groups/{groupId}/users", new { groupId, userId = viaGroup }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var admin = await ClientAsync("Admin");
+        (await admin.PostAsJsonAsync($"/api/users/{viaUser}/groups", new { userId = viaUser, groupId }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await StoredGroupAsync(groupId)).UserIds.Should().Contain(viaGroup);
+        (await StoredUserAsync(viaUser)).GroupIds.Should().Equal(groupId);
+    }
 }

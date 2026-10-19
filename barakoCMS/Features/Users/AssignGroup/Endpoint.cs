@@ -9,7 +9,8 @@ namespace barakoCMS.Features.Users.AssignGroup;
 internal class Endpoint(
     IDocumentSession session,
     barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
-    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<Request, Response>
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
+    IConfiguration configuration) : Endpoint<Request, Response>
 {
     public override void Configure()
     {
@@ -32,6 +33,13 @@ internal class Endpoint(
         if (group == null)
         {
             await Send.NotFoundAsync(ct);
+            return;
+        }
+
+        if (group.RoleIds.Count > 0
+            && await barakoCMS.Features.UserGroups.GroupRoleGuard.CheckAsync(session, User, configuration, [], group.RoleIds, ct) is { } refused)
+        {
+            await Send.ResponseAsync(new Response { Message = refused.Message }, refused.Status, ct);
             return;
         }
 
