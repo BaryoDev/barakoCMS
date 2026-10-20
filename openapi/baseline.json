@@ -6882,6 +6882,53 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesWorkflowRunsAttemptEntryResponse": {
+        "additionalProperties": false,
+        "description": "One try of an action. The error is the redacted one, the same text the attempt holds.",
+        "properties": {
+          "durationMs": {
+            "format": "int64",
+            "nullable": true,
+            "type": "integer"
+          },
+          "error": {
+            "nullable": true,
+            "type": "string"
+          },
+          "finishedAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "number": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "outcome": {
+            "description": "The name of an AttemptStatus.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsAttemptStatus"
+              }
+            ]
+          },
+          "responseStatus": {
+            "format": "int32",
+            "nullable": true,
+            "type": "integer"
+          },
+          "retryable": {
+            "nullable": true,
+            "type": "boolean"
+          },
+          "startedAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesWorkflowRunsAttemptResponse": {
         "additionalProperties": false,
         "description": "One action's outcome as the API describes it.",
@@ -6907,6 +6954,11 @@
             "nullable": true,
             "type": "string"
           },
+          "droppedAttempts": {
+            "description": "How many older tries were dropped to stay within the cap. Zero until there are more than 20.",
+            "format": "int32",
+            "type": "integer"
+          },
           "durationMs": {
             "format": "int64",
             "nullable": true,
@@ -6921,6 +6973,13 @@
             "format": "int32",
             "nullable": true,
             "type": "integer"
+          },
+          "history": {
+            "description": "Every try of this action, oldest first, up to 20. A run written before the history was kept\nshows one entry built from what it has.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesWorkflowRunsAttemptEntryResponse"
+            },
+            "type": "array"
           },
           "nextAttemptAt": {
             "format": "date-time",
@@ -7017,6 +7076,74 @@
           }
         ]
       },
+      "BarakoCMSFeaturesWorkflowRunsRunListResponse": {
+        "additionalProperties": false,
+        "description": "A page of workflow runs with counts by status.",
+        "properties": {
+          "cursor": {
+            "description": "Pass back as changedSince to read what changed after this response. Present only when\nchangedSince was given.",
+            "nullable": true,
+            "type": "string"
+          },
+          "failedRetainedFrom": {
+            "description": "The same for failed, partially failed and cancelled runs.",
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "hasNextPage": {
+            "description": "Whether there is a next page",
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "description": "Whether there is a previous page",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Items for the current page",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesWorkflowRunsRunResponse"
+            },
+            "type": "array"
+          },
+          "page": {
+            "description": "Current page number (1-indexed)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "pageSize": {
+            "description": "Number of items per page",
+            "format": "int32",
+            "type": "integer"
+          },
+          "statusCounts": {
+            "additionalProperties": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "description": "How many runs have each status under the content filter, whatever the status filter and the\npage. Every status is present, with zero where there are none. Null when <c>changedSince</c>\nwas given, since a poll reads what changed and a count would add a scan to each one.",
+            "nullable": true,
+            "type": "object"
+          },
+          "succeededRetainedFrom": {
+            "description": "Succeeded runs that finished before this are removed by the retention sweep. Null when the\nsweep is off or keeps them forever.",
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "totalItems": {
+            "description": "Total number of items across all pages",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalPages": {
+            "description": "Total number of pages",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesWorkflowRunsRunResponse": {
         "additionalProperties": false,
         "properties": {
@@ -7085,6 +7212,12 @@
             ]
           },
           "triggerEvent": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "description": "When the run last changed. Null on a run last written before this was kept. This is what\nchangedSince on the list orders by.",
+            "format": "date-time",
+            "nullable": true,
             "type": "string"
           },
           "workflowDefinitionId": {
@@ -10066,48 +10199,6 @@
             "description": "Items for the current page",
             "items": {
               "$ref": "#/components/schemas/BarakoCMSFeaturesRolesRoleResponse"
-            },
-            "type": "array"
-          },
-          "page": {
-            "description": "Current page number (1-indexed)",
-            "format": "int32",
-            "type": "integer"
-          },
-          "pageSize": {
-            "description": "Number of items per page",
-            "format": "int32",
-            "type": "integer"
-          },
-          "totalItems": {
-            "description": "Total number of items across all pages",
-            "format": "int32",
-            "type": "integer"
-          },
-          "totalPages": {
-            "description": "Total number of pages",
-            "format": "int32",
-            "type": "integer"
-          }
-        },
-        "type": "object"
-      },
-      "BarakoCMSModelsPaginatedResponseOfRunResponse": {
-        "additionalProperties": false,
-        "description": "Generic paginated response with metadata.",
-        "properties": {
-          "hasNextPage": {
-            "description": "Whether there is a next page",
-            "type": "boolean"
-          },
-          "hasPreviousPage": {
-            "description": "Whether there is a previous page",
-            "type": "boolean"
-          },
-          "items": {
-            "description": "Items for the current page",
-            "items": {
-              "$ref": "#/components/schemas/BarakoCMSFeaturesWorkflowRunsRunResponse"
             },
             "type": "array"
           },
@@ -22609,6 +22700,15 @@
             }
           },
           {
+            "description": "A cursor from an earlier response, or a timestamp for the first call. Left out, the list is\nnewest first as before. Given, only runs changed after it are listed, oldest change first.",
+            "in": "query",
+            "name": "changedSince",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
             "in": "query",
             "name": "page",
             "required": true,
@@ -22640,7 +22740,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfRunResponse"
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesWorkflowRunsRunListResponse"
                 }
               }
             },

@@ -669,6 +669,13 @@ public static class ServiceCollectionExtensions
             .DocumentAlias("system_settings");
     }
 
+    // The changed-since poll orders workflow runs by (UpdatedAt, id), so the index carries both.
+    // The name is what migrations/5.1.0/workflow-run-updated-at-index.sql creates.
+    private static readonly System.Linq.Expressions.Expression<Func<WorkflowRun, object>>[] WorkflowRunUpdatedAtThenId =
+        [x => x.UpdatedAt, x => x.Id];
+
+    private const string WorkflowRunUpdatedAtThenIdIndex = "mt_doc_workflow_runs_idx_updated_at_id";
+
     private static void MapTenantScopedDocuments(StoreOptions options)
     {
         // Conjoined multi-tenant, deliberately, unlike the settings documents above. A credential
@@ -741,8 +748,8 @@ public static class ServiceCollectionExtensions
             // The claim is a read, a check and a write with nothing between them, and two nodes
             // must not both take the same attempt. This is what refuses the second one.
             .UseOptimisticConcurrency(true)
-            .Index(x => x.Status)
-            .Index(x => x.CreatedAt);
+            .Index(x => x.Status).Index(x => x.CreatedAt).Index(WorkflowRunUpdatedAtThenId, idx => idx.Name = WorkflowRunUpdatedAtThenIdIndex);
+        options.Listeners.Add(new barakoCMS.Infrastructure.Workflows.WorkflowRunStampListener());
 
         options.Schema.For<WebhookDelivery>()
             .MultiTenanted()

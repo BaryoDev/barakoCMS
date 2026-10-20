@@ -1007,7 +1007,7 @@ internal sealed class WorkflowRunner(
 
             return result.Succeeded
                 ? Succeeded(result, undo ? null : attempt.Capture, variables.Notes, timer.ElapsedMilliseconds)
-                : new Outcome(AttemptStatus.Failed, result.Error, timer.ElapsedMilliseconds, result.Retryable);
+                : new Outcome(AttemptStatus.Failed, result.Error, timer.ElapsedMilliseconds, result.Retryable, ResponseStatus: result.ResponseStatus);
         }
         catch (OperationCanceledException ex) when (ex is TaskCanceledException || !ct.IsCancellationRequested)
         {
@@ -1042,7 +1042,8 @@ internal sealed class WorkflowRunner(
         // recorded on the attempt so a message that is short of entries says why.
         var notes = templateNotes.Concat(dropped is null ? [] : [dropped]).ToList();
         return new Outcome(
-            AttemptStatus.Succeeded, notes.Count == 0 ? null : string.Join(" ", notes), elapsedMs, Outputs: kept);
+            AttemptStatus.Succeeded, notes.Count == 0 ? null : string.Join(" ", notes), elapsedMs, Outputs: kept,
+            ResponseStatus: result.ResponseStatus);
     }
 
     private static Outcome NoHandler(WorkflowActionSet handlers, string actionType) =>
@@ -1088,11 +1089,27 @@ internal sealed class WorkflowRunner(
 
     private void Apply(WorkflowActionAttempt attempt, Outcome outcome)
     {
+        var finishedAt = DateTimeOffset.UtcNow;
         attempt.Attempts++;
         attempt.LeasedBy = null;
         attempt.LeaseExpiresAt = null;
         attempt.DurationMs = outcome.ElapsedMs;
-        attempt.Error = outcome.Error is null ? null : Truncate(outcome.Error);
+        attempt.ResponseStatus = outcome.ResponseStatus;
+        attempt.Error = Clean(outcome.Error);
+
+        // From the attempt as stored now, which a reload after a refused save has already merged
+        // with the other writer's entries. The entry is appended here and nowhere else.
+        attempt.RecordAttempt(new WorkflowAttemptEntry
+        {
+            Number = attempt.Attempts,
+            StartedAt = finishedAt.AddMilliseconds(-outcome.ElapsedMs),
+            FinishedAt = finishedAt,
+            Outcome = outcome.Status,
+            ResponseStatus = outcome.ResponseStatus,
+            Error = attempt.Error,
+            Retryable = outcome.Status == AttemptStatus.Failed ? outcome.Retryable : null,
+            DurationMs = outcome.ElapsedMs,
+        });
 
         if (outcome.Status == AttemptStatus.Failed
             && outcome.Retryable
@@ -1117,7 +1134,7 @@ internal sealed class WorkflowRunner(
         undo.LeasedBy = null;
         undo.LeaseExpiresAt = null;
         undo.DurationMs = outcome.ElapsedMs;
-        undo.Error = outcome.Error is null ? null : Truncate(outcome.Error);
+        undo.Error = Clean(outcome.Error);
 
         if (outcome.Status == AttemptStatus.Failed
             && outcome.Retryable
@@ -1138,6 +1155,13 @@ internal sealed class WorkflowRunner(
         undo.CompletedAt = DateTimeOffset.UtcNow;
     }
 
+    /// <summary>
+    /// An error as it is stored: credentials removed first, so a cut cannot leave half of one. Every rule applies,
+    /// a GUID-shaped value included, since a key can look like one.
+    /// </summary>
+    private static string? Clean(string? error) =>
+        error is null ? null : Truncate(barakoCMS.Core.CredentialRedaction.Redact(error) ?? string.Empty);
+
     private static string Truncate(string value) =>
         value.Length <= 500 ? value : value[..500] + "...";
 
@@ -1147,8 +1171,9 @@ internal sealed class WorkflowRunner(
     /// <param name="ElapsedMs">How long the action took.</param>
     /// <param name="Retryable">For a failure, whether trying again could change the answer.</param>
     /// <param name="Outputs">On a success, the outputs the workflow captures, already filtered.</param>
+    /// <param name="ResponseStatus">The status the action's remote call answered with, when it reported one.</param>
     /// <param name="Registered">Whether a handler was found for the action type. Only then is the type used as a metric label.</param>
     private readonly record struct Outcome(
         AttemptStatus Status, string? Error, long ElapsedMs, bool Retryable = true, bool Registered = true,
-        Dictionary<string, string>? Outputs = null);
+        Dictionary<string, string>? Outputs = null, int? ResponseStatus = null);
 }
