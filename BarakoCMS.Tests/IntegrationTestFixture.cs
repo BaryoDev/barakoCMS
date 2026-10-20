@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests;
 public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLifetime
 {
     private readonly PostgreSqlContainer _postgresContainer = new PostgreSqlBuilder()
-        .WithImage("postgres:16-alpine")
+        .WithImage("pgvector/pgvector:pg16")
         .WithDatabase("barako_test_db")
         .WithUsername("postgres")
         .WithPassword("postgres")
