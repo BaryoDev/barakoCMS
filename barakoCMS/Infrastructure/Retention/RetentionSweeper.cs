@@ -86,10 +86,19 @@ internal static class RetentionSweeper
         }
         finally
         {
-            await using var release = lockConnection.CreateCommand();
-            release.CommandText = "select pg_advisory_unlock(@key)";
-            release.Parameters.AddWithValue("key", lockKey);
-            await release.ExecuteScalarAsync(CancellationToken.None);
+            try
+            {
+                await using var release = lockConnection.CreateCommand();
+                release.CommandText = "select pg_advisory_unlock(@key)";
+                release.Parameters.AddWithValue("key", lockKey);
+                await release.ExecuteScalarAsync(CancellationToken.None);
+            }
+            catch (Exception ex) when (ex is Npgsql.NpgsqlException or InvalidOperationException or ObjectDisposedException)
+            {
+                // The lock connection died mid-sweep, which already freed the lock. A delete that
+                // runs twice is a no-op, so a second instance sweeping meanwhile does no harm.
+                logger.LogWarning(ex, "The {Label} retention lock connection was lost before the sweep finished", label);
+            }
         }
     }
 

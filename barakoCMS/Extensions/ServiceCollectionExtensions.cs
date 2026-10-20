@@ -2261,6 +2261,8 @@ public static class ServiceCollectionExtensions
         // model against the live database, so run outside, it can describe a database another host is
         // halfway through changing and refuse to start over a difference that no longer exists by the
         // time it looks.
+        var applyLockTimeout = barakoCMS.Infrastructure.Services.SchemaApplyLock.TimeoutFrom(
+            host.Services.GetRequiredService<IConfiguration>());
         await barakoCMS.Infrastructure.Services.SchemaApplyLock.RunAsync(store, async () =>
         {
             // Before the schema exists, so a new database gets its ledger rows first. See
@@ -2275,7 +2277,7 @@ public static class ServiceCollectionExtensions
 
             // Inside the lock, so two hosts starting together do not both rewrite every account.
             await barakoCMS.Infrastructure.Services.UserIdentityBackfill.RunAsync(store);
-        });
+        }, applyLockTimeout);
 
         host.Services.GetService<barakoCMS.Infrastructure.Jobs.JobStorageGate>()?.Open();
     }
