@@ -1,0 +1,1 @@
+- **Test fixture module.** `BarakoCMS.Testing` ships `FixtureModule` (one capability, one content hook, one gated endpoint) and `RecordingEmailProvider`, so core tests can prove a module mechanism without a shipped domain module.

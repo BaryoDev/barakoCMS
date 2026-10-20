@@ -494,6 +494,10 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             new BarakoCMS.Accounting.AccountingModule().ConfigureServices(services, ctx.Configuration);
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Accounting.AccountingModule(), opts));
 
+            // The fixture module: a capability, a content hook and a gated endpoint for the tests
+            // of core mechanisms that need a module and not a domain.
+            new BarakoCMS.Testing.Fixture.FixtureModule().ConfigureServices(services, ctx.Configuration);
+
             // Diagnostics: the test project references it, so FastEndpoints already discovers
             // /api/client-errors — register its schema too so those endpoints can actually run.
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Diagnostics.DiagnosticsModule(), opts));
@@ -607,6 +611,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         typeof(BarakoCMS.Files.FilesModule).Assembly,
         typeof(BarakoCMS.AI.AiModule).Assembly,
         typeof(BarakoCMS.Accounting.AccountingModule).Assembly,
+        typeof(BarakoCMS.Testing.Fixture.FixtureModule).Assembly,
         typeof(BarakoCMS.Diagnostics.DiagnosticsModule).Assembly,
         typeof(BarakoCMS.Pwa.PwaModule).Assembly,
         typeof(BarakoCMS.Pages.PagesModule).Assembly,
