@@ -1,4 +1,4 @@
-using barakoCMS.Infrastructure.Multitenancy;
+using barakoCMS.Infrastructure.Retention;
 using barakoCMS.Models;
 using Marten;
 
@@ -105,30 +105,36 @@ internal sealed class WebhookDeliveryRetentionService(
         }
     }
 
+    /// <summary>Held while one node sweeps, so two nodes do not clear and delete the same rows.</summary>
+    private const long SweepLockKey = 8_242_026_004L;
+
     public async Task<(int RowsRemoved, int BodiesCleared)> SweepAllTenantsAsync(DateTimeOffset nowUtc, CancellationToken ct)
     {
-        var removed = 0;
         var bodiesCleared = 0;
 
-        var fromRegistry = TenantPartitions.ListsFromRegistry(config);
+        // Bodies are cleared first. A row due for outright deletion this pass has nothing left
+        // to clear either way, and clearing before deleting means a row that is due for deletion
+        // next sweep instead of this one never sits with an expired body in the meantime.
+        var result = await RetentionSweeper.TrySweepAllTenantsAsync(
+            store, config, SweepLockKey, PartitionsWithDeliveriesSql, Declarations(RetentionDays),
+            nowUtc, logger, "Webhook delivery", ct,
+            beforeDeletes: async (session, token) =>
+            {
+                var cleared = await ClearExpiredResponseBodiesAsync(session, nowUtc, ResponseBodyRetentionHours, token);
+                bodiesCleared += cleared;
+                return 0;
+            });
 
-        foreach (var tenantId in await TenantPartitions.ListAsync(store, config, PartitionsWithDeliveriesSql, ct))
-        {
-            await using var session = store.LightweightSession(tenantId);
-
-            // From the registry most partitions hold nothing, and one query is the cheapest way to
-            // say so. From the rows every partition already holds a delivery.
-            if (fromRegistry && !await session.Query<WebhookDelivery>().AnyAsync(ct)) continue;
-
-            // Bodies are cleared first. A row due for outright deletion this pass has nothing left
-            // to clear either way, and clearing before deleting means a row that is due for deletion
-            // next sweep instead of this one never sits with an expired body in the meantime.
-            bodiesCleared += await ClearExpiredResponseBodiesAsync(session, nowUtc, ResponseBodyRetentionHours, ct);
-            removed += await SweepTenantAsync(session, nowUtc, RetentionDays, ct);
-        }
-
-        return (removed, bodiesCleared);
+        return (result.Removed, bodiesCleared);
     }
+
+    internal static IReadOnlyList<RetentionDeclaration> Declarations(int days) =>
+    [
+        new RetentionDeclaration<WebhookDelivery>(
+            "Webhook deliveries",
+            cutoff => d => d.CreatedAt < cutoff,
+            _ => days <= 0 ? null : TimeSpan.FromDays(days)),
+    ];
 
     private const string PartitionsWithDeliveriesSql =
         "select distinct tenant_id from public.mt_doc_webhook_deliveries";
@@ -138,21 +144,9 @@ internal sealed class WebhookDeliveryRetentionService(
     /// drives it without the timer.
     /// </summary>
     /// <returns>How many rows were removed.</returns>
-    public static async Task<int> SweepTenantAsync(
-        IDocumentSession session, DateTimeOffset nowUtc, int days, CancellationToken ct)
-    {
-        if (days <= 0) return 0;
-
-        var cutoff = nowUtc.AddDays(-days);
-
-        var due = await session.Query<WebhookDelivery>().CountAsync(d => d.CreatedAt < cutoff, ct);
-        if (due == 0) return 0;
-
-        session.DeleteWhere<WebhookDelivery>(d => d.CreatedAt < cutoff);
-        await session.SaveChangesAsync(ct);
-
-        return due;
-    }
+    public static Task<int> SweepTenantAsync(
+        IDocumentSession session, DateTimeOffset nowUtc, int days, CancellationToken ct) =>
+        RetentionSweeper.SweepSessionAsync(session, session.TenantId, Declarations(days), nowUtc, ct);
 
     /// <summary>Rows per batch, and batches per pass, matching <c>WorkflowRunRetentionService</c>.</summary>
     private const int BodyClearBatchSize = 500;
