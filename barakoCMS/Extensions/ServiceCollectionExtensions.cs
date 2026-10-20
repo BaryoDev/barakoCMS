@@ -735,6 +735,8 @@ public static class ServiceCollectionExtensions
             .MultiTenanted()
             .DocumentAlias("action_link_uses")
             .Index(x => x.ExpiresAt);
+        options.Schema.For<barakoCMS.Infrastructure.Links.SignedLinkUse>()
+            .DocumentAlias("signed_link_uses");
 
         options.Schema.For<Connector>()
             .MultiTenanted()
@@ -1272,6 +1274,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>();
         services.AddSingleton<barakoCMS.Infrastructure.Multitenancy.PrivateSiteCache>();
         services.TryAddSingleton(TimeProvider.System);
+        services.TryAddScoped<barakoCMS.Core.Interfaces.ISignedLinkService, barakoCMS.Infrastructure.Links.SignedLinkService>();
         services.AddSingleton<barakoCMS.Core.Interfaces.INumberAllocator, barakoCMS.Infrastructure.Numbering.GaplessNumberAllocator>();
         services.AddSingleton<barakoCMS.Infrastructure.Numbering.SequenceNumberAllocator>();
         services.AddSingleton<barakoCMS.Infrastructure.Numbering.HiLoNumberAllocator>();
