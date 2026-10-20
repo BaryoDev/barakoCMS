@@ -114,4 +114,22 @@ public interface IPublicContentProjector
     Task<PublicContentProjection?> ProjectAsync(
         Content content, ContentTypeDefinition? definition, CancellationToken cancellationToken = default)
         => Task.FromResult(Project(content, definition));
+
+    /// <summary>
+    /// <see cref="Project"/> for a caller whose viewer token verified when <paramref name="member"/>:
+    /// a <c>Members</c> entry is served to it, and a field the type marks <c>Members</c> with no role
+    /// list is delivered, the way the core routes do for a viewer.
+    /// </summary>
+    /// <remarks>
+    /// The default answers what <see cref="Project"/> does, so an implementor written before this
+    /// member serves the anonymous audience only. A response built with <c>member</c> true depends on
+    /// the viewer, so it is not publicly cacheable.
+    /// </remarks>
+    PublicContentProjection? Project(Content content, ContentTypeDefinition? definition, bool member)
+        => Project(content, definition);
+
+    /// <summary><see cref="ProjectAsync(Content, ContentTypeDefinition?, CancellationToken)"/> at the audience <see cref="Project(Content, ContentTypeDefinition?, bool)"/> describes.</summary>
+    Task<PublicContentProjection?> ProjectAsync(
+        Content content, ContentTypeDefinition? definition, bool member, CancellationToken cancellationToken = default)
+        => ProjectAsync(content, definition, cancellationToken);
 }

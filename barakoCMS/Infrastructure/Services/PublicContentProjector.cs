@@ -27,14 +27,21 @@ internal sealed class PublicContentProjector(IFileStore? files = null, Marten.IQ
         definition is null ? null : PublicDelivery.SlugField(definition);
 
     public PublicContentProjection? Project(Content content, ContentTypeDefinition? definition) =>
-        Projected(content, definition) is { } projected
+        Project(content, definition, member: false);
+
+    public PublicContentProjection? Project(Content content, ContentTypeDefinition? definition, bool member) =>
+        Projected(content, definition, member) is { } projected
             ? Map(PublicFileFields.LeaveOut(projected, definition!))
             : null;
 
+    public Task<PublicContentProjection?> ProjectAsync(
+        Content content, ContentTypeDefinition? definition, CancellationToken cancellationToken = default) =>
+        ProjectAsync(content, definition, member: false, cancellationToken);
+
     public async Task<PublicContentProjection?> ProjectAsync(
-        Content content, ContentTypeDefinition? definition, CancellationToken cancellationToken = default)
+        Content content, ContentTypeDefinition? definition, bool member, CancellationToken cancellationToken = default)
     {
-        if (Projected(content, definition) is not { } projected)
+        if (Projected(content, definition, member) is not { } projected)
         {
             return null;
         }
@@ -48,7 +55,7 @@ internal sealed class PublicContentProjector(IFileStore? files = null, Marten.IQ
         return Map(resolved[0]);
     }
 
-    private static PublicContentResponse? Projected(Content content, ContentTypeDefinition? definition)
+    private static PublicContentResponse? Projected(Content content, ContentTypeDefinition? definition, bool member)
     {
         ArgumentNullException.ThrowIfNull(content);
 
@@ -64,7 +71,7 @@ internal sealed class PublicContentProjector(IFileStore? files = null, Marten.IQ
             return null;
         }
 
-        return PublicDelivery.ToPublic(content, definition, PublicDelivery.SlugField(definition));
+        return PublicDelivery.ToPublic(content, definition, PublicDelivery.SlugField(definition), member: member);
     }
 
     private static PublicContentProjection Map(PublicContentResponse projected) =>
