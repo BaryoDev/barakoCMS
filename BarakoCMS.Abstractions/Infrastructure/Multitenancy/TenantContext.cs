@@ -12,7 +12,7 @@ public class TenantContext
 
     /// <summary>
     /// Set by resolution when the request names a registered tenant that is not Active, on a route
-    /// that needs a tenant. <see cref="TenantAccessMiddleware"/> then refuses it, once the caller
+    /// that needs a tenant. <c>TenantAccessMiddleware</c> then refuses it, once the caller
     /// is known.
     /// </summary>
     public Models.TenantStatus? Paused { get; set; }

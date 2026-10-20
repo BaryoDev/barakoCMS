@@ -6,7 +6,7 @@ namespace barakoCMS.Infrastructure.Audit;
 /// <summary>
 /// Records one <see cref="AuditEvent"/> into a Marten session and chains it to the tenant's most
 /// recent entry. The caller owns the transaction (call <c>SaveChangesAsync</c>) — same convention as
-/// <see cref="barakoCMS.Infrastructure.Preview.PreviewToken"/> and Diagnostics'
+/// <c>PreviewToken</c> and Diagnostics'
 /// <c>ClientErrorRecorder</c>, so an audit record commits atomically with the action it describes.
 ///
 /// Known limitation: the "previous entry" lookup and this entry's insert are not one atomic

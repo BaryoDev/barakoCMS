@@ -52,4 +52,18 @@ public class TypeForwardingTests
         gate!.Assembly.GetName().Name.Should().Be("BarakoCMS.Abstractions");
         required.Assembly.GetName().Name.Should().Be("BarakoCMS.Abstractions");
     }
+
+    [Theory]
+    [InlineData("barakoCMS.Core.ContentTypeName")]
+    [InlineData("barakoCMS.Infrastructure.Audit.AuditLog")]
+    [InlineData("barakoCMS.Infrastructure.Audit.AuditChain")]
+    [InlineData("barakoCMS.Infrastructure.Multitenancy.TenantContext")]
+    [InlineData("barakoCMS.Infrastructure.Services.ContentTypeFieldLimit")]
+    public void The_types_a_module_uses_from_the_core_live_in_Abstractions_and_still_resolve_from_barakoCMS(string name)
+    {
+        var type = Type.GetType($"{name}, barakoCMS");
+
+        type.Should().NotBeNull("a module built against 5.0.x names it in assembly barakoCMS");
+        type!.Assembly.GetName().Name.Should().Be("BarakoCMS.Abstractions");
+    }
 }
