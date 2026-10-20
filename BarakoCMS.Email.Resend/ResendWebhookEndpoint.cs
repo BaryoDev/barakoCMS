@@ -61,11 +61,35 @@ public sealed class ResendWebhookEndpoint(IDocumentSession session, IConfigurati
 
     private async Task RecordAsync(string body, CancellationToken ct)
     {
+        var parsed = TryParse(body);
+        if (parsed is not var (kind, email, emailId, reason))
+            return; // not a bounce, complaint or delay, or not readable; ack it
+
+        session.Store(new EmailEvent
+        {
+            Email = email,
+            Type = kind,
+            Reason = reason,
+            EmailId = emailId,
+            Tenant = await SendingTenantAsync(session, emailId, ct),
+            At = DateTime.UtcNow,
+        });
+    }
+
+    /// <summary>
+    /// Reads the payload. A body that is not the expected shape returns null, so a malformed payload
+    /// is acked and does not make Resend retry forever. Only parsing is guarded, so a database
+    /// failure still surfaces as a 500 and Resend retries.
+    /// </summary>
+    private static (string Kind, string Email, string EmailId, string Reason)? TryParse(string body)
+    {
         try
         {
             using var doc = JsonDocument.Parse(body);
             var root = doc.RootElement;
-            var type = root.TryGetProperty("type", out var t) ? t.GetString() ?? "" : "";
+            if (root.ValueKind != JsonValueKind.Object)
+                return null;
+            var type = root.TryGetProperty("type", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString() ?? "" : "";
             var kind = type switch
             {
                 "email.bounced" => "bounced",
@@ -73,30 +97,19 @@ public sealed class ResendWebhookEndpoint(IDocumentSession session, IConfigurati
                 "email.delivery_delayed" => "delivery_delayed",
                 _ => null,
             };
-            if (kind is null)
-                return; // ignore delivered/sent/opened/etc.
+            if (kind is null || !root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object)
+                return null;
 
-            if (root.TryGetProperty("data", out var data))
-            {
-                var email = FirstRecipient(data);
-                if (!string.IsNullOrWhiteSpace(email))
-                {
-                    var emailId = data.TryGetProperty("email_id", out var eid) ? eid.GetString() ?? "" : "";
-                    session.Store(new EmailEvent
-                    {
-                        Email = email!.Trim().ToLowerInvariant(),
-                        Type = kind,
-                        Reason = BounceReason(data),
-                        EmailId = emailId,
-                        Tenant = await SendingTenantAsync(session, emailId, ct),
-                        At = DateTime.UtcNow,
-                    });
-                }
-            }
+            var email = FirstRecipient(data);
+            if (string.IsNullOrWhiteSpace(email))
+                return null;
+            var emailId = data.TryGetProperty("email_id", out var eid) && eid.ValueKind == JsonValueKind.String
+                ? eid.GetString() ?? "" : "";
+            return (kind, email.Trim().ToLowerInvariant(), emailId, BounceReason(data));
         }
-        catch (JsonException)
+        catch (Exception e) when (e is JsonException or InvalidOperationException)
         {
-            // A malformed payload shouldn't make Resend retry forever; ack it.
+            return null;
         }
     }
 

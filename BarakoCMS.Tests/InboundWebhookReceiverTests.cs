@@ -139,4 +139,25 @@ public class InboundWebhookReceiverTests
             .ToListAsync(TestContext.Current.CancellationToken);
         stored.Should().HaveCount(1, "the same svix-id delivered twice is one provider event");
     }
+
+    [Theory]
+    [InlineData("[1]")]
+    [InlineData("\"text\"")]
+    [InlineData("{\"type\":5}")]
+    [InlineData("{\"type\":\"email.bounced\",\"data\":{\"to\":[7]}}")]
+    public async Task The_Resend_endpoint_acks_a_signed_payload_of_the_wrong_shape(string body)
+    {
+        var client = _factory.WithSetting("Resend:WebhookSecret", Secret).CreateClient();
+        var signed = Signed("msg_shape_" + Guid.NewGuid().ToString("N"), DateTimeOffset.UtcNow, body);
+        var req = new HttpRequestMessage(HttpMethod.Post, "/api/webhooks/resend")
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json"),
+        };
+        foreach (var (k, v) in signed.Headers)
+            req.Headers.Add(k, v);
+
+        var response = await client.SendAsync(req, TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
 }
