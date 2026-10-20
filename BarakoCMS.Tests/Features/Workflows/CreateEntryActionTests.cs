@@ -96,4 +96,34 @@ public class CreateEntryActionTests
         badStatus.Succeeded.Should().BeFalse();
         await creator.DidNotReceiveWithAnyArgs().CheckAsync(default!, default, default!, default, default);
     }
+
+    [Fact]
+    public async Task A_rerun_with_the_same_idempotency_key_returns_the_entry_it_already_made()
+    {
+        var (action, creator, session) = Build([]);
+        var parameters = new Dictionary<string, string>
+        {
+            ["ContentType"] = "task",
+            ["IdempotencyKey"] = "run-1:2",
+        };
+
+        await action.RunAsync(parameters, Trigger(), Ct);
+        var staged = creator.ReceivedCalls()
+            .Where(c => c.GetMethodInfo().Name == nameof(IContentCreator.StageAsync))
+            .Select(c => (ContentCreateRequest)c.GetArguments()[0]!)
+            .ToList();
+        staged.Should().HaveCount(1);
+        var id = staged[0].Id;
+        id.Should().NotBeNull();
+
+        session.LoadAsync<Content>(id!.Value, Arg.Any<CancellationToken>())
+            .Returns(new Content { Id = id.Value, ContentType = "task" });
+        var rerun = await action.RunAsync(parameters, Trigger(), Ct);
+
+        rerun.Succeeded.Should().BeTrue(rerun.Error);
+        rerun.Outputs["Id"].Should().Be(id.Value.ToString());
+        creator.ReceivedCalls()
+            .Count(c => c.GetMethodInfo().Name == nameof(IContentCreator.StageAsync))
+            .Should().Be(1);
+    }
 }

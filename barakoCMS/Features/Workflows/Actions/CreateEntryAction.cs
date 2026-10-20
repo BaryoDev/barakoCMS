@@ -55,7 +55,17 @@ internal class CreateEntryAction(
             data[param.Key["Data.".Length..]] = param.Value;
         }
 
-        var request = new ContentCreateRequest { ContentType = contentType, Data = data, Status = status };
+        // The key is stable across reruns of this one action, so a rerun after the entry committed
+        // but before the outcome was recorded finds its own entry instead of creating a second.
+        Guid? entryId = parameters.TryGetValue("IdempotencyKey", out var key) && !string.IsNullOrWhiteSpace(key)
+            ? new Guid(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("CreateEntry:" + key))[..16])
+            : null;
+        if (entryId is { } known && await session.LoadAsync<barakoCMS.Models.Content>(known, ct) is not null)
+        {
+            return WorkflowActionResult.Success(new Dictionary<string, string> { ["Id"] = known.ToString() });
+        }
+
+        var request = new ContentCreateRequest { Id = entryId, ContentType = contentType, Data = data, Status = status };
 
         // The workflow holds no user's rights: an empty principal, so field sensitivity drops what
         // an anonymous caller could not set. The events record Guid.Empty, as other system writes do.
