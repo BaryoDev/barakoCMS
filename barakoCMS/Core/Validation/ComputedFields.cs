@@ -344,7 +344,7 @@ internal static class ComputedFields
     }
 
     /// <summary>A number rounded as the field asks, and as a whole number for an int field.</summary>
-    private static object Shape(FieldDefinition field, decimal value)
+    private static object? Shape(FieldDefinition field, decimal value)
     {
         var digits = string.Equals(field.Type, "int", StringComparison.OrdinalIgnoreCase)
             ? 0
@@ -353,7 +353,10 @@ internal static class ComputedFields
         if (digits is { } places)
             value = Math.Round(value, places, MidpointRounding.AwayFromZero);
 
-        return string.Equals(field.Type, "int", StringComparison.OrdinalIgnoreCase) ? (object)(long)value : value;
+        if (!string.Equals(field.Type, "int", StringComparison.OrdinalIgnoreCase))
+            return value;
+
+        return value is >= long.MinValue and <= long.MaxValue ? (long)value : null;
     }
 
     /// <summary>Whether a value sent for a computed field is the one already stored, which a client echoing an entry back sends.</summary>
@@ -401,7 +404,7 @@ internal static class ComputedFields
         ? je.ValueKind switch
         {
             JsonValueKind.String => je.GetString()!,
-            JsonValueKind.Number => je.TryGetInt64(out var l) ? l : je.GetDecimal(),
+            JsonValueKind.Number => je.TryGetInt64(out var l) ? l : je.TryGetDecimal(out var m) ? m : je.GetDouble(),
             JsonValueKind.True => true,
             JsonValueKind.False => false,
             _ => je.Clone(),
@@ -432,7 +435,7 @@ internal static class ComputedFields
             long l => l,
             int i => i,
             decimal d => d,
-            double d when !double.IsNaN(d) && !double.IsInfinity(d) => (decimal)d,
+            double d when Math.Abs(d) < 7.9e28 => (decimal)d,
             string s when decimal.TryParse(s, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsed) => parsed,
             _ => null,
         };

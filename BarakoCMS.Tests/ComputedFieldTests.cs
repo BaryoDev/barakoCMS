@@ -97,6 +97,25 @@ public class ComputedFieldTests
     }
 
     [Fact]
+    public void An_int_result_too_large_for_a_long_gives_no_value_and_does_not_throw()
+    {
+        var fields = new[]
+        {
+            Plain("A", "int"),
+            Plain("B", "int"),
+            Plain("C", "int"),
+            Computed("Product", "int", "multiply", null, "A", "B", "C"),
+        };
+        var data = Data(("A", 2000000000L), ("B", 2000000000L), ("C", 2000000000L));
+
+        var act = () => ComputedFields.Apply(fields, data);
+
+        act.Should().NotThrow();
+        data.Should().NotContainKey("Product");
+        data.Should().HaveCount(3);
+    }
+
+    [Fact]
     public void Days_duration_concat_coalesce_and_round_give_their_results()
     {
         var days = Computed("Days", "decimal", "days", null, "Start", "End");
