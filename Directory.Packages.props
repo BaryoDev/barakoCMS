@@ -53,6 +53,12 @@
     <PackageVersion Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.153.1" />
   </ItemGroup>
 
+  <ItemGroup Label="QR codes">
+    <!-- MIT, managed only, no native dependency. Renders the PNG and SVG for BarakoCMS.Qr (#807).
+         Pinned: it encodes values a desk scans, so it moves on purpose. -->
+    <PackageVersion Include="QRCoder" Version="1.6.0" />
+  </ItemGroup>
+
   <ItemGroup Label="Security">
     <PackageVersion Include="BCrypt.Net-Next" Version="4.2.0" />
     <PackageVersion Include="IdentityModel" Version="7.0.0" />

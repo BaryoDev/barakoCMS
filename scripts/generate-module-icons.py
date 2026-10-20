@@ -98,6 +98,13 @@ ICONS["BarakoCMS.Pwa"] = ("BarakoCMS.Pwa", "#009688", f'''  <rect x="42" y="22" 
   <circle cx="64" cy="96" r="4" fill="#009688"/>
   <path d="M64 44 V70 M53 60 L64 71 L75 60" fill="none" stroke="{GOLD}" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>''')
 
+# Qr: finder square with dots.
+ICONS["BarakoCMS.Qr"] = ("BarakoCMS.Qr", "#37474F", f'''  <rect x="30" y="30" width="30" height="30" rx="6" fill="{WHITE}"/>
+  <rect x="68" y="30" width="30" height="30" rx="6" fill="{WHITE}"/>
+  <rect x="30" y="68" width="30" height="30" rx="6" fill="{WHITE}"/>
+  <rect x="70" y="70" width="12" height="12" rx="3" fill="{GOLD}"/>
+  <rect x="86" y="86" width="12" height="12" rx="3" fill="{GOLD}"/>''')
+
 # Repo root is the parent of the scripts/ directory this file lives in, so the
 # generator works from any checkout location.
 base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
