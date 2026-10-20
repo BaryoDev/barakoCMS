@@ -1904,6 +1904,9 @@ public static class ServiceCollectionExtensions
         // Resolve the tenant from the subdomain, early so downstream code can read it.
         app.UseMiddleware<barakoCMS.Infrastructure.Multitenancy.TenantResolutionMiddleware>();
 
+        // Stamp the resolved tenant slug on every log event from here on.
+        app.UseMiddleware<barakoCMS.Infrastructure.Middleware.TenantLogEnrichmentMiddleware>();
+
         // CORS (Must be before Authentication/Authorization)
         app.Use(async (context, next) =>
         {
