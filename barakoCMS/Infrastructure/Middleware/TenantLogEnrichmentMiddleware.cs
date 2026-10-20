@@ -1,5 +1,7 @@
 using barakoCMS.Infrastructure.Multitenancy;
 using Serilog.Context;
+using Serilog.Core;
+using Serilog.Events;
 
 namespace barakoCMS.Infrastructure.Middleware;
 
@@ -17,15 +19,21 @@ public class TenantLogEnrichmentMiddleware(RequestDelegate next)
 
     public async Task InvokeAsync(HttpContext context, TenantContext tenant)
     {
-        if (tenant.IsDefault || string.IsNullOrWhiteSpace(tenant.Slug))
+        // Read at log time: API key and station authentication replace the slug after this runs.
+        using (LogContext.Push(new TenantEnricher(tenant)))
         {
             await next(context);
-            return;
         }
+    }
 
-        using (LogContext.PushProperty(PropertyName, tenant.Slug))
+    private sealed class TenantEnricher(TenantContext tenant) : ILogEventEnricher
+    {
+        public void Enrich(LogEvent logEvent, ILogEventPropertyFactory propertyFactory)
         {
-            await next(context);
+            if (tenant.IsDefault || string.IsNullOrWhiteSpace(tenant.Slug))
+                return;
+
+            logEvent.AddOrUpdateProperty(propertyFactory.CreateProperty(PropertyName, tenant.Slug));
         }
     }
 }

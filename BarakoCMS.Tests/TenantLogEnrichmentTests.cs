@@ -81,4 +81,23 @@ public class TenantLogEnrichmentTests
         sink.Events.Should().ContainSingle();
         sink.Events[0].Properties.Should().NotContainKey(TenantLogEnrichmentMiddleware.PropertyName);
     }
+
+    [Fact]
+    public async Task A_slug_set_after_the_middleware_ran_is_the_one_logged()
+    {
+        var sink = new CaptureSink();
+        var logger = new LoggerConfiguration().Enrich.FromLogContext().WriteTo.Sink(sink).CreateLogger();
+        var tenant = new TenantContext();
+        var middleware = new TenantLogEnrichmentMiddleware(_ =>
+        {
+            tenant.Slug = "key-tenant";
+            logger.Information("after auth");
+            return Task.CompletedTask;
+        });
+
+        await middleware.InvokeAsync(new DefaultHttpContext(), tenant);
+
+        sink.Events.Should().ContainSingle();
+        TenantOf(sink.Events[0]).Should().Be("key-tenant");
+    }
 }
