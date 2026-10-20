@@ -1,6 +1,7 @@
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using barakoCMS.Core.Interfaces;
+using barakoCMS.Infrastructure.Services;
 using FastEndpoints;
 using Marten;
 using Microsoft.Extensions.Configuration;
@@ -13,7 +14,7 @@ namespace BarakoCMS.Email.Resend;
 /// <see cref="EmailEvent"/> documents, so apps can tell a user an address is bad. Verifies the Svix
 /// signature when <c>Resend:WebhookSecret</c> (or RESEND_WEBHOOK_SECRET) is set.
 /// </summary>
-public sealed class ResendWebhookEndpoint(IDocumentSession session, IConfiguration config) : EndpointWithoutRequest
+public sealed class ResendWebhookEndpoint(IDocumentSession session, IConfiguration config, IInboundWebhookVerifier verifier) : EndpointWithoutRequest
 {
     public override void Configure()
     {
@@ -43,17 +44,52 @@ public sealed class ResendWebhookEndpoint(IDocumentSession session, IConfigurati
             return;
         }
 
-        if (!VerifySvix(secret, body))
+        var headers = HttpContext.Request.Headers.ToDictionary(h => h.Key, h => h.Value.ToString());
+        var outcome = await verifier.ReceiveAsync(
+            new InboundWebhookRequest("resend", InboundWebhookScheme.Svix, secret, body, headers),
+            token => RecordAsync(body, token),
+            ct);
+
+        if (outcome is InboundWebhookOutcome.BadSignature or InboundWebhookOutcome.OutsideWindow)
         {
             await Send.UnauthorizedAsync(ct);
             return;
         }
 
+        await Send.OkAsync(ct);
+    }
+
+    private async Task RecordAsync(string body, CancellationToken ct)
+    {
+        var parsed = TryParse(body);
+        if (parsed is not var (kind, email, emailId, reason))
+            return; // not a bounce, complaint or delay, or not readable; ack it
+
+        session.Store(new EmailEvent
+        {
+            Email = email,
+            Type = kind,
+            Reason = reason,
+            EmailId = emailId,
+            Tenant = await SendingTenantAsync(session, emailId, ct),
+            At = DateTime.UtcNow,
+        });
+    }
+
+    /// <summary>
+    /// Reads the payload. A body that is not the expected shape returns null, so a malformed payload
+    /// is acked and does not make Resend retry forever. Only parsing is guarded, so a database
+    /// failure still surfaces as a 500 and Resend retries.
+    /// </summary>
+    private static (string Kind, string Email, string EmailId, string Reason)? TryParse(string body)
+    {
         try
         {
             using var doc = JsonDocument.Parse(body);
             var root = doc.RootElement;
-            var type = root.TryGetProperty("type", out var t) ? t.GetString() ?? "" : "";
+            if (root.ValueKind != JsonValueKind.Object)
+                return null;
+            var type = root.TryGetProperty("type", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString() ?? "" : "";
             var kind = type switch
             {
                 "email.bounced" => "bounced",
@@ -61,37 +97,20 @@ public sealed class ResendWebhookEndpoint(IDocumentSession session, IConfigurati
                 "email.delivery_delayed" => "delivery_delayed",
                 _ => null,
             };
-            if (kind is null)
-            {
-                await Send.OkAsync(ct); // ignore delivered/sent/opened/etc.
-                return;
-            }
+            if (kind is null || !root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object)
+                return null;
 
-            if (root.TryGetProperty("data", out var data))
-            {
-                var email = FirstRecipient(data);
-                if (!string.IsNullOrWhiteSpace(email))
-                {
-                    var emailId = data.TryGetProperty("email_id", out var eid) ? eid.GetString() ?? "" : "";
-                    session.Store(new EmailEvent
-                    {
-                        Email = email!.Trim().ToLowerInvariant(),
-                        Type = kind,
-                        Reason = BounceReason(data),
-                        EmailId = emailId,
-                        Tenant = await SendingTenantAsync(session, emailId, ct),
-                        At = DateTime.UtcNow,
-                    });
-                    await session.SaveChangesAsync(ct);
-                }
-            }
+            var email = FirstRecipient(data);
+            if (string.IsNullOrWhiteSpace(email))
+                return null;
+            var emailId = data.TryGetProperty("email_id", out var eid) && eid.ValueKind == JsonValueKind.String
+                ? eid.GetString() ?? "" : "";
+            return (kind, email.Trim().ToLowerInvariant(), emailId, BounceReason(data));
         }
-        catch
+        catch (Exception e) when (e is JsonException or InvalidOperationException)
         {
-            // A malformed payload shouldn't make Resend retry forever; ack it.
+            return null;
         }
-
-        await Send.OkAsync(ct);
     }
 
     /// <summary>The tenant that sent this email, from the send record, or null when there is none.</summary>
@@ -124,75 +143,22 @@ public sealed class ResendWebhookEndpoint(IDocumentSession session, IConfigurati
         return "";
     }
 
-    /// <summary>
-    /// How far from now a webhook timestamp may be, in either direction. Five minutes is what the
-    /// Svix spec suggests, and it has to allow for clock skew on both machines, so it is symmetric.
-    /// </summary>
-    internal static readonly TimeSpan Tolerance = TimeSpan.FromMinutes(5);
-
-    /// <summary>Svix signature check: HMAC-SHA256 of "{id}.{timestamp}.{body}" with the whsec key.</summary>
-    private bool VerifySvix(string secret, string body) => VerifySvix(
-        secret,
-        body,
-        HttpContext.Request.Headers["svix-id"].ToString(),
-        HttpContext.Request.Headers["svix-timestamp"].ToString(),
-        HttpContext.Request.Headers["svix-signature"].ToString(),
-        DateTimeOffset.UtcNow);
+    /// <summary>How far from now a webhook timestamp may be, in either direction.</summary>
+    internal static readonly TimeSpan Tolerance = InboundWebhookVerifier.DefaultTolerance;
 
     /// <summary>
-    /// The signature check, separated from HttpContext so it can be tested directly. This is the
-    /// only thing standing between a stranger and a write on an anonymous endpoint, so it wants a
-    /// test that does not depend on standing up a web host.
+    /// The Svix signature and window check, kept as a plain function so it can be tested without a
+    /// web host. The check itself lives in core, in <see cref="IInboundWebhookVerifier"/>.
     /// </summary>
     internal static bool VerifySvix(
-        string secret, string body, string id, string ts, string sigHeader, DateTimeOffset now)
-    {
-        try
-        {
-            if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(ts) || string.IsNullOrEmpty(sigHeader))
-                return false;
-
-            // The timestamp is mixed into the signed string, so it cannot be tampered with, but it
-            // was never compared against the clock. A valid request therefore stayed valid forever,
-            // and each replay of a captured email.bounced writes another suppression record for that
-            // recipient. If suppression ever gates outbound mail, that is a targeted denial of
-            // delivery against a chosen address, including password reset and OTP mail.
-            //
-            // The clock is a parameter rather than DateTime.UtcNow read in here, so both sides of
-            // the window are testable without waiting or mocking time.
-            if (!long.TryParse(ts, System.Globalization.NumberStyles.Integer,
-                    System.Globalization.CultureInfo.InvariantCulture, out var unixSeconds))
-            {
-                // A timestamp that will not parse is rejected rather than treated as zero, which
-                // would put it outside the window in one direction and pass in the other.
-                return false;
-            }
-
-            var age = now - DateTimeOffset.FromUnixTimeSeconds(unixSeconds);
-            if (age > Tolerance || age < -Tolerance)
-            {
-                return false;
-            }
-
-            var key = secret.StartsWith("whsec_", StringComparison.Ordinal) ? secret["whsec_".Length..] : secret;
-            var keyBytes = Convert.FromBase64String(key);
-            using var hmac = new HMACSHA256(keyBytes);
-            var signed = hmac.ComputeHash(Encoding.UTF8.GetBytes($"{id}.{ts}.{body}"));
-            var expected = Convert.ToBase64String(signed);
-
-            foreach (var part in sigHeader.Split(' '))
-            {
-                var comma = part.IndexOf(',');
-                var candidate = comma >= 0 ? part[(comma + 1)..] : part;
-                if (CryptographicOperations.FixedTimeEquals(
-                        Encoding.UTF8.GetBytes(candidate), Encoding.UTF8.GetBytes(expected)))
-                    return true;
-            }
-            return false;
-        }
-        catch
-        {
-            return false;
-        }
-    }
+        string secret, string body, string id, string ts, string sigHeader, DateTimeOffset now) =>
+        InboundWebhookVerifier.Check(
+            new InboundWebhookRequest("resend", InboundWebhookScheme.Svix, secret, body,
+                new Dictionary<string, string>
+                {
+                    ["svix-id"] = id,
+                    ["svix-timestamp"] = ts,
+                    ["svix-signature"] = sigHeader,
+                }),
+            now) == InboundWebhookOutcome.Processed;
 }
