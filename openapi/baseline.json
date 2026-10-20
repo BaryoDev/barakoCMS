@@ -1042,6 +1042,36 @@
         "additionalProperties": false,
         "type": "object"
       },
+      "BarakoCMSExternalAuthExternalIdentitiesRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BarakoCMSModelsListRequest"
+          },
+          {
+            "additionalProperties": false,
+            "type": "object"
+          }
+        ]
+      },
+      "BarakoCMSExternalAuthExternalIdentityResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "issuer": {
+            "type": "string"
+          },
+          "linkedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSExternalAuthOidcIdTokenGrantRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1088,6 +1118,72 @@
             "type": "boolean"
           },
           "token": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSExternalAuthRemoveExternalIdentityRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSExternalAuthRoleMapRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "claim": {
+            "maxLength": 100,
+            "minLength": 0,
+            "nullable": false,
+            "type": "string"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSExternalAuthRoleRuleDto"
+            },
+            "nullable": false,
+            "type": "array"
+          }
+        },
+        "required": [
+          "claim",
+          "rules"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSExternalAuthRoleMapResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "claim": {
+            "type": "string"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSExternalAuthRoleRuleDto"
+            },
+            "type": "array"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSExternalAuthRoleRuleDto": {
+        "additionalProperties": false,
+        "properties": {
+          "issuer": {
+            "nullable": true,
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "roleId": {
+            "format": "guid",
+            "type": "string"
+          },
+          "value": {
             "type": "string"
           }
         },
@@ -2058,7 +2154,12 @@
             "type": "string"
           },
           "incompleteWhen": {
-            "$ref": "#/components/schemas/BarakoCMSModelsSyncIncompleteWhen"
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsSyncIncompleteWhen"
+              }
+            ]
           },
           "intervalMinutes": {
             "format": "int32",
@@ -2292,7 +2393,13 @@
             "type": "array"
           },
           "incompleteWhen": {
-            "$ref": "#/components/schemas/BarakoCMSModelsSyncIncompleteWhen"
+            "description": "A response field that marks the list as partial, which fails the run. Unset by default.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsSyncIncompleteWhen"
+              }
+            ]
           },
           "intervalMinutes": {
             "format": "int32",
@@ -4586,6 +4693,8 @@
         "properties": {
           "displayName": {
             "description": "The new display name. Null or blank clears it, and GET /api/me reports the username again.",
+            "maxLength": 100,
+            "minLength": 0,
             "nullable": true,
             "type": "string"
           }
@@ -6900,6 +7009,47 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesViewersCreateCreateViewerTokenRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "lifetimeMinutes": {
+            "description": "How long the token lives, in minutes. Defaults to 60, at most 480.",
+            "format": "int32",
+            "maximum": 480.0,
+            "minimum": 1.0,
+            "nullable": true,
+            "type": "integer"
+          },
+          "subject": {
+            "description": "The caller's own identifier for the viewer. Opaque to the CMS.",
+            "maxLength": 200,
+            "minLength": 0,
+            "nullable": false,
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSFeaturesViewersCreateCreateViewerTokenResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "expiresAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "header": {
+            "description": "The request header that carries the token to public delivery.",
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesWebhookDeliveriesListDeliveriesRequest": {
         "allOf": [
           {
@@ -8472,6 +8622,7 @@
       },
       "BarakoCMSImportFeaturesImportSheetRequest": {
         "additionalProperties": false,
+        "description": "Multipart form: the file in file, and these as form fields.",
         "properties": {
           "contentType": {
             "type": "string"
@@ -8481,7 +8632,7 @@
             "type": "boolean"
           },
           "dryRun": {
-            "description": "Check every row and write nothing.",
+            "description": "Check every row and write nothing. The counts are what a real run would produce.",
             "type": "boolean"
           },
           "headerRow": {
@@ -8494,7 +8645,7 @@
             "type": "string"
           },
           "status": {
-            "description": "Draft, Published or Archived. Published when empty.",
+            "description": "Content status of the created entries: Draft, Published or Archived. Published when empty.",
             "type": "string"
           }
         },
@@ -8504,10 +8655,12 @@
         "additionalProperties": false,
         "properties": {
           "created": {
+            "description": "Entries written, or that a real run would write when dryRun is true.",
             "format": "int32",
             "type": "integer"
           },
           "dataRows": {
+            "description": "Rows below the header that held a value. Created plus failed, unless all or nothing refused the batch.",
             "format": "int32",
             "type": "integer"
           },
@@ -8515,6 +8668,7 @@
             "type": "boolean"
           },
           "errors": {
+            "description": "Each error's row is the zero-based sheet row, the same numbering analyze returns.",
             "items": {
               "$ref": "#/components/schemas/BarakoCMSImportFeaturesBulkCreateResponse_RowError"
             },
@@ -8525,6 +8679,7 @@
             "type": "integer"
           },
           "skippedBlankRows": {
+            "description": "Rows below the header with every cell blank. Skipped, and counted here.",
             "format": "int32",
             "type": "integer"
           }
@@ -9882,6 +10037,48 @@
         },
         "type": "object"
       },
+      "BarakoCMSModelsPaginatedResponseOfExternalIdentityResponse": {
+        "additionalProperties": false,
+        "description": "Generic paginated response with metadata.",
+        "properties": {
+          "hasNextPage": {
+            "description": "Whether there is a next page",
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "description": "Whether there is a previous page",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Items for the current page",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSExternalAuthExternalIdentityResponse"
+            },
+            "type": "array"
+          },
+          "page": {
+            "description": "Current page number (1-indexed)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "pageSize": {
+            "description": "Number of items per page",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalItems": {
+            "description": "Total number of items across all pages",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalPages": {
+            "description": "Total number of pages",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSModelsPaginatedResponseOfFileMetadata": {
         "additionalProperties": false,
         "description": "Generic paginated response with metadata.",
@@ -11170,10 +11367,14 @@
         "properties": {
           "equalTo": {
             "description": "The response is partial when the value at the path equals this, ignoring case. A boolean is compared as true or false.",
+            "maxLength": 200,
+            "minLength": 0,
             "type": "string"
           },
           "path": {
             "description": "A dotted path from the root of the response, such as incomplete_results.",
+            "maxLength": 200,
+            "minLength": 0,
             "type": "string"
           }
         },
@@ -18235,7 +18436,7 @@
     },
     "/api/import/spreadsheet": {
       "post": {
-        "description": "Authorised like the bulk create: the target content type's own create permission. One transaction. Refused or rolled back past Import:MaxUploadBytes, Import:MaxExpandedBytes, Import:MaxRecords, Import:MaxColumns or Import:MaxSeconds (408); nothing is written. A second run creates the entries again.",
+        "description": "Authorised like the bulk create: the target content type's own create permission, checked for\nthe type and again for each row as stored. One request, one transaction. Bounded by the upload\nsize, the expanded size, MaxRecords data rows and\nMaxSeconds; past any of them the answer is a refusal and nothing is\nwritten. A crash or timeout midway rolls the transaction back, so there is no half import. A\nsecond run creates the entries again, so use dryRun first; a uniqueness rule on the type\nrefuses the repeats.",
         "operationId": "BarakoCMSImportFeaturesImportSheetEndpoint",
         "requestBody": {
           "content": {
@@ -18270,7 +18471,7 @@
             "JWTBearerAuth": []
           }
         ],
-        "summary": "POST /api/import/spreadsheet. Uploads an .xlsx/CSV with the header row, content type and column mapping, and creates an entry from every data row, not only the 500 that analyze previews.",
+        "summary": "POST /api/import/spreadsheet. Uploads an .xlsx/CSV with the header row, content type and column\nmapping, and creates an entry from every data row, not only the 500 analyze previews.",
         "tags": [
           "Import"
         ]
@@ -21926,6 +22127,105 @@
         ]
       }
     },
+    "/api/tenants/external-role-map": {
+      "delete": {
+        "operationId": "BarakoCMSExternalAuthDeleteRoleMapEndpoint",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "DELETE /api/tenants/external-role-map: removes the map. Roles already given stay.",
+        "tags": [
+          "ExternalAuth"
+        ]
+      },
+      "get": {
+        "operationId": "BarakoCMSExternalAuthGetRoleMapEndpoint",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSExternalAuthRoleMapResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/tenants/external-role-map: the caller's tenant's claim-to-role map.",
+        "tags": [
+          "ExternalAuth"
+        ]
+      },
+      "put": {
+        "operationId": "BarakoCMSExternalAuthPutRoleMapEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSExternalAuthRoleMapRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "RoleMapRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSExternalAuthRoleMapResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "PUT /api/tenants/external-role-map: sets the caller's tenant's map, replacing any.",
+        "tags": [
+          "ExternalAuth"
+        ]
+      }
+    },
     "/api/tenants/members": {
       "get": {
         "operationId": "barakoCMSFeaturesTenantsMembersListMembersEndpoint",
@@ -22822,6 +23122,133 @@
         ]
       }
     },
+    "/api/users/{userId}/external-identities": {
+      "get": {
+        "operationId": "BarakoCMSExternalAuthListExternalIdentitiesEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfExternalIdentityResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/users/{userId}/external-identities: the provider accounts linked to a user.",
+        "tags": [
+          "ExternalAuth"
+        ]
+      }
+    },
+    "/api/users/{userId}/external-identities/{id}": {
+      "delete": {
+        "operationId": "BarakoCMSExternalAuthRemoveExternalIdentityEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "DELETE /api/users/{userId}/external-identities/{id}: unlinks a provider account. The\nperson's next sign-in through it links again by verified email, so this cuts a stale link and\ndoes not ban the account.",
+        "tags": [
+          "ExternalAuth"
+        ]
+      }
+    },
     "/api/users/{userId}/groups": {
       "post": {
         "operationId": "barakoCMSFeaturesUsersAssignGroupEndpoint",
@@ -23066,6 +23493,59 @@
         ],
         "tags": [
           "Users"
+        ]
+      }
+    },
+    "/api/viewer-tokens": {
+      "post": {
+        "description": "Gated like the other delivery decisions. The token is for the Members audience of public\ndelivery only: it is signed under its own audience, so no authoring route accepts it.",
+        "operationId": "barakoCMSFeaturesViewersCreateEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesViewersCreateCreateViewerTokenRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "CreateViewerTokenRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesViewersCreateCreateViewerTokenResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/viewer-tokens: a site with its own sign-in mints a token for one of its members.",
+        "tags": [
+          "Viewers"
         ]
       }
     },
