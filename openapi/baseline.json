@@ -1042,6 +1042,36 @@
         "additionalProperties": false,
         "type": "object"
       },
+      "BarakoCMSExternalAuthExternalIdentitiesRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BarakoCMSModelsListRequest"
+          },
+          {
+            "additionalProperties": false,
+            "type": "object"
+          }
+        ]
+      },
+      "BarakoCMSExternalAuthExternalIdentityResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "issuer": {
+            "type": "string"
+          },
+          "linkedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSExternalAuthOidcIdTokenGrantRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1088,6 +1118,72 @@
             "type": "boolean"
           },
           "token": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSExternalAuthRemoveExternalIdentityRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSExternalAuthRoleMapRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "claim": {
+            "maxLength": 100,
+            "minLength": 0,
+            "nullable": false,
+            "type": "string"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSExternalAuthRoleRuleDto"
+            },
+            "nullable": false,
+            "type": "array"
+          }
+        },
+        "required": [
+          "claim",
+          "rules"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSExternalAuthRoleMapResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "claim": {
+            "type": "string"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSExternalAuthRoleRuleDto"
+            },
+            "type": "array"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSExternalAuthRoleRuleDto": {
+        "additionalProperties": false,
+        "properties": {
+          "issuer": {
+            "nullable": true,
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "roleId": {
+            "format": "guid",
+            "type": "string"
+          },
+          "value": {
             "type": "string"
           }
         },
@@ -6863,6 +6959,47 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesViewersCreateCreateViewerTokenRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "lifetimeMinutes": {
+            "description": "How long the token lives, in minutes. Defaults to 60, at most 480.",
+            "format": "int32",
+            "maximum": 480.0,
+            "minimum": 1.0,
+            "nullable": true,
+            "type": "integer"
+          },
+          "subject": {
+            "description": "The caller's own identifier for the viewer. Opaque to the CMS.",
+            "maxLength": 200,
+            "minLength": 0,
+            "nullable": false,
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSFeaturesViewersCreateCreateViewerTokenResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "expiresAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "header": {
+            "description": "The request header that carries the token to public delivery.",
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesWebhookDeliveriesListDeliveriesRequest": {
         "allOf": [
           {
@@ -7174,7 +7311,7 @@
               "format": "int32",
               "type": "integer"
             },
-            "description": "How many runs have each status under the content and workflow filters, whatever the status filter and\nthe page. Every status is present, with zero where there are none. Null when <c>changedSince</c>\nwas given, since a poll reads what changed and a count would add a scan to each one.",
+            "description": "How many runs have each status under the content and workflow filters, whatever the status filter and\nthe page. Every status is present, with zero where there are none. Null when changedSince\nwas given, since a poll reads what changed and a count would add a scan to each one.",
             "nullable": true,
             "type": "object"
           },
@@ -9759,6 +9896,48 @@
             "description": "Items for the current page",
             "items": {
               "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeUniquenessDuplicatesDuplicateEntry"
+            },
+            "type": "array"
+          },
+          "page": {
+            "description": "Current page number (1-indexed)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "pageSize": {
+            "description": "Number of items per page",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalItems": {
+            "description": "Total number of items across all pages",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalPages": {
+            "description": "Total number of pages",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSModelsPaginatedResponseOfExternalIdentityResponse": {
+        "additionalProperties": false,
+        "description": "Generic paginated response with metadata.",
+        "properties": {
+          "hasNextPage": {
+            "description": "Whether there is a next page",
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "description": "Whether there is a previous page",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Items for the current page",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSExternalAuthExternalIdentityResponse"
             },
             "type": "array"
           },
@@ -21728,6 +21907,105 @@
         ]
       }
     },
+    "/api/tenants/external-role-map": {
+      "delete": {
+        "operationId": "BarakoCMSExternalAuthDeleteRoleMapEndpoint",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "DELETE /api/tenants/external-role-map: removes the map. Roles already given stay.",
+        "tags": [
+          "ExternalAuth"
+        ]
+      },
+      "get": {
+        "operationId": "BarakoCMSExternalAuthGetRoleMapEndpoint",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSExternalAuthRoleMapResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/tenants/external-role-map: the caller's tenant's claim-to-role map.",
+        "tags": [
+          "ExternalAuth"
+        ]
+      },
+      "put": {
+        "operationId": "BarakoCMSExternalAuthPutRoleMapEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSExternalAuthRoleMapRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "RoleMapRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSExternalAuthRoleMapResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "PUT /api/tenants/external-role-map: sets the caller's tenant's map, replacing any.",
+        "tags": [
+          "ExternalAuth"
+        ]
+      }
+    },
     "/api/tenants/members": {
       "get": {
         "operationId": "barakoCMSFeaturesTenantsMembersListMembersEndpoint",
@@ -22624,6 +22902,133 @@
         ]
       }
     },
+    "/api/users/{userId}/external-identities": {
+      "get": {
+        "operationId": "BarakoCMSExternalAuthListExternalIdentitiesEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfExternalIdentityResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/users/{userId}/external-identities: the provider accounts linked to a user.",
+        "tags": [
+          "ExternalAuth"
+        ]
+      }
+    },
+    "/api/users/{userId}/external-identities/{id}": {
+      "delete": {
+        "operationId": "BarakoCMSExternalAuthRemoveExternalIdentityEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "DELETE /api/users/{userId}/external-identities/{id}: unlinks a provider account. The\nperson's next sign-in through it links again by verified email, so this cuts a stale link and\ndoes not ban the account.",
+        "tags": [
+          "ExternalAuth"
+        ]
+      }
+    },
     "/api/users/{userId}/groups": {
       "post": {
         "operationId": "barakoCMSFeaturesUsersAssignGroupEndpoint",
@@ -22868,6 +23273,59 @@
         ],
         "tags": [
           "Users"
+        ]
+      }
+    },
+    "/api/viewer-tokens": {
+      "post": {
+        "description": "Gated like the other delivery decisions. The token is for the Members audience of public\ndelivery only: it is signed under its own audience, so no authoring route accepts it.",
+        "operationId": "barakoCMSFeaturesViewersCreateEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesViewersCreateCreateViewerTokenRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "CreateViewerTokenRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesViewersCreateCreateViewerTokenResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/viewer-tokens: a site with its own sign-in mints a token for one of its members.",
+        "tags": [
+          "Viewers"
         ]
       }
     },
