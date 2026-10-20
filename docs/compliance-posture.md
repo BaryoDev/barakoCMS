@@ -55,6 +55,28 @@ Each row is a control that is implemented and checkable, not a plan.
 | Vulnerability disclosure | Private channel with a stated timeline (`SECURITY.md`) |
 | Licence | MPL-2.0. No seat cap, no revenue cap, no metered features |
 
+## Getting the audit trail into a SIEM
+
+There is no push to Splunk, Sentinel, Elastic or Datadog. There is a pull a poller can run.
+`GET /api/audit?since=<cursor>` returns entries oldest first in pages of at most 100
+(`pageSize`). Send a timestamp as `since` the first time. Every response carries a `cursor`; send
+it back as `since` on the next call and the read resumes where the last page stopped, with no entry
+skipped or repeated across a page boundary. When a page comes back empty, wait and poll again with
+the same cursor.
+
+Entries are stored with the time the request stamped, which can be a moment before the transaction
+commits. The cursor stays about five seconds behind the newest entry for that reason, so a late
+commit is read on the next poll and the last few entries can arrive twice. Key on `id`.
+
+The caller needs `view_audit_log`. A tenant administrator reads only their own tenant, and a role
+or API key row carries the same trimmed metadata as the list. A SuperAdmin may narrow with
+`tenant`, and `action`, `actorUserId`, `from` and `to` still apply. The cursor read is not indexed
+on the entry time as the list is: expect it to cost more as the table grows, and poll every few
+seconds at most.
+
+A push transport is not built. It would be an audit topic on the messaging transport, not a second
+package.
+
 ## What does not exist
 
 Said directly, because a hedge here costs more time than the admission.
