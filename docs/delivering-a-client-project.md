@@ -596,8 +596,8 @@ and nothing reaches visitors until you let it. The reasoning is in D38 in [DECIS
    refuse visitors) while the first build goes in. See [site-settings.md](site-settings.md).
 2. **Keep new entries in Draft.** A Draft is not delivered. Give the client a share link for an entry,
    or for the whole site on a `Private` site. Links carry a label and last longer than a preview token.
-3. **Carry model changes as configuration.** Apply content type, role and site changes with the CLI
-   from a reviewed file, so the client sees what changed and you apply it once.
+3. **Carry model changes as configuration.** Send the reviewed file to `POST /api/config/plan` to show
+   what changes, then to `POST /api/config/apply` once. There is no CLI.
 4. **Schedule the launch.** When the client approves an entry, set `scheduledPublishAt` rather than
    publishing by hand. See [scheduling.md](scheduling.md).
 5. **Open the site.** Set `Mode` back to `Live`.

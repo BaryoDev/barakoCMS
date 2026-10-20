@@ -1313,9 +1313,10 @@ using the controls that already hold work back:
   without an account.
 - **Scheduled publish.** `scheduledPublishAt` puts an approved entry live at an agreed time, so
   approval and launch are two steps.
-- **Config promoted by the CLI.** A change to the model (content types, roles, site settings) is
-  carried as configuration and applied with the CLI, so the same change can be reviewed as a diff
-  and applied to the deployment on purpose.
+- **Config applied on purpose.** A change to the model (content types, roles, site settings) is
+  carried as a configuration document. `POST /api/config/plan` shows what it would change and
+  `POST /api/config/apply` applies it, so the change is reviewed as a diff and applied once. There
+  is no CLI.
 
 A copy of the site for review was rejected. Content is edited on both sides, so the copy and the live
 site drift, and promoting one over the other either loses edits or needs a merge nobody has built.
