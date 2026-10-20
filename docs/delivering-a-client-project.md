@@ -587,6 +587,24 @@ There is no button for this in the admin. A frontend that wants preview links ca
 from its own code. Deferred deliberately, and recorded here so nobody goes looking for a screen that
 does not exist.
 
+### Getting the client to review
+
+Stage in place. There is no staging copy to build or promote, the client reviews on their own tenant
+and nothing reaches visitors until you let it. The reasoning is in D38 in [DECISIONS.md](../DECISIONS.md).
+
+1. **Hold the site back.** Set the site `Mode` to `Holding` (or `Private` if the API itself must
+   refuse visitors) while the first build goes in. See [site-settings.md](site-settings.md).
+2. **Keep new entries in Draft.** A Draft is not delivered. Give the client a share link for an entry,
+   or for the whole site on a `Private` site. Links carry a label and last longer than a preview token.
+3. **Carry model changes as configuration.** Apply content type, role and site changes with the CLI
+   from a reviewed file, so the client sees what changed and you apply it once.
+4. **Schedule the launch.** When the client approves an entry, set `scheduledPublishAt` rather than
+   publishing by hand. See [scheduling.md](scheduling.md).
+5. **Open the site.** Set `Mode` back to `Live`.
+
+Tell the client which role reviews and which publishes. Staging shares the production database, so
+the role is what stops a review edit going out.
+
 ## 7. Deploy
 
 [deploy-in-production.md](deploy-in-production.md) is the procedure. Short version: there is one
