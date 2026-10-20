@@ -22,6 +22,16 @@ public sealed class FilesModule : IBarakoModule
 {
     public string Name => "Files";
 
+    public string? PackageId => "BarakoCMS.Files";
+
+    public string? PackageVersion => ModuleMetadata.VersionOf(GetType());
+
+    public string? Category => ModuleCategory.Content;
+
+    public string? Description => "File uploads stored in Postgres";
+
+    public string? Glyph => "paperclip";
+
     // 2: a private file somebody else uploaded opens to manage_all_files, not to the role names
     // Admin and SuperAdmin, so a caller that only had the name now gets 404 or 403 (#886).
     public int HttpContractVersion => 2;

@@ -29,6 +29,16 @@ public sealed class ExternalAuthModule : IBarakoModule
 {
     public string Name => "ExternalAuth";
 
+    public string? PackageId => "BarakoCMS.ExternalAuth";
+
+    public string? PackageVersion => ModuleMetadata.VersionOf(GetType());
+
+    public string? Category => ModuleCategory.Access;
+
+    public string? Description => "Social sign-in through OAuth";
+
+    public string? Glyph => "log-in";
+
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
     {
         // Outbound HTTP for the OAuth token exchange + userinfo lookups.

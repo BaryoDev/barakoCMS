@@ -15,6 +15,16 @@ public sealed class FeatureFlagsModule : IBarakoModule
 {
     public string Name => "FeatureFlags";
 
+    public string? PackageId => "BarakoCMS.FeatureFlags";
+
+    public string? PackageVersion => ModuleMetadata.VersionOf(GetType());
+
+    public string? Category => ModuleCategory.Platform;
+
+    public string? Description => "Feature flags targeted by tenant, user or percentage";
+
+    public string? Glyph => "flag";
+
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
     {
         services.AddScoped<FeatureFlagService>();

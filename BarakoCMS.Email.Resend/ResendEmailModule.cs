@@ -16,6 +16,16 @@ public sealed class ResendEmailModule : IBarakoModule
 {
     public string Name => "Email.Resend";
 
+    public string? PackageId => "BarakoCMS.Email.Resend";
+
+    public string? PackageVersion => ModuleMetadata.VersionOf(GetType());
+
+    public string? Category => ModuleCategory.Comms;
+
+    public string? Description => "Send email through Resend, with delivery webhooks";
+
+    public string? Glyph => "send";
+
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
     {
         services.AddHttpClient<IEmailService, ResendEmailService>();

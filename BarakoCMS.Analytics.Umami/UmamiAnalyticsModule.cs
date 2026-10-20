@@ -17,6 +17,16 @@ public sealed class UmamiAnalyticsModule : IBarakoModule
 {
     public string Name => "Analytics.Umami";
 
+    public string? PackageId => "BarakoCMS.Analytics.Umami";
+
+    public string? PackageVersion => ModuleMetadata.VersionOf(GetType());
+
+    public string? Category => ModuleCategory.Insight;
+
+    public string? Description => "Umami visitor analytics for admins";
+
+    public string? Glyph => "bar-chart";
+
     /// <summary>Settings used to live at the root "Umami" section. See IBarakoModule.</summary>
     public string? LegacyConfigurationSection => UmamiOptions.SectionName;
 

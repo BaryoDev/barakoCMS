@@ -21,6 +21,16 @@ public sealed class AccountingModule : IBarakoModule
 
     public string Name => "Accounting";
 
+    public string? PackageId => "BarakoCMS.Accounting";
+
+    public string? PackageVersion => ModuleMetadata.VersionOf(GetType());
+
+    public string? Category => ModuleCategory.Business;
+
+    public string? Description => "Double-entry accounts and journal entries";
+
+    public string? Glyph => "landmark";
+
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
     {
         // Explicit factory, not AddScoped<AccountService>(): the service has both a read/write

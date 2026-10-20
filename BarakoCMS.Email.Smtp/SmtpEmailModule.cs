@@ -21,6 +21,16 @@ public sealed class SmtpEmailModule : IBarakoModule
 {
     public string Name => "Email.Smtp";
 
+    public string? PackageId => "BarakoCMS.Email.Smtp";
+
+    public string? PackageVersion => ModuleMetadata.VersionOf(GetType());
+
+    public string? Category => ModuleCategory.Comms;
+
+    public string? Description => "Send email through an SMTP relay";
+
+    public string? Glyph => "mail";
+
     public int ContractVersion => ModuleContract.Version;
 
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration)

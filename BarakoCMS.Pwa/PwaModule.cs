@@ -13,6 +13,16 @@ public sealed class PwaModule : IBarakoModule
 {
     public string Name => "Pwa";
 
+    public string? PackageId => "BarakoCMS.Pwa";
+
+    public string? PackageVersion => ModuleMetadata.VersionOf(GetType());
+
+    public string? Category => ModuleCategory.Platform;
+
+    public string? Description => "Installs tracked for the PWA home screen";
+
+    public string? Glyph => "smartphone";
+
     public void ConfigureSchema(IModuleSchema schema)
     {
         schema.For<PwaInstall>()

@@ -41,6 +41,13 @@ and the root type is frozen, so a bare array is not available even for a list th
 the contract accepts, so zero is an answer rather than a missing value. See `ModuleContract` for what
 the number covers.
 
+`packageId`, `packageVersion`, `category`, `description` and `glyph` are what the module says about
+itself: the NuGet package it ships as and its version, a group from the closed set `Content`,
+`Comms`, `Access`, `Platform`, `Insight`, `Business`, a one-line description, and an icon name from
+the console's icon set. Each is null when the module declares nothing, and a category outside the
+set is reported as null. They are optional additions to the item, not a breaking change. Every
+first-party module declares all five.
+
 `enabled` says whether the module runs in this process. False means the host added it or discovery
 found it and `BarakoCMS:Modules:Enabled` left it off; its endpoints answer 404 and its data is still
 in the database. A module that is not installed at all is not listed. See
@@ -72,13 +79,13 @@ question is trying to tell apart.
 
 ## What it does not report
 
-Name, contract version, enabled, schema state and the objects behind it, and nothing else. A module
+Name, contract version, enabled, schema state and the objects behind it, and the five identity fields, and nothing else. A module
 knows its configuration section, its assemblies and therefore its file paths on the host, and none
 of that is a fact about the module: it is a description of the deployment. `schemaChanges` names
 database objects, which is the one deployment fact here, and it is there because the operator who
 reads it is the one who has to apply the migration. `ModulesEndpointTests` asserts the property
-names on each item are exactly `name`, `contractVersion`, `enabled`, `schemaState` and
-`schemaChanges`, so a field added later has to be added there too, in a line somebody reviews.
+names on each item are exactly `name`, `contractVersion`, `enabled`, `schemaState`,
+`schemaChanges`, `packageId`, `packageVersion`, `category`, `description` and `glyph`, so a field added later has to be added there too, in a line somebody reviews.
 
 ## Authorisation
 

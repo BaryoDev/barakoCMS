@@ -17,6 +17,16 @@ public sealed class PagesModule : IBarakoModule
 {
     public string Name => "Pages";
 
+    public string? PackageId => "BarakoCMS.Pages";
+
+    public string? PackageVersion => ModuleMetadata.VersionOf(GetType());
+
+    public string? Category => ModuleCategory.Content;
+
+    public string? Description => "A page tree with parent and slug rules";
+
+    public string? Glyph => "file-text";
+
     public int ContractVersion => ModuleContract.Version;
 
     public int HttpContractVersion => PagesContract.Version;
