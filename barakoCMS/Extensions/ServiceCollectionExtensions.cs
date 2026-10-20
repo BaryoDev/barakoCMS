@@ -687,6 +687,12 @@ public static class ServiceCollectionExtensions
         options.Schema.For<SystemSetting>()
             .SingleTenanted()
             .DocumentAlias("system_settings");
+
+        // Global: a webhook carries no tenant, and the receiver has to find a replay before it
+        // knows whose data the event touches.
+        options.Schema.For<InboundWebhookEvent>()
+            .SingleTenanted()
+            .DocumentAlias("inbound_webhook_events");
     }
 
     // The changed-since poll orders workflow runs by (UpdatedAt, id), so the index carries both.
@@ -1116,6 +1122,7 @@ public static class ServiceCollectionExtensions
         // Defaults registered with TryAdd so an opted-in module or the host can substitute a real
         // provider (e.g. a Resend email module) without being clobbered by these mocks.
         services.TryAddScoped<barakoCMS.Core.Interfaces.IEmailService, barakoCMS.Infrastructure.Services.MockEmailService>();
+        services.TryAddScoped<barakoCMS.Core.Interfaces.IInboundWebhookVerifier, barakoCMS.Infrastructure.Services.InboundWebhookVerifier>();
         services.TryAddScoped<barakoCMS.Core.Interfaces.ISmsService, barakoCMS.Infrastructure.Services.MockSmsService>();
         services.TryAddScoped<barakoCMS.Core.Interfaces.IFileStore, barakoCMS.Infrastructure.Services.NoFileStore>();
         services.AddScoped<barakoCMS.Core.Interfaces.ISensitivityService, barakoCMS.Infrastructure.Services.SensitivityService>();
