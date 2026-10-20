@@ -687,6 +687,8 @@ public static class ServiceCollectionExtensions
         options.Schema.For<SystemSetting>()
             .SingleTenanted()
             .DocumentAlias("system_settings");
+
+        MapPendingBuilds(options);
     }
 
     // The changed-since poll orders workflow runs by (UpdatedAt, id), so the index carries both.
@@ -1246,6 +1248,15 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<IConfiguration>()));
     }
 
+    private static void MapPendingBuilds(StoreOptions options) =>
+        options.Schema.For<PendingBuild>()
+            .MultiTenanted()
+            .DocumentAlias("pending_builds")
+            // Claiming a due row is a read, a check and a write, and two nodes sweeping together
+            // must not both fire the hook. The second save is refused by the version.
+            .UseOptimisticConcurrency(true)
+            .Index(x => x.FireAt);
+
     private static void AddRetentionServices(IServiceCollection services)
     {
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowRunRetentionService>();
@@ -1292,6 +1303,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.EmailAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.SmsAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.WebhookAction>();
+        services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.BuildHookAction>();
+        services.AddHostedService<barakoCMS.Features.Workflows.Actions.BuildHookSweepService>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.CreateTaskAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.UpdateFieldAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.RequestAction>();
