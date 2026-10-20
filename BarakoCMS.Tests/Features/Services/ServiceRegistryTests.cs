@@ -82,6 +82,21 @@ public class ServiceRegistryTests
     }
 
     [Fact]
+    public async Task Racing_registrations_of_one_name_end_in_one_created_and_the_rest_conflict()
+    {
+        var name = $"race-{Guid.NewGuid():N}";
+        var admin = await AdminAsync();
+
+        var results = await Task.WhenAll(Enumerable.Range(0, 6)
+            .Select(_ => admin.PostAsJsonAsync("/api/services", Body(name), TestContext.Current.CancellationToken)));
+
+        var codes = results.Select(r => r.StatusCode).ToList();
+        codes.Should().HaveCount(6);
+        codes.Count(c => c == HttpStatusCode.Created).Should().Be(1);
+        codes.Where(c => c != HttpStatusCode.Created).Should().OnlyContain(c => c == HttpStatusCode.Conflict);
+    }
+
+    [Fact]
     public async Task The_list_is_paged_and_carries_health()
     {
         var name = $"listed-{Guid.NewGuid():N}";

@@ -106,9 +106,31 @@ internal sealed class RegisterServiceEndpoint(IDocumentSession session, TenantCo
             targetType: "ServiceRegistration", targetId: service.Name,
             metadata: new Dictionary<string, object> { ["messageTypes"] = service.MessageTypes },
             ct: ct);
-        await session.SaveChangesAsync(ct);
+        try
+        {
+            await session.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (IsUniqueViolation(ex))
+        {
+            AddError(r => r.Name, $"A service called '{name}' is already registered.");
+            await Send.ErrorsAsync(409, ct);
+            return;
+        }
 
         await Send.ResponseAsync(ServiceDto.From(service, now), 201, ct);
+    }
+
+    private static bool IsUniqueViolation(Exception? ex)
+    {
+        for (var current = ex; current is not null; current = current.InnerException)
+        {
+            if (current is JasperFx.DocumentAlreadyExistsException or Npgsql.PostgresException { SqlState: "23505" })
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
