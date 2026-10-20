@@ -174,7 +174,7 @@ internal static class ReportQuery
             parameters.Add(start.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
         }
 
-        if (to is { } end)
+        if (to is { } end && end < DateOnly.MaxValue)
         {
             parts.Add($"{date} < ?");
             if (plan.DateField is not null) parameters.Add(plan.DateField);

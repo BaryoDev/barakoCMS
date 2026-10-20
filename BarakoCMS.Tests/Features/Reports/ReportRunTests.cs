@@ -136,4 +136,36 @@ public class ReportRunTests
         await ReportTestSupport.SaveReportAsync(admin, name, definition);
         (await admin.PostAsJsonAsync("/api/reports", definition)).StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
+
+    [Fact]
+    public async Task A_numeric_filter_with_a_value_that_is_not_a_number_is_refused_when_saved()
+    {
+        var type = await _support.TypeAsync();
+        var admin = await _support.SuperAdminAsync();
+        var name = ReportTestSupport.NewName();
+
+        var res = await admin.PostAsJsonAsync("/api/reports", new
+        {
+            name, contentType = type, groupBy = "Region",
+            filters = new[] { new { field = "Amount", op = "gt", value = "lots" } },
+        });
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, await res.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task A_run_to_the_last_representable_day_answers_instead_of_failing()
+    {
+        var type = await _support.TypeAsync();
+        var admin = await _support.SuperAdminAsync();
+        await _support.StoreAsync(type, Guid.NewGuid(), "north", 3m);
+        var name = ReportTestSupport.NewName();
+        await ReportTestSupport.SaveReportAsync(admin, name, new { name, contentType = type, groupBy = "Region" });
+
+        var res = await admin.GetAsync($"/api/reports/{name}?to=9999-12-31");
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+        var body = await ReportTestSupport.JsonAsync(res);
+        body.GetProperty("rows").EnumerateArray().Should().HaveCount(1);
+    }
 }

@@ -113,6 +113,7 @@ internal sealed class Endpoint(
         if (string.Equals(req.Format, "csv", StringComparison.OrdinalIgnoreCase))
         {
             HttpContext.Response.Headers.ContentDisposition = $"attachment; filename=\"{report.Name}.csv\"";
+            HttpContext.Response.Headers["X-Report-Truncated"] = result.Truncated ? "true" : "false";
             await Send.StringAsync(
                 ReportCsv.Write(plan.GroupField ?? "group", labels, result), 200, "text/csv; charset=utf-8", ct);
             return;

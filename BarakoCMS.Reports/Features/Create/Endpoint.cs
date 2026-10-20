@@ -81,8 +81,25 @@ internal sealed class Endpoint(IDocumentSession session) : Endpoint<Request, Res
         if (report.DateField is not null && Find(report.DateField) is null)
             yield return ("dateField", $"'{report.DateField}' is not a field of {type.Name}.");
 
-        foreach (var filter in report.Filters.Where(f => Find(f.Field) is null))
-            yield return ("filters", $"'{filter.Field}' is not a field of {type.Name}.");
+        foreach (var filter in report.Filters)
+        {
+            var field = Find(filter.Field);
+            if (field is null)
+            {
+                yield return ("filters", $"'{filter.Field}' is not a field of {type.Name}.");
+            }
+            else if (barakoCMS.Core.Validation.FieldTypeRegistry.IsNumericType(field.Type)
+                     && !decimal.TryParse(filter.Value, System.Globalization.NumberStyles.Any,
+                         System.Globalization.CultureInfo.InvariantCulture, out _))
+            {
+                yield return ("filters", $"'{filter.Value}' is not a number, and '{filter.Field}' is numeric.");
+            }
+            else if (string.Equals(field.Type, "bool", StringComparison.OrdinalIgnoreCase)
+                     && !bool.TryParse(filter.Value, out _))
+            {
+                yield return ("filters", $"'{filter.Value}' is not true or false, and '{filter.Field}' is a bool.");
+            }
+        }
 
         foreach (var measure in report.Measures.Where(m => m.Fn != "count"))
         {
