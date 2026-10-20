@@ -1,6 +1,7 @@
 using barakoCMS.Features.Accounts;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Multitenancy;
+using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using FastEndpoints;
 using FluentValidation;
@@ -400,11 +401,13 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
 {
     private readonly IDocumentSession _session;
     private readonly ITenantDomainSource _domains;
+    private readonly IDocumentStore _store;
 
-    public UpdateTenantEndpoint(IDocumentSession session, ITenantDomainSource domains)
+    public UpdateTenantEndpoint(IDocumentSession session, ITenantDomainSource domains, IDocumentStore store)
     {
         _session = session;
         _domains = domains;
+        _store = store;
     }
 
     public override void Configure()
@@ -429,6 +432,10 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
             if (!reach.IsGlobal) { await Send.ForbiddenAsync(ct); return; }
             if (moveTo != TenantAccount.DefaultId && await _session.LoadAsync<TenantAccount>(moveTo, ct) is null)
                 AddError(r => r.AccountId, "No such account.");
+
+            if (ValidationFailures.Count == 0 && await AccountContentTypes.MoveRefusalAsync(
+                    _store, _session, tenant.Slug, tenant.AccountId ?? TenantAccount.DefaultId, moveTo, ct) is { } held)
+                ThrowError(held, 409);
         }
 
         IReadOnlyList<string>? domains = null;

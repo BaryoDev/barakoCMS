@@ -28,21 +28,40 @@ internal sealed class Response
 /// <summary>POST /api/accounts/{slug}/content-types: define a content type every tenant of the account uses.</summary>
 /// <remarks>
 /// Refused when the account already owns the name, and when a tenant of the account already has its
-/// own type of that name, since the tenant's would shadow this one. That second check reads across
-/// the account's tenants, so under <c>Tenancy:DatabaseEnforcement</c> it sees only the tenant the
-/// request is made on, and the tenant-side create refusal is what holds the line there.
+/// own type of that name. That check reads each tenant on a session opened for it, so it holds
+/// under <c>Tenancy:DatabaseEnforcement</c>. A non-Public field is refused when a tenant has decided
+/// the name as event sourced, and visibleToRoles takes platform roles only.
 /// A token field is refused: handing out values for a field some tenant's entries may already hold
 /// is the per-tenant check the type-level create makes, and it is not made across tenants yet.
 /// </remarks>
 internal sealed class Endpoint(
     IDocumentSession session,
     IContentTypeValidatorService validator,
+    IDocumentStore store,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<Request, Response>
 {
     public override void Configure()
     {
         Post("/api/accounts/{slug}/content-types");
         Definition.ChecksCapability(SystemCapabilities.ManageTenants);
+    }
+
+    private async Task RefuseTakenNameAsync(TenantAccount account, string name, List<FieldDefinition> fields, CancellationToken ct)
+    {
+        if (await session.Query<AccountContentType>().AnyAsync(t => t.AccountId == account.Id && t.Name == name, ct))
+            ThrowError("The account already owns a Content Type with this name.", 409);
+
+        var tenantIds = await AccountContentTypes.TenantIdsAsync(session, account.Id, ct);
+        if (await AccountContentTypes.TenantWithOwnTypeAsync(store, tenantIds, name, ct) is not null)
+        {
+            ThrowError("A tenant of this account already has its own Content Type with this name. Rename or remove it first.", 409);
+        }
+
+        if (fields.Any(f => f is not null && f.Sensitivity != SensitivityLevel.Public)
+            && await AccountContentTypes.AnyEventSourcedAsync(store, tenantIds, name, ct))
+        {
+            ThrowError($"A tenant of this account has decided \"{name}\" as event sourced, and an event sourced type cannot hold a Sensitive or Hidden field. Use another name.", 409);
+        }
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
@@ -67,15 +86,7 @@ internal sealed class Endpoint(
 
         var name = barakoCMS.Core.ContentTypeName.Normalize(req.Name);
 
-        if (await session.Query<AccountContentType>().AnyAsync(t => t.AccountId == account.Id && t.Name == name, ct))
-            ThrowError("The account already owns a Content Type with this name.", 409);
-
-        var tenantIds = await AccountContentTypes.TenantIdsAsync(session, account.Id, ct);
-        if (await session.Query<ContentTypeDefinition>()
-                .AnyAsync(d => d.TenantIsOneOf(tenantIds.ToArray()) && d.Name == name, ct))
-        {
-            ThrowError("A tenant of this account already has its own Content Type with this name. Rename or remove it first.", 409);
-        }
+        await RefuseTakenNameAsync(account, name, fields, ct);
 
         var now = DateTime.UtcNow;
         var id = Guid.NewGuid();
@@ -89,7 +100,8 @@ internal sealed class Endpoint(
             CreatedAt = now,
             UpdatedAt = now,
         };
-        await barakoCMS.Core.RoleReferences.ToIdsAsync(session, definition.Fields, ct);
+        foreach (var problem in await AccountTypeRoles.ToPlatformIdsAsync(session, definition.Fields, ct)) AddError(problem);
+        ThrowIfAnyErrors();
 
         session.Store(new AccountContentType
         {

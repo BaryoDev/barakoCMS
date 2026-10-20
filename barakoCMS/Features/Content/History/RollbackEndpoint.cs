@@ -161,8 +161,7 @@ internal class RollbackEndpoint(
 
         // Rebuild SearchText using the current field-sensitivity definition so a rollback
         // cannot reintroduce values that are no longer Public into the searchable text.
-        var definition = await session.Query<ContentTypeDefinition>()
-            .FirstNamedAsync(content.ContentType, ct);
+        var definition = await barakoCMS.Infrastructure.Services.AccountContentTypes.ResolveAsync(session, content.ContentType, ct);
 
         var publicFields = definition?.Fields
             .Where(f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.InlineImageFields.Is(f.Type))

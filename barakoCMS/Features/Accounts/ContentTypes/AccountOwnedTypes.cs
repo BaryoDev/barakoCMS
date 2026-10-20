@@ -23,6 +23,42 @@ internal static class AccountOwnedTypes
     }
 }
 
+internal static class AccountTypeRoles
+{
+    /// <summary>
+    /// Swaps each role name in the fields' VisibleToRoles for the id of the platform role of that
+    /// name and returns a message for every entry that is not a platform role. A type shared by an
+    /// account is read by tenants whose roles the manager's tenant does not hold, so a tenant role
+    /// would name a different role, or none, for every tenant but one.
+    /// </summary>
+    public static async Task<List<string>> ToPlatformIdsAsync(
+        IQuerySession session, IEnumerable<FieldDefinition> fields, CancellationToken ct)
+    {
+        var problems = new List<string>();
+        var listed = fields.Where(f => f is { VisibleToRoles.Count: > 0 }).ToList();
+        var entries = listed.SelectMany(f => f.VisibleToRoles).Where(e => !string.IsNullOrWhiteSpace(e)).Distinct(StringComparer.Ordinal).ToList();
+        if (entries.Count == 0) return problems;
+
+        var platform = await session.Query<Role>().Where(r => r.IsPlatform && r.DeletedAt == null).ToListAsync(ct);
+        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var entry in entries)
+        {
+            var role = Guid.TryParse(entry, out var id)
+                ? platform.FirstOrDefault(r => r.Id == id)
+                : platform.FirstOrDefault(r => r.Name == entry);
+            if (role is null)
+                problems.Add($"\"{entry}\" is not a platform role. A content type owned by an account can only name platform roles in visibleToRoles.");
+            else
+                map[entry] = role.Id.ToString();
+        }
+
+        foreach (var field in listed)
+            field.VisibleToRoles = field.VisibleToRoles.Select(e => map.TryGetValue(e, out var id) ? id : e).Distinct(StringComparer.Ordinal).ToList();
+
+        return problems;
+    }
+}
+
 internal static class AccountTypeAudit
 {
     public static Task RecordAsync(

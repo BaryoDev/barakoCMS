@@ -150,7 +150,8 @@ public sealed class ContentCreator(
     public async Task<IReadOnlyList<string>> CheckAsync(
         ContentCreateRequest request, Guid userId, HttpContext httpContext, ContentCreateBatch? batch, CancellationToken ct)
     {
-        var schema = batch?.SchemaFor(request.ContentType);
+        var schema = await AccountContentTypes.FindDefinitionAsync(session, request.ContentType, ct)
+            ?? batch?.SchemaFor(request.ContentType);
 
         // WRITE-PATH SENSITIVITY: drop any sensitive fields this caller may not see, so they cannot
         // inject values into fields that would be masked from them on read.
@@ -275,10 +276,10 @@ public sealed class ContentCreator(
     public async Task<Content> StageAsync(
         ContentCreateRequest request, Guid userId, ContentCreateBatch? batch, CancellationToken ct)
     {
-        var definition = batch?.SchemaFor(request.ContentType)
+        var definition = await AccountContentTypes.FindDefinitionAsync(session, request.ContentType, ct)
+            ?? batch?.SchemaFor(request.ContentType)
             ?? await session.Query<ContentTypeDefinition>()
-                .FirstNamedAsync(request.ContentType, ct)
-            ?? await AccountContentTypes.FindDefinitionAsync(session, request.ContentType, ct);
+                .FirstNamedAsync(request.ContentType, ct);
 
         var entryId = request.Id ?? Guid.NewGuid();
         await NumberAsync(definition, request.ContentType, entryId, request.Data, ct);
@@ -347,8 +348,9 @@ public sealed class ContentCreator(
         }
 
         var lowered = contentType.ToLower();
-        definition ??= await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct)
-            ?? await AccountContentTypes.FindDefinitionAsync(session, lowered, ct);
+        definition = await AccountContentTypes.FindDefinitionAsync(session, lowered, ct)
+            ?? definition
+            ?? await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct);
         if (definition?.Numbering is not { Field.Length: > 0 } rule)
         {
             return;

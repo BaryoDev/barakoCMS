@@ -1037,6 +1037,7 @@ public static class ServiceCollectionExtensions
         options.Schema.For<Models.AccountContentType>()
             .SingleTenanted()
             .DocumentAlias("account_content_types")
+            .UseOptimisticConcurrency(true)
             .Index(x => new { x.AccountId, x.Name }, idx => idx.IsUnique = true);
     }
 

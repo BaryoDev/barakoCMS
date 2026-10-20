@@ -29,8 +29,7 @@ internal static class EntryResponse
         await SetETagAsync(content, session, sourcing, http, ct);
 
         var type = content.ContentType;
-        var definition = await session.Query<barakoCMS.Models.ContentTypeDefinition>()
-            .FirstNamedAsync(type, ct);
+        var definition = await barakoCMS.Infrastructure.Services.AccountContentTypes.ResolveAsync(session, type, ct);
 
         var response = new Response
         {
