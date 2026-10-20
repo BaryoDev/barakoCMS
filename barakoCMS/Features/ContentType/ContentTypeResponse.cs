@@ -71,11 +71,15 @@ internal sealed class ContentTypeResponse
     /// </remarks>
     public bool EventSourced { get; init; }
 
+    /// <summary>The account that owns this type and shares it with its tenants, or null for a type the tenant owns.</summary>
+    public Guid? OwnerAccountId { get; init; }
+
     public DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset UpdatedAt { get; init; }
 
-    public static ContentTypeResponse From(ContentTypeDefinition d, bool eventSourced = false) => new()
+    public static ContentTypeResponse From(ContentTypeDefinition d, bool eventSourced = false, Guid? ownerAccountId = null) => new()
     {
+        OwnerAccountId = ownerAccountId,
         Id = d.Id,
         Name = d.Name,
         DisplayName = d.DisplayName,

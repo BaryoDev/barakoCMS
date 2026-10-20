@@ -22,9 +22,27 @@ internal class Endpoint(
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
-        var page = await session.Query<ContentTypeDefinition>()
-            .OrderBy(x => x.Name)
-            .ToPagedResponseAsync(req, ct);
+        var (accountId, shared) = await barakoCMS.Infrastructure.Services.AccountContentTypes.ForTenantAsync(session, ct);
+        var ownedByAccount = new HashSet<Guid>(shared.Select(t => t.Definition.Id));
+
+        PaginatedResponse<ContentTypeDefinition> page;
+        if (shared.Count == 0)
+        {
+            page = await session.Query<ContentTypeDefinition>()
+                .OrderBy(x => x.Name)
+                .ToPagedResponseAsync(req, ct);
+        }
+        else
+        {
+            // The tenant's own types and the account's, in one list ordered by name. A tenant's own
+            // type of a name the account owns is shadowed by it only on create; one that already
+            // exists is listed beside it.
+            var own = await session.Query<ContentTypeDefinition>().ToListAsync(ct);
+            var all = own.Concat(shared.Select(t => t.Definition))
+                .OrderBy(x => x.Name, StringComparer.Ordinal)
+                .ToList();
+            page = all.ToPagedResponse(req);
+        }
 
         // One load for the page rather than one per type. The policies are keyed by the same name
         // the definitions carry, and a name with no policy is not event sourced.
@@ -46,7 +64,8 @@ internal class Endpoint(
         await Send.OkAsync(new PaginatedResponse<barakoCMS.Features.ContentType.ContentTypeResponse>
         {
             Items = page.Items
-                .Select(d => barakoCMS.Features.ContentType.ContentTypeResponse.From(d, eventSourced.Contains(d.Name)))
+                .Select(d => barakoCMS.Features.ContentType.ContentTypeResponse.From(
+                    d, eventSourced.Contains(d.Name), ownedByAccount.Contains(d.Id) ? accountId : null))
                 .ToList(),
             Page = page.Page,
             PageSize = page.PageSize,

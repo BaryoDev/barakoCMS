@@ -84,7 +84,7 @@ internal class Endpoint(
             .Select(v => (stored[v], v.Data!))
             .ToList();
         var type = content.ContentType;
-        var definition = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
+        var definition = await barakoCMS.Infrastructure.Services.AccountContentTypes.ResolveAsync(session, type, ct);
         await barakoCMS.Infrastructure.Audit.SensitiveReadAudit.RecordAsync(
             HttpContext,
             [await barakoCMS.Infrastructure.Audit.SensitiveReadAudit.DescribeVersionsAsync(

@@ -916,6 +916,14 @@ public static class ServiceCollectionExtensions
             .DocumentAlias("account_managers")
             .Index(x => x.UserId)
             .Index(x => new { x.AccountId, x.UserId }, idx => idx.IsUnique = true);
+
+        // Global on purpose: a definition shared by the tenants of an account has to be readable
+        // from each of their partitions, which a conjoined document is not.
+        options.Schema.For<Models.AccountContentType>()
+            .SingleTenanted()
+            .DocumentAlias("account_content_types")
+            .UseOptimisticConcurrency(true)
+            .Index(x => new { x.AccountId, x.Name }, idx => idx.IsUnique = true);
     }
 
     private static void MapApiKeysAndAccounts(StoreOptions options)

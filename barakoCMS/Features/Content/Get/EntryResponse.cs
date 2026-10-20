@@ -71,8 +71,7 @@ internal static class EntryResponse
             response.ContentType = "HIDDEN";
 
         var type = content.ContentType;
-        var definition = await session.Query<barakoCMS.Models.ContentTypeDefinition>()
-            .FirstOrDefaultAsync(d => d.Name == type, ct);
+        var definition = await barakoCMS.Infrastructure.Services.AccountContentTypes.ResolveAsync(session, type, ct);
         await SensitiveReadAudit.RecordAsync(
             http,
             [await SensitiveReadAudit.DescribeAsync(content, definition, response.Data, sensitivity, http, ct)],
