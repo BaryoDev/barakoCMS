@@ -51,7 +51,7 @@ internal sealed class Endpoint : Endpoint<Request>
             .FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct);
         if (!_projector.IsDeliverable(definition)
             || await _session.LoadAsync<Content>(req.Id, ct) is not { } content
-            || _projector.Project(content, definition) is not { } entry
+            || await _projector.ProjectAsync(content, definition, ct) is not { } entry
             || ValueOf(entry, req.Field) is not { Length: > 0 } value
             || value.Length > _options.MaxValueLength)
         {
@@ -61,8 +61,19 @@ internal sealed class Endpoint : Endpoint<Request>
 
         var size = req.Size ?? DefaultPixelsPerModule;
         using var generator = new QRCodeGenerator();
-        using var data = generator.CreateQrCode(value, QRCodeGenerator.ECCLevel.M);
+        QRCodeData data;
+        try
+        {
+            data = generator.CreateQrCode(value, QRCodeGenerator.ECCLevel.M);
+        }
+        catch (QRCoder.Exceptions.DataTooLongException)
+        {
+            // Multi-byte text can exceed a code's capacity while under MaxValueLength characters.
+            await Send.NotFoundAsync(ct);
+            return;
+        }
 
+        using var _ = data;
         HttpContext.Response.Headers.CacheControl = "public, max-age=60";
         HttpContext.Response.Headers.Vary = barakoCMS.Infrastructure.Multitenancy.TenantResolutionMiddleware.TenantHeader;
 

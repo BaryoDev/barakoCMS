@@ -224,6 +224,16 @@ public class QrRenderTests
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
+    [Fact]
+    public async Task A_multi_byte_value_too_big_for_a_code_is_a_404_not_a_500()
+    {
+        var id = await StoreAsync(Listed, new string('\u20ac', 1000));
+
+        var response = await _factory.CreateClient().GetAsync($"/api/public/{Listed}/{id}/qr/Token", Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
     [Theory]
     [InlineData("size=0")]
     [InlineData("size=21")]
