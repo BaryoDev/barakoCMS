@@ -106,11 +106,15 @@ internal sealed class Endpoint(IDocumentSession session) : Endpoint<Request, Res
 
     private void CheckTransition(ContentTypeDefinition definition, string property, string transition)
     {
-        var exists = definition.Lifecycle?.Transitions
-            .Any(t => t.Name.Equals(transition, StringComparison.OrdinalIgnoreCase)) ?? false;
-        if (!exists)
+        var declared = definition.Lifecycle?.Transitions
+            .FirstOrDefault(t => t.Name.Equals(transition, StringComparison.OrdinalIgnoreCase));
+        if (declared is null)
         {
             ValidationFailures.Add(new ValidationFailure(property, $"'{definition.Name}' has no transition named '{transition}'."));
+        }
+        else if (declared.RequiredFields.Count > 0)
+        {
+            ValidationFailures.Add(new ValidationFailure(property, $"'{transition}' requires fields, and a provider event cannot send them."));
         }
     }
 }

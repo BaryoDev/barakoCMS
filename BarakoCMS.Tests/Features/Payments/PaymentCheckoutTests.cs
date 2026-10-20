@@ -127,4 +127,34 @@ public class PaymentCheckoutTests
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
+
+    [Fact]
+    public async Task An_entry_with_no_stored_state_is_checked_out_from_the_initial_state()
+    {
+        var type = await _payments.PayableTypeAsync();
+        var entryId = await _payments.EntryAsync(type);
+        await _payments.ClearStateAsync(entryId);
+        (await _payments.StateAsync(entryId)).Should().BeNull();
+
+        var response = await _payments.Visitor().PostAsJsonAsync("/api/public/payments/checkout", new { entryId, provider = "fake" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        (await _payments.AttemptsForAsync(entryId)).Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task A_declaration_whose_paid_transition_requires_fields_is_refused()
+    {
+        var type = await _payments.TypeWithRequiredFieldOnPaidAsync();
+
+        var response = await (await _payments.AdminAsync()).PutAsJsonAsync($"/api/payments/payable/{type}", new
+        {
+            enabled = true,
+            amountField = "fee",
+            currency = "PHP",
+            paidTransition = "MarkPaid",
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
 }

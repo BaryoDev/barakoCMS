@@ -73,7 +73,8 @@ internal sealed class Endpoint(
         var definition = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == entry.ContentType, ct);
         var paid = definition?.Lifecycle?.Transitions
             .FirstOrDefault(t => t.Name.Equals(payable.PaidTransition, StringComparison.OrdinalIgnoreCase));
-        if (paid is null || !paid.From.Equals(entry.LifecycleState, StringComparison.OrdinalIgnoreCase))
+        var state = entry.LifecycleState ?? definition?.Lifecycle?.InitialState;
+        if (paid is null || !paid.From.Equals(state, StringComparison.OrdinalIgnoreCase))
         {
             await Send.StringAsync("", 409, cancellation: ct);
             return;

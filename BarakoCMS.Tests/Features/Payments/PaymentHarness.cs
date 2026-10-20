@@ -159,4 +159,44 @@ internal sealed class PaymentHarness(IntegrationTestFixture factory)
         entry.Should().NotBeNull();
         return entry!.LifecycleState;
     }
+
+    public async Task ClearStateAsync(Guid entryId)
+    {
+        using var scope = factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var entry = await session.LoadAsync<Content>(entryId);
+        entry.Should().NotBeNull();
+        entry!.LifecycleState = null;
+        session.Store(entry);
+        await session.SaveChangesAsync();
+    }
+
+    public async Task<string> TypeWithRequiredFieldOnPaidAsync()
+    {
+        var name = $"registration-{Guid.NewGuid():N}";
+        using var scope = factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(new ContentTypeDefinition
+        {
+            Id = Guid.NewGuid(),
+            Name = name,
+            DisplayName = "Registration",
+            Fields =
+            [
+                new FieldDefinition { Name = "fee", DisplayName = "Fee", Type = "money" },
+                new FieldDefinition { Name = "receipt", DisplayName = "Receipt", Type = "string" },
+            ],
+            Lifecycle = new LifecycleDefinition
+            {
+                States = ["Pending", "Paid"],
+                InitialState = "Pending",
+                Transitions =
+                [
+                    new StateTransition { Name = "MarkPaid", From = "Pending", To = "Paid", RequiredFields = ["receipt"] },
+                ],
+            },
+        });
+        await session.SaveChangesAsync();
+        return name;
+    }
 }
