@@ -141,7 +141,7 @@ internal static class WorkflowSchedule
                 .Take(1)
                 .ToListAsync(ct)).FirstOrDefault();
 
-            var counted = lastClaim?.DueAt ?? workflow.ScheduleArmedAt ?? nowUtc.AddMinutes(-1);
+            var counted = new[] { lastClaim?.DueAt, workflow.ScheduleArmedAt }.Max() ?? nowUtc.AddMinutes(-1);
 
             DateTime? previous = null;
             DateTime? due = null;

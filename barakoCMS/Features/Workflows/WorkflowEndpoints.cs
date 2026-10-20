@@ -399,6 +399,18 @@ internal sealed class UpdateWorkflowEndpoint(
 
         workflow.Id = stored.Id;
 
+        var response = WorkflowResponse.Saved(workflow, validation.Warnings);
+        if (WorkflowSchedule.Parse(workflow.Schedule) is { } cron)
+        {
+            var now = DateTime.UtcNow;
+            var sameSchedule = stored.ScheduleArmedAt is not null
+                && string.Equals(stored.Schedule, workflow.Schedule, StringComparison.Ordinal)
+                && string.Equals(stored.ScheduleTimeZone, workflow.ScheduleTimeZone, StringComparison.OrdinalIgnoreCase);
+            workflow.ScheduleArmedAt = sameSchedule ? stored.ScheduleArmedAt : now;
+            response.NextDueTimes = WorkflowSchedule.Next(
+                cron, await WorkflowSchedule.ZoneAsync(session, workflow, ct), now, WorkflowSchedule.PreviewCount);
+        }
+
         // An update and not a store, so a delete committed after the load above is not undone by
         // this inserting the workflow again.
         session.Update(workflow);
@@ -414,7 +426,7 @@ internal sealed class UpdateWorkflowEndpoint(
             return;
         }
 
-        await Send.ResponseAsync(WorkflowResponse.Saved(workflow, validation.Warnings), cancellation: ct);
+        await Send.ResponseAsync(response, cancellation: ct);
     }
 
     /// <summary>

@@ -81,6 +81,26 @@ public class WorkflowScheduleTests
     }
 
     [Fact]
+    public async Task A_schedule_saved_after_an_old_claim_does_not_fire_for_times_before_it_was_saved()
+    {
+        var workflow = Scheduled("0 * * * *", "UTC", Utc(2026, 10, 19, 11, 30));
+        var old = new ScheduleClaim
+        {
+            Id = $"{workflow.Id:N}:20261015T1000Z", WorkflowId = workflow.Id, DueAt = Utc(2026, 10, 15, 10, 0),
+            ClaimedAt = Utc(2026, 10, 15, 10, 0),
+        };
+        await StoreAsync(workflow, old);
+
+        (await FireAsync(Utc(2026, 10, 19, 11, 45))).Should().Be(0, "10:00 and 11:00 are before the schedule was saved");
+        (await RunsOfAsync(workflow.Id)).Should().BeEmpty();
+
+        (await FireAsync(Utc(2026, 10, 19, 12, 1))).Should().Be(1);
+        var runs = await RunsOfAsync(workflow.Id);
+        runs.Should().HaveCount(1);
+        runs[0].ScheduledFor.Should().Be(Utc(2026, 10, 19, 12, 0));
+    }
+
+    [Fact]
     public async Task A_host_stopped_over_two_due_times_fires_one_run_for_the_latest()
     {
         var workflow = Scheduled("0 * * * *", "UTC", Utc(2026, 10, 19, 9, 0));
