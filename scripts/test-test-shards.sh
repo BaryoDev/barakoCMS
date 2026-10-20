@@ -22,7 +22,7 @@ make_listing() { # $1 = class count, $2 = file
   for i in $(seq 1 "$1"); do
     printf '  BarakoCMS.Tests.Fake%04dTests.First_test\n  BarakoCMS.Tests.Fake%04dTests.Second_test(route: "/a.b(c)")\n' "$i" "$i" >> "$2"
   done
-  printf 'Discovered 2 tests in assembly - x.dll (net10.0|arm64)\n' >> "$2"
+  printf 'Discovered %d tests in assembly - x.dll (net10.0|arm64)\n' $(($1 * 2)) >> "$2"
 }
 
 shards() { # $1 = listing, $2 = N
@@ -60,6 +60,17 @@ python3 scripts/test-shards.py --shard 1 --of 4 --listing "$work/below.txt" >/de
 python3 scripts/test-shards.py --shard 1 --of 4 --listing "$work/empty.txt" >/dev/null 2>&1; [ $? -ne 0 ]; expect "an empty listing fails" $?
 python3 scripts/test-shards.py --shard 5 --of 4 --listing "$work/full.txt" >/dev/null 2>&1; [ $? -ne 0 ]; expect "shard 5 of 4 fails" $?
 python3 scripts/test-shards.py --shard 0 --of 4 --listing "$work/full.txt" >/dev/null 2>&1; [ $? -ne 0 ]; expect "shard 0 fails" $?
+
+# A test line the parser cannot read would drop its class from every shard without a word, so the
+# listing's own count has to match the lines read.
+{ cat "$work/full.txt"; printf '  BarakoCMS.Tests.FakeSpacedTests.A test named with spaces\n'; } | sed 's/^Discovered 900 /Discovered 901 /' > "$work/spaced.txt"
+python3 scripts/test-shards.py --shard 1 --of 4 --listing "$work/spaced.txt" >/dev/null 2>&1; [ $? -ne 0 ]; expect "a test line the parser cannot read fails" $?
+{ cat "$work/full.txt"; printf '  Some.Stray.Warning\n'; } > "$work/stray.txt"
+python3 scripts/test-shards.py --shard 1 --of 4 --listing "$work/stray.txt" >/dev/null 2>&1; [ $? -ne 0 ]; expect "an indented non-test line fails" $?
+grep -v '^Discovered' "$work/full.txt" > "$work/nocount.txt"
+python3 scripts/test-shards.py --shard 1 --of 4 --listing "$work/nocount.txt" >/dev/null 2>&1; [ $? -ne 0 ]; expect "a listing without a Discovered count fails" $?
+{ cat "$work/full.txt"; printf '  BarakoCMS.Tests.Outer+Inner.Nested_test\n'; } | sed 's/^Discovered 900 /Discovered 901 /' > "$work/nested.txt"
+python3 scripts/test-shards.py --shard 1 --of 1 --listing "$work/nested.txt" | grep -qx 'BarakoCMS.Tests.Outer+Inner'; expect "a nested class keeps its plus sign" $?
 
 echo "$pass passed, $fail failed"
 [ "$fail" = 0 ]

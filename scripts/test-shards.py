@@ -17,7 +17,8 @@ takes as an OR of classes:
       $(python3 scripts/test-shards.py --shard 2 --of 4 --filter-args)
 
 Shards are numbered 1 to N. --listing FILE (or - for stdin) reads a saved listing instead of running
-dotnet test. Exits non-zero, printing why, when the listing holds fewer than 400 classes (an empty
+dotnet test. Exits non-zero, printing why, when the lines read differ from the listing's own 'Discovered N tests' count,
+when the listing holds fewer than 400 classes (an empty
 listing would otherwise read as an even split of nothing), when the arguments are out of range, or
 when the shard comes out empty.
 """
@@ -32,12 +33,27 @@ FLOOR = 400
 TEST_LINE = re.compile(r"^\s+([A-Za-z_][\w.+]*)(\(.*)?$")
 
 
+DISCOVERED = re.compile(r"^Discovered (\d+) tests? in assembly")
+
+
 def classes_from_listing(text):
     found = set()
+    read = 0
+    announced = None
     for line in text.splitlines():
+        count = DISCOVERED.match(line)
+        if count:
+            announced = (announced or 0) + int(count.group(1))
         match = TEST_LINE.match(line)
         if match and "." in match.group(1):
             found.add(match.group(1).rsplit(".", 1)[0])
+            read += 1
+    if announced is None:
+        sys.exit("test-shards: the listing has no 'Discovered N tests in assembly' line, "
+                 "so its test count cannot be checked")
+    if read != announced:
+        sys.exit(f"test-shards: the listing announces {announced} tests but {read} test lines were read; "
+                 "a test name the parser cannot read would leave its class in no shard")
     return sorted(found)
 
 
