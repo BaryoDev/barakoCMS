@@ -90,7 +90,7 @@ public partial class PermissionResolver(
         foreach (var role in roles)
         {
             var permission = role.Permissions
-                .FirstOrDefault(p => p.ContentTypeSlug == contentTypeSlug);
+                .FirstOrDefault(p => string.Equals(p.ContentTypeSlug, contentTypeSlug, StringComparison.OrdinalIgnoreCase));
 
             if (permission != null)
             {
@@ -149,7 +149,7 @@ public partial class PermissionResolver(
         var rules = new List<Models.PermissionRule>();
         foreach (var role in roles)
         {
-            var permission = role.Permissions.FirstOrDefault(p => p.ContentTypeSlug == contentTypeSlug);
+            var permission = role.Permissions.FirstOrDefault(p => string.Equals(p.ContentTypeSlug, contentTypeSlug, StringComparison.OrdinalIgnoreCase));
             if (permission is null) continue;
 
             var rule = GetRuleForAction(permission, "read");
@@ -178,7 +178,7 @@ public partial class PermissionResolver(
         var rules = new List<Models.PermissionRule>();
         foreach (var role in roles)
         {
-            var permission = role.Permissions.FirstOrDefault(p => p.ContentTypeSlug == contentTypeSlug);
+            var permission = role.Permissions.FirstOrDefault(p => string.Equals(p.ContentTypeSlug, contentTypeSlug, StringComparison.OrdinalIgnoreCase));
             if (permission is not null && GetRuleForAction(permission, action) is { Enabled: true } rule)
                 rules.Add(rule);
         }
