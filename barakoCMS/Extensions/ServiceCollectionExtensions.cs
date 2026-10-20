@@ -1053,6 +1053,12 @@ public static class ServiceCollectionExtensions
             options.Storage.ExtendedSchemaObjects.Add(
                 barakoCMS.Infrastructure.Numbering.NumberCounterTable.Build(options.DatabaseSchemaName));
 
+            // Stock counters, holds and movements for IStockReservations (#580).
+            foreach (var table in barakoCMS.Infrastructure.Reservations.StockTables.Build(options.DatabaseSchemaName))
+            {
+                options.Storage.ExtendedSchemaObjects.Add(table);
+            }
+
             return options;
         })
         .BuildSessionsWith<barakoCMS.Infrastructure.Multitenancy.TenantSessionFactory>(Microsoft.Extensions.DependencyInjection.ServiceLifetime.Scoped)
@@ -1242,6 +1248,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<barakoCMS.Infrastructure.Numbering.HiLoNumberAllocator>();
         services.AddSingleton<barakoCMS.Core.Interfaces.INumberStrategies, barakoCMS.Infrastructure.Numbering.NumberStrategies>();
         services.AddSingleton<barakoCMS.Core.Interfaces.IExternalNumberLedger, barakoCMS.Infrastructure.Numbering.ExternalNumberLedger>();
+        services.AddSingleton<barakoCMS.Core.Interfaces.IStockReservations, barakoCMS.Infrastructure.Reservations.StockReservations>();
         services.AddSingleton(sp => barakoCMS.Features.Public.Events.ContentEventsOptions.FromConfiguration(
             sp.GetRequiredService<IConfiguration>()));
     }
