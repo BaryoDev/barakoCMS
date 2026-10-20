@@ -8,12 +8,14 @@ namespace barakoCMS.Features.Accounts.ContentTypes.Delete;
 
 /// <summary>DELETE /api/accounts/{slug}/content-types/{name}: remove an account-owned type.</summary>
 /// <remarks>
-/// Refused while an entry of the type exists in any tenant of the account (visible only on the
-/// request's own tenant under <c>Tenancy:DatabaseEnforcement</c>), since the entries would be left
-/// with no type to validate them.
+/// Refused while an entry of the type exists in any tenant of the account, counted on a session
+/// opened for each tenant so it holds under <c>Tenancy:DatabaseEnforcement</c>, since the entries
+/// would be left with no type to validate them. A tenant that cannot be read fails the request
+/// rather than counting as empty.
 /// </remarks>
 internal sealed class Endpoint(
     IDocumentSession session,
+    IDocumentStore store,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : EndpointWithoutRequest
 {
     public override void Configure()
@@ -35,8 +37,7 @@ internal sealed class Endpoint(
         if (owned is null) { await Send.NotFoundAsync(ct); return; }
 
         var tenantIds = await AccountContentTypes.TenantIdsAsync(session, account.Id, ct);
-        var entries = await session.Query<Models.Content>()
-            .CountAsync(c => c.TenantIsOneOf(tenantIds.ToArray()) && c.ContentType == name, ct);
+        var entries = (await AccountContentTypes.EntriesPerTenantAsync(store, tenantIds, [name], ct)).Values.Sum();
         if (entries > 0)
         {
             AddError($"\"{name}\" has {entries} {(entries == 1 ? "entry" : "entries")} in the account's tenants. Remove them first.");

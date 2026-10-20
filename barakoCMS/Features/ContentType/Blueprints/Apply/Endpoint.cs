@@ -84,10 +84,8 @@ internal sealed class Endpoint(
             var name = type.Name;
             var existing = await session.Query<ContentTypeDefinition>()
                 .FirstOrDefaultAsync(x => x.Name.ToLower() == name, ct);
-            if (existing is not null)
-            {
-                clashes.Add(existing.Name);
-            }
+            if (existing is not null) clashes.Add(existing.Name);
+            else await RefuseAccountOwnedAsync(entry.Name, name, ct);
         }
 
         if (clashes.Count > 0)
@@ -162,6 +160,13 @@ internal sealed class Endpoint(
                 IsPubliclyDeliverable = t.IsPubliclyDeliverable,
             }).ToList(),
         }, ct);
+    }
+
+    private async Task RefuseAccountOwnedAsync(string blueprint, string typeName, CancellationToken ct)
+    {
+        if (await barakoCMS.Infrastructure.Services.AccountContentTypes.ClashMessageAsync(
+                session, barakoCMS.Core.ContentTypeName.Normalize(typeName), ct) is { } owned)
+            ThrowError($"Blueprint '{blueprint}' was not applied. {owned}", 409);
     }
 
     private static bool IsUniqueViolation(Exception? ex)

@@ -12,7 +12,11 @@ internal static class SensitiveFieldNames
             ? await session.Query<ContentTypeDefinition>().Where(t => t.AnyTenant()).ToListAsync(ct)
             : await session.Query<ContentTypeDefinition>().ToListAsync(ct);
 
+        // Account-owned types are global documents, so one query covers every tenant either way.
+        var owned = await session.Query<AccountContentType>().ToListAsync(ct);
+
         return types
+            .Concat(owned.Select(o => o.Definition))
             .SelectMany(t => t.Fields)
             .Where(f => f.Sensitivity != SensitivityLevel.Public)
             .Select(f => f.Name)

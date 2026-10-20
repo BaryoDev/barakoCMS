@@ -184,13 +184,7 @@ internal sealed class Endpoint(
 
         if (definition is null)
         {
-            if (await barakoCMS.Infrastructure.Services.AccountContentTypes.FindAsync(session, name, ct) is not null)
-            {
-                AddError("This Content Type is owned by the account. An account manager changes it through /api/accounts/{slug}/content-types.");
-                ThrowIfAnyErrors(StatusCodes.Status403Forbidden);
-            }
-
-            await Send.NotFoundAsync(ct);
+            await NotFoundOrAccountOwnedAsync(name, ct);
             return;
         }
 
@@ -285,6 +279,17 @@ internal sealed class Endpoint(
     /// Refuses a field the entries already stored would break: a token some entry already holds a
     /// value under, and a required field with no default on a type that has entries.
     /// </summary>
+    private async Task NotFoundOrAccountOwnedAsync(string name, CancellationToken ct)
+    {
+        if (await barakoCMS.Infrastructure.Services.AccountContentTypes.FindAsync(session, name, ct) is not null)
+        {
+            AddError("This Content Type is owned by the account. An account manager changes it through /api/accounts/{slug}/content-types.");
+            ThrowIfAnyErrors(StatusCodes.Status403Forbidden);
+        }
+
+        await Send.NotFoundAsync(ct);
+    }
+
     private async Task RefuseWhatExistingEntriesBreakAsync(ContentTypeDefinition definition, FieldDefinition field, CancellationToken ct)
     {
         if (barakoCMS.Core.Validation.TokenFields.IsToken(field.Type))

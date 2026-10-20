@@ -195,6 +195,14 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
             }
 
             var match = ContentTypeUpsert.StoredMatch(existing, type.Name);
+            if (match is null
+                && await barakoCMS.Infrastructure.Services.AccountContentTypes.ClashMessageAsync(
+                    _session, barakoCMS.Core.ContentTypeName.Normalize(type.Name), ct) is { } owned)
+            {
+                AddError(new ValidationFailure($"contentTypes[{i}]", $"Content type '{Shorten(type.Name)}' was not imported. {owned}"));
+                ThrowIfAnyErrors();
+            }
+
             await ContentTypeUpsert.PrepareAsync(_session, type, match, ct);
 
             foreach (var error in await ContentTypeUpsert.ErrorsAsync(

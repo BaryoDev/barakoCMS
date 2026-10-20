@@ -46,14 +46,14 @@
 94 barakoCMS/Features/Collections/Validator.cs::SaveCollectionSyncValidator.SaveCollectionSyncValidator
 143 barakoCMS/Features/Connectors/Endpoints.cs::UpdateConnectorEndpoint.HandleAsync
 118 barakoCMS/Features/Content/ChangeStatus/Endpoint.cs::Endpoint.HandleAsync
-164 barakoCMS/Features/Content/History/RollbackEndpoint.cs::RollbackEndpoint.HandleAsync
+163 barakoCMS/Features/Content/History/RollbackEndpoint.cs::RollbackEndpoint.HandleAsync
 192 barakoCMS/Features/Content/List/Endpoint.cs::Endpoint.HandleAsync
 85 barakoCMS/Features/Content/Schedule/Endpoint.cs::Endpoint.HandleAsync
 242 barakoCMS/Features/Content/Update/Endpoint.cs::Endpoint.HandleAsync
 99 barakoCMS/Features/ContentType/AddField/Endpoint.cs::Endpoint.HandleAsync
-111 barakoCMS/Features/ContentType/Blueprints/Apply/Endpoint.cs::Endpoint.HandleAsync
+109 barakoCMS/Features/ContentType/Blueprints/Apply/Endpoint.cs::Endpoint.HandleAsync
 74 barakoCMS/Features/ContentType/Blueprints/BlueprintCatalog.cs::BlueprintCatalog.ValidateTypes
-195 barakoCMS/Features/ContentType/Create/Endpoint.cs::Endpoint.HandleAsync
+192 barakoCMS/Features/ContentType/Create/Endpoint.cs::Endpoint.HandleAsync
 128 barakoCMS/Features/ContentType/SetFieldCurrency/Endpoint.cs::Endpoint.HandleAsync
 102 barakoCMS/Features/ContentType/SetFieldOptions/Endpoint.cs::Endpoint.HandleAsync
 94 barakoCMS/Features/ContentType/SetFieldPresentation/Endpoint.cs::Endpoint.HandleAsync

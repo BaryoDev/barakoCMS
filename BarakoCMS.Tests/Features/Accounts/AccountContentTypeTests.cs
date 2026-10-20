@@ -267,4 +267,263 @@ public class AccountContentTypeTests
         }, Ct);
         clash.StatusCode.Should().Be(HttpStatusCode.Conflict, await clash.Content.ReadAsStringAsync(Ct));
     }
+
+    private async Task StoreInTenantAsync(string tenantSlug, params object[] documents)
+    {
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        await using var session = store.LightweightSession(tenantSlug);
+        foreach (var document in documents) session.Store(document);
+        await session.SaveChangesAsync(Ct);
+    }
+
+    private static ContentTypeDefinition LegacyTenantType(string name, SensitivityLevel level) => new()
+    {
+        Id = Guid.NewGuid(),
+        Name = name,
+        DisplayName = "Legacy",
+        Fields = [new FieldDefinition { Name = "title", DisplayName = "Title", Type = "text", IsRequired = false, Sensitivity = level }],
+    };
+
+    private async Task<HttpClient> SuperAdminAsync()
+    {
+        var client = _fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", await _fixture.StoredUserTokenAsync("SuperAdmin"));
+        return client;
+    }
+
+    [Fact]
+    public async Task The_account_type_wins_over_a_tenant_type_of_the_same_name_that_was_stored_before()
+    {
+        var account = await AccountAsync();
+        var inA = await TenantAsync(account.Id);
+        var name = await CreateSharedTypeAsync(await ManagerAsync(account.Id), account);
+        await StoreInTenantAsync(inA, LegacyTenantType(name, SensitivityLevel.Public));
+
+        var errors = await ErrorsForEntryAsync(inA, name, new Dictionary<string, object>());
+
+        errors.Should().NotBeEmpty("the account's title is required and the tenant's looser copy must not shadow it");
+    }
+
+    [Fact]
+    public async Task The_resolver_returns_the_account_definition_with_its_sensitivity_over_the_tenants_own()
+    {
+        var account = await AccountAsync();
+        var inA = await TenantAsync(account.Id);
+        var manager = await ManagerAsync(account.Id);
+        var name = Unique("sec");
+        var created = await manager.PostAsJsonAsync($"/api/accounts/{account.Slug}/content-types", new
+        {
+            name,
+            displayName = "Sec",
+            fields = new[] { new { name = "title", displayName = "Title", type = "text", sensitivity = "Sensitive" } },
+        }, Ct);
+        created.StatusCode.Should().Be(HttpStatusCode.OK, await created.Content.ReadAsStringAsync(Ct));
+        await StoreInTenantAsync(inA, LegacyTenantType(name, SensitivityLevel.Public));
+
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        await using var session = store.QuerySession(inA);
+        var resolved = await AccountContentTypes.ResolveAsync(session, name, Ct);
+        var many = await AccountContentTypes.ResolveManyAsync(session, [name], Ct);
+
+        resolved.Should().NotBeNull();
+        resolved!.Fields.Should().ContainSingle().Which.Sensitivity.Should().Be(SensitivityLevel.Sensitive);
+        many[name].Fields.Should().ContainSingle().Which.Sensitivity.Should().Be(SensitivityLevel.Sensitive);
+    }
+
+    [Fact]
+    public async Task The_redactor_names_a_sensitive_field_of_an_account_type()
+    {
+        var account = await AccountAsync();
+        var manager = await ManagerAsync(account.Id);
+        var field = Unique("secretfield");
+        var created = await manager.PostAsJsonAsync($"/api/accounts/{account.Slug}/content-types", new
+        {
+            name = Unique("sec"),
+            displayName = "Sec",
+            fields = new[] { new { name = field, displayName = "F", type = "text", sensitivity = "Sensitive" } },
+        }, Ct);
+        created.StatusCode.Should().Be(HttpStatusCode.OK, await created.Content.ReadAsStringAsync(Ct));
+
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var owned = await session.Query<AccountContentType>().Where(t => t.AccountId == account.Id).ToListAsync(Ct);
+        owned.SelectMany(t => t.Definition.Fields).Should().Contain(f => f.Name == field && f.Sensitivity != SensitivityLevel.Public);
+
+        var names = await BarakoCMS.Diagnostics.Redaction.SensitiveFieldNames.LoadAsync(session, false, Ct);
+        names.Should().Contain(field);
+    }
+
+    [Fact]
+    public async Task A_blueprint_is_refused_in_a_tenant_whose_account_owns_one_of_its_type_names()
+    {
+        var account = await AccountAsync();
+        var inA = await TenantAsync(account.Id);
+        var tenantAdmin = await TenantAdminAsync(inA);
+
+        var list = await tenantAdmin.GetFromJsonAsync<JsonElement>("/api/content-types/blueprints", Ct);
+        var blueprint = list.GetProperty("items").EnumerateArray()
+            .First(i => i.GetProperty("contentTypes").GetArrayLength() > 0);
+        var typeName = blueprint.GetProperty("contentTypes")[0].GetString()!;
+
+        var manager = await ManagerAsync(account.Id);
+        await CreateSharedTypeAsync(manager, account, barakoCMS.Core.ContentTypeName.Normalize(typeName));
+
+        var response = await tenantAdmin.PostAsync($"/api/content-types/blueprints/{blueprint.GetProperty("name").GetString()}", null, Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict, await response.Content.ReadAsStringAsync(Ct));
+    }
+
+    [Fact]
+    public async Task An_import_cannot_create_a_tenant_type_with_the_name_of_the_account_type()
+    {
+        var account = await AccountAsync();
+        var inA = await TenantAsync(account.Id);
+        var name = await CreateSharedTypeAsync(await ManagerAsync(account.Id), account);
+        var tenantAdmin = await TenantAdminAsync(inA);
+
+        var response = await tenantAdmin.PostAsJsonAsync("/api/portability/import", new
+        {
+            contentTypes = new[]
+            {
+                new { name, displayName = "Mine", fields = new[] { new { name = "title", displayName = "Title", type = "text" } } },
+            },
+            contents = Array.Empty<object>(),
+        }, Ct);
+
+        response.IsSuccessStatusCode.Should().BeFalse(await response.Content.ReadAsStringAsync(Ct));
+    }
+
+    [Fact]
+    public async Task A_tenant_holding_entries_of_its_accounts_types_cannot_move_out_of_the_account()
+    {
+        var account = await AccountAsync();
+        var other = await AccountAsync();
+        var inA = await TenantAsync(account.Id);
+        var name = await CreateSharedTypeAsync(await ManagerAsync(account.Id), account);
+        await StoreInTenantAsync(inA, new Content
+        {
+            Id = Guid.NewGuid(), ContentType = name, Data = new() { ["title"] = "Suite" },
+        });
+
+        var admin = await SuperAdminAsync();
+        var move = await admin.PutAsJsonAsync($"/api/tenants/{inA}", new { name = inA, accountId = other.Id }, Ct);
+
+        move.StatusCode.Should().Be(HttpStatusCode.Conflict, await move.Content.ReadAsStringAsync(Ct));
+    }
+
+    [Fact]
+    public async Task A_tenant_with_no_entries_of_the_account_types_can_move_out()
+    {
+        var account = await AccountAsync();
+        var other = await AccountAsync();
+        var inA = await TenantAsync(account.Id);
+        await CreateSharedTypeAsync(await ManagerAsync(account.Id), account);
+
+        var admin = await SuperAdminAsync();
+        var move = await admin.PutAsJsonAsync($"/api/tenants/{inA}", new { name = inA, accountId = other.Id }, Ct);
+
+        move.StatusCode.Should().Be(HttpStatusCode.OK, await move.Content.ReadAsStringAsync(Ct));
+    }
+
+    [Fact]
+    public async Task The_account_type_cannot_name_a_non_public_field_when_a_tenant_decided_the_name_as_event_sourced()
+    {
+        var account = await AccountAsync();
+        var inA = await TenantAsync(account.Id);
+        var name = Unique("es");
+        await StoreInTenantAsync(inA, new ContentTypeSourcingPolicy { Name = name, EventSourced = true });
+        var manager = await ManagerAsync(account.Id);
+
+        var response = await manager.PostAsJsonAsync($"/api/accounts/{account.Slug}/content-types", new
+        {
+            name,
+            displayName = "ES",
+            fields = new[] { new { name = "title", displayName = "Title", type = "text", sensitivity = "Sensitive" } },
+        }, Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict, await response.Content.ReadAsStringAsync(Ct));
+    }
+
+    [Fact]
+    public async Task A_non_public_field_added_to_an_account_type_is_refused_when_a_tenant_decided_the_name_as_event_sourced()
+    {
+        var account = await AccountAsync();
+        var inA = await TenantAsync(account.Id);
+        var manager = await ManagerAsync(account.Id);
+        var name = await CreateSharedTypeAsync(manager, account);
+        await StoreInTenantAsync(inA, new ContentTypeSourcingPolicy { Name = name, EventSourced = true });
+
+        var response = await manager.PostAsJsonAsync($"/api/accounts/{account.Slug}/content-types/{name}/fields", new
+        {
+            fieldName = "secret", displayName = "Secret", type = "text", sensitivity = "Sensitive",
+        }, Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict, await response.Content.ReadAsStringAsync(Ct));
+    }
+
+    [Fact]
+    public async Task An_account_type_takes_platform_roles_in_visibleToRoles_and_refuses_a_tenant_role()
+    {
+        var account = await AccountAsync();
+        var manager = await ManagerAsync(account.Id);
+        var platformName = Unique("plat");
+        var tenantRoleName = Unique("trole");
+        await StoreAsync(
+            new Role { Id = Guid.NewGuid(), Name = platformName, IsPlatform = true },
+            new Role { Id = Guid.NewGuid(), Name = tenantRoleName, IsPlatform = false, TenantSlug = "some-tenant" });
+
+        async Task<HttpResponseMessage> CreateWithAsync(string role) =>
+            await manager.PostAsJsonAsync($"/api/accounts/{account.Slug}/content-types", new
+            {
+                name = Unique("vr"),
+                displayName = "VR",
+                fields = new[] { new { name = "title", displayName = "Title", type = "text", sensitivity = "Sensitive", visibleToRoles = new[] { role } } },
+            }, Ct);
+
+        var refused = await CreateWithAsync(tenantRoleName);
+        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest, await refused.Content.ReadAsStringAsync(Ct));
+        (await CreateWithAsync(platformName)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Two_writers_of_the_same_account_type_cannot_lose_each_others_field()
+    {
+        var account = await AccountAsync();
+        var name = await CreateSharedTypeAsync(await ManagerAsync(account.Id), account);
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+
+        await using var first = store.LightweightSession();
+        await using var second = store.LightweightSession();
+        var a = await first.Query<AccountContentType>().FirstAsync(t => t.AccountId == account.Id && t.Name == name, Ct);
+        var b = await second.Query<AccountContentType>().FirstAsync(t => t.AccountId == account.Id && t.Name == name, Ct);
+        a.Definition.Fields.Add(new FieldDefinition { Name = "one", DisplayName = "One", Type = "text" });
+        b.Definition.Fields.Add(new FieldDefinition { Name = "two", DisplayName = "Two", Type = "text" });
+        first.Store(a);
+        second.Store(b);
+        await first.SaveChangesAsync(Ct);
+
+        var act = async () => await second.SaveChangesAsync(Ct);
+
+        await act.Should().ThrowAsync<JasperFx.ConcurrencyException>();
+    }
+
+    [Fact]
+    public async Task An_entry_in_another_tenant_of_the_account_blocks_the_delete_and_a_required_field_without_default()
+    {
+        var account = await AccountAsync();
+        var inA = await TenantAsync(account.Id);
+        var manager = await ManagerAsync(account.Id);
+        var name = await CreateSharedTypeAsync(manager, account);
+        await StoreInTenantAsync(inA, new Content { Id = Guid.NewGuid(), ContentType = name, Data = new() { ["title"] = "Suite" } });
+
+        var required = await manager.PostAsJsonAsync($"/api/accounts/{account.Slug}/content-types/{name}/fields", new
+        {
+            fieldName = "sku", displayName = "SKU", type = "text", isRequired = true,
+        }, Ct);
+        required.StatusCode.Should().Be(HttpStatusCode.BadRequest, await required.Content.ReadAsStringAsync(Ct));
+
+        (await manager.DeleteAsync($"/api/accounts/{account.Slug}/content-types/{name}", Ct))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
 }

@@ -9,7 +9,7 @@ namespace barakoCMS.Models;
 /// <see cref="Definition"/>. The definition cannot live in one tenant's partition, because the other
 /// tenants of the account could not read it, and copying it into each partition is the drift this
 /// exists to remove. A tenant's own <see cref="ContentTypeDefinition"/> of the same name is refused
-/// on create and, where one already exists, wins for that tenant.
+/// on create, and where one already exists the account's definition wins.
 /// </remarks>
 public class AccountContentType
 {
