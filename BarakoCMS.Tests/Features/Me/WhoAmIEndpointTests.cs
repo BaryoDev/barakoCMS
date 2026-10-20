@@ -239,7 +239,7 @@ public class WhoAmIEndpointTests
 
         operation.GetProperty("tags").EnumerateArray().Select(t => t.GetString()).Should().Equal("Me");
         OpenApiSchemaReader.PropertyNames(OpenApiSchemaReader.OkResponse(doc, operation))
-            .Should().BeEquivalentTo(["userId", "username", "tenant", "roles", "capabilities", "legacyRoleFallback"]);
+            .Should().BeEquivalentTo(["userId", "username", "displayName", "tenant", "roles", "capabilities", "legacyRoleFallback"]);
     }
 
     [Fact]

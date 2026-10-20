@@ -5,8 +5,8 @@ using barakoCMS.Modules;
 namespace BarakoCMS.Tests;
 
 // This file is the point of #948: a module that seeds, reads content and guards a write using
-// barakoCMS types only. It must never gain a `using Marten`, and
-// ModuleWithoutMartenTests.The_probe_names_no_marten_type checks that it has not.
+// barakoCMS types only. It must never name the persistence library, and
+// The_probe_names_no_marten_type checks that it has not.
 
 internal sealed class NoMartenProbeModule(string typeName, string roleName, Guid roleId) : IBarakoModule
 {

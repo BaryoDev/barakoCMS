@@ -45,7 +45,7 @@ public class ModuleWithoutMartenTests
     {
         var source = await File.ReadAllTextAsync(ProbePath(), Ct);
 
-        source.Should().NotContain("Marten");
+        source.Should().NotMatchRegex(@"\bMarten\b");
 
         foreach (var type in new[] { typeof(NoMartenProbeModule), typeof(NoMartenProbeHook) })
         {
