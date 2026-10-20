@@ -922,6 +922,7 @@ template ships a placeholder.
 | [BarakoCMS.Portability](BarakoCMS.Portability) | Export and import content types and their entries as a JSON bundle |
 | [BarakoCMS.Diagnostics](BarakoCMS.Diagnostics) | Client error log: browser errors posted to `/api/client-errors`, deduplicated by fingerprint |
 | [BarakoCMS.Analytics.Umami](BarakoCMS.Analytics.Umami) | Admin-only proxy over an Umami instance: visitors, pages, referrers, countries, and site registration |
+| [BarakoCMS.CdnPurge](BarakoCMS.CdnPurge) | A `CdnPurge` workflow action that purges a published entry's cache tags from Cloudflare |
 | [BarakoCMS.Pwa](BarakoCMS.Pwa) | Records PWA installs and installed-app launches, anonymous or tied to the signed-in user |
 | [BarakoCMS.AI](BarakoCMS.AI) | Semantic search over published, public content with an embedding model run by Ollama by default |
 
