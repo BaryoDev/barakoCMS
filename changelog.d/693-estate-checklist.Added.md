@@ -1,0 +1,1 @@
+- **An estate checklist.** `docs/estate-checklist.md` answers the five questions an architect asks (changes, traces, scoped credentials, consumer limits, contract version), each yes tied to a test or code path, and names what is not there yet. Docs only.
