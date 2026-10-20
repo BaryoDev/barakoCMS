@@ -96,6 +96,25 @@ meantime, turning the form on is refused with 400 until the request says what to
 `GET /api/forms` and the form definition both report `verifyEmailField`, and the definition marks
 that field `required` whatever the type says.
 
+A form can also take submissions only inside a window. The dates live in a singleton content type
+(for example `registration-settings`), so closing registration is editing a date:
+
+```
+PUT /api/forms/race-signup
+Authorization: Bearer <token with manage_forms>
+
+{ "enabled": true, "windowContentType": "registration-settings",
+  "opensAtField": "opensAt", "closesAtField": "closesAt" }
+```
+
+`windowContentType` has to be a singleton type, and each named field a `date` or `datetime` field of
+it, or the request is refused with 400. Name either field or both. Send none of the three to keep the
+window, and an empty `windowContentType` to clear it. The dates are read on every request, so a
+changed date applies at once. A missing date leaves that side open, and a date with no offset is UTC.
+Outside the window the submit route answers 403 with a message, and the anonymous definition carries
+`open` and `closedMessage`; both are null for a form with no window. Turning the form off removes the
+window along with it.
+
 The visitor asks for a code, then sends it with the submission:
 
 ```

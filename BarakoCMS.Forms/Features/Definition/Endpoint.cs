@@ -39,6 +39,15 @@ internal sealed class Response
     /// accepted, or null when the form does not verify.
     /// </summary>
     public string? VerifyEmailField { get; set; }
+
+    /// <summary>
+    /// Whether the form takes submissions right now. Null when the form has no opening or closing
+    /// date, so a client that never heard of the window sees nothing new.
+    /// </summary>
+    public bool? Open { get; set; }
+
+    /// <summary>The message a refused submission carries when <see cref="Open"/> is false.</summary>
+    public string? ClosedMessage { get; set; }
 }
 
 /// <summary>
@@ -68,6 +77,9 @@ internal sealed class Endpoint(IQuerySession session) : EndpointWithoutRequest<R
             return;
         }
 
+        var window = FormWindow.IsConfigured(form!)
+            ? await FormWindow.CheckAsync(session, form!, DateTimeOffset.UtcNow, ct)
+            : null;
         var verified = FormEmailVerifier.FieldToVerify(definition, form!);
 
         await Send.OkAsync(new Response
@@ -90,6 +102,8 @@ internal sealed class Endpoint(IQuerySession session) : EndpointWithoutRequest<R
                 Scale = barakoCMS.Core.Validation.FieldTypeRegistry.TryGetCurrency(f, out _, out var places) ? places : null,
             }).ToList(),
             VerifyEmailField = verified?.Name,
+            Open = window?.IsOpen,
+            ClosedMessage = window?.Message,
         }, ct);
     }
 }
