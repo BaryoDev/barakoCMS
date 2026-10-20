@@ -289,9 +289,9 @@ while (my $line = <STDIN>) {
     # An inline code span shows link syntax as text, so it is left alone. The checker
     # strips the same spans.
     my @parts = split /(`[^`]*`)/, $line;
-    for my $part (@parts) {
-        next if $part =~ /^`/;
-        $part =~ s{\]\(([^()\s]+)(\s+"[^"]*")?\)}{ '](' . rewrite($1) . (defined $2 ? $2 : '') . ')' }ge;
+    for my $i (0 .. $#parts) {
+        next if $i % 2;    # split puts the captured spans at odd indices
+        $parts[$i] =~ s{\]\(([^()\s]+)(\s+"[^"]*")?\)}{ '](' . rewrite($1) . (defined $2 ? $2 : '') . ')' }ge;
     }
     print join('', @parts);
 }

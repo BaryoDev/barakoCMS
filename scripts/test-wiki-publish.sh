@@ -302,13 +302,15 @@ grep -q 'docs/NOTES.md is not tracked by git' "$WORK/out"; check "it says the fi
 rm -f "$SRC/docs/NOTES.md"
 
 echo "== link syntax inside inline code is text, not a link =="
-printf '# Webhooks\n\n`[Open]({{links.site "/bookings"}})` and `[old](gone.md)` stay. See [blueprints](blueprints.md).\n' \
+printf '# Webhooks\n\n`[Open]({{links.site "/bookings"}})` and `[old](gone.md)` stay. See [blueprints](blueprints.md).\n`lone tick [blueprints](blueprints.md)\n' \
   >"$SRC/docs/webhooks.md"
 fixture_git -C "$SRC" commit --quiet -am "a link in inline code"
 fresh_clone
 publish; check "it exits zero" $?
 git -C "$REMOTE" show master:webhooks.md | grep -qF '`[Open]({{links.site "/bookings"}})` and `[old](gone.md)` stay. See [blueprints](blueprints).'
 check "the code spans are kept as written and the real link is rewritten" $?
+git -C "$REMOTE" show master:webhooks.md | grep -qxF '`lone tick [blueprints](blueprints)'
+check "a link after an unpaired backtick is still rewritten" $?
 
 echo "== a result is written to the run summary when there is one =="
 printf '# Webhooks\n\nFifth version.\n' >"$SRC/docs/webhooks.md"
