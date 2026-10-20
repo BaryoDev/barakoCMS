@@ -76,7 +76,7 @@
 156 barakoCMS/Features/Workflows/Actions/EmailAction.cs::EmailAction.RunAsync
 108 barakoCMS/Features/Workflows/Actions/EmailAttachments.cs::EmailAttachments.ResolveAsync
 377 barakoCMS/Features/Workflows/Actions/UpdateFieldAction.cs::UpdateFieldAction.RunAsync
-241 barakoCMS/Features/Workflows/Actions/WebhookAction.cs::WebhookAction.RunAsync
+222 barakoCMS/Features/Workflows/Actions/WebhookAction.cs::WebhookAction.RunAsync
 82 barakoCMS/Features/Workflows/DryRunWorkflow/Endpoint.cs::Endpoint.HandleAsync
 105 barakoCMS/Features/Workflows/WorkflowEngine.cs::WorkflowEngine.ExecuteActionsAsync
 101 barakoCMS/Features/Workflows/WorkflowRunner.cs::WorkflowRunner.ExecuteAttemptAsync

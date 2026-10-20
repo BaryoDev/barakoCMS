@@ -687,6 +687,8 @@ public static class ServiceCollectionExtensions
         options.Schema.For<SystemSetting>()
             .SingleTenanted()
             .DocumentAlias("system_settings");
+
+        MapPendingBuilds(options);
     }
 
     // The changed-since poll orders workflow runs by (UpdatedAt, id), so the index carries both.
@@ -776,14 +778,6 @@ public static class ServiceCollectionExtensions
             .DocumentAlias("webhook_deliveries")
             .Index(x => x.WorkflowId)
             .Index(x => x.CreatedAt);
-
-        options.Schema.For<PendingBuild>()
-            .MultiTenanted()
-            .DocumentAlias("pending_builds")
-            // Claiming a due row is a read, a check and a write, and two nodes sweeping together
-            // must not both fire the hook. The second save is refused by the version.
-            .UseOptimisticConcurrency(true)
-            .Index(x => x.FireAt);
 
         options.Schema.For<WorkflowFieldApplyMarker>()
             .MultiTenanted()
@@ -1253,6 +1247,15 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(sp => barakoCMS.Features.Public.Events.ContentEventsOptions.FromConfiguration(
             sp.GetRequiredService<IConfiguration>()));
     }
+
+    private static void MapPendingBuilds(StoreOptions options) =>
+        options.Schema.For<PendingBuild>()
+            .MultiTenanted()
+            .DocumentAlias("pending_builds")
+            // Claiming a due row is a read, a check and a write, and two nodes sweeping together
+            // must not both fire the hook. The second save is refused by the version.
+            .UseOptimisticConcurrency(true)
+            .Index(x => x.FireAt);
 
     private static void AddRetentionServices(IServiceCollection services)
     {
