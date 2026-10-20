@@ -105,7 +105,6 @@ internal class Endpoint(
 
         if (!string.IsNullOrEmpty(req.ContentType))
         {
-            // Entries keep the type name as the caller spelled it (#1159), so the filter ignores case.
             query = query.Where(c => c.ContentType.Equals(req.ContentType, StringComparison.OrdinalIgnoreCase));
         }
 
