@@ -174,6 +174,13 @@ internal class Endpoint(
             ThrowError(DuplicateName, 409);
         }
 
+        // A type the tenant's account owns is already here for this tenant. A second one beside it
+        // would be two definitions of one name, and the tenant's would shadow the account's.
+        if (await barakoCMS.Infrastructure.Services.AccountContentTypes.FindAsync(session, slug, ct) is not null)
+        {
+            ThrowError("The account that owns this tenant already owns a Content Type with this name.", 409);
+        }
+
         // Entries can exist under a name with no type, holding whatever keys their writers chose.
         foreach (var token in (req.Fields ?? []).Where(f => f is not null && barakoCMS.Core.Validation.TokenFields.IsToken(f.Type)))
         {

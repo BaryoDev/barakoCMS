@@ -353,7 +353,8 @@ internal class Endpoint(
     private async Task<string> SearchTextAsync(string contentType, Dictionary<string, object> data, CancellationToken ct)
     {
         var definition = await session.Query<ContentTypeDefinition>()
-            .FirstNamedAsync(contentType, ct);
+            .FirstNamedAsync(contentType, ct)
+            ?? await barakoCMS.Infrastructure.Services.AccountContentTypes.FindDefinitionAsync(session, contentType, ct);
 
         var publicFields = definition?.Fields
             .Where(f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.InlineImageFields.Is(f.Type))

@@ -1031,6 +1031,13 @@ public static class ServiceCollectionExtensions
                 idx.IsUnique = true;
                 idx.Name = AccountManagerUniqueIndex;
             });
+
+        // Global on purpose: a definition shared by the tenants of an account has to be readable
+        // from each of their partitions, which a conjoined document is not.
+        options.Schema.For<Models.AccountContentType>()
+            .SingleTenanted()
+            .DocumentAlias("account_content_types")
+            .Index(x => new { x.AccountId, x.Name }, idx => idx.IsUnique = true);
     }
 
     private static void MapApiKeysAndAccounts(StoreOptions options)

@@ -277,7 +277,8 @@ public sealed class ContentCreator(
     {
         var definition = batch?.SchemaFor(request.ContentType)
             ?? await session.Query<ContentTypeDefinition>()
-                .FirstNamedAsync(request.ContentType, ct);
+                .FirstNamedAsync(request.ContentType, ct)
+            ?? await AccountContentTypes.FindDefinitionAsync(session, request.ContentType, ct);
 
         var entryId = request.Id ?? Guid.NewGuid();
         await NumberAsync(definition, request.ContentType, entryId, request.Data, ct);
@@ -346,7 +347,8 @@ public sealed class ContentCreator(
         }
 
         var lowered = contentType.ToLower();
-        definition ??= await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct);
+        definition ??= await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct)
+            ?? await AccountContentTypes.FindDefinitionAsync(session, lowered, ct);
         if (definition?.Numbering is not { Field.Length: > 0 } rule)
         {
             return;
