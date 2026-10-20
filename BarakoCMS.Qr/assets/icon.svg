@@ -1,0 +1,9 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="BarakoCMS.Qr">
+  <title>BarakoCMS.Qr</title>
+  <rect x="2" y="2" width="124" height="124" rx="28" fill="#37474F"/>
+  <rect x="30" y="30" width="30" height="30" rx="6" fill="#FFFFFF"/>
+  <rect x="68" y="30" width="30" height="30" rx="6" fill="#FFFFFF"/>
+  <rect x="30" y="68" width="30" height="30" rx="6" fill="#FFFFFF"/>
+  <rect x="70" y="70" width="12" height="12" rx="3" fill="#FFC53D"/>
+  <rect x="86" y="86" width="12" height="12" rx="3" fill="#FFC53D"/>
+</svg>

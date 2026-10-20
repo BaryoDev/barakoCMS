@@ -333,6 +333,9 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                 { "Modules:Pages:ReservedSlugs:0", "api" },
                 { "Modules:Pages:ReservedSlugs:1", "Blog" },
                 { "Modules:Pages:ReservedSlugs:2", "admin" },
+                // Qr lists one field of one probe type, so the allowlist and the empty-allowlist
+                // cases each have a type to use.
+                { "Modules:Qr:Fields:qrprobe:0", "Token" },
             });
         });
 
@@ -510,6 +513,9 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             // the same options. Registered with its own section, as the host scopes it.
             new BarakoCMS.Pages.PagesModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Pages"));
 
+            // Qr: the route reads its allowlist from the options registered here.
+            new BarakoCMS.Qr.QrModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Qr"));
+
             // Forms: the submit endpoint is anonymous and rate limited, so its policy, its options and
             // its schema all have to be registered for /api/public/forms/* to answer at all. Scoped to
             // its own section, as the host scopes it.
@@ -615,6 +621,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         typeof(BarakoCMS.Diagnostics.DiagnosticsModule).Assembly,
         typeof(BarakoCMS.Pwa.PwaModule).Assembly,
         typeof(BarakoCMS.Pages.PagesModule).Assembly,
+        typeof(BarakoCMS.Qr.QrModule).Assembly,
 
         typeof(BarakoCMS.Forms.FormsModule).Assembly,
         typeof(BarakoCMS.FeatureFlags.FeatureFlagsModule).Assembly,

@@ -931,6 +931,7 @@ template ships a placeholder.
 | [BarakoCMS.Analytics.Umami](BarakoCMS.Analytics.Umami) | Admin-only proxy over an Umami instance: visitors, pages, referrers, countries, and site registration |
 | [BarakoCMS.CdnPurge](BarakoCMS.CdnPurge) | A `CdnPurge` workflow action that purges a published entry's cache tags from Cloudflare |
 | [BarakoCMS.Pwa](BarakoCMS.Pwa) | Records PWA installs and installed-app launches, anonymous or tied to the signed-in user |
+| [BarakoCMS.Qr](BarakoCMS.Qr) | Renders one allowed field of a public entry as a PNG or SVG QR code at `GET /api/public/{type}/{id}/qr/{field}` |
 | [BarakoCMS.AI](BarakoCMS.AI) | Semantic search over published, public content with an embedding model run by Ollama by default |
 
 The core also ships passwordless **email OTP sign-in** (`POST /api/auth/otp/request` + `/verify`),
