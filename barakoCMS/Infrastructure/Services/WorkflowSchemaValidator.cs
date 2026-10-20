@@ -403,6 +403,7 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
     {
         var result = Validate(workflow, ct);
         await AddTemplateWarningsAsync(workflow, result, ct);
+        await AddPublishErrorsAsync(workflow, result, ct);
 
         var events = WorkflowTriggers.Events(workflow);
         if (!events.Any(e => WorkflowEvents.TransitionName(e) is { Length: > 0 }))
@@ -449,6 +450,51 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Refuses a Publish action whose payload is not a JSON object of text, names a placeholder outside
+    /// the allowlist, or names a field its trigger type does not mark Public.
+    /// </summary>
+    /// <remarks>
+    /// Only the workflow's own actions are read, not the children of a Conditional. The action checks
+    /// again when it runs, so a child cannot send what a top-level action may not.
+    /// </remarks>
+    private async Task AddPublishErrorsAsync(WorkflowDefinition workflow, WorkflowValidationResult result, CancellationToken ct)
+    {
+        if (workflow.Actions is null) return;
+
+        List<ContentTypeDefinition>? definitions = null;
+
+        for (var i = 0; i < workflow.Actions.Count; i++)
+        {
+            var action = workflow.Actions[i];
+            if (action is null || !string.Equals(action.Type, "Publish", StringComparison.Ordinal)) continue;
+
+            var payload = action.Parameters?.GetValueOrDefault(PublishPayload.PayloadParameter);
+            if (string.IsNullOrWhiteSpace(payload)) continue;
+
+            if (definitions is null)
+            {
+                definitions = [];
+                foreach (var contentType in WorkflowTriggers.ContentTypes(workflow))
+                {
+                    var definition = await _session.Query<ContentTypeDefinition>()
+                        .FirstOrDefaultAsync(d => d.Name == contentType, ct);
+                    if (definition is not null) definitions.Add(definition);
+                }
+            }
+
+            foreach (var problem in PublishPayload.Problems(payload, definitions))
+            {
+                result.Errors.Add(new ValidationError
+                {
+                    Field = $"actions[{i}].parameters.{PublishPayload.PayloadParameter}",
+                    Message = problem,
+                });
+                result.IsValid = false;
+            }
+        }
     }
 
     /// <summary>How many distinct templates one validation reads.</summary>
@@ -806,7 +852,7 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
             }
         }
 
-        if (string.Equals(action.Type, "Webhook", StringComparison.Ordinal)
+        if (action.Type is "Webhook" or "Publish"
             && WebhookSigning.IsInsecureSignedUrl(action.Parameters.GetValueOrDefault("Url"), action.Parameters, _allowInsecureSignedUrls))
         {
             result.Errors.Add(new ValidationError
