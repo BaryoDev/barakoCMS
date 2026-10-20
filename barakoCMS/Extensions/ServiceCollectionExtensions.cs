@@ -1318,6 +1318,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<barakoCMS.Features.Workflows.Outbox.OutboxStaging>();
         services.AddSingleton<barakoCMS.Features.Workflows.Outbox.IOutboxTransport, barakoCMS.Features.Workflows.Outbox.SignedHttpOutboxTransport>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.UpdateFieldAction>();
+        services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.CreateEntryAction>();
+        services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.TransitionAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.RequestAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.ConditionalAction>();
         services.AddSingleton(sp => new barakoCMS.Features.Workflows.WorkflowActionRegistrations(services, sp));
