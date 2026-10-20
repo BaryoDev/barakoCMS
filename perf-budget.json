@@ -1,29 +1,29 @@
 {
-  "about": "Budgets for scripts/perf-measure.sh, compared by scripts/perf-budget.py in the Performance budget job (#853). Every metric is lower-is-better. baseline is the number a budget was set from; budget is the most a pull request may measure. Raising a budget is a reviewed change: say why in the pull request. Where the amd64 baselines come from: one local run of scripts/perf-measure.sh on 2026-10-12 (4-core x86_64, Docker 28, release/5.0.0 at 4.9.0), not yet a GitHub runner, so the first runs on master should be used to tighten them. Image sizes are deterministic and get 10%; times and memory get wide margins because runners vary. arm64 has no baseline yet: its budgets are the amd64 ones, with the image sizes widened by 15%, until a run on arm64 gives numbers to set them from. Delivery latency is measured at 1.5 requests a second for 60 seconds, about 30 samples per target, so its budget catches large regressions only. Sizes are MB, times seconds or milliseconds, memory is the API's resident MB after 60 s idle on 2 CPUs.",
+  "about": "Budgets for scripts/perf-measure.sh, compared by scripts/perf-budget.py in the Performance budget job (#853). Every metric is lower-is-better. baseline is the number a budget was set from; budget is the most a pull request may measure. Raising a budget is a reviewed change: say why in the pull request. Baselines are the median of eight merge queue runs on GitHub runners, 2026-10-20, both architectures (the perf-amd64 and perf-arm64 artifacts). Image sizes are deterministic (under 0.5 MB apart across those runs) and get 10%; times and memory get wide margins because runners vary. Delivery latency is measured at 1.5 requests a second for 60 seconds, about 30 samples per target, so its budget catches large regressions only. Sizes are MB, times seconds or milliseconds, memory is the API's resident MB after 60 s idle on 2 CPUs.",
   "amd64": {
-    "build_seconds": { "baseline": 112.5, "budget": 300 },
-    "image_uncompressed_mb": { "baseline": 439.6, "budget": 484 },
-    "image_compressed_mb": { "baseline": 120.7, "budget": 133 },
-    "startup_seconds": { "baseline": 7.9, "budget": 25 },
-    "memory_at_rest_mb": { "baseline": 233.7, "budget": 280 },
-    "delivery_list_p50_ms": { "baseline": 8.6, "budget": 60 },
-    "delivery_list_p95_ms": { "baseline": 10.3, "budget": 150 },
-    "delivery_slug_p50_ms": { "baseline": 6.7, "budget": 60 },
-    "delivery_slug_p95_ms": { "baseline": 11.1, "budget": 150 },
-    "delivery_site_p50_ms": { "baseline": 8.2, "budget": 60 },
-    "delivery_site_p95_ms": { "baseline": 11.4, "budget": 150 }
+    "build_seconds": { "baseline": 68.1, "budget": 300 },
+    "image_uncompressed_mb": { "baseline": 309.0, "budget": 340 },
+    "image_compressed_mb": { "baseline": 120.9, "budget": 133 },
+    "startup_seconds": { "baseline": 5.3, "budget": 25 },
+    "memory_at_rest_mb": { "baseline": 241.5, "budget": 280 },
+    "delivery_list_p50_ms": { "baseline": 3.6, "budget": 60 },
+    "delivery_list_p95_ms": { "baseline": 5.4, "budget": 150 },
+    "delivery_slug_p50_ms": { "baseline": 3.5, "budget": 60 },
+    "delivery_slug_p95_ms": { "baseline": 4.7, "budget": 150 },
+    "delivery_site_p50_ms": { "baseline": 3.8, "budget": 60 },
+    "delivery_site_p95_ms": { "baseline": 4.5, "budget": 150 }
   },
   "arm64": {
-    "build_seconds": { "baseline": null, "budget": 300 },
-    "image_uncompressed_mb": { "baseline": null, "budget": 557 },
-    "image_compressed_mb": { "baseline": null, "budget": 153 },
-    "startup_seconds": { "baseline": null, "budget": 25 },
-    "memory_at_rest_mb": { "baseline": null, "budget": 280 },
-    "delivery_list_p50_ms": { "baseline": null, "budget": 60 },
-    "delivery_list_p95_ms": { "baseline": null, "budget": 150 },
-    "delivery_slug_p50_ms": { "baseline": null, "budget": 60 },
-    "delivery_slug_p95_ms": { "baseline": null, "budget": 150 },
-    "delivery_site_p50_ms": { "baseline": null, "budget": 60 },
-    "delivery_site_p95_ms": { "baseline": null, "budget": 150 }
+    "build_seconds": { "baseline": 64.0, "budget": 300 },
+    "image_uncompressed_mb": { "baseline": 339.4, "budget": 374 },
+    "image_compressed_mb": { "baseline": 117.5, "budget": 130 },
+    "startup_seconds": { "baseline": 4.5, "budget": 25 },
+    "memory_at_rest_mb": { "baseline": 245.6, "budget": 280 },
+    "delivery_list_p50_ms": { "baseline": 3.8, "budget": 60 },
+    "delivery_list_p95_ms": { "baseline": 5.2, "budget": 150 },
+    "delivery_slug_p50_ms": { "baseline": 3.8, "budget": 60 },
+    "delivery_slug_p95_ms": { "baseline": 5.1, "budget": 150 },
+    "delivery_site_p50_ms": { "baseline": 3.9, "budget": 60 },
+    "delivery_site_p95_ms": { "baseline": 5.2, "budget": 150 }
   }
 }
