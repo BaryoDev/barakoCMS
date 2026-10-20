@@ -59,9 +59,6 @@
   <ItemGroup>
     <PackageReference Include="AspNetCore.HealthChecks.Npgsql" />
     <PackageReference Include="AspNetCore.HealthChecks.System" />
-    <PackageReference Include="AspNetCore.HealthChecks.UI" />
-    <PackageReference Include="AspNetCore.HealthChecks.UI.Client" />
-    <PackageReference Include="AspNetCore.HealthChecks.UI.InMemory.Storage" />
     <PackageReference Include="BCrypt.Net-Next" />
     <PackageReference Include="Carom" />
     <PackageReference Include="Carom.Extensions" />

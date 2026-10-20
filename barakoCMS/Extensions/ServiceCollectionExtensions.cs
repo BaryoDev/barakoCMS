@@ -1469,16 +1469,8 @@ public static class ServiceCollectionExtensions
 
     private static void AddHealthChecksDashboard(IServiceCollection services, IConfiguration configuration)
     {
-        if (configuration.GetValue<bool>("HealthChecksUI:Enabled"))
-        {
-            services.AddHealthChecksUI(setup =>
-            {
-                setup.SetEvaluationTimeInSeconds(10); // Check every 10 seconds
-                setup.MaximumHistoryEntriesPerEndpoint(60);
-                setup.AddHealthCheckEndpoint("BarakoCMS", "/health");
-            })
-            .AddInMemoryStorage();
-        }
+        barakoCMS.Infrastructure.Health.HealthChecksUiRemoval.WarnIfEnabled(
+            configuration, message => Log.Warning("{HealthChecksUiRemoved}", message));
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
@@ -1760,9 +1752,6 @@ public static class ServiceCollectionExtensions
     private static void UseSecurityHeaders(IApplicationBuilder app, IConfiguration configuration, string? env)
     {
         var csp = barakoCMS.Infrastructure.Security.SecurityHeaders.ContentSecurityPolicy(env);
-        var healthDashboardCsp =
-            barakoCMS.Infrastructure.Security.SecurityHeaders.HealthDashboardContentSecurityPolicy(env);
-        var healthDashboardEnabled = configuration.GetValue<bool>("HealthChecksUI:Enabled");
 
         // Written as the response starts rather than before next. The exception handler, the
         // malformed request refusal and the 503 above all sit outside this block and clear the
@@ -1784,13 +1773,7 @@ public static class ServiceCollectionExtensions
                 // way to detect content on the page by watching which loads were blocked. The CSP
                 // below is the control that actually applies. See issue #271.
 
-                // Content Security Policy. The looser style-src is reached only by the health
-                // dashboard, and only while the dashboard is switched on.
-                var policy = healthDashboardEnabled &&
-                             barakoCMS.Infrastructure.Security.SecurityHeaders.IsHealthDashboardPath(context.Request.Path)
-                    ? healthDashboardCsp
-                    : csp;
-                headers.TryAdd("Content-Security-Policy", policy);
+                headers.TryAdd("Content-Security-Policy", csp);
 
                 // A token, a key or the caller's own details: no browser or proxy keeps a copy. Pragma
                 // is for HTTP/1.0 caches, which do not read Cache-Control.
@@ -2089,15 +2072,6 @@ public static class ServiceCollectionExtensions
         app.UseHealthChecks("/health/live", Probe(check => check.Tags.Contains("live")));
         app.UseHealthChecks("/health/ready", Probe(check => check.Tags.Contains("ready")));
         app.UseHealthChecks("/health", Probe(_ => true));
-
-        if (configuration.GetValue<bool>("HealthChecksUI:Enabled"))
-        {
-            app.UseHealthChecksUI(options =>
-            {
-                options.UIPath = "/health-ui";
-                options.ApiPath = "/health-ui-api";
-            });
-        }
     }
 
     private static void UseOpenApi(IApplicationBuilder app, IConfiguration configuration, string? env)
