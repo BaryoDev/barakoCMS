@@ -110,6 +110,18 @@ public static class SystemCapabilities
     public const string ViewModules = "view_modules";
 
     /// <summary>
+    /// Read the configuration a module runs with, and where each value came from
+    /// (<c>GET /api/modules/{name}/configuration</c>).
+    /// </summary>
+    /// <remarks>
+    /// New, no gate to preserve, and withheld from Admin: even with every secret redacted, the shape
+    /// of a deployment's configuration (hosts, ports, which provider is in use) is reconnaissance.
+    /// SuperAdmin holds it through the wildcard. A tenant role that is granted it sees only the keys
+    /// a module marks as tenant scope.
+    /// </remarks>
+    public const string ViewModuleConfiguration = "view_module_configuration";
+
+    /// <summary>
     /// Read the monitoring surface: per-check health detail, the Kubernetes cluster view and the
     /// metrics summary.
     /// </summary>
@@ -341,7 +353,7 @@ public static class SystemCapabilities
         All, ManageRoles, ManagePlatformRoles, ManageTenants, ManageTenantMembers, ManageUsers, ManageUserMembership, ManageUserGroups,
         ManageApiKeys, ViewAuditLog, ManageSettings, ManageEmailSettings, ManageContentTypes, ManagePublicDelivery,
         ViewMonitoring, ManageRedirects, ManageQueries, ManageRequests, ViewConnectors, ManageConnectors,
-        ManageWorkflows, ViewWorkflowRuns, RetryWorkflowActions, RollbackContent, EraseContent, ViewModules,
+        ManageWorkflows, ViewWorkflowRuns, RetryWorkflowActions, RollbackContent, EraseContent, ViewModules, ViewModuleConfiguration,
         ViewJobs, ViewWebhookResponseBodies, ManageCollectionSyncs, ViewSensitive, ViewHidden,
         ViewNumberGaps, ManageStations, ManageConfig,
     };

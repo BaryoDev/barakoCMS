@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace barakoCMS.Core;
@@ -59,6 +60,83 @@ public static class CredentialRedaction
 
     private static readonly Regex OpaqueRun = new(
         @"(?<![A-Za-z0-9_-])(?=[A-Za-z0-9_-]{32})(?=[A-Za-z_-]*[0-9])(?=[0-9_-]*[A-Za-z])[A-Za-z0-9_-]{32,}", Options, Timeout);
+
+    // Matched against one segment of a key at a time. Wider than CredentialNames on purpose: a key
+    // that is shown by mistake is a leak, a key that is hidden by mistake is an inconvenience.
+    private static readonly Regex CredentialSegment = new(
+        @"pass|pwd|secret|token|key|hmac|salt|cert|pfx|jwt|sas|auth|session|cookie|signature|otp|credential|bearer|dsn|connection[_\s-]?string|pincode|^(?:pin|pw)$|[_./\s-](?:pin|pw)(?![a-z])|(?:pin|pw)[_./\s-]|(?-i:(?:^|(?<=[a-z]))(?:Pin|Pw)(?![a-z])|(?:PIN|PW)(?![A-Za-z]))",
+        Options, Timeout);
+
+    /// <summary>
+    /// True when a key or setting name reads like a credential. A path such as <c>Relay:Password</c>
+    /// is split on <c>:</c> and counts when any segment does, so an ancestor like <c>Secrets</c> covers
+    /// what is under it.
+    /// </summary>
+    public static bool IsCredentialName(string? key)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return false;
+        }
+
+        if (!IsWellFormedUtf16(key))
+        {
+            return true;
+        }
+
+        try
+        {
+            return key.Normalize(NormalizationForm.FormKC).Split(':').Any(CredentialSegment.IsMatch);
+        }
+        catch (Exception e) when (e is RegexMatchTimeoutException or ArgumentException)
+        {
+            // A timeout, or text that is not valid Unicode (a lone surrogate): fail closed.
+            return true;
+        }
+    }
+
+    private static bool IsWellFormedUtf16(string text)
+    {
+        for (var i = 0; i < text.Length; i++)
+        {
+            if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+            {
+                i++;
+            }
+            else if (char.IsSurrogate(text[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// True when a value holds a credential: a token, an authorization scheme value, a URL with a
+    /// user or password, a credential-named pair, or an opaque run. Text that makes a rule time out
+    /// counts as holding one.
+    /// </summary>
+    public static bool ValueHoldsCredential(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return false;
+        }
+
+        try
+        {
+            return Jwt.IsMatch(value)
+                || AuthScheme.IsMatch(value)
+                || UrlUserInfo.IsMatch(value)
+                || CredentialPair.IsMatch(value)
+                || OpaqueRun.IsMatch(value);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            return true;
+        }
+    }
 
     /// <summary>Applies every rule. Null and empty pass through.</summary>
     public static string? Redact(string? text) =>
