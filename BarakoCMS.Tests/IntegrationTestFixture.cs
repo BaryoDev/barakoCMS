@@ -511,6 +511,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             // its own section, as the host scopes it.
             new BarakoCMS.Forms.FormsModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Forms"));
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Forms.FormsModule(), opts));
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Reports.ReportsModule(), opts));
 
             // Portability: its contents section, so a bundle applies through the config engine. Called
             // through IBarakoModule, the way the host calls every module's ConfigureServices.
@@ -609,6 +610,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         typeof(BarakoCMS.Pages.PagesModule).Assembly,
 
         typeof(BarakoCMS.Forms.FormsModule).Assembly,
+        typeof(BarakoCMS.Reports.ReportsModule).Assembly,
         typeof(BarakoCMS.FeatureFlags.FeatureFlagsModule).Assembly,
         // Portability owns no documents of its own, so beside its endpoints it needs only the
         // config section it registers, which ConfigureWebHost adds.
