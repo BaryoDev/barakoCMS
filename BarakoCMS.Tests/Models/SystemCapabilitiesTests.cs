@@ -107,6 +107,9 @@ public class SystemCapabilitiesTests
             // Workflows: authoring, the actions and variables lists, validate and dry-run were
             // Roles("SuperAdmin", "Admin").
             SystemCapabilities.ManageWorkflows,
+            // Starting a run by hand is new, and Admin held manage_workflows, so it keeps the means
+            // to start the workflows it authors.
+            SystemCapabilities.RunWorkflows,
             // Workflow runs: the two reads and the debug log were Roles("SuperAdmin", "Admin"), and
             // so was the retry, so Admin keeps both sides of that split too.
             SystemCapabilities.ViewWorkflowRuns,

@@ -46,6 +46,9 @@ internal sealed class RunResponse
     /// </summary>
     public DateTimeOffset? UpdatedAt { get; init; }
 
+    /// <summary>The user who started the run by hand. Null for a run an event started.</summary>
+    public Guid? StartedBy { get; init; }
+
     /// <summary>When an operator abandoned the run. Null for a run nobody abandoned.</summary>
     public DateTimeOffset? AbandonedAt { get; init; }
 
@@ -71,6 +74,7 @@ internal sealed class RunResponse
         CancelledAt = r.CancelledAt,
         CorrelationId = barakoCMS.Infrastructure.Tracing.Correlation.Normalise(r.CorrelationId),
         UpdatedAt = r.UpdatedAt == default ? null : r.UpdatedAt,
+        StartedBy = r.StartedBy,
         Actions = r.Actions.OrderBy(a => a.Ordinal).Select(AttemptResponse.From).ToList(),
         AbandonedAt = r.AbandonedAt,
         Compensation = r.Compensation?.ToString(),
@@ -218,6 +222,9 @@ internal sealed class ListRunsRequest : ListRequest
     public string? Status { get; set; }
     public Guid? ContentId { get; set; }
 
+    /// <summary>Only the runs of this workflow. Left out, every workflow's runs are listed.</summary>
+    public Guid? WorkflowId { get; set; }
+
     /// <summary>
     /// A cursor from an earlier response, or a timestamp for the first call. Left out, the list is
     /// newest first as before. Given, only runs changed after it are listed, oldest change first.
@@ -252,8 +259,8 @@ internal sealed class RunListResponse
     public bool HasPreviousPage => Page > 1;
 
     /// <summary>
-    /// How many runs have each status under the content filter, whatever the status filter and the
-    /// page. Every status is present, with zero where there are none. Null when <c>changedSince</c>
+    /// How many runs have each status under the content and workflow filters, whatever the status filter and
+    /// the page. Every status is present, with zero where there are none. Null when <c>changedSince</c>
     /// was given, since a poll reads what changed and a count would add a scan to each one.
     /// </summary>
     public Dictionary<string, int>? StatusCounts { get; set; }
@@ -325,11 +332,14 @@ internal sealed class ListRunsEndpoint(
         }
 
         var now = DateTimeOffset.UtcNow;
-        var counts = since is null ? await CountByStatusAsync(req.ContentId, ct) : null;
+        var counts = since is null
+            ? await RunQueries.CountByStatusAsync(session, req.ContentId, req.WorkflowId, ct)
+            : null;
 
         var query = session.Query<WorkflowRun>().AsQueryable();
         if (status is { } s) query = query.Where(r => r.Status == s);
         if (req.ContentId is { } contentId) query = query.Where(r => r.ContentId == contentId);
+        if (req.WorkflowId is { } workflowId) query = query.Where(r => r.WorkflowDefinitionId == workflowId);
 
         if (since is { } from)
         {
@@ -361,27 +371,6 @@ internal sealed class ListRunsEndpoint(
             SucceededRetainedFrom = sweeping && windows.SucceededDays > 0 ? now.AddDays(-windows.SucceededDays) : null,
             FailedRetainedFrom = sweeping && windows.FailedDays > 0 ? now.AddDays(-windows.FailedDays) : null,
         }, cancellation: ct);
-    }
-
-    private async Task<Dictionary<string, int>> CountByStatusAsync(Guid? contentId, CancellationToken ct)
-    {
-        var q = session.Query<WorkflowRun>().AsQueryable();
-        if (contentId is { } id) q = q.Where(r => r.ContentId == id);
-
-        var groups = await q
-            .GroupBy(r => r.Status)
-            .Select(g => new StatusCount { Status = g.Key, Count = g.Count() })
-            .ToListAsync(ct);
-
-        var counts = Enum.GetValues<RunStatus>().ToDictionary(each => each.ToString(), _ => 0);
-        foreach (var group in groups) counts[group.Status.ToString()] = group.Count;
-        return counts;
-    }
-
-    private sealed class StatusCount
-    {
-        public RunStatus Status { get; set; }
-        public int Count { get; set; }
     }
 }
 

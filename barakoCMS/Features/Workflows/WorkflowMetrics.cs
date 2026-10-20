@@ -193,6 +193,7 @@ internal sealed class WorkflowMetrics
         WorkflowEvents.Deleted => "deleted",
         WorkflowEvents.Published => "published",
         WorkflowEvents.Unpublished => "unpublished",
+        WorkflowEvents.Manual => "manual",
         _ when WorkflowEvents.IsTransition(trigger) => "transition",
         _ => Other,
     };

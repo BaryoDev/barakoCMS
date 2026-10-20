@@ -52,7 +52,7 @@ public class IdempotencyFilter : IGlobalPreProcessor
     public async Task PreProcessAsync(IPreProcessorContext context, CancellationToken ct)
     {
         var http = context.HttpContext;
-        if (!IsKeyedWrite(http.Request))
+        if (!IsKeyedWrite(http.Request) || ReadsOwnKey(http))
         {
             return;
         }
@@ -167,6 +167,12 @@ public class IdempotencyFilter : IGlobalPreProcessor
         {
             return false;
         }
+    }
+
+    private static bool ReadsOwnKey(HttpContext http)
+    {
+        var definition = http.GetEndpoint()?.Metadata.GetMetadata<EndpointDefinition>();
+        return definition?.EndpointType.IsDefined(typeof(ReadsOwnIdempotencyKeyAttribute), inherit: true) == true;
     }
 
     private static bool NeverReplays(HttpContext http)
