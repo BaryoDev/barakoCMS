@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 using System.Text.Json;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Infrastructure.Multitenancy;
@@ -24,9 +25,6 @@ public sealed class DurableMessageDispatcher
     {
         var type = Type.GetType(message.TypeName)
             ?? throw new InvalidOperationException("No type is known for a queued durable message.");
-        var payload = JsonSerializer.Deserialize(message.Json, type)
-            ?? throw new InvalidOperationException("A queued durable message had no body.");
-
         var slug = TenantScopes.SlugFor(envelope.TenantId);
         using var scope = scopes.CreateScope();
         scope.ServiceProvider.GetRequiredService<TenantContext>().Slug = slug;
@@ -36,10 +34,23 @@ public sealed class DurableMessageDispatcher
             ?? throw new InvalidOperationException(
                 $"No handler is registered for the durable message type {type.Name}.");
 
+        var payload = JsonSerializer.Deserialize(message.Json, type)
+            ?? throw new InvalidOperationException("A queued durable message had no body.");
+
         var context = new DurableMessageContext { Tenant = slug, MessageId = message.MessageId };
-        var call = (Task)handlerType
-            .GetMethod(nameof(IDurableMessageHandler<object>.HandleAsync))!
-            .Invoke(handler, [payload, context, cancellationToken])!;
+        Task call;
+        try
+        {
+            call = (Task)handlerType
+                .GetMethod(nameof(IDurableMessageHandler<object>.HandleAsync))!
+                .Invoke(handler, [payload, context, cancellationToken])!;
+        }
+        catch (TargetInvocationException ex) when (ex.InnerException is not null)
+        {
+            ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
+            throw;
+        }
+
         await call;
     }
 }
