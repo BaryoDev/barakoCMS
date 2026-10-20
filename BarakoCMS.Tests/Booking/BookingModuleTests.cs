@@ -388,6 +388,29 @@ public class BookingModuleTests
             .StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
+    [Theory]
+    [InlineData("Monday,Tuesday")]
+    [InlineData("9")]
+    public async Task An_opening_window_day_must_be_one_weekday_name(string day)
+    {
+        var client = await AdminAsync();
+
+        (await client.PostAsJsonAsync("/api/booking/resources",
+            ResourceBody(hours: [new { day, start = "09:00", end = "12:00" }]), Ct))
+            .StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task An_exception_with_a_null_window_is_refused_not_a_server_error()
+    {
+        var client = await AdminAsync();
+
+        var res = await client.PostAsJsonAsync("/api/booking/resources",
+            ResourceBody(exceptions: [new { date = "2026-12-25", closed = false, hours = new object?[] { null } }]), Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
     [Fact]
     public async Task The_resource_list_is_paged_and_a_resource_with_bookings_cannot_be_deleted()
     {

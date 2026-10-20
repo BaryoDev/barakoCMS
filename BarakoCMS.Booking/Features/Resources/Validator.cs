@@ -50,8 +50,11 @@ internal sealed class ResourceValidator : Validator<ResourceRequest>
     }
 
     private static bool HoursAreSound(List<OpeningWindow> hours) =>
-        hours.All(h => h is not null && Enum.TryParse<DayOfWeek>(h.Day, true, out _) && !int.TryParse(h.Day, out _))
+        hours.All(h => h is not null && IsWeekdayName(h.Day))
         && hours.GroupBy(h => Enum.Parse<DayOfWeek>(h.Day, true)).All(g => Sound(g.Select(h => (h.Start, h.End))));
+
+    private static bool IsWeekdayName(string? day) =>
+        day is not null && Enum.GetNames<DayOfWeek>().Any(n => string.Equals(n, day.Trim(), StringComparison.OrdinalIgnoreCase));
 
     private static bool ExceptionsAreSound(List<ResourceException> exceptions)
     {
@@ -61,6 +64,6 @@ internal sealed class ResourceValidator : Validator<ResourceRequest>
         }
 
         return exceptions.Select(e => e.Date).Distinct().Count() == exceptions.Count
-            && exceptions.All(e => e.Closed || Sound((e.Hours ?? []).Select(h => (h.Start, h.End))));
+            && exceptions.All(e => e.Closed || (e.Hours ?? []).All(h => h is not null) && Sound((e.Hours ?? []).Select(h => (h.Start, h.End))));
     }
 }

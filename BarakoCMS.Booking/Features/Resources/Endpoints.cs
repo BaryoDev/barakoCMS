@@ -17,7 +17,7 @@ internal static class ResourceMapping
         resource.SlotMinutes = req.SlotMinutes;
         resource.Active = req.Active;
         resource.OpeningHours = req.OpeningHours
-            .Select(h => new OpeningWindow { Day = Enum.Parse<DayOfWeek>(h.Day, true).ToString(), Start = h.Start, End = h.End })
+            .Select(h => new OpeningWindow { Day = Enum.Parse<DayOfWeek>(h.Day.Trim(), true).ToString(), Start = h.Start, End = h.End })
             .ToList();
         resource.Exceptions = req.Exceptions
             .Select(e => new ResourceException
