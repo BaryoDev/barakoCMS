@@ -8,6 +8,7 @@ namespace barakoCMS.Features.Users.RemoveGroup;
 
 internal class Endpoint(
     IDocumentSession session,
+    barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<Request, Response>
 {
     public override void Configure()
@@ -28,10 +29,17 @@ internal class Endpoint(
 
         user.GroupIds.Remove(req.GroupId);
         session.Store(user);
+
+        // Membership is read from either side, so leaving only one would keep the group's roles.
+        var group = await session.LoadAsync<UserGroup>(req.GroupId, ct);
+        if (group is not null && group.UserIds.Remove(req.UserId))
+            session.Store(group);
+
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
         await AuditLog.RecordAsync(session, tenant.Slug, "user.group.removed", actorId, User.FindFirst("Username")?.Value,
             targetType: "User", targetId: req.UserId.ToString(), metadata: new() { ["groupId"] = req.GroupId.ToString() }, ct: ct);
         await session.SaveChangesAsync(ct);
+        permissionResolver.InvalidateUserPermissions(req.UserId);
 
         await Send.OkAsync(new Response { Message = "User removed from group successfully" }, ct);
     }

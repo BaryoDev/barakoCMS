@@ -965,6 +965,8 @@ public class CapabilityGateTests
         ("GET", $"/api/queries/{NotASlug}", HttpStatusCode.BadRequest),
         ("DELETE", $"/api/queries/{NotASlug}", HttpStatusCode.BadRequest),
         ("POST", $"/api/queries/{NotASlug}/preview", HttpStatusCode.BadRequest),
+        ("POST", $"/api/queries/{NotASlug}/restore", HttpStatusCode.BadRequest),
+        ("DELETE", $"/api/queries/{NotASlug}/erase", HttpStatusCode.BadRequest),
         ("GET", "/api/requests", HttpStatusCode.OK),
         ("POST", "/api/requests", HttpStatusCode.BadRequest),
         ("GET", $"/api/requests/{NotASlug}", HttpStatusCode.BadRequest),

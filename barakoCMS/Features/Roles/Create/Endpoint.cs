@@ -50,6 +50,9 @@ internal class Endpoint(
         if (await RoleScope.NameTakenAsync(session, req.Name, owner, except: null, ct))
             ThrowError("Another role here already has this name.", 409);
 
+        Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
+        await RoleScope.ReleaseDeletedNameAsync(session, req.Name, owner, tenant.Slug, actorId, User.FindFirst("Username")?.Value, ct);
+
         var role = new Role
         {
             Id = Guid.NewGuid(),
@@ -64,7 +67,6 @@ internal class Endpoint(
         };
 
         session.Store(role);
-        Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
         await AuditLog.RecordAsync(session, tenant.Slug, "role.created", actorId, User.FindFirst("Username")?.Value,
             targetType: "Role", targetId: role.Id.ToString(),
             metadata: RoleAudit.Describe(RoleAudit.Of(role)), ct: ct);

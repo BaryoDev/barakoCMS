@@ -39,6 +39,9 @@ using System.Runtime.CompilerServices;
 #pragma warning restore CS0618
 [assembly: TypeForwardedTo(typeof(global::barakoCMS.Features.Workflows.WorkflowActionResult))]
 [assembly: TypeForwardedTo(typeof(global::barakoCMS.Infrastructure.DeviceContext))]
+[assembly: TypeForwardedTo(typeof(global::barakoCMS.Infrastructure.Auth.CapabilityGate))]
+[assembly: TypeForwardedTo(typeof(global::barakoCMS.Infrastructure.Auth.CheckedCapability))]
+[assembly: TypeForwardedTo(typeof(global::barakoCMS.Infrastructure.Auth.RequiredCapability))]
 [assembly: TypeForwardedTo(typeof(global::barakoCMS.Models.ActionExecutionLog))]
 [assembly: TypeForwardedTo(typeof(global::barakoCMS.Models.ApiKey))]
 [assembly: TypeForwardedTo(typeof(global::barakoCMS.Models.ApiKeyScopes))]

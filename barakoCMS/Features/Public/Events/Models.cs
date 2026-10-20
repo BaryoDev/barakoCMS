@@ -38,10 +38,12 @@ internal sealed class ContentEventsOptions
     public const string MaxConnectionsKey = "Delivery:Events:MaxConnections";
     public const string MaxConnectionsPerClientKey = "Delivery:Events:MaxConnectionsPerClient";
     public const string KeepAliveSecondsKey = "Delivery:Events:KeepAliveSeconds";
+    public const string GateRecheckSecondsKey = "Delivery:Events:GateRecheckSeconds";
 
     public const int DefaultMaxConnections = 100;
     public const int DefaultMaxConnectionsPerClient = 5;
     public const int DefaultKeepAliveSeconds = 15;
+    public const int DefaultGateRecheckSeconds = 30;
 
     /// <summary>
     /// How many changes a connection may fall behind before the oldest is dropped. Small on
@@ -65,11 +67,19 @@ internal sealed class ContentEventsOptions
 
     public TimeSpan KeepAlive { get; init; } = TimeSpan.FromSeconds(DefaultKeepAliveSeconds);
 
+    /// <summary>
+    /// How often an open stream asks again whether its caller may still see a Private site (#858). The
+    /// stream ends when it no longer does, so a tenant switched to Private, or a share link revoked or
+    /// expired, stops a stream already open.
+    /// </summary>
+    public TimeSpan GateRecheck { get; init; } = TimeSpan.FromSeconds(DefaultGateRecheckSeconds);
+
     public static ContentEventsOptions FromConfiguration(IConfiguration configuration) => new()
     {
         Enabled = configuration.GetValue(EnabledKey, false),
         MaxConnections = Math.Max(1, configuration.GetValue(MaxConnectionsKey, DefaultMaxConnections)),
         MaxConnectionsPerClient = Math.Max(0, configuration.GetValue(MaxConnectionsPerClientKey, DefaultMaxConnectionsPerClient)),
         KeepAlive = TimeSpan.FromSeconds(Math.Max(1, configuration.GetValue(KeepAliveSecondsKey, DefaultKeepAliveSeconds))),
+        GateRecheck = TimeSpan.FromSeconds(Math.Max(1, configuration.GetValue(GateRecheckSecondsKey, DefaultGateRecheckSeconds))),
     };
 }

@@ -93,6 +93,7 @@ internal sealed class StoredReferenceConditionsNotice(
             for (var skip = 0; ; skip += BatchSize)
             {
                 var batch = await session.Query<Role>()
+                    .Where(r => r.DeletedAt == null)
                     .OrderBy(r => r.Id)
                     .Skip(skip)
                     .Take(BatchSize)

@@ -629,6 +629,9 @@ public static class ServiceCollectionExtensions
         options.Schema.For<ContentTypeDefinition>()
             .Index(x => x.Name, idx =>
             {
+                // Lookups compare ignoring case, so the index has to as well (#1158). An existing
+                // database needs migrations/5.1.0/1158-content-type-name-index-ignore-case.sql.
+                idx.Casing = Marten.Schema.ComputedIndex.Casings.Lower;
                 idx.IsUnique = true;
                 idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
             });
@@ -859,12 +862,7 @@ public static class ServiceCollectionExtensions
             // requests with the same code can't both read the old LastUsedTimeStep and both win.
             .UseOptimisticConcurrency(true);
 
-        options.Schema.For<ApiKey>()
-            .SingleTenanted() // credentials are global, like users and tokens
-            .DocumentAlias("api_keys")
-            .Index(x => x.KeyHash, idx => idx.IsUnique = true) // hash lookup at auth time
-            .Index(x => x.UserId)
-            .Index(x => x.TenantSlug);
+        MapApiKeys(options);
 
         options.Schema.For<Station>()
             .SingleTenanted() // credentials are global, like API keys; the tenant is kept as data
@@ -906,6 +904,17 @@ public static class ServiceCollectionExtensions
                 idx.Name = MembershipUniqueIndex;
             });
     }
+
+    private static void MapApiKeys(StoreOptions options) =>
+        options.Schema.For<ApiKey>()
+            .SingleTenanted() // credentials are global, like users and tokens
+            .DocumentAlias("api_keys")
+            // A rotation reads the key and writes it back; this makes a revoke that lands between
+            // the two fail the rotation instead of being overwritten.
+            .UseOptimisticConcurrency(true)
+            .Index(x => x.KeyHash, idx => idx.IsUnique = true) // hash lookup at auth time
+            .Index(x => x.UserId)
+            .Index(x => x.TenantSlug);
 
     private static void AddMartenStore(
         IServiceCollection services,
@@ -1898,6 +1907,9 @@ public static class ServiceCollectionExtensions
 
         // Reject tokens minted for a different tenant than the resolved host.
         app.UseMiddleware<barakoCMS.Infrastructure.Multitenancy.TenantAccessMiddleware>();
+
+        // A tenant whose site Mode is Private serves no delivery route without a link or a viewer.
+        app.UseMiddleware<barakoCMS.Infrastructure.Multitenancy.PrivateSiteMiddleware>();
 
         app.UseAuthorization();
     }

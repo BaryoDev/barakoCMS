@@ -31,7 +31,7 @@ internal class Endpoint(
 
         var role = await session.LoadAsync<Role>(req.Id, ct);
         var platformCaller = await RoleScope.IsPlatformCallerAsync(HttpContext, ct);
-        if (role is not null && !RoleScope.Reaches(role, tenant.Slug) && !platformCaller)
+        if (role is not null && (role.DeletedAt is not null || (!RoleScope.Reaches(role, tenant.Slug) && !platformCaller)))
             role = null;
 
         // Here and not in a validator: a condition the stored role already holds is passed over,
@@ -122,6 +122,13 @@ internal class Endpoint(
             && await RoleScope.NameTakenAsync(session, req.Name, RoleScope.OwnerOf(role), role.Id, ct))
         {
             ThrowError("Another role here already has this name.", 409);
+        }
+
+        if (!string.Equals(role.Name, req.Name, StringComparison.Ordinal))
+        {
+            Guid.TryParse(User.FindFirst("UserId")?.Value, out var releasedBy);
+            await RoleScope.ReleaseDeletedNameAsync(session, req.Name, RoleScope.OwnerOf(role), tenant.Slug,
+                releasedBy, User.FindFirst("Username")?.Value, ct);
         }
     }
 }

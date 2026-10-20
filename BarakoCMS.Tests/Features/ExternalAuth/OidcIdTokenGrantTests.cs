@@ -424,6 +424,145 @@ public class OidcIdTokenGrantTests
             "once it has signed in, the token is spent");
     }
 
+    // ---- the tenant's claim-to-role map (#915) ----
+
+    private async Task<(string Slug, barakoCMS.Models.Role Role)> TenantWithMapAsync(
+        string provider = "native", barakoCMS.Models.TenantSignUp signUp = barakoCMS.Models.TenantSignUp.NotSet)
+    {
+        var slug = ("map" + Guid.NewGuid().ToString("N"))[..16];
+        var role = new barakoCMS.Models.Role
+        {
+            Id = Guid.NewGuid(), Name = "Teacher-" + Guid.NewGuid().ToString("N")[..8], TenantSlug = slug,
+            Permissions = [], SystemCapabilities = [],
+        };
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(new barakoCMS.Models.Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug, SignUp = signUp });
+        session.Store(role);
+        session.Store(new ExternalRoleMap
+        {
+            Id = slug, Claim = "groups",
+            Rules = [new ExternalRoleRule { Provider = provider, Value = "staff", RoleId = role.Id }],
+        });
+        await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        return (slug, role);
+    }
+
+    private async Task<barakoCMS.Models.User> StoredUserAsync(bool mfa = false)
+    {
+        var user = new barakoCMS.Models.User
+        {
+            Id = Guid.NewGuid(), Email = NewEmail(), Username = "u-" + Guid.NewGuid().ToString("N"), PasswordHash = "",
+        };
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(user);
+        if (mfa)
+        {
+            var protector = scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Auth.Mfa.IMfaSecretProtector>();
+            session.Store(new barakoCMS.Models.MfaSecret
+            {
+                Id = user.Id,
+                EncryptedSecret = protector.Protect(OtpNet.Base32Encoding.ToString(OtpNet.KeyGeneration.GenerateRandomKey(20))),
+                Enabled = true,
+                ConfirmedAt = DateTime.UtcNow,
+            });
+        }
+
+        await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        return user;
+    }
+
+    private async Task<List<barakoCMS.Models.Membership>> MembershipsOfAsync(Guid userId, string slug)
+    {
+        using var scope = _fixture.Services.CreateScope();
+        return (await scope.ServiceProvider.GetRequiredService<IQuerySession>().Query<barakoCMS.Models.Membership>()
+            .Where(m => m.UserId == userId && m.TenantSlug == slug).ToListAsync(TestContext.Current.CancellationToken)).ToList();
+    }
+
+    private async Task<HttpResponseMessage> GroupsGrantAsync(
+        barakoCMS.Models.User user, string slug, string provider = "native", params string[] groups)
+    {
+        var nonce = NewNonce();
+        var token = Token(nonce, NewSubject(), user.Email, c => c["groups"] = groups);
+        return await GrantAsync(token, nonce, provider, club: slug);
+    }
+
+    [Fact]
+    public async Task A_groups_claim_in_the_id_token_gives_the_role_the_tenants_map_names()
+    {
+        var (slug, role) = await TenantWithMapAsync();
+        var matching = await StoredUserAsync();
+        var other = await StoredUserAsync();
+
+        var granted = await GroupsGrantAsync(matching, slug, "native", "everyone", "staff");
+        var refused = await GroupsGrantAsync(other, slug, "native", "everyone");
+
+        await ShouldBeSignedInAsAsync(granted, matching);
+        var memberships = await MembershipsOfAsync(matching.Id, slug);
+        memberships.Should().HaveCount(1);
+        memberships[0].RoleIds.Should().Equal(role.Id);
+        refused.StatusCode.Should().Be(HttpStatusCode.Forbidden, "without a matching group they are no member of this tenant");
+        (await MembershipsOfAsync(other.Id, slug)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_group_from_another_provider_than_the_rule_names_gives_nothing()
+    {
+        var (slug, _) = await TenantWithMapAsync(provider: "webonly");
+        var user = await StoredUserAsync();
+
+        var response = await GroupsGrantAsync(user, slug, "native", "staff");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await MembershipsOfAsync(user.Id, slug)).Should().BeEmpty("the rule reads webonly, and this token came through native");
+    }
+
+    [Fact]
+    public async Task A_map_gives_a_role_in_a_tenant_whose_sign_up_is_closed_to_a_person_who_already_has_an_account()
+    {
+        var (slug, role) = await TenantWithMapAsync(signUp: barakoCMS.Models.TenantSignUp.Closed);
+        var user = await StoredUserAsync();
+
+        var response = await GroupsGrantAsync(user, slug, "native", "staff");
+
+        await ShouldBeSignedInAsAsync(response, user);
+        (await MembershipsOfAsync(user.Id, slug)).Single().RoleIds.Should().Equal(role.Id);
+    }
+
+    [Fact]
+    public async Task A_person_with_a_second_factor_is_given_nothing_until_it_is_passed()
+    {
+        var (slug, _) = await TenantWithMapAsync();
+        var user = await StoredUserAsync(mfa: true);
+
+        var response = await GroupsGrantAsync(user, slug, "native", "staff");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await BodyAsync(response)).GetProperty("requiresMfa").GetBoolean().Should().BeTrue();
+        (await MembershipsOfAsync(user.Id, slug)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_grant_is_not_stored_when_the_commit_that_spends_the_nonce_fails()
+    {
+        var (slug, role) = await TenantWithMapAsync();
+        var user = await StoredUserAsync();
+        var bystander = await StoredUserAsync();
+        SignIn.FailNextFinalCommitWith(bystander);
+        var nonce = NewNonce();
+        var token = Token(nonce, NewSubject(), user.Email, c => c["groups"] = new[] { "staff" });
+
+        var lost = await GrantAsync(token, nonce, club: slug);
+
+        lost.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        SignIn.Armed.Should().BeFalse("the failure was made on this grant's commit");
+        (await MembershipsOfAsync(user.Id, slug)).Should().BeEmpty("the role was committed with the nonce or not at all");
+
+        await ShouldBeSignedInAsAsync(await GrantAsync(token, nonce, club: slug), user);
+        (await MembershipsOfAsync(user.Id, slug)).Single().RoleIds.Should().Equal(role.Id);
+    }
+
     /// <summary>
     /// The real sign-in, except that when armed it adds to the next final commit an insert of a user
     /// that is already stored, so that commit fails on a unique violation the way a lost race does.

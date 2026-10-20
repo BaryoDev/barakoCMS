@@ -28,7 +28,7 @@ internal class Endpoint(
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        var query = session.Query<Role>().AsQueryable();
+        var query = session.Query<Role>().Where(r => r.DeletedAt == null);
         if (!await RoleScope.IsPlatformCallerAsync(HttpContext, ct))
         {
             query = RoleScope.In(query, tenant.Slug);

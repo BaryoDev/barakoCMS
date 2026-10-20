@@ -13,12 +13,12 @@ namespace barakoCMS.Modules;
 internal static class DeploymentRoleNames
 {
     public static bool Matches(Role role, string name) =>
-        role.Name == name && (role.TenantSlug is null || role.TenantSlug == Tenant.DefaultSlug);
+        role.DeletedAt is null && role.Name == name && (role.TenantSlug is null || role.TenantSlug == Tenant.DefaultSlug);
 
     public static async Task<Role?> FindAsync(IQuerySession session, string name, CancellationToken ct)
     {
         var found = await session.Query<Role>()
-            .Where(r => r.Name == name && (r.TenantSlug == null || r.TenantSlug == Tenant.DefaultSlug))
+            .Where(r => r.DeletedAt == null && r.Name == name && (r.TenantSlug == null || r.TenantSlug == Tenant.DefaultSlug))
             .ToListAsync(ct);
         return found.OrderBy(r => r.TenantSlug is null ? 0 : 1).FirstOrDefault();
     }

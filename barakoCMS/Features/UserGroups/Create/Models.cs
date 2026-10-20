@@ -5,6 +5,7 @@ internal class Request
     public string Name { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public List<Guid> UserIds { get; set; } = new();
+    public List<Guid> RoleIds { get; set; } = new();
 }
 
 internal class Response

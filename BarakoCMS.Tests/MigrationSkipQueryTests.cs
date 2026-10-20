@@ -97,6 +97,16 @@ public class MigrationSkipQueryTests
             "select coalesce((select indisunique and indisvalid from pg_index "
             + "where indexrelid = to_regclass('public.mt_doc_memberships_uidx_user_id_tenant_slug')), false)"),
 
+        // The content type table with its name index on the raw value, as 5.0 left it. The file
+        // rebuilds the index on the lowercased name.
+        ["core/5.1.0/1158-content-type-name-index-ignore-case"] = (
+            "create table public.mt_doc_contenttypedefinition (tenant_id varchar not null default '*DEFAULT*', id uuid not null, data jsonb not null);"
+            + "create unique index mt_doc_contenttypedefinition_uidx_name on public.mt_doc_contenttypedefinition "
+            + "using btree ((data ->> 'Name'::text), tenant_id);",
+            "select exists (select 1 from pg_indexes where schemaname = 'public' "
+            + "and tablename = 'mt_doc_contenttypedefinition' and indexname = 'mt_doc_contenttypedefinition_uidx_name' "
+            + "and indexdef like '%lower(%')"),
+
         ["Email.Resend/4.5.0/email-sent-emails"] = (
             ImmutableTimestamp,
             "select to_regclass('public.mt_doc_sent_emails_idx_at') is not null"),
