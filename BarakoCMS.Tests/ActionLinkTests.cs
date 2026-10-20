@@ -332,4 +332,26 @@ public class ActionLinkTests
             c.AddInMemoryCollection(new Dictionary<string, string?> { ["App:BaseUrl"] = "https://cms.example.com" })));
         (await ResolveAsync(off)).Should().BeEmpty();
     }
+
+    [Fact]
+    public async Task A_later_action_without_a_recipient_gets_no_link_signed_for_the_earlier_one()
+    {
+        var s = await SubmittedEntryAsync();
+        const string template = "{{links.action \"Approve\"}}";
+        var parameters = new Dictionary<string, string> { ["To"] = s.Reviewer.Email, ["Body"] = template };
+        var other = new Dictionary<string, string> { ["Url"] = template };
+
+        using var scope = Enabled().Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var extractor = scope.ServiceProvider.GetRequiredService<ITemplateVariableExtractor>();
+        var entry = (await session.LoadAsync<Content>(s.EntryId))!;
+
+        var email = await barakoCMS.Features.Workflows.ActionParameters.ResolveAsync(
+            extractor, "Email", parameters, entry, null, 0, CancellationToken.None);
+        email["Body"].Should().StartWith("https://cms.example.com/api/public/action-links/");
+
+        var webhook = await barakoCMS.Features.Workflows.ActionParameters.ResolveAsync(
+            extractor, "Webhook", other, entry, null, 0, CancellationToken.None);
+        webhook["Url"].Should().BeEmpty();
+    }
 }

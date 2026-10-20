@@ -201,12 +201,15 @@ public class TemplateVariableExtractor(
     public async Task ForRecipientAsync(string? email, Content content, CancellationToken ct = default)
     {
         _recipient = null;
-        if (ActionLinks is not { Enabled: true } || string.IsNullOrWhiteSpace(email) || content is null)
+        if (ActionLinks is not { Enabled: true } || content is null)
             return;
 
-        var wanted = email.Trim().ToLowerInvariant();
-        var user = await session.Query<User>().FirstOrDefaultAsync(u => u.Email.ToLower() == wanted, ct);
-        _recipient = user?.Id;
+        if (!string.IsNullOrWhiteSpace(email))
+        {
+            var wanted = email.Trim().ToLowerInvariant();
+            var user = await session.Query<User>().FirstOrDefaultAsync(u => u.Email.ToLower() == wanted, ct);
+            _recipient = user?.Id;
+        }
 
         if (_preparedFor == content.Id && _prepared.Links is { } links)
             _prepared = _prepared with { Links = links with { Action = await ActionLinkAsync(content, ct) } };
