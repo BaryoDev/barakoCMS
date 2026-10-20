@@ -61,6 +61,7 @@ public class SuiteCompositionTests
             "AI",
             "CdnPurge",
             "Analytics.Umami",
+            "Booking",
             "DeviceTrust",
             "Diagnostics",
             "Email.Resend",

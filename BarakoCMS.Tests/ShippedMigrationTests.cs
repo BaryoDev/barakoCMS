@@ -26,6 +26,7 @@ public class ShippedMigrationTests
         "5.0.0/accounting-number-sequences",
         "5.0.0/pages-settings",
         "5.0.0/files-storage-settings",
+        "5.2.0/booking-resources",
     ];
 
     /// <summary>

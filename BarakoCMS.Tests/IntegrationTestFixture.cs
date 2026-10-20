@@ -336,6 +336,8 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                 // Qr lists one field of one probe type, so the allowlist and the empty-allowlist
                 // cases each have a type to use.
                 { "Modules:Qr:Fields:qrprobe:0", "Token" },
+                // Booking runs over its own probe type, so no other test's entries meet its overlap rule.
+                { "Modules:Booking:ContentType", "bookingprobe" },
             });
         });
 
@@ -515,6 +517,10 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
 
             // Qr: the route reads its allowlist from the options registered here.
             new BarakoCMS.Qr.QrModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Qr"));
+            // Booking: its hook guards the probe type configured above, and the availability route reads
+            // the same options. Registered with its own section, as the host scopes it.
+            new BarakoCMS.Booking.BookingModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Booking"));
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Booking.BookingModule(), opts));
 
             // Forms: the submit endpoint is anonymous and rate limited, so its policy, its options and
             // its schema all have to be registered for /api/public/forms/* to answer at all. Scoped to
@@ -629,6 +635,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         typeof(BarakoCMS.Pwa.PwaModule).Assembly,
         typeof(BarakoCMS.Pages.PagesModule).Assembly,
         typeof(BarakoCMS.Qr.QrModule).Assembly,
+        typeof(BarakoCMS.Booking.BookingModule).Assembly,
 
         typeof(BarakoCMS.Forms.FormsModule).Assembly,
         typeof(BarakoCMS.Reports.ReportsModule).Assembly,

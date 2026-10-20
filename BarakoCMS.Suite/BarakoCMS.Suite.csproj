@@ -27,6 +27,7 @@
     <ProjectReference Include="..\BarakoCMS.AI\BarakoCMS.AI.csproj" />
     <ProjectReference Include="..\BarakoCMS.Diagnostics\BarakoCMS.Diagnostics.csproj" />
     <ProjectReference Include="..\BarakoCMS.Pages\BarakoCMS.Pages.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Booking\BarakoCMS.Booking.csproj" />
     <ProjectReference Include="..\BarakoCMS.Forms\BarakoCMS.Forms.csproj" />
     <ProjectReference Include="..\BarakoCMS.Qr\BarakoCMS.Qr.csproj" />
     <ProjectReference Include="..\BarakoCMS.Reports\BarakoCMS.Reports.csproj" />

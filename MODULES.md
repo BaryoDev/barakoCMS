@@ -923,6 +923,7 @@ template ships a placeholder.
 | [BarakoCMS.Email.Resend](BarakoCMS.Email.Resend) | Resend email provider (`IEmailService`) |
 | [BarakoCMS.Email.Smtp](BarakoCMS.Email.Smtp) | SMTP email provider (`IEmailService`), inert until a host is configured |
 | [BarakoCMS.Pages](BarakoCMS.Pages) | Page tree over a content type: parent loop, depth and reserved slug rules, public navigation and path resolution, and an authenticated tree |
+| [BarakoCMS.Booking](BarakoCMS.Booking) | Bookable resources with time zones and opening hours, a no-overlap rule inside the booking write, and public availability |
 | [BarakoCMS.Files.S3](BarakoCMS.Files.S3) | S3-compatible storage for the Files module (AWS S3, Cloudflare R2, SeaweedFS); public files get a direct URL, private files are proxied |
 | [BarakoCMS.DeviceTrust](BarakoCMS.DeviceTrust) | Records the device behind each sign-in, binds sessions to devices, and can require OTP approval for a new device |
 | [BarakoCMS.ExternalAuth](BarakoCMS.ExternalAuth) | Sign-in with Google, GitHub, Facebook or LinkedIn over OAuth, matched to a user by verified email, and with any OpenID Connect provider configured by issuer URL |
