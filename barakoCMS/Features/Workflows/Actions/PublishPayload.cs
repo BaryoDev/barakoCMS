@@ -85,13 +85,17 @@ internal static class PublishPayload
         return (refused, fields);
     }
 
-    /// <summary>The fields among <paramref name="fields"/> that the type does not mark Public.</summary>
+    /// <summary>
+    /// The fields among <paramref name="fields"/> that the type does not mark Public, including a
+    /// field the type does not declare, since nothing says it is safe to send.
+    /// </summary>
     public static List<string> NonPublic(IEnumerable<string> fields, ContentTypeDefinition definition) =>
         fields
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Where(name => definition.Fields.FirstOrDefault(f =>
-                f is not null && string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase)) is { } field
-                && field.Sensitivity != SensitivityLevel.Public)
+                f is not null && string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase)) is not { } field
+                || field.Sensitivity != SensitivityLevel.Public
+                || Core.Validation.TokenFields.IsToken(field.Type))
             .ToList();
 
     /// <summary>Every problem with a payload, against the types the workflow fires for. Empty when it can be saved.</summary>
@@ -112,7 +116,7 @@ internal static class PublishPayload
         {
             foreach (var field in NonPublic(fields, definition))
             {
-                problems.Add($"Field '{field}' on '{definition.Name}' is not Public, so it cannot be published");
+                problems.Add($"Field '{field}' on '{definition.Name}' is not a declared Public field, so it cannot be published");
             }
         }
 

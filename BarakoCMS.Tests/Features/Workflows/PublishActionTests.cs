@@ -52,6 +52,24 @@ public class PublishActionTests
     }
 
     [Fact]
+    public async Task A_payload_naming_a_field_the_type_does_not_declare_is_refused_when_the_workflow_is_saved()
+    {
+        var type = "publish-undeclared-" + Guid.NewGuid().ToString("N")[..8];
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(Definition(type, ("Title", SensitivityLevel.Public)));
+        await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var validator = scope.ServiceProvider.GetRequiredService<IWorkflowSchemaValidator>();
+
+        var refused = await validator.ValidateAsync(
+            Workflow(type, """{"x":"{{data.Ssn}}"}"""), TestContext.Current.CancellationToken);
+
+        refused.IsValid.Should().BeFalse();
+        refused.Errors.Should().NotBeEmpty();
+        refused.Errors.Should().Contain(e => e.Message.Contains("Ssn") && e.Field == "actions[0].parameters.Payload");
+    }
+
+    [Fact]
     public async Task A_payload_naming_a_Sensitive_field_is_refused_when_the_workflow_is_saved()
     {
         var type = "publish-sensitive-" + Guid.NewGuid().ToString("N")[..8];
