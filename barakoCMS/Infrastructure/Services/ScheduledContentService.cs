@@ -170,6 +170,19 @@ public class ScheduledContentService : BackgroundService
             if (changed > 0)
                 _logger.LogInformation("Scheduled sweep applied {Count} transition(s) for tenant {Tenant}",
                     changed, slug ?? "(default)");
+
+            // A failing schedule must not stop the sweep of the tenants after this one.
+            try
+            {
+                var fired = await barakoCMS.Features.Workflows.WorkflowSchedule.FireDueAsync(session, nowUtc, _logger, ct);
+                if (fired > 0)
+                    _logger.LogInformation("Scheduled workflows queued {Count} run(s) for tenant {Tenant}",
+                        fired, slug ?? "(default)");
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogError(ex, "Scheduled workflow sweep failed for tenant {Tenant}", slug ?? "(default)");
+            }
         }
     }
 

@@ -773,6 +773,11 @@ public static class ServiceCollectionExtensions
             .Index(x => x.Status).Index(x => x.CreatedAt).Index(WorkflowRunUpdatedAtThenId, idx => idx.Name = WorkflowRunUpdatedAtThenIdIndex).Index(x => new { x.WorkflowDefinitionId, x.UpdatedAt, x.Id }, idx => idx.Name = "mt_doc_workflow_runs_idx_workflow_updated_at");
         options.Listeners.Add(new barakoCMS.Infrastructure.Workflows.WorkflowRunStampListener());
 
+        options.Schema.For<barakoCMS.Features.Workflows.ScheduleClaim>()
+            .MultiTenanted()
+            .DocumentAlias("workflow_schedule_claims")
+            .Index(x => x.WorkflowId);
+
         options.Schema.For<WebhookDelivery>()
             .MultiTenanted()
             .DocumentAlias("webhook_deliveries")

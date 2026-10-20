@@ -1083,6 +1083,11 @@ internal sealed class WorkflowRunner(
         IDocumentSession session, WorkflowRun run, bool undo, CancellationToken ct)
     {
         // An erased entry cannot be loaded, and a Deleted action is told only which entry went.
+        if (run.TriggerEvent == WorkflowEvents.Schedule && run.ScheduledFor is { } at)
+        {
+            return new ScheduledContent(run.ContentType, at, run.ScheduledPreviousFor);
+        }
+
         var content = run.TriggerEvent == WorkflowEvents.Deleted
             ? new ErasedContent(run.ContentId, run.ContentType)
             : await session.LoadAsync<barakoCMS.Models.Content>(run.ContentId, ct);

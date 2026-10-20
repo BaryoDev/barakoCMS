@@ -41,6 +41,12 @@
           "Carom": "2.0.1"
         }
       },
+      "Cronos": {
+        "type": "Direct",
+        "requested": "[0.11.1, )",
+        "resolved": "0.11.1",
+        "contentHash": "5Ug+giPQITSAdTp/METAsofRSSUi3I5p7t4dlcXnzUgUzwZb4HkOBcYfpHuPwAHrnKJjmyW8amVzLD6mfLpaBg=="
+      },
       "FastEndpoints": {
         "type": "Direct",
         "requested": "[8.3.0, )",

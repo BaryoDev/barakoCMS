@@ -37,6 +37,15 @@ public class WorkflowRun
 
     public Guid ContentId { get; set; }
 
+    /// <summary>
+    /// For a run a schedule started, the due time it is for (UTC). Null for every other run. Such
+    /// a run has no entry: <see cref="ContentId"/> is empty.
+    /// </summary>
+    public DateTime? ScheduledFor { get; set; }
+
+    /// <summary>For a scheduled run, the due time before <see cref="ScheduledFor"/>. Null when there was none.</summary>
+    public DateTime? ScheduledPreviousFor { get; set; }
+
     public string ContentType { get; set; } = string.Empty;
 
     public string TriggerEvent { get; set; } = string.Empty;

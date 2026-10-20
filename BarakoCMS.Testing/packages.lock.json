@@ -557,6 +557,7 @@
           "BarakoCMS.Abstractions": "[5.1.0, )",
           "Carom": "[2.0.1, )",
           "Carom.Extensions": "[2.0.1, )",
+          "Cronos": "[0.11.1, )",
           "FastEndpoints": "[8.3.0, )",
           "FastEndpoints.Security": "[8.3.0, )",
           "FastEndpoints.Swagger": "[8.3.0, )",
@@ -626,6 +627,12 @@
         "dependencies": {
           "Carom": "2.0.1"
         }
+      },
+      "Cronos": {
+        "type": "CentralTransitive",
+        "requested": "[0.11.1, )",
+        "resolved": "0.11.1",
+        "contentHash": "5Ug+giPQITSAdTp/METAsofRSSUi3I5p7t4dlcXnzUgUzwZb4HkOBcYfpHuPwAHrnKJjmyW8amVzLD6mfLpaBg=="
       },
       "FastEndpoints": {
         "type": "CentralTransitive",

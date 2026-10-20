@@ -173,6 +173,11 @@ internal static class TemplateExpression
         "id", "contentType", "status", "createdAt", "updatedAt", "createdBy.name", "createdBy.email",
     };
 
+    private static readonly HashSet<string> ScheduleNames = new(StringComparer.Ordinal)
+    {
+        "schedule.at", "schedule.previousAt",
+    };
+
     private static readonly HashSet<string> LinkNames = new(StringComparer.Ordinal)
     {
         "links.entry", "links.console", "links.edit", "links.public",
@@ -502,7 +507,7 @@ internal static class TemplateExpression
 
     private static string? NameProblem(string name, bool onTransition)
     {
-        if (EntryNames.Contains(name) || LinkNames.Contains(name) || name == "links.site" || IsField(name)) return null;
+        if (EntryNames.Contains(name) || ScheduleNames.Contains(name) || LinkNames.Contains(name) || name == "links.site" || IsField(name)) return null;
 
         if (name == "links.transition") return "names 'links.transition' without the transition, as in links.transition \"Approve\"";
 
@@ -517,7 +522,7 @@ internal static class TemplateExpression
     private static bool IsField(string name) => name.Length > 5 && name.StartsWith("data.", StringComparison.Ordinal);
 
     private static bool CanBeDate(string name) =>
-        name is "createdAt" or "updatedAt" or "transition.at" || IsField(name);
+        name is "createdAt" or "updatedAt" or "transition.at" or "schedule.at" or "schedule.previousAt" || IsField(name);
 
     /// <summary>What is wrong with a link's argument, or null. Evaluation refuses on the same answer.</summary>
     private static string? LinkArgumentProblem(string name, string argument)
@@ -590,13 +595,21 @@ internal static class TemplateExpression
 
         // An erased entry has no status or timestamps to report. Empty, not the defaults of a new
         // Content, which would read as Draft and the time the action ran.
-        if (content is barakoCMS.Features.Workflows.ErasedContent && key is "status" or "createdAt" or "updatedAt")
+        if (content is barakoCMS.Features.Workflows.ErasedContent or barakoCMS.Features.Workflows.ScheduledContent
+            && key is "status" or "createdAt" or "updatedAt")
         {
             return true;
         }
 
         switch (key)
         {
+            case "schedule.at" when content is barakoCMS.Features.Workflows.ScheduledContent scheduled:
+                value = new Moment(scheduled.At);
+                return true;
+            case "schedule.previousAt" when content is barakoCMS.Features.Workflows.ScheduledContent scheduled:
+                value = scheduled.PreviousAt is { } previous ? new Moment(previous) : null;
+                return true;
+
             case "id": value = content.Id.ToString(); return true;
             case "contentType": value = content.ContentType; return true;
             case "status": value = content.Status.ToString(); return true;
