@@ -65,3 +65,20 @@ internal sealed class ModuleSeedContext : IModuleSeedContext
         return true;
     }
 }
+
+/// <summary>
+/// Builds a seed context over a Marten session, for a module that keeps its older
+/// <c>SeedAsync(IDocumentSession, IServiceProvider, CancellationToken)</c> override so a host that
+/// only calls that member still seeds it.
+/// </summary>
+public static class ModuleSeedContexts
+{
+    /// <summary>The context a module's session-based seed forwards to its context-based seed.</summary>
+    [Obsolete("Only for forwarding the older, Marten-typed SeedAsync. Removal planned for barakoCMS 6.0.0.")]
+    public static IModuleSeedContext Over(IDocumentSession session, IServiceProvider services)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(services);
+        return new ModuleSeedContext(session, services);
+    }
+}

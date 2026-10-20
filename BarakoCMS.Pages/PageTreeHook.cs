@@ -1,4 +1,4 @@
-#pragma warning disable CS0618 // needs the write session itself (locks, number allocation, reads of definitions), which IContentHookContext does not offer yet
+#pragma warning disable CS0618 // reads the pages settings and content type definition through the session and hands it to ParentReferenceHook
 using barakoCMS.Core.Hooks;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Models;

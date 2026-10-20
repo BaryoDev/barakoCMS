@@ -1,4 +1,4 @@
-#pragma warning disable CS0618 // needs the write session itself (locks, number allocation, reads of definitions), which IContentHookContext does not offer yet
+#pragma warning disable CS0618 // takes an advisory lock and walks the ancestor chain inside the write transaction, which needs the session itself
 using System.Text.Json;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Models;

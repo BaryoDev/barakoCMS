@@ -24,6 +24,6 @@ public interface IContentHookContext
 
     bool IsCreate { get; }
 
-    /// <summary>Reads other entries of the tenant the write belongs to.</summary>
+    /// <summary>Reads other entries, across the whole database the write session points at (no tenant filter).</summary>
     IContentReader Reader { get; }
 }

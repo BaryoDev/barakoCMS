@@ -286,6 +286,51 @@ public class ModuleCapabilityDefaultsTests
     }
 
     /// <summary>
+    /// A host on core 5.0.x calls the Marten-typed seed. The first-party module keeps that override,
+    /// so the grants still happen there.
+    /// </summary>
+    [Fact]
+    public async Task The_obsolete_marten_seed_of_a_first_party_module_still_grants()
+    {
+        var id = BarakoCMS.Accounting.AccountingModule.AccountantRoleId;
+        var original = await LoadAsync(id);
+        original.Should().NotBeNull("the fixture seeds the Accounting module, which creates the role");
+
+        try
+        {
+            using (var scope = _factory.Services.CreateScope())
+            {
+                var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+                var role = await session.LoadAsync<Role>(id, Ct);
+                role!.SystemCapabilities = [];
+                session.Store(role);
+                await session.SaveChangesAsync(Ct);
+            }
+
+            using (var scope = _factory.Services.CreateScope())
+            {
+                var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+#pragma warning disable CS0618 // the older member is the thing under test
+                await new BarakoCMS.Accounting.AccountingModule().SeedAsync(session, scope.ServiceProvider, Ct);
+#pragma warning restore CS0618
+                await session.SaveChangesAsync(Ct);
+            }
+
+            var after = await LoadAsync(id);
+            after!.SystemCapabilities.Should().NotBeEmpty();
+            after.SystemCapabilities.Should().Contain(BarakoCMS.Accounting.AccountingCapabilities.PostEntries);
+            after.SystemCapabilities.Should().Contain(BarakoCMS.Accounting.AccountingCapabilities.ViewLedger);
+        }
+        finally
+        {
+            using var scope = _factory.Services.CreateScope();
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(original!);
+            await session.SaveChangesAsync(CancellationToken.None);
+        }
+    }
+
+    /// <summary>
     /// A role stored on the session and not saved yet is granted there. The host's sessions read the
     /// database, so without looking at the pending changes the role was skipped.
     /// </summary>

@@ -47,6 +47,15 @@ public sealed class AiModule : IBarakoModule
     /// </remarks>
     public Task SeedAsync(IModuleSeedContext context, CancellationToken ct) =>
         AiCapabilities.Defaults.GrantAsync(context, ct);
+
+    [Obsolete("Override SeedAsync(IModuleSeedContext, CancellationToken), which names no Marten type. "
+              + "Removal planned for barakoCMS 6.0.0.")]
+    public Task SeedAsync(Marten.IDocumentSession session, IServiceProvider services, CancellationToken ct)
+    {
+#pragma warning disable CS0618
+        return SeedAsync(ModuleSeedContexts.Over(session, services), ct);
+#pragma warning restore CS0618
+    }
 }
 
 /// <summary>

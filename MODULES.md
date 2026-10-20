@@ -243,7 +243,7 @@ public sealed class MyModule : IBarakoModule
     public IEnumerable<Assembly> EndpointAssemblies => new[] { GetType().Assembly };
 
     // Seed idempotent baseline data (roles, reference data).
-    public Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct)
+    public Task SeedAsync(IModuleSeedContext context, CancellationToken ct)
         => Task.CompletedTask;
 }
 ```
@@ -451,8 +451,8 @@ once your seed returns.
   internal static readonly CapabilityDefaults Defaults =
       CapabilityDefaults.For(ReadNotes).GrantedTo(SystemRoles.Admin);
 
-  public Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) =>
-      Defaults.GrantAsync(session, ct);
+  public Task SeedAsync(IModuleSeedContext context, CancellationToken ct) =>
+      Defaults.GrantAsync(context, ct);
   ```
 
   `SystemRoles.Admin` is the seeded Admin role: its fixed id, with its seeded name beside it. The

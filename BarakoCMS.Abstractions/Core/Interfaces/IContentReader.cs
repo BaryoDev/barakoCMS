@@ -3,8 +3,9 @@ using barakoCMS.Models;
 namespace barakoCMS.Core.Interfaces;
 
 /// <summary>
-/// Reads content entries for the current request's tenant. The read-side counterpart of
-/// <see cref="IContentWriter"/>, so a module can look at content without naming a Marten type.
+/// Reads content entries. The read-side counterpart of <see cref="IContentWriter"/>, so a module
+/// can look at content without naming a Marten type. It reads across the whole database the
+/// session points at, with no tenant filter, as a Marten query on <c>Content</c> did.
 /// </summary>
 /// <remarks>
 /// It reads what is committed. An entry staged in the same unit of work and not saved yet is not

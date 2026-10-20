@@ -159,14 +159,11 @@ public sealed class GlossaryModule : IBarakoModule
         services.AddScoped<IContentLifecycleHook, GlossaryTermHook>();
     }
 
-    public async Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct)
+    public async Task SeedAsync(IModuleSeedContext context, CancellationToken ct)
     {
-        var existing = await session.Query<ContentTypeDefinition>()
-            .FirstOrDefaultAsync(t => t.Name == GlossaryContentTypes.Term, ct);
-        if (existing is null)
-            session.Store(GlossaryContentTypes.TermDefinition());
+        await context.EnsureContentTypeAsync(GlossaryContentTypes.TermDefinition(), ct);
 
-        await GlossaryCapabilities.Defaults.GrantAsync(session, ct);
+        await GlossaryCapabilities.Defaults.GrantAsync(context, ct);
     }
 }
 ```
@@ -218,7 +215,7 @@ public sealed class GlossaryTermHook : IContentLifecycleHook
 {
     public string ContentType => GlossaryContentTypes.Term;
 
-    public Task<IReadOnlyList<string>> OnBeforeSaveAsync(ContentLifecycleContext context, CancellationToken ct)
+    public Task<IReadOnlyList<string>> BeforeSaveAsync(IContentHookContext context, CancellationToken ct)
     {
         var term = Read(context.Data, "Term");
         var definition = Read(context.Data, "Definition");
@@ -237,8 +234,10 @@ public sealed class GlossaryTermHook : IContentLifecycleHook
 }
 ```
 
-`context.Session` is the same Marten session the write commits through, so a hook can also read
-other documents or store something atomically with the entry. The real example of that is
+`context.Reader` reads other entries, so a hook can check a write against content that already
+exists without naming a Marten type. A hook that needs the write session itself (locks, number
+allocation) still overrides the older `OnBeforeSaveAsync(ContentLifecycleContext, ...)`, which is
+obsolete and removed in 6.0.0, and uses `context.Session` to store something atomically with the entry. The real example of that is
 [`BarakoCMS.Accounting/JournalEntryHook.cs`](../BarakoCMS.Accounting/JournalEntryHook.cs): it checks
 every referenced account exists and allocates the next entry number inside the write transaction,
 so a rejected entry never uses a number.

@@ -1,12 +1,13 @@
 using barakoCMS.Models;
 using Marten;
+using Marten.Linq.MatchesSql;
 
 namespace barakoCMS.Core.Interfaces;
 
 /// <summary>The host's <see cref="IContentReader"/>, over a Marten query session.</summary>
-internal sealed class SessionContentReader(IQuerySession session) : IContentReader
+internal sealed class SessionContentReader(IQuerySession session, int pageSize = SessionContentReader.DefaultPageSize) : IContentReader
 {
-    private const int PageSize = 500;
+    internal const int DefaultPageSize = 500;
 
     public Task<Content?> GetAsync(Guid id, CancellationToken cancellationToken) =>
         session.LoadAsync<Content>(id, cancellationToken);
@@ -36,21 +37,32 @@ internal sealed class SessionContentReader(IQuerySession session) : IContentRead
     public async IAsyncEnumerable<Content> ReadAllAsync(
         string contentType, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var skip = 0;
+        ArgumentException.ThrowIfNullOrWhiteSpace(contentType);
+
+        // Keyset on the id column: a page boundary does not move when rows are inserted mid-read,
+        // and each page is an index seek rather than an offset scan. Guid has no C# > operator, so
+        // the comparison is Postgres's own uuid ordering, the same one OrderBy(Id) sorts by.
+        var last = Guid.Empty;
         while (true)
         {
-            var page = await ListAsync(contentType, skip, PageSize, cancellationToken);
+            var after = last;
+            var page = await session.Query<Content>()
+                .Where(c => c.ContentType == contentType)
+                .Where(c => c.MatchesSql("id > ?", after))
+                .OrderBy(c => c.Id)
+                .Take(pageSize)
+                .ToListAsync(cancellationToken);
             foreach (var entry in page)
             {
                 yield return entry;
             }
 
-            if (page.Count < PageSize)
+            if (page.Count < pageSize)
             {
                 yield break;
             }
 
-            skip += PageSize;
+            last = page[^1].Id;
         }
     }
 }

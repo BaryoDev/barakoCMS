@@ -1,4 +1,5 @@
 using barakoCMS.Core.Interfaces;
+using barakoCMS.Extensions;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using barakoCMS.Modules;
@@ -206,6 +207,97 @@ public class ModuleWithoutMartenTests
         await ((IBarakoModule)legacy).SeedAsync(new ModuleSeedContext(session, scope.ServiceProvider), Ct);
 
         legacy.SeededWith.Should().BeSameAs(session);
+    }
+
+    [Fact]
+    public async Task Reading_all_entries_with_a_small_page_returns_each_one_once()
+    {
+        var type = NewName("probe-type");
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var stored = new List<Guid>();
+        for (var i = 0; i < 5; i++)
+        {
+            stored.Add((await StoreEntryAsync(session, type, i.ToString())).Id);
+        }
+
+        var reader = new SessionContentReader(session, pageSize: 2);
+        var all = new List<Content>();
+        await foreach (var entry in reader.ReadAllAsync(type, Ct))
+        {
+            all.Add(entry);
+        }
+
+        all.Should().HaveCount(5, "three pages of 2, 2 and 1 are needed to reach every entry");
+        all.Select(c => c.Id).Should().OnlyHaveUniqueItems();
+        all.Select(c => c.Id).Should().BeEquivalentTo(stored);
+    }
+
+    [Fact]
+    public async Task The_host_runner_seeds_a_module_that_only_overrides_the_marten_seed()
+    {
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
+        var legacy = new LegacyModule();
+        var services = new ServiceCollection()
+            .AddSingleton<IBarakoModule>(legacy)
+            .AddScoped<IDocumentSession>(_ => store.LightweightSession())
+            .BuildServiceProvider();
+
+        await services.RunBarakoModuleSeedersAsync(Ct);
+
+        legacy.SeededWith.Should().NotBeNull("the runner calls the new member and the default forwards to the old one");
+    }
+
+    [Fact]
+    public async Task The_default_seed_refuses_a_context_the_host_did_not_make()
+    {
+        IBarakoModule legacy = new LegacyModule();
+
+        var act = () => legacy.SeedAsync(new ForeignSeedContext(), Ct);
+
+        await act.Should().ThrowAsync<NotSupportedException>();
+    }
+
+    [Fact]
+    public async Task The_default_hook_refuses_a_context_the_host_did_not_make()
+    {
+        IContentLifecycleHook legacy = new LegacyHook(NewName("probe-type"));
+
+        var act = () => legacy.BeforeSaveAsync(new ForeignHookContext(), Ct);
+
+        await act.Should().ThrowAsync<NotSupportedException>();
+    }
+
+    private sealed class ForeignSeedContext : IModuleSeedContext
+    {
+        public IServiceProvider Services => throw new NotImplementedException();
+
+        public IContentReader Reader => throw new NotImplementedException();
+
+        public IContentWriter Writer => throw new NotImplementedException();
+
+        public Task<bool> EnsureContentTypeAsync(ContentTypeDefinition definition, CancellationToken cancellationToken) =>
+            throw new NotImplementedException();
+
+        public Task<bool> EnsureRoleAsync(Guid id, string name, string description, CancellationToken cancellationToken) =>
+            throw new NotImplementedException();
+    }
+
+    private sealed class ForeignHookContext : IContentHookContext
+    {
+        public string ContentType => "foreign";
+
+        public Dictionary<string, object> Data { get; } = new();
+
+        public IReadOnlyDictionary<string, object>? Existing => null;
+
+        public Guid? EntryId => null;
+
+        public Guid UserId => Guid.Empty;
+
+        public bool IsCreate => true;
+
+        public IContentReader Reader => throw new NotImplementedException();
     }
 
     private sealed class LegacyHook(string type) : IContentLifecycleHook
