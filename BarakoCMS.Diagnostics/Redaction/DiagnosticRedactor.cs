@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using barakoCMS.Core;
 
 namespace BarakoCMS.Diagnostics.Redaction;
 
@@ -32,39 +33,11 @@ namespace BarakoCMS.Diagnostics.Redaction;
 /// </remarks>
 internal sealed class DiagnosticRedactor
 {
-    public const string Mask = "[redacted]";
+    public const string Mask = CredentialRedaction.Mask;
 
     private static readonly TimeSpan Timeout = TimeSpan.FromMilliseconds(200);
 
     private const RegexOptions Options = RegexOptions.CultureInvariant | RegexOptions.IgnoreCase;
-
-    private const string CredentialNames =
-        @"[\w-]*(?:password|passwd|pwd|secret|token|api[_\s-]?key|access[_\s-]?key|private[_\s-]?key|authorization|auth|session|cookie|signature|otp)[\w-]*";
-
-    // A value: a double-quoted string with escapes, an escaped-JSON string, a single-quoted string,
-    // or bare text up to a delimiter. An already-masked value is left alone.
-    private const string Value =
-        @"(?!\[redacted\])(?:""(?:[^""\\]|\\.)*""|\\""(?:[^\\]|\\(?!""))*\\""|'[^']*'|[^,;&}\]\r\n]+)";
-
-    private static readonly Regex Jwt = new(
-        @"\beyJ[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]*", Options, Timeout);
-
-    private static readonly Regex AuthScheme = new(
-        @"\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{6,}", Options, Timeout);
-
-    private static readonly Regex UrlUserInfo = new(
-        @"(://)[^/\s:@]+(:[^/\s@]*)?@", Options, Timeout);
-
-    private static readonly Regex QueryValue = new(
-        @"([?&][^=&#\s""'<>]+=)[^&#\s""'<>\]]*", Options, Timeout);
-
-    private static readonly Regex CredentialPair = Pair(CredentialNames);
-
-    private static readonly Regex Email = new(
-        @"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", Options, Timeout);
-
-    private static readonly Regex OpaqueRun = new(
-        @"(?<![A-Za-z0-9_-])(?=[A-Za-z0-9_-]{32})(?=[A-Za-z_-]*[0-9])(?=[0-9_-]*[A-Za-z])[A-Za-z0-9_-]{32,}", Options, Timeout);
 
     private static readonly Regex AbsoluteUrl = new(
         @"([A-Za-z][A-Za-z0-9+.\-]*://[^/\s""'<>(){}?#]+)[^\s""'<>(){}]*", Options, Timeout);
@@ -74,15 +47,7 @@ internal sealed class DiagnosticRedactor
     /// <param name="sensitiveFields">Names of fields marked Sensitive or Hidden, whose values go too.</param>
     public DiagnosticRedactor(IReadOnlyCollection<string>? sensitiveFields = null)
     {
-        var names = (sensitiveFields ?? [])
-            .Where(f => !string.IsNullOrWhiteSpace(f))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Select(Regex.Escape)
-            .ToList();
-        if (names.Count > 0)
-        {
-            _sensitivePair = Pair($"(?:{string.Join("|", names)})");
-        }
+        _sensitivePair = CredentialRedaction.PairFor(sensitiveFields ?? []);
     }
 
     /// <summary>One-off redaction, for a caller with no redactor of its own.</summary>
@@ -99,19 +64,12 @@ internal sealed class DiagnosticRedactor
 
         try
         {
-            var s = text;
-            s = Jwt.Replace(s, Mask);
-            s = AuthScheme.Replace(s, m => $"{m.Groups[1].Value} {Mask}");
-            s = UrlUserInfo.Replace(s, m => $"{m.Groups[1].Value}{Mask}@");
-            s = QueryValue.Replace(s, m => m.Groups[1].Value + Mask);
-            s = CredentialPair.Replace(s, m => m.Groups[1].Value + Mask);
-            if (_sensitivePair is not null)
+            var s = CredentialRedaction.RedactCredentials(text);
+            if (_sensitivePair is not null && s is not null)
             {
                 s = _sensitivePair.Replace(s, m => m.Groups[1].Value + Mask);
             }
-            s = Email.Replace(s, Mask);
-            s = OpaqueRun.Replace(s, Mask);
-            return s;
+            return CredentialRedaction.RedactIdentifiers(s);
         }
         catch (RegexMatchTimeoutException)
         {
@@ -141,9 +99,4 @@ internal sealed class DiagnosticRedactor
             return Mask;
         }
     }
-
-    // The key may be quoted, plainly or JSON-escaped, and is followed by : or =.
-    private static Regex Pair(string keys) => new(
-        $@"((?:\\?[""'])?\b{keys}\b(?:\\?[""'])?\s*[:=]\s*){Value}",
-        Options, Timeout);
 }

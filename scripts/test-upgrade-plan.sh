@@ -98,6 +98,8 @@ rollback migrations/4.0.0/rollback-to-3.x.sql
 EOF
 )
 
+reverse_lines() { awk '{ a[NR] = $0 } END { for (i = NR; i > 0; i--) print a[i] }'; }
+
 only_proven() { grep -xF -f <(printf '%s\n' "$proven") <<< "$1" || true; }
 
 echo "== the files already shipped =="
@@ -139,24 +141,61 @@ else
     ok "from 4.9.0 no 4.x folder is listed"
 fi
 
-# From 4.1.0 every 5.0.0 core file runs after every older core file, and the core rollbacks start
-# by undoing those same files in reverse. A module's own 5.0.0 file is undone before any core file,
-# so module rollbacks are skipped when comparing, whatever the module.
+# From 4.1.0 every 5.0.0 core file runs after every older core file, and the core rollbacks undo
+# those same files in reverse. Folders newer than 5.0.0 (5.1.0 and on) run after the 5.0.0 files and
+# are undone before them, so they are taken out of both lists first and checked on their own below.
+# A module's own 5.0.0 file is undone before any core file, so module rollbacks are skipped when
+# comparing, whatever the module.
 module_files=$(cd "$ROOT" && . "$LIB" && module_migration_paths)
 plan "$ROOT" 4.1.0
-core_50=$(grep '^core migrations/5\.0\.0/' <<< "$out" | sed 's/^core //' || true)
+newer_than_50() { # reads paths on stdin, keeps those in a folder after 5.0.0
+    while read -r path; do
+        folder=${path#migrations/}; folder=${folder%%/*}
+        [ "$(printf '%s\n%s\n' 5.0.0 "$folder" | sort -V | tail -n 1)" != 5.0.0 ] && echo "$path"
+    done
+    return 0
+}
+core_all=$(grep '^core ' <<< "$out" | sed 's/^core //')
+core_later=$(newer_than_50 <<< "$core_all")
+core_50=$(grep '^migrations/5\.0\.0/' <<< "$core_all" || true)
 count_50=$(grep -c . <<< "$core_50" || true)
-core_rollbacks=$(grep '^rollback ' <<< "$out" | while read -r _ path; do
+count_later=$(grep -c . <<< "$core_later" || true)
+core_rollbacks_all=$(grep '^rollback ' <<< "$out" | while read -r _ path; do
     grep -qxF "${path%/*}/${path##*/rollback-}" <<< "$module_files" || echo "$path"
 done)
-expected_rollbacks=$(tac <<< "$core_50" | sed 's#/\([^/]*\)$#/rollback-\1#')
+expected_rollbacks=$(reverse_lines <<< "$core_50" | sed 's#/\([^/]*\)$#/rollback-\1#')
+core_without_later=$(grep -vxF -f <(printf '%s\n' "$core_later" "") <<< "$core_all" || true)
+rollbacks_50=$(tail -n +"$((count_later + 1))" <<< "$core_rollbacks_all" | head -n "$count_50")
 if [ "$count_50" -gt 0 ] \
     && grep -qxF migrations/5.0.0/marten-9-49-quick-append-events.sql <<< "$core_50" \
-    && [ "$(grep '^core ' <<< "$out" | tail -n "$count_50" | sed 's/^core //')" = "$core_50" ] \
-    && [ "$(head -n "$count_50" <<< "$core_rollbacks")" = "$expected_rollbacks" ]; then
-    ok "from 4.1.0 the 5.0.0 core files run last among core and their rollbacks first, in reverse"
+    && [ "$(tail -n "$count_50" <<< "$core_without_later")" = "$core_50" ] \
+    && [ "$rollbacks_50" = "$expected_rollbacks" ]; then
+    ok "from 4.1.0 the 5.0.0 core files run last among the older core files and their rollbacks come first, in reverse"
 else
-    bad "from 4.1.0 the 5.0.0 core files run last among core and their rollbacks first, in reverse"
+    bad "from 4.1.0 the 5.0.0 core files run last among the older core files and their rollbacks come first, in reverse"
+fi
+
+# Folders after 5.0.0 run after every 5.0.0 core file, in version order, and their rollbacks come
+# before any 5.0.0 rollback, in reverse.
+expected_later_rollbacks=$(reverse_lines <<< "$core_later" | sed 's#/\([^/]*\)$#/rollback-\1#' | while read -r path; do
+    grep -qxF "$path" <<< "$core_rollbacks_all" && echo "$path"
+done)
+if [ "$count_later" -gt 0 ] \
+    && grep -qxF migrations/5.1.0/workflow-run-updated-at-index.sql <<< "$core_later" \
+    && [ "$(tail -n "$count_later" <<< "$core_all")" = "$core_later" ] \
+    && [ "$(sort -V -s -t/ -k2,2 <<< "$core_later")" = "$core_later" ] \
+    && [ "$(head -n "$(grep -c . <<< "$expected_later_rollbacks")" <<< "$core_rollbacks_all")" = "$expected_later_rollbacks" ]; then
+    ok "from 4.1.0 the 5.1.0 core files run after the 5.0.0 ones and their rollbacks come before them"
+else
+    bad "from 4.1.0 the 5.1.0 core files run after the 5.0.0 ones and their rollbacks come before them"
+fi
+
+# From 5.0.0 on, the 5.0.0 folder is left out and 5.1.0 is all that is listed.
+plan "$ROOT" 5.0.0
+if [ "$code" = 0 ] && grep -q ' migrations/5\.1\.0/' <<< "$out" && ! grep -q ' migrations/[0-4]\.\|migrations/5\.0\.' <<< "$out"; then
+    ok "from 5.0.0 only the 5.1.0 and newer folders are listed"
+else
+    bad "from 5.0.0 only the 5.1.0 and newer folders are listed"
 fi
 
 psql_lines "$ROOT" 3.21.0

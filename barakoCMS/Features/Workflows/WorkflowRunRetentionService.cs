@@ -168,9 +168,15 @@ internal sealed class WorkflowRunRetentionService : BackgroundService
     /// also reads as "delete immediately", and a setting whose two plain readings are opposite is not
     /// one to leave to a default. Keeping is the direction a mistake is recoverable from.
     /// </remarks>
-    public RetentionWindows Windows() => new(
-        _config.GetValue(SucceededDaysKey, DefaultSucceededDays),
-        _config.GetValue(FailedDaysKey, DefaultFailedDays));
+    public RetentionWindows Windows() => ReadWindows(_config);
+
+    /// <summary>The windows in force, for a caller that has the configuration and not the service.</summary>
+    internal static RetentionWindows ReadWindows(IConfiguration config) => new(
+        config.GetValue(SucceededDaysKey, DefaultSucceededDays),
+        config.GetValue(FailedDaysKey, DefaultFailedDays));
+
+    /// <summary>Whether the sweep runs at all. Off, nothing is removed whatever the windows say.</summary>
+    internal static bool IsEnabled(IConfiguration config) => config.GetValue(EnabledKey, true);
 
     /// <summary>Partitions that hold at least one finished run, when the rows can be asked directly.</summary>
     /// <remarks>
