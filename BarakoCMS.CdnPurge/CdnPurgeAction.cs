@@ -40,7 +40,7 @@ internal sealed class CdnPurgeAction(ICdnPurger purger, TenantContext tenant) : 
             return WorkflowActionResult.Success();
 
         var error = result.Error ?? "The CDN purge failed.";
-        var outcome = result.Retryable || result.Status is null
+        var outcome = result.Retryable
             ? WorkflowActionResult.Failure(error)
             : WorkflowActionResult.PermanentFailure(error);
         return result.Status is { } status ? outcome with { ResponseStatus = status } : outcome;

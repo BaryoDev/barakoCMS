@@ -149,6 +149,7 @@ public class CdnPurgeTests
         var result = await Action("acme", purger).RunAsync([], Entry(Guid.NewGuid()), CancellationToken.None);
 
         result.Succeeded.Should().BeFalse();
+        result.Retryable.Should().BeFalse();
         handler.Calls.Should().BeEmpty();
     }
 
