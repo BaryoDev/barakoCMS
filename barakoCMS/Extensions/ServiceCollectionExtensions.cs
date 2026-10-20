@@ -942,7 +942,7 @@ public static class ServiceCollectionExtensions
         IReadOnlyList<IBarakoModule> modules)
     {
         var connectionString = ResolveConnectionString(configuration);
-        services.AddMarten((IServiceProvider sp) =>
+        var marten = services.AddMarten((IServiceProvider sp) =>
         {
             var options = new StoreOptions();
 
@@ -1063,6 +1063,8 @@ public static class ServiceCollectionExtensions
         //
         // HotCold takes a Postgres advisory lock per projection so exactly one process runs each.
         .AddAsyncDaemon(JasperFx.Events.Daemon.DaemonMode.HotCold);
+        if (barakoCMS.Infrastructure.Jobs.WolverineJobs.IsEnabled(configuration))
+            barakoCMS.Infrastructure.Jobs.WolverineJobs.IntegrateDurableWork(marten);
         // Schema is applied explicitly at startup via host.ApplyMartenSchemaAsync() (below), called
         // BEFORE the data seeders run. ApplyAllDatabaseChangesOnStartup() can't be used here: it
         // registers a hosted service that runs during app.Run(), but the seeders run before that, so

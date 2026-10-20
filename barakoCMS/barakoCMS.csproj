@@ -69,6 +69,7 @@
     <PackageReference Include="FastEndpoints.Swagger" />
     <PackageReference Include="FastEndpoints.Security" />
     <PackageReference Include="JasperFx" />
+    <PackageReference Include="JasperFx.RuntimeCompiler" />
     <PackageReference Include="KubernetesClient" />
     <PackageReference Include="Markdig" />
     <PackageReference Include="Marten" />
@@ -85,6 +86,7 @@
     <PackageReference Include="Serilog.Sinks.File" />
     <PackageReference Include="IdentityModel" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
+    <PackageReference Include="WolverineFx.Marten" />
   </ItemGroup>
 
   <ItemGroup>
