@@ -28,7 +28,7 @@ written. Generated token fields are left out of entries.
 - The tenant is created Active with the caller as its administrator, then the bundle is applied
   through the config engine in one transaction, so the caller needs the capability each section asks
   for, as with `POST /api/config/apply`.
-- If the apply is refused the tenant is removed again and the plan that explains the refusal is
+- If the apply is refused no tenant is stored and the plan that explains the refusal is
   returned.
 - Entries need the Portability module (the `contents` section). Without it the bundle is refused.
 - At most `Tenants:MaxImportEntries` entries (default 5000) per import.
