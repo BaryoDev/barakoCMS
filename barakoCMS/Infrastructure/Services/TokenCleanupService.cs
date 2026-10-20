@@ -61,6 +61,7 @@ public class TokenCleanupService(
         Expired<RefreshToken>(t => t.ExpiresAt),
         Expired<RevokedToken>(t => t.ExpiresAt),
         Expired<OtpCode>(t => t.ExpiresAt),
+        Expired<MagicLinkToken>(t => t.ExpiresAt),
         Expired<PendingRegistration>(t => t.ExpiresAt),
     ];
 

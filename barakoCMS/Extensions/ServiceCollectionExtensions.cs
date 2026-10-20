@@ -881,6 +881,15 @@ public static class ServiceCollectionExtensions
             .Index(x => x.Email)
             .Index(x => x.ExpiresAt);
 
+        options.Schema.For<MagicLinkToken>()
+            .SingleTenanted() // keyed by global email; the tenant it signs in to is kept as data
+            .DocumentAlias("magic_link_tokens")
+            // Same reason OtpCode above has it. Two requests carrying one link must not both
+            // sign in.
+            .UseOptimisticConcurrency(true)
+            .Index(x => x.Email)
+            .Index(x => x.ExpiresAt);
+
         options.Schema.For<PendingRegistration>()
             .SingleTenanted() // a registration is for a global identity, like the user it becomes
             .DocumentAlias("pending_registrations")
