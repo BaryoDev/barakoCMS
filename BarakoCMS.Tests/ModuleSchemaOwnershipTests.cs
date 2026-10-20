@@ -45,6 +45,7 @@ public class ModuleSchemaOwnershipTests
             typeof(BarakoCMS.Diagnostics.DiagnosticsModule).Assembly,
             typeof(BarakoCMS.Pwa.PwaModule).Assembly,
             typeof(BarakoCMS.Forms.FormsModule).Assembly,
+            typeof(BarakoCMS.Reports.ReportsModule).Assembly,
             typeof(BarakoCMS.Files.S3.S3FilesModule).Assembly);
         return builder.Modules;
     }

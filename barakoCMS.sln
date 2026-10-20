@@ -57,6 +57,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BarakoCMS.CdnPurge", "Barak
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BarakoCMS.Qr", "BarakoCMS.Qr\BarakoCMS.Qr.csproj", "{87675039-DAB9-443A-AC69-77400002002E}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BarakoCMS.Reports", "BarakoCMS.Reports\BarakoCMS.Reports.csproj", "{BB00F895-E603-4535-A3DA-9F36189B4E59}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -391,6 +393,18 @@ Global
 		{87675039-DAB9-443A-AC69-77400002002E}.Release|x64.Build.0 = Release|Any CPU
 		{87675039-DAB9-443A-AC69-77400002002E}.Release|x86.ActiveCfg = Release|Any CPU
 		{87675039-DAB9-443A-AC69-77400002002E}.Release|x86.Build.0 = Release|Any CPU
+		{BB00F895-E603-4535-A3DA-9F36189B4E59}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BB00F895-E603-4535-A3DA-9F36189B4E59}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BB00F895-E603-4535-A3DA-9F36189B4E59}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{BB00F895-E603-4535-A3DA-9F36189B4E59}.Debug|x64.Build.0 = Debug|Any CPU
+		{BB00F895-E603-4535-A3DA-9F36189B4E59}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{BB00F895-E603-4535-A3DA-9F36189B4E59}.Debug|x86.Build.0 = Debug|Any CPU
+		{BB00F895-E603-4535-A3DA-9F36189B4E59}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BB00F895-E603-4535-A3DA-9F36189B4E59}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BB00F895-E603-4535-A3DA-9F36189B4E59}.Release|x64.ActiveCfg = Release|Any CPU
+		{BB00F895-E603-4535-A3DA-9F36189B4E59}.Release|x64.Build.0 = Release|Any CPU
+		{BB00F895-E603-4535-A3DA-9F36189B4E59}.Release|x86.ActiveCfg = Release|Any CPU
+		{BB00F895-E603-4535-A3DA-9F36189B4E59}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
