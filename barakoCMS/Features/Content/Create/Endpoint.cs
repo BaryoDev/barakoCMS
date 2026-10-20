@@ -10,7 +10,8 @@ namespace barakoCMS.Features.Content.Create;
 internal class Endpoint(
     IDocumentSession session,
     barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
-    barakoCMS.Infrastructure.Services.IContentCreator creator) : Endpoint<Request, Response>
+    barakoCMS.Infrastructure.Services.IContentCreator creator,
+    barakoCMS.Infrastructure.Services.IContentBatchRunner runner) : Endpoint<Request, Response>
 {
     public override void Configure()
     {
@@ -37,6 +38,12 @@ internal class Endpoint(
             Status = req.Status,
             Sensitivity = req.Sensitivity,
         };
+
+        if (req.Lines is { Count: > 0 })
+        {
+            await CreateWithLinesAsync(req, request, userId, user, ct);
+            return;
+        }
 
         var errors = await creator.CheckAsync(request, userId, HttpContext, batch: null, ct);
         if (errors.Count > 0)
@@ -78,6 +85,56 @@ internal class Endpoint(
             Id = created.Id,
             Version = 1,
         });
+    }
+
+    /// <summary>
+    /// A header and its lines, written in one transaction. Nothing is stored unless every entry
+    /// passes, and a refused line names its position.
+    /// </summary>
+    private async Task CreateWithLinesAsync(
+        Request req, barakoCMS.Infrastructure.Services.ContentCreateRequest request, Guid userId, User user, CancellationToken ct)
+    {
+        var name = barakoCMS.Core.ContentTypeName.Normalize(req.ContentType);
+        var lineType = (await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == name, ct))?.Lines;
+        if (lineType is null)
+        {
+            AddError($"Content type '{req.ContentType}' does not take lines.");
+            ThrowIfAnyErrors();
+            return;
+        }
+
+        var headerId = Guid.NewGuid();
+        var header = new barakoCMS.Infrastructure.Services.ContentCreateRequest
+        {
+            ContentType = request.ContentType, Data = request.Data, Status = request.Status,
+            Sensitivity = request.Sensitivity, Id = headerId,
+        };
+        var lines = req.Lines!.Select(l => LineWriter.Line(lineType, l, headerId, req.Status, req.Sensitivity)).ToList();
+
+        var allowed = await permissionResolver.CanPerformActionAsync(user, lineType.ContentType, "create", null, ct)
+            && await permissionResolver.AllowsCreatedEntryAsync(user, header, ct);
+        foreach (var line in lines)
+        {
+            allowed = allowed && await permissionResolver.AllowsCreatedEntryAsync(user, line, ct);
+        }
+
+        if (!allowed)
+        {
+            await Send.ForbiddenAsync(ct);
+            return;
+        }
+
+        var result = await LineWriter.WriteAsync(runner, header, lines, userId, req.DryRun, HttpContext, ct);
+        foreach (var error in result.Errors)
+        {
+            AddError(error);
+        }
+
+        ThrowIfAnyErrors();
+
+        await Send.ResponseAsync(req.DryRun
+            ? new Response { DryRun = true, Changes = barakoCMS.Core.Validation.DryRuns.Between(null, header.Data) }
+            : new Response { Id = headerId, Version = 1, LineIds = result.LineIds }, cancellation: ct);
     }
 
     /// <summary>The signed-in user the write is made for.</summary>

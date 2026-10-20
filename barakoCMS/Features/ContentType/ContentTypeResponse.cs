@@ -61,6 +61,9 @@ internal sealed class ContentTypeResponse
     /// <summary>The anonymous lookup this type answers, or null when it answers none.</summary>
     public LookupDefinition? Lookup { get; init; }
 
+    /// <summary>The child type whose entries are this type's lines, or null when it has none.</summary>
+    public LinesDefinition? Lines { get; init; }
+
     /// <summary>
     /// Whether the stream is the source of truth for entries of this type, and permanent either way.
     /// </summary>
@@ -89,6 +92,7 @@ internal sealed class ContentTypeResponse
         Uniqueness = d.Uniqueness,
         Numbering = d.Numbering,
         Lookup = d.Lookup,
+        Lines = d.Lines,
         EventSourced = eventSourced,
         CreatedAt = d.CreatedAt,
         UpdatedAt = d.UpdatedAt,

@@ -14,6 +14,13 @@ internal class Request
     /// storing nothing.
     /// </summary>
     public bool DryRun { get; set; }
+
+    /// <summary>
+    /// The entries of the type's line type to write with this one, in one transaction. Refused for a
+    /// type that declares no lines. Each takes this entry's status and sensitivity, and the line
+    /// type's parent field is set to this entry's id whatever is sent there.
+    /// </summary>
+    public List<Dictionary<string, object>>? Lines { get; set; }
 }
 
 /// <summary>
@@ -23,6 +30,8 @@ internal class Request
 /// </summary>
 internal class RequestValidator : FastEndpoints.Validator<Request>
 {
+    public const int MaxLines = 200;
+
     public RequestValidator()
     {
         RuleFor(x => x.ContentType).NotEmpty().WithMessage("ContentType is required");
@@ -33,6 +42,8 @@ internal class RequestValidator : FastEndpoints.Validator<Request>
         // no error anywhere. ChangeStatus has checked this since it was written; Create did not.
         RuleFor(x => x.Status).IsInEnum().WithMessage("Status is not a valid value");
         RuleFor(x => x.Sensitivity).IsInEnum().WithMessage("Sensitivity is not a valid value");
+        RuleFor(x => x.Lines).Must(l => l is null || l.Count <= MaxLines)
+            .WithMessage($"Lines holds at most {MaxLines} entries");
     }
 }
 
@@ -43,6 +54,9 @@ internal class Response : barakoCMS.Core.Validation.IDryRunResponse
     /// Initial event-stream version (1). Echo it back in an update's Version field for concurrency checks.
     /// </summary>
     public long Version { get; set; }
+
+    /// <summary>The ids of the lines written with the entry, in the order sent. Null when none were sent.</summary>
+    public List<Guid>? LineIds { get; init; }
 
     /// <summary>True when this answers a dry run: nothing was stored.</summary>
     public bool DryRun { get; init; }
