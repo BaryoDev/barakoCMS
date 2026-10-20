@@ -333,6 +333,8 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                 { "Modules:Pages:ReservedSlugs:0", "api" },
                 { "Modules:Pages:ReservedSlugs:1", "Blog" },
                 { "Modules:Pages:ReservedSlugs:2", "admin" },
+                // Booking runs over its own probe type, so no other test's entries meet its overlap rule.
+                { "Modules:Booking:ContentType", "bookingprobe" },
             });
         });
 
@@ -506,6 +508,11 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             // the same options. Registered with its own section, as the host scopes it.
             new BarakoCMS.Pages.PagesModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Pages"));
 
+            // Booking: its hook guards the probe type configured above, and the availability route reads
+            // the same options. Registered with its own section, as the host scopes it.
+            new BarakoCMS.Booking.BookingModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Booking"));
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Booking.BookingModule(), opts));
+
             // Forms: the submit endpoint is anonymous and rate limited, so its policy, its options and
             // its schema all have to be registered for /api/public/forms/* to answer at all. Scoped to
             // its own section, as the host scopes it.
@@ -607,6 +614,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         typeof(BarakoCMS.Diagnostics.DiagnosticsModule).Assembly,
         typeof(BarakoCMS.Pwa.PwaModule).Assembly,
         typeof(BarakoCMS.Pages.PagesModule).Assembly,
+        typeof(BarakoCMS.Booking.BookingModule).Assembly,
 
         typeof(BarakoCMS.Forms.FormsModule).Assembly,
         typeof(BarakoCMS.FeatureFlags.FeatureFlagsModule).Assembly,

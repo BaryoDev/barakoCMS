@@ -60,6 +60,7 @@ public class SuiteCompositionTests
             "Accounting",
             "AI",
             "Analytics.Umami",
+            "Booking",
             "DeviceTrust",
             "Diagnostics",
             "Email.Resend",
