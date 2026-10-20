@@ -137,12 +137,25 @@ public class ScheduledContentService : BackgroundService
         }
         finally
         {
-            await using var release = lockConnection.CreateCommand();
-            release.CommandText = "select pg_advisory_unlock(@key)";
-            release.Parameters.AddWithValue("key", SweepLockKey);
-            await release.ExecuteScalarAsync(CancellationToken.None);
+            try
+            {
+                await using var release = lockConnection.CreateCommand();
+                release.CommandText = "select pg_advisory_unlock(@key)";
+                release.Parameters.AddWithValue("key", SweepLockKey);
+                await release.ExecuteScalarAsync(CancellationToken.None);
+            }
+            catch (Exception ex) when (ex is Npgsql.NpgsqlException or InvalidOperationException or ObjectDisposedException)
+            {
+                // The lock connection died during the sweep, so the lock was already freed and
+                // another instance may have taken over. The sweep's writes are idempotent for that
+                // case; this must not turn a finished sweep into an error.
+                _logger.LogWarning(ex, "The scheduled sweep lock connection was lost before the sweep finished");
+            }
         }
     }
+
+    /// <summary>Runs once, after a tenant's due items are loaded and before the first is written. Tests only.</summary>
+    internal Func<CancellationToken, Task>? AfterLoad { get; set; }
 
     private async Task SweepHeldAsync(DateTime nowUtc, CancellationToken ct)
     {
@@ -165,7 +178,9 @@ public class ScheduledContentService : BackgroundService
         {
             using var span = Tracing.BarakoTracing.StartTenantWork(Tracing.BarakoTracing.ScheduledTenantSpan, slug);
             await using var session = slug is null ? _store.LightweightSession() : _store.LightweightSession(slug);
-            var changed = await SweepTenantAsync(session, nowUtc, _logger, ct);
+            var changed = await SweepTenantAsync(
+                session, nowUtc, _logger, DefaultBatchSize, DefaultMaxBatchesPerSweep,
+                beforeSave: null, afterLoad: AfterLoad, ct);
             span?.SetTag(Tracing.BarakoTracing.ScheduledTransitionsTag, changed);
             if (changed > 0)
                 _logger.LogInformation("Scheduled sweep applied {Count} transition(s) for tenant {Tenant}",
@@ -295,9 +310,15 @@ public class ScheduledContentService : BackgroundService
     /// constructs its own writer, so a decorator cannot reach in, and this is the smallest seam that
     /// makes the collision certain rather than likely. See #393.
     /// </remarks>
+    internal static Task<int> SweepTenantAsync(
+        IDocumentSession session, DateTime nowUtc, ILogger? logger, int batchSize, int maxBatches,
+        Func<Content, CancellationToken, Task>? beforeSave, CancellationToken ct) =>
+        SweepTenantAsync(session, nowUtc, logger, batchSize, maxBatches, beforeSave, afterLoad: null, ct);
+
     internal static async Task<int> SweepTenantAsync(
         IDocumentSession session, DateTime nowUtc, ILogger? logger, int batchSize, int maxBatches,
-        Func<Content, CancellationToken, Task>? beforeSave, CancellationToken ct)
+        Func<Content, CancellationToken, Task>? beforeSave, Func<CancellationToken, Task>? afterLoad,
+        CancellationToken ct)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(batchSize, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(maxBatches, 1);
@@ -324,28 +345,52 @@ public class ScheduledContentService : BackgroundService
 
             if (due.Count == 0) break;
 
+            if (afterLoad is not null)
+            {
+                await afterLoad(ct);
+                afterLoad = null;
+            }
+
             // Constructed rather than injected: this sweep opens its own session per tenant, so there
             // is no scoped writer to resolve.
             var writer = new ContentWriter(session, new ContentSourcingPolicyService(session));
             var appliedInBatch = 0;
 
-            foreach (var content in due)
+            foreach (var loaded in due)
             {
-                var events = DueEvents(content, nowUtc);
-
-                // Every row the query returns matches at least one branch of DueEvents, so this is
-                // unreachable today. It is here because the predicate and the branches are separate
-                // now: an edit to one and not the other would otherwise append nothing, commit, and
-                // still count the item as applied, inflating the number reported and defeating the
-                // "a full batch that applied nothing" guard that ends the loop.
-                if (events.Count == 0)
-                {
-                    continue;
-                }
-
                 try
                 {
-                    if (await session.Events.FetchStreamStateAsync(content.Id, ct) is null)
+                    // The stream version first, then the document. A writer commits both together, so
+                    // reading the version first means a commit between the two reads shows up as a
+                    // document newer than the version, which the expected-version append then refuses.
+                    // The other order could pair an old document with a new version and pass.
+                    var state = await session.Events.FetchStreamStateAsync(loaded.Id, ct);
+
+                    // Re-read inside the write. This sweep may have lost leadership after it loaded
+                    // the batch (a pooler dropped the lock connection, a failover), and a second
+                    // instance may already have made the transition. The copy in `due` would still
+                    // look due, and appending again fires every Published workflow a second time.
+                    // The fresh copy has the schedule cleared, so nothing is due and nothing is written.
+                    var content = await session.LoadAsync<Content>(loaded.Id, ct);
+                    if (content is null)
+                    {
+                        continue;
+                    }
+
+                    var events = DueEvents(content, nowUtc);
+
+                    // Every row the query returns matches at least one branch of DueEvents, so for a
+                    // current copy this is only empty when another instance got there first. It is
+                    // also the guard for the predicate and the branches drifting apart: appending
+                    // nothing would commit and still count the item as applied, inflating the number
+                    // reported and defeating the "a full batch that applied nothing" guard that ends
+                    // the loop.
+                    if (events.Count == 0)
+                    {
+                        continue;
+                    }
+
+                    if (state is null)
                     {
                         // A document with no stream behind it: seeded demo rows, and anything written
                         // before every write went through the writer. There is no version to check, so
@@ -358,7 +403,7 @@ public class ScheduledContentService : BackgroundService
                     }
                     else
                     {
-                        await writer.AppendOptimisticAsync(content, events, ct);
+                        await writer.AppendAsync(content, events, state.Version, ct);
                     }
 
                     // Between the append and the commit, which is the window AppendOptimistic
@@ -373,6 +418,7 @@ public class ScheduledContentService : BackgroundService
                     appliedInBatch++;
                 }
                 catch (Exception ex) when (ex is JasperFx.ConcurrencyException
+                    || ex is barakoCMS.Core.Interfaces.StaleContentException
                     || ex.GetType().Name.Contains("Concurrency")
                     || ex.GetType().Name.Contains("UnexpectedMaxEventId"))
                 {
@@ -382,7 +428,7 @@ public class ScheduledContentService : BackgroundService
 
                     logger?.LogInformation(
                         "Scheduled transition for {ContentId} was overtaken by another writer; leaving it for the next sweep",
-                        content.Id);
+                        loaded.Id);
                 }
                 catch (barakoCMS.Core.Interfaces.ContentUniquenessException ex)
                 {
@@ -394,7 +440,7 @@ public class ScheduledContentService : BackgroundService
 
                     logger?.LogWarning(
                         "Scheduled transition for {ContentId} was refused by the uniqueness rule {Rule}; leaving it for the next sweep",
-                        content.Id, barakoCMS.Infrastructure.Logging.LogSafe.Value(ex.Rule));
+                        loaded.Id, barakoCMS.Infrastructure.Logging.LogSafe.Value(ex.Rule));
                 }
             }
 

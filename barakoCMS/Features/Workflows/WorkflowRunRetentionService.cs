@@ -155,10 +155,19 @@ internal sealed class WorkflowRunRetentionService : BackgroundService
         }
         finally
         {
-            await using var release = lockConnection.CreateCommand();
-            release.CommandText = "select pg_advisory_unlock(@key)";
-            release.Parameters.AddWithValue("key", SweepLockKey);
-            await release.ExecuteScalarAsync(CancellationToken.None);
+            try
+            {
+                await using var release = lockConnection.CreateCommand();
+                release.CommandText = "select pg_advisory_unlock(@key)";
+                release.Parameters.AddWithValue("key", SweepLockKey);
+                await release.ExecuteScalarAsync(CancellationToken.None);
+            }
+            catch (Exception ex) when (ex is Npgsql.NpgsqlException or InvalidOperationException or ObjectDisposedException)
+            {
+                // The lock connection died mid-sweep, which already freed the lock. Deleting a run
+                // twice is a no-op, so a second instance sweeping meanwhile does no harm.
+                _logger.LogWarning(ex, "The workflow run retention lock connection was lost before the sweep finished");
+            }
         }
     }
 
@@ -229,6 +238,10 @@ internal sealed class WorkflowRunRetentionService : BackgroundService
         return removed;
     }
 
+    private static bool IsPastWindow(WorkflowRun r, RunStatus[] statuses, DateTimeOffset cutoff) =>
+        statuses.Contains(r.Status)
+        && (r.CompletedAt is { } completed ? completed < cutoff : r.CreatedAt < cutoff);
+
     private static async Task<int> SweepClassAsync(
         IDocumentSession session,
         DateTimeOffset nowUtc,
@@ -257,13 +270,19 @@ internal sealed class WorkflowRunRetentionService : BackgroundService
 
             if (due.Count == 0) break;
 
-            foreach (var run in due)
+            // Re-read inside the write. Another instance may have swept the same rows since the
+            // query, and a run may have been retried and be Running again. Only what is still a
+            // finished run past its window is deleted, and only that is counted.
+            var current = await session.LoadManyAsync<WorkflowRun>(ct, due.Select(r => r.Id).ToArray());
+            var stillDue = current.Where(r => IsPastWindow(r, statuses, cutoff)).ToList();
+
+            foreach (var run in stillDue)
             {
                 session.Delete(run);
             }
 
             await session.SaveChangesAsync(ct);
-            removed += due.Count;
+            removed += stillDue.Count;
 
             logger?.LogDebug("Removed {Count} workflow run(s) older than {Days} days", due.Count, days);
 
