@@ -540,16 +540,27 @@ public class AdminMfaResetTests
             s.Store(new Role { Id = namedRole, Name = "SuperAdmin", TenantSlug = $"club-{Guid.NewGuid():N}", SystemCapabilities = [] });
             await s.SaveChangesAsync();
         }
-        var target = await StoreUserAsync(namedRole);
-        await GiveEnrollmentAsync(target);
-        var legacy = _factory.WithSetting(barakoCMS.Infrastructure.Auth.CapabilityGateProcessor.LegacyRoleFallbackKey, "true");
-        var client = legacy.CreateClient();
-        client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", _factory.CreateToken([], caller.ToString()));
+        try
+        {
+            var target = await StoreUserAsync(namedRole);
+            await GiveEnrollmentAsync(target);
+            var legacy = _factory.WithSetting(barakoCMS.Infrastructure.Auth.CapabilityGateProcessor.LegacyRoleFallbackKey, "true");
+            var client = legacy.CreateClient();
+            client.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", _factory.CreateToken([], caller.ToString()));
 
-        var response = await ResetAsync(client, target);
+            var response = await ResetAsync(client, target);
 
-        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        (await StoredSecretAsync(target)).Should().NotBeNull();
+            response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+            (await StoredSecretAsync(target)).Should().NotBeNull();
+        }
+        finally
+        {
+            // Other classes find the admin role by the name SuperAdmin, and would pick this empty one.
+            using var scope = _factory.Services.CreateScope();
+            var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            s.Delete<Role>(namedRole);
+            await s.SaveChangesAsync();
+        }
     }
 }
