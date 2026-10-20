@@ -1,0 +1,1 @@
+- **A Scheduling module.** `BarakoCMS.Scheduling` lets a module schedule a named action for a due time with `IScheduler.ScheduleAsync` and cancel it with `CancelAsync`. A sweep claims each due entry on one instance, hands it to the `IScheduledActionHandler` registered for its action, and never fires the same entry twice. Recurrence is not in this first slice.
