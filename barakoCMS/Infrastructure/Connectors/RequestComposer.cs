@@ -189,22 +189,12 @@ internal sealed class RequestComposer(
     /// </remarks>
     private static string? Refuse(IEnumerable<string> templates, ContentTypeDefinition schema)
     {
-        foreach (var template in templates)
-        {
-            foreach (Match match in Hole.Matches(template ?? string.Empty))
-            {
-                var name = match.Groups[1].Value;
-                var field = FieldFor(name, schema);
-                if (field is not null && field.Sensitivity != SensitivityLevel.Public)
-                {
-                    return $"'{match.Value}' is {field.Sensitivity} on '{schema.Name}', and this request "
-                         + "would send it to a third party. A field that is not Public cannot leave, "
-                         + "even when a template names it.";
-                }
-            }
-        }
+        var found = TemplateHoles.FirstNonPublic(templates, schema);
+        if (found is null) return null;
 
-        return null;
+        return $"'{found.Value.Hole}' is {found.Value.Field.Sensitivity} on '{schema.Name}', and this request "
+             + "would send it to a third party. A field that is not Public cannot leave, "
+             + "even when a template names it.";
     }
 
     /// <summary>The rows a <c>{{query.*}}</c> hole may draw from, or the reason none may run.</summary>
@@ -310,14 +300,8 @@ internal sealed class RequestComposer(
     }
 
     /// <summary>The schema field a variable names, or null when it names a system variable.</summary>
-    private static FieldDefinition? FieldFor(string name, ContentTypeDefinition schema)
-    {
-        // "data.Title" and "Title" both name the same field: the admin's variable picker offers the
-        // first and templates in the wild use the second.
-        var bare = name.StartsWith("data.", StringComparison.OrdinalIgnoreCase) ? name[5..] : name;
-
-        return schema.Fields.FirstOrDefault(f => string.Equals(f.Name, bare, StringComparison.OrdinalIgnoreCase));
-    }
+    private static FieldDefinition? FieldFor(string name, ContentTypeDefinition schema) =>
+        TemplateHoles.FieldFor(name, schema);
 
     /// <summary>
     /// The header name that carries the run's idempotency key on this connector, or null when the
