@@ -697,6 +697,7 @@ internal sealed class WorkflowRunner(
 
             ApplyToRun(latest, attempt, outcome);
             session.Update(latest);
+            await StoreOutboxAsync(session, outcome, ct);
 
             try
             {
@@ -776,6 +777,7 @@ internal sealed class WorkflowRunner(
 
         latest.Recompute();
         session.Update(latest);
+        await StoreOutboxAsync(session, outcome, ct);
 
         try
         {
@@ -789,6 +791,20 @@ internal sealed class WorkflowRunner(
 
         Metrics.Finished(latest.Status);
         return true;
+    }
+
+    /// <summary>
+    /// Adds the messages a successful action queued to the save that records it. A message already
+    /// stored under the same id is left alone, so an attempt that ran twice queues once.
+    /// </summary>
+    private static async Task StoreOutboxAsync(IDocumentSession session, Outcome outcome, CancellationToken ct)
+    {
+        if (outcome.Status != AttemptStatus.Succeeded || outcome.Outbox is not { Count: > 0 } messages) return;
+
+        foreach (var message in messages)
+        {
+            if (await session.LoadAsync<OutboxMessage>(message.Id, ct) is null) session.Store(message);
+        }
     }
 
     /// <summary>Whether the workflow a run belongs to has been switched off since the run was queued.</summary>
@@ -967,6 +983,11 @@ internal sealed class WorkflowRunner(
 
         var timer = Stopwatch.StartNew();
 
+        // Held so a Publish action's messages are stored in the save that records the attempt, and
+        // an attempt that fails or loses its lease leaves none behind.
+        var staging = scope.ServiceProvider.GetService<Outbox.OutboxStaging>();
+        if (staging is not null) staging.Holding = true;
+
         try
         {
             var variables = scope.ServiceProvider.GetRequiredService<ITemplateVariableExtractor>();
@@ -1005,9 +1026,13 @@ internal sealed class WorkflowRunner(
             }, ct);
             timer.Stop();
 
-            return result.Succeeded
-                ? Succeeded(result, undo ? null : attempt.Capture, variables.Notes, timer.ElapsedMilliseconds)
-                : new Outcome(AttemptStatus.Failed, result.Error, timer.ElapsedMilliseconds, result.Retryable, ResponseStatus: result.ResponseStatus);
+            if (result.Succeeded)
+            {
+                var succeeded = Succeeded(result, undo ? null : attempt.Capture, variables.Notes, timer.ElapsedMilliseconds);
+                return staging is { Messages.Count: > 0 } ? succeeded with { Outbox = [.. staging.Messages] } : succeeded;
+            }
+
+            return new Outcome(AttemptStatus.Failed, result.Error, timer.ElapsedMilliseconds, result.Retryable, ResponseStatus: result.ResponseStatus);
         }
         catch (OperationCanceledException ex) when (ex is TaskCanceledException || !ct.IsCancellationRequested)
         {
@@ -1172,8 +1197,9 @@ internal sealed class WorkflowRunner(
     /// <param name="Retryable">For a failure, whether trying again could change the answer.</param>
     /// <param name="Outputs">On a success, the outputs the workflow captures, already filtered.</param>
     /// <param name="ResponseStatus">The status the action's remote call answered with, when it reported one.</param>
+    /// <param name="Outbox">On a success, the messages the action queued, stored in the save that records the outcome.</param>
     /// <param name="Registered">Whether a handler was found for the action type. Only then is the type used as a metric label.</param>
     private readonly record struct Outcome(
         AttemptStatus Status, string? Error, long ElapsedMs, bool Retryable = true, bool Registered = true,
-        Dictionary<string, string>? Outputs = null, int? ResponseStatus = null);
+        Dictionary<string, string>? Outputs = null, int? ResponseStatus = null, IReadOnlyList<OutboxMessage>? Outbox = null);
 }

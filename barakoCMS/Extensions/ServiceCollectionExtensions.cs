@@ -777,6 +777,13 @@ public static class ServiceCollectionExtensions
             .Index(x => x.WorkflowId)
             .Index(x => x.CreatedAt);
 
+        options.Schema.For<OutboxMessage>()
+            .MultiTenanted()
+            .DocumentAlias("outbox_messages")
+            // Two nodes polling the same table both load a due message and only one lease wins.
+            .UseOptimisticConcurrency(true)
+            .Index(x => x.Status).Index(x => x.NextAttemptAt);
+
         options.Schema.For<WorkflowFieldApplyMarker>()
             .MultiTenanted()
             .DocumentAlias("workflow_field_apply_markers")
@@ -1255,6 +1262,7 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<barakoCMS.Infrastructure.Services.StoredReferenceConditionsNotice>();
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowExecutionLogRedactionService>();
         services.AddHostedService<barakoCMS.Features.WebhookDeliveries.WebhookDeliveryRetentionService>();
+        services.AddHostedService<barakoCMS.Features.Workflows.Outbox.OutboxSender>();
         services.AddHostedService<barakoCMS.Infrastructure.Jobs.JobDeadLetterRetentionService>();
         services.AddHostedService<barakoCMS.Infrastructure.Services.IdempotencyRetentionService>();
     }
@@ -1293,6 +1301,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.SmsAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.WebhookAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.CreateTaskAction>();
+        services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.PublishAction>();
+        services.AddScoped<barakoCMS.Features.Workflows.Outbox.OutboxStaging>();
+        services.AddSingleton<barakoCMS.Features.Workflows.Outbox.IOutboxTransport, barakoCMS.Features.Workflows.Outbox.SignedHttpOutboxTransport>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.UpdateFieldAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.RequestAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.ConditionalAction>();
