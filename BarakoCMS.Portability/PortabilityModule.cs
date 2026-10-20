@@ -17,6 +17,16 @@ public sealed class PortabilityModule : IBarakoModule
 {
     public string Name => "Portability";
 
+    public string? PackageId => "BarakoCMS.Portability";
+
+    public string? PackageVersion => ModuleMetadata.VersionOf(GetType());
+
+    public string? Category => ModuleCategory.Platform;
+
+    public string? Description => "Export and import content types and content";
+
+    public string? Glyph => "package";
+
     /// <summary>Adds the <c>contents</c> section, which is what lets a bundle apply as a config document.</summary>
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration) =>
         services.AddScoped<barakoCMS.Core.Interfaces.IConfigProvider, ContentsConfigProvider>();

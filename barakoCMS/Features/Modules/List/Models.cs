@@ -39,9 +39,19 @@ internal sealed class ListModulesRequest : ListRequest;
 /// The existing database objects the module wanted to change, by qualified name. Empty unless
 /// <paramref name="SchemaState"/> is <c>needs-migration</c>.
 /// </param>
+/// <param name="PackageId">The NuGet package id, or null when the module does not state one.</param>
+/// <param name="PackageVersion">The package version, or null when unstated.</param>
+/// <param name="Category">One of <see cref="barakoCMS.Modules.ModuleCategory"/>, or null.</param>
+/// <param name="Description">A one-line description, or null.</param>
+/// <param name="Glyph">An icon name from the console's icon set, or null.</param>
 internal sealed record ModuleSummary(
     string Name,
     int ContractVersion,
     bool Enabled,
     string SchemaState,
-    IReadOnlyList<string> SchemaChanges);
+    IReadOnlyList<string> SchemaChanges,
+    string? PackageId = null,
+    string? PackageVersion = null,
+    string? Category = null,
+    string? Description = null,
+    string? Glyph = null);

@@ -13,6 +13,16 @@ namespace BarakoCMS.Import;
 public sealed class ImportModule : IBarakoModule
 {
     public string Name => "Import";
+
+    public string? PackageId => "BarakoCMS.Import";
+
+    public string? PackageVersion => ModuleMetadata.VersionOf(GetType());
+
+    public string? Category => ModuleCategory.Content;
+
+    public string? Description => "Bulk-create content from xlsx or CSV";
+
+    public string? Glyph => "upload";
     // Default hooks: no services and no Marten docs. Endpoints live in this assembly and are
     // discovered via IBarakoModule.EndpointAssemblies (defaulting to this assembly).
 

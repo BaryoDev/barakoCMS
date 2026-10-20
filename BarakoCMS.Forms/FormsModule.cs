@@ -19,6 +19,16 @@ public sealed class FormsModule : IBarakoModule
 {
     public string Name => "Forms";
 
+    public string? PackageId => "BarakoCMS.Forms";
+
+    public string? PackageVersion => ModuleMetadata.VersionOf(GetType());
+
+    public string? Category => ModuleCategory.Content;
+
+    public string? Description => "Public forms that accept anonymous submissions";
+
+    public string? Glyph => "clipboard-list";
+
     public int HttpContractVersion => 1;
 
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration)

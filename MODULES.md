@@ -98,6 +98,12 @@ as they were when it is enabled again. Nothing here drops anything.
 "installed but off" and "not installed" can be told apart. See
 [docs/module-inventory.md](docs/module-inventory.md).
 
+**Saying who a module is.** `PackageId`, `PackageVersion`, `Category`, `Description` and `Glyph` are
+default members of `IBarakoModule`, all null unless you declare them, and `GET /api/modules` reports
+them. `Category` is one of `ModuleCategory.Content`, `Comms`, `Access`, `Platform`, `Insight` or
+`Business`; anything else is reported as null. `ModuleMetadata.VersionOf(GetType())` reads
+`PackageVersion` from your assembly. Adding them does not move `ModuleContract.Version`.
+
 ### Schema preflight
 
 Production runs `AutoCreate.CreateOnly`, which creates a missing table with its indexes and never

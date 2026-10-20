@@ -19,6 +19,16 @@ public sealed class DiagnosticsModule : IBarakoModule
 {
     public string Name => "Diagnostics";
 
+    public string? PackageId => "BarakoCMS.Diagnostics";
+
+    public string? PackageVersion => ModuleMetadata.VersionOf(GetType());
+
+    public string? Category => ModuleCategory.Platform;
+
+    public string? Description => "Browser error logging";
+
+    public string? Glyph => "bug";
+
     /// <summary>
     /// The incidents view's sources (#893) and the optional forwarder (#627). <paramref name="configuration"/>
     /// is this module's own section, <c>Modules:Diagnostics</c>.
