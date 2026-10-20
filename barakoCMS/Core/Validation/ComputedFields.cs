@@ -301,6 +301,11 @@ internal static class ComputedFields
             return Shape(field, amount);
         }
 
+        return ComputeNumber(field, fn, args, data);
+    }
+
+    private static object? ComputeNumber(FieldDefinition field, string fn, List<string> args, IReadOnlyDictionary<string, object> data)
+    {
         var numbers = new List<decimal>();
         foreach (var arg in args)
         {
