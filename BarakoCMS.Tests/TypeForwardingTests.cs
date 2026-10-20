@@ -59,6 +59,11 @@ public class TypeForwardingTests
     [InlineData("barakoCMS.Infrastructure.Audit.AuditChain")]
     [InlineData("barakoCMS.Infrastructure.Multitenancy.TenantContext")]
     [InlineData("barakoCMS.Infrastructure.Services.ContentTypeFieldLimit")]
+    [InlineData("barakoCMS.Infrastructure.Auth.ITokenIssuer")]
+    [InlineData("barakoCMS.Infrastructure.Auth.TokenIssueResult")]
+    [InlineData("barakoCMS.Infrastructure.Auth.Mfa.IMfaService")]
+    [InlineData("barakoCMS.Infrastructure.Services.IContentLifecycleRunner")]
+    [InlineData("barakoCMS.Infrastructure.Services.IContentValidatorService")]
     public void The_types_a_module_uses_from_the_core_live_in_Abstractions_and_still_resolve_from_barakoCMS(string name)
     {
         var type = Type.GetType($"{name}, barakoCMS");

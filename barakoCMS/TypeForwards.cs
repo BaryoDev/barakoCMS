@@ -119,3 +119,10 @@ using System.Runtime.CompilerServices;
 [assembly: TypeForwardedTo(typeof(global::barakoCMS.Infrastructure.Audit.AuditLog))]
 [assembly: TypeForwardedTo(typeof(global::barakoCMS.Infrastructure.Multitenancy.TenantContext))]
 [assembly: TypeForwardedTo(typeof(global::barakoCMS.Infrastructure.Services.ContentTypeFieldLimit))]
+
+// 5.2.0 moved these contract interfaces the same way.
+[assembly: TypeForwardedTo(typeof(global::barakoCMS.Infrastructure.Auth.ITokenIssuer))]
+[assembly: TypeForwardedTo(typeof(global::barakoCMS.Infrastructure.Auth.TokenIssueResult))]
+[assembly: TypeForwardedTo(typeof(global::barakoCMS.Infrastructure.Auth.Mfa.IMfaService))]
+[assembly: TypeForwardedTo(typeof(global::barakoCMS.Infrastructure.Services.IContentLifecycleRunner))]
+[assembly: TypeForwardedTo(typeof(global::barakoCMS.Infrastructure.Services.IContentValidatorService))]
