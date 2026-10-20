@@ -59,6 +59,7 @@ public class SuiteCompositionTests
         [
             "Accounting",
             "AI",
+            "CdnPurge",
             "Analytics.Umami",
             "DeviceTrust",
             "Diagnostics",
