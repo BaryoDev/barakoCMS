@@ -18,7 +18,8 @@ namespace barakoCMS.Features.Public.Events;
 /// events from the async daemon, which HotCold pins to one instance so that side effects fire once.
 /// A stream hooked in there would only ever reach the subscribers connected to that instance; every
 /// other instance's subscribers would hang with no signal. After-commit on the writing session
-/// gives each instance its own writes, which is the limitation docs/delivery-api.md states.
+/// delivers to this instance's own subscribers directly; <see cref="ContentChangeBus"/> carries the
+/// change, as an id, to the other instances' subscribers.
 ///
 /// Every payload goes through <see cref="PublicDelivery.ToPublic"/>, the same projection the REST
 /// reads use. There is no second copy of the masking rules here, and there must not be: a field the
@@ -29,7 +30,8 @@ namespace barakoCMS.Features.Public.Events;
 /// </remarks>
 internal sealed class ContentChangeListener(
     ContentChangeBroadcaster broadcaster,
-    ILogger<ContentChangeListener> logger) : DocumentSessionListenerBase
+    ILogger<ContentChangeListener> logger,
+    ContentChangeBus? bus = null) : DocumentSessionListenerBase
 {
     public override async Task AfterCommitAsync(IDocumentSession session, IChangeSet commit, CancellationToken token)
     {
@@ -54,11 +56,32 @@ internal sealed class ContentChangeListener(
         // One session, one tenant. Read from the event rather than the session so the slug is the
         // one the write was recorded under, which is also the key a subscriber registered with.
         var tenant = TenantScopes.SlugFor(events[0].TenantId);
-        if (!broadcaster.HasSubscribers(tenant))
+        var local = broadcaster.HasSubscribers(tenant);
+        var shared = bus is { Enabled: true };
+        if (!local && !shared)
         {
             return;
         }
 
+        var outgoing = await CollectAsync(session, commit, events, token);
+
+        if (local)
+        {
+            await PublishLocalAsync(session, tenant, outgoing, token);
+        }
+
+        if (shared && outgoing.Count > 0)
+        {
+            await bus!.PublishAsync(
+                tenant,
+                outgoing.Select(o => new BusChange(o.Id, o.Name, o.Declared)).ToList(),
+                token);
+        }
+    }
+
+    private async Task<List<Outgoing>> CollectAsync(
+        IDocumentSession session, IChangeSet commit, List<IEvent> events, CancellationToken token)
+    {
         var documents = commit.Updated.Concat(commit.Inserted)
             .OfType<ContentDoc>()
             .GroupBy(c => c.Id)
@@ -85,50 +108,82 @@ internal sealed class ContentChangeListener(
                 definitions[content.ContentType] = def;
             }
 
-            if (!PublicDelivery.IsDeliverable(def))
+            var change = await OutgoingForAsync(session, content, def, stream, token);
+            if (change is not null)
             {
-                continue;
-            }
-
-            var effective = WithDeclaredSensitivity(def!, stream);
-            var slugField = PublicDelivery.SlugField(effective);
-            var projected = PublicDelivery.ToPublic(content, effective, slugField);
-
-            if (projected is not null)
-            {
-                // The stream reads no file store from inside a commit, so a file field is left out
-                // rather than sent as an id the delivery routes would not answer.
-                projected = PublicFileFields.LeaveOut(projected, effective);
-
-                var name = stream.Any(e => BecamePublic(e.Data))
-                    ? ContentChangeEvents.Published
-                    : ContentChangeEvents.Updated;
-                outgoing.Add(new Outgoing(name, projected, effective, null));
-                continue;
-            }
-
-            // Not public now. Worth an event only if it was public before this commit; a draft
-            // moving to Archived was never on anybody's site, and an unpublish for it would hand
-            // out the slug of an entry the REST API answers 404 for.
-            if (stream.Any(e => LeftPublic(e.Data))
-                && await WasPublicBeforeAsync(session, stream.Key, stream, def!, slugField, token))
-            {
-                outgoing.Add(new Outgoing(ContentChangeEvents.Unpublished, null, null, new ContentChange(
-                    ContentChangeEvents.Unpublished,
-                    content.Id,
-                    content.ContentType,
-                    PublicDelivery.SlugValue(content, slugField),
-                    new UnpublishedPayload(content.Id, content.ContentType, PublicDelivery.SlugValue(content, slugField)))));
+                outgoing.Add(change);
             }
         }
 
+        return outgoing;
+    }
+
+    private static async Task<Outgoing?> OutgoingForAsync(
+        IDocumentSession session,
+        ContentDoc content,
+        ContentTypeDefinition? def,
+        IGrouping<Guid, IEvent> stream,
+        CancellationToken token)
+    {
+        if (!PublicDelivery.IsDeliverable(def))
+        {
+            return null;
+        }
+
+        var declared = DeclaredSensitivity(stream);
+        var effective = WithSensitivity(def!, declared);
+        var slugField = PublicDelivery.SlugField(effective);
+        var projected = Project(content, effective);
+
+        if (projected is not null)
+        {
+            var name = stream.Any(e => BecamePublic(e.Data))
+                ? ContentChangeEvents.Published
+                : ContentChangeEvents.Updated;
+            return new Outgoing(content.Id, name, projected, effective, null, declared);
+        }
+
+        // Not public now. Worth an event only if it was public before this commit; a draft
+        // moving to Archived was never on anybody's site, and an unpublish for it would hand
+        // out the slug of an entry the REST API answers 404 for.
+        if (stream.Any(e => LeftPublic(e.Data))
+            && await WasPublicBeforeAsync(session, stream.Key, stream, def!, slugField, token))
+        {
+            return new Outgoing(content.Id, ContentChangeEvents.Unpublished, null, null, Unpublish(content, slugField), declared);
+        }
+
+        return null;
+    }
+
+    /// <summary>The unpublish for an entry: its identity and nothing else.</summary>
+    internal static ContentChange Unpublish(ContentDoc content, string? slugField) => new(
+        ContentChangeEvents.Unpublished,
+        content.Id,
+        content.ContentType,
+        PublicDelivery.SlugValue(content, slugField),
+        new UnpublishedPayload(content.Id, content.ContentType, PublicDelivery.SlugValue(content, slugField)));
+
+    /// <summary>
+    /// The anonymous projection of an entry, or null when it is not deliverable. The stream reads
+    /// no file store from inside a commit, so a file field is left out rather than sent as an id
+    /// the delivery routes would not answer.
+    /// </summary>
+    internal static PublicContentResponse? Project(ContentDoc content, ContentTypeDefinition effective)
+    {
+        var projected = PublicDelivery.ToPublic(content, effective, PublicDelivery.SlugField(effective));
+        return projected is null ? null : PublicFileFields.LeaveOut(projected, effective);
+    }
+
+    private async Task PublishLocalAsync(
+        IDocumentSession session, string tenant, List<Outgoing> outgoing, CancellationToken token)
+    {
         // References are checked for every entry in the commit together, in one read, and the
         // changes go out in the order they were found.
         var entries = outgoing
             .Where(o => o.Projected is not null)
             .Select(o => (Item: o.Projected!, Definition: o.Definition!))
             .ToList();
-        var checkedEntries = new Queue<PublicContentResponse>(await CheckReferencesAsync(session, entries, token));
+        var checkedEntries = new Queue<PublicContentResponse>(await CheckReferencesAsync(session, entries, logger, token));
 
         foreach (var change in outgoing)
         {
@@ -151,9 +206,10 @@ internal sealed class ContentChangeListener(
     /// A failed read must not cost the commit its other changes: an unpublish in the same commit is
     /// sent either way, and so is each entry, without the ids nothing could vouch for.
     /// </remarks>
-    private async Task<List<PublicContentResponse>> CheckReferencesAsync(
+    internal static async Task<List<PublicContentResponse>> CheckReferencesAsync(
         IDocumentSession session,
         List<(PublicContentResponse Item, ContentTypeDefinition Definition)> entries,
+        ILogger logger,
         CancellationToken token)
     {
         try
@@ -169,7 +225,12 @@ internal sealed class ContentChangeListener(
 
     /// <summary>A change to send: an entry still to have its references checked, or a ready unpublish.</summary>
     private sealed record Outgoing(
-        string Name, PublicContentResponse? Projected, ContentTypeDefinition? Definition, ContentChange? Ready);
+        Guid Id,
+        string Name,
+        PublicContentResponse? Projected,
+        ContentTypeDefinition? Definition,
+        ContentChange? Ready,
+        Dictionary<string, SensitivityLevel>? Declared);
 
     /// <summary>
     /// Folds the stream as it stood before this commit and asks the same projection whether that
@@ -212,7 +273,7 @@ internal sealed class ContentChangeListener(
     /// definition read here still says Public. Projecting with the sensitivity the event declares
     /// keeps ToPublic the only masking rule. A copy, so the session's instance is not touched.
     /// </summary>
-    private static ContentTypeDefinition WithDeclaredSensitivity(ContentTypeDefinition def, IEnumerable<IEvent> committed)
+    internal static Dictionary<string, SensitivityLevel>? DeclaredSensitivity(IEnumerable<IEvent> committed)
     {
         var declared = new Dictionary<string, SensitivityLevel>(StringComparer.OrdinalIgnoreCase);
         foreach (var change in committed.Select(e => e.Data).OfType<ContentFieldSensitivityChanged>())
@@ -220,7 +281,14 @@ internal sealed class ContentChangeListener(
             declared[change.Field] = change.To;
         }
 
-        if (declared.Count == 0)
+        return declared.Count == 0 ? null : declared;
+    }
+
+    /// <summary>The definition with the declared sensitivities applied, or itself when there are none.</summary>
+    internal static ContentTypeDefinition WithSensitivity(
+        ContentTypeDefinition def, IReadOnlyDictionary<string, SensitivityLevel>? declared)
+    {
+        if (declared is null || declared.Count == 0)
         {
             return def;
         }

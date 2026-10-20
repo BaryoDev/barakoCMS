@@ -12,9 +12,8 @@ namespace barakoCMS.Features.Public.Events;
 /// subscriptions registered under the tenant the write committed in, so a subscriber on one tenant
 /// never holds a channel another tenant's change is written to.
 ///
-/// In process, and only in process. With several API instances, each streams the writes it handled
-/// and nothing else, because there is no shared bus between them yet. docs/delivery-api.md says so
-/// in those words.
+/// In process. A change committed on another instance arrives here through
+/// <see cref="ContentChangeBus"/>, which calls <see cref="Publish"/> the same way a local write does.
 ///
 /// One bounded channel per connection. A subscriber that stops reading does not hold memory for
 /// everyone else: once its buffer is full the oldest change is dropped, and the drop is logged once

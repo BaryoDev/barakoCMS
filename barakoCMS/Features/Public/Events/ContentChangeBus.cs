@@ -1,0 +1,249 @@
+using System.Text.Json;
+using barakoCMS.Infrastructure.Multitenancy;
+using barakoCMS.Infrastructure.Services;
+using barakoCMS.Models;
+using Marten;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Npgsql;
+using ContentDoc = barakoCMS.Models.Content;
+
+namespace barakoCMS.Features.Public.Events;
+
+/// <summary>
+/// Carries a committed content change from the instance that wrote it to the stream subscribers on
+/// every other instance, over Postgres LISTEN / NOTIFY (#566).
+/// </summary>
+/// <remarks>
+/// The notice holds the tenant, the content id, the event name and, when the commit changed a
+/// field's sensitivity, which field went to which level. It never holds a field value. A receiving
+/// instance reads the entry again in the tenant's partition and projects it through
+/// <see cref="PublicDelivery.ToPublic"/>, so masking stays in the one place the REST reads use it.
+/// The sensitivity map is the one thing the re-read cannot know: the field change is appended before
+/// the type's own write lands, so the definition read here may still say Public.
+///
+/// Best effort, as the stream always was. NOTIFY is not queued for a listener that is down or
+/// reconnecting, nothing orders notices across instances, and a notice that cannot be read again is
+/// dropped. The sender hears its own notices and ignores them, because it already delivered the
+/// change to its own subscribers.
+///
+/// Off with the stream: when <c>Delivery:Events:Enabled</c> is false nothing is sent and nothing is
+/// listened for. The store is resolved on use rather than injected, because this is reached from a
+/// listener that the store is built with.
+/// </remarks>
+internal sealed class ContentChangeBus(
+    IServiceProvider services,
+    ContentEventsOptions options,
+    ContentChangeBroadcaster broadcaster,
+    ILogger<ContentChangeBus> logger) : BackgroundService
+{
+    public const string Channel = "barako_content_events";
+
+    // Postgres refuses a payload of 8000 bytes or more. A change is about 100 bytes before any
+    // sensitivity map, so twenty to a notice stays well inside the limit.
+    private const int ChangesPerNotice = 20;
+
+    private static readonly TimeSpan Retry = TimeSpan.FromSeconds(5);
+
+    private readonly Guid _node = Guid.NewGuid();
+    private readonly TaskCompletionSource _listening = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public bool Enabled => options.Enabled;
+
+    /// <summary>Completes once this instance is listening, so a test can write after that point.</summary>
+    internal Task Listening => _listening.Task;
+
+    public async Task PublishAsync(string tenant, IReadOnlyList<BusChange> changes, CancellationToken ct)
+    {
+        foreach (var batch in changes.Chunk(ChangesPerNotice))
+        {
+            var notice = new Notice(_node, tenant, batch.ToList());
+            var payload = JsonSerializer.Serialize(notice);
+
+            var store = services.GetRequiredService<IDocumentStore>();
+            await using var connection = store.Storage.Database.CreateConnection();
+            await connection.OpenAsync(ct);
+            await using var command = connection.CreateCommand();
+            command.CommandText = "select pg_notify(@channel, @payload)";
+            command.Parameters.AddWithValue("channel", Channel);
+            command.Parameters.AddWithValue("payload", payload);
+            await command.ExecuteNonQueryAsync(ct);
+        }
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        if (!options.Enabled)
+        {
+            return;
+        }
+
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                await ListenAsync(stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Content event bus lost its connection; other instances' changes are not streamed until it is back");
+            }
+
+            try
+            {
+                await Task.Delay(Retry, stoppingToken);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+        }
+    }
+
+    private async Task ListenAsync(CancellationToken ct)
+    {
+        var store = services.GetRequiredService<IDocumentStore>();
+        await using var connection = store.Storage.Database.CreateConnection();
+        await connection.OpenAsync(ct);
+
+        var inbox = System.Threading.Channels.Channel.CreateUnbounded<string>();
+        connection.Notification += (_, e) => inbox.Writer.TryWrite(e.Payload);
+
+        await using (var listen = connection.CreateCommand())
+        {
+            listen.CommandText = "listen " + Channel;
+            await listen.ExecuteNonQueryAsync(ct);
+        }
+
+        _listening.TrySetResult();
+
+        var pump = PumpAsync(inbox.Reader, ct);
+        try
+        {
+            while (true)
+            {
+                await connection.WaitAsync(ct);
+            }
+        }
+        finally
+        {
+            inbox.Writer.TryComplete();
+            await pump.ConfigureAwait(false);
+        }
+    }
+
+    private async Task PumpAsync(System.Threading.Channels.ChannelReader<string> reader, CancellationToken ct)
+    {
+        try
+        {
+            await foreach (var payload in reader.ReadAllAsync(ct))
+            {
+                try
+                {
+                    await ReceiveAsync(payload, ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    logger.LogError(ex, "Content event bus could not turn a notice into a stream change; it is dropped");
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    /// <summary>Handles one notice from the channel. Internal so a test can deliver one directly.</summary>
+    internal async Task ReceiveAsync(string payload, CancellationToken ct)
+    {
+        var notice = JsonSerializer.Deserialize<Notice>(payload);
+        if (notice is null || notice.Node == _node || string.IsNullOrEmpty(notice.Tenant)
+            || !broadcaster.HasSubscribers(notice.Tenant))
+        {
+            return;
+        }
+
+        using var scope = services.CreateScopeForTenant(notice.Tenant);
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+
+        var definitions = new Dictionary<string, ContentTypeDefinition?>(StringComparer.Ordinal);
+        var ready = new List<(string Name, ContentChange? Change, ContentDoc? Content, ContentTypeDefinition? Definition)>();
+
+        foreach (var change in notice.Changes)
+        {
+            var content = await session.LoadAsync<ContentDoc>(change.Id, ct);
+            if (content is null)
+            {
+                continue;
+            }
+
+            if (!definitions.TryGetValue(content.ContentType, out var def))
+            {
+                def = await session.Query<ContentTypeDefinition>()
+                    .FirstOrDefaultAsync(d => d.Name == content.ContentType, ct);
+                definitions[content.ContentType] = def;
+            }
+
+            if (!PublicDelivery.IsDeliverable(def))
+            {
+                continue;
+            }
+
+            var effective = ContentChangeListener.WithSensitivity(def!, change.ToDeclared());
+            if (change.Name == ContentChangeEvents.Unpublished)
+            {
+                ready.Add((change.Name, ContentChangeListener.Unpublish(content, PublicDelivery.SlugField(effective)), null, null));
+                continue;
+            }
+
+            // Public now or not at all: an entry that has since left public is covered by the
+            // unpublish its own commit sent.
+            if (ContentChangeListener.Project(content, effective) is not null)
+            {
+                ready.Add((change.Name, null, content, effective));
+            }
+        }
+
+        await PublishAsync(session, notice.Tenant, ready, ct);
+    }
+
+    private async Task PublishAsync(
+        IDocumentSession session,
+        string tenant,
+        List<(string Name, ContentChange? Change, ContentDoc? Content, ContentTypeDefinition? Definition)> ready,
+        CancellationToken ct)
+    {
+        var entries = ready
+            .Where(r => r.Content is not null)
+            .Select(r => (Item: ContentChangeListener.Project(r.Content!, r.Definition!)!, Definition: r.Definition!))
+            .ToList();
+        var checkedEntries = new Queue<PublicContentResponse>(
+            await ContentChangeListener.CheckReferencesAsync(session, entries, logger, ct));
+
+        foreach (var item in ready)
+        {
+            if (item.Change is not null)
+            {
+                broadcaster.Publish(tenant, item.Change);
+                continue;
+            }
+
+            var entry = checkedEntries.Dequeue();
+            broadcaster.Publish(tenant, new ContentChange(item.Name, entry.Id, entry.ContentType, entry.Slug, entry));
+        }
+    }
+
+    private sealed record Notice(Guid Node, string Tenant, List<BusChange> Changes);
+}
+
+/// <summary>One change in a notice: which entry, what happened, and any field sensitivity the commit declared.</summary>
+internal sealed record BusChange(Guid Id, string Name, Dictionary<string, SensitivityLevel>? Sensitivity)
+{
+    internal Dictionary<string, SensitivityLevel>? ToDeclared() => Sensitivity is null
+        ? null
+        : new Dictionary<string, SensitivityLevel>(Sensitivity, StringComparer.OrdinalIgnoreCase);
+}
