@@ -136,6 +136,10 @@ By default uploads go into PostgreSQL (`PostgresFileStorage`, provider `postgres
 writes nothing it needs to keep to its own filesystem, so a platform's ephemeral disk loses nothing
 and no volume is required.
 
+That includes Azure App Service. Files in PostgreSQL survive a restart and are shared by every
+instance when you scale out, so App Service needs no Azure Blob provider and no mounted storage for
+uploads.
+
 To keep files out of the database, point the Files.S3 module at a bucket. It stays dormant until a
 bucket is set:
 
@@ -154,8 +158,10 @@ The current section is `Modules:Files.S3`, and `Files:S3` is a deprecated root s
 works and logs a warning. The environment variable for the current section contains a dot
 (`Modules__Files.S3__Bucket`). Some platforms reject a dot in a variable name, and Azure App Service
 on Linux is reported to replace it **(platform docs, not tested here)**. The `Files__S3__*` form
-above avoids the question. Azure Blob and Google Cloud Storage are not supported directly; GCS has
-an S3-compatible XML API, which has not been tried with this module.
+above avoids the question. Azure Blob is not supported, and there is no Azure Blob provider. Google
+Cloud Storage is not supported directly either; GCS has an S3-compatible XML API, which has not been
+tried with this module. For an object store on any platform, use the Files.S3 module with
+`Files__S3__ServiceUrl` pointed at an S3-compatible service.
 
 The Files.S3 client takes an access key and secret. It does not read an IAM role, managed identity
 or workload identity, so on AWS create a user or key for it and store the pair as secrets.
@@ -269,6 +275,7 @@ The sections above apply everywhere. What follows is only what differs.
 - Set the health check path to `/health/ready`. **(platform docs, not tested here)**
 - Scale out in the App Service plan. See "Scaling out" for what that means here.
 - Use the `Files__S3__*` form for S3 settings, not the dotted one.
+- Uploads stay in PostgreSQL by default and are durable here. Azure Blob is not supported.
 
 ### AWS Fargate with RDS
 
