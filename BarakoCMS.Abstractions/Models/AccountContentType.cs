@@ -15,6 +15,10 @@ public class AccountContentType
 {
     public Guid Id { get; set; }
 
+    /// <summary>Set by Marten on load and checked on save, so a stale write fails even on a lightweight session.</summary>
+    [Marten.Schema.Version]
+    public Guid Version { get; set; }
+
     public Guid AccountId { get; set; }
 
     /// <summary>The definition's normalised name, kept at the top so it can carry the unique index.</summary>

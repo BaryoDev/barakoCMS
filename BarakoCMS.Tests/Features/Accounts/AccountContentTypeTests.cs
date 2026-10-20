@@ -98,7 +98,7 @@ public class AccountContentTypeTests
         {
             name,
             displayName = "Room",
-            fields = new[] { new { name = "title", displayName = "Title", type = "text", isRequired = true } },
+            fields = new[] { new { name = "Title", displayName = "Title", type = "string", isRequired = true } },
         }, Ct);
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
         return name;
@@ -147,7 +147,7 @@ public class AccountContentTypeTests
         var missing = await ErrorsForEntryAsync(inA, name, new Dictionary<string, object>());
         missing.Should().NotBeEmpty("title is required by the account's definition");
 
-        var valid = await ErrorsForEntryAsync(inA, name, new Dictionary<string, object> { ["title"] = "Suite" });
+        var valid = await ErrorsForEntryAsync(inA, name, new Dictionary<string, object> { ["Title"] = "Suite" });
         valid.Should().BeEmpty();
 
         var unvalidated = await ErrorsForEntryAsync(outside, name, new Dictionary<string, object>());
@@ -166,19 +166,19 @@ public class AccountContentTypeTests
 
         var added = await manager.PostAsJsonAsync($"/api/accounts/{account.Slug}/content-types/{name}/fields", new
         {
-            fieldName = "sku",
+            fieldName = "Sku",
             displayName = "SKU",
-            type = "text",
+            type = "string",
             isRequired = true,
         }, Ct);
         added.StatusCode.Should().Be(HttpStatusCode.OK, await added.Content.ReadAsStringAsync(Ct));
 
-        var onlyTitle = new Dictionary<string, object> { ["title"] = "Suite" };
+        var onlyTitle = new Dictionary<string, object> { ["Title"] = "Suite" };
         (await ErrorsForEntryAsync(inA, name, onlyTitle)).Should().NotBeEmpty("sku is now required in tenant A");
         (await ErrorsForEntryAsync(inB, name, onlyTitle)).Should().NotBeEmpty("sku is now required in tenant B");
         (await ErrorsForEntryAsync(outside, name, onlyTitle)).Should().BeEmpty("the outside tenant is unaffected");
 
-        var both = new Dictionary<string, object> { ["title"] = "Suite", ["sku"] = "S-1" };
+        var both = new Dictionary<string, object> { ["Title"] = "Suite", ["Sku"] = "S-1" };
         (await ErrorsForEntryAsync(inA, name, both)).Should().BeEmpty();
         (await ErrorsForEntryAsync(inB, name, both)).Should().BeEmpty();
     }
@@ -191,7 +191,7 @@ public class AccountContentTypeTests
         var manager = await ManagerAsync(account.Id);
         var name = await CreateSharedTypeAsync(manager, account);
         var tenantAdmin = await TenantAdminAsync(inA);
-        var field = new { fieldName = "sku", displayName = "SKU", type = "text" };
+        var field = new { fieldName = "Sku", displayName = "SKU", type = "string" };
 
         (await tenantAdmin.PostAsJsonAsync($"/api/content-types/{name}/fields", field, Ct))
             .StatusCode.Should().Be(HttpStatusCode.Forbidden, "the tenant route refuses a type the account owns");
@@ -233,7 +233,7 @@ public class AccountContentTypeTests
         {
             name,
             displayName = "Mine",
-            fields = new[] { new { name = "title", displayName = "Title", type = "text" } },
+            fields = new[] { new { name = "Title", displayName = "Title", type = "string" } },
         }, Ct);
 
         response.StatusCode.Should().Be(HttpStatusCode.Conflict, await response.Content.ReadAsStringAsync(Ct));
@@ -253,7 +253,7 @@ public class AccountContentTypeTests
             {
                 name = taken,
                 displayName = "Own",
-                fields = new[] { new { name = "title", displayName = "Title", type = "text" } },
+                fields = new[] { new { name = "Title", displayName = "Title", type = "string" } },
             }, Ct);
 
         (await OwnTypeAsync(inA)).StatusCode.Should().Be(HttpStatusCode.OK);
@@ -263,7 +263,7 @@ public class AccountContentTypeTests
         {
             name = taken,
             displayName = "Shared",
-            fields = new[] { new { name = "title", displayName = "Title", type = "text" } },
+            fields = new[] { new { name = "Title", displayName = "Title", type = "string" } },
         }, Ct);
         clash.StatusCode.Should().Be(HttpStatusCode.Conflict, await clash.Content.ReadAsStringAsync(Ct));
     }
@@ -281,7 +281,7 @@ public class AccountContentTypeTests
         Id = Guid.NewGuid(),
         Name = name,
         DisplayName = "Legacy",
-        Fields = [new FieldDefinition { Name = "title", DisplayName = "Title", Type = "text", IsRequired = false, Sensitivity = level }],
+        Fields = [new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string", IsRequired = false, Sensitivity = level }],
     };
 
     private async Task<HttpClient> SuperAdminAsync()
@@ -316,7 +316,7 @@ public class AccountContentTypeTests
         {
             name,
             displayName = "Sec",
-            fields = new[] { new { name = "title", displayName = "Title", type = "text", sensitivity = "Sensitive" } },
+            fields = new[] { new { name = "Title", displayName = "Title", type = "string", sensitivity = "Sensitive" } },
         }, Ct);
         created.StatusCode.Should().Be(HttpStatusCode.OK, await created.Content.ReadAsStringAsync(Ct));
         await StoreInTenantAsync(inA, LegacyTenantType(name, SensitivityLevel.Public));
@@ -336,12 +336,12 @@ public class AccountContentTypeTests
     {
         var account = await AccountAsync();
         var manager = await ManagerAsync(account.Id);
-        var field = Unique("secretfield");
+        var field = "SecretNote";
         var created = await manager.PostAsJsonAsync($"/api/accounts/{account.Slug}/content-types", new
         {
             name = Unique("sec"),
             displayName = "Sec",
-            fields = new[] { new { name = field, displayName = "F", type = "text", sensitivity = "Sensitive" } },
+            fields = new[] { new { name = field, displayName = "F", type = "string", sensitivity = "Sensitive" } },
         }, Ct);
         created.StatusCode.Should().Be(HttpStatusCode.OK, await created.Content.ReadAsStringAsync(Ct));
 
@@ -386,12 +386,14 @@ public class AccountContentTypeTests
         {
             contentTypes = new[]
             {
-                new { name, displayName = "Mine", fields = new[] { new { name = "title", displayName = "Title", type = "text" } } },
+                new { name, displayName = "Mine", fields = new[] { new { name = "Title", displayName = "Title", type = "string" } } },
             },
             contents = Array.Empty<object>(),
         }, Ct);
 
-        response.IsSuccessStatusCode.Should().BeFalse(await response.Content.ReadAsStringAsync(Ct));
+        var body = await response.Content.ReadAsStringAsync(Ct);
+        response.StatusCode.Should().BeOneOf(HttpStatusCode.BadRequest, HttpStatusCode.Conflict, HttpStatusCode.UnprocessableEntity);
+        body.Should().Contain("account owns");
     }
 
     [Fact]
@@ -403,7 +405,7 @@ public class AccountContentTypeTests
         var name = await CreateSharedTypeAsync(await ManagerAsync(account.Id), account);
         await StoreInTenantAsync(inA, new Content
         {
-            Id = Guid.NewGuid(), ContentType = name, Data = new() { ["title"] = "Suite" },
+            Id = Guid.NewGuid(), ContentType = name, Data = new() { ["Title"] = "Suite" },
         });
 
         var admin = await SuperAdminAsync();
@@ -439,7 +441,7 @@ public class AccountContentTypeTests
         {
             name,
             displayName = "ES",
-            fields = new[] { new { name = "title", displayName = "Title", type = "text", sensitivity = "Sensitive" } },
+            fields = new[] { new { name = "Title", displayName = "Title", type = "string", sensitivity = "Sensitive" } },
         }, Ct);
 
         response.StatusCode.Should().Be(HttpStatusCode.Conflict, await response.Content.ReadAsStringAsync(Ct));
@@ -456,7 +458,7 @@ public class AccountContentTypeTests
 
         var response = await manager.PostAsJsonAsync($"/api/accounts/{account.Slug}/content-types/{name}/fields", new
         {
-            fieldName = "secret", displayName = "Secret", type = "text", sensitivity = "Sensitive",
+            fieldName = "Secret", displayName = "Secret", type = "string", sensitivity = "Sensitive",
         }, Ct);
 
         response.StatusCode.Should().Be(HttpStatusCode.Conflict, await response.Content.ReadAsStringAsync(Ct));
@@ -478,7 +480,7 @@ public class AccountContentTypeTests
             {
                 name = Unique("vr"),
                 displayName = "VR",
-                fields = new[] { new { name = "title", displayName = "Title", type = "text", sensitivity = "Sensitive", visibleToRoles = new[] { role } } },
+                fields = new[] { new { name = "Title", displayName = "Title", type = "string", sensitivity = "Sensitive", visibleToRoles = new[] { role } } },
             }, Ct);
 
         var refused = await CreateWithAsync(tenantRoleName);
@@ -497,8 +499,8 @@ public class AccountContentTypeTests
         await using var second = store.LightweightSession();
         var a = await first.Query<AccountContentType>().FirstAsync(t => t.AccountId == account.Id && t.Name == name, Ct);
         var b = await second.Query<AccountContentType>().FirstAsync(t => t.AccountId == account.Id && t.Name == name, Ct);
-        a.Definition.Fields.Add(new FieldDefinition { Name = "one", DisplayName = "One", Type = "text" });
-        b.Definition.Fields.Add(new FieldDefinition { Name = "two", DisplayName = "Two", Type = "text" });
+        a.Definition.Fields.Add(new FieldDefinition { Name = "One", DisplayName = "One", Type = "string" });
+        b.Definition.Fields.Add(new FieldDefinition { Name = "Two", DisplayName = "Two", Type = "string" });
         first.Store(a);
         second.Store(b);
         await first.SaveChangesAsync(Ct);
@@ -515,11 +517,11 @@ public class AccountContentTypeTests
         var inA = await TenantAsync(account.Id);
         var manager = await ManagerAsync(account.Id);
         var name = await CreateSharedTypeAsync(manager, account);
-        await StoreInTenantAsync(inA, new Content { Id = Guid.NewGuid(), ContentType = name, Data = new() { ["title"] = "Suite" } });
+        await StoreInTenantAsync(inA, new Content { Id = Guid.NewGuid(), ContentType = name, Data = new() { ["Title"] = "Suite" } });
 
         var required = await manager.PostAsJsonAsync($"/api/accounts/{account.Slug}/content-types/{name}/fields", new
         {
-            fieldName = "sku", displayName = "SKU", type = "text", isRequired = true,
+            fieldName = "Sku", displayName = "SKU", type = "string", isRequired = true,
         }, Ct);
         required.StatusCode.Should().Be(HttpStatusCode.BadRequest, await required.Content.ReadAsStringAsync(Ct));
 
