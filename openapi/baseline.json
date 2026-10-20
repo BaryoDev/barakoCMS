@@ -561,6 +561,229 @@
         },
         "type": "object"
       },
+      "BarakoCMSBookingDayWindow": {
+        "additionalProperties": false,
+        "description": "One stretch of a single day, as an exception carries it.",
+        "properties": {
+          "end": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSBookingFeaturesAvailabilityFreeSlot": {
+        "additionalProperties": false,
+        "properties": {
+          "end": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "start": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSBookingFeaturesAvailabilityRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSBookingFeaturesAvailabilityResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "contract": {
+            "description": "The module's HTTP contract.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "resource": {
+            "description": "The id asked about.",
+            "format": "guid",
+            "type": "string"
+          },
+          "slotMinutes": {
+            "description": "The slot length, or null when the resource is free-form and slots are open stretches.",
+            "format": "int32",
+            "nullable": true,
+            "type": "integer"
+          },
+          "slots": {
+            "description": "The free slots, earliest first.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSBookingFeaturesAvailabilityFreeSlot"
+            },
+            "type": "array"
+          },
+          "timeZone": {
+            "description": "The resource's IANA time zone. Each slot's offset is the one in force in it.",
+            "type": "string"
+          },
+          "truncated": {
+            "description": "True when there were more free slots than one response carries.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSBookingFeaturesResourcesResourceRequest": {
+        "additionalProperties": false,
+        "description": "What a caller sends to create or replace a resource.",
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "entryId": {
+            "format": "guid",
+            "nullable": true,
+            "type": "string"
+          },
+          "entryType": {
+            "maxLength": 200,
+            "minLength": 0,
+            "nullable": true,
+            "type": "string"
+          },
+          "exceptions": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSBookingResourceException"
+            },
+            "nullable": false,
+            "type": "array"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 0,
+            "nullable": false,
+            "type": "string"
+          },
+          "openingHours": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSBookingOpeningWindow"
+            },
+            "nullable": false,
+            "type": "array"
+          },
+          "slotMinutes": {
+            "description": "Minutes per slot, 5 to 1440, or null for free-form.",
+            "format": "int32",
+            "maximum": 1440.0,
+            "minimum": 5.0,
+            "nullable": true,
+            "type": "integer"
+          },
+          "timeZone": {
+            "description": "An IANA time zone id, such as Asia/Manila.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "openingHours",
+          "exceptions"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSBookingFeaturesResourcesResourceResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "contract": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "entryId": {
+            "format": "guid",
+            "nullable": true,
+            "type": "string"
+          },
+          "entryType": {
+            "nullable": true,
+            "type": "string"
+          },
+          "exceptions": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSBookingResourceException"
+            },
+            "type": "array"
+          },
+          "id": {
+            "format": "guid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "openingHours": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSBookingOpeningWindow"
+            },
+            "type": "array"
+          },
+          "slotMinutes": {
+            "format": "int32",
+            "nullable": true,
+            "type": "integer"
+          },
+          "timeZone": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSBookingOpeningWindow": {
+        "additionalProperties": false,
+        "description": "One stretch of a weekday the resource is open, in the resource's time zone.",
+        "properties": {
+          "day": {
+            "description": "A weekday name, such as Monday.",
+            "type": "string"
+          },
+          "end": {
+            "description": "HH:mm, or 24:00 for the end of the day. Exclusive.",
+            "type": "string"
+          },
+          "start": {
+            "description": "HH:mm.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSBookingResourceException": {
+        "additionalProperties": false,
+        "description": "A date on which the weekly hours do not apply.",
+        "properties": {
+          "closed": {
+            "description": "Closed all day. When false, Hours replace the weekly hours for the date.",
+            "type": "boolean"
+          },
+          "date": {
+            "description": "yyyy-MM-dd, a date in the resource's time zone.",
+            "type": "string"
+          },
+          "hours": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSBookingDayWindow"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSCoreInterfacesNumberGapReport": {
         "additionalProperties": false,
         "properties": {
@@ -1584,6 +1807,58 @@
         "type": "object"
       },
       "BarakoCMSFeaturesAuthLogoutResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesAuthMagicLinkConfirmMagicLinkConfirmRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSFeaturesAuthMagicLinkConfirmMagicLinkConfirmResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "expiry": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "mfaChallengeToken": {
+            "nullable": true,
+            "type": "string"
+          },
+          "refreshToken": {
+            "type": "string"
+          },
+          "refreshTokenExpiry": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "requiresMfa": {
+            "description": "True when the link was good but the account has MFA enabled: no tokens are issued and the\nclient finishes at /api/auth/mfa/verify with MfaChallengeToken.",
+            "type": "boolean"
+          },
+          "token": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesAuthMagicLinkRequestMagicLinkRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "maxLength": 254,
+            "minLength": 0,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesAuthMagicLinkRequestMagicLinkRequestResponse": {
         "additionalProperties": false,
         "properties": {
           "message": {
@@ -3292,6 +3567,15 @@
       "BarakoCMSFeaturesContentTypeAddFieldRequest": {
         "additionalProperties": false,
         "properties": {
+          "computed": {
+            "description": "How the server computes the field from other fields of the entry. Makes the field read only.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsComputedDefinition"
+              }
+            ]
+          },
           "currency": {
             "description": "For a money field, the ISO 4217 code its amounts are in. Refused on any other type.",
             "nullable": true,
@@ -4779,17 +5063,42 @@
         "additionalProperties": false,
         "description": "What core will say about a module: the name it registered under, the module contract version it\ndeclared, whether the enabled list let it run, and what the schema preflight found for it.\nNothing else is safe to publish here, because everything else a module knows is about the\ndeployment rather than about the module.",
         "properties": {
+          "category": {
+            "description": "One of ModuleCategory, or null.",
+            "nullable": true,
+            "type": "string"
+          },
           "contractVersion": {
             "description": "ContractVersion. Zero means the module did not\nstate one, which the contract accepts, so zero is an answer rather than a missing value.",
             "format": "int32",
             "type": "integer"
           },
+          "description": {
+            "description": "A one-line description, or null.",
+            "nullable": true,
+            "type": "string"
+          },
           "enabled": {
             "description": "Whether the module runs in this process. False means it was added or discovered and then left\nout by BarakoCMS:Modules:Enabled; a module that is not installed at all is not listed.",
             "type": "boolean"
           },
+          "glyph": {
+            "description": "An icon name from the console's icon set, or null.",
+            "nullable": true,
+            "type": "string"
+          },
           "name": {
             "description": "Name, verbatim.",
+            "type": "string"
+          },
+          "packageId": {
+            "description": "The NuGet package id, or null when the module does not state one.",
+            "nullable": true,
+            "type": "string"
+          },
+          "packageVersion": {
+            "description": "The package version, or null when unstated.",
+            "nullable": true,
             "type": "string"
           },
           "schemaChanges": {
@@ -7475,6 +7784,71 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesWorkflowsActionLinksConfirmRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "additionalProperties": {},
+            "description": "Values for the fields the transition declares, such as a note.",
+            "nullable": true,
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesWorkflowsActionLinksConfirmResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesWorkflowsActionLinksPreviewRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSFeaturesWorkflowsActionLinksPreviewResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "contentType": {
+            "type": "string"
+          },
+          "entryId": {
+            "format": "guid",
+            "type": "string"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "fromState": {
+            "type": "string"
+          },
+          "optionalFields": {
+            "description": "The fields the confirmation may send.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "requiredFields": {
+            "description": "The fields the confirmation must send, for example a note.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "toState": {
+            "type": "string"
+          },
+          "transition": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesWorkflowsCreateWorkflowRequest": {
         "additionalProperties": false,
         "description": "A workflow as a caller writes it, rather than as it is stored.",
@@ -7499,6 +7873,18 @@
             "type": "string"
           },
           "name": {
+            "type": "string"
+          },
+          "schedule": {
+            "nullable": true,
+            "type": "string"
+          },
+          "scheduleCatchUp": {
+            "nullable": true,
+            "type": "string"
+          },
+          "scheduleTimeZone": {
+            "nullable": true,
             "type": "string"
           },
           "triggerContentType": {
@@ -7889,6 +8275,30 @@
             "type": "string"
           },
           "name": {
+            "type": "string"
+          },
+          "nextDueTimes": {
+            "description": "The next five due times in UTC, on the response to a save of a scheduled workflow. Left out\notherwise.",
+            "items": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "nullable": true,
+            "type": "array"
+          },
+          "schedule": {
+            "description": "The cron expression of a scheduled workflow. Left out otherwise.",
+            "nullable": true,
+            "type": "string"
+          },
+          "scheduleCatchUp": {
+            "description": "The catch-up rule of the schedule. Left out when there is no schedule.",
+            "nullable": true,
+            "type": "string"
+          },
+          "scheduleTimeZone": {
+            "description": "The zone the schedule is read in: tenant or an IANA id. Left out when there is no schedule.",
+            "nullable": true,
             "type": "string"
           },
           "triggerContentType": {
@@ -8396,6 +8806,11 @@
       "BarakoCMSFormsFeaturesDefinitionResponse": {
         "additionalProperties": false,
         "properties": {
+          "closedMessage": {
+            "description": "The message a refused submission carries when Open is false.",
+            "nullable": true,
+            "type": "string"
+          },
           "description": {
             "type": "string"
           },
@@ -8407,6 +8822,11 @@
               "$ref": "#/components/schemas/BarakoCMSFormsFeaturesDefinitionFieldResponse"
             },
             "type": "array"
+          },
+          "open": {
+            "description": "Whether the form takes submissions right now. Null when the form has no opening or closing\ndate, so a client that never heard of the window sees nothing new.",
+            "nullable": true,
+            "type": "boolean"
           },
           "slug": {
             "type": "string"
@@ -8451,6 +8871,10 @@
       "BarakoCMSFormsFeaturesManageFormResponse": {
         "additionalProperties": false,
         "properties": {
+          "closesAtField": {
+            "nullable": true,
+            "type": "string"
+          },
           "contentType": {
             "type": "string"
           },
@@ -8462,7 +8886,15 @@
             "nullable": true,
             "type": "string"
           },
+          "opensAtField": {
+            "nullable": true,
+            "type": "string"
+          },
           "verifyEmailField": {
+            "nullable": true,
+            "type": "string"
+          },
+          "windowContentType": {
             "nullable": true,
             "type": "string"
           }
@@ -8472,11 +8904,26 @@
       "BarakoCMSFormsFeaturesManageSetRequest": {
         "additionalProperties": false,
         "properties": {
+          "closesAtField": {
+            "description": "A date or datetime field of the window type. Submissions from its value on are refused.",
+            "nullable": true,
+            "type": "string"
+          },
           "enabled": {
             "type": "boolean"
           },
+          "opensAtField": {
+            "description": "A date or datetime field of the window type. Submissions before its value are refused.",
+            "nullable": true,
+            "type": "string"
+          },
           "verifyEmailField": {
             "description": "The email field to verify with an emailed code before a submission is accepted. Left out, the\nform keeps what it has. An empty string turns verification off.",
+            "nullable": true,
+            "type": "string"
+          },
+          "windowContentType": {
+            "description": "The singleton content type that holds the opening and closing dates. Sent with\nopensAtField and closesAtField as one group: leave all three out to keep the\nwindow, send any of them to replace it, and an empty string clears one.",
             "nullable": true,
             "type": "string"
           }
@@ -8963,6 +9410,30 @@
           "Cancelled"
         ]
       },
+      "BarakoCMSModelsComputedDefinition": {
+        "additionalProperties": false,
+        "description": "A computed field's function and what it reads: { \"fn\": \"hours\", \"args\": [\"TimeIn\", \"TimeOut\"], \"round\": 2 }.",
+        "properties": {
+          "args": {
+            "description": "Field names of the same entry. Numeric functions also take a number written out.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "fn": {
+            "description": "One of add, subtract, multiply, divide, round, min, max, hours, days, duration, concat, coalesce.",
+            "type": "string"
+          },
+          "round": {
+            "description": "Decimal places a numeric result is rounded to, 0 to 10. Null leaves a decimal as it comes out.",
+            "format": "int32",
+            "nullable": true,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSModelsContent": {
         "additionalProperties": false,
         "properties": {
@@ -9190,6 +9661,15 @@
       "BarakoCMSModelsFieldDefinition": {
         "additionalProperties": false,
         "properties": {
+          "computed": {
+            "description": "How the server computes this field's value from other fields of the same entry. Null, the\ndefault, is an ordinary field.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsComputedDefinition"
+              }
+            ]
+          },
           "currency": {
             "description": "For a money field, the ISO 4217 code every amount in it is in, for example USD.",
             "nullable": true,
@@ -10667,6 +11147,90 @@
         },
         "type": "object"
       },
+      "BarakoCMSModelsPaginatedResponseOfResourceResponse": {
+        "additionalProperties": false,
+        "description": "Generic paginated response with metadata.",
+        "properties": {
+          "hasNextPage": {
+            "description": "Whether there is a next page",
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "description": "Whether there is a previous page",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Items for the current page",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSBookingFeaturesResourcesResourceResponse"
+            },
+            "type": "array"
+          },
+          "page": {
+            "description": "Current page number (1-indexed)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "pageSize": {
+            "description": "Number of items per page",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalItems": {
+            "description": "Total number of items across all pages",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalPages": {
+            "description": "Total number of pages",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSModelsPaginatedResponseOfResponse": {
+        "additionalProperties": false,
+        "description": "Generic paginated response with metadata.",
+        "properties": {
+          "hasNextPage": {
+            "description": "Whether there is a next page",
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "description": "Whether there is a previous page",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Items for the current page",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSReportsFeaturesCreateResponse"
+            },
+            "type": "array"
+          },
+          "page": {
+            "description": "Current page number (1-indexed)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "pageSize": {
+            "description": "Number of items per page",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalItems": {
+            "description": "Total number of items across all pages",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalPages": {
+            "description": "Total number of pages",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSModelsPaginatedResponseOfRoleResponse": {
         "additionalProperties": false,
         "description": "Generic paginated response with metadata.",
@@ -11996,6 +12560,86 @@
         },
         "type": "object"
       },
+      "BarakoCMSPaymentsFeaturesCheckoutRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "entryId": {
+            "format": "guid",
+            "minLength": 1,
+            "nullable": false,
+            "type": "string"
+          },
+          "provider": {
+            "minLength": 1,
+            "nullable": false,
+            "type": "string"
+          }
+        },
+        "required": [
+          "entryId",
+          "provider"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSPaymentsFeaturesCheckoutResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "attemptId": {
+            "format": "guid",
+            "type": "string"
+          },
+          "checkoutUrl": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSPaymentsFeaturesPayableRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "amountField": {
+            "minLength": 1,
+            "nullable": false,
+            "type": "string"
+          },
+          "currency": {
+            "pattern": "^[A-Za-z]{3}$",
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "failedTransition": {
+            "nullable": true,
+            "type": "string"
+          },
+          "paidTransition": {
+            "minLength": 1,
+            "nullable": false,
+            "type": "string"
+          }
+        },
+        "required": [
+          "amountField",
+          "paidTransition"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSPaymentsFeaturesPayableResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "contentType": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSPortabilityContentRecord": {
         "additionalProperties": false,
         "deprecated": true,
@@ -12203,6 +12847,149 @@
           "platform": {
             "description": "ios | android | windows | macos | linux | other.",
             "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSQrFeaturesRenderRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSReportsFeaturesCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "contentType": {
+            "minLength": 1,
+            "nullable": false,
+            "type": "string"
+          },
+          "dateField": {
+            "nullable": true,
+            "type": "string"
+          },
+          "filters": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSReportsReportFilter"
+            },
+            "type": "array"
+          },
+          "groupBy": {
+            "nullable": true,
+            "type": "string"
+          },
+          "groupLimit": {
+            "format": "int32",
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "nullable": true,
+            "type": "integer"
+          },
+          "measures": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSReportsReportMeasure"
+            },
+            "type": "array"
+          },
+          "name": {
+            "minLength": 1,
+            "nullable": false,
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+            "type": "string"
+          },
+          "title": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "contentType"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSReportsFeaturesCreateResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "contentType": {
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "dateField": {
+            "nullable": true,
+            "type": "string"
+          },
+          "filters": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSReportsReportFilter"
+            },
+            "type": "array"
+          },
+          "groupBy": {
+            "nullable": true,
+            "type": "string"
+          },
+          "groupLimit": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "measures": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSReportsReportMeasure"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "title": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSReportsFeaturesRunRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSReportsReportFilter": {
+        "additionalProperties": false,
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "op": {
+            "description": "One of eq, ne, lt, lte, gt, gte.",
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSReportsReportMeasure": {
+        "additionalProperties": false,
+        "properties": {
+          "as": {
+            "description": "The name the figure goes by in a run. Defaults to fn_field, or count.",
+            "nullable": true,
+            "type": "string"
+          },
+          "field": {
+            "description": "A numeric field. Not used by count.",
+            "nullable": true,
+            "type": "string"
+          },
+          "fn": {
+            "description": "One of count, sum, avg, min, max.",
+            "type": "string"
+          },
+          "label": {
             "type": "string"
           }
         },
@@ -13460,6 +14247,127 @@
         ]
       }
     },
+    "/api/auth/magic-link/confirm": {
+      "get": {
+        "operationId": "barakoCMSFeaturesAuthMagicLinkConfirmPageEndpoint",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          }
+        },
+        "summary": "GET /api/auth/magic-link/confirm: the page the emailed link opens. It shows a confirm button and\nchanges nothing. Mail scanners and link previews fetch links with GET, so a GET that signed\nsomebody in, or spent the link, would let them do it for the user.",
+        "tags": [
+          "Auth"
+        ]
+      },
+      "post": {
+        "operationId": "barakoCMSFeaturesAuthMagicLinkConfirmEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesAuthMagicLinkConfirmMagicLinkConfirmRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "MagicLinkConfirmRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesAuthMagicLinkConfirmMagicLinkConfirmResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          }
+        },
+        "summary": "POST /api/auth/magic-link/confirm: spend a link for the same tokens the code verify route\nissues. Single-use, expiry-checked, and only for the tenant the link was requested in.",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/auth/magic-link/request": {
+      "post": {
+        "description": "Gated by the same tenant sign-in method as codes (otp), since both prove the mailbox.\nRate limited by the same \"auth\" policy as the code request.",
+        "operationId": "barakoCMSFeaturesAuthMagicLinkRequestEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesAuthMagicLinkRequestMagicLinkRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "MagicLinkRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesAuthMagicLinkRequestMagicLinkRequestResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          }
+        },
+        "summary": "POST /api/auth/magic-link/request: email a single-use sign-in link to a registered user.\nAlways answers 200 with the same message so callers cannot probe which emails exist.",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
     "/api/auth/mfa/disable": {
       "post": {
         "operationId": "barakoCMSFeaturesAuthMfaDisableEndpoint",
@@ -14456,6 +15364,242 @@
         "summary": "PUT /api/blocks/schema: replaces the tenant's block schema, as someone who manages its types.",
         "tags": [
           "Blocks"
+        ]
+      }
+    },
+    "/api/booking/resources": {
+      "get": {
+        "operationId": "BarakoCMSBookingFeaturesResourcesListEndpoint",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfResourceResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/booking/resources: the tenant's resources, paged.",
+        "tags": [
+          "Booking"
+        ]
+      },
+      "post": {
+        "operationId": "BarakoCMSBookingFeaturesResourcesCreateEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSBookingFeaturesResourcesResourceRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "ResourceRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSBookingFeaturesResourcesResourceResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/booking/resources: creates a resource.",
+        "tags": [
+          "Booking"
+        ]
+      }
+    },
+    "/api/booking/resources/{id}": {
+      "delete": {
+        "operationId": "BarakoCMSBookingFeaturesResourcesDeleteEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "DELETE /api/booking/resources/{id}. Refused with 409 while a booking still holds time on the\nresource; cancel those first, or set the resource inactive instead.",
+        "tags": [
+          "Booking"
+        ]
+      },
+      "get": {
+        "operationId": "BarakoCMSBookingFeaturesResourcesGetEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSBookingFeaturesResourcesResourceResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/booking/resources/{id}.",
+        "tags": [
+          "Booking"
+        ]
+      },
+      "put": {
+        "operationId": "BarakoCMSBookingFeaturesResourcesUpdateEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSBookingFeaturesResourcesResourceRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "ResourceRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSBookingFeaturesResourcesResourceResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "PUT /api/booking/resources/{id}: replaces a resource. A value left out goes back to its default.",
+        "tags": [
+          "Booking"
         ]
       }
     },
@@ -19329,6 +20473,94 @@
         ]
       }
     },
+    "/api/payments/payable/{contentType}": {
+      "put": {
+        "description": "Refuses a type with no lifecycle, or whose lifecycle lacks the named transitions, because a\npayment could never move the entry. Refuses an amount field that is not a number field.",
+        "operationId": "BarakoCMSPaymentsFeaturesPayableEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contentType",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSPaymentsFeaturesPayableRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "Request",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSPaymentsFeaturesPayableResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "PUT /api/payments/payable/{contentType}. Declares what is payable on a content type, or stops it.",
+        "tags": [
+          "Payments"
+        ]
+      }
+    },
+    "/api/payments/webhooks/{provider}": {
+      "post": {
+        "description": "An event is handled once. Its provider event id is the key of a stored record, saved in the same\ncommit as the transition, so a redelivery finds the record and answers 200 without doing\nanything, and two deliveries racing each other cannot both commit. A bad signature answers 401\nand touches nothing. The transition runs as the system actor payments-webhook, on the\nmodule's own authority, since no user is behind a webhook.\n            \nAn event for a payment whose entry is no longer in the state the transition starts from answers\n409 and writes nothing, so the attempt stays pending for a person or for reconciliation.",
+        "operationId": "BarakoCMSPaymentsFeaturesWebhookEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "summary": "POST /api/payments/webhooks/{provider}. Anonymous, because the provider holds no token; the\nsignature the provider's adapter checks is the authentication.",
+        "tags": [
+          "Payments"
+        ]
+      }
+    },
     "/api/portability/export": {
       "get": {
         "deprecated": true,
@@ -19456,6 +20688,132 @@
         "summary": "POST /api/preview: a signed-in editor gets a 30 minute token for one draft entry. Deprecated in\nfavour of an entry share link (POST /api/contents/{id}/share-links).",
         "tags": [
           "Preview"
+        ]
+      }
+    },
+    "/api/public/action-links/{token}": {
+      "get": {
+        "description": "404 for a bad, expired, spent or revoked link, and for a user who may no longer make the move.",
+        "operationId": "barakoCMSFeaturesWorkflowsActionLinksPreviewEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesWorkflowsActionLinksPreviewResponse"
+                }
+              }
+            },
+            "description": "Success"
+          }
+        },
+        "summary": "GET /api/public/action-links/{token}: what confirming the link would do. Changes nothing, so a\nmail scanner that follows the link approves nothing.",
+        "tags": [
+          "Workflows"
+        ]
+      },
+      "post": {
+        "description": "The permission and row conditions are checked by the transitioner at this moment, not read from\nthe link. The mark that spends the link is stored in the same commit as the transition, so a\nrefused move leaves the link usable and a second use finds it spent. A bad, expired, spent or\nrevoked link, and a user who may no longer make the move, all answer 404.",
+        "operationId": "barakoCMSFeaturesWorkflowsActionLinksConfirmEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesWorkflowsActionLinksConfirmRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "Request",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesWorkflowsActionLinksConfirmResponse"
+                }
+              }
+            },
+            "description": "Success"
+          }
+        },
+        "summary": "POST /api/public/action-links/{token}: makes the transition the link is for, as the user it is\nfor, and spends the link.",
+        "tags": [
+          "Workflows"
+        ]
+      }
+    },
+    "/api/public/availability": {
+      "get": {
+        "description": "The range is at most MaxRangeDays days. An unknown or inactive\nresource answers 404, the same for both. Throttled per client IP.",
+        "operationId": "BarakoCMSBookingFeaturesAvailabilityEndpoint",
+        "parameters": [
+          {
+            "description": "The id of the resource.",
+            "in": "query",
+            "name": "resource",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Start of the range, ISO 8601 with a UTC offset. A + in the offset must be sent as %2B.",
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "End of the range, exclusive, in the same form.",
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSBookingFeaturesAvailabilityResponse"
+                }
+              }
+            },
+            "description": "Success"
+          }
+        },
+        "summary": "GET /api/public/availability?resource=&from=&to=. Anonymous. The free slots of a resource in\na range, and nothing about the bookings that took the rest.",
+        "tags": [
+          "Booking"
         ]
       }
     },
@@ -19721,6 +21079,51 @@
         "summary": "GET /api/public/pages/resolve?path=/about/team: the published page at a path, with its canonical\npath and breadcrumbs from the root down to itself. 404 when nothing is served there.",
         "tags": [
           "Pages"
+        ]
+      }
+    },
+    "/api/public/payments/checkout": {
+      "post": {
+        "description": "The request names an entry and a provider and nothing else. The amount, the currency and the\ndescription come from the entry and its type's payable declaration, so a body that carries an\namount is read as if it did not. An entry whose type is not payable, or that is not in the state\nthe paid transition starts from, or that has already been paid, answers the same way it would\nif it did not exist or could not be paid, so the route does not describe other entries.",
+        "operationId": "BarakoCMSPaymentsFeaturesCheckoutEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSPaymentsFeaturesCheckoutRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "Request",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSPaymentsFeaturesCheckoutResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          }
+        },
+        "summary": "POST /api/public/payments/checkout. Anonymous. Starts a payment for one entry and returns the\nprovider's hosted checkout URL.",
+        "tags": [
+          "Payments"
         ]
       }
     },
@@ -20069,6 +21472,77 @@
         "summary": "GET /api/public/{type}/semantic?q=\u2026&limit=\u2026 \u2014 vector search over a type's index. Embeds the query,\nranks stored vectors by cosine similarity, then re-verifies each candidate is STILL Published and\ndocument-Public before returning it \u2014 so an entry unpublished or hidden since indexing never leaks.\nAnonymous and cacheable; the literal \"semantic\" segment wins over the {slug} route. Takes the\ndelivery list's filter[field][op]=value parameters, applied before ranking.",
         "tags": [
           "AI"
+        ]
+      }
+    },
+    "/api/public/{type}/{id}/qr/{field}": {
+      "get": {
+        "description": "404 for every refusal, so a caller cannot tell a missing entry from a draft, a field the type\ndoes not allow from one that is empty. The entry goes through the same projector the core public\nroutes use, so it has to be published, Public, of a deliverable type, and the field has to be\nmarked Public on that type, on top of being listed in Fields.",
+        "operationId": "BarakoCMSQrFeaturesRenderEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "type",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "field",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "png or svg. Defaults to png.",
+            "in": "query",
+            "name": "format",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Pixels per QR module. Defaults to 8.",
+            "in": "query",
+            "name": "size",
+            "schema": {
+              "format": "int32",
+              "nullable": true,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          }
+        },
+        "summary": "GET /api/public/{type}/{id}/qr/{field}?format=png|svg&size=8: one field's value as a QR code.",
+        "tags": [
+          "Qr"
         ]
       }
     },
@@ -20686,6 +22160,176 @@
         "summary": "PUT /api/renderer/blocks/schema: replaces the tenant's block schema, as the renderer, which sends\nthe deployment's renderer key in X-Barako-Renderer-Key.",
         "tags": [
           "Blocks"
+        ]
+      }
+    },
+    "/api/reports": {
+      "get": {
+        "operationId": "BarakoCMSReportsFeaturesListEndpoint",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/reports. The tenant's saved reports, paged.",
+        "tags": [
+          "Reports"
+        ]
+      },
+      "post": {
+        "description": "Checks the definition against the content type's schema, so a report that names a field the type\ndoes not have, or sums one that is not a number, is refused when it is saved and not on every\nrun. Whether a given caller may read those fields is decided at run time, by the caller.",
+        "operationId": "BarakoCMSReportsFeaturesCreateEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSReportsFeaturesCreateRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "Request",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSReportsFeaturesCreateResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/reports. Saves a report definition for the tenant.",
+        "tags": [
+          "Reports"
+        ]
+      }
+    },
+    "/api/reports/{name}": {
+      "get": {
+        "description": "The caller needs no capability beyond being signed in, and sees only what their own read rules\nshow: their row conditions narrow the entries counted, and a field they cannot read cannot be the\ngroup, a measure or a filter (403). A role whose rules cannot be written as a database condition\nis refused rather than answered by loading every entry.",
+        "operationId": "BarakoCMSReportsFeaturesRunEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "First day included, on the date field the report names (the day created by default).",
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "format": "date",
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Last day included.",
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "format": "date",
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "csv for a CSV download. Anything else, or nothing, is JSON.",
+            "in": "query",
+            "name": "format",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/reports/{name}?from=&to=&format=. Runs a saved report as the caller.",
+        "tags": [
+          "Reports"
         ]
       }
     },
