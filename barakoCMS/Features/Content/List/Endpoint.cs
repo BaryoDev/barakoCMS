@@ -105,7 +105,8 @@ internal class Endpoint(
 
         if (!string.IsNullOrEmpty(req.ContentType))
         {
-            query = query.Where(c => c.ContentType == req.ContentType);
+            // Entries keep the type name as the caller spelled it (#1159), so the filter ignores case.
+            query = query.Where(c => c.ContentType.Equals(req.ContentType, StringComparison.OrdinalIgnoreCase));
         }
 
         // Status and search are pushed into the query, and that is safe in a way a permission filter
