@@ -265,6 +265,7 @@ internal sealed class ContentChangeListener(
         Section = f.Section,
         Role = f.Role,
         TokenLength = f.TokenLength,
+        Computed = f.Computed,
         IsRequired = f.IsRequired,
         DefaultValue = f.DefaultValue,
         ValidationRules = f.ValidationRules,

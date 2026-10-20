@@ -122,6 +122,18 @@ public class ContentValidatorService(
 
             var keyDetails = data.FirstOrDefault(k => k.Key.Equals(field.Name, StringComparison.OrdinalIgnoreCase));
 
+            // The server computes the value inside the write. A request may carry the stored value
+            // back, as an edit form does, and nothing else.
+            if (ComputedFields.IsComputed(field))
+            {
+                var storedKey = existing?.Data.Keys.FirstOrDefault(k => k.Equals(field.Name, StringComparison.OrdinalIgnoreCase));
+                var stored = storedKey is null ? null : existing!.Data[storedKey];
+                if (keyDetails.Key != null && !ComputedFields.SameAsStored(keyDetails.Value, stored))
+                    errors.Add(ComputedFields.RefusedMessage(field));
+
+                continue;
+            }
+
             // Only the first of two keys differing in case is checked below, and both are stored,
             // so a reader that takes the other one would get a value nothing checked. A field sent
             // twice is refused before anything else, a null first one included.
