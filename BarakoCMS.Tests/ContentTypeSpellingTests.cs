@@ -3,7 +3,11 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
+using Marten;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
+using barakoCMS.Infrastructure.Services;
+using barakoCMS.Models;
 
 namespace BarakoCMS.Tests;
 
@@ -73,5 +77,39 @@ public class ContentTypeSpellingTests
         var byMixed = await client.GetAsync($"/api/contents?contentType={mixed}&pageSize=50", Ct);
         using var mixedPage = JsonDocument.Parse(await byMixed.Content.ReadAsStringAsync(Ct));
         mixedPage.RootElement.GetProperty("items").GetArrayLength().Should().Be(2);
+    }
+
+    [Fact]
+    public async Task A_rule_written_for_one_spelling_grants_read_on_an_entry_stored_in_another()
+    {
+        var slug = "spellperm" + Guid.NewGuid().ToString("N")[..8];
+        var roleId = Guid.NewGuid();
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            Username = "reader" + Guid.NewGuid().ToString("N")[..10],
+            Email = $"{Guid.NewGuid():N}@example.com",
+            PasswordHash = "x",
+            RoleIds = [roleId],
+        };
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(new Role
+        {
+            Id = roleId,
+            Name = "spellreader" + slug,
+            TenantSlug = null,
+            Permissions = [new ContentTypePermission { ContentTypeSlug = slug, Read = new PermissionRule { Enabled = true } }],
+        });
+        session.Store(user);
+        await session.SaveChangesAsync(Ct);
+
+        var resolver = scope.ServiceProvider.GetRequiredService<IPermissionResolver>();
+        resolver.InvalidateAllPermissions();
+        var stored = await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<User>(user.Id, Ct);
+
+        (await resolver.CanPerformActionAsync(stored!, slug, "read", cancellationToken: Ct)).Should().BeTrue();
+        (await resolver.CanPerformActionAsync(stored!, slug.ToUpperInvariant(), "read", cancellationToken: Ct))
+            .Should().BeTrue("the list matches the type name ignoring case, so the rule has to as well");
     }
 }
