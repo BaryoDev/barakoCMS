@@ -103,6 +103,19 @@ internal class Endpoint(
             return;
         }
 
+        var lineDefinition = await session.Query<ContentTypeDefinition>()
+            .FirstOrDefaultAsync(d => d.Name.ToLower() == barakoCMS.Core.ContentTypeName.Normalize(lineType.ContentType), ct);
+        var parent = lineDefinition?.Fields.FirstOrDefault(f => string.Equals(f.Name, lineType.ParentField, StringComparison.OrdinalIgnoreCase));
+        if (parent is null
+            || !string.Equals(parent.Type, "reference", StringComparison.OrdinalIgnoreCase)
+            || parent.Multiple
+            || !string.Equals(parent.ReferenceType, name, StringComparison.OrdinalIgnoreCase))
+        {
+            AddError($"The lines of '{req.ContentType}' no longer point at it: '{lineType.ContentType}' has no single reference field '{lineType.ParentField}' to it. Set the lines again.");
+            ThrowIfAnyErrors();
+            return;
+        }
+
         var headerId = Guid.NewGuid();
         var header = new barakoCMS.Infrastructure.Services.ContentCreateRequest
         {

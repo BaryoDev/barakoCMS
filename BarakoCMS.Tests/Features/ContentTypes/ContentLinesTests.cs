@@ -193,4 +193,28 @@ public class ContentLinesTests : IAsyncLifetime
         }, Ct);
         res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
+
+    [Fact]
+    public async Task Lines_are_refused_when_the_line_type_lost_its_parent_field()
+    {
+        var (header, line) = await TypesAsync();
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var store = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
+            await using var session = store.LightweightSession("*DEFAULT*");
+            var def = await session.Query<ContentTypeDefinition>().FirstAsync(d => d.Name == line, Ct);
+            def.Fields = def.Fields.Where(f => !string.Equals(f.Name, "Order", StringComparison.OrdinalIgnoreCase)).ToList();
+            session.Store(def);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var res = await _client.PostAsJsonAsync("/api/contents", new
+        {
+            contentType = header, data = new { Customer = "Gus" }, lines = new object[] { new { Sku = "A-1" } },
+        }, Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await StoredAsync(header)).Should().BeEmpty();
+        (await StoredAsync(line)).Should().BeEmpty();
+    }
 }
