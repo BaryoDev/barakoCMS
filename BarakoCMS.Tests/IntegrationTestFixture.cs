@@ -526,6 +526,9 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             new BarakoCMS.FeatureFlags.FeatureFlagsModule().ConfigureServices(services, ctx.Configuration);
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.FeatureFlags.FeatureFlagsModule(), opts));
 
+            // Scheduling: the sweep tests drive ScheduleSweepService directly, so only the document is needed.
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Scheduling.SchedulingModule(), opts));
+
             // ExternalAuth: the OAuth start/callback endpoints are anonymous, so what they refuse
             // is only checkable over real HTTP. ConfigureServices gives them IHttpClientFactory.
             new BarakoCMS.ExternalAuth.ExternalAuthModule().ConfigureServices(services, ctx.Configuration);
