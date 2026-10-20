@@ -679,7 +679,25 @@ public class TemplateVariableExtractor(
     };
 
     private static List<TemplateVariable> GetSystemVariables() =>
-        [.. GetEntryVariables(), .. GetPeopleVariables(), .. GetLinkVariables()];
+        [.. GetEntryVariables(), .. GetPeopleVariables(), .. GetLinkVariables(), .. GetScheduleVariables()];
+
+    private static List<TemplateVariable> GetScheduleVariables() =>
+    [
+        new()
+        {
+            Name = "{{schedule.at}}",
+            Description = "The due time the run is for. Schedule triggers only",
+            Example = "2026-10-20T16:00:00Z",
+            Type = "datetime"
+        },
+        new()
+        {
+            Name = "{{schedule.previousAt}}",
+            Description = "The due time before it. Empty when the schedule had none. Schedule triggers only",
+            Example = "2026-10-19T16:00:00Z",
+            Type = "datetime"
+        },
+    ];
 
     private static List<TemplateVariable> GetEntryVariables()
     {

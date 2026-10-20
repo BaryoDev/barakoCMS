@@ -159,6 +159,7 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
         }
 
         ValidateExecutor(workflow, result);
+        ValidateSchedule(workflow, result);
 
         // Validate actions
         if (workflow.Actions == null || workflow.Actions.Count == 0)
@@ -181,6 +182,40 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// A workflow on the Schedule trigger needs a cron expression and a known zone, and anything
+    /// else must not carry one: a schedule on a workflow that never reads it looks set and is not.
+    /// </summary>
+    private static void ValidateSchedule(WorkflowDefinition workflow, WorkflowValidationResult result)
+    {
+        var scheduled = WorkflowTriggers.Events(workflow).Contains(WorkflowEvents.Schedule, StringComparer.Ordinal);
+
+        void Refuse(string field, string message)
+        {
+            result.Errors.Add(new ValidationError { Field = field, Message = message });
+            result.IsValid = false;
+        }
+
+        if (!scheduled)
+        {
+            if (!string.IsNullOrWhiteSpace(workflow.Schedule))
+                Refuse("schedule", "A schedule needs the Schedule trigger event");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(workflow.Schedule))
+            Refuse("schedule", "A Schedule trigger needs a cron expression");
+        else if (WorkflowSchedule.Parse(workflow.Schedule) is null)
+            Refuse("schedule", "Schedule must be a 5-field cron expression: minute hour day-of-month month day-of-week");
+
+        if (!WorkflowSchedule.IsKnownZone(workflow.ScheduleTimeZone))
+            Refuse("scheduleTimeZone", "Schedule time zone must be 'tenant' or an IANA id such as Asia/Manila");
+
+        if (!string.IsNullOrWhiteSpace(workflow.ScheduleCatchUp)
+            && !string.Equals(workflow.ScheduleCatchUp, WorkflowSchedule.CatchUpOnce, StringComparison.OrdinalIgnoreCase))
+            Refuse("scheduleCatchUp", "Schedule catch-up must be 'once'");
     }
 
     private void ValidateExecutor(WorkflowDefinition workflow, WorkflowValidationResult result)

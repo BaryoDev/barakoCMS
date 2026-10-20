@@ -65,6 +65,7 @@
     <PackageReference Include="BCrypt.Net-Next" />
     <PackageReference Include="Carom" />
     <PackageReference Include="Carom.Extensions" />
+    <PackageReference Include="Cronos" />
     <PackageReference Include="FastEndpoints" />
     <PackageReference Include="FastEndpoints.Swagger" />
     <PackageReference Include="FastEndpoints.Security" />

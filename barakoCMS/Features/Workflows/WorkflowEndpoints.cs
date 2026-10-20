@@ -45,10 +45,20 @@ internal class CreateWorkflowEndpoint(
         WebhookSigning.ProtectSecrets(workflow, protector);
 
         workflow.Id = Guid.NewGuid();
+
+        var response = barakoCMS.Features.Workflows.WorkflowResponse.Saved(workflow, validation.Warnings);
+
+        if (WorkflowSchedule.Parse(workflow.Schedule) is { } cron)
+        {
+            var now = DateTime.UtcNow;
+            workflow.ScheduleArmedAt = now;
+            response.NextDueTimes = WorkflowSchedule.Next(
+                cron, await WorkflowSchedule.ZoneAsync(session, workflow, ct), now, WorkflowSchedule.PreviewCount);
+        }
+
         session.Store(workflow);
         await session.SaveChangesAsync(ct);
-        await Send.ResponseAsync(
-            barakoCMS.Features.Workflows.WorkflowResponse.Saved(workflow, validation.Warnings), cancellation: ct);
+        await Send.ResponseAsync(response, cancellation: ct);
     }
 }
 

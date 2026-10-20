@@ -41,6 +41,12 @@ public static class WorkflowEvents
     public const string Manual = "Manual";
     
     /// <summary>
+    /// Triggered by the clock, at the times a workflow's cron schedule names. Not in
+    /// <see cref="All"/>: no content event fires it, and a run it starts has no entry.
+    /// </summary>
+    public const string Schedule = "Schedule";
+
+    /// <summary>
     /// The prefix a trigger uses to name a lifecycle transition rather than one of the events
     /// above, as in "transition:Approve".
     /// </summary>
@@ -92,6 +98,6 @@ public static class WorkflowEvents
     /// <returns>True if the event name is valid; otherwise false.</returns>
     public static bool IsValid(string eventName)
     {
-        return All.Contains(eventName) || TransitionName(eventName) is { Length: > 0 };
+        return All.Contains(eventName) || eventName == Schedule || TransitionName(eventName) is { Length: > 0 };
     }
 }
