@@ -68,6 +68,8 @@ public class TokenCleanupService(
         // index is already registered, so this pass costs an indexed delete.
         session.DeleteWhere<OtpCode>(o => o.ExpiresAt < now);
 
+        session.DeleteWhere<MagicLinkToken>(m => m.ExpiresAt < now);
+
         // Same shape, same reason. A pending registration nobody confirmed is dead weight, and it
         // holds a username, an address and a password hash, so keeping it after the token stopped
         // working is data retained for no purpose.
