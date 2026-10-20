@@ -35,11 +35,11 @@ public class ModuleContentPermissionDefaultsTests
             ? ContentPermissionDefaults.None().Allow(slug, role, ContentAction.Create, ContentAction.Read)
             : null;
 
-        public Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct)
+        public async Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct)
         {
-            if (session.Query<ContentTypeDefinition>().Any(t => t.Name == slug))
+            if (await session.Query<ContentTypeDefinition>().AnyAsync(t => t.Name == slug, ct))
             {
-                return Task.CompletedTask;
+                return;
             }
 
             session.Store(new ContentTypeDefinition
@@ -49,7 +49,6 @@ public class ModuleContentPermissionDefaultsTests
                 DisplayName = "Seeded",
                 Fields = [new FieldDefinition { Name = "Title", Type = "string" }],
             });
-            return Task.CompletedTask;
         }
     }
 
