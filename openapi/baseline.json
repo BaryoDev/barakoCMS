@@ -6954,7 +6954,8 @@
               "format": "int32",
               "type": "integer"
             },
-            "description": "How many runs have each status under the content and workflow filters, whatever the status filter and the\npage. Every status is present, with zero where there are none.",
+            "description": "How many runs have each status under the content and workflow filters, whatever the status filter and\nthe page. Every status is present, with zero where there are none. Null when <c>changedSince</c>\nwas given, since a poll reads what changed and a count would add a scan to each one.",
+            "nullable": true,
             "type": "object"
           },
           "succeededRetainedFrom": {

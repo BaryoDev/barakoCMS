@@ -83,7 +83,7 @@ public class StorageSettingsTests : IAsyncLifetime
         return ValueTask.CompletedTask;
     }
 
-    /// <summary>A host that lets a saved bucket sit on loopback, where the test container is. Never disposed.</summary>
+    /// <summary>A host that lets a saved bucket sit on loopback, where the test container is.</summary>
     private WebApplicationFactory<Program> PrivateNetworkHost() =>
         Derived(ref _privateNetworkHost, S3ObjectStorageProvider.AllowPrivateServiceUrlKey, "true");
 
