@@ -69,11 +69,16 @@ internal sealed record RunCursor(DateTimeOffset At, Guid Id)
     /// <param name="hasMore">Whether more changed runs follow this page.</param>
     /// <param name="now">The time the page was read.</param>
     /// <remarks>
-    /// An empty page returns the cursor it was given. A page with more behind it returns its last
-    /// row exactly, since lagging there would read the same rows again and never get further. The
-    /// last page lags: the cursor stops at <see cref="Margin"/> before now, so a run whose
-    /// transaction commits late is seen on the next poll. A run read twice is harmless to a client
-    /// that replaces by id; a run never read is not.
+    /// An empty page returns the cursor it was given. A page whose last row is older than
+    /// <see cref="Margin"/> returns that row exactly. Otherwise the cursor lags: it stops at
+    /// <see cref="Margin"/> before now, so a run whose transaction commits late is seen on the next
+    /// poll, on the last page and on a page with more behind it alike. A run read twice is harmless
+    /// to a client that replaces by id; a run never read is not.
+    ///
+    /// A lagging cursor must get further than the one it replaces, or a client following it would
+    /// read the same page for ever. When the margin point is not past the input (the whole page sits
+    /// inside the margin), a page with more behind it returns its last row exactly, since the client
+    /// has to move on, and the last page returns the input, since nothing is behind it.
     /// </remarks>
     public static RunCursor Next(RunCursor input, IReadOnlyList<WorkflowRun> items, bool hasMore, DateTimeOffset now)
     {
@@ -81,11 +86,11 @@ internal sealed record RunCursor(DateTimeOffset At, Guid Id)
 
         var last = items[^1];
         var exact = new RunCursor(last.UpdatedAt, last.Id);
-        if (hasMore) return exact;
 
         var cap = Floor(now - Margin);
         if (last.UpdatedAt <= cap) return exact;
-        return cap <= input.At ? input : new RunCursor(cap, Guid.Empty);
+        if (cap > input.At) return new RunCursor(cap, Guid.Empty);
+        return hasMore ? exact : input;
     }
 
     private static DateTimeOffset Floor(DateTimeOffset at) =>

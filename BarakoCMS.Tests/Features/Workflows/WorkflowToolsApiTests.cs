@@ -137,7 +137,7 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         var byType = doc.RootElement.EnumerateArray().ToDictionary(
             a => a.GetProperty("type").GetString()!,
             a => a.TryGetProperty("group", out var g) ? g : default);
-        byType.Should().HaveCount(16);
+        byType.Should().HaveCount(17);
 
         var expected = new Dictionary<string, string>
         {

@@ -71,8 +71,9 @@ public partial class CollectionSyncTests
     private static WebApplicationFactory<Program>? _host;
 
     /// <summary>
-    /// One derived host for the whole class, because every host a test builds stays alive for the
-    /// rest of the run. Tests keep out of each other's way through unique route paths instead.
+    /// One derived host for every CollectionSync class, because each build costs a server.
+    /// Tests keep out of each other's way through unique route paths instead. Run-scoped because
+    /// the other CollectionSync classes reach it through an instance of this one.
     /// </summary>
     internal WebApplicationFactory<Program> Host
     {
@@ -80,7 +81,7 @@ public partial class CollectionSyncTests
         {
             lock (HostLock)
             {
-                return _host ??= _factory.WithWebHostBuilder(b => b.ConfigureServices(services =>
+                return _host ??= _factory.WithRunScopedHost(b => b.ConfigureServices(services =>
                     services.AddHttpClient("ExternalApi").ConfigurePrimaryHttpMessageHandler(() => new SourceStub())));
             }
         }

@@ -269,7 +269,7 @@ public class WhoAmIEndpointTests
     private static readonly Lock LegacyHostGate = new();
     private static Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program>? _legacyHost;
 
-    /// <summary>One derived host for the class, since each build costs a server. Never disposed.</summary>
+    /// <summary>One derived host for the class, since each build costs a server.</summary>
     private Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> LegacyFallbackHost()
     {
         lock (LegacyHostGate)

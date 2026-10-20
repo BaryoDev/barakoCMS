@@ -42,6 +42,15 @@ public class WorkflowRunChangedSinceTests
         await session.SaveChangesAsync(Ct);
     }
 
+    private async Task StampCreatedAsync(Guid runId, DateTimeOffset at)
+    {
+        await using var session = _harness.Store.LightweightSession();
+        session.QueueSqlCommand(
+            "update public.mt_doc_workflow_runs set data = jsonb_set(data, '{CreatedAt}', to_jsonb(?::text)) where id = ?",
+            at.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture), runId);
+        await session.SaveChangesAsync(Ct);
+    }
+
     private async Task<(Guid ContentId, List<WorkflowRun> Runs)> SeedAsync(int count)
     {
         var contentId = await _harness.StoreContentAsync();
@@ -175,14 +184,64 @@ public class WorkflowRunChangedSinceTests
     [Fact]
     public async Task A_list_without_changedSince_has_no_cursor_and_stays_newest_first()
     {
-        var (contentId, runs) = await SeedAsync(2);
+        var (contentId, runs) = await SeedAsync(3);
+        var now = DateTimeOffset.UtcNow;
+        // Neither creation order nor id order, so only a CreatedAt sort gives this answer.
+        await StampCreatedAsync(runs[0].Id, now.AddMinutes(-20));
+        await StampCreatedAsync(runs[1].Id, now.AddMinutes(-10));
+        await StampCreatedAsync(runs[2].Id, now.AddMinutes(-30));
 
         using var doc = await ListAsync($"contentId={contentId}");
 
-        Ids(doc).Should().HaveCount(2);
         doc.RootElement.TryGetProperty("cursor", out var cursor).Should().BeTrue();
         cursor.ValueKind.Should().Be(JsonValueKind.Null);
-        Ids(doc).Should().BeEquivalentTo(runs.Select(r => r.Id));
+        Ids(doc).Should().Equal(runs[1].Id, runs[0].Id, runs[2].Id);
+    }
+
+    [Fact]
+    public async Task A_changedSince_poll_leaves_status_counts_null_and_a_plain_list_has_them()
+    {
+        var (contentId, _) = await SeedAsync(1);
+
+        using var poll = await ListAsync($"contentId={contentId}&changedSince={Long}");
+        using var plain = await ListAsync($"contentId={contentId}");
+
+        poll.RootElement.GetProperty("statusCounts").ValueKind.Should().Be(JsonValueKind.Null);
+        plain.RootElement.GetProperty("statusCounts").ValueKind.Should().Be(JsonValueKind.Object);
+    }
+
+    [Fact]
+    public async Task A_full_page_of_runs_changed_moments_ago_gives_a_cursor_that_still_catches_a_late_commit()
+    {
+        var (contentId, runs) = await SeedAsync(3);
+        var now = DateTimeOffset.UtcNow;
+        await StampAsync(runs[0].Id, now.AddSeconds(-2));
+        await StampAsync(runs[1].Id, now.AddSeconds(-1));
+        // runs[2] has not committed its stamp yet, and will when it does be older than runs[1].
+        await using (var session = _harness.Store.LightweightSession())
+        {
+            session.QueueSqlCommand("update public.mt_doc_workflow_runs set data = data - 'UpdatedAt' where id = ?", runs[2].Id);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        using var first = await ListAsync($"contentId={contentId}&changedSince={Long}&pageSize=1");
+        Ids(first).Should().Equal(runs[0].Id);
+
+        await StampAsync(runs[2].Id, now.AddSeconds(-3));
+
+        var seen = new List<Guid>(Ids(first));
+        var cursor = CursorOf(first);
+        for (var page = 0; page < 10; page++)
+        {
+            using var doc = await ListAsync($"contentId={contentId}&changedSince={cursor}&pageSize=1");
+            var ids = Ids(doc);
+            if (ids.Count == 0) break;
+
+            seen.AddRange(ids);
+            cursor = CursorOf(doc);
+        }
+
+        seen.Should().Contain(runs[2].Id, "a page with more behind it lags too, or this run is skipped for good");
     }
 
     [Fact]

@@ -585,7 +585,7 @@ public class TransitionRequiredFieldsTests
 
     /// <summary>
     /// One host for the class, carrying the refusing hook and the two writers that race a request.
-    /// Never disposed, per the note on IntegrationTestFixture.WithSetting.
+    /// The fixture disposes it, see IntegrationTestFixture.WithSetting.
     /// </summary>
     private WebApplicationFactory<Program> GateHost()
     {

@@ -249,7 +249,7 @@ jobs:
           echo "$f: $COMPONENTS components"
 
       - name: Upload the SBOM
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: sbom
           path: sbom/*.json
@@ -262,7 +262,7 @@ jobs:
       # from this artifact and nothing else, so every Source Link build shipped no symbols at all
       # and no step went red about it. The assertion in verify-packages keeps it that way.
       - name: Upload the packages
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: nupkg
           path: out/*.*nupkg
@@ -270,7 +270,7 @@ jobs:
           retention-days: 7
 
       - name: Upload the template package
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: template-nupkg
           path: out-templates/*.nupkg
@@ -298,7 +298,7 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: nupkg
           path: packages
@@ -306,7 +306,7 @@ jobs:
       # The release claims to produce an SBOM, so this job proves the file exists and describes
       # something. The pattern is the same as the assembly assertion below: a step that produced no
       # output still exits 0, and the release should not be able to say "SBOM" while shipping none.
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: sbom
           path: sbom
@@ -429,7 +429,7 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: "*nupkg"
           path: feed
@@ -469,7 +469,7 @@ jobs:
 
       # Both artifacts into one directory: the packages with their symbols, and the template
       # package, which has none.
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: "*nupkg"
           path: out
@@ -561,7 +561,7 @@ jobs:
           mkdir -p /tmp/digests
           echo "$DIGEST" > "/tmp/digests/${{ matrix.image.name }}.${{ matrix.arch }}"
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: digest-${{ matrix.image.name }}-${{ matrix.arch }}
           path: /tmp/digests/*
@@ -599,7 +599,7 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: digest-*
           path: /tmp/digests
