@@ -77,6 +77,16 @@ internal sealed class Endpoint(
             return;
         }
 
+        // Before the honeypot and the challenge: a closed form says so to everyone, and a bot learns
+        // nothing a visitor reading the definition does not.
+        var window = await FormWindow.CheckAsync(session, form!, DateTimeOffset.UtcNow, ct);
+        if (!window.IsOpen)
+        {
+            ValidationFailures.Add(new ValidationFailure("form", window.Message!));
+            await Send.ErrorsAsync(403, ct);
+            return;
+        }
+
         // Answered exactly as an accepted submission, so a bot learns nothing from the difference.
         if (!string.IsNullOrEmpty(req.Honeypot))
         {
