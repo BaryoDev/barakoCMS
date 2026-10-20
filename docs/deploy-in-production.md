@@ -270,6 +270,19 @@ so check `ip route` before you pick.
 `ForwardedHeadersTests` reads these defaults out of the compose file and checks that a request from
 Caddy's address has its `X-Forwarded-For` honoured and a request from another container does not.
 
+## Postgres image
+
+The database service runs `pgvector/pgvector:pg16` in `docker-compose.yml`, `docker-compose.prod.yml`,
+`docker-compose.hub.yml` and `k8s/03-postgres.yaml`. It is stock Postgres 16 with the pgvector
+extension available, which a later release uses to rank semantic search in the database. Nothing
+creates the extension yet, so the swap changes no behaviour.
+
+The data directory and the Postgres major version are the same, so an existing volume starts as
+before. The image is Debian based where the old one was Alpine, and the `postgres` user is uid 999
+instead of 70. On Kubernetes, if a volume was written by the Alpine image, set its owner to 999
+(or `fsGroup: 999`) before the pod starts. Pull the image on the host before you recreate the
+container so the swap is one restart.
+
 ## Postgres on a small server
 
 Postgres ships with settings for a machine of unknown size: `shared_buffers` 128MB,

@@ -44,7 +44,7 @@ services:
 
   # 2. Database (PostgreSQL)
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: barako-postgres
     restart: always
     environment:

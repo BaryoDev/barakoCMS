@@ -57,12 +57,24 @@ public sealed class OllamaEmbeddingClient : IEmbeddingClient
     }
 }
 
-/// <summary>Cosine similarity between two equal-length vectors; 0 if mismatched or empty.</summary>
+/// <summary>Two vectors of different lengths were compared, so they came from different embedding models.</summary>
+public sealed class VectorDimensionMismatchException(int expected, int actual)
+    : InvalidOperationException(
+        $"Embedding dimension mismatch: the query vector has {expected} dimensions, a stored vector has {actual}. " +
+        "The index was built with a different embedding model, so reindex it.")
+{
+    public int Expected { get; } = expected;
+    public int Actual { get; } = actual;
+}
+
+/// <summary>Cosine similarity between two equal-length vectors; 0 if either is empty or has no magnitude.</summary>
 public static class Vectors
 {
+    /// <exception cref="VectorDimensionMismatchException">The lengths differ and neither vector is empty.</exception>
     public static double Cosine(float[] a, float[] b)
     {
-        if (a.Length == 0 || a.Length != b.Length) return 0;
+        if (a.Length == 0 || b.Length == 0) return 0;
+        if (a.Length != b.Length) throw new VectorDimensionMismatchException(a.Length, b.Length);
         double dot = 0, na = 0, nb = 0;
         for (var i = 0; i < a.Length; i++)
         {
