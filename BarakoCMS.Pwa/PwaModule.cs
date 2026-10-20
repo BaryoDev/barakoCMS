@@ -1,5 +1,4 @@
 using barakoCMS.Modules;
-using Marten;
 
 namespace BarakoCMS.Pwa;
 
@@ -32,6 +31,6 @@ public sealed class PwaModule : IBarakoModule
     /// turning that off, which is the point of issue #443, would take the module away from every
     /// Admin. Additive and idempotent, and it skips a role the host never seeded.
     /// </remarks>
-    public Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) =>
-        PwaCapabilities.Defaults.GrantAsync(session, ct);
+    public Task SeedAsync(IModuleSeedContext context, CancellationToken ct) =>
+        PwaCapabilities.Defaults.GrantAsync(context, ct);
 }

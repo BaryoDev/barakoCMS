@@ -1,6 +1,5 @@
 using System.Threading.RateLimiting;
 using barakoCMS.Modules;
-using Marten;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
@@ -99,6 +98,6 @@ public sealed class FormsModule : IBarakoModule
     /// Gives this module's capability to Admin, which core cannot do because it does not know the
     /// module exists. Additive and idempotent.
     /// </summary>
-    public Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) =>
-        FormsCapabilities.Defaults.GrantAsync(session, ct);
+    public Task SeedAsync(IModuleSeedContext context, CancellationToken ct) =>
+        FormsCapabilities.Defaults.GrantAsync(context, ct);
 }

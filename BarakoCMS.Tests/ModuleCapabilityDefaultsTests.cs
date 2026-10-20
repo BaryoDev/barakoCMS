@@ -264,7 +264,7 @@ public class ModuleCapabilityDefaultsTests
             using (var scope = _factory.Services.CreateScope())
             {
                 var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-                await new BarakoCMS.Accounting.AccountingModule().SeedAsync(session, scope.ServiceProvider, Ct);
+                await new BarakoCMS.Accounting.AccountingModule().SeedAsync(new ModuleSeedContext(session, scope.ServiceProvider), Ct);
                 await session.SaveChangesAsync(Ct);
             }
 
@@ -335,7 +335,7 @@ public class ModuleCapabilityDefaultsTests
             using (var scope = _factory.Services.CreateScope())
             {
                 var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-                await new BarakoCMS.Accounting.AccountingModule().SeedAsync(session, scope.ServiceProvider, Ct);
+                await new BarakoCMS.Accounting.AccountingModule().SeedAsync(new ModuleSeedContext(session, scope.ServiceProvider), Ct);
                 await session.SaveChangesAsync(Ct);
             }
 
@@ -426,7 +426,7 @@ public class ModuleCapabilityDefaultsTests
             using (var scope = _factory.Services.CreateScope())
             {
                 var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-                await new BarakoCMS.Accounting.AccountingModule().SeedAsync(session, scope.ServiceProvider, Ct);
+                await new BarakoCMS.Accounting.AccountingModule().SeedAsync(new ModuleSeedContext(session, scope.ServiceProvider), Ct);
                 await session.SaveChangesAsync(Ct);
             }
 

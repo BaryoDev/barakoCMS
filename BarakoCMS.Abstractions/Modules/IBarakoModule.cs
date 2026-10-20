@@ -241,5 +241,31 @@ public interface IBarakoModule
     /// Throwing fails your module's seed and nobody else's. It is logged against your module name
     /// and rethrown to the host once every module has had its turn.
     /// </summary>
+    [Obsolete("Override SeedAsync(IModuleSeedContext, CancellationToken), which names no Marten type. "
+              + "Removal planned for barakoCMS 6.0.0.")]
     Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) => Task.CompletedTask;
+
+    /// <summary>
+    /// Seed idempotent baseline data (roles, reference data, content types) through barakoCMS types
+    /// only. Runs only when the host invokes <c>RunBarakoModuleSeedersAsync</c>.
+    /// </summary>
+    /// <remarks>
+    /// Same rules as the session overload: the context is yours alone, the host commits it once
+    /// this returns, and throwing fails your module's seed and nobody else's. This is the member
+    /// the host calls. The default hands a module that only overrides the older, Marten-typed
+    /// overload its session, so existing modules behave as before.
+    /// </remarks>
+    Task SeedAsync(IModuleSeedContext context, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (context is not ModuleSeedContext host)
+        {
+            throw new NotSupportedException(
+                "This module seeds through the Marten-typed SeedAsync, which needs the host's own seed context.");
+        }
+
+#pragma warning disable CS0618 // the default exists so a module written before the seed context still seeds
+        return SeedAsync(host.Session, host.Services, ct);
+#pragma warning restore CS0618
+    }
 }

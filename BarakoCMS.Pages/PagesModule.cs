@@ -43,6 +43,6 @@ public sealed class PagesModule : IBarakoModule
         schema.For<PagesSettings>().DocumentAlias("pages_settings");
 
     /// <summary>Grants the settings capability its defaults name, as every module seeds its own.</summary>
-    public Task SeedAsync(Marten.IDocumentSession session, IServiceProvider services, CancellationToken ct) =>
-        PagesCapabilities.Defaults.GrantAsync(session, ct);
+    public Task SeedAsync(IModuleSeedContext context, CancellationToken ct) =>
+        PagesCapabilities.Defaults.GrantAsync(context, ct);
 }

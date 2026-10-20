@@ -51,6 +51,7 @@ public class ContentLifecycleRunner(
                 || string.Equals(h.ContentType, contentType, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
+#pragma warning disable CS0618 // the host still fills the Marten session for hooks written before the reader
         var context = new ContentLifecycleContext
         {
             ContentType = contentType,
@@ -60,10 +61,11 @@ public class ContentLifecycleRunner(
             Session = session,
             UserId = userId,
         };
+#pragma warning restore CS0618
 
         var errors = new List<string>();
         foreach (var hook in matching)
-            errors.AddRange(await hook.OnBeforeSaveAsync(context, ct));
+            errors.AddRange(await hook.BeforeSaveAsync(context, ct));
 
         // A parent the type declares as data, after the hooks code registered, so a module's own
         // rule about the same tree answers first.

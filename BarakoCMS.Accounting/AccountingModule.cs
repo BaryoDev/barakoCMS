@@ -58,54 +58,22 @@ public sealed class AccountingModule : IBarakoModule
             .UseOptimisticConcurrency(true);
     }
 
-    public async Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct)
+    public async Task SeedAsync(IModuleSeedContext context, CancellationToken ct)
     {
-        // By id before by name: storing a new role under the seeded id would replace a role an
-        // operator renamed, and with it every permission they gave it. By name only among the
-        // deployment's roles: a tenant's own role named Accountant is not this module's.
-        var accountant = AccountingCapabilities.Accountant.Name;
-        var existing = await session.LoadAsync<Role>(AccountantRoleId, ct);
-        if (existing?.DeletedAt is not null)
-        {
-            // A deleted seeded role comes back on start, as it did when a delete removed the row.
-            session.Delete(existing);
-            existing = null;
-        }
-
-        existing ??= (await session.Query<Role>()
-                               .Where(r => r.DeletedAt == null && r.Name == accountant && (r.TenantSlug == null || r.TenantSlug == Tenant.DefaultSlug))
-                               .ToListAsync(ct))
-                           .OrderBy(r => r.TenantSlug is null ? 0 : 1)
-                           .FirstOrDefault();
-        if (existing is null)
-        {
-            session.Store(new Role
-            {
-                Id = AccountantRoleId,
-                Name = "Accountant",
-                Description = "Can post journal entries and view the ledger."
-            });
-        }
+        await context.EnsureRoleAsync(
+            AccountantRoleId, AccountingCapabilities.Accountant.Name,
+            "Can post journal entries and view the ledger.", ct);
 
         // The roles that reached these endpoints before the gate asked for a capability get the
         // capability, so turning Auth:LegacyRoleFallback off does not take the module away from
         // them. Core cannot do this: SystemCapabilities.DefaultsFor does not know this module
         // exists. Additive and idempotent, and it skips a role the host never seeded.
-        await AccountingCapabilities.Defaults.GrantAsync(session, ct);
+        await AccountingCapabilities.Defaults.GrantAsync(context, ct);
 
         // Accounts and journal entries are content types (content-type-first). Seed their
         // definitions so the schema validator and the admin's generic content UI know their shape.
         // Idempotent: only inserted when absent, so a host that has customised them is left alone.
-        await SeedContentTypeAsync(session, AccountingContentTypes.AccountDefinition(), ct);
-        await SeedContentTypeAsync(session, AccountingContentTypes.JournalEntryDefinition(), ct);
-    }
-
-    private static async Task SeedContentTypeAsync(
-        IDocumentSession session, ContentTypeDefinition definition, CancellationToken ct)
-    {
-        var existing = await session.Query<ContentTypeDefinition>()
-            .FirstOrDefaultAsync(t => t.Name == definition.Name, ct);
-        if (existing is null)
-            session.Store(definition);
+        await context.EnsureContentTypeAsync(AccountingContentTypes.AccountDefinition(), ct);
+        await context.EnsureContentTypeAsync(AccountingContentTypes.JournalEntryDefinition(), ct);
     }
 }

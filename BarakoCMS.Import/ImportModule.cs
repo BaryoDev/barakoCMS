@@ -23,6 +23,6 @@ public sealed class ImportModule : IBarakoModule
     /// Core cannot do this: <c>SystemCapabilities.DefaultsFor</c> does not know this module exists.
     /// Additive and idempotent, and it skips a role the host never seeded.
     /// </remarks>
-    public Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) =>
-        ImportCapabilities.Defaults.GrantAsync(session, ct);
+    public Task SeedAsync(IModuleSeedContext context, CancellationToken ct) =>
+        ImportCapabilities.Defaults.GrantAsync(context, ct);
 }

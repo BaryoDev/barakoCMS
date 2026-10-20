@@ -2,7 +2,6 @@ using barakoCMS.Core.Interfaces;
 using barakoCMS.Modules;
 using BarakoCMS.Diagnostics.Forwarding;
 using BarakoCMS.Diagnostics.Incidents;
-using Marten;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace BarakoCMS.Diagnostics;
@@ -58,6 +57,6 @@ public sealed class DiagnosticsModule : IBarakoModule
     /// turning that off, which is the point of issue #443, would take the module away from every
     /// Admin. Additive and idempotent, and it skips a role the host never seeded.
     /// </remarks>
-    public Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) =>
-        DiagnosticsCapabilities.Defaults.GrantAsync(session, ct);
+    public Task SeedAsync(IModuleSeedContext context, CancellationToken ct) =>
+        DiagnosticsCapabilities.Defaults.GrantAsync(context, ct);
 }

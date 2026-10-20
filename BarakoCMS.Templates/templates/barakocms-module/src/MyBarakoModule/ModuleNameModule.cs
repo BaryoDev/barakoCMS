@@ -1,5 +1,4 @@
 using barakoCMS.Modules;
-using Marten;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -40,6 +39,6 @@ public sealed class ModuleNameModule : IBarakoModule
     /// not know this module exists. Additive and idempotent, and a role the host never seeded is
     /// skipped rather than created.
     /// </summary>
-    public Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) =>
-        ModuleNameCapabilities.Defaults.GrantAsync(session, ct);
+    public Task SeedAsync(IModuleSeedContext context, CancellationToken ct) =>
+        ModuleNameCapabilities.Defaults.GrantAsync(context, ct);
 }

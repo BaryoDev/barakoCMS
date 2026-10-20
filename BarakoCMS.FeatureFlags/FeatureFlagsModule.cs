@@ -1,5 +1,4 @@
 using barakoCMS.Modules;
-using Marten;
 
 namespace BarakoCMS.FeatureFlags;
 
@@ -38,6 +37,6 @@ public sealed class FeatureFlagsModule : IBarakoModule
     /// turning that off, which is the point of issue #443, would take the module away from every
     /// Admin. Additive and idempotent, and it skips a role the host never seeded.
     /// </remarks>
-    public Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) =>
-        FeatureFlagCapabilities.Defaults.GrantAsync(session, ct);
+    public Task SeedAsync(IModuleSeedContext context, CancellationToken ct) =>
+        FeatureFlagCapabilities.Defaults.GrantAsync(context, ct);
 }

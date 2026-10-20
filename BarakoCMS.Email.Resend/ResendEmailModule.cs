@@ -1,6 +1,5 @@
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Modules;
-using Marten;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -46,6 +45,6 @@ public sealed class ResendEmailModule : IBarakoModule
     /// turning that off, which is the point of issue #443, would take the module away from every
     /// Admin. Additive and idempotent, and it skips a role the host never seeded.
     /// </remarks>
-    public Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) =>
-        ResendEmailCapabilities.Defaults.GrantAsync(session, ct);
+    public Task SeedAsync(IModuleSeedContext context, CancellationToken ct) =>
+        ResendEmailCapabilities.Defaults.GrantAsync(context, ct);
 }

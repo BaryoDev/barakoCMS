@@ -1137,6 +1137,8 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<IConfiguration>(),
                 sp.GetRequiredService<barakoCMS.Infrastructure.Multitenancy.BatchTransaction>(),
                 sp.GetRequiredService<ILogger<barakoCMS.Infrastructure.Services.ContentWriter>>()));
+        services.AddScoped<barakoCMS.Core.Interfaces.IContentReader>(sp =>
+            new barakoCMS.Core.Interfaces.SessionContentReader(sp.GetRequiredService<IQuerySession>()));
         services.AddScoped<barakoCMS.Infrastructure.Services.IContentRebuilder, barakoCMS.Infrastructure.Services.ContentRebuilder>();
         // Runs any per-content-type domain rules a module registered (IContentLifecycleHook), so a
         // domain with real invariants can still be modelled as ordinary content.
@@ -2173,7 +2175,7 @@ public static class ServiceCollectionExtensions
 
             try
             {
-                await module.SeedAsync(session, scope.ServiceProvider, ct);
+                await module.SeedAsync(new ModuleSeedContext(session, scope.ServiceProvider), ct);
                 var granted = 0;
                 if (module.ContentPermissions is { } contentPermissions)
                 {

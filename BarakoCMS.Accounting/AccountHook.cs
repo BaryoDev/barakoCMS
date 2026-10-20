@@ -1,5 +1,4 @@
 using barakoCMS.Core.Interfaces;
-using Marten;
 
 namespace BarakoCMS.Accounting;
 
@@ -13,8 +12,12 @@ public sealed class AccountHook : IContentLifecycleHook
 {
     public string ContentType => AccountingContentTypes.Account;
 
-    public async Task<IReadOnlyList<string>> OnBeforeSaveAsync(
-        ContentLifecycleContext context, CancellationToken ct)
+    [Obsolete("Call BeforeSaveAsync, which takes IContentHookContext. Removal planned for barakoCMS 6.0.0.")]
+    public Task<IReadOnlyList<string>> OnBeforeSaveAsync(ContentLifecycleContext context, CancellationToken ct) =>
+        BeforeSaveAsync(context, ct);
+
+    public async Task<IReadOnlyList<string>> BeforeSaveAsync(
+        IContentHookContext context, CancellationToken ct)
     {
         var errors = new List<string>();
         var data = context.Data;
@@ -39,9 +42,9 @@ public sealed class AccountHook : IContentLifecycleHook
 
         if (needsChartLookup)
         {
-            var chart = await context.Session.Query<barakoCMS.Models.Content>()
-                .Where(c => c.ContentType == AccountingContentTypes.Account)
-                .ToListAsync(ct);
+            var chart = new List<barakoCMS.Models.Content>();
+            await foreach (var account in context.Reader.ReadAllAsync(AccountingContentTypes.Account, ct))
+                chart.Add(account);
 
             var existingCode = context.Existing is null
                 ? null
