@@ -7,6 +7,108 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.0] - 2026-10-20
+
+5.1 is a minor release. Delivery gets a Members audience with viewer tokens and a Private site mode, roles and groups can be deleted and restored, a workflow can be run by hand and report its health, an administrator can reset a user's two-factor authentication, and a tenant can map identity provider claims to roles. The API contract and the delivery contract both move from 8 to 9. The module contract and every module's HTTP contract stay as they are. Read Upgrade before deploying.
+
+### Upgrade
+
+**From 5.0.x.** A 4.x install upgrades to 5.0 first with `docs/upgrading-to-5.0.md`.
+
+1. **Take a backup and check it restores** (`docs/backup-and-restore.md`).
+2. **Stop the 5.0 API.** Every file below is applied with the API stopped.
+3. **Run `db-migrate` with the 5.1.0 image, then `db-assert`.** `FROM_VERSION=5.0.0 scripts/upgrade-check.sh --list` prints each file as a `psql` line in the order CI applies them. Under `migrations/5.1.0/`:
+   - Core, first: `1158-content-type-name-index-ignore-case.sql` (rebuilds the unique index on a content type's name on the lowercased name; if two names in one tenant differ only by case it changes nothing, says how many names clash, and stops, so delete the extra definitions and run it again), `seed-markers.sql` (the table that records which one-time seeder steps have run, empty), `workflow-run-updated-at-index.sql` and `workflow-run-workflow-index.sql` (two indexes on workflow runs, for the changed-since cursor and the workflow filter).
+   - Module, after the core files; a host without BarakoCMS.ExternalAuth skips it: `915-external-auth-role-maps.sql` (BarakoCMS.ExternalAuth 4.7.0, the per-tenant claim to role map table, empty).
+4. **Check the defaults.** No config default changed. Site `Mode` `Private`, claim to role maps, tenant mail overrides and viewer tokens are opt-in, and a group holds no roles until someone sets them.
+5. **Start 5.1.0.** New capabilities: `run_workflows` goes to every role holding `manage_workflows`, and `view_module_configuration` is held by SuperAdmin only.
+
+**Breaking HTTP changes.** `ApiContract.Version` moves from 8 to 9, and `ApiContract.DeliveryVersion` from 8 to 9 (#912). Admin: the `sensitivity` of a field or an entry can now be `Members`, a value a console written against 8 does not know. Delivery: a junk `X-Viewer-Token` header on a delivery route answers 401 where it used to answer 200, and anonymous delivery now sends `Vary: X-Tenant, X-Viewer-Token`. Adding a member to a group that holds roles is refused unless the caller may grant those roles (#919). Released barakoBrew 1.10.0 and barakoPress 0.14.1 read 9: upgrade them together with the API.
+
+**Package changes.** BarakoCMS.Abstractions 5.1.0 adds `IBarakoModule.ConfigurationView`, `IModuleSchema.EnableEventHeaders()` and the capability gate types (`CapabilityGate`, `RequiredCapability`, `CheckedCapability`), moved from the core with the namespace unchanged. A module built against 4.x or 5.0 still loads. Nothing is removed and nothing new is obsolete.
+
+**Rolling back to 5.0.** Stop 5.1, run the rollback lines `--list` prints, newest first, then remove each rolled-back file's ledger row with `db-migrate --forget <key>` and start 5.0.x. Every file above has a rollback file. Two things need care:
+- Before going back, erase every deleted role, user group and saved query (`GET /api/roles/deleted`, `GET /api/user-groups/deleted`, `GET /api/queries?deleted=true`, then the `erase` route for each). 5.0 ignores the deleted mark, so a deleted role or group would grant again.
+- Lost on rollback: every tenant's claim to role map (roles it already gave stay), the record of which seeder steps ran (a step runs again after the next upgrade and can grant back a capability an administrator removed), and the `UpdatedAt` and `History` values on workflow runs, which 5.0 drops the next time it saves a run. The content type name index goes back to exact case, with nothing lost.
+
+### Added
+
+- **An administrator can reset another user's two-factor authentication.** A user who lost their
+  authenticator and their recovery codes had no way back in. `POST /api/users/{userId}/mfa/reset`
+  takes a reason, removes the user's MFA enrollment, revokes their refresh tokens and writes an
+  `auth.mfa.reset` audit row. It needs `manage_users` in one of the caller's global roles (a tenant membership is not enough), only a SuperAdmin can reset a user holding a platform role, and you cannot reset your own.
+- **Site `Mode` can be `Private`.** While it is set, every `/api/public/*` route of that tenant
+  answers 404 unless the request carries a link to the whole site in `X-Share-Key` or comes from a
+  signed-in viewer who may read the `site` type. `GET /api/tenants/{handle}/public` follows the same
+  rule. Another tenant is unaffected, and a tenant with no `Mode` is `Live`. This is opt-in per
+  tenant, so no existing route changes unless a site is set to `Private`, and neither contract
+  number moves. A `site` type made before this release gets the option with `set-field-options` on
+  `Mode`. See `docs/site-settings.md`.
+  An open `GET /api/public/events` stream asks again every 30 seconds
+  (`Delivery:Events:GateRecheckSeconds`) and ends when the caller no longer qualifies.
+- **A tenant can override the mail sender and API key.** `GET` and `PUT /api/tenant-settings/email` set a tenant's own `fromAddress` and `apiKey` (write-only, encrypted). Mail for that tenant uses them field by field, and any tenant without an override keeps the host default. See `docs/tenant-settings-896.md` (#896). Account mail (sign-in codes, verification, resets, lockout notices) always uses the host key and sender, and a tenant sender is used only together with that tenant's own key. SMTP always sends from the host sender. Because the form email verification code is account mail, a Resend bounce on one is now recorded only for global admins and no longer for the form's tenant: the tenant-recorded send path is what would hand the code to the tenant's own provider.
+- **API keys can reach files, and can be rotated with an overlap window.** New scopes `files:read` and `files:write` cover `/api/files`. `POST /api/api-keys/{id}/rotate` issues a replacement key and keeps the old one valid for `overlapMinutes` (default 60, at most 10080). A `*` key does not imply the files scopes, so existing keys gain no file access. Service principals are still to do, see `docs/api-key-service-principals.md`.
+- **A tenant can map an identity provider claim to roles.** `PUT /api/tenants/external-role-map` takes a claim name (for example `groups`) and rules from a claim value, read from one configured OpenID Connect provider, to a role in that tenant, with `GET` and `DELETE` beside it, and each change is audited. When someone signs in through that provider for that tenant, each rule their token matches adds its role to their membership, creating the membership if they have none, in the same commit as the sign-in. A person with a second factor enrolled is given the mapped roles when `/api/auth/mfa/verify` passes, from a grant carried in the signed MFA challenge, checked again there and spent with the sign-in, so one challenge grants at most once. It only adds, never touches a removed or suspended member, and refuses SuperAdmin, platform roles, other tenants' roles and rules on profile claims a person can edit (name, email, phone_number, address and the like). A rule takes an optional `issuer`, matched exactly against the token's issuer, and it is required for a provider whose issuer is a template (Entra common or organizations), since the provider name alone matches every directory. A map can create a membership in a tenant whose sign-up is Closed, for someone who already has an account. Sign-in already finds a returning person by issuer and subject, so a changed email keeps the same account. `GET /api/users/{userId}/external-identities` and `DELETE /api/users/{userId}/external-identities/{id}` list and remove a user's provider links, for a platform administrator (`manage_users`) only, a removal is audited, and a holder of `manage_users` who is not a SuperAdmin cannot reach a SuperAdmin's links. `BarakoCMS.ExternalAuth` is 4.7.0 and adds the `external_role_maps` table (`migrations/5.1.0/915-external-auth-role-maps.sql`). Per-tenant provider configuration is still open on #915.
+- **A user group can hold roles, and its members hold them too.** `UserGroup.RoleIds` is new and empty by default, so no existing group changes anyone's access. `POST /api/user-groups` and `PUT /api/user-groups/{id}` accept an optional `roleIds` (absent on update leaves them alone) and the responses return it. Setting them follows the rules for assigning a global role to a user. Removing a user from a group now clears both sides of the link. See `docs/user-groups-grant-roles-919.md`.
+- **A journal entry can be posted without saving.** `LedgerService.StageAsync` validates and numbers an entry and stages it on the caller's session, then returns. The caller's own `SaveChangesAsync` commits the entry with everything else the request staged, so a request that posts two entries and updates a document commits once. `PostAsync` is `StageAsync` followed by the save, so existing callers see no change. Two entries staged on one session get consecutive numbers.
+- **An admin can read the configuration a module runs with.** `GET /api/modules/{name}/configuration` returns each key a module lists as safe, with its value, its scope (deployment or tenant) and where it came from (appsettings, environment, default, unknown). A key the module did not list, a key named like a credential and a value holding a credential come back redacted. The route needs the new `view_module_configuration` capability, held by SuperAdmin only by default, and a caller holding it through a tenant role sees tenant scope keys only. A module declares its keys with the new optional `IBarakoModule.ConfigurationView`; the default shows nothing. `CredentialRedaction` gained `IsCredentialName` and `ValueHoldsCredential` for it.
+- **A module can turn on event headers.** `IModuleSchema.EnableEventHeaders()` sets Marten's `Events.MetadataConfig.HeadersEnabled`, so a module can store its own headers (for example a branch id or an origin node id) on the events it appends with `IEvent.SetHeader`. The setting is shared by every module. It adds a `headers` column to `mt_events` and changes `mt_quick_append_events`: a new database gets it at first start, and an existing database needs `db-patch` before a host that calls it starts. A host that does not have the method throws `NotSupportedException` naming it.
+- **Workflow runs keep every try of an action, and a client can ask what changed.** Each action holds a `history` of its newest 20 tries (with `droppedAttempts` for the rest), errors are redacted before they are stored, and runs carry `updatedAt`. `GET /api/workflow-runs` takes `changedSince`, returns a `cursor`, and adds `statusCounts` and the retention cutoffs. A migration adds an index on the new field.
+- **A workflow can be run by hand, and its health can be read.** `POST /api/workflows/{id}/run` starts a run on one entry (trigger `Manual`, `startedBy` set, `Idempotency-Key` supported) and needs the new `run_workflows` capability, which every role holding `manage_workflows` is granted. `GET /api/workflows/health` gives each workflow's last 10 outcomes, success rate and average action time. `GET /api/workflow-runs` takes `workflowId`.
+
+### Changed
+
+- **Deleting a saved query is recoverable.** `DELETE /api/queries/{slug}` now marks the query
+  deleted instead of removing it. `GET /api/queries?deleted=true` lists them, `POST
+  /api/queries/{slug}/restore` brings one back, and `DELETE /api/queries/{slug}/erase` removes a
+  deleted query for good. Saving over a deleted slug still works and replaces it. Connectors and
+  requests are still hard deletes (#625).
+- **Deleting a role or a user group is recoverable.** `DELETE /api/roles/{id}` and
+  `DELETE /api/user-groups/{id}` mark the item deleted instead of removing it. A deleted role grants
+  nothing and cannot be listed, read, edited or assigned. A deleted group stops granting its roles
+  to its members at once, and restoring it grants them again. `GET .../deleted` lists them, `POST
+  .../{id}/restore` brings one back, and `DELETE .../{id}/erase` removes a deleted one for good.
+  Creating a role with the name of a deleted one erases the deleted one in the same save, as a
+  create after a delete always worked. Role and group responses gain an optional `deletedAt` (#625).
+  Before rolling back to a release without this change, erase every deleted role
+  in every tenant and on every page (`GET /api/roles/deleted`, then `DELETE /api/roles/{id}/erase`
+  for each), because an older
+  release ignores the deleted mark and the roles would grant again. Do the same for groups
+  (`GET /api/user-groups/deleted`) and queries (`GET /api/queries?deleted=true`).
+- **The coding standard says which contract surface a change moves.** CLAUDE.md section 6 names
+  three: admin, delivery and a module's own HTTP version. The numbers, headers and describe
+  listing already existed.
+- **A Members audience between Public and staff, and a viewer token for delivery.** Entries and fields can be marked `Members`. `GET /api/public/{type}` and `GET /api/public/{type}/{slug}` serve them when the request carries an `X-Viewer-Token` header, minted with `POST /api/viewer-tokens` (needs `manage_public_delivery`, at most 480 minutes, audited). Without the header delivery answers as before. A response built for a viewer is `private, no-store`, and a viewer token opens no authoring route. Anonymous delivery now sends `Vary: X-Tenant, X-Viewer-Token`. Admin contract moves from 8 to 9 and delivery contract from 8 to 9. Admin: field and entry `sensitivity` responses can now carry `Members`, a value a console written against 8 does not know. Delivery: a junk `X-Viewer-Token` header on a delivery route now answers 401 where it used to answer 200. See [Members and viewer tokens](docs/delivery-api.md#members-and-viewer-tokens).
+- **`CapabilityGate`, `RequiredCapability` and `CheckedCapability` moved into `BarakoCMS.Abstractions`.** A module can declare a capability gate without referencing the core. Namespace is unchanged and `barakoCMS` forwards `CapabilityGate`, so modules built against 4.x or 5.0 still load. Part of #972.
+
+### Fixed
+
+- **Two content types whose names differ only by case could be stored.** The unique index on the
+  name was exact-case while every lookup ignores case, so such a pair made both spellings fail as
+  ambiguous. The index is on the lowercased name now. An existing database needs
+  `migrations/5.1.0/1158-content-type-name-index-ignore-case.sql`, which refuses and lists the
+  clashing names if there are any.
+- **Posting a journal entry returned an id that matched nothing stored.** `POST /api/accounting/journal-entries` answered with a fresh random id, so `GET /api/contents/{id}` returned 404 and the entry could not be voided by that id. It returns the stored content id now, and entries and accounts read back from content carry their content id instead of a new one on every read. `BarakoCMS.Accounting` is 4.4.1.
+
+### Security
+
+- **A user group could be given roles by a caller who could not grant them (#919).** Adding a member to a
+  group that holds roles now checks the caller's right to grant those roles, and a group's roles
+  reach its members.
+- **An API key could be rotated by a caller who could not have created it (#906).** Rotation now refuses such
+  a key, fails when the key changed under it, and audits denied rotations. The `files:read` and
+  `files:write` scopes are outside the `*` wildcard.
+- **A tenant's mail settings could change who sends account mail (#896).** Sign-in codes, verification, resets
+  and lockout notices always use the host sender and key, and a tenant sender is used only with that
+  tenant's own key. SMTP always sends from the host sender.
+- **A claim to role map could grant roles without a second factor, or more than once (#915).** Mapped
+  roles are given after the second factor passes, from a grant that is spent with the sign-in, and
+  rolled back when the token is refused. A map refuses SuperAdmin, platform roles, other tenants' roles
+  and rules on claims a person can edit.
+- **The SMTP email module pulled in System.Security.Cryptography.Pkcs 10.0.0,** which carries
+  GHSA-846f-f764-76mx (High) and GHSA-2fmv-rv2c-59x7 (Moderate), through MailKit and MimeKit. It is
+  pinned to 10.0.13 now.
+
 ## [5.0.0] - 2026-10-13
 
 5.0 is a major release. Roles and tenants get owners and a lifecycle, the API contract and the delivery contract move from 7 to 8, and Marten moves to 9.49. The module contract stays at 1, and no module's HTTP contract moves. Read Upgrade before deploying.
