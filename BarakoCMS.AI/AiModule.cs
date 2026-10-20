@@ -26,7 +26,7 @@ public sealed class AiModule : IBarakoModule
 
     public string? Glyph => "sparkles";
 
-    public int HttpContractVersion => 1;
+    public int HttpContractVersion => 2;
 
     /// <summary>Settings used to live at the root "Ai" section. See IBarakoModule.</summary>
     public string? LegacyConfigurationSection => AiOptions.SectionName;
