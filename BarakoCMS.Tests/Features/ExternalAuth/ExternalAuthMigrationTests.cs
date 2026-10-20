@@ -27,6 +27,7 @@ public class ExternalAuthMigrationTests
     [Theory]
     [InlineData("4.6.0", "external-auth-identities", "mt_doc_external_identities", typeof(ExternalIdentity))]
     [InlineData("4.8.0", "external-auth-used-nonces", "mt_doc_oidc_used_nonces", typeof(OidcUsedNonce))]
+    [InlineData("5.1.0", "915-external-auth-role-maps", "mt_doc_external_role_maps", typeof(ExternalRoleMap))]
     public async Task The_hand_applied_migration_builds_the_table_Marten_builds(
         string version, string file, string table, Type document)
     {

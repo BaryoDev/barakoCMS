@@ -166,6 +166,11 @@ public class HealthProbeTests
     public async Task The_memory_check_fails_a_process_over_its_ceiling_and_is_on_both_probes(
         string ceilingMegabytes, HealthStatus expected)
     {
+        if (expected == HealthStatus.Unhealthy && OperatingSystem.IsMacOS())
+        {
+            Assert.Skip("macOS reports a private memory size of 0, so no ceiling is ever passed there");
+        }
+
         // The ceiling is read while AddBarakoCMS registers the check, so it is given here the way a
         // deployment gives it, and the registered check is run on its own.
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>

@@ -238,10 +238,24 @@ Within a major version, do not make a breaking change to the package surface. In
 - give every `[Obsolete]` a removal version at least one full major away.
 
 The HTTP surface has no `[Obsolete]` to reach for, and it does not share the package surface's
-major-version boundary: `barakoCMS.Features.Monitoring.Meta.ApiContract.Version` tracks it
+major-version boundary: the numbers in `barakoCMS.Features.Monitoring.Meta.ApiContract` track it
 independently, the same way a module-contract change is independent of the CMS version. A breaking
-HTTP change can land in any release, but it moves `ApiContract.Version` and gets called out
-explicitly in the pull request, the same as an unavoidable break to the package surface.
+HTTP change can land in any release, but it moves the number of the surface it breaks and gets
+called out explicitly in the pull request, the same as an unavoidable break to the package surface.
+
+There is one number per surface, and a change moves only the surface it touches:
+
+- **Admin** (`ApiContract.Version`, header `X-Api-Contract-Version`, `apiContractVersion` in
+  `/api/meta`): every core route that is not a delivery route. What a console drives.
+- **Delivery** (`ApiContract.DeliveryVersion`, header `X-Delivery-Contract-Version`,
+  `deliveryContractVersion`): the core routes under `/api/public/` and the anonymous tenant
+  lookups. What a renderer reads.
+- **A module** (`IBarakoModule.HttpContractVersion`, listed in the `modules` part of
+  `/api/meta/describe`): every endpoint that module ships, including any it mounts under
+  `/api/public/`. It never moves a core number.
+
+Something every core route shares, such as the error body, moves both core numbers. A consumer
+checks only the surfaces it reads.
 
 **The HTTP surface is diffed in CI.** `openapi/baseline.json` is the reviewed OpenAPI document the
 Suite serves, and the `OpenAPI contract` job (`scripts/openapi-contract-check.sh`) fails when the

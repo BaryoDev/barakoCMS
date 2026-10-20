@@ -165,6 +165,62 @@ that a provider you run yourself (a Keycloak realm, for instance) is as trustwor
 edit its users. Two providers that assert the same address land on the same account. An account
 with MFA enrolled is still asked for its second factor.
 
+### Linked accounts
+
+A platform administrator (capability `manage_users`, SuperAdmin) lists a user's provider links with
+`GET /api/users/{userId}/external-identities` and removes one with
+`DELETE /api/users/{userId}/external-identities/{id}`. A tenant administrator cannot: a link belongs
+to the person and works in every tenant they sign in to. An unknown user, or a link that belongs to
+another user, answers 404. The provider's subject is not returned. The next sign-in through that
+provider links again by verified email.
+
+### Mapping a provider claim to roles
+
+A tenant sets one map with `PUT /api/tenants/external-role-map` (`GET` and `DELETE` read and remove
+it, and each change is written to the audit log). The map is one claim name from the id token, for
+example `groups`, and rules from a claim value, read from one provider, to a role:
+
+```json
+{ "claim": "groups", "rules": [ { "provider": "azure", "value": "staff", "roleId": "<role id>" } ] }
+```
+
+`provider` is the name under `Oidc:Providers` and must be configured. A rule only matches a token
+that came through that provider, so the same group name at another provider gives nothing. Values
+match exactly and case sensitively, and a value cannot start or end with a space. A rule cannot read
+`name`, `given_name`, `family_name`, `nickname`, `picture`, `preferred_username`, `email`,
+`email_verified`, `sub`, `iss`, `aud`, `phone_number`, `address`, `website`, `profile`,
+`middle_name`, `gender`, `birthdate`, `locale`, `zoneinfo` or `updated_at`. A map stored some other
+way on one of them is ignored at sign-in.
+
+A rule can also carry `issuer`, which must equal the token's issuer exactly. It is required when the
+provider's issuer is a template, as with Entra `common` or `organizations`: there the provider name
+matches a token from any directory, and any directory's administrator could assign themselves a
+value the rule names. Give the issuer with the directory filled in, such as
+`https://login.microsoftonline.com/<tenant id>/v2.0`. The PUT answers 400 without it.
+
+On every OpenID Connect sign-in for that tenant, each rule the token matches adds its role to the
+person's membership, creating the membership if there is none. A person with a second factor
+enrolled is given nothing at first factor. The roles the map earned travel in the signed MFA
+challenge, and `/api/auth/mfa/verify` grants them once the code passes, after checking them again
+and that the membership is still Active. A wrong code, an expired challenge or a tampered one grants
+nothing. The grant commits with the outcome of
+the sign-in, the spent nonce included, or not at all. It only adds. A removed or suspended member is
+not brought back, and a claim that stops being sent takes nothing away. Taking a mapped role away
+means removing it from the member by hand, and the map adds it back at their next sign-in unless the
+map is edited too. The map is read from the sign-in's tenant, never
+from the request.
+
+It cannot name SuperAdmin, a role carrying a platform capability, a role of another tenant, or a
+role that does not exist; the PUT answers 400, and a map stored some other way is filtered the same
+at sign-in. A map can create a membership in a tenant whose sign-up is Closed, for a person who
+already has an account: Closed stops people signing themselves up, and the map is the
+administrator's own rule.
+
+What is read from the token is bounded. Only top-level claims that are a string or an array of
+strings count, at most 64 claims, 100 values for each, and a value longer than 255 characters is
+dropped. Nested claims, such as a Keycloak `realm_access.roles`, are not supported; ask the provider
+to send a top-level claim. The table is created by `migrations/5.1.0/915-external-auth-role-maps.sql`.
+
 An upgraded database needs `migrations/4.6.0/external-auth-identities.sql` before the new build
 starts, like any new table.
 

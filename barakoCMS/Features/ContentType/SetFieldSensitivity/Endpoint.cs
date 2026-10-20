@@ -96,23 +96,23 @@ internal class Endpoint(
 
         var from = field.Sensitivity;
         var to = req.Sensitivity;
-        var lowering = to < from;
+        var lowering = barakoCMS.Core.Validation.SensitivityRank.IsLowering(from, to);
 
-        if (to == SensitivityLevel.Public && barakoCMS.Core.Validation.TokenFields.IsToken(field.Type))
+        if (barakoCMS.Core.Validation.SensitivityRank.IsUniform(to) && barakoCMS.Core.Validation.TokenFields.IsToken(field.Type))
         {
             AddError(
-                $"'{field.Name}' is a token and cannot be made Public. Keep it Hidden or Sensitive, "
+                $"'{field.Name}' is a token and cannot be made {to}. Keep it Hidden or Sensitive, "
                 + "and name the roles that may read it in visibleToRoles.");
             await Send.ErrorsAsync(400, ct);
             return;
         }
 
-        if (to == SensitivityLevel.Public
+        if (barakoCMS.Core.Validation.SensitivityRank.IsUniform(to)
             && (req.VisibleToRoles is { Count: > 0 } || req.Mask is not null and not FieldMask.Default))
         {
             // Refused rather than dropped. A caller who sends both believes they have restricted the
             // field to a role list, and a silent drop leaves them believing it.
-            AddError("A Public field cannot carry visibleToRoles or a mask: everyone reads it.");
+            AddError($"A {to} field cannot carry visibleToRoles or a mask: everyone it applies to reads it alike.");
             await Send.ErrorsAsync(400, ct);
             return;
         }
@@ -167,7 +167,7 @@ internal class Endpoint(
         // change's definition step runs.
         var target = new FieldDefinition
         {
-            VisibleToRoles = to == SensitivityLevel.Public ? new List<string>() : req.VisibleToRoles ?? new List<string>(),
+            VisibleToRoles = barakoCMS.Core.Validation.SensitivityRank.IsUniform(to) ? new List<string>() : req.VisibleToRoles ?? new List<string>(),
         };
         await barakoCMS.Core.RoleReferences.ToIdsAsync(session, [target], ct);
         var answered = new FieldDefinition { VisibleToRoles = [.. target.VisibleToRoles] };
@@ -235,8 +235,8 @@ internal class Endpoint(
         FromSensitivity = field.Sensitivity,
         ToSensitivity = req.Sensitivity,
         VisibleToRoles = roleIds,
-        Mask = req.Sensitivity == SensitivityLevel.Public ? FieldMask.Default : req.Mask ?? FieldMask.Default,
-        DefinitionFirst = req.Sensitivity < field.Sensitivity,
+        Mask = barakoCMS.Core.Validation.SensitivityRank.IsUniform(req.Sensitivity) ? FieldMask.Default : req.Mask ?? FieldMask.Default,
+        DefinitionFirst = barakoCMS.Core.Validation.SensitivityRank.IsLowering(field.Sensitivity, req.Sensitivity),
         RequestedBy = actorId,
     };
 

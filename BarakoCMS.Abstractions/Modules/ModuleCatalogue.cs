@@ -28,6 +28,7 @@ internal sealed class ModuleCatalogue
             .Select(m => new ModuleCatalogueEntry(m.Name, m.ContractVersion, running.Contains(m))
             {
                 HttpContractVersion = m.HttpContractVersion,
+                ConfigurationView = m.ConfigurationView,
             })
             .ToArray());
     }
@@ -40,4 +41,7 @@ internal sealed record ModuleCatalogueEntry(string Name, int ContractVersion, bo
 {
     /// <summary><see cref="IBarakoModule.HttpContractVersion"/>, zero when unstated.</summary>
     public int HttpContractVersion { get; init; }
+
+    /// <summary><see cref="IBarakoModule.ConfigurationView"/>, null when the module declares nothing.</summary>
+    public ModuleConfigurationView? ConfigurationView { get; init; }
 }

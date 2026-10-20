@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using FastEndpoints.Security;
 using Marten;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using barakoCMS.Infrastructure;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Multitenancy;
@@ -86,7 +87,7 @@ public static class SocialSignIn
         }
 
         return await IssueForUserAsync(
-            session, config, deviceGate, tokenIssuer, mfa, http, user, club, created ? signUp : null, ct, profile, null);
+            session, config, deviceGate, tokenIssuer, mfa, http, user, club, created ? signUp : null, ct, profile, null, null);
     }
 
     /// <summary>
@@ -161,9 +162,11 @@ public static class SocialSignIn
             });
         }
 
+        var mapped = await MappedRolesAsync(session, config, identity, provider, club, ct);
+
         var profile = new ProfileData(identity.Name, identity.Picture, null, null, provider);
         return (await IssueForUserAsync(
-            session, config, deviceGate, tokenIssuer, mfa, http, user, club, created ? signUp : null, ct, profile, beforeFinalCommit), false);
+            session, config, deviceGate, tokenIssuer, mfa, http, user, club, created ? signUp : null, ct, profile, beforeFinalCommit, mapped), false);
     }
 
     /// <summary>
@@ -202,7 +205,8 @@ public static class SocialSignIn
         SignUpDecision? signUp,
         CancellationToken ct,
         ProfileData? profile,
-        Action<IDocumentSession>? beforeFinalCommit)
+        Action<IDocumentSession>? beforeFinalCommit,
+        MappedRoles? mapped)
     {
         // Open sign-up makes this person a member before the issuer looks for one. Committed now,
         // with the account it may have just created, because the issuer reads memberships from
@@ -226,12 +230,17 @@ public static class SocialSignIn
         {
             beforeFinalCommit?.Invoke(session);
             await session.SaveChangesAsync(ct); // persist the user/profile created above
-            var (challenge, _) = barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Create(config, user.Id);
+            var challenge = await MfaChallengeAsync(session, config, user, tenantSlug, mapped, ct);
             return Tokens.MfaRequired(challenge);
         }
 
         var device = DeviceContext.From(http);
         var deviceClaims = await deviceGate.TrustOnOtpAsync(user, device, ct);
+        if (mapped is not null)
+        {
+            return await IssueWithGrantAsync(
+                session, http, user, tenantSlug, mapped, deviceClaims, device, beforeFinalCommit, ct);
+        }
 
         // A provider proving the person owns an email address says who they are, not which clubs
         // they belong to — `club` arrives from the caller exactly like the X-Tenant header does.
@@ -249,22 +258,133 @@ public static class SocialSignIn
 
         var jwt = issued.Token;
 
+        var refresh = StageRefreshToken(session, user, issued.RefreshLifetime, device.DeviceId);
+        beforeFinalCommit?.Invoke(session);
+        await session.SaveChangesAsync(ct);
+
+        return new Tokens(jwt, refresh);
+    }
+
+    /// <summary>
+    /// The challenge for a person who owes a second factor. It carries the roles the map earned,
+    /// minus any a claim may not grant, for core's verify step to grant once the factor passes.
+    /// </summary>
+    private static async Task<string> MfaChallengeAsync(
+        IDocumentSession session, IConfiguration config, User user, string tenantSlug, MappedRoles? mapped,
+        CancellationToken ct)
+    {
+        barakoCMS.Infrastructure.Auth.Mfa.PendingExternalGrant? grant = null;
+        if (mapped is not null && tenantSlug != Tenant.DefaultSlug)
+        {
+            var refused = await barakoCMS.Infrastructure.Auth.ExternalRoleGrant.RefusedAsync(session, tenantSlug, mapped.RoleIds, ct);
+            var roles = mapped.RoleIds.Except(refused).ToList();
+            grant = roles.Count == 0 ? null : new(tenantSlug, mapped.Provider, roles);
+        }
+
+        return barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Create(config, user.Id, grant).Token;
+    }
+
+    private static string StageRefreshToken(IDocumentSession session, User user, TimeSpan lifetime, string? deviceId)
+    {
         var refresh = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
         session.Store(new RefreshToken
         {
             Id = Guid.NewGuid(),
             TokenHash = RefreshToken.HashOf(refresh),
             UserId = user.Id,
-            ExpiresAt = DateTime.UtcNow.Add(issued.RefreshLifetime),
+            ExpiresAt = DateTime.UtcNow.Add(lifetime),
             CreatedAt = DateTime.UtcNow,
             IsRevoked = false,
-            DeviceId = device.DeviceId,
+            DeviceId = deviceId,
         });
-        beforeFinalCommit?.Invoke(session);
+        return refresh;
+    }
+
+    /// <summary>
+    /// Grants the mapped roles, issues the token and stores the refresh token in one transaction,
+    /// so a sign-in the issuer refuses grants nothing. The issuer reads memberships through that
+    /// transaction, so it sees the grant before it commits. Runs after the second factor: a person
+    /// with one enrolled is returned a challenge before this, and core's verify step grants what the
+    /// challenge carries.
+    /// </summary>
+    /// <remarks>
+    /// The account, link and profile commit first, as they do when the issuer refuses.
+    /// <paramref name="beforeFinalCommit"/> joins the transaction, so the nonce is spent with the
+    /// grant and the token, or with the refusal.
+    /// </remarks>
+    private static async Task<Tokens> IssueWithGrantAsync(
+        IDocumentSession session, HttpContext http, User user, string tenantSlug, MappedRoles mapped,
+        IReadOnlyList<Claim> deviceClaims, DeviceContext device, Action<IDocumentSession>? beforeFinalCommit,
+        CancellationToken ct)
+    {
         await session.SaveChangesAsync(ct);
 
-        return new Tokens(jwt, refresh);
+        var granted = false;
+        var transaction = http.RequestServices.GetRequiredService<barakoCMS.Infrastructure.Services.IContentBatchRunner>();
+        var tokens = await transaction.RunAsync<Tokens?>(async (scope, token) =>
+        {
+            var writes = scope.GetRequiredService<IDocumentSession>();
+            granted = await StageMappedRolesAsync(writes, user, tenantSlug, mapped, token);
+            await writes.SaveChangesAsync(token);
+
+            var issued = await scope.GetRequiredService<ITokenIssuer>()
+                .IssueAccessTokenAsync(user, tenantSlug, deviceClaims, token);
+            if (!issued.Allowed)
+            {
+                return new barakoCMS.Infrastructure.Services.ContentBatchOutcome<Tokens?>(null, Commit: false);
+            }
+
+            var refresh = StageRefreshToken(writes, user, issued.RefreshLifetime, device.DeviceId);
+            beforeFinalCommit?.Invoke(writes);
+            return new barakoCMS.Infrastructure.Services.ContentBatchOutcome<Tokens?>(
+                new Tokens(issued.Token, refresh), Commit: true);
+        }, ct);
+
+        if (tokens is null)
+        {
+            beforeFinalCommit?.Invoke(session);
+            await session.SaveChangesAsync(ct);
+            return Tokens.Denied();
+        }
+
+        if (granted)
+        {
+            http.RequestServices.GetService<barakoCMS.Infrastructure.Services.IPermissionResolver>()
+                ?.InvalidateUserPermissions(user.Id);
+        }
+
+        return tokens;
     }
+
+    /// <summary>The roles the tenant's map gives for a sign-in's claims, and the provider they came from.</summary>
+    internal sealed record MappedRoles(List<Guid> RoleIds, string Provider);
+
+    /// <summary>
+    /// Reads the tenant's map and what it gives this sign-in. Nothing is written, so a person who
+    /// still owes a second factor has been given nothing yet. The map runs on every sign-in, so a
+    /// person added to a group at the provider has the role the next time they sign in.
+    /// </summary>
+    private static async Task<MappedRoles?> MappedRolesAsync(
+        IDocumentSession session, IConfiguration config, OidcIdentity identity, string provider, string club, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(club) || identity.Claims.Count == 0)
+        {
+            return null;
+        }
+
+        var map = await session.LoadAsync<ExternalRoleMap>(club.Trim().ToLowerInvariant(), ct);
+        if (map is null)
+        {
+            return null;
+        }
+
+        var roles = RoleMaps.RolesFor(map, identity.Claims, provider, identity.Issuer, RoleMaps.IssuerRequired(config, provider));
+        return roles.Count == 0 ? null : new MappedRoles(roles, provider);
+    }
+
+    private static Task<bool> StageMappedRolesAsync(
+        IDocumentSession session, User user, string tenantSlug, MappedRoles mapped, CancellationToken ct) =>
+        ExternalRoleGrant.StageAsync(session, user, tenantSlug, mapped.RoleIds, mapped.Provider, ct);
 
     /// <summary>Merges what the provider shared into the stored profile, keeping a field it left out.</summary>
     private static async Task StageProfileAsync(IDocumentSession session, User user, ProfileData profile, CancellationToken ct)

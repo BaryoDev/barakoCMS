@@ -56,6 +56,7 @@ public class IdempotencyReplayRulesTests
         ["BarakoCMS.FeatureFlags.FlagDto"] = "Key is the flag's name",
         ["BarakoCMS.FeatureFlags.Ofrep.OfrepFlag"] = "Key is the flag's name",
         ["barakoCMS.Features.Settings.SystemSettingDto"] = "Key is the setting's name",
+        ["barakoCMS.Features.Modules.Configuration.ModuleConfigurationEntry"] = "Key is the setting's name; the value is redacted",
         ["BarakoCMS.Accounting.Domain.Account"] = "Code is the account code",
         ["BarakoCMS.Accounting.AccountBalance"] = "Code is the account code",
         ["BarakoCMS.Accounting.Features.Accounts.CreateAccountEndpoint+Result"] = "Code is the account code",

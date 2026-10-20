@@ -156,6 +156,7 @@ public class ResponseHygieneTests
     [InlineData("/api/me", true)]
     [InlineData("/api/api-keys", true)]
     [InlineData("/api/preview", true)]
+    [InlineData("/api/viewer-tokens", true)]
     [InlineData("/api/public/site/share-links/redeem", true)]
     [InlineData("/api/public/site/share-links/open", true)]
     [InlineData("/api/public/site", false)]

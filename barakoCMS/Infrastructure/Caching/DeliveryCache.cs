@@ -130,6 +130,17 @@ public static class DeliveryCache
     }
 
     /// <summary>
+    /// Marks a response built for a viewer token: <c>private, no-store</c>, and a Vary on the
+    /// headers that decide the audience, so nothing downstream files it under the anonymous page (#912).
+    /// </summary>
+    public static void Private(HttpContext http, params string[] varyOn)
+    {
+        NoStore(http);
+        http.Response.Headers.CacheControl = "private, no-store";
+        http.Response.Headers.Append(HeaderNames.Vary, new[] { HeaderNames.Authorization }.Concat(varyOn).ToArray());
+    }
+
+    /// <summary>
     /// Takes back what <see cref="Shared"/> set, for a route that decides to answer an error after
     /// all: <c>no-store</c>, and no class, tag or validator.
     /// </summary>

@@ -62,6 +62,8 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
             return ApiKeyScopes.ContentWrite;
         if (Match(path, "/api/content-types") || Match(path, "/api/schemas"))
             return isWrite ? ApiKeyScopes.ContentTypeWrite : ApiKeyScopes.ContentTypeRead;
+        if (Match(path, "/api/files"))
+            return isWrite ? ApiKeyScopes.FilesWrite : ApiKeyScopes.FilesRead;
         return null;
     }
 

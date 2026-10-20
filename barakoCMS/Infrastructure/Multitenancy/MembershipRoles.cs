@@ -28,7 +28,9 @@ public static class MembershipRoles
     internal static async Task<(List<Guid> RoleIds, Membership? Membership)> ResolveAsync(
         IQuerySession session, User user, string tenantSlug, CancellationToken ct)
     {
-        var global = user.RoleIds ?? new List<Guid>();
+        var global = (user.RoleIds ?? new List<Guid>())
+            .Union(await GroupRoleIdsAsync(session, user, ct))
+            .ToList();
 
         var membership = await session.Query<Membership>()
             .Where(m => m.UserId == user.Id && m.TenantSlug == tenantSlug && m.Status == MembershipStatus.Active)
@@ -57,6 +59,22 @@ public static class MembershipRoles
         }
 
         return (held.Union(global).ToList(), membership);
+    }
+
+    /// <summary>The roles of every group the user is a member of, on either side of the link.</summary>
+    /// <remarks>
+    /// A member is a user whose <see cref="User.GroupIds"/> names the group or whom the group's
+    /// <see cref="UserGroup.UserIds"/> lists, because the two endpoints that add a member write
+    /// different sides. Nested groups are not followed: a child group does not inherit its parent's
+    /// roles. These count as global roles, so a tenant's role placed on a group grants nothing.
+    /// </remarks>
+    private static async Task<List<Guid>> GroupRoleIdsAsync(IQuerySession session, User user, CancellationToken ct)
+    {
+        var groupIds = user.GroupIds ?? [];
+        var groups = await session.Query<UserGroup>()
+            .Where(g => g.DeletedAt == null && (g.UserIds.Contains(user.Id) || groupIds.Contains(g.Id)))
+            .ToListAsync(ct);
+        return groups.SelectMany(g => g.RoleIds ?? []).Distinct().ToList();
     }
 
     /// <summary>Which of <paramref name="roleIds"/> belong to a tenant other than <paramref name="tenantSlug"/>.</summary>

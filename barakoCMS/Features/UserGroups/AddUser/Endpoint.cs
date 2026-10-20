@@ -5,7 +5,10 @@ using barakoCMS.Models;
 
 namespace barakoCMS.Features.UserGroups.AddUser;
 
-internal class Endpoint(IDocumentSession session) : Endpoint<Request, Response>
+internal class Endpoint(
+    IDocumentSession session,
+    barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
+    IConfiguration configuration) : Endpoint<Request, Response>
 {
     public override void Configure()
     {
@@ -17,9 +20,16 @@ internal class Endpoint(IDocumentSession session) : Endpoint<Request, Response>
     {
         var group = await session.LoadAsync<UserGroup>(req.GroupId, ct);
 
-        if (group == null)
+        if (group == null || group.DeletedAt is not null)
         {
             await Send.NotFoundAsync(ct);
+            return;
+        }
+
+        if (group.RoleIds.Count > 0
+            && await GroupRoleGuard.CheckAsync(session, User, configuration, [], group.RoleIds, ct) is { } refused)
+        {
+            await Send.ResponseAsync(new Response { Message = refused.Message }, refused.Status, ct);
             return;
         }
 
@@ -28,6 +38,7 @@ internal class Endpoint(IDocumentSession session) : Endpoint<Request, Response>
             group.UserIds.Add(req.UserId);
             session.Store(group);
             await session.SaveChangesAsync(ct);
+            permissionResolver.InvalidateUserPermissions(req.UserId);
         }
 
         await Send.OkAsync(new Response { Message = "User added to group successfully" }, ct);

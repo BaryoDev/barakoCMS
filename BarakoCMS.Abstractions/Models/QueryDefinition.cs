@@ -60,6 +60,12 @@ public class QueryDefinition
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// When the query was deleted, or null while it is live. A deleted query is invisible to every
+    /// reader but the restore and erase routes, and still holds its slug.
+    /// </summary>
+    public DateTime? DeletedAt { get; set; }
 }
 
 /// <summary>One typed comparison. Never an expression.</summary>

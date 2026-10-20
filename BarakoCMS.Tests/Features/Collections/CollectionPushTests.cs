@@ -200,9 +200,7 @@ public class CollectionPushTests
     {
         var type = await ArrangeTypeAsync();
 
-        using var host = _factory.WithWebHostBuilder(_ => { });
-        host.UseKestrel(0);
-        host.StartServer();
+        using var host = KestrelTestClient.StartOnFreePort(_factory);
         using var client = KestrelTestClient.ExpectContinue(host);
 
         var oversized = new string('a', (int)barakoCMS.Features.Collections.Push.Limits.MaxBodyBytes + 1024);

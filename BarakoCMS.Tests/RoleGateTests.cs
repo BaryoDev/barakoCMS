@@ -47,6 +47,12 @@ public class RoleGateTests
 
     private const string NotAGuid = "not-a-guid";
 
+    /// <summary>
+    /// Over the length the module configuration route accepts, so an admin is answered by request
+    /// validation (400) rather than by a 404 for a module the shared host does not have.
+    /// </summary>
+    private static readonly string TooLongForAModuleName = new('m', 101);
+
     /// <summary>Uppercase, so the connector slug check refuses it before any lookup happens.</summary>
     private const string NotASlug = "NOT_A_SLUG";
 
@@ -80,6 +86,7 @@ public class RoleGateTests
         new("GET", "/api/monitoring/k8s", "/api/monitoring/k8s"),
         new("GET", "/api/monitoring/metrics", "/api/monitoring/metrics"),
         new("GET", "/api/modules", "/api/modules"),
+        new("GET", "/api/modules/{name}/configuration", $"/api/modules/{TooLongForAModuleName}/configuration"),
         new("GET", "/api/capabilities", "/api/capabilities"),
         new("GET", "/api/config/export", "/api/config/export"),
         new("POST", "/api/config/plan", "/api/config/plan"),
@@ -179,6 +186,18 @@ public class RoleGateTests
         new("DELETE", "/api/blocks/presets/{id}", $"/api/blocks/presets/{NotAGuid}"),
         new("PUT", "/api/blocks/bindings/{id}", $"/api/blocks/bindings/{NotAGuid}"),
         new("DELETE", "/api/blocks/bindings/{id}", $"/api/blocks/bindings/{NotAGuid}"),
+        new("DELETE", "/api/queries/{slug}/erase", $"/api/queries/{NotASlug}/erase"),
+        new("POST", "/api/queries/{slug}/restore", $"/api/queries/{NotASlug}/restore"),
+        new("DELETE", "/api/roles/{id}/erase", $"/api/roles/{NotAGuid}/erase"),
+        new("POST", "/api/roles/{id}/restore", $"/api/roles/{NotAGuid}/restore"),
+        new("GET", "/api/roles/deleted", "/api/roles/deleted"),
+        new("DELETE", "/api/user-groups/{id}/erase", $"/api/user-groups/{NotAGuid}/erase"),
+        new("POST", "/api/user-groups/{id}/restore", $"/api/user-groups/{NotAGuid}/restore"),
+        new("GET", "/api/user-groups/deleted", "/api/user-groups/deleted"),
+        new("GET", "/api/tenant-settings/email", "/api/tenant-settings/email"),
+        new("PUT", "/api/tenant-settings/email", "/api/tenant-settings/email"),
+        new("POST", "/api/api-keys/{id}/rotate", $"/api/api-keys/{NotAGuid}/rotate"),
+        new("POST", "/api/viewer-tokens", "/api/viewer-tokens"),
     ];
 
     public static TheoryData<GatedRoute> AllGatedRoutes()
