@@ -302,6 +302,33 @@ public class AccountScopedTenantTests
     }
 
     [Fact]
+    public async Task A_grant_and_a_revoke_each_leave_an_audit_entry_naming_the_account_the_user_and_the_actor()
+    {
+        var admin = await PlatformManagerAsync();
+        var account = await StoreAccountAsync();
+        var (_, userId) = await ManagerOfAsync();
+
+        (await admin.PostAsJsonAsync($"/api/accounts/{account.Slug}/managers", new { userId }, Ct))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await admin.DeleteAsync($"/api/accounts/{account.Slug}/managers/{userId}", Ct))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        var target = userId.ToString();
+        var entries = await session.Query<AuditEvent>().Where(e => e.TargetId == target).ToListAsync(Ct);
+
+        entries.Should().HaveCount(2);
+        entries.Select(e => e.Action).Should().BeEquivalentTo(["account.manager_granted", "account.manager_revoked"]);
+        foreach (var entry in entries)
+        {
+            entry.ActorUserId.Should().NotBeNull("the entry names who made the change");
+            entry.Metadata!["accountSlug"].ToString().Should().Be(account.Slug);
+            entry.Metadata["accountId"].ToString().Should().Be(account.Id.ToString());
+        }
+    }
+
+    [Fact]
     public async Task Revoking_the_grant_takes_the_tenants_away_without_a_new_token()
     {
         var mine = await StoreAccountAsync();

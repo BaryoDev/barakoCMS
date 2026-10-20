@@ -38,5 +38,5 @@ keeps its own.
 
 ## Not in this slice
 
-Account members and account-level roles beyond the manager grant, audit entries for grants, and an
+Account members and account-level roles beyond the manager grant, and an
 anonymous branding route for the sign-in screen.

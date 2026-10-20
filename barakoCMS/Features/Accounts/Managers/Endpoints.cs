@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 using FastEndpoints;
@@ -20,6 +21,29 @@ internal sealed class GrantRequest
 internal sealed class GrantRequestValidator : Validator<GrantRequest>
 {
     public GrantRequestValidator() => RuleFor(r => r.UserId).NotEmpty();
+}
+
+internal static class ManagerAudit
+{
+    public const string Granted = "account.manager_granted";
+    public const string Revoked = "account.manager_revoked";
+
+    /// <summary>Stages the entry on the session the grant is written in, in the caller's current tenant's log.</summary>
+    public static Task RecordAsync(
+        IDocumentSession session, System.Security.Claims.ClaimsPrincipal actor, string action,
+        TenantAccount account, Guid userId, CancellationToken ct)
+    {
+        Guid.TryParse(actor.FindFirst("UserId")?.Value, out var actorId);
+        var tenant = (actor.FindFirst("tenant")?.Value ?? Tenant.DefaultSlug).Trim().ToLowerInvariant();
+        return AuditLog.RecordAsync(session, tenant, action, actorId, actor.FindFirst("Username")?.Value,
+            targetType: "User", targetId: userId.ToString(),
+            metadata: new Dictionary<string, object>
+            {
+                ["accountId"] = account.Id.ToString(),
+                ["accountSlug"] = account.Slug,
+            },
+            ct: ct);
+    }
 }
 
 /// <summary>GET /api/accounts/{slug}/managers: who may manage the tenants of the account (platform manager only).</summary>
@@ -87,6 +111,7 @@ internal class GrantEndpoint(IDocumentSession session) : Endpoint<GrantRequest, 
         {
             grant = new TenantAccountManager { Id = Guid.NewGuid(), AccountId = account.Id, UserId = req.UserId };
             session.Store(grant);
+            await ManagerAudit.RecordAsync(session, User, ManagerAudit.Granted, account, req.UserId, ct);
             await session.SaveChangesAsync(ct);
         }
 
@@ -118,6 +143,7 @@ internal class RevokeEndpoint(IDocumentSession session) : EndpointWithoutRequest
         if (grant is null) { await Send.NotFoundAsync(ct); return; }
 
         session.Delete(grant);
+        await ManagerAudit.RecordAsync(session, User, ManagerAudit.Revoked, account, userId, ct);
         await session.SaveChangesAsync(ct);
         await Send.NoContentAsync(ct);
     }
