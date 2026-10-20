@@ -36,7 +36,51 @@ An account carries `name`, `logoUrl` and `colours` (a map such as `primary` to `
 answers the tenant's own `Branding` map, and with no name or logo it answers null so the console
 keeps its own.
 
+## Content types owned by an account
+
+An account can own a content type. Every tenant in the account uses it: it appears in
+`GET /api/content-types` with `ownerAccountId` set, and an entry written in any of those tenants is
+validated against it. The entries themselves stay in the tenant that wrote them. A tenant outside
+the account does not see the type, and an entry it writes under that name is not validated by it.
+
+| Route | Who |
+| --- | --- |
+| `GET /api/accounts/{slug}/content-types` | `manage_tenants`, or a manager of the account |
+| `POST /api/accounts/{slug}/content-types` | the same: `name`, `displayName`, `description`, `fields` |
+| `POST /api/accounts/{slug}/content-types/{name}/fields` | the same, with the body of `POST /api/content-types/{name}/fields` |
+| `DELETE /api/accounts/{slug}/content-types/{name}` | the same, refused while an entry of the type exists in the account's tenants |
+
+A tenant admin cannot change or delete the type: the account routes answer 403 to anyone who does
+not manage the account, and `POST /api/content-types/{name}/fields` answers 403 for a name the
+account owns. The other per-type tenant routes (`PUT .../public-delivery` and so on) look only at
+the tenant's own types and answer 404.
+
+A field added to the type applies to every tenant in the account at once, because there is one
+definition. Existing entries are not rewritten, so a required field with no default is refused when
+an entry of the type exists in the account's tenants. Changing or removing a field, and migrating
+entries, need the versioned schema change of #934 and are not offered.
+
+### A tenant's own type with the same name
+
+A tenant may define its own types beside the account's. The same name is refused: creating it in a
+tenant answers 409 while the account owns that name, and creating it on the account answers 409
+while a tenant in the account has its own type of that name. A pair that already exists (a tenant
+type created before the account type) is left alone, and the tenant's own definition wins for that
+tenant.
+
+### Where it is stored
+
+An account-owned type is an `AccountContentType` document, single tenanted like `TenantAccount`. A
+definition in one tenant's partition would be invisible to the others, and a copy per tenant is the
+drift this removes. The document is read after the tenant's own definition and only when that finds
+none. `Tenancy:DatabaseEnforcement` applies row level security to the conjoined tables only, so it
+does not hide the document from a tenant. It does narrow the two cross-tenant checks (the name check
+on create and the entries check on add field and delete) to the tenant the request is made on, which
+is why the tenant-side create refusal exists too.
+
 ## Not in this slice
 
-Account members and account-level roles beyond the manager grant, and an
-anonymous branding route for the sign-in screen.
+Account members and account-level roles beyond the manager grant, and an anonymous branding route
+for the sign-in screen. For shared definitions: workflows, lifecycles, roles, the migration job of
+#934, public delivery, numbering and uniqueness rules, and the token field type on an
+account-owned type.

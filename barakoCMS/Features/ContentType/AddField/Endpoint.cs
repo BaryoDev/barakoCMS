@@ -150,7 +150,7 @@ internal sealed class Endpoint(
         Definition.RefusesWhileFieldChangeRuns();
     }
 
-    private static FieldDefinition NewField(Request req) =>
+    internal static FieldDefinition NewField(Request req) =>
         new()
         {
             Name = req.FieldName,
@@ -184,6 +184,12 @@ internal sealed class Endpoint(
 
         if (definition is null)
         {
+            if (await barakoCMS.Infrastructure.Services.AccountContentTypes.FindAsync(session, name, ct) is not null)
+            {
+                AddError("This Content Type is owned by the account. An account manager changes it through /api/accounts/{slug}/content-types.");
+                ThrowIfAnyErrors(StatusCodes.Status403Forbidden);
+            }
+
             await Send.NotFoundAsync(ct);
             return;
         }

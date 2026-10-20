@@ -190,7 +190,8 @@ public sealed class ContentCreator(
     {
         var definition = batch?.SchemaFor(request.ContentType)
             ?? await session.Query<ContentTypeDefinition>()
-                .FirstOrDefaultAsync(d => d.Name == request.ContentType, ct);
+                .FirstOrDefaultAsync(d => d.Name == request.ContentType, ct)
+            ?? await AccountContentTypes.FindDefinitionAsync(session, request.ContentType, ct);
 
         await NumberAsync(definition, request.ContentType, request.Data, ct);
 
@@ -251,7 +252,8 @@ public sealed class ContentCreator(
         }
 
         var lowered = contentType.ToLower();
-        definition ??= await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct);
+        definition ??= await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct)
+            ?? await AccountContentTypes.FindDefinitionAsync(session, lowered, ct);
         if (definition?.Numbering is not { Field.Length: > 0 } rule)
         {
             return;
