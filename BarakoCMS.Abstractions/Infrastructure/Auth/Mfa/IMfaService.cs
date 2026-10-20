@@ -5,7 +5,7 @@ namespace barakoCMS.Infrastructure.Auth.Mfa;
 /// <summary>
 /// TOTP (RFC 6238, authenticator-app) second factor: enrollment, code verification with a small clock
 /// window and replay protection, and single-use recovery codes. Secrets are stored encrypted via
-/// <see cref="IMfaSecretProtector"/>; recovery codes are stored only as BCrypt hashes.
+/// <c>IMfaSecretProtector</c>; recovery codes are stored only as BCrypt hashes.
 /// </summary>
 public interface IMfaService
 {
