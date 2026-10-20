@@ -52,6 +52,7 @@ Optional packages, each installable on its own:
 | `BarakoCMS.Forms` | Public form submissions into a content type |
 | `BarakoCMS.Import` | Bulk import |
 | `BarakoCMS.Pages` | Page tree, navigation and path resolution over a content type |
+| `BarakoCMS.Payments` | Payment checkout and verified provider webhooks for an entry |
 | `BarakoCMS.Portability` | Export / import bundles |
 | `BarakoCMS.Pwa` | Install tracking |
 

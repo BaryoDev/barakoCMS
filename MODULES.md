@@ -912,6 +912,7 @@ template ships a placeholder.
 | [BarakoCMS.Import](BarakoCMS.Import) | Bulk import: analyze `.xlsx`/CSV uploads and create content |
 | [BarakoCMS.Files](BarakoCMS.Files) | File attachments (upload/download) stored in Postgres |
 | [BarakoCMS.Forms](BarakoCMS.Forms) | Public form submissions: a content type marked as a form takes anonymous, rate limited submissions stored Sensitive |
+| [BarakoCMS.Payments](BarakoCMS.Payments) | Checkout for a payable entry at the amount stored on it, and a signed, idempotent provider webhook that runs the paid transition. Provider adapters implement `IPaymentProvider` |
 | [BarakoCMS.Email.Resend](BarakoCMS.Email.Resend) | Resend email provider (`IEmailService`) |
 | [BarakoCMS.Email.Smtp](BarakoCMS.Email.Smtp) | SMTP email provider (`IEmailService`), inert until a host is configured |
 | [BarakoCMS.Pages](BarakoCMS.Pages) | Page tree over a content type: parent loop, depth and reserved slug rules, public navigation and path resolution, and an authenticated tree |
