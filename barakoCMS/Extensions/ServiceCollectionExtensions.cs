@@ -862,7 +862,7 @@ public static class ServiceCollectionExtensions
             // requests with the same code can't both read the old LastUsedTimeStep and both win.
             .UseOptimisticConcurrency(true);
 
-        MapApiKeys(options);
+        MapApiKeysAndAccounts(options);
 
         options.Schema.For<Station>()
             .SingleTenanted() // credentials are global, like API keys; the tenant is kept as data
@@ -905,7 +905,26 @@ public static class ServiceCollectionExtensions
             });
     }
 
-    private static void MapApiKeys(StoreOptions options) =>
+    private static void MapAccounts(StoreOptions options)
+    {
+        options.Schema.For<Models.TenantAccount>()
+            .SingleTenanted() // accounts sit above tenants, so they are global
+            .DocumentAlias("accounts")
+            .Index(x => x.Slug, idx => idx.IsUnique = true);
+        options.Schema.For<Models.TenantAccountManager>()
+            .SingleTenanted()
+            .DocumentAlias("account_managers")
+            .Index(x => x.UserId)
+            .Index(x => new { x.AccountId, x.UserId }, idx => idx.IsUnique = true);
+    }
+
+    private static void MapApiKeysAndAccounts(StoreOptions options)
+    {
+        MapAccounts(options);
+        MapApiKeyDocument(options);
+    }
+
+    private static void MapApiKeyDocument(StoreOptions options) =>
         options.Schema.For<ApiKey>()
             .SingleTenanted() // credentials are global, like users and tokens
             .DocumentAlias("api_keys")

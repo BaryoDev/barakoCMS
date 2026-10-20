@@ -104,6 +104,12 @@ public class Tenant
     /// <summary>How members of this tenant sign in: a second factor, the methods allowed, the session length.</summary>
     public TenantSignInPolicy SignIn { get; set; } = new();
 
+    /// <summary>
+    /// The <see cref="TenantAccount"/> that owns this tenant. Null means the implicit default account, which
+    /// is what every tenant stored before accounts existed has.
+    /// </summary>
+    public Guid? AccountId { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>The implicit tenant that existing single-tenant data and non-handle requests use.</summary>
