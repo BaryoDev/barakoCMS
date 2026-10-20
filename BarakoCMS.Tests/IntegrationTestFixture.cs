@@ -964,8 +964,13 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         var roleIds = new List<Guid>();
         foreach (var roleName in roleNames)
         {
-            var role = await session.Query<barakoCMS.Models.Role>()
-                .FirstOrDefaultAsync(r => r.Name == roleName);
+            // A tenant may own a role of the same name, and a test that stores one (an empty
+            // "SuperAdmin" for the legacy-name fallback) must not hand every later caller its
+            // empty capabilities. The role without a tenant is the seeded one.
+            var named = await session.Query<barakoCMS.Models.Role>()
+                .Where(r => r.Name == roleName)
+                .ToListAsync();
+            var role = named.OrderBy(r => r.TenantSlug is not null).FirstOrDefault();
 
             // A name the seeder does not create is left alone rather than invented. Such a role
             // holds nothing, so the user reaches nothing through it, which is the answer these
