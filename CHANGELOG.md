@@ -98,7 +98,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **An API key could be rotated by a caller who could not have created it (#906).** Rotation now refuses such
   a key, fails when the key changed under it, and audits denied rotations. The `files:read` and
   `files:write` scopes are outside the `*` wildcard.
-- **A tenant's mail override could take over account mail (#896).** Sign-in codes, verification, resets
+- **A tenant's mail settings could change who sends account mail (#896).** Sign-in codes, verification, resets
   and lockout notices always use the host sender and key, and a tenant sender is used only with that
   tenant's own key. SMTP always sends from the host sender.
 - **A claim to role map could grant roles without a second factor, or more than once (#915).** Mapped
