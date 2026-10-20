@@ -1276,6 +1276,7 @@ public static class ServiceCollectionExtensions
         // would rebuild the cache lookup per request for no benefit.
         services.AddSingleton<barakoCMS.Infrastructure.Multitenancy.ITenantDomainSource,
                               barakoCMS.Infrastructure.Multitenancy.TenantDomainSource>();
+        services.AddScoped<barakoCMS.Infrastructure.Multitenancy.TenantExportWalker>();
         services.Configure<barakoCMS.Infrastructure.Multitenancy.MultitenancyOptions>(
             configuration.GetSection(barakoCMS.Infrastructure.Multitenancy.MultitenancyOptions.SectionName));
 
