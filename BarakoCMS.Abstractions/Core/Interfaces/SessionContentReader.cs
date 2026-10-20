@@ -48,7 +48,7 @@ internal sealed class SessionContentReader(IQuerySession session, int pageSize =
             var after = last;
             var page = await session.Query<Content>()
                 .Where(c => c.ContentType == contentType)
-                .Where(c => c.MatchesSql("id > ?", after))
+                .Where(c => c.MatchesSql("d.id > ?", after))
                 .OrderBy(c => c.Id)
                 .Take(pageSize)
                 .ToListAsync(cancellationToken);
