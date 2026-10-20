@@ -22,7 +22,12 @@ internal sealed record TemplateTransition(string Name, DateTime At, TemplatePers
 /// <param name="Console">The console's URL (<c>App:ConsoleUrl</c>).</param>
 /// <param name="Site">The <c>Url</c> of the tenant's published <c>site</c> entry.</param>
 /// <param name="Public">The entry's address on the public site, from <see cref="EntryUrls.PublicUrlAsync"/>.</param>
-internal sealed record TemplateLinks(string? Api, string? Console, string? Site, string? Public = null)
+/// <param name="Action">
+/// Turns a transition name into a signed action link, or null when action links are off or the
+/// recipient is not a user. Null leaves <c>links.action</c> empty.
+/// </param>
+internal sealed record TemplateLinks(
+    string? Api, string? Console, string? Site, string? Public = null, Func<string, string?>? Action = null)
 {
     public static readonly TemplateLinks None = new(null, null, null);
 }
@@ -139,7 +144,7 @@ internal static class TemplateExpression
         @"\#each\s+data\.(?<name>[A-Za-z0-9_]+)|data\.(?<name>[A-Za-z0-9_]+)\.[A-Za-z0-9_]", RegexOptions.Compiled, ScanTimeout);
 
     private static readonly Regex Link = new(
-        @"\A\s*(?<name>links\.(?:site|transition))\s+""(?<argument>[^""\r\n]*)""\s*\z", RegexOptions.Compiled);
+        @"\A\s*(?<name>links\.(?:site|transition|action))\s+""(?<argument>[^""\r\n]*)""\s*\z", RegexOptions.Compiled);
 
     /// <summary>A path on the site: one leading slash, never two, so it cannot name another host.</summary>
     private static readonly Regex SitePath = new(@"\A/(?!/)[A-Za-z0-9\-._~/%?=&#+]*\z", RegexOptions.Compiled);
@@ -506,6 +511,8 @@ internal static class TemplateExpression
 
         if (name == "links.transition") return "names 'links.transition' without the transition, as in links.transition \"Approve\"";
 
+        if (name == "links.action") return "names 'links.action' without the transition, as in links.action \"Approve\"";
+
         if (TransitionNames.Contains(name))
         {
             return onTransition ? null : $"names '{name}', which is only filled when the trigger is a transition";
@@ -534,7 +541,7 @@ internal static class TemplateExpression
                 : "gives 'links.site' a path that does not start with one '/' or holds a character a path does not";
         }
 
-        return argument.Any(char.IsControl) ? "gives 'links.transition' a name with a control character in it" : null;
+        return argument.Any(char.IsControl) ? $"gives '{name}' a name with a control character in it" : null;
     }
 
     /// <summary>
@@ -547,7 +554,14 @@ internal static class TemplateExpression
 
         if (name == "links.site") return links.Site is null ? string.Empty : links.Site + argument;
 
-        if (links.Console is null || content is barakoCMS.Features.Workflows.ErasedContent) return string.Empty;
+        if (content is barakoCMS.Features.Workflows.ErasedContent) return string.Empty;
+
+        if (name == "links.action")
+            return links.Api is null || links.Action?.Invoke(argument) is not { } token
+                ? string.Empty
+                : $"{links.Api}/api/public/action-links/{token}";
+
+        if (links.Console is null) return string.Empty;
 
         return $"{links.Console}/content/{content.Id}?transition={Uri.EscapeDataString(argument)}";
     }

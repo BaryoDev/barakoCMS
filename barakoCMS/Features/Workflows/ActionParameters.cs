@@ -84,6 +84,12 @@ internal static class ActionParameters
         Models.Content content, string? triggerEvent, long eventSequence, CancellationToken ct)
     {
         await extractor.PrepareAsync(content, triggerEvent, eventSequence, parameters.Values, ct);
+
+        if (actionType == "Email" && parameters.TryGetValue("To", out var to))
+        {
+            await extractor.ForRecipientAsync(extractor.ResolveVariables(to, content), content, ct);
+        }
+
         return Resolve(extractor, actionType, parameters, content);
     }
 

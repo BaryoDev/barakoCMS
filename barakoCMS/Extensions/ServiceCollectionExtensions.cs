@@ -723,6 +723,12 @@ public static class ServiceCollectionExtensions
                 idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
             });
 
+        // Conjoined: a link is spent in the tenant that issued it.
+        options.Schema.For<ActionLinkUse>()
+            .MultiTenanted()
+            .DocumentAlias("action_link_uses")
+            .Index(x => x.ExpiresAt);
+
         options.Schema.For<Connector>()
             .MultiTenanted()
             .DocumentAlias("connectors")
@@ -1320,7 +1326,15 @@ public static class ServiceCollectionExtensions
             sp.GetService<IConfiguration>(),
             sp.GetRequiredService<barakoCMS.Features.Workflows.WorkflowTriggerRegistry>(),
             sp.GetRequiredService<barakoCMS.Features.Workflows.WorkflowExecutors>()));
-        services.AddScoped<ITemplateVariableExtractor, TemplateVariableExtractor>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.ActionLinkTokenIssuer>();
+        services.AddScoped<ITemplateVariableExtractor>(sp => new TemplateVariableExtractor(
+            sp.GetRequiredService<Marten.IDocumentSession>(),
+            sp.GetService<barakoCMS.Infrastructure.Services.IPermissionResolver>(),
+            sp.GetService<barakoCMS.Core.Interfaces.ISensitivityService>(),
+            sp.GetService<IConfiguration>())
+        {
+            ActionLinks = sp.GetService<barakoCMS.Infrastructure.Services.ActionLinkTokenIssuer>(),
+        });
         services.AddScoped<IWorkflowDebugger, WorkflowDebugger>();
     }
 
