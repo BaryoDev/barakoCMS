@@ -759,6 +759,13 @@
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
       },
+      "barakocms.payments": {
+        "type": "Project",
+        "dependencies": {
+          "BarakoCMS": "[5.0.0, )",
+          "BarakoCMS.Abstractions": "[5.1.0, )"
+        }
+      },
       "barakocms.portability": {
         "type": "Project",
         "dependencies": {

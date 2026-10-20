@@ -523,6 +523,12 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Forms.FormsModule(), opts));
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Reports.ReportsModule(), opts));
 
+            // Payments: the checkout and webhook endpoints need the module's policy and schema, and a
+            // provider to talk to. The fake signs with a fixed secret so a test can sign or tamper.
+            new BarakoCMS.Payments.PaymentsModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Payments"));
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Payments.PaymentsModule(), opts));
+            services.AddSingleton<BarakoCMS.Payments.IPaymentProvider, BarakoCMS.Tests.Features.Payments.FakePaymentProvider>();
+
             // Portability: its contents section, so a bundle applies through the config engine. Called
             // through IBarakoModule, the way the host calls every module's ConfigureServices.
             ((barakoCMS.Modules.IBarakoModule)new BarakoCMS.Portability.PortabilityModule()).ConfigureServices(services, ctx.Configuration);
@@ -626,6 +632,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
 
         typeof(BarakoCMS.Forms.FormsModule).Assembly,
         typeof(BarakoCMS.Reports.ReportsModule).Assembly,
+        typeof(BarakoCMS.Payments.PaymentsModule).Assembly,
         typeof(BarakoCMS.FeatureFlags.FeatureFlagsModule).Assembly,
         // Portability owns no documents of its own, so beside its endpoints it needs only the
         // config section it registers, which ConfigureWebHost adds.

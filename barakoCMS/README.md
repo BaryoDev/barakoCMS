@@ -54,6 +54,7 @@ Optional packages, each installable on its own:
 | `BarakoCMS.Import` | Bulk import |
 | `BarakoCMS.Pages` | Page tree, navigation and path resolution over a content type |
 | `BarakoCMS.Qr` | QR code PNG or SVG for one allowed field of a public entry |
+| `BarakoCMS.Payments` | Payment checkout and verified provider webhooks for an entry |
 | `BarakoCMS.Portability` | Export / import bundles |
 | `BarakoCMS.Pwa` | Install tracking |
 
