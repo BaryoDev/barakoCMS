@@ -70,6 +70,25 @@ public class FormSubmissionWindowTests
     }
 
     [Fact]
+    public async Task A_window_entry_stored_under_another_letter_case_still_closes_the_form()
+    {
+        var (form, settings) = await SetUpAsync(opens: DateTime.UtcNow.AddDays(-30), closes: DateTime.UtcNow.AddDays(-1));
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var entry = await session.Query<Content>().FirstAsync(c => c.ContentType == settings);
+            entry.ContentType = settings.ToUpperInvariant();
+            session.Store(entry);
+            await session.SaveChangesAsync();
+        }
+
+        var response = await SubmitAsync(form);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await EntriesAsync(form)).Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task A_form_with_no_window_configured_takes_submissions_as_before()
     {
         var form = await CreateFormTypeAsync();

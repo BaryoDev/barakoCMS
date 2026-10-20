@@ -36,8 +36,9 @@ internal static class FormWindow
             return Open;
         }
 
+        var typeName = form.WindowContentType!.ToLower();
         var entry = await session.Query<Content>()
-            .Where(c => c.ContentType == form.WindowContentType)
+            .Where(c => c.ContentType.ToLower() == typeName)
             .OrderByDescending(c => c.UpdatedAt)
             .FirstOrDefaultAsync(ct);
         if (entry is null)
