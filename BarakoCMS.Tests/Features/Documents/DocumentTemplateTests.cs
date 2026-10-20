@@ -130,4 +130,20 @@ public class DocumentTemplateTests
 
         act.Should().Throw<DocumentTooLongException>();
     }
+
+    [Fact]
+    public void A_row_cell_longer_than_the_page_limit_is_refused_not_clipped()
+    {
+        var content = new Content
+        {
+            ContentType = "invoice",
+            Data = new() { ["Number"] = string.Join(' ', Enumerable.Repeat("word", 100_000)) },
+        };
+        var parsed = DocumentTemplateParser.Parse("| {{Number}} | x |");
+        parsed.Ok.Should().BeTrue();
+
+        var act = () => PdfRenderer.Render(parsed, content);
+
+        act.Should().Throw<DocumentTooLongException>();
+    }
 }

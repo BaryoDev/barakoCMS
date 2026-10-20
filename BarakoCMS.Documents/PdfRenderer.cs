@@ -79,16 +79,21 @@ public static class PdfRenderer
             var lineHeight = 11 * 1.35f;
             var rows = Math.Max(1, wrapped.Max(w => w.Count));
 
-            Ensure(rows * lineHeight);
-            for (var i = 0; i < wrapped.Length; i++)
+            // One line at a time, so a cell longer than a page continues on the next page, and the
+            // page limit still stops a huge value.
+            for (var l = 0; l < rows; l++)
             {
-                for (var l = 0; l < wrapped[i].Count; l++)
+                Ensure(lineHeight);
+                for (var i = 0; i < wrapped.Length; i++)
                 {
-                    DrawText(wrapped[i][l], _regular, 11, Margin + i * column, _y + (l + 1) * lineHeight - 3);
+                    if (l < wrapped[i].Count)
+                    {
+                        DrawText(wrapped[i][l], _regular, 11, Margin + i * column, _y + lineHeight - 3);
+                    }
                 }
-            }
 
-            _y += rows * lineHeight;
+                _y += lineHeight;
+            }
         }
 
         private void Lines(string text, SKTypeface face, float size, float x, float usable)
