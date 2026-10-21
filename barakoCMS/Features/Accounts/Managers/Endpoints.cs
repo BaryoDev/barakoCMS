@@ -52,7 +52,7 @@ internal class ListEndpoint(IQuerySession session) : Endpoint<Request, Paginated
     public override void Configure()
     {
         Get("/api/accounts/{slug}/managers");
-        Definition.ChecksCapability(SystemCapabilities.ManageTenants);
+        Definition.RequireCapability(SystemCapabilities.ManageTenants, "SuperAdmin");
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
@@ -91,7 +91,7 @@ internal class GrantEndpoint(IDocumentSession session) : Endpoint<GrantRequest, 
     public override void Configure()
     {
         Post("/api/accounts/{slug}/managers");
-        Definition.ChecksCapability(SystemCapabilities.ManageTenants);
+        Definition.RequireCapability(SystemCapabilities.ManageTenants, "SuperAdmin");
     }
 
     public override async Task HandleAsync(GrantRequest req, CancellationToken ct)
@@ -126,7 +126,7 @@ internal class RevokeEndpoint(IDocumentSession session) : EndpointWithoutRequest
     public override void Configure()
     {
         Delete("/api/accounts/{slug}/managers/{userId}");
-        Definition.ChecksCapability(SystemCapabilities.ManageTenants);
+        Definition.RequireCapability(SystemCapabilities.ManageTenants, "SuperAdmin");
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -135,8 +135,9 @@ internal class RevokeEndpoint(IDocumentSession session) : EndpointWithoutRequest
         if (reach is not { IsGlobal: true }) { await Send.ForbiddenAsync(ct); return; }
 
         var account = await DefaultAccount.FindAsync(session, Route<string>("slug") ?? string.Empty, ct);
-        if (account is null || !Guid.TryParse(Route<string>("userId"), out var userId))
-        { await Send.NotFoundAsync(ct); return; }
+        if (!Guid.TryParse(Route<string>("userId"), out var userId))
+            ThrowError("userId is not a valid id.");
+        if (account is null) { await Send.NotFoundAsync(ct); return; }
 
         var grant = await session.Query<TenantAccountManager>()
             .FirstOrDefaultAsync(m => m.AccountId == account.Id && m.UserId == userId, ct);

@@ -66,7 +66,8 @@ internal class ListTenantsEndpoint(IQuerySession session) : Endpoint<ListRequest
     public override void Configure()
     {
         Get("/api/tenants");
-        Definition.ChecksCapability(SystemCapabilities.ManageTenants);
+        Definition.RequireCapability(SystemCapabilities.ManageTenants, "SuperAdmin");
+        Definition.Metadata(new AccountScopedManagement());
     }
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
@@ -311,7 +312,8 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
     public override void Configure()
     {
         Post("/api/tenants");
-        Definition.ChecksCapability(SystemCapabilities.ManageTenants);
+        Definition.RequireCapability(SystemCapabilities.ManageTenants, "SuperAdmin");
+        Definition.Metadata(new AccountScopedManagement());
     }
 
     public override async Task HandleAsync(TenantWriteRequest req, CancellationToken ct)
@@ -403,7 +405,8 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
     public override void Configure()
     {
         Put("/api/tenants/{handle}");
-        Definition.ChecksCapability(SystemCapabilities.ManageTenants);
+        Definition.RequireCapability(SystemCapabilities.ManageTenants, "SuperAdmin");
+        Definition.Metadata(new AccountScopedManagement());
     }
 
     public override async Task HandleAsync(TenantWriteRequest req, CancellationToken ct)

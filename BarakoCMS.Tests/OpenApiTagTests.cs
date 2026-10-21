@@ -107,6 +107,7 @@ public class OpenApiTagTests
         var expected = new[]
         {
             "Accounting",
+            "Accounts",
             "AI",
             "Analytics.Umami",
             "ApiKeys",

@@ -11,7 +11,8 @@ internal class Endpoint(IQuerySession session) : EndpointWithoutRequest<AccountR
     public override void Configure()
     {
         Get("/api/accounts/{slug}");
-        Definition.ChecksCapability(SystemCapabilities.ManageTenants);
+        Definition.RequireCapability(SystemCapabilities.ManageTenants, "SuperAdmin");
+        Definition.Metadata(new AccountScopedManagement());
     }
 
     public override async Task HandleAsync(CancellationToken ct)

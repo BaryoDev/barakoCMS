@@ -15,7 +15,7 @@ internal class Endpoint(IDocumentSession session) : Endpoint<AccountWriteRequest
     public override void Configure()
     {
         Put("/api/accounts/{slug}");
-        Definition.ChecksCapability(SystemCapabilities.ManageTenants);
+        Definition.RequireCapability(SystemCapabilities.ManageTenants, "SuperAdmin");
     }
 
     public override async Task HandleAsync(AccountWriteRequest req, CancellationToken ct)
