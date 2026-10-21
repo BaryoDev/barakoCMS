@@ -65,7 +65,9 @@ internal sealed class TransitionAction(IDocumentSession session, IContentTransit
 
         if (!string.Equals(target.ContentType, type, StringComparison.OrdinalIgnoreCase))
             return WorkflowActionResult.PermanentFailure($"Target is not a '{type}' entry.");
-        if (content.BranchId is { } branch && target.BranchId != branch)
+        // Both null counts as the same branch. A run on an entry with no branch moves only entries
+        // with no branch, so a trigger outside every branch cannot reach into one.
+        if (target.BranchId != content.BranchId)
             return WorkflowActionResult.PermanentFailure("Target belongs to another branch.");
 
         var definition = await session.Query<ContentTypeDefinition>()

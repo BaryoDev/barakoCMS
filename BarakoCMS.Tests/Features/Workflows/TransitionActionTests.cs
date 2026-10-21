@@ -121,6 +121,27 @@ public class TransitionActionTests(IntegrationTestFixture fixture)
     }
 
     [Fact]
+    public async Task A_subject_with_no_branch_cannot_move_an_entry_of_a_branch()
+    {
+        var (type, id) = await StoreTicketAsync();
+        using (var scope = fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var target = (await session.LoadAsync<Content>(id, Ct))!;
+            target.BranchId = Guid.CreateVersion7();
+            session.Store(target);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var result = await RunAsync(Parameters(id, type, "Call"), Subject());
+
+        result.Succeeded.Should().BeFalse();
+        result.Retryable.Should().BeFalse();
+        result.Error.Should().Contain("another branch");
+        (await LoadAsync(id)).LifecycleState.Should().Be("Waiting");
+    }
+
+    [Fact]
     public async Task A_missing_content_type_is_a_permanent_failure()
     {
         var (_, id) = await StoreTicketAsync();
