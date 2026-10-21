@@ -171,4 +171,101 @@ public class ReconcileTests(IntegrationTestFixture fixture)
 
         (await client.GetAsync(Url(type), Ct)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
+
+    /// <summary>A member of the default tenant who may view the ledger, holds the given branches, and reads the types given.</summary>
+    private async Task<HttpClient> MemberAsync(string[] readable, params Guid[] branches)
+    {
+        using var scope = fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var role = new Role
+        {
+            Id = Guid.NewGuid(),
+            Name = $"Ledger_{Guid.NewGuid():n}",
+            SystemCapabilities = [AccountingCapabilities.ViewLedger],
+            Permissions = [.. readable.Select(t => new ContentTypePermission { ContentTypeSlug = t, Read = new PermissionRule { Enabled = true } })],
+        };
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            Username = $"ledger_{Guid.NewGuid():n}",
+            Email = $"ledger_{Guid.NewGuid():n}@example.com",
+            RoleIds = [role.Id],
+        };
+        session.Store(role);
+        session.Store(user);
+        session.Store(new Membership
+        {
+            Id = Guid.NewGuid(),
+            UserId = user.Id,
+            TenantSlug = barakoCMS.Models.Tenant.DefaultSlug,
+            Status = MembershipStatus.Active,
+            RoleIds = [role.Id],
+            Profile = new Dictionary<string, string> { ["branches"] = string.Join(",", branches) },
+        });
+        await session.SaveChangesAsync(Ct);
+
+        var client = fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
+            "Bearer", fixture.CreateToken(roles: [role.Name], userId: user.Id.ToString()));
+        return client;
+    }
+
+    private async Task<(string Type, Content InA, Content InB)> BranchedSubjectsAsync(Guid a, Guid b)
+    {
+        var type = NewType();
+        using var scope = fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(new ContentTypeDefinition
+        {
+            Id = Guid.NewGuid(),
+            Name = type,
+            DisplayName = type,
+            BranchScoped = true,
+            Fields =
+            [
+                new FieldDefinition { Name = "Total", DisplayName = "Total", Type = "decimal" },
+                new FieldDefinition { Name = "Number", DisplayName = "Number", Type = "string" },
+            ],
+        });
+        Content Make(Guid branch, string number) => new()
+        {
+            Id = Guid.NewGuid(),
+            ContentType = type,
+            BranchId = branch,
+            CreatedAt = June(3),
+            Data = new Dictionary<string, object> { ["Total"] = 10m, ["Number"] = number },
+        };
+        var inA = Make(a, "A-1");
+        var inB = Make(b, "B-1");
+        session.Store(inA, inB);
+        await session.SaveChangesAsync(Ct);
+        return (type, inA, inB);
+    }
+
+    [Fact]
+    public async Task A_caller_in_one_branch_does_not_see_the_rows_of_another()
+    {
+        var (a, b) = (Guid.NewGuid(), Guid.NewGuid());
+        var (type, inA, inB) = await BranchedSubjectsAsync(a, b);
+        var client = await MemberAsync([type], a);
+
+        var body = await (await client.GetAsync(Url(type), Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
+
+        body.GetProperty("checked").GetInt32().Should().Be(1);
+        body.GetProperty("missing").EnumerateArray().Select(r => r.GetProperty("subjectId").GetGuid()).Should().Equal(inA.Id);
+        body.ToString().Should().NotContain(inB.Id.ToString());
+    }
+
+    [Fact]
+    public async Task Rows_the_caller_cannot_read_are_left_out()
+    {
+        var a = Guid.NewGuid();
+        var (type, _, _) = await BranchedSubjectsAsync(a, Guid.NewGuid());
+        var client = await MemberAsync([], a);
+
+        var response = await client.GetAsync(Url(type), Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+        (await response.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("checked").GetInt32().Should().Be(0);
+    }
 }

@@ -101,6 +101,9 @@
          internal: it is how the host scopes a module's settings, not public API, and CLAUDE.md
          section 6 means anything public here is a compatibility commitment. -->
     <InternalsVisibleTo Include="BarakoCMS.Tests" />
+    <!-- The accounting reports apply the same branch rule as the content routes, which is
+         internal for the reason above. -->
+    <InternalsVisibleTo Include="BarakoCMS.Accounting" />
     <!-- Castle DynamicProxy, which NSubstitute builds on, needs to see internal types to mock an
          ILogger<T> whose T is internal. The feature slices became internal in 4.0, so several
          existing workflow-action tests could not construct their own subject without this. -->
