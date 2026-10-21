@@ -311,4 +311,19 @@ public class TenantSignInPolicyTests
         (await TenantSignIn.AllowsExplicitlyAsync(session, empty, "sms", Ct)).Should().BeFalse();
         (await TenantSignIn.AllowsExplicitlyAsync(session, named, "sms", Ct)).Should().BeTrue();
     }
+
+    [Fact]
+    public async Task A_suspended_tenant_does_not_allow_a_module_method_it_names()
+    {
+        var slug = $"si-{Guid.NewGuid():N}"[..16];
+        await StoreAsync(new Tenant
+        {
+            Id = Guid.NewGuid(), Slug = slug, Name = slug, SignIn = new TenantSignInPolicy { Methods = ["sms"] },
+            Status = TenantStatus.Suspended,
+        });
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+
+        (await TenantSignIn.AllowsExplicitlyAsync(session, slug, "sms", Ct)).Should().BeFalse();
+    }
 }
