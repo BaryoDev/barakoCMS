@@ -176,6 +176,23 @@ public class ApiKeyUsageTests(IntegrationTestFixture factory)
     }
 
     [Fact]
+    public async Task A_push_to_an_existing_type_the_key_does_not_name_is_recorded_under_that_type()
+    {
+        var type = $"exists{Guid.NewGuid():N}"[..14];
+        using (var scope = factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new ContentTypeDefinition { Id = Guid.NewGuid(), Name = type, DisplayName = "x", Fields = [] });
+            await session.SaveChangesAsync();
+        }
+        var (id, secret) = await StoreKeyAsync(["content:write"], contentTypes: ["site-pages"]);
+
+        await UseKeyAsync(secret, HttpMethod.Post, $"/api/collections/{type}/push");
+
+        (await UsageBodyAsync(id)).GetProperty("refusalsByContentType").GetProperty(type).GetInt32().Should().Be(1);
+    }
+
+    [Fact]
     public async Task A_key_naming_a_type_in_another_case_is_not_reported_missing()
     {
         var type = $"cased{Guid.NewGuid():N}"[..14];

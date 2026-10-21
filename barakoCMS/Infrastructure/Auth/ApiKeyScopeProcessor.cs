@@ -116,26 +116,38 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
         || path.StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase);
 
     // The type in the path is the caller's text, and the admin reads it back. Keep it only when the key
-    // names it or the type exists; anything else is counted as "other".
-    private static async Task<string?> KnownTypeAsync(HttpContext http, string? type, CancellationToken ct)
+    // names it or, for a content type refusal, the type exists; anything else is counted as "other".
+    // A failed lookup must not turn the 403 into a 500.
+    private static async Task<string?> KnownTypeAsync(
+        HttpContext http, ApiKeyRefusalReason reason, string? type, CancellationToken ct)
     {
         if (type is null)
             return null;
         if (http.User.FindAll(ApiKeyAuthenticationHandler.ContentTypeClaim)
             .Any(c => c.Value.Equals(type, StringComparison.OrdinalIgnoreCase)))
             return type;
-        var session = http.RequestServices.GetService<Marten.IQuerySession>();
-        return session is not null && await Marten.QueryableExtensions.AnyAsync(
-            session.Query<ContentTypeDefinition>().Where(d => d.Name == type), ct)
-            ? type
-            : "other";
+        if (reason != ApiKeyRefusalReason.ContentType)
+            return "other";
+        try
+        {
+            var session = http.RequestServices.GetService<Marten.IQuerySession>();
+            var lowered = type.ToLowerInvariant();
+            return session is not null && await Marten.QueryableExtensions.AnyAsync(
+                session.Query<ContentTypeDefinition>().Where(d => d.Name.ToLower() == lowered), ct)
+                ? type
+                : "other";
+        }
+        catch (Exception) when (!ct.IsCancellationRequested)
+        {
+            return "other";
+        }
     }
 
     private static async Task Deny(HttpContext http, ApiKeyRefusalReason reason, string message, CancellationToken ct)
     {
         if (Guid.TryParse(http.User.FindFirst("apikey_id")?.Value, out var keyId))
         {
-            var type = await KnownTypeAsync(http, PushedType(http.Request.Path.Value ?? string.Empty), ct);
+            var type = await KnownTypeAsync(http, reason, PushedType(http.Request.Path.Value ?? string.Empty), ct);
             http.RequestServices.GetService<ApiKeyRefusals>()?.Record(keyId, reason, type);
         }
         http.Response.StatusCode = 403;

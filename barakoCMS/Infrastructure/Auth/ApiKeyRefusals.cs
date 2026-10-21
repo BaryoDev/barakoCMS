@@ -54,7 +54,7 @@ internal sealed class ApiKeyRefusals(TimeProvider clock)
         var now = clock.GetUtcNow().UtcDateTime;
         if (!_byKey.ContainsKey(keyId) && _byKey.Count >= MaxKeys)
         {
-            SweepExpired(now);
+            TrySweep(now);
             if (_byKey.Count >= MaxKeys)
                 return;
         }
@@ -90,8 +90,30 @@ internal sealed class ApiKeyRefusals(TimeProvider clock)
         }
     }
 
-    /// <summary>Keys with an entry in the window. Idle keys are only dropped when the cap is reached.</summary>
+    /// <summary>Keys tracked, idle ones included until a sweep drops them.</summary>
     internal int TrackedKeys => _byKey.Count;
+
+    private static readonly TimeSpan SweepEvery = TimeSpan.FromMinutes(1);
+    private int _sweeping;
+    private DateTime _lastSweep = DateTime.MinValue;
+
+    // At the cap every refusal from an untracked key would sweep, so one sweep runs at a time and
+    // at most once a minute. Anything that finds the cap still full is dropped.
+    private void TrySweep(DateTime now)
+    {
+        if (now - Volatile.Read(ref _lastSweep) < SweepEvery
+            || Interlocked.CompareExchange(ref _sweeping, 1, 0) != 0)
+            return;
+        try
+        {
+            SweepExpired(now);
+            Volatile.Write(ref _lastSweep, now);
+        }
+        finally
+        {
+            Volatile.Write(ref _sweeping, 0);
+        }
+    }
 
     // Removing under the queue's lock means a Record that already holds the queue either finished
     // first (so it is not empty) or runs after and finds its queue gone, and adds a fresh one.
