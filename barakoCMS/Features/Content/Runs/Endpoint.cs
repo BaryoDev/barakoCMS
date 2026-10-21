@@ -65,6 +65,7 @@ internal sealed class Endpoint(IQuerySession session, IPermissionResolver permis
 
         var content = await session.LoadAsync<Models.Content>(id, ct);
         if (content is null
+            || !await Resolve<barakoCMS.Infrastructure.Services.IBranchScopeGuard>().MayAccessAsync(User, content, ct)
             || !await permissionResolver.CanPerformActionAsync(user, content.ContentType, "read", content, ct))
         {
             await Send.NotFoundAsync(ct);

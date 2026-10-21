@@ -30,11 +30,10 @@ internal static class ContentChangeFeed
 
     public static async Task<(List<ChangeItem> Items, long Next)> ReadAsync(
         ContentTopic topic, ClaimsPrincipal caller, User user, long after, long ceiling, int limit,
-        IQuerySession session, IPermissionResolver permissions, IBranchMembership branches,
+        IQuerySession session, IPermissionResolver permissions, IBranchScopeGuard branchScope,
         ISensitivityService sensitivity, HttpContext http, CancellationToken ct)
     {
         var items = new List<ChangeItem>();
-        var held = topic.BranchScoped ? (await branches.BranchesOfAsync(caller, ct)).ToHashSet() : [];
         var cursor = after;
 
         for (var page = 0; page < MaxRawPages && cursor < ceiling && items.Count < limit; page++)
@@ -58,7 +57,7 @@ internal static class ContentChangeFeed
             {
                 cursor = e.Sequence;
                 if (!rows.TryGetValue(e.StreamId, out var row)) continue;
-                if (!await MayReadAsync(topic, row, user, held, permissions, sensitivity, http, ct)) continue;
+                if (!await MayReadAsync(topic, row, caller, user, branchScope, permissions, sensitivity, http, ct)) continue;
 
                 items.Add(new ChangeItem
                 {
@@ -80,11 +79,12 @@ internal static class ContentChangeFeed
     }
 
     private static async Task<bool> MayReadAsync(
-        ContentTopic topic, barakoCMS.Models.Content row, User user, HashSet<Guid> held, IPermissionResolver permissions,
+        ContentTopic topic, barakoCMS.Models.Content row, ClaimsPrincipal caller, User user, IBranchScopeGuard branchScope,
+        IPermissionResolver permissions,
         ISensitivityService sensitivity, HttpContext http, CancellationToken ct)
     {
         if (!string.Equals(row.ContentType, topic.ContentType, StringComparison.OrdinalIgnoreCase)) return false;
-        if (topic.BranchScoped && (row.BranchId is not { } branch || !held.Contains(branch))) return false;
+        if (!await branchScope.MayAccessAsync(caller, topic.BranchScoped, row.BranchId, ct)) return false;
         if (!await permissions.CanPerformActionAsync(user, row.ContentType, "read", row, ct)) return false;
 
         // The GET hides the type of a hidden entry from this caller, so the feed leaves it out too.

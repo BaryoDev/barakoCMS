@@ -87,7 +87,7 @@ internal class Endpoint(
         var user = await session.LoadAsync<User>(userId, ct);
 
         var existingContent = await session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
-        if (existingContent == null)
+        if (existingContent == null || !await Resolve<barakoCMS.Infrastructure.Services.IBranchScopeGuard>().MayAccessAsync(User, existingContent, ct))
         {
             await Send.NotFoundAsync(ct);
             return;

@@ -112,6 +112,13 @@ internal class Endpoint(
 
         query = await FilterByTypeAsync(query, req, ct);
 
+        // Entries of a branch scoped type that the caller's branches do not include are not rows
+        // for this caller, so the page and the total are taken from what is left.
+        if (await Resolve<barakoCMS.Infrastructure.Services.IBranchScopeGuard>().FilterAsync(User, ct) is { } branchScope)
+        {
+            query = query.Where(c => c.MatchesSql(branchScope.Sql, branchScope.Parameters));
+        }
+
         // Status and search are pushed into the query, and that is safe in a way a permission filter
         // would not be. Both can only remove rows. A caller asking for Drafts is asking for a subset
         // of what they may read, so narrowing first and checking permission after gives the same

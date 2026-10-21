@@ -64,7 +64,7 @@ internal sealed class ChangesEndpoint(
     TenantContext tenant,
     ContentTopicCatalog content,
     IPermissionResolver permissions,
-    IBranchMembership branches,
+    IBranchScopeGuard branchScope,
     ISensitivityService sensitivity) : Endpoint<ChangesRequest, ChangesResponse>
 {
     public const int DefaultLimit = 200;
@@ -166,7 +166,7 @@ internal sealed class ChangesEndpoint(
         var limit = Math.Clamp(req.Limit ?? DefaultLimit, 1, MaxLimit);
         var ceiling = await highWater.CurrentAsync(ct);
         var (items, next) = await ContentChangeFeed.ReadAsync(
-            topic, User, user, req.After, ceiling, limit, session, permissions, branches, sensitivity, HttpContext, ct);
+            topic, User, user, req.After, ceiling, limit, session, permissions, branchScope, sensitivity, HttpContext, ct);
 
         await Send.OkAsync(new ChangesResponse { Next = Math.Max(req.After, next), Items = items }, ct);
     }

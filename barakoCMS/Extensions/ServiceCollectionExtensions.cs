@@ -1161,6 +1161,7 @@ public static class ServiceCollectionExtensions
         // up being a setting nothing reads.
         services.AddScoped<barakoCMS.Core.Interfaces.IEventEnvelopeContext, barakoCMS.Infrastructure.Envelope.EventEnvelopeContext>();
         services.AddScoped<barakoCMS.Infrastructure.Envelope.IBranchMembership, barakoCMS.Infrastructure.Envelope.BranchMembership>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.IBranchScopeGuard, barakoCMS.Infrastructure.Services.BranchScopeGuard>();
         services.AddScoped<barakoCMS.Infrastructure.Envelope.IBranchCodes, barakoCMS.Infrastructure.Envelope.BranchCodes>();
         services.AddSingleton<barakoCMS.Core.Interfaces.IOriginSequence>(_ =>
             new barakoCMS.Infrastructure.Envelope.OriginSequence(

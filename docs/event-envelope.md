@@ -46,6 +46,21 @@ A content type with `"BranchScoped": true` belongs to branches. A create without
 refused with 400 and the text `A branch is required.` Each entry keeps its branch in
 `Content.BranchId`, which a projection rebuild restores from the first event's `branch-id` header.
 
+A caller reaches an entry of such a type only when the entry has a branch and the caller holds it in
+their `branches` profile attribute. The rule is the same on every route:
+
+- `GET /api/contents/{id}`, `GET /api/contents/by-slug`, history, rollback, runs, schedule, update,
+  status change and erase answer 404 for an entry of a branch the caller does not hold, as for an id
+  that does not exist.
+- `GET /api/contents` and `GET /api/contents/counts` leave those entries out, and the page and the
+  totals are taken from what is left.
+- Each step of `POST /api/contents/batch` is refused like its single request, with 404 for a
+  transition of such an entry, and the batch saves nothing.
+- The change feed and realtime apply the same rule.
+
+An entry with no branch is hidden from every caller of a branch scoped type. A type that is not
+branch scoped is not filtered. Access rules with `$CURRENT_BRANCH` (below) apply on top of this.
+
 ## Merge class
 
 `ContentTypeDefinition.MergeClass` tells a host how edits made on two nodes are merged when they

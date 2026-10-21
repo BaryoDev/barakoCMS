@@ -54,7 +54,7 @@ internal class RollbackEndpoint(
         // content answers 404, which is what an unknown id already produced from the event check
         // below, so nothing observable changes for a caller who is allowed to be here.
         var content = await session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
-        if (content == null)
+        if (content == null || !await Resolve<barakoCMS.Infrastructure.Services.IBranchScopeGuard>().MayAccessAsync(User, content, ct))
         {
             await Send.NotFoundAsync(ct);
             return;

@@ -176,7 +176,9 @@ internal sealed class BatchSteps(IServiceProvider scope, User user, HttpContext 
         int index, BatchStep step, CancellationToken ct)
     {
         var content = await _session.LoadAsync<ContentEntry>(step.Id, ct);
-        if (content is null)
+        // An entry of another branch is hidden as one that does not exist, as on the single route.
+        if (content is null
+            || !await scope.GetRequiredService<IBranchScopeGuard>().MayAccessAsync(http.User, content, ct))
             return (null, new BatchFailure(index, 404, "Entry not found."));
 
         var result = await scope.GetRequiredService<IContentTransitioner>().TransitionAsync(

@@ -53,7 +53,8 @@ internal class Endpoint(
         {
             foreach (var candidate in await FindAsync(req.Type, req.Slug, ct))
             {
-                if (await permissionResolver.CanPerformActionAsync(user, candidate.ContentType, "read", candidate, ct))
+                if (await Resolve<barakoCMS.Infrastructure.Services.IBranchScopeGuard>().MayAccessAsync(User, candidate, ct)
+                    && await permissionResolver.CanPerformActionAsync(user, candidate.ContentType, "read", candidate, ct))
                 {
                     content = candidate;
                     break;

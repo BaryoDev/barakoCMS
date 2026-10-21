@@ -44,7 +44,8 @@ internal class Endpoint(
         }
 
         var content = await session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
-        if (content == null)
+        // An entry of another branch is hidden as one that does not exist.
+        if (content == null || !await Resolve<barakoCMS.Infrastructure.Services.IBranchScopeGuard>().MayAccessAsync(User, content, ct))
         {
             await Send.NotFoundAsync(ct);
             return;
