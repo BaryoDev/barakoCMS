@@ -53,6 +53,22 @@ public class AccountMappingTests(IntegrationTestFixture fixture)
     }
 
     [Fact]
+    public async Task A_mapping_is_saved_with_the_accounts_spelled_as_the_chart_spells_them()
+    {
+        var cash = await AccountingTestData.AccountAsync(fixture, "CASH", AccountType.Asset);
+        var income = await AccountingTestData.AccountAsync(fixture, "SALES", AccountType.Income);
+        var name = Name();
+        var client = await _callers.SuperAdminAsync(null);
+
+        var (applied, body) = await ApplyAsync(client, Document(name, Rule(cash.ToUpperInvariant(), income.ToUpperInvariant())));
+        applied.StatusCode.Should().Be(HttpStatusCode.OK, body.ToString());
+
+        var (_, export) = await ExportAsync(client, "accountingMappings");
+        var lines = export.GetProperty("accountingMappings").GetProperty(name).GetProperty("lines").EnumerateArray().ToList();
+        lines.Select(l => l.GetProperty("account").GetString()).Should().Equal(cash, income);
+    }
+
+    [Fact]
     public async Task A_side_other_than_debit_or_credit_is_a_400()
     {
         var cash = await AccountingTestData.AccountAsync(fixture, "1010", AccountType.Asset);

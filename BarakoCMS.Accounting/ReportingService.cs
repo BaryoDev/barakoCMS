@@ -33,8 +33,8 @@ public class ReportingService(IQuerySession session)
         var accounts = await AccountingContentReader.AccountsAsync(session, ct);
         var entries = await PostedEntriesAsync(asOf, ct);
 
-        var debit = new Dictionary<string, decimal>();
-        var credit = new Dictionary<string, decimal>();
+        var debit = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        var credit = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
         foreach (var line in entries.SelectMany(e => e.Lines))
         {
             debit[line.AccountCode] = debit.GetValueOrDefault(line.AccountCode) + line.Debit;
@@ -62,7 +62,7 @@ public class ReportingService(IQuerySession session)
 
         var entries = await PostedEntriesAsync(null, ct);
         var rows = entries
-            .SelectMany(e => e.Lines.Where(l => l.AccountCode == accountCode)
+            .SelectMany(e => e.Lines.Where(l => string.Equals(l.AccountCode, accountCode, StringComparison.OrdinalIgnoreCase))
                 .Select(l => (e.Date, e.EntryNumber, Memo: l.Memo ?? e.Memo, l.Debit, l.Credit,
                     Attachments: (IReadOnlyList<string>)e.Attachments)))
             .OrderBy(x => x.Date).ThenBy(x => x.EntryNumber)
@@ -101,7 +101,7 @@ public class ReportingService(IQuerySession session)
 
         foreach (var e in entries.OrderBy(e => e.Date).ThenBy(e => e.EntryNumber))
         {
-            var cashLines = e.Lines.Where(l => cashCodes.Contains(l.AccountCode)).ToList();
+            var cashLines = e.Lines.Where(l => cashCodes.Contains(l.AccountCode, StringComparer.OrdinalIgnoreCase)).ToList();
             var net = cashLines.Sum(l => l.Debit - l.Credit); // cash is debit-normal
             if (e.Date < start)
             {
