@@ -167,7 +167,10 @@ public class TenantSignInPolicy
     /// <summary>A member holding one of these roles needs a second factor here, as if the role required it.</summary>
     public List<Guid> MfaRoleIds { get; set; } = new();
 
-    /// <summary>The ways to start a sign-in here. Empty allows every method.</summary>
+    /// <summary>
+    /// The ways to start a sign-in here. Empty allows every built-in method. A method a module adds
+    /// through <c>ISignInMethod</c> is allowed only when named here.
+    /// </summary>
     public List<string> Methods { get; set; } = new();
 
     /// <summary>
@@ -183,5 +186,5 @@ public class TenantSignInPolicy
 
     /// <summary>Whether <paramref name="method"/> is named in <see cref="Methods"/>. An empty list names nothing.</summary>
     public bool AllowsExplicitly(string method) =>
-        throw new NotImplementedException();
+        Methods.Contains(method, StringComparer.OrdinalIgnoreCase);
 }

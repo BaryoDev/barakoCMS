@@ -172,8 +172,13 @@ internal sealed class TenantSignInBody
 /// </remarks>
 internal sealed class TenantWriteRequestValidator : Validator<TenantWriteRequest>
 {
-    public TenantWriteRequestValidator()
+    public TenantWriteRequestValidator(IEnumerable<ISignInMethod> moduleMethods)
     {
+        var methods = TenantSignInPolicy.KnownMethods
+            .Concat(moduleMethods.Select(m => m.Name.Trim().ToLowerInvariant()))
+            .Distinct()
+            .ToList();
+
         RuleFor(r => r.LogoUrl).Must(BeBlank).WithMessage(Moved("Logo"));
         RuleFor(r => r.About).Must(BeBlank).WithMessage(Moved("About"));
         RuleFor(r => r.Location).Must(BeBlank).WithMessage(Moved("Location"));
@@ -185,9 +190,9 @@ internal sealed class TenantWriteRequestValidator : Validator<TenantWriteRequest
         RuleFor(r => r.Status).IsInEnum();
         RuleFor(r => r.SignUp).IsInEnum();
         RuleForEach(r => r.SignIn!.Methods)
-            .Must(m => TenantSignInPolicy.KnownMethods.Contains((m ?? string.Empty).Trim().ToLowerInvariant()))
+            .Must(m => methods.Contains((m ?? string.Empty).Trim().ToLowerInvariant()))
             .When(r => r.SignIn is not null)
-            .WithMessage($"A sign-in method is one of: {string.Join(", ", TenantSignInPolicy.KnownMethods)}.");
+            .WithMessage($"A sign-in method is one of: {string.Join(", ", methods)}.");
         RuleFor(r => r.SignIn!.SessionMinutes)
             .InclusiveBetween(TenantSignInBody.MinSessionMinutes, TenantSignInBody.MaxSessionMinutes)
             .When(r => r.SignIn?.SessionMinutes is not null)
