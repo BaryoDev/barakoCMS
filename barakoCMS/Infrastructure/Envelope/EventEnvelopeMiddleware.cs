@@ -10,7 +10,8 @@ namespace barakoCMS.Infrastructure.Envelope;
 /// Reads <c>X-Branch-Id</c> and makes it the request's branch, once the caller is known to hold it.
 /// </summary>
 /// <remarks>
-/// Runs after authentication. No header sets nothing. A header that is not an id is 400, and one that
+/// Runs after authentication. No header sets nothing, and neither does a header on a request that is
+/// not signed in. A header that is not an id is 400, and one that
 /// is not in the caller's <c>branches</c> profile attribute is 403, so a caller cannot stamp another
 /// branch on what they write.
 /// </remarks>
@@ -21,6 +22,14 @@ internal sealed class EventEnvelopeMiddleware(RequestDelegate next)
     public async Task InvokeAsync(HttpContext context, IEventEnvelopeContext envelope, IBranchMembership membership, IBranchCodes codes)
     {
         if (!context.Request.Headers.TryGetValue(HeaderName, out var raw) || raw.Count == 0)
+        {
+            await next(context);
+            return;
+        }
+
+        // Nobody to hold a branch, so nothing to stamp and nothing to refuse. Sign-in and the public
+        // routes take the header the same way a client sends it on every request.
+        if (context.User.Identity?.IsAuthenticated != true)
         {
             await next(context);
             return;

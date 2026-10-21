@@ -160,6 +160,18 @@ public class EventEnvelopeMiddlewareTests
     }
 
     [Fact]
+    public async Task A_header_on_a_request_that_is_not_signed_in_is_not_refused_as_a_branch_error()
+    {
+        var anonymous = _host.CreateClient();
+        anonymous.DefaultRequestHeaders.Add("X-Branch-Id", Guid.NewGuid().ToString());
+
+        var res = await anonymous.PostAsJsonAsync("/api/auth/login", new { username = "nobody", password = "wrong" });
+
+        (await res.Content.ReadAsStringAsync()).Should().NotContain("X-Branch-Id");
+        res.StatusCode.Should().NotBe(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
     public async Task A_type_that_is_not_branch_scoped_creates_without_a_header()
     {
         var client = await AdminAsync();
