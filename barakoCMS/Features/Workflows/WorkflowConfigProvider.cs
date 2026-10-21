@@ -44,7 +44,8 @@ internal sealed class WorkflowConfigProvider(
     IDocumentSession session,
     IWorkflowSchemaValidator validator,
     TenantContext tenant,
-    IPermissionResolver permissions) : IConfigProvider
+    IPermissionResolver permissions,
+    IWorkflowPluginRegistry registry) : IConfigProvider
 {
     public string Section => "workflows";
 
@@ -104,7 +105,7 @@ internal sealed class WorkflowConfigProvider(
             // workflow creates and moves. The host's own file (no caller) is the operator's to trust.
             if (caller.Principal is { } who)
             {
-                var missing = await WorkflowSaveRights.MissingAsync(session, permissions, who, workflow, ct);
+                var missing = await WorkflowSaveRights.MissingAsync(session, permissions, registry, who, workflow, ct);
                 if (missing.Count > 0)
                 {
                     errors.AddRange(missing.Select(m => $"'{name}': {m}"));

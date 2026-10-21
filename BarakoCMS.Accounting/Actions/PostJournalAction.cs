@@ -20,6 +20,7 @@ namespace BarakoCMS.Accounting;
 [WorkflowActionMetadata(
     Description = "Post the journal entry a mapping describes for the entry that triggered the workflow",
     Group = WorkflowActionGroup.Content,
+    RequiredCapability = AccountingCapabilities.PostEntries,
     RequiredParameters = new[] { "Mapping", "ActionKey" },
     OptionalParameters = new[] { "Date", "Memo", "Amount" },
     ExampleJson = @"{""Type"":""Accounting.PostJournal"",""Parameters"":{""Mapping"":""receipt-cash"",""ActionKey"":""receipt""}}"

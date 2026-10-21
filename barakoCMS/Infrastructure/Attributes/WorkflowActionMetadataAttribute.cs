@@ -33,6 +33,12 @@ public class WorkflowActionMetadataAttribute : Attribute
     public WorkflowActionGroup Group { get; set; } = WorkflowActionGroup.Unspecified;
 
     /// <summary>
+    /// A capability the user saving a workflow must hold to save one that carries this action. Leave
+    /// it empty when the action asks for nothing beyond the workflow capability.
+    /// </summary>
+    public string RequiredCapability { get; set; } = string.Empty;
+
+    /// <summary>
     /// Example JSON configuration for documentation.
     /// </summary>
     public string ExampleJson { get; set; } = string.Empty;

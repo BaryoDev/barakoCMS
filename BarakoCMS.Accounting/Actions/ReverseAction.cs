@@ -21,6 +21,7 @@ namespace BarakoCMS.Accounting;
 [WorkflowActionMetadata(
     Description = "Reverse the journal entry posted for an entry and key, and void the original",
     Group = WorkflowActionGroup.Content,
+    RequiredCapability = AccountingCapabilities.PostEntries,
     RequiredParameters = new[] { "ActionKey", "Reason" },
     OptionalParameters = new[] { "Target", "Date" },
     ExampleJson = @"{""Type"":""Accounting.Reverse"",""Parameters"":{""ActionKey"":""receipt"",""Reason"":""Receipt cancelled""}}"
@@ -62,11 +63,11 @@ public sealed class ReverseAction(LedgerService ledger, IContentTransitioner tra
         if (original is null || (reversal is null && original.LifecycleState == AccountingContentTypes.VoidedState))
             return WorkflowActionResult.PermanentFailure("No posting to reverse.");
 
-        var reversalId = PostingReference.EntryId(reference);
-        var number = reversal is null ? string.Empty : ContentData.AsString(ContentData.Get(reversal.Data, "EntryNumber")) ?? string.Empty;
         if (original is not null && !string.IsNullOrWhiteSpace(ContentData.AsString(ContentData.Get(original.Data, "VoidsEntryId"))))
             return WorkflowActionResult.PermanentFailure("That entry is itself a reversal, which cannot be reversed. Post the original again instead.");
 
+        var reversalId = PostingReference.EntryId(reference);
+        var number = reversal is null ? string.Empty : ContentData.AsString(ContentData.Get(reversal.Data, "EntryNumber")) ?? string.Empty;
         if (reversal is null)
         {
             var posted = await PostReversalAsync(original, reference, reversalId, parameters, ct);
