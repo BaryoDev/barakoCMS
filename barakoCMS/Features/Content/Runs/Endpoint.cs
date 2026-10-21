@@ -88,9 +88,11 @@ internal sealed class Endpoint(IQuerySession session, IPermissionResolver permis
         if (refs.Count == 0) return readable;
 
         var loaded = await session.LoadManyAsync<Models.Content>(ct, refs.Select(c => c.Id).ToArray());
+        var branchGuard = Resolve<barakoCMS.Infrastructure.Services.IBranchScopeGuard>();
         foreach (var entry in loaded)
         {
-            if (await permissionResolver.CanPerformActionAsync(user, entry.ContentType, "read", entry, ct))
+            if (await branchGuard.MayAccessAsync(User, entry, ct)
+                && await permissionResolver.CanPerformActionAsync(user, entry.ContentType, "read", entry, ct))
                 readable.Add(entry.Id);
         }
 

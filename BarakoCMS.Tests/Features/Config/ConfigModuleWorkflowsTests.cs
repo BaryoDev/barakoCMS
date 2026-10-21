@@ -229,7 +229,7 @@ public class ConfigModuleWorkflowsTests
     }
 
     [Fact]
-    public async Task A_module_owned_workflow_cannot_be_replaced_or_deleted_over_the_api()
+    public async Task A_module_owned_workflow_cannot_be_replaced_switched_or_deleted_over_the_api()
     {
         var (tenant, client, owned, _) = await TenantWithBothAsync();
         var id = (await _callers.InTenantAsync(tenant, s => s.Query<WorkflowDefinition>().FirstAsync(w => w.Name == owned, Ct))).Id;
@@ -243,7 +243,11 @@ public class ConfigModuleWorkflowsTests
         }, Ct);
         var delete = await client.DeleteAsync($"/api/workflows/{id}", Ct);
 
+        var switched = await client.PutAsJsonAsync($"/api/workflows/{id}/enabled", new { enabled = false }, Ct);
+
         put.StatusCode.Should().Be(HttpStatusCode.Conflict, await put.Content.ReadAsStringAsync(Ct));
+        switched.StatusCode.Should().Be(HttpStatusCode.Conflict, await switched.Content.ReadAsStringAsync(Ct));
+        (await _callers.InTenantAsync(tenant, s => s.LoadAsync<WorkflowDefinition>(id, Ct)))!.Enabled.Should().BeTrue();
         delete.StatusCode.Should().Be(HttpStatusCode.Conflict, await delete.Content.ReadAsStringAsync(Ct));
         (await _callers.InTenantAsync(tenant, s => s.LoadAsync<WorkflowDefinition>(id, Ct)))!.OwnerModule.Should().Be("Shipping");
     }

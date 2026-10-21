@@ -86,6 +86,40 @@ public class ContentRunsEndpointTests(IntegrationTestFixture fixture) : IAsyncLi
     }
 
     [Fact]
+    public async Task A_created_entry_in_a_branch_the_caller_does_not_hold_is_left_out_of_their_own_run()
+    {
+        var readable = NewType();
+        var scoped = NewType();
+        using (var scope = fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(), Name = scoped, DisplayName = scoped, BranchScoped = true,
+                Fields = [new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" }],
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var entry = await StoreEntryAsync(readable);
+        Guid madeId;
+        using (var scope = fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            madeId = Guid.NewGuid();
+            session.Store(new Content { Id = madeId, ContentType = scoped, BranchId = Guid.NewGuid(), Status = ContentStatus.Draft, Data = new() });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        await StoreRunWithActionsAsync(entry, Attempt(0, "Create", "Succeeded", null, new CreatedRef(scoped, madeId, "B-1")));
+        var caller = await CallerAsync([readable, scoped], SystemCapabilities.ViewWorkflowRuns);
+
+        var runs = await ListAsync(caller, entry);
+
+        runs.Should().ContainSingle().Which.GetProperty("actions")[0].GetProperty("created").GetArrayLength().Should().Be(0);
+    }
+
+    [Fact]
     public async Task A_created_entry_the_caller_cannot_read_is_left_out_of_their_own_run()
     {
         var readable = NewType();
@@ -218,7 +252,10 @@ public class ContentRunsEndpointTests(IntegrationTestFixture fixture) : IAsyncLi
     }
 
     /// <summary>A signed-in caller whose one role holds these capabilities and, optionally, read on one type.</summary>
-    private async Task<HttpClient> CallerAsync(string? readableType, params string[] capabilities)
+    private Task<HttpClient> CallerAsync(string? readableType, params string[] capabilities) =>
+        CallerAsync(readableType is null ? [] : [readableType], capabilities);
+
+    private async Task<HttpClient> CallerAsync(string[] readableTypes, params string[] capabilities)
     {
         using var scope = fixture.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
@@ -227,9 +264,8 @@ public class ContentRunsEndpointTests(IntegrationTestFixture fixture) : IAsyncLi
             Id = Guid.NewGuid(),
             Name = $"Runs {Guid.NewGuid():N}",
             SystemCapabilities = [.. capabilities],
-            Permissions = readableType is null
-                ? []
-                : [new ContentTypePermission { ContentTypeSlug = readableType, Read = new PermissionRule { Enabled = true } }],
+            Permissions = [.. readableTypes.Select(t =>
+                new ContentTypePermission { ContentTypeSlug = t, Read = new PermissionRule { Enabled = true } })],
         };
         session.Store(role);
         var userId = Guid.NewGuid();

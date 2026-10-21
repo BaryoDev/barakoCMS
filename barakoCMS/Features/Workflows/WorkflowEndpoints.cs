@@ -191,6 +191,14 @@ internal sealed class SetWorkflowEnabledEndpoint(
 
         var enabled = req.Enabled ?? workflow.Enabled;
 
+        // Config apply refuses a document that switches a module-owned workflow, so this does too.
+        // A request that leaves it as it is changes nothing and is let through, as there.
+        if (workflow.OwnerModule is { } owner && workflow.Enabled != enabled)
+        {
+            ThrowError(WorkflowOwnership.Refusal(owner, "switched"), 409);
+            return;
+        }
+
         // Nothing is written or recorded when nothing changed, so the audit trail holds switches
         // and not repeated requests.
         if (workflow.Enabled != enabled)
