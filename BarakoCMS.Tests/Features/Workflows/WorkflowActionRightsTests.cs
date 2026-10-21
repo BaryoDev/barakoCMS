@@ -13,7 +13,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace BarakoCMS.Tests.Features.Workflows;
 
 /// <summary>
-/// CreateContent and Transition run as the system, so the person who saves the workflow is the one
+/// Content actions run as the system, so the person who saves the workflow is the one
 /// held to the create and transition rights, and a Transition has to name the type it moves.
 /// </summary>
 [Collection("Sequential")]
@@ -80,6 +80,51 @@ public class WorkflowActionRightsTests(IntegrationTestFixture fixture)
 
         (await without.PostAsJsonAsync("/api/workflows", body, Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await other.PostAsJsonAsync("/api/workflows", body, Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await with.PostAsJsonAsync("/api/workflows", body, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task An_update_field_workflow_needs_the_update_right_on_the_trigger_type()
+    {
+        var type = await StoreTypeAsync();
+        var body = Workflow(type, Action("UpdateField", ("Field", "data.Name"), ("Value", "x")));
+
+        var without = await CallerAsync(new ContentTypePermission { ContentTypeSlug = type, Create = new PermissionRule { Enabled = true } });
+        var with = await CallerAsync(new ContentTypePermission { ContentTypeSlug = type, Update = new PermissionRule { Enabled = true } });
+
+        (await without.PostAsJsonAsync("/api/workflows", body, Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await with.PostAsJsonAsync("/api/workflows", body, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task An_update_field_with_a_target_id_must_name_a_type_the_user_may_update()
+    {
+        var type = await StoreTypeAsync();
+        var other = await StoreTypeAsync();
+        var target = Guid.NewGuid().ToString();
+        var canUpdate = await CallerAsync(new ContentTypePermission { ContentTypeSlug = type, Update = new PermissionRule { Enabled = true } });
+
+        var unnamed = Workflow(type, Action("UpdateField", ("Field", "data.Name"), ("Value", "x"), ("TargetId", target)));
+        var foreign = Workflow(type, Action("UpdateField", ("Field", "data.Name"), ("Value", "x"), ("TargetId", target), ("ContentType", other)));
+        var templated = Workflow(type, Action("UpdateField", ("Field", "data.Name"), ("Value", "x"), ("TargetId", target), ("ContentType", "{{Data.Kind}}")));
+        var named = Workflow(type, Action("UpdateField", ("Field", "data.Name"), ("Value", "x"), ("TargetId", target), ("ContentType", type)));
+
+        (await canUpdate.PostAsJsonAsync("/api/workflows", unnamed, Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await canUpdate.PostAsJsonAsync("/api/workflows", foreign, Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await canUpdate.PostAsJsonAsync("/api/workflows", templated, Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await canUpdate.PostAsJsonAsync("/api/workflows", named, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task A_create_task_workflow_needs_the_create_right_on_the_type_it_makes()
+    {
+        var type = await StoreTypeAsync();
+        var body = Workflow(type, Action("CreateTask", ("ContentType", type), ("Title", "t")));
+
+        var without = await CallerAsync(new ContentTypePermission { ContentTypeSlug = type, Update = new PermissionRule { Enabled = true } });
+        var with = await CallerAsync(new ContentTypePermission { ContentTypeSlug = type, Create = new PermissionRule { Enabled = true } });
+
+        (await without.PostAsJsonAsync("/api/workflows", body, Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await with.PostAsJsonAsync("/api/workflows", body, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
     }
 

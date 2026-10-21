@@ -15,7 +15,7 @@ namespace barakoCMS.Features.Workflows.Actions;
     Description = "Update fields on content items (status, data fields, etc.)",
     Group = WorkflowActionGroup.Content,
     RequiredParameters = new[] { "Field", "Value" },
-    OptionalParameters = new[] { "TargetId" },
+    OptionalParameters = new[] { "TargetId", "ContentType" },
     ExampleJson = @"{""Type"":""UpdateField"",""Parameters"":{""Field"":""data.Status"",""Value"":""Approved""}}"
 )]
 internal class UpdateFieldAction : IWorkflowAction
@@ -156,6 +156,14 @@ internal class UpdateFieldAction : IWorkflowAction
         {
             _logger.LogWarning("Target content {TargetId} not found", targetId);
             return WorkflowActionResult.Failure($"Target content {targetId} was not found.");
+        }
+
+        // The type named at save time is the type the author was held to the update right on, so a
+        // target of another type is refused rather than written.
+        if (parameters.TryGetValue("ContentType", out var expectedType) && !string.IsNullOrWhiteSpace(expectedType)
+            && !string.Equals(targetContent.ContentType, expectedType.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            return WorkflowActionResult.PermanentFailure($"Target is not a '{expectedType.Trim()}' entry.");
         }
 
         if (idempotencyKey is not null && marker is not null && marker.Attempt == attemptNumber)

@@ -10,9 +10,10 @@ namespace barakoCMS.Features.Workflows;
 /// What the user saving a workflow must hold for the content actions it carries.
 /// </summary>
 /// <remarks>
-/// CreateContent and Transition run as the system, with the permission checks skipped. Saving a
+/// CreateContent, CreateTask, UpdateField and Transition run as the system, with the permission checks skipped. Saving a
 /// workflow is the one moment a person chooses what they do, so that person is asked then: they
-/// need create on each type a CreateContent action names, and the transition right on each type
+/// need create on each type a CreateContent or CreateTask action names, update on each type an
+/// UpdateField action writes, and the transition right on each type
 /// and transition a Transition action names. Without this, the ManageWorkflows capability would be
 /// a way to write and move entries a role was never given. Actions inside a Conditional's branches
 /// and compensations are read too.
@@ -40,7 +41,7 @@ internal static class WorkflowSaveRights
 
         foreach (var (type, action, label) in needs.Distinct())
         {
-            if (user is null || type.Contains("{{") || action.Contains("{{")
+            if (user is null || string.IsNullOrWhiteSpace(type) || type.Contains("{{") || action.Contains("{{")
                 || !await permissions.CanPerformActionAsync(user, type, action, null, ct))
             {
                 missing.Add(label);
@@ -59,6 +60,16 @@ internal static class WorkflowSaveRights
             {
                 yield return (type, "create", $"You cannot create '{type}' entries, so you cannot save a workflow that does.");
             }
+            else if (string.Equals(action.Type, "CreateTask", StringComparison.OrdinalIgnoreCase))
+            {
+                // The action defaults to a "Task" type when none is given.
+                var created = action.Parameters.TryGetValue("ContentType", out var named) ? named.Trim() : "Task";
+                yield return (created, "create", $"You cannot create '{created}' entries, so you cannot save a workflow that does.");
+            }
+            else if (string.Equals(action.Type, "UpdateField", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (var need in UpdateNeeds(workflow, action, type)) yield return need;
+            }
             else if (string.Equals(action.Type, "Transition", StringComparison.OrdinalIgnoreCase))
             {
                 var name = action.Parameters.GetValueOrDefault("Transition")?.Trim() ?? "";
@@ -66,6 +77,30 @@ internal static class WorkflowSaveRights
                     $"You cannot make the '{name}' transition on '{type}' entries, so you cannot save a workflow that does.");
             }
         }
+    }
+
+    /// <summary>
+    /// With no TargetId, UpdateField writes the entry that fired the workflow, so the user needs
+    /// update on each type the workflow triggers on. With a TargetId the type of the target cannot
+    /// be known at save time, so the action has to name it in ContentType (the run refuses a target
+    /// of another type) and the user needs update on that.
+    /// </summary>
+    private static IEnumerable<(string Type, string Action, string Label)> UpdateNeeds(
+        WorkflowDefinition workflow, WorkflowAction action, string named)
+    {
+        if (string.IsNullOrWhiteSpace(action.Parameters.GetValueOrDefault("TargetId")))
+        {
+            var triggers = workflow.TriggerContentTypes.Append(workflow.TriggerContentType)
+                .Select(t => t?.Trim() ?? "").Where(t => t.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (triggers.Count == 0) triggers.Add("");
+            foreach (var trigger in triggers)
+                yield return (trigger, "update", $"You cannot update '{trigger}' entries, so you cannot save a workflow that does.");
+            yield break;
+        }
+
+        yield return (named, "update", string.IsNullOrWhiteSpace(named)
+            ? "An UpdateField action with a TargetId must name the ContentType it updates."
+            : $"You cannot update '{named}' entries, so you cannot save a workflow that does.");
     }
 
     private static IEnumerable<WorkflowAction> Flatten(WorkflowDefinition workflow)
