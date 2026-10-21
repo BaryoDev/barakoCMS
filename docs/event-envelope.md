@@ -16,6 +16,11 @@ The origin sequence is the number series `origin.{nodeId:N}`. Two events in one 
 consecutive numbers in stream order, and a save that fails uses none. An event that already carries
 `origin-sequence` when it is saved keeps it.
 
+The number is taken from the series row with a row lock held until the save commits. Saves of one
+node that carry an origin sequence therefore run one after another. That is what keeps the numbers
+gapless, and it caps the write rate of one node at one commit at a time for those saves. Give each
+node its own `Barako:NodeId`; do not share one id between nodes.
+
 Set the node id once per install, as a Guid:
 
 ```json
