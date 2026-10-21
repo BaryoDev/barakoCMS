@@ -29,4 +29,20 @@ public interface IWorkflowTriggers
     /// </remarks>
     /// <exception cref="ArgumentException">The trigger is not one a module registered, or the entry has no id or content type.</exception>
     Task<int> FireAsync(string trigger, barakoCMS.Models.Content content, CancellationToken ct);
+
+    /// <summary>
+    /// As <see cref="FireAsync(string, barakoCMS.Models.Content, CancellationToken)"/>, but a workflow
+    /// that already has a run for this entry fired with the same <paramref name="triggerKey"/> is
+    /// skipped, so a retried call starts the work once. A null key queues a run every time.
+    /// </summary>
+    /// <param name="trigger">A name the calling module registered.</param>
+    /// <param name="content">A stored entry.</param>
+    /// <param name="triggerKey">What makes this fire the same as an earlier one, or null.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>How many runs were queued.</returns>
+    /// <exception cref="NotSupportedException">An implementation written before keys existed was given a key.</exception>
+    Task<int> FireAsync(string trigger, barakoCMS.Models.Content content, string? triggerKey, CancellationToken ct) =>
+        triggerKey is null
+            ? FireAsync(trigger, content, ct)
+            : throw new NotSupportedException("This IWorkflowTriggers does not dedupe by trigger key.");
 }

@@ -71,7 +71,7 @@ internal static class CollectionSyncRules
         }
 
         var schema = await session.Query<ContentTypeDefinition>()
-            .FirstOrDefaultAsync(d => d.Name == req.ContentType, ct);
+            .FirstNamedAsync(req.ContentType, ct);
 
         if (schema is null)
         {

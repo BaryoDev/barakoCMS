@@ -176,7 +176,7 @@ public class TenantRoleScopeTests
     public async Task A_role_created_in_a_tenant_belongs_to_it_and_cannot_reach_past_it()
     {
         var (a, _, manager, managerRole) = await TenantsAsync();
-        var name = $"Nurse-{Guid.NewGuid():N}"[..16];
+        var name = $"Clerk-{Guid.NewGuid():N}"[..16];
 
         var created = await manager.PostAsJsonAsync("/api/roles", new { name, description = "d", systemCapabilities = new[] { "view_audit_log" } }, Ct);
         created.StatusCode.Should().Be(HttpStatusCode.OK, await created.Content.ReadAsStringAsync(Ct));

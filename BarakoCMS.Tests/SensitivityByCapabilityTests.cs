@@ -17,7 +17,7 @@ namespace BarakoCMS.Tests;
 /// </summary>
 /// <remarks>
 /// It used to be decided by two role names read back from the token: "HR" for Sensitive and
-/// "SuperAdmin" for everything. A clinic's Nurse role could be granted nothing that opened a
+/// "SuperAdmin" for everything. A shop's Clerk role could be granted nothing that opened a
 /// Sensitive field, and renaming a role listed on a field changed who could read it.
 ///
 /// Every caller here is a stored user holding a stored role under a random name, so no name can be
@@ -27,7 +27,7 @@ namespace BarakoCMS.Tests;
 [Collection("Sequential")]
 public class SensitivityByCapabilityTests
 {
-    private const string Notes = "patient notes 5521";
+    private const string Notes = "customer notes 5521";
     private const string Pin = "pin 9034";
     private const string Salary = "salary 7718";
 
@@ -47,7 +47,7 @@ public class SensitivityByCapabilityTests
         {
             Id = Guid.NewGuid(),
             Name = type,
-            DisplayName = "Patient",
+            DisplayName = "Customer",
             Fields =
             [
                 new FieldDefinition { Name = "Name", DisplayName = "Name", Type = "string" },
@@ -174,19 +174,19 @@ public class SensitivityByCapabilityTests
     }
 
     [Fact]
-    public async Task A_custom_role_named_Nurse_holding_view_sensitive_reads_a_Sensitive_field()
+    public async Task A_custom_role_named_Clerk_holding_view_sensitive_reads_a_Sensitive_field()
     {
         var type = await SeedTypeAsync();
-        var nurse = await CallerAsync(
-            await StoreRoleAsync($"Nurse {Guid.NewGuid():N}", type, SystemCapabilities.ViewSensitive));
+        var clerk = await CallerAsync(
+            await StoreRoleAsync($"Clerk {Guid.NewGuid():N}", type, SystemCapabilities.ViewSensitive));
 
-        var entry = await ReadAsync(nurse, await SeedEntryAsync(type));
+        var entry = await ReadAsync(clerk, await SeedEntryAsync(type));
 
         Field(entry, "Name").Should().Be("Ana", "the control: this caller reads the entry at all");
         Field(entry, "Notes").Should().Be(Notes, "view_sensitive is what a Sensitive field with no role list asks for");
         Field(entry, "Pin").Should().BeNull("view_sensitive does not reach a Hidden field");
 
-        var sensitiveEntry = await ReadAsync(nurse, await SeedEntryAsync(type, SensitivityLevel.Sensitive));
+        var sensitiveEntry = await ReadAsync(clerk, await SeedEntryAsync(type, SensitivityLevel.Sensitive));
         Field(sensitiveEntry, "Name").Should().Be("Ana", "an entry whose own level is Sensitive is open to the same capability");
         Field(sensitiveEntry, "Notes").Should().Be(Notes);
     }
@@ -231,11 +231,11 @@ public class SensitivityByCapabilityTests
     public async Task Taking_the_capability_off_a_role_applies_on_the_next_request()
     {
         var type = await SeedTypeAsync();
-        var role = await StoreRoleAsync($"Nurse {Guid.NewGuid():N}", type, SystemCapabilities.ViewSensitive);
-        var nurse = await CallerAsync(role);
+        var role = await StoreRoleAsync($"Clerk {Guid.NewGuid():N}", type, SystemCapabilities.ViewSensitive);
+        var clerk = await CallerAsync(role);
         var id = await SeedEntryAsync(type);
 
-        Field(await ReadAsync(nurse, id), "Notes").Should().Be(Notes, "the capability is held, so the value is read");
+        Field(await ReadAsync(clerk, id), "Notes").Should().Be(Notes, "the capability is held, so the value is read");
 
         using (var scope = _factory.Services.CreateScope())
         {
@@ -245,7 +245,7 @@ public class SensitivityByCapabilityTests
             await session.SaveChangesAsync(Ct);
         }
 
-        Field(await ReadAsync(nurse, id), "Notes").Should().Be("***",
+        Field(await ReadAsync(clerk, id), "Notes").Should().Be("***",
             "the same token is still valid, and what it may read is the role as stored now");
     }
 
@@ -375,10 +375,10 @@ public class SensitivityByCapabilityTests
             Sensitivity = SensitivityLevel.Sensitive,
             VisibleToRoles = [listed.Id.ToString()],
         });
-        var nurse = await CallerAsync(
-            await StoreRoleAsync($"Nurse {Guid.NewGuid():N}", type, SystemCapabilities.ViewSensitive));
+        var clerk = await CallerAsync(
+            await StoreRoleAsync($"Clerk {Guid.NewGuid():N}", type, SystemCapabilities.ViewSensitive));
 
-        var entry = await ReadAsync(nurse, await SeedEntryAsync(type));
+        var entry = await ReadAsync(clerk, await SeedEntryAsync(type));
 
         Field(entry, "Notes").Should().Be(Notes, "the control: the capability opens the field that lists nobody");
         Field(entry, "Salary").Should().Be("***", "a field's own list replaces the default, it does not add to it");
@@ -452,7 +452,7 @@ public class SensitivityByCapabilityTests
         {
             Id = Guid.NewGuid(),
             Name = type,
-            DisplayName = "Patient",
+            DisplayName = "Customer",
             Fields =
             [
                 new FieldDefinition { Name = "Name", DisplayName = "Name", Type = "string" },
@@ -516,16 +516,16 @@ public class SensitivityByCapabilityTests
     public async Task A_role_held_only_through_a_tenant_membership_opens_the_field_in_that_tenant_and_not_in_another()
     {
         var type = $"sbc{Guid.NewGuid():N}"[..16];
-        var clinic = await TenantAsync();
+        var shop = await TenantAsync();
         var school = await TenantAsync();
-        var inClinic = await SeedInTenantAsync(clinic, type);
+        var inShop = await SeedInTenantAsync(shop, type);
         var inSchool = await SeedInTenantAsync(school, type);
-        var nurse = await StoreRoleAsync($"Nurse {Guid.NewGuid():N}", type, SystemCapabilities.ViewSensitive);
+        var clerk = await StoreRoleAsync($"Clerk {Guid.NewGuid():N}", type, SystemCapabilities.ViewSensitive);
         var reader = await StoreRoleAsync($"Reader {Guid.NewGuid():N}", type);
-        var userId = await MemberAsync((clinic, nurse), (school, reader));
+        var userId = await MemberAsync((shop, clerk), (school, reader));
 
-        var atClinic = await ReadAsync(TenantClient(userId, clinic, nurse.Name), inClinic);
-        Field(atClinic, "Notes").Should().Be(Notes,
+        var atShop = await ReadAsync(TenantClient(userId, shop, clerk.Name), inShop);
+        Field(atShop, "Notes").Should().Be(Notes,
             "the capability comes from the role the membership gives in this tenant");
 
         var atSchool = await ReadAsync(TenantClient(userId, school, reader.Name), inSchool);
@@ -564,15 +564,15 @@ public class SensitivityByCapabilityTests
     public async Task An_API_key_reads_as_its_owner_in_the_keys_tenant()
     {
         var type = $"sbc{Guid.NewGuid():N}"[..16];
-        var clinic = await TenantAsync();
-        var id = await SeedInTenantAsync(clinic, type);
-        var nurse = await StoreRoleAsync($"Nurse {Guid.NewGuid():N}", type, SystemCapabilities.ViewSensitive);
+        var shop = await TenantAsync();
+        var id = await SeedInTenantAsync(shop, type);
+        var clerk = await StoreRoleAsync($"Clerk {Guid.NewGuid():N}", type, SystemCapabilities.ViewSensitive);
         var reader = await StoreRoleAsync($"Reader {Guid.NewGuid():N}", type);
 
-        var nurseKey = await KeyClientAsync(await MemberAsync((clinic, nurse)), clinic);
-        var readerKey = await KeyClientAsync(await MemberAsync((clinic, reader)), clinic);
+        var clerkKey = await KeyClientAsync(await MemberAsync((shop, clerk)), shop);
+        var readerKey = await KeyClientAsync(await MemberAsync((shop, reader)), shop);
 
-        Field(await ReadAsync(nurseKey, id), "Notes").Should().Be(Notes,
+        Field(await ReadAsync(clerkKey, id), "Notes").Should().Be(Notes,
             "a key acts as its owner, and the owner's role in the key's tenant holds the capability");
 
         var plain = await ReadAsync(readerKey, id);
@@ -622,6 +622,41 @@ public class SensitivityByCapabilityTests
         var dropped = await CreateAsync(clerk, type);
         dropped.Should().ContainKey("Name", "the control: the entry was written");
         dropped.Keys.Should().NotContain("Pin", "a caller who may not see the field may not set it");
+    }
+
+    [Fact]
+    public async Task An_entry_made_with_another_spelling_of_the_type_is_masked_like_any_other()
+    {
+        var type = await SeedTypeAsync();
+        var spelled = type.ToUpperInvariant();
+        spelled.Should().NotBe(type);
+        var author = await CallerAsync(await StoreWriterRoleAsync(type, SystemCapabilities.ViewSensitive));
+        var created = await author.PostAsJsonAsync("/api/contents", new
+        {
+            ContentType = spelled,
+            Data = new Dictionary<string, object> { ["Name"] = "Ana", ["Notes"] = Notes },
+        }, Ct);
+        var createdBody = await created.Content.ReadAsStringAsync(Ct);
+        created.StatusCode.Should().Be(HttpStatusCode.OK, createdBody);
+        var id = JsonDocument.Parse(createdBody).RootElement.GetProperty("id").GetGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var stored = await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<Content>(id, Ct);
+            stored!.ContentType.Should().Be(spelled, "the control: the entry keeps the caller's spelling");
+            stored.Data.Should().ContainKey("Notes", "the author may set a Sensitive field, so the type was found");
+        }
+
+        var reader = await CallerAsync(await StoreWriterRoleAsync(type));
+        var masked = await ReadAsync(reader, id);
+        Field(masked, "Name").Should().Be("Ana");
+        Field(masked, "Notes").Should().Be("***");
+
+        var holder = await CallerAsync(await StoreWriterRoleAsync(type, SystemCapabilities.ViewSensitive));
+        Field(await ReadAsync(holder, id), "Notes").Should().Be(Notes);
+        using var check = _factory.Services.CreateScope();
+        (await check.ServiceProvider.GetRequiredService<IQuerySession>().Query<AuditEvent>()
+            .AnyAsync(a => a.Action == "content.sensitive.read" && a.TargetId == id.ToString(), Ct))
+            .Should().BeTrue("a read that sent a Sensitive value is audited, which needs the definition");
     }
 
     private async Task<Role> StoreWriterRoleAsync(string type, params string[] capabilities)

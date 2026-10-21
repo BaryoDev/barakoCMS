@@ -117,8 +117,8 @@ public class WhoAmIEndpointTests
     [Fact]
     public async Task A_custom_role_holding_view_sensitive_is_reported_with_it()
     {
-        var nurse = await RoleAsync(SystemCapabilities.ViewSensitive, SystemCapabilities.ManageQueries);
-        var userId = await UserAsync([nurse]);
+        var clerk = await RoleAsync(SystemCapabilities.ViewSensitive, SystemCapabilities.ManageQueries);
+        var userId = await UserAsync([clerk]);
 
         var me = await MeAsync(Client(userId));
 
@@ -127,8 +127,8 @@ public class WhoAmIEndpointTests
 
         var roles = me.GetProperty("roles").EnumerateArray().ToList();
         roles.Should().HaveCount(1);
-        roles[0].GetProperty("id").GetGuid().Should().Be(nurse.Id);
-        roles[0].GetProperty("name").GetString().Should().Be(nurse.Name, "the stored name, not the token's claim");
+        roles[0].GetProperty("id").GetGuid().Should().Be(clerk.Id);
+        roles[0].GetProperty("name").GetString().Should().Be(clerk.Name, "the stored name, not the token's claim");
 
         Capabilities(me).Should().Equal(
             new[] { SystemCapabilities.ManageQueries, SystemCapabilities.ViewSensitive },
@@ -151,37 +151,37 @@ public class WhoAmIEndpointTests
     [Fact]
     public async Task A_membership_in_one_tenant_does_not_report_its_roles_under_another()
     {
-        var clinic = await TenantAsync();
+        var shop = await TenantAsync();
         var school = await TenantAsync();
-        var nurse = await RoleAsync(SystemCapabilities.ViewSensitive);
+        var clerk = await RoleAsync(SystemCapabilities.ViewSensitive);
         var reader = await RoleAsync();
-        var userId = await UserAsync([], (clinic, nurse), (school, reader));
+        var userId = await UserAsync([], (shop, clerk), (school, reader));
 
-        var atClinic = await MeAsync(Client(userId, clinic, clinic));
-        atClinic.GetProperty("tenant").GetString().Should().Be(clinic);
-        RoleIds(atClinic).Should().Equal(nurse.Id);
-        Capabilities(atClinic).Should().Equal(SystemCapabilities.ViewSensitive);
+        var atShop = await MeAsync(Client(userId, shop, shop));
+        atShop.GetProperty("tenant").GetString().Should().Be(shop);
+        RoleIds(atShop).Should().Equal(clerk.Id);
+        Capabilities(atShop).Should().Equal(SystemCapabilities.ViewSensitive);
 
         var atSchool = await MeAsync(Client(userId, school, school));
         atSchool.GetProperty("tenant").GetString().Should().Be(school);
         RoleIds(atSchool).Should().Equal(reader.Id);
-        Capabilities(atSchool).Should().BeEmpty("the role from the clinic membership is not held in the school");
+        Capabilities(atSchool).Should().BeEmpty("the role from the shop membership is not held in the school");
     }
 
     [Fact]
     public async Task The_tokens_tenant_decides_not_an_X_Tenant_header_naming_another()
     {
-        var clinic = await TenantAsync();
+        var shop = await TenantAsync();
         var school = await TenantAsync();
-        var nurse = await RoleAsync(SystemCapabilities.ViewSensitive);
+        var clerk = await RoleAsync(SystemCapabilities.ViewSensitive);
         var reader = await RoleAsync();
-        var userId = await UserAsync([], (clinic, nurse), (school, reader));
+        var userId = await UserAsync([], (shop, clerk), (school, reader));
 
-        var me = await MeAsync(Client(userId, tokenTenant: school, header: clinic));
+        var me = await MeAsync(Client(userId, tokenTenant: school, header: shop));
 
         me.GetProperty("tenant").GetString().Should().Be(school);
         RoleIds(me).Should().Equal(reader.Id);
-        Capabilities(me).Should().BeEmpty("a session for the school does not act in the clinic");
+        Capabilities(me).Should().BeEmpty("a session for the school does not act in the shop");
     }
 
     [Fact]

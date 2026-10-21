@@ -169,6 +169,9 @@ public enum ContentTransitionOutcome
     /// first. Nothing was written.
     /// </summary>
     Conflict = 4,
+
+    /// <summary>A rule of the content type refused the move. The error is the rule's message. Nothing was written.</summary>
+    RuleFailed = 5,
 }
 
 /// <summary>What became of a transition.</summary>
@@ -230,4 +233,7 @@ public sealed class ContentTransitionResult
 
     internal static ContentTransitionResult Conflict(string reason) =>
         new(ContentTransitionOutcome.Conflict, [reason]);
+
+    internal static ContentTransitionResult RuleFailed(string message) =>
+        new(ContentTransitionOutcome.RuleFailed, [message]);
 }

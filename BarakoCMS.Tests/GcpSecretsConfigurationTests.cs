@@ -35,7 +35,7 @@ public class GcpSecretsConfigurationTests
     [Fact]
     public void Without_a_map_nothing_is_added_and_the_store_is_never_asked()
     {
-        var configuration = Configuration(("JWT:Key", "from-the-environment"), ("Secrets:Gcp:Project", "clinic"));
+        var configuration = Configuration(("JWT:Key", "from-the-environment"), ("Secrets:Gcp:Project", "shop"));
         var store = new FakeStore([]);
         var sources = configuration.Sources.Count;
 
@@ -51,13 +51,13 @@ public class GcpSecretsConfigurationTests
     {
         var configuration = Configuration(
             ("JWT:Key", "from-the-environment"),
-            ("Secrets:Gcp:Project", "clinic"),
+            ("Secrets:Gcp:Project", "shop"),
             ("Secrets:Gcp:Map:JWT:Key", "barakocms-jwt-key"));
-        var store = new FakeStore(new() { ["projects/clinic/secrets/barakocms-jwt-key/versions/latest"] = "from-the-store" });
+        var store = new FakeStore(new() { ["projects/shop/secrets/barakocms-jwt-key/versions/latest"] = "from-the-store" });
 
         configuration.AddBarakoGcpSecrets(store.Read);
 
-        store.Reads.Should().Equal("projects/clinic/secrets/barakocms-jwt-key/versions/latest");
+        store.Reads.Should().Equal("projects/shop/secrets/barakocms-jwt-key/versions/latest");
         configuration["JWT:Key"].Should().Be("from-the-store");
     }
 
@@ -99,13 +99,13 @@ public class GcpSecretsConfigurationTests
     public void A_missing_secret_stops_startup_naming_the_secret()
     {
         var configuration = Configuration(
-            ("Secrets:Gcp:Project", "clinic"),
+            ("Secrets:Gcp:Project", "shop"),
             ("Secrets:Gcp:Map:JWT:Key", "barakocms-missing"));
 
         var act = () => configuration.AddBarakoGcpSecrets(new FakeStore([]).Read);
 
         act.Should().Throw<InvalidOperationException>()
-            .WithMessage("*'projects/clinic/secrets/barakocms-missing/versions/latest'*JWT:Key*does not exist*");
+            .WithMessage("*'projects/shop/secrets/barakocms-missing/versions/latest'*JWT:Key*does not exist*");
     }
 
     // The adapter over the real client, against a stub of it.
@@ -132,17 +132,17 @@ public class GcpSecretsConfigurationTests
         var client = Answering("from-the-store");
 
         var value = await GcpSecretsConfigurationExtensions.ReadAsync(
-            client, "projects/clinic/secrets/jwt/versions/latest", CancellationToken.None);
+            client, "projects/shop/secrets/jwt/versions/latest", CancellationToken.None);
 
         value.Should().Be("from-the-store");
-        await client.Received(1).AccessSecretVersionAsync("projects/clinic/secrets/jwt/versions/latest", Arg.Any<CancellationToken>());
+        await client.Received(1).AccessSecretVersionAsync("projects/shop/secrets/jwt/versions/latest", Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task The_adapter_reads_not_found_as_absent()
     {
         var value = await GcpSecretsConfigurationExtensions.ReadAsync(
-            Throwing(StatusCode.NotFound), "projects/clinic/secrets/missing/versions/latest", CancellationToken.None);
+            Throwing(StatusCode.NotFound), "projects/shop/secrets/missing/versions/latest", CancellationToken.None);
 
         value.Should().BeNull();
     }
@@ -151,7 +151,7 @@ public class GcpSecretsConfigurationTests
     public async Task The_adapter_reduces_any_other_refusal_to_the_status_code()
     {
         var act = () => GcpSecretsConfigurationExtensions.ReadAsync(
-            Throwing(StatusCode.PermissionDenied), "projects/clinic/secrets/jwt/versions/latest", CancellationToken.None);
+            Throwing(StatusCode.PermissionDenied), "projects/shop/secrets/jwt/versions/latest", CancellationToken.None);
 
         (await act.Should().ThrowAsync<SecretUnreadableException>()).Which.Message.Should().Be("Google answered PermissionDenied");
     }

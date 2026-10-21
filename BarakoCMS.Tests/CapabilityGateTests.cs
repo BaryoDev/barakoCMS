@@ -994,6 +994,7 @@ public class CapabilityGateTests
         ("GET", "/api/webhook-deliveries", HttpStatusCode.OK),
         ("GET", "/api/connector-deliveries", HttpStatusCode.OK),
         ("GET", $"/api/workflow-runs/{NotAGuid}", HttpStatusCode.BadRequest),
+        ("GET", $"/api/contents/{NotAGuid}/runs", HttpStatusCode.BadRequest),
         ("POST", $"/api/workflow-runs/{NotAGuid}/actions/0/retry", HttpStatusCode.BadRequest),
         ("POST", $"/api/workflows/{NotAGuid}/run", HttpStatusCode.BadRequest),
         ("POST", $"/api/workflow-runs/{NotAGuid}/cancel", HttpStatusCode.BadRequest),

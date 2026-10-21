@@ -84,7 +84,7 @@ internal class Endpoint(
     /// </remarks>
     private async Task<IReadOnlyList<barakoCMS.Models.Content>> FindAsync(string type, string slug, CancellationToken ct)
     {
-        var def = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
+        var def = await session.Query<ContentTypeDefinition>().FirstNamedAsync(type, ct);
         if (def is null) return [];
 
         var slugField = PublicDelivery.SlugFieldForAuthoring(def);

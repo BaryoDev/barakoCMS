@@ -37,7 +37,7 @@ public class ConfigTransactionTests
     private static object SiteDocument(string tagline) => new
     {
         version = 1,
-        siteSettings = new Dictionary<string, object> { ["site"] = new { status = "Published", data = new Dictionary<string, object> { ["Name"] = "Clinic", ["Tagline"] = tagline } } },
+        siteSettings = new Dictionary<string, object> { ["site"] = new { status = "Published", data = new Dictionary<string, object> { ["Name"] = "Shop", ["Tagline"] = tagline } } },
     };
 
     [Fact]
@@ -46,7 +46,7 @@ public class ConfigTransactionTests
         var tenant = await _callers.TenantAsync();
         await _callers.StoreInTenantAsync(tenant, DeliveredSite());
         var client = await _callers.SuperAdminAsync(tenant);
-        (await client.PostAsJsonAsync("/api/contents", new { contentType = "site", status = "Published", data = new Dictionary<string, object> { ["Name"] = "Clinic", ["Tagline"] = "Before" } }, Ct))
+        (await client.PostAsJsonAsync("/api/contents", new { contentType = "site", status = "Published", data = new Dictionary<string, object> { ["Name"] = "Shop", ["Tagline"] = "Before" } }, Ct))
             .StatusCode.Should().Be(HttpStatusCode.OK);
         var entryId = (await _callers.InTenantAsync(tenant, s => s.Query<Content>().SingleAsync(c => c.ContentType == "site", Ct)))!.Id;
         var versionBefore = await StreamVersionAsync(tenant, entryId);
@@ -86,7 +86,7 @@ public class ConfigTransactionTests
         {
             version = 1,
             permissionRules = new Dictionary<string, object> { [$"{roleName}/site"] = new { create = new { enabled = true } } },
-            siteSettings = new Dictionary<string, object> { ["site"] = new { status = "Published", data = new Dictionary<string, object> { ["Name"] = "Clinic" } } },
+            siteSettings = new Dictionary<string, object> { ["site"] = new { status = "Published", data = new Dictionary<string, object> { ["Name"] = "Shop" } } },
         });
         planned.StatusCode.Should().Be(HttpStatusCode.OK, plan.ToString());
         plan.GetProperty("sections")[1].GetProperty("refusals").GetArrayLength()
@@ -185,7 +185,7 @@ public class ConfigTransactionTests
         }
 
         var client = await _callers.SuperAdminAsync(tenant);
-        (await client.PostAsJsonAsync("/api/contents", new { contentType = "site", status = "Published", data = new Dictionary<string, object> { ["Name"] = "Clinic", ["Tagline"] = "Before" } }, Ct))
+        (await client.PostAsJsonAsync("/api/contents", new { contentType = "site", status = "Published", data = new Dictionary<string, object> { ["Name"] = "Shop", ["Tagline"] = "Before" } }, Ct))
             .StatusCode.Should().Be(HttpStatusCode.OK);
         var entryId = (await _callers.InTenantAsync(tenant, s => s.Query<Content>().SingleAsync(c => c.ContentType == "site", Ct)))!.Id;
 
@@ -196,7 +196,7 @@ public class ConfigTransactionTests
         var runner = new InterleavingRunner(services.GetRequiredService<barakoCMS.Infrastructure.Services.IContentBatchRunner>(), async () =>
         {
             var version = await StreamVersionAsync(tenant, entryId);
-            (await client.PutAsJsonAsync($"/api/contents/{entryId}", new { data = new Dictionary<string, object> { ["Name"] = "Clinic", ["Tagline"] = "Concurrent" }, version }, Ct))
+            (await client.PutAsJsonAsync($"/api/contents/{entryId}", new { data = new Dictionary<string, object> { ["Name"] = "Shop", ["Tagline"] = "Concurrent" }, version }, Ct))
                 .StatusCode.Should().Be(HttpStatusCode.OK, "the other write commits while the apply holds its transaction open");
         });
         var engine = new barakoCMS.Features.Config.ConfigEngine(

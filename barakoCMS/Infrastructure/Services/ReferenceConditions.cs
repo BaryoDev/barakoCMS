@@ -163,7 +163,7 @@ internal static class ReferenceConditions
 
     public static Task<ContentTypeDefinition?> DefinitionAsync(
         IQuerySession session, string name, CancellationToken cancellationToken) =>
-        session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == name, cancellationToken);
+        session.Query<ContentTypeDefinition>().FirstNamedAsync(name, cancellationToken);
 
     /// <summary>
     /// The names a <c>referenceType</c> may be stored under, in the order to try them: as written,

@@ -60,20 +60,88 @@ public sealed class TenantSessionFactory : ISessionFactory
 /// </remarks>
 public sealed class BatchTransaction
 {
-    private readonly List<(Guid Id, object Event)> _streams = new();
+    private readonly List<(Guid Id, object Event, IReadOnlyDictionary<string, object>? Headers)> _streams = new();
 
     public Npgsql.NpgsqlTransaction? Transaction { get; internal set; }
 
-    /// <summary>True inside a batch, where a new stream waits for <see cref="StartDeferredStreams"/>.</summary>
-    public bool DefersStreams => Transaction is not null;
+    private static readonly AsyncLocal<BatchTransaction?> Open = new();
 
-    public void DeferStream(Guid id, object @event) => _streams.Add((id, @event));
+    private readonly List<Func<CancellationToken, Task>> _afterCommit = new();
+
+    /// <summary>Marks this batch as the one running on the current flow, until the scope is disposed.</summary>
+    internal IDisposable Running()
+    {
+        Open.Value = this;
+        return new RunningScope();
+    }
+
+    private sealed class RunningScope : IDisposable
+    {
+        public void Dispose() => Open.Value = null;
+    }
+
+    /// <summary>
+    /// Holds <paramref name="work"/> until the batch's transaction commits when a batch is running on
+    /// this flow, and says so. Returns false outside a batch, where the caller does the work now.
+    /// </summary>
+    /// <remarks>
+    /// A listener runs after a flush, which inside a batch is not yet a commit: a reader of another
+    /// connection would not find the entry, and a rollback would leave the notice announcing nothing.
+    /// </remarks>
+    public static bool TryDeferUntilCommit(Func<CancellationToken, Task> work)
+    {
+        if (Open.Value is not { } batch) return false;
+        batch._afterCommit.Add(work);
+        return true;
+    }
+
+    /// <summary>Runs the work held for the commit, in order. Nothing is run for a batch that rolls back.</summary>
+    internal async Task RunAfterCommitAsync(CancellationToken ct)
+    {
+        var held = _afterCommit.ToList();
+        _afterCommit.Clear();
+        foreach (var work in held)
+        {
+            await work(ct);
+        }
+    }
+
+    /// <summary>
+    /// True while an <see cref="EagerStreamsScope"/> is open: new streams start inside the open
+    /// transaction instead of waiting for the commit. Off by default and not settable from outside.
+    /// </summary>
+    public bool EagerStreams { get; private set; }
+
+    /// <summary>
+    /// Starts new streams inside the open transaction until the returned scope is disposed. A batch
+    /// opens it only around steps that append to an entry the batch created, which needs the stream
+    /// to exist. Rollback still undoes the streams, but their sequence numbers are held while it is open.
+    /// </summary>
+    internal IDisposable EagerStreamsScope()
+    {
+        EagerStreams = true;
+        return new EagerScope(this);
+    }
+
+    private sealed class EagerScope(BatchTransaction owner) : IDisposable
+    {
+        public void Dispose() => owner.EagerStreams = false;
+    }
+
+    /// <summary>True inside a batch, where a new stream waits for <see cref="StartDeferredStreams"/>.</summary>
+    public bool DefersStreams => Transaction is not null && !EagerStreams;
+
+    public void DeferStream(Guid id, object @event) => _streams.Add((id, @event, null));
+
+    /// <summary>The same, with event headers (the origin sequence) reserved when the entry was written.</summary>
+    public void DeferStream(Guid id, object @event, IReadOnlyDictionary<string, object>? headers) =>
+        _streams.Add((id, @event, headers));
 
     /// <summary>Starts every deferred stream on <paramref name="session"/>, in the order they were written.</summary>
     public void StartDeferredStreams(Marten.IDocumentSession session)
     {
-        foreach (var (id, @event) in _streams)
-            session.Events.StartStream<Models.Content>(id, @event);
+        foreach (var (id, @event, headers) in _streams)
+            Services.ContentWriter.SetHeaders(session.Events.StartStream<Models.Content>(id, @event).Events, headers);
         _streams.Clear();
     }
 

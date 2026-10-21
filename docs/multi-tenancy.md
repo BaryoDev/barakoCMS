@@ -374,7 +374,7 @@ the tenant is issued. Each adds to what the deployment and the member's roles al
 the strictest applies, and leaving them unset is what a tenant did before they existed.
 
 ```json
-{ "name": "Clinic", "signIn": { "requireMfa": false, "mfaRoleIds": ["<nurse role id>"], "methods": ["password"], "sessionMinutes": 480 } }
+{ "name": "Shop", "signIn": { "requireMfa": false, "mfaRoleIds": ["<clerk role id>"], "methods": ["password"], "sessionMinutes": 480 } }
 ```
 
 - `requireMfa` asks every member to enrol in MFA, and `mfaRoleIds` asks it of members holding one of

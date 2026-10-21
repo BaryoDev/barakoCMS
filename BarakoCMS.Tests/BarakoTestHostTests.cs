@@ -231,6 +231,25 @@ public class BarakoTestHostTests : IClassFixture<BarakoTestHostTests.Host>
     }
 
     [Fact]
+    public async Task The_connection_string_pools_with_a_modest_cap()
+    {
+        var builder = new Npgsql.NpgsqlConnectionStringBuilder(_host.ConnectionString);
+
+        builder.Pooling.Should().BeTrue("a connection per query leaves thousands of sockets in TIME_WAIT across many hosts");
+        builder.MaxPoolSize.Should().BeInRange(1, 50);
+
+        // The pooled connection is reused, and a reader on the database still works after the
+        // host's own sessions have been through the pool.
+        for (var i = 0; i < 3; i++)
+        {
+            await using var connection = new Npgsql.NpgsqlConnection(_host.ConnectionString);
+            await connection.OpenAsync(TestContext.Current.CancellationToken);
+            await using var command = new Npgsql.NpgsqlCommand("select 1", connection);
+            (await command.ExecuteScalarAsync(TestContext.Current.CancellationToken)).Should().Be(1);
+        }
+    }
+
+    [Fact]
     public async Task A_host_running_no_modules_does_not_serve_the_module_endpoint()
     {
         // Registration is what puts a module's endpoints in the host, so the same request on a host

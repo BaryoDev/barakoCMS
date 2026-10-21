@@ -82,7 +82,7 @@ public class GlobalRoleOwnershipTests(IntegrationTestFixture fixture)
     public async Task Assigning_a_global_role_takes_a_platform_role_and_refuses_a_tenants_role()
     {
         var tenant = await _callers.TenantAsync();
-        var tenantRole = new Role { Id = Guid.NewGuid(), Name = Unique("Clinic Desk "), TenantSlug = tenant };
+        var tenantRole = new Role { Id = Guid.NewGuid(), Name = Unique("Shop Desk "), TenantSlug = tenant };
         var platformRole = new Role { Id = Guid.NewGuid(), Name = Unique("Everywhere "), IsPlatform = true };
         await _callers.StoreInTenantAsync(null, tenantRole, platformRole);
         var target = new User { Id = Guid.NewGuid(), Username = Unique("target-"), Email = $"{Guid.NewGuid():n}@example.com", RoleIds = [] };

@@ -174,8 +174,8 @@ public class IncidentsEndpointTests(IntegrationTestFixture factory)
         await StoreAsync(s => s.Store(new ContentTypeDefinition
         {
             Id = Guid.NewGuid(),
-            Name = $"patient{Guid.NewGuid():N}"[..15],
-            DisplayName = "Patient",
+            Name = $"customer{Guid.NewGuid():N}"[..15],
+            DisplayName = "Customer",
             Fields = [new FieldDefinition { Name = field, DisplayName = "Phone", Type = "string", Sensitivity = SensitivityLevel.Sensitive }],
         }));
 

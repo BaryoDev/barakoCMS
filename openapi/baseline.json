@@ -2786,6 +2786,93 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesContentBatchBatchRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesContentBatchBatchStep"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentBatchBatchResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesContentBatchBatchStepResult"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentBatchBatchStep": {
+        "additionalProperties": false,
+        "description": "One write of a batch: a create, or a lifecycle transition.",
+        "properties": {
+          "contentType": {
+            "description": "Create only: the type of the new entry.",
+            "type": "string"
+          },
+          "data": {
+            "additionalProperties": {},
+            "description": "Create: the field values. Transition: the values the transition declares.",
+            "nullable": true,
+            "type": "object"
+          },
+          "id": {
+            "description": "The id of the new entry, made by the client, or the id of the entry to move.",
+            "format": "guid",
+            "type": "string"
+          },
+          "op": {
+            "description": "create or transition.",
+            "type": "string"
+          },
+          "sensitivity": {
+            "description": "Create only, optional: a SensitivityLevel name. Public when left out.",
+            "nullable": true,
+            "type": "string"
+          },
+          "status": {
+            "description": "Create only, optional: a ContentStatus name. Draft when left out.",
+            "nullable": true,
+            "type": "string"
+          },
+          "transition": {
+            "description": "Transition only: the name of the transition to make.",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentBatchBatchStepResult": {
+        "additionalProperties": false,
+        "description": "What one step did. State is the lifecycle state after it, or null for a type with none.",
+        "properties": {
+          "id": {
+            "format": "guid",
+            "type": "string"
+          },
+          "index": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "op": {
+            "type": "string"
+          },
+          "state": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesContentChangeStatusRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2961,6 +3048,11 @@
           },
           "lastModifiedBy": {
             "format": "guid",
+            "type": "string"
+          },
+          "lifecycleState": {
+            "description": "The lifecycle state: the stored state, or the type's initial state for an entry not yet moved. Null for a type with no lifecycle and for a hidden entry.",
+            "nullable": true,
             "type": "string"
           },
           "scheduledPublishAt": {
@@ -3158,6 +3250,11 @@
             "format": "guid",
             "type": "string"
           },
+          "lifecycleState": {
+            "description": "The lifecycle state, the same value the single-item GET returns: the stored state, or the type's initial state for an entry not yet moved. Null for a type with no lifecycle and for a row shown as hidden.",
+            "nullable": true,
+            "type": "string"
+          },
           "sensitivity": {
             "$ref": "#/components/schemas/BarakoCMSModelsSensitivityLevel"
           },
@@ -3186,6 +3283,91 @@
             "type": "object"
           }
         ]
+      },
+      "BarakoCMSFeaturesContentRunsRunActionSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "actionType": {
+            "description": "The action's type name.",
+            "type": "string"
+          },
+          "created": {
+            "description": "The entries the action created, or null when it created none.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSModelsCreatedRef"
+            },
+            "nullable": true,
+            "type": "array"
+          },
+          "error": {
+            "description": "Why the attempt failed, or null.",
+            "nullable": true,
+            "type": "string"
+          },
+          "ordinal": {
+            "description": "Where the action sits in its run, from 0.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "status": {
+            "description": "The name of an AttemptStatus.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentRunsRunSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "actions": {
+            "description": "Its actions in order.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesContentRunsRunActionSummary"
+            },
+            "type": "array"
+          },
+          "completedAt": {
+            "description": "When it finished, or null while it has not.",
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "createdAt": {
+            "description": "When the run was queued, in UTC.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "description": "The run's id.",
+            "format": "guid",
+            "type": "string"
+          },
+          "status": {
+            "description": "The name of a RunStatus.",
+            "type": "string"
+          },
+          "triggerEvent": {
+            "description": "The event that fired it.",
+            "type": "string"
+          },
+          "workflowName": {
+            "description": "The workflow's name when it fired.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentRunsRunsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesContentRunsRunSummary"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
       },
       "BarakoCMSFeaturesContentScheduleRequest": {
         "additionalProperties": false,
@@ -3641,6 +3823,10 @@
         "additionalProperties": false,
         "description": "A content type as the API describes it, rather than as it is stored.",
         "properties": {
+          "branchScoped": {
+            "description": "Whether every entry belongs to one branch.",
+            "type": "boolean"
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
@@ -3690,6 +3876,15 @@
               }
             ]
           },
+          "mergeClass": {
+            "description": "How edits made on two stations are merged, or null when the host decides.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsMergeClass"
+              }
+            ]
+          },
           "name": {
             "type": "string"
           },
@@ -3706,6 +3901,14 @@
             "description": "Where an entry of this type lives on the site, such as /blog/{slug}, or null when the\ntype declares none.",
             "nullable": true,
             "type": "string"
+          },
+          "rules": {
+            "description": "The server checks the type runs on save and on transitions, or null for none.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSModelsRuleDefinition"
+            },
+            "nullable": true,
+            "type": "array"
           },
           "structuredDataType": {
             "description": "The schema.org type a delivered entry is described as, or null when the type declares none.",
@@ -7452,6 +7655,10 @@
           "name": {
             "type": "string"
           },
+          "notifyRoleOnFailure": {
+            "nullable": true,
+            "type": "string"
+          },
           "triggerContentType": {
             "type": "string"
           },
@@ -7720,6 +7927,10 @@
           "name": {
             "type": "string"
           },
+          "notifyRoleOnFailure": {
+            "nullable": true,
+            "type": "string"
+          },
           "triggerContentType": {
             "type": "string"
           },
@@ -7840,6 +8051,11 @@
             "type": "string"
           },
           "name": {
+            "type": "string"
+          },
+          "notifyRoleOnFailure": {
+            "description": "The role told when a run fails. Null for nobody.",
+            "nullable": true,
             "type": "string"
           },
           "triggerContentType": {
@@ -8851,6 +9067,12 @@
       "BarakoCMSModelsContent": {
         "additionalProperties": false,
         "properties": {
+          "branchId": {
+            "description": "The branch this entry belongs to, from the branch-id header of its first event. Null when unscoped.",
+            "format": "guid",
+            "nullable": true,
+            "type": "string"
+          },
           "contentType": {
             "type": "string"
           },
@@ -8910,6 +9132,12 @@
           "sensitivity": {
             "$ref": "#/components/schemas/BarakoCMSModelsSensitivityLevel"
           },
+          "sourceRunId": {
+            "description": "The workflow run that created this entry, or null for an entry a person or an import made.",
+            "format": "guid",
+            "nullable": true,
+            "type": "string"
+          },
           "status": {
             "$ref": "#/components/schemas/BarakoCMSModelsContentStatus"
           },
@@ -8939,6 +9167,10 @@
       "BarakoCMSModelsContentTypeDefinition": {
         "additionalProperties": false,
         "properties": {
+          "branchScoped": {
+            "description": "Whether every entry of this type belongs to one branch. A write then needs a branch\n(X-Branch-Id), and access rules can narrow rows with $branch.",
+            "type": "boolean"
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
@@ -8985,6 +9217,15 @@
               }
             ]
           },
+          "mergeClass": {
+            "description": "How edits made on two stations are merged when they sync. Null means the host decides.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsMergeClass"
+              }
+            ]
+          },
           "name": {
             "type": "string"
           },
@@ -9001,6 +9242,14 @@
             "description": "Where an entry of this type lives on the site, as a path holding {slug}, for example\n/blog/{slug}.",
             "nullable": true,
             "type": "string"
+          },
+          "rules": {
+            "description": "Server checks run on save and on transitions, or null for none. See RuleDefinition.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSModelsRuleDefinition"
+            },
+            "nullable": true,
+            "type": "array"
           },
           "structuredDataType": {
             "description": "The schema.org type a delivered entry of this type is described as, for example\nArticle, or null for none.",
@@ -9068,6 +9317,27 @@
                 "$ref": "#/components/schemas/BarakoCMSModelsPermissionRule"
               }
             ]
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSModelsCreatedRef": {
+        "additionalProperties": false,
+        "description": "An entry a workflow action created, kept on the attempt so a run shows what it made.",
+        "properties": {
+          "contentType": {
+            "description": "The created entry's type.",
+            "type": "string"
+          },
+          "id": {
+            "description": "The created entry's id.",
+            "format": "guid",
+            "type": "string"
+          },
+          "number": {
+            "description": "The number the entry was given, or null when its type has no number series.",
+            "nullable": true,
+            "type": "string"
           }
         },
         "type": "object"
@@ -9328,6 +9598,20 @@
           "Active",
           "Suspended",
           "Removed"
+        ]
+      },
+      "BarakoCMSModelsMergeClass": {
+        "description": "How edits made on two stations are merged when they sync.",
+        "enum": [
+          "Append",
+          "FieldLww",
+          "OwnedRequest"
+        ],
+        "type": "string",
+        "x-enumNames": [
+          "Append",
+          "FieldLww",
+          "OwnedRequest"
         ]
       },
       "BarakoCMSModelsNumberingRule": {
@@ -11075,6 +11359,197 @@
           }
         },
         "type": "object"
+      },
+      "BarakoCMSModelsRuleCondition": {
+        "additionalProperties": false,
+        "description": "One condition of a rule.",
+        "properties": {
+          "also": {
+            "description": "For member: extra allowed values; for covers: extra required values. Comma separated.",
+            "nullable": true,
+            "type": "string"
+          },
+          "args": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "The arguments passed to the lookup, which may hold templates.",
+            "nullable": true,
+            "type": "object"
+          },
+          "as": {
+            "description": "For a let: the name it is read by, as {{let.<as>}} or the path let.<as>.",
+            "nullable": true,
+            "type": "string"
+          },
+          "contentType": {
+            "description": "The other content type a related, sum, count or unique condition reads.",
+            "nullable": true,
+            "type": "string"
+          },
+          "each": {
+            "description": "For kind each: conditions run against every item of the array field named by Field.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSModelsRuleCondition"
+            },
+            "nullable": true,
+            "type": "array"
+          },
+          "field": {
+            "description": "The field the condition reads.",
+            "nullable": true,
+            "type": "string"
+          },
+          "if": {
+            "description": "Guards: the condition is checked only when all of them hold, and counts as met otherwise.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSModelsRuleCondition"
+            },
+            "nullable": true,
+            "type": "array"
+          },
+          "kind": {
+            "description": "field, length, pattern, each, itemCount, state, changed, unique, related, sum, count, lookup, stored, member, covers, distinct or notRequester.",
+            "type": "string"
+          },
+          "lookup": {
+            "description": "The name of the lookup a lookup condition calls.",
+            "nullable": true,
+            "type": "string"
+          },
+          "message": {
+            "description": "A template that replaces the rule's message when this condition is the one that fails.",
+            "nullable": true,
+            "type": "string"
+          },
+          "negate": {
+            "description": "Whether the condition's result is inverted.",
+            "type": "boolean"
+          },
+          "normalise": {
+            "description": "How values are normalised before comparing: trim, lower, digits.",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true,
+            "type": "array"
+          },
+          "of": {
+            "description": "For member and covers: a path, or a template per row such as lab:{{TestCode}}, giving the values.",
+            "nullable": true,
+            "type": "string"
+          },
+          "op": {
+            "description": "eq, ne, gt, gte, lt, lte, in, empty or notEmpty.",
+            "type": "string"
+          },
+          "ref": {
+            "description": "A template giving one entry id; field, state, related, sum, member and a field let then read that entry.",
+            "nullable": true,
+            "type": "string"
+          },
+          "state": {
+            "description": "The lifecycle states, as a comma list, a related, sum, count or member condition reads.",
+            "nullable": true,
+            "type": "string"
+          },
+          "sum": {
+            "description": "The path a sum condition adds up, such as Lines.Amount.",
+            "nullable": true,
+            "type": "string"
+          },
+          "value": {
+            "description": "The value compared against, which may hold templates.",
+            "nullable": true,
+            "type": "string"
+          },
+          "where": {
+            "description": "A filter on the other type's entries, as Field=value;Field2={{x}}.",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSModelsRuleDefinition": {
+        "additionalProperties": false,
+        "description": "A server check a content type declares: conditions that must hold, and fields it sets.",
+        "properties": {
+          "all": {
+            "description": "Conditions that must all hold, or the write is refused with Message.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSModelsRuleCondition"
+            },
+            "type": "array"
+          },
+          "if": {
+            "description": "Conditions that must all hold for the rule to run. Otherwise the rule is skipped.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSModelsRuleCondition"
+            },
+            "nullable": true,
+            "type": "array"
+          },
+          "inState": {
+            "description": "The state the entry must be in for the rule to run, or null for any state.",
+            "nullable": true,
+            "type": "string"
+          },
+          "let": {
+            "description": "Named values worked out in order after If and before All, read as let.<as>.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSModelsRuleCondition"
+            },
+            "nullable": true,
+            "type": "array"
+          },
+          "message": {
+            "description": "The text a refusal carries.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The rule's name, reported with a refusal.",
+            "type": "string"
+          },
+          "set": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Fields written into the entry when the rule passes, by template.",
+            "type": "object"
+          },
+          "timeZone": {
+            "description": "The IANA zone for $NOW and $TODAY. Null uses the site's TimeZone, else UTC.",
+            "nullable": true,
+            "type": "string"
+          },
+          "transition": {
+            "description": "The transition the rule runs on, or null for every transition.",
+            "nullable": true,
+            "type": "string"
+          },
+          "when": {
+            "description": "When the rule runs.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsRuleWhen"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSModelsRuleWhen": {
+        "description": "When a content type rule runs.",
+        "enum": [
+          "Save",
+          "Transition"
+        ],
+        "type": "string",
+        "x-enumNames": [
+          "Save",
+          "Transition"
+        ]
       },
       "BarakoCMSModelsRunCompensation": {
         "description": "Where the undoing of a rolled back run stands.",
@@ -16723,6 +17198,61 @@
         ]
       }
     },
+    "/api/contents/batch": {
+      "post": {
+        "operationId": "barakoCMSFeaturesContentBatchEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesContentBatchBatchRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "BatchRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesContentBatchBatchResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "Create entries and run transitions in one transaction.",
+        "tags": [
+          "Content"
+        ]
+      }
+    },
     "/api/contents/by-slug/{type}/{slug}": {
       "get": {
         "description": "For a signed-in viewer on a public site. GET /api/public/{type}/{slug} is anonymous and\nserves only published, publicly deliverable entries, so a page gated by a role had no way to be\nfetched by the slug in its URL. This applies the permission check GET /api/contents/{id}\napplies, to any status, and returns the same response built by EntryResponse, masking\nincluded.\n            \nAn entry the caller may not read answers 404, not the 403 the id route gives. A slug is readable\ntext a caller can guess, and any signed-in account, a self-registered one with no content\npermission included, reaches this route, so a 403 would confirm that a draft or another user's\nentry exists under that slug. An id is not guessable, which is why the id route can say 403.\n            \nNot gated on IsPubliclyDeliverable. That flag decides what anonymous callers get; here the\nread permission decides.",
@@ -17071,6 +17601,52 @@
             "JWTBearerAuth": []
           }
         ],
+        "tags": [
+          "Content"
+        ]
+      }
+    },
+    "/api/contents/{id}/runs": {
+      "get": {
+        "description": "With includeCreated=true it also lists the runs whose actions created the entry, so a\nscreen on a created entry can say which run made it.\nA caller who cannot read the entry gets the 404 an unknown id gets. A 403 here would tell them\nthe entry exists. The read check is the one the entry endpoint makes, so it covers branch rules\ntoo. The capability gate runs first, so a caller without\nViewWorkflowRuns gets 403 whatever the id.",
+        "operationId": "barakoCMSFeaturesContentRunsEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesContentRunsRunsResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/contents/{id}/runs, the workflow runs that fired for an entry, newest first.",
         "tags": [
           "Content"
         ]

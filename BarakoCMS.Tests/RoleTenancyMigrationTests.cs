@@ -69,8 +69,8 @@ public class RoleTenancyMigrationTests
         Name = name,
         Description = $"{name} role",
         SystemCapabilities = ["view_audit_log"],
-        RequireMfa = name == "Nurse",
-        Permissions = [new ContentTypePermission { ContentTypeSlug = "patient", Read = new PermissionRule { Enabled = true } }],
+        RequireMfa = name == "Clerk",
+        Permissions = [new ContentTypePermission { ContentTypeSlug = "customer", Read = new PermissionRule { Enabled = true } }],
     };
 
     private async Task<World> WorldAsync()
@@ -88,7 +88,7 @@ public class RoleTenancyMigrationTests
         {
             new Role { Id = SystemRoles.AdminRoleId, Name = "Admin", SystemCapabilities = ["manage_settings"] },
             new Role { Id = Accountant, Name = "Accountant" },
-            Custom(shared, "Nurse"),
+            Custom(shared, "Clerk"),
             Custom(global, "Auditor"),
             Custom(unheld, "Unused"),
         };
@@ -128,8 +128,8 @@ public class RoleTenancyMigrationTests
         var type = new ContentTypeDefinition
         {
             Id = id,
-            Name = "patient",
-            DisplayName = "Patient",
+            Name = "customer",
+            DisplayName = "Customer",
             Fields =
             [
                 new FieldDefinition { Name = "Name", DisplayName = "Name", Type = "string" },
@@ -402,9 +402,9 @@ public class RoleTenancyMigrationTests
         var roles = await RowsAsync(db, "mt_doc_roles");
         roles.Should().HaveCount(7, "five roles, the edited copy and the role made after the upgrade");
         roles.Values.Select(r => r["Name"]!.GetValue<string>()).Should().OnlyHaveUniqueItems();
-        roles[sharedInB]["Name"]!.GetValue<string>().Should().Be($"Nurse ({world.B})");
+        roles[sharedInB]["Name"]!.GetValue<string>().Should().Be($"Clerk ({world.B})");
         roles[made]["Name"]!.GetValue<string>().Should().Be($"Auditor ({world.C})");
-        roles[world.Shared]["Name"]!.GetValue<string>().Should().Be("Nurse", "the role the copy came from keeps the name");
+        roles[world.Shared]["Name"]!.GetValue<string>().Should().Be("Clerk", "the role the copy came from keeps the name");
         roles[world.Global]["Name"]!.GetValue<string>().Should().Be("Auditor", "the platform role keeps the name");
 
         var memberships = await RowsAsync(db, "mt_doc_memberships");
@@ -437,7 +437,7 @@ public class RoleTenancyMigrationTests
         await RunAsync(db);
         await RollBackAsync(db);
         var first = await TablesAsync(db);
-        first["mt_doc_roles"].Should().Contain("Nurse");
+        first["mt_doc_roles"].Should().Contain("Clerk");
 
         var notices = await RollBackAsync(db);
 

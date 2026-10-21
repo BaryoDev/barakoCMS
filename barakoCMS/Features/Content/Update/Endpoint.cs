@@ -22,6 +22,52 @@ internal class Endpoint(
         Claims("UserId");
     }
 
+    /// <summary>
+    /// Runs the type's save rules on the data as it will be stored, which an update replaces whole.
+    /// A refusal answers 422. Fields a rule wrote go into the request, before the schema checks
+    /// them, and the Update rule is asked again of the entry they leave behind; false means it
+    /// does not hold.
+    /// </summary>
+    private async Task<bool> RulesAllowAsync(User user, barakoCMS.Models.Content existing, Request req, Guid userId, CancellationToken ct)
+    {
+        // Copied key by key: a field sent under two spellings is the validator's to refuse, not a crash.
+        var working = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, value) in req.Data) working[key] = value;
+        var before = new Dictionary<string, object?>(working, StringComparer.OrdinalIgnoreCase);
+
+        var result = await Resolve<IRuleEngine>().EvaluateAsync(RuleWhen.Save,
+            new RuleContext(existing.ContentType, existing.Id, working, existing, null, null, null, userId, session), ct);
+        if (!result.Passed)
+        {
+            AddError(new FluentValidation.Results.ValidationFailure("rules", result.Message ?? "A rule failed."));
+            ThrowIfAnyErrors(422);
+        }
+
+        var derived = working
+            .Where(p => p.Value is not null && (!before.TryGetValue(p.Key, out var old) || !Equals(old, p.Value)))
+            .ToList();
+        foreach (var (key, value) in derived)
+            req.Data[req.Data.Keys.FirstOrDefault(k => string.Equals(k, key, StringComparison.OrdinalIgnoreCase)) ?? key] = value!;
+
+        return derived.Count == 0 || await permissionResolver.AllowsWrittenEntryAsync(user, existing, "update", req.Data, ct);
+    }
+
+    /// <summary>
+    /// DOMAIN RULES: must run on update too, or an invariant enforced at create (a balanced journal
+    /// entry) could simply be edited into an illegal state afterwards.
+    /// </summary>
+    private async Task RefuseOnHooksAsync(barakoCMS.Models.Content existing, Request req, Guid userId, CancellationToken ct)
+    {
+        var hookErrors = await Resolve<barakoCMS.Infrastructure.Services.IContentLifecycleRunner>()
+            .RunBeforeSaveAsync(existing.ContentType, existing.Id, req.Data, existing.Data, userId, ct);
+        foreach (var error in hookErrors)
+        {
+            AddError(error);
+        }
+
+        ThrowIfAnyErrors();
+    }
+
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         // Configure() calls Claims("UserId"), so a request with no claim never reaches here, and the
@@ -66,6 +112,12 @@ internal class Endpoint(
             return;
         }
 
+        if (!await RulesAllowAsync(user, existingContent, req, userId, ct))
+        {
+            await Send.ForbiddenAsync(ct);
+            return;
+        }
+
         // DYNAMIC VALIDATION - Validate data against ContentType schema
         var validationResult = await validator.ValidateAsync(
             existingContent.ContentType, req.Data, existing: existingContent, caller: User);
@@ -79,19 +131,7 @@ internal class Endpoint(
             ThrowIfAnyErrors();
         }
 
-        // DOMAIN RULES — must run on update too, or an invariant enforced at create (a balanced
-        // journal entry) could simply be edited into an illegal state afterwards.
-        var hookErrors = await Resolve<barakoCMS.Infrastructure.Services.IContentLifecycleRunner>()
-            .RunBeforeSaveAsync(existingContent.ContentType, existingContent.Id, req.Data, existingContent.Data, userId, ct);
-        if (hookErrors.Count > 0)
-        {
-            foreach (var error in hookErrors)
-            {
-                AddError(error);
-            }
-
-            ThrowIfAnyErrors();
-        }
+        await RefuseOnHooksAsync(existingContent, req, userId, ct);
 
         if (req.DryRun)
         {
@@ -300,7 +340,7 @@ internal class Endpoint(
     private async Task<string> SearchTextAsync(string contentType, Dictionary<string, object> data, CancellationToken ct)
     {
         var definition = await session.Query<ContentTypeDefinition>()
-            .FirstOrDefaultAsync(d => d.Name == contentType, ct);
+            .FirstNamedAsync(contentType, ct);
 
         var publicFields = definition?.Fields
             .Where(f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.InlineImageFields.Is(f.Type))

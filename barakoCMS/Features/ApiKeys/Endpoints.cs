@@ -65,7 +65,7 @@ internal class CreateApiKeyEndpoint(
             .ToList();
         foreach (var type in contentTypes)
         {
-            if (!await session.Query<ContentTypeDefinition>().AnyAsync(d => d.Name == type, ct))
+            if (!await session.Query<ContentTypeDefinition>().AnyAsync(barakoCMS.Core.ContentTypeName.Named(type), ct))
                 AddError(r => r.ContentTypes, $"There is no content type called '{type}'.");
         }
         ThrowIfAnyErrors();

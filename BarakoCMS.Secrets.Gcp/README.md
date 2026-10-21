@@ -32,7 +32,7 @@ Name the project, then map each configuration key to the secret that holds its v
 `Secrets:Gcp:Map`. The key keeps its own colons, so in environment variables each becomes `__`:
 
 ```bash
-Secrets__Gcp__Project=my-clinic
+Secrets__Gcp__Project=my-shop
 Secrets__Gcp__Map__JWT__Key=barakocms-jwt-key
 Secrets__Gcp__Map__Secrets__Key=barakocms-secrets-key
 Secrets__Gcp__Map__Mfa__Key=projects/shared-keys/secrets/mfa/versions/3

@@ -1,0 +1,1 @@
+A number a client keeps from a client-allocated series is now checked under one key. Only the form the series formats is kept (P-0001, not P-00001), so one number has one spelling. The already-issued check reads the same ledger key the number is recorded under, so it also catches a number used twice in one batch or import, and a branch series refuses a write that has no branch.

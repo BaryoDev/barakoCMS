@@ -82,9 +82,15 @@ public static class ContentTypeUpsert
     /// </summary>
     public static async Task<List<string>> ErrorsAsync(
         IContentTypeValidatorService validator, IContentSourcingPolicy sourcing, IQuerySession session,
+        barakoCMS.Infrastructure.Realtime.TopicRegistry topics,
         ContentTypeDefinition type, ContentTypeDefinition? stored, int maxFields, Wording wording, CancellationToken ct)
     {
         var errors = DefinitionErrors(validator, type, stored, maxFields);
+
+        if (await RealtimeTopicRules.RefusalAsync(type, topics, session, ct) is { } topicRefusal)
+        {
+            errors.Add(topicRefusal);
+        }
 
         var name = stored?.Name ?? barakoCMS.Core.ContentTypeName.Normalize(type.Name);
         var nonPublic = type.Fields.Where(f => f.Sensitivity != SensitivityLevel.Public).Select(f => f.Name).ToList();
@@ -137,6 +143,11 @@ public static class ContentTypeUpsert
         // Kept when the definition carries none, for the reason KeepStoredPresentation gives.
         stored.RouteTemplate = type.RouteTemplate ?? stored.RouteTemplate;
         stored.StructuredDataType = type.StructuredDataType ?? stored.StructuredDataType;
+        stored.MergeClass = type.MergeClass ?? stored.MergeClass;
+        stored.BranchScoped = type.BranchScoped;
+        stored.RealtimeTopic = type.RealtimeTopic;
+        // An omitted list clears the rules, like Fields: the definition is the whole type.
+        stored.Rules = type.Rules;
         stored.UpdatedAt = DateTimeOffset.UtcNow;
     }
 
@@ -156,6 +167,10 @@ public static class ContentTypeUpsert
         RouteTemplate = type.RouteTemplate,
         StructuredDataType = type.StructuredDataType,
         Uniqueness = type.Uniqueness is { Count: > 0 } ? type.Uniqueness : null,
+        MergeClass = type.MergeClass,
+        BranchScoped = type.BranchScoped,
+        RealtimeTopic = type.RealtimeTopic,
+        Rules = type.Rules,
         CreatedAt = DateTimeOffset.UtcNow,
         UpdatedAt = DateTimeOffset.UtcNow,
     };

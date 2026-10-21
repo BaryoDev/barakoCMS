@@ -12,6 +12,7 @@ public partial class PermissionResolver(
     IDocumentSession session,
     IConditionEvaluator conditionEvaluator,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
+    barakoCMS.Core.Interfaces.IEventEnvelopeContext envelope,
     ILogger<PermissionResolver>? logger = null) : IPermissionResolver
 {
     /// <summary>The user's roles in this tenant, read once per request.</summary>
@@ -61,7 +62,9 @@ public partial class PermissionResolver(
 
         _rolesFor = user.Id;
         _roles = roles;
-        _profile = membership?.Profile;
+        // The request's branch joins the profile as "branch" only when the member holds it, so
+        // $CURRENT_BRANCH reads the same place in both evaluators.
+        _profile = CallerBranches.WithRequestBranch(membership?.Profile, envelope.BranchId);
 
         return roles;
     }
@@ -89,8 +92,7 @@ public partial class PermissionResolver(
         var rules = new List<Models.PermissionRule>();
         foreach (var role in roles)
         {
-            var permission = role.Permissions
-                .FirstOrDefault(p => p.ContentTypeSlug == contentTypeSlug);
+            var permission = barakoCMS.Core.ContentTypeName.PickByName(role.Permissions, p => p.ContentTypeSlug, contentTypeSlug);
 
             if (permission != null)
             {
@@ -149,7 +151,7 @@ public partial class PermissionResolver(
         var rules = new List<Models.PermissionRule>();
         foreach (var role in roles)
         {
-            var permission = role.Permissions.FirstOrDefault(p => p.ContentTypeSlug == contentTypeSlug);
+            var permission = barakoCMS.Core.ContentTypeName.PickByName(role.Permissions, p => p.ContentTypeSlug, contentTypeSlug);
             if (permission is null) continue;
 
             var rule = GetRuleForAction(permission, "read");
@@ -178,7 +180,7 @@ public partial class PermissionResolver(
         var rules = new List<Models.PermissionRule>();
         foreach (var role in roles)
         {
-            var permission = role.Permissions.FirstOrDefault(p => p.ContentTypeSlug == contentTypeSlug);
+            var permission = barakoCMS.Core.ContentTypeName.PickByName(role.Permissions, p => p.ContentTypeSlug, contentTypeSlug);
             if (permission is not null && GetRuleForAction(permission, action) is { Enabled: true } rule)
                 rules.Add(rule);
         }

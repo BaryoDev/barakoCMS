@@ -61,6 +61,18 @@ internal sealed class ContentTypeResponse
     /// <summary>The anonymous lookup this type answers, or null when it answers none.</summary>
     public LookupDefinition? Lookup { get; init; }
 
+    /// <summary>The server checks the type runs on save and on transitions, or null for none.</summary>
+    public List<RuleDefinition>? Rules { get; init; }
+
+    /// <summary>How edits made on two stations are merged, or null when the host decides.</summary>
+    public MergeClass? MergeClass { get; init; }
+
+    /// <summary>Whether every entry belongs to one branch.</summary>
+    public bool BranchScoped { get; init; }
+
+    /// <summary>The realtime topic clients subscribe to for this type, or null when it has none.</summary>
+    public string? RealtimeTopic { get; init; }
+
     /// <summary>
     /// Whether the stream is the source of truth for entries of this type, and permanent either way.
     /// </summary>
@@ -89,6 +101,10 @@ internal sealed class ContentTypeResponse
         Uniqueness = d.Uniqueness,
         Numbering = d.Numbering,
         Lookup = d.Lookup,
+        Rules = d.Rules,
+        MergeClass = d.MergeClass,
+        BranchScoped = d.BranchScoped,
+        RealtimeTopic = d.RealtimeTopic,
         EventSourced = eventSourced,
         CreatedAt = d.CreatedAt,
         UpdatedAt = d.UpdatedAt,

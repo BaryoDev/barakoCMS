@@ -5,7 +5,7 @@ using barakoCMS.Features.Changes;
 using barakoCMS.Features.Stations;
 using barakoCMS.Infrastructure.Auth.Stations;
 using barakoCMS.Infrastructure.Realtime;
-using BarakoCMS.Tests.Clinic;
+using BarakoCMS.Tests.SampleProbe;
 using BarakoCMS.Tests.Realtime;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http.Connections;
@@ -18,7 +18,7 @@ using Xunit;
 namespace BarakoCMS.Tests.Stations;
 
 [Collection("Sequential")]
-public class StationAccessTests(ClinicProbeHost host) : IClassFixture<ClinicProbeHost>
+public class StationAccessTests(SampleProbeHost host) : IClassFixture<SampleProbeHost>
 {
     private async Task<CreatedStation> CreateStationAsync(string? tenant = null, params string[] capabilities)
     {

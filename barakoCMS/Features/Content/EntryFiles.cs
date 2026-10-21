@@ -40,12 +40,12 @@ internal static class EntryFiles
         if (entries.Count == 0 || files is null or NoFileStore)
             return resolved;
 
-        var typeNames = entries.Select(e => e.ContentType).Distinct(StringComparer.Ordinal).ToArray();
+        var typeNames = entries.Select(e => e.ContentType.ToLower()).Distinct(StringComparer.Ordinal).ToArray();
         var definitions = await session.Query<ContentTypeDefinition>()
-            .Where(d => d.Name.In(typeNames))
+            .Where(d => typeNames.Contains(d.Name.ToLower()))
             .ToListAsync(ct);
 
-        var fieldsOf = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        var fieldsOf = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
         foreach (var definition in definitions)
         {
             var names = FileFields.Names(definition);

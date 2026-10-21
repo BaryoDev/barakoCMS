@@ -16,6 +16,12 @@ internal class Response
     public Guid LastModifiedBy { get; set; }
     public barakoCMS.Models.SensitivityLevel Sensitivity { get; set; }
 
+    /// <summary>
+    /// The lifecycle state: the stored state, or the type's initial state for an entry not yet
+    /// moved. Null for a type with no lifecycle and for a hidden entry.
+    /// </summary>
+    public string? LifecycleState { get; set; }
+
     /// <summary>When the scheduler will publish this, or null if nothing is armed. Always UTC.</summary>
     /// <remarks>
     /// Returned so a client can show what is armed. Arming a publish time through

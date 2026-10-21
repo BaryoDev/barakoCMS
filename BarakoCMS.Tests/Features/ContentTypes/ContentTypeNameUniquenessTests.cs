@@ -94,6 +94,31 @@ public class ContentTypeNameUniquenessTests : IAsyncLifetime
     }
 
     /// <summary>
+    /// A module seeds "PurchaseOrder" with its case kept, and a create over HTTP stores the name
+    /// lowercase. They are one type, so the create is refused.
+    /// </summary>
+    [Fact]
+    public async Task A_create_naming_a_seeded_type_in_another_case_is_refused()
+    {
+        var name = "Seeded" + Guid.NewGuid().ToString("n")[..10];
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        await using (var session = store.LightweightSession())
+        {
+            session.Store(Definition(name));
+            await session.SaveChangesAsync();
+        }
+
+        var res = await _client.PostAsJsonAsync("/api/content-types", new
+        {
+            name = name.ToLowerInvariant(),
+            displayName = "Again",
+            fields = new[] { new { name = "Title", type = "string" } },
+        });
+
+        res.IsSuccessStatusCode.Should().BeFalse("'{0}' and '{1}' are the same type", name, name.ToLowerInvariant());
+    }
+
+    /// <summary>
     /// The positive control. A uniqueness rule that refused every write would pass the test above.
     /// </summary>
     [Fact]

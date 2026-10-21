@@ -11,10 +11,45 @@ internal static class NumberingRules
     private static readonly string[] TextTypes = ["string", "text"];
 
     /// <summary>The series a type's entries are numbered in: the type's own, so a rename of the field keeps counting.</summary>
-    public static NumberSeries SeriesFor(ContentTypeDefinition definition, NumberingRule rule)
+    public static NumberSeries SeriesFor(ContentTypeDefinition definition, NumberingRule rule) =>
+        SeriesFor(definition, rule, null);
+
+    /// <summary>
+    /// The series for a rule, with the rule's template filled in. Without a template it is the type's
+    /// own series. A template with <c>{branch}</c> needs the code of the branch the write is for.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The template needs a branch and none was given.</exception>
+    public static NumberSeries SeriesFor(ContentTypeDefinition definition, NumberingRule rule, string? branchCode)
     {
-        var name = "type." + definition.Name.ToLowerInvariant();
+        var name = rule.SeriesTemplate is { Length: > 0 } template
+            ? ExpandTemplate(template, definition.Name, branchCode)
+            : "type." + definition.Name.ToLowerInvariant();
         return new NumberSeries(name.Length > 64 ? name[..64] : name, rule.Prefix, rule.Padding, rule.Reset, rule.TimeZoneId);
+    }
+
+    /// <summary>Whether a rule's series name depends on the branch.</summary>
+    public static bool NeedsBranch(NumberingRule rule) =>
+        rule.SeriesTemplate?.Contains("{branch}", StringComparison.Ordinal) == true;
+
+    /// <summary>
+    /// The names of the type's client-allocated series, with the branch left as a pattern, so a
+    /// ledger or a check can tell which counters a client may take numbers from.
+    /// </summary>
+    public static IReadOnlyList<string> ClientSeriesNames(ContentTypeDefinition definition) =>
+        definition.Numbering is { ClientAllocated: true } rule
+            ? [SeriesFor(definition, rule, NeedsBranch(rule) ? "{branch}" : null).Name]
+            : [];
+
+    private static string ExpandTemplate(string template, string typeName, string? branchCode)
+    {
+        if (template.Contains("{branch}", StringComparison.Ordinal))
+        {
+            if (string.IsNullOrWhiteSpace(branchCode))
+                throw new InvalidOperationException("The series template needs a branch and the request has none.");
+            template = template.Replace("{branch}", branchCode.ToLowerInvariant(), StringComparison.Ordinal);
+        }
+
+        return template.Replace("{type}", typeName.ToLowerInvariant(), StringComparison.Ordinal);
     }
 
     /// <summary>What is wrong with a rule for this type.</summary>
@@ -46,13 +81,21 @@ internal static class NumberingRules
             errors.Add("strategy is gapless, sequence or hiLo, and reset is never, yearly, monthly or daily.");
         }
 
+        if (rule.ClientAllocated && rule.Reset != NumberReset.Never)
+        {
+            errors.Add("A client-allocated series cannot reset.");
+        }
+
         try
         {
-            SeriesFor(definition, rule).Validate();
+            // A sample branch stands in for the code, which is only known per request.
+            SeriesFor(definition, rule, "xx").Validate();
         }
         catch (ArgumentException e)
         {
-            errors.Add(e.Message.Split(" (Parameter")[0]);
+            errors.Add(rule.SeriesTemplate is { Length: > 0 } && e.ParamName == "Name"
+                ? "The series template makes a series name that is not valid."
+                : e.Message.Split(" (Parameter")[0]);
         }
 
         return errors;

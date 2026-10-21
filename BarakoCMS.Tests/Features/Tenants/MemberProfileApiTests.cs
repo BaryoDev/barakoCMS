@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests.Features.Tenants;
 /// Who may write the member profile a permission condition reads.
 /// </summary>
 /// <remarks>
-/// A rule such as <c>Branch eq $CURRENT_USER.branch</c> trusts the profile, so writing a profile is
+/// A rule such as <c>Branch eq $CURRENT_USER.region</c> trusts the profile, so writing a profile is
 /// granting access. The only writers are the two member routes, behind the capability that already
 /// lets its holder assign roles in the tenant. A member changing their own attribute, or an
 /// administrator of one tenant changing a profile in another, would each be a way to grant what
@@ -139,7 +139,7 @@ public class MemberProfileApiTests
         return rows.Should().ContainSingle("one membership per user and tenant").Which;
     }
 
-    private static Dictionary<string, string> Branch(string value) => new() { ["branch"] = value };
+    private static Dictionary<string, string> Branch(string value) => new() { ["region"] = value };
 
     private static object Edit(Dictionary<string, string>? profile) => profile is null
         ? new { roleIds = new[] { SystemRoles.UserRoleId }, status = "Active" }
@@ -157,17 +157,17 @@ public class MemberProfileApiTests
         var member = await MemberAsync(slug);
 
         var response = await admin.PutAsJsonAsync($"/api/tenants/members/{member}",
-            Edit(new Dictionary<string, string> { ["branch"] = "north", ["ward"] = "7" }));
+            Edit(new Dictionary<string, string> { ["region"] = "north", ["ward"] = "7" }));
 
         NotRateLimited(response);
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
 
         var stored = (await RowAsync(member, slug)).Profile;
         stored.Should().HaveCount(2);
-        stored.Should().Contain("branch", "north").And.Contain("ward", "7");
+        stored.Should().Contain("region", "north").And.Contain("ward", "7");
 
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        body.RootElement.GetProperty("profile").GetProperty("branch").GetString().Should().Be("north");
+        body.RootElement.GetProperty("profile").GetProperty("region").GetString().Should().Be("north");
     }
 
     [Fact]
@@ -191,7 +191,7 @@ public class MemberProfileApiTests
 
         var stored = (await RowAsync(userId, slug)).Profile;
         stored.Should().HaveCount(1);
-        stored.Should().Contain("branch", "south");
+        stored.Should().Contain("region", "south");
     }
 
     [Fact]
@@ -208,7 +208,7 @@ public class MemberProfileApiTests
 
         var stored = (await RowAsync(member, slug)).Profile;
         stored.Should().HaveCount(1, "a client that knows nothing of profiles edited roles and nothing else");
-        stored.Should().Contain("branch", "north");
+        stored.Should().Contain("region", "north");
     }
 
     [Fact]
@@ -239,13 +239,13 @@ public class MemberProfileApiTests
 
         var stored = (await RowAsync(member, slug)).Profile;
         stored.Should().HaveCount(1);
-        stored.Should().Contain("branch", "south", "the attribute a rule trusts is not the member's to set");
+        stored.Should().Contain("region", "south", "the attribute a rule trusts is not the member's to set");
 
         // The control: the route exists and the refusal was about who asked.
         var admin = await AdminOfAsync(slug);
         var allowed = await admin.PutAsJsonAsync($"/api/tenants/members/{member}", Edit(Branch("north")));
         allowed.StatusCode.Should().Be(HttpStatusCode.OK);
-        (await RowAsync(member, slug)).Profile.Should().Contain("branch", "north");
+        (await RowAsync(member, slug)).Profile.Should().Contain("region", "north");
     }
 
     [Fact]
@@ -262,7 +262,7 @@ public class MemberProfileApiTests
 
         NotRateLimited(response);
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        (await RowAsync(userId, slug)).Profile.Should().Contain("branch", "south");
+        (await RowAsync(userId, slug)).Profile.Should().Contain("region", "south");
     }
 
     [Fact]
@@ -280,13 +280,13 @@ public class MemberProfileApiTests
 
         var stored = (await RowAsync(outsider, theirs)).Profile;
         stored.Should().HaveCount(1);
-        stored.Should().Contain("branch", "south", "their membership is untouched");
+        stored.Should().Contain("region", "south", "their membership is untouched");
 
         // The control: the same client and body, against a member of its own tenant.
         var ours = await MemberAsync(mine, Branch("south"));
         var allowed = await admin.PutAsJsonAsync($"/api/tenants/members/{ours}", Edit(Branch("north")));
         allowed.StatusCode.Should().Be(HttpStatusCode.OK);
-        (await RowAsync(ours, mine)).Profile.Should().Contain("branch", "north");
+        (await RowAsync(ours, mine)).Profile.Should().Contain("region", "north");
     }
 
     [Fact]
@@ -305,8 +305,8 @@ public class MemberProfileApiTests
         NotRateLimited(response);
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        (await RowAsync(person, mine)).Profile.Should().Contain("branch", "north");
-        (await RowAsync(person, theirs)).Profile.Should().Contain("branch", "south",
+        (await RowAsync(person, mine)).Profile.Should().Contain("region", "north");
+        (await RowAsync(person, theirs)).Profile.Should().Contain("region", "south",
             "an administrator here says nothing about the person's place in another tenant");
     }
 
@@ -322,10 +322,10 @@ public class MemberProfileApiTests
             ("a name with a space", new Dictionary<string, string> { ["branch name"] = "north" }),
             ("a name with a dot", new Dictionary<string, string> { ["branch.name"] = "north" }),
             ("a name starting with a digit", new Dictionary<string, string> { ["1branch"] = "north" }),
-            ("an empty value", new Dictionary<string, string> { ["branch"] = "" }),
-            ("a value of only spaces", new Dictionary<string, string> { ["branch"] = "   " }),
-            ("a value past the limit", new Dictionary<string, string> { ["branch"] = new string('n', 257) }),
-            ("two names differing only by case", new Dictionary<string, string> { ["branch"] = "north", ["Branch"] = "north" }),
+            ("an empty value", new Dictionary<string, string> { ["region"] = "" }),
+            ("a value of only spaces", new Dictionary<string, string> { ["region"] = "   " }),
+            ("a value past the limit", new Dictionary<string, string> { ["region"] = new string('n', 257) }),
+            ("two names differing only by case", new Dictionary<string, string> { ["region"] = "north", ["Region"] = "north" }),
             ("more attributes than the limit", Enumerable.Range(0, 33).ToDictionary(i => $"a{i}", _ => "x")),
         };
 
@@ -339,7 +339,7 @@ public class MemberProfileApiTests
 
         var stored = (await RowAsync(member, slug)).Profile;
         stored.Should().HaveCount(1);
-        stored.Should().Contain("branch", "south", "a refused request changes nothing");
+        stored.Should().Contain("region", "south", "a refused request changes nothing");
     }
 
     [Fact]
@@ -354,7 +354,7 @@ public class MemberProfileApiTests
         added.StatusCode.Should().Be(HttpStatusCode.OK);
         var userId = JsonDocument.Parse(await added.Content.ReadAsStringAsync())
             .RootElement.GetProperty("userId").GetGuid();
-        (await RowAsync(userId, slug)).Profile.Should().Contain("branch", "north");
+        (await RowAsync(userId, slug)).Profile.Should().Contain("region", "north");
 
         (await admin.DeleteAsync($"/api/tenants/members/{userId}")).StatusCode.Should().Be(HttpStatusCode.OK);
 
@@ -380,7 +380,7 @@ public class MemberProfileApiTests
         var read = (await session.Query<Membership>()
             .Where(m => m.UserId == member && m.TenantSlug == slug)
             .ToListAsync()).Should().ContainSingle().Which;
-        read.Profile.Should().Contain("branch", "north", "the read has to be the stale one");
+        read.Profile.Should().Contain("region", "north", "the read has to be the stale one");
 
         // Another clears the profile, and that commits first.
         var cleared = await admin.PutAsJsonAsync($"/api/tenants/members/{member}",
@@ -416,16 +416,16 @@ public class MemberProfileApiTests
         var row = await RowAsync(member, slug);
         row.RoleIds.Should().Equal(SystemRoles.HRRoleId);
         row.Profile.Should().HaveCount(1);
-        row.Profile.Should().Contain("branch", "north", "a client that knows nothing of profiles must not erase one");
+        row.Profile.Should().Contain("region", "north", "a client that knows nothing of profiles must not erase one");
 
         using (var body = JsonDocument.Parse(await again.Content.ReadAsStringAsync()))
-            body.RootElement.GetProperty("profile").GetProperty("branch").GetString().Should().Be("north");
+            body.RootElement.GetProperty("profile").GetProperty("region").GetString().Should().Be("north");
 
         // And one that does send a profile replaces it.
         var replaced = await admin.PostAsJsonAsync("/api/tenants/members",
             new { email, roleIds = new[] { SystemRoles.HRRoleId }, profile = Branch("south") });
         replaced.StatusCode.Should().Be(HttpStatusCode.OK);
-        (await RowAsync(member, slug)).Profile.Should().Contain("branch", "south");
+        (await RowAsync(member, slug)).Profile.Should().Contain("region", "south");
     }
 
     [Fact]
@@ -435,13 +435,13 @@ public class MemberProfileApiTests
         var admin = await AdminOfAsync(slug);
         var member = await MemberAsync(slug, new Dictionary<string, string>
         {
-            ["branch"] = "north-branch-value",
+            ["region"] = "north-branch-value",
             ["ward"] = "ward-seven-value",
         });
 
         var changed = await admin.PutAsJsonAsync($"/api/tenants/members/{member}", Edit(new Dictionary<string, string>
         {
-            ["branch"] = "south-branch-value",
+            ["region"] = "south-branch-value",
             ["level"] = "level-three-value",
         }));
         NotRateLimited(changed);
@@ -450,7 +450,7 @@ public class MemberProfileApiTests
         var entry = await LastAuditAsync(slug, "tenant.member.updated", member);
         Names(entry, "profileAdded").Should().Equal("level");
         Names(entry, "profileRemoved").Should().Equal("ward");
-        Names(entry, "profileChanged").Should().Equal("branch");
+        Names(entry, "profileChanged").Should().Equal("region");
 
         var text = entry.GetRawText();
         foreach (var value in new[] { "north-branch-value", "south-branch-value", "ward-seven-value", "level-three-value" })
@@ -480,7 +480,7 @@ public class MemberProfileApiTests
         // The control: the same route, with a different value, does say so.
         (await admin.PutAsJsonAsync($"/api/tenants/members/{member}", Edit(Branch("south"))))
             .StatusCode.Should().Be(HttpStatusCode.OK);
-        Names(await LastAuditAsync(slug, "tenant.member.updated", member), "profileChanged").Should().Equal("branch");
+        Names(await LastAuditAsync(slug, "tenant.member.updated", member), "profileChanged").Should().Equal("region");
     }
 
     [Fact]
@@ -493,14 +493,14 @@ public class MemberProfileApiTests
         {
             email = NewEmail(),
             roleIds = new[] { SystemRoles.UserRoleId },
-            profile = new Dictionary<string, string> { ["branch"] = "north-branch-value" },
+            profile = new Dictionary<string, string> { ["region"] = "north-branch-value" },
         });
         added.StatusCode.Should().Be(HttpStatusCode.OK);
         var userId = JsonDocument.Parse(await added.Content.ReadAsStringAsync())
             .RootElement.GetProperty("userId").GetGuid();
 
         var entry = await LastAuditAsync(slug, "tenant.member.added", userId);
-        Names(entry, "profileAdded").Should().Equal("branch");
+        Names(entry, "profileAdded").Should().Equal("region");
         entry.GetRawText().Should().NotContain("north-branch-value");
     }
 
@@ -534,7 +534,7 @@ public class MemberProfileApiTests
 
         var stored = (await RowAsync(member, slug)).Profile;
         stored.Should().HaveCount(1);
-        stored.Should().Contain("branch", "south");
+        stored.Should().Contain("region", "south");
     }
 
     [Fact]
@@ -555,7 +555,7 @@ public class MemberProfileApiTests
 
         var stored = (await RowAsync(member, slug)).Profile;
         stored.Should().HaveCount(1);
-        stored.Should().Contain("branch", "south", "refused either way, nothing is stored");
+        stored.Should().Contain("region", "south", "refused either way, nothing is stored");
     }
 
     [Fact]
@@ -573,6 +573,6 @@ public class MemberProfileApiTests
         rows.Should().HaveCount(2, "the administrator and the member");
 
         var row = rows.Single(r => r.GetProperty("userId").GetGuid() == member);
-        row.GetProperty("profile").GetProperty("branch").GetString().Should().Be("north");
+        row.GetProperty("profile").GetProperty("region").GetString().Should().Be("north");
     }
 }

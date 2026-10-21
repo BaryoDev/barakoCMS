@@ -29,7 +29,8 @@ internal sealed class ContentTypeConfigProvider(
     IContentSourcingPolicy sourcing,
     ICallerCapabilities capabilities,
     IConfiguration configuration,
-    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : IConfigProvider
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
+    barakoCMS.Infrastructure.Realtime.TopicRegistry topics) : IConfigProvider
 {
     public string Section => "contentTypes";
 
@@ -78,6 +79,7 @@ internal sealed class ContentTypeConfigProvider(
         var busy = await LockStoredTypesAsync(desired.Keys, stored, ct);
         stored = (await session.Query<ContentTypeDefinition>().ToListAsync(ct)).ToList();
         var conflicts = new List<string>();
+        var topicOwners = new Dictionary<string, string>(StringComparer.Ordinal);
 
         foreach (var duplicate in desired.Keys.GroupBy(barakoCMS.Core.ContentTypeName.Normalize).Where(g => g.Count() > 1))
         {
@@ -99,6 +101,8 @@ internal sealed class ContentTypeConfigProvider(
             }
 
             var (type, match, _) = resolved.Value;
+            if (!TopicFree(topicOwners, key, type, errors)) continue;
+
             if (match is null)
             {
                 changes.Add(new ConfigChange
@@ -127,6 +131,21 @@ internal sealed class ContentTypeConfigProvider(
 
         var refusals = await DisclosureRulesAsync(disclosures, caller, errors, ct);
         return new ConfigSectionPlan { Section = Section, Changes = changes, Errors = errors, Refusals = refusals, Conflicts = conflicts };
+    }
+
+    /// <summary>
+    /// Whether no earlier type of the document holds <paramref name="type"/>'s realtime topic. The
+    /// stored types are checked when a type is resolved, so this covers two types of one document.
+    /// </summary>
+    private static bool TopicFree(Dictionary<string, string> owners, string key, ContentTypeDefinition type, List<string> errors)
+    {
+        if (type.RealtimeTopic is not { } topic || owners.TryAdd(topic, key))
+        {
+            return true;
+        }
+
+        errors.Add($"'{key}': Realtime topic '{topic}' is already used by content type '{owners[topic]}'.");
+        return false;
     }
 
     /// <summary>
@@ -299,7 +318,7 @@ internal sealed class ContentTypeConfigProvider(
         {
             await ContentTypeUpsert.PrepareAsync(session, type, match, ct);
             problems.AddRange(await ContentTypeUpsert.ErrorsAsync(
-                validator, sourcing, session, type, match, maxFields, ContentTypeUpsert.Wording.Config, ct));
+                validator, sourcing, session, topics, type, match, maxFields, ContentTypeUpsert.Wording.Config, ct));
             problems.AddRange(await SourcingErrorsAsync(type, match, eventSourced, ct));
         }
 

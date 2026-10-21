@@ -62,7 +62,7 @@ internal sealed class Endpoint(
         }
 
         var definition = await session.Query<ContentTypeDefinition>()
-            .FirstOrDefaultAsync(d => d.Name == req.Type, ct);
+            .FirstNamedAsync(req.Type, ct);
         if (definition is null)
         {
             await Send.NotFoundAsync(ct);

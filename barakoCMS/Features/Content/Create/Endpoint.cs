@@ -36,19 +36,18 @@ internal class Endpoint(
             Data = req.Data,
             Status = req.Status,
             Sensitivity = req.Sensitivity,
+            // The create rule is asked of the data the caller may write before any save rule runs,
+            // and again below of the entry as it will be stored. A field a rule sets only when it
+            // passes would otherwise turn the second answer into a report on the rule.
+            Permitted = (entry, token) => permissionResolver.AllowsCreatedEntryAsync(user, entry, token),
         };
 
-        var errors = await creator.CheckAsync(request, userId, HttpContext, batch: null, ct);
-        if (errors.Count > 0)
-        {
-            // One entry per failure rather than one flattened string, so a client can show the
-            // failures against the fields they belong to.
-            foreach (var error in errors)
-            {
-                AddError(error);
-            }
+        if (await CheckOrRefuseAsync(request, userId, ct) is not { } errors) return;
 
-            ThrowIfAnyErrors();
+        if (request.Forbidden || (errors.Count > 0 && !await RefuseAsync(user, request, errors, ct)))
+        {
+            await Send.ForbiddenAsync(ct);
+            return;
         }
 
         // The check above asks only whether a Create rule exists. This one asks whether a rule
@@ -65,7 +64,17 @@ internal class Endpoint(
             return;
         }
 
-        var created = await creator.StageAsync(request, userId, batch: null, ct);
+        barakoCMS.Models.Content created;
+        try
+        {
+            created = await creator.StageAsync(request, userId, batch: null, ct);
+        }
+        catch (barakoCMS.Infrastructure.Services.ContentCreateRefusedException refused)
+        {
+            AddError(new FluentValidation.Results.ValidationFailure("numbering", refused.Message));
+            ThrowIfAnyErrors();
+            return;
+        }
 
         await session.SaveChangesAsync(ct);
 
@@ -78,6 +87,51 @@ internal class Endpoint(
             Id = created.Id,
             Version = 1,
         });
+    }
+
+    /// <summary>The checks' failures, or null after answering 400 because the type name is ambiguous.</summary>
+    private async Task<IReadOnlyList<string>?> CheckOrRefuseAsync(
+        barakoCMS.Infrastructure.Services.ContentCreateRequest request, Guid userId, CancellationToken ct)
+    {
+        try
+        {
+            return await creator.CheckAsync(request, userId, HttpContext, batch: null, ct);
+        }
+        catch (barakoCMS.Core.AmbiguousContentTypeException ambiguous)
+        {
+            AddError(new FluentValidation.Results.ValidationFailure("contentType", ambiguous.Message));
+            ThrowIfAnyErrors();
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Answers the create's failures: a rule refusal as 422, anything else as 400, one entry per
+    /// failure so a client can show them against their fields. A rule may read other entries, and
+    /// whether the checks after it ran says whether it passed, so any refusal goes only to a caller
+    /// whose create rule holds for this entry; false means it does not, and the caller gets 403.
+    /// </summary>
+    private async Task<bool> RefuseAsync(User user, barakoCMS.Infrastructure.Services.ContentCreateRequest request,
+        IReadOnlyList<string> errors, CancellationToken ct)
+    {
+        if (!await permissionResolver.AllowsCreatedEntryAsync(user, request, ct))
+        {
+            return false;
+        }
+
+        if (request.RuleFailure is { } refused)
+        {
+            AddError(new FluentValidation.Results.ValidationFailure("rules", refused));
+            ThrowIfAnyErrors(422);
+        }
+
+        foreach (var error in errors)
+        {
+            AddError(error);
+        }
+
+        ThrowIfAnyErrors();
+        return true;
     }
 
     /// <summary>The signed-in user the write is made for.</summary>

@@ -1,0 +1,1 @@
+- Workflows: a run that fails now puts a notification in the inbox of each holder of the workflow's `notifyRoleOnFailure` role. A run recorded again adds no second one.

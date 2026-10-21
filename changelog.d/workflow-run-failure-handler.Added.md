@@ -1,0 +1,1 @@
+- **A module can react when a workflow run fails.** Register an `IWorkflowRunFailureHandler` and core calls it once a run ends Failed or PartiallyFailed, with the run and the role the workflow names in `notifyRoleOnFailure`. Core ships no handler, so nothing is delivered unless a module does it.

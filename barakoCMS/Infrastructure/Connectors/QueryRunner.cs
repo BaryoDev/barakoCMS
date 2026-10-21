@@ -42,7 +42,7 @@ internal sealed class QueryRunner(IQuerySession session) : IQueryRunner
     public async Task<string?> ValidateAsync(QueryDefinition definition, CancellationToken ct)
     {
         var schema = await session.Query<ContentTypeDefinition>()
-            .FirstOrDefaultAsync(d => d.Name == definition.ContentType, ct);
+            .FirstNamedAsync(definition.ContentType, ct);
 
         if (schema is null)
         {
@@ -131,14 +131,15 @@ internal sealed class QueryRunner(IQuerySession session) : IQueryRunner
         if (refusal is not null) return QueryResult.Refused(refusal);
 
         var schema = (await session.Query<ContentTypeDefinition>()
-            .FirstOrDefaultAsync(d => d.Name == definition.ContentType, ct))!;
+            .FirstNamedAsync(definition.ContentType, ct))!;
 
         var typeOf = schema.Fields.ToDictionary(f => f.Name, f => f.Type ?? string.Empty, StringComparer.OrdinalIgnoreCase);
         var canonical = schema.Fields.ToDictionary(f => f.Name, f => f.Name, StringComparer.OrdinalIgnoreCase);
         var lists = DeliveryQuery.ListFields(schema);
 
+        var typeName = definition.ContentType.ToLower();
         var query = session.Query<Content>()
-            .Where(c => c.ContentType == definition.ContentType);
+            .Where(c => c.ContentType.ToLower() == typeName);
 
         foreach (var filter in definition.Filters)
         {

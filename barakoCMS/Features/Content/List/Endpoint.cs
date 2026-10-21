@@ -50,6 +50,13 @@ internal class ContentResponse
     public barakoCMS.Models.ContentStatus Status { get; set; }
     public barakoCMS.Models.SensitivityLevel Sensitivity { get; set; }
 
+    /// <summary>
+    /// The lifecycle state, the same value the single-item GET returns: the stored state, or the
+    /// type's initial state for an entry not yet moved. Null for a type with no lifecycle and for a
+    /// row shown as hidden.
+    /// </summary>
+    public string? LifecycleState { get; set; }
+
     /// <summary>The stream version, the same number the single-item GET returns.</summary>
     /// <remarks>
     /// Read in one batched query for the page rather than one call per row. The version is not on
@@ -103,10 +110,7 @@ internal class Endpoint(
         // 2. Build Query
         var query = session.Query<barakoCMS.Models.Content>().AsQueryable();
 
-        if (!string.IsNullOrEmpty(req.ContentType))
-        {
-            query = query.Where(c => c.ContentType == req.ContentType);
-        }
+        query = await FilterByTypeAsync(query, req, ct);
 
         // Status and search are pushed into the query, and that is safe in a way a permission filter
         // would not be. Both can only remove rows. A caller asking for Drafts is asking for a subset
@@ -280,9 +284,45 @@ internal class Endpoint(
         barakoCMS.Core.Interfaces.ISensitivityService sensitivity,
         CancellationToken ct)
     {
-        await RecordSensitiveReadsAsync(page, candidates.ToDictionary(c => c.Id), sensitivity, ct);
+        var stored = candidates.ToDictionary(c => c.Id);
+        await RecordSensitiveReadsAsync(page, stored, sensitivity, ct);
+        await FillLifecycleStatesAsync(page, stored, ct);
         await FillVersionsAsync(page, ct);
         await FillFilesAsync(page, ct);
+    }
+
+    /// <summary>
+    /// Sets each row's lifecycle state from one read of the definitions of the page's types. A row
+    /// shown as hidden gets none, since its type is not shown either.
+    /// </summary>
+    private async Task FillLifecycleStatesAsync(
+        List<ContentResponse> page,
+        IReadOnlyDictionary<Guid, barakoCMS.Models.Content> stored,
+        CancellationToken ct)
+    {
+        if (page.Count == 0)
+        {
+            return;
+        }
+
+        var typeNames = page.Select(i => stored[i.Id].ContentType.ToLower()).Distinct().ToArray();
+        var initial = (await session.Query<ContentTypeDefinition>()
+                .Where(d => typeNames.Contains(d.Name.ToLower()))
+                .ToListAsync(ct))
+            .Where(d => d.Lifecycle is not null)
+            .GroupBy(d => d.Name, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First().Lifecycle!.InitialState, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var item in page)
+        {
+            if (item.ContentType == "HIDDEN")
+            {
+                continue;
+            }
+
+            var entry = stored[item.Id];
+            item.LifecycleState = entry.LifecycleState ?? initial.GetValueOrDefault(entry.ContentType);
+        }
     }
 
     /// <summary>One audit row for the page, naming each entry's fields above Public that it sends.</summary>
@@ -297,12 +337,12 @@ internal class Endpoint(
             return;
         }
 
-        var typeNames = page.Select(i => stored[i.Id].ContentType).Distinct().ToArray();
+        var typeNames = page.Select(i => stored[i.Id].ContentType.ToLower()).Distinct().ToArray();
         var definitions = (await session.Query<ContentTypeDefinition>()
-                .Where(d => d.Name.In(typeNames))
+                .Where(d => typeNames.Contains(d.Name.ToLower()))
                 .ToListAsync(ct))
-            .GroupBy(d => d.Name, StringComparer.Ordinal)
-            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+            .GroupBy(d => d.Name, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
         var reads = new List<barakoCMS.Infrastructure.Audit.SensitiveRead>();
         foreach (var item in page)
@@ -331,6 +371,48 @@ internal class Endpoint(
     private const string SearchShownSql =
         "EXISTS (SELECT 1 FROM jsonb_each_text(d.data -> 'Data') kv WHERE lower(kv.key) = ANY(?) AND kv.value ILIKE '%' || ? || '%')";
 
+    /// <summary>Narrows the rows to the requested type, if one is named.</summary>
+    private async Task<IQueryable<barakoCMS.Models.Content>> FilterByTypeAsync(
+        IQueryable<barakoCMS.Models.Content> query, Request req, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(req.ContentType))
+        {
+            return query;
+        }
+
+        var shared = await NameTypeOnceAsync(req, ct);
+        var wanted = req.ContentType.ToLower();
+        return shared
+            ? query.Where(c => c.ContentType == req.ContentType)
+            : query.Where(c => c.ContentType.ToLower() == wanted);
+    }
+
+    /// <summary>
+    /// Names the type once, as stored, so that one name is used for the rights check, the field
+    /// filters and the rows. Two stored types that differ only by case, with none spelled exactly,
+    /// are refused rather than guessed at. True when another stored type shares the name ignoring
+    /// case, so the rows must be matched exactly and a query for one never lists the other's.
+    /// </summary>
+    private async Task<bool> NameTypeOnceAsync(Request req, CancellationToken ct)
+    {
+        var named = await session.Query<ContentTypeDefinition>()
+            .Where(barakoCMS.Core.ContentTypeName.Named(req.ContentType)).ToListAsync(ct);
+        try
+        {
+            if (barakoCMS.Core.ContentTypeName.Pick(named, req.ContentType) is { } canonical)
+            {
+                req.ContentType = canonical.Name;
+            }
+        }
+        catch (barakoCMS.Core.AmbiguousContentTypeException ambiguous)
+        {
+            AddError(new FluentValidation.Results.ValidationFailure("contentType", ambiguous.Message));
+            ThrowIfAnyErrors();
+        }
+
+        return named.Count > 1;
+    }
+
     /// <summary>
     /// The keys a search of one type may match, lower cased, or null when the caller's Read rules
     /// hold no field set on the type and the search matches every value as it always has.
@@ -348,7 +430,7 @@ internal class Endpoint(
             return null;
 
         var definition = await session.Query<ContentTypeDefinition>()
-            .FirstOrDefaultAsync(d => d.Name == contentType, ct);
+            .FirstNamedAsync(contentType, ct);
 
         var sensitivity = Resolve<barakoCMS.Core.Interfaces.ISensitivityService>();
         var keys = new List<string>();
@@ -419,7 +501,7 @@ internal class Endpoint(
             return (query, "A field filter needs contentType. Fields are declared per content type.");
 
         var definition = await session.Query<ContentTypeDefinition>()
-            .FirstOrDefaultAsync(d => d.Name == contentType, ct)
+            .FirstNamedAsync(contentType, ct)
             ?? new ContentTypeDefinition { Name = contentType };
 
         // Asked for every declared field before the parse, which takes a plain predicate. The

@@ -74,7 +74,7 @@ internal class Endpoint(
         var fieldName = Route<string>("field") ?? string.Empty;
 
         var def = await session.Query<ContentTypeDefinition>()
-            .FirstOrDefaultAsync(d => d.Name == name, ct);
+            .FirstNamedAsync(name, ct);
 
         if (def is null)
         {
