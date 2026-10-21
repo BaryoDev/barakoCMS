@@ -19,7 +19,7 @@ public class CallerBranchesTests
     [Fact]
     public void Parse_gives_an_empty_list_when_any_part_is_not_a_guid()
     {
-        CallerBranches.Parse($"{Guid.NewGuid()},qc").Should().BeEmpty();
+        CallerBranches.Parse($"{Guid.NewGuid()},br1").Should().BeEmpty();
         CallerBranches.Parse(null).Should().BeEmpty();
         CallerBranches.Parse("").Should().BeEmpty();
     }

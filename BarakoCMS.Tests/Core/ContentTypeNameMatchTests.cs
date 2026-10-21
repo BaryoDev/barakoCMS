@@ -9,7 +9,7 @@ public class ContentTypeNameMatchTests
 {
     [Theory]
     [InlineData("Order", "order")]
-    [InlineData("order", "VISIT")]
+    [InlineData("order", "ORDER")]
     [InlineData("PurchaseOrder", "purchaseorder")]
     public void Names_that_differ_only_by_case_are_the_same_type(string a, string b) =>
         ContentTypeName.Same(a, b).Should().BeTrue();
