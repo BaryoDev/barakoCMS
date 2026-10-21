@@ -21,8 +21,9 @@ internal sealed class BranchCodes(IQuerySession session, IConfiguration config) 
     {
         var type = config["Envelope:BranchContentType"] is { Length: > 0 } t ? t : "Branch";
         var field = config["Envelope:BranchCodeField"] is { Length: > 0 } f ? f : "Code";
+        var lowered = type.ToLower();
         var branch = await session.Query<Content>()
-            .FirstOrDefaultAsync(c => c.Id == branchId && c.ContentType == type, ct);
+            .FirstOrDefaultAsync(c => c.Id == branchId && c.ContentType.ToLower() == lowered, ct);
         return branch is not null && branch.Data.TryGetValue(field, out var code) ? code?.ToString() : null;
     }
 }
