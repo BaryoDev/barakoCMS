@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Json;
 using FluentAssertions;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -456,5 +457,27 @@ public class RateLimitWiringTests
         keyed.Headers.Add(RateLimitSetup.RendererHeader, Key);
         using var keyedResponse = await client.SendAsync(keyed, ct);
         keyedResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Six_refreshes_without_a_cookie_do_not_lock_out_a_sign_in_from_the_same_address()
+    {
+        var host = _fixture.WithSettings(new Dictionary<string, string?>());
+        var client = host.CreateClient();
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, "203.0.113.231");
+        var ct = TestContext.Current.CancellationToken;
+
+        var refreshes = new List<HttpStatusCode>();
+        for (var i = 0; i < 6; i++)
+        {
+            using var refresh = await client.PostAsJsonAsync("/api/auth/refresh", new { }, ct);
+            refreshes.Add(refresh.StatusCode);
+        }
+        using var login = await client.PostAsJsonAsync(
+            "/api/auth/login", new { Username = "nobody-1192", Password = "wrong-password" }, ct);
+
+        refreshes.Should().HaveCount(6);
+        refreshes.Should().OnlyContain(c => c == HttpStatusCode.Unauthorized);
+        login.StatusCode.Should().Be(HttpStatusCode.Unauthorized, "a refresh is not counted against the sign-in limit");
     }
 }
