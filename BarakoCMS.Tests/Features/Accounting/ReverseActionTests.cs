@@ -174,7 +174,7 @@ public class ReverseActionTests(IntegrationTestFixture fixture)
         byName.Succeeded.Should().BeFalse();
         var original = (await AccountingTestData.EntriesAsync(fixture, $"{subject.Id:N}:")).Single();
         original.LifecycleState.Should().Be("Posted");
-        (await ReverseAsync(subject, "cancelled by patient")).Succeeded.Should().BeTrue();
+        (await ReverseAsync(subject, "cancelled by customer")).Succeeded.Should().BeTrue();
     }
 
     [Fact]
