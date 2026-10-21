@@ -4,6 +4,7 @@ using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Models;
+using System.Text.Json;
 using FastEndpoints;
 using Marten;
 
@@ -17,9 +18,10 @@ namespace barakoCMS.Features.Tenants.Import;
 /// Always a new tenant: a handle that exists answers 409 and nothing is written, so an import can
 /// never overwrite or merge into a tenant that is serving. The tenant is created Active with the
 /// caller as its administrator, as <c>POST /api/tenants</c> does, and the bundle's configuration
-/// and entries are applied to it through the config engine as one transaction. The tenant and its
-/// administrator are stored only after that applied, so a refused import returns the plan that
-/// explains it and leaves no tenant or membership.
+/// and entries are applied to it through the config engine as one transaction. The handle is claimed first
+/// as a Suspended tenant, which nothing serves, so two imports of one handle cannot both proceed. It
+/// becomes Active, with its administrator, only after the apply committed. A refused import returns
+/// the plan that explains it and no tenant, and leaves no tenant or membership.
 /// </para>
 /// <para>
 /// The caller needs the capability each section asks for in the new tenant, exactly as for
@@ -34,6 +36,8 @@ internal sealed class Endpoint(
     IConfiguration configuration,
     ITenantDomainSource domains) : Endpoint<Request, Response>
 {
+    internal const int NameMaxLength = 200;
+
     public override void Configure()
     {
         Post("/api/tenants/import");
@@ -51,9 +55,43 @@ internal sealed class Endpoint(
             return;
         }
 
+        var tenant = await ClaimAsync(handle, req, ct);
+
+        // The claim holds the handle in a state nothing serves, so the unique index on the handle
+        // settles a race before any data is written. The apply runs in its own transaction (the
+        // config engine opens it), so it cannot share a session with the claim. Instead the claim is
+        // taken back when the plan or apply refuses or throws, and only a committed apply is
+        // followed by the activation, which is one small save.
+        ConfigRunResult result;
+        int? refused;
+        try
+        {
+            (result, refused) = await RunAsync(config, handle, ct);
+        }
+        catch
+        {
+            await ReleaseAsync(tenant);
+            throw;
+        }
+
+        if (refused is { } status)
+        {
+            await ReleaseAsync(tenant);
+            await Send.ResponseAsync(new Response { Tenant = null, Config = result.Response }, status, ct);
+            return;
+        }
+
+        await ActivateAsync(tenant, result.Response, ct);
+        await Send.OkAsync(new Response { Tenant = TenantResponse.From(tenant), Config = result.Response }, ct);
+    }
+
+    /// <summary>Stores the tenant row under the handle as Suspended, which nothing serves, or answers 409 when the handle is taken.</summary>
+    private async Task<Tenant> ClaimAsync(string handle, Request req, CancellationToken ct)
+    {
+        var taken = $"A tenant with the handle '{handle}' already exists. An import only creates a new tenant.";
         if (await session.Query<Tenant>().AnyAsync(t => t.Slug == handle, ct))
         {
-            ThrowError($"A tenant with the handle '{handle}' already exists. An import only creates a new tenant.", 409);
+            ThrowError(taken, 409);
         }
 
         var tenant = new Tenant
@@ -61,45 +99,55 @@ internal sealed class Endpoint(
             Id = Guid.NewGuid(),
             Slug = handle,
             Name = string.IsNullOrWhiteSpace(req.Name) ? BundleName(req.Bundle) ?? handle : req.Name.Trim(),
-            Status = TenantStatus.Active,
+            Status = TenantStatus.Suspended,
         };
-        var callerId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var id) ? id : (Guid?)null;
-        var caller = ConfigCaller.ForUser(User);
-
-        // The tenant and its administrator are stored only after the bundle has applied, so a
-        // refused import leaves no tenant and no membership to take back. The plan comes first
-        // because it writes nothing and records nothing; the apply that follows can still be
-        // refused by a write that lands in between, and that records one config.refused entry.
-        ConfigRunResult result;
-        using (var scope = services.CreateScopeForTenant(handle))
+        session.Store(tenant);
+        try
         {
-            var engine = scope.ServiceProvider.GetRequiredService<ConfigEngine>();
-            result = await engine.RunAsync(config, caller, apply: false, allowDestructive: false, ct);
-            if (Refusal(result) is { } refused)
-            {
-                await Send.ResponseAsync(new Response { Tenant = TenantResponse.From(tenant), Config = result.Response }, refused, ct);
-                return;
-            }
-
-            result = await engine.RunAsync(config, caller, apply: true, allowDestructive: false, ct);
+            await session.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (IsUniqueViolation(ex))
+        {
+            session.EjectAllPendingChanges();
+            ThrowError(taken, 409);
         }
 
-        if (!result.Response.Applied)
-        {
-            await Send.ResponseAsync(
-                new Response { Tenant = TenantResponse.From(tenant), Config = result.Response },
-                result.StatusCode == 200 ? 409 : result.StatusCode, ct);
-            return;
-        }
-
-        await StoreAsync(tenant, callerId, result.Response, ct);
-
-        await Send.OkAsync(new Response { Tenant = TenantResponse.From(tenant), Config = result.Response }, ct);
+        domains.Invalidate();
+        return tenant;
     }
 
-    private async Task StoreAsync(Tenant tenant, Guid? callerId, ConfigPlanResponse applied, CancellationToken ct)
+    /// <summary>Plans, then applies, the bundle in the claimed tenant. The status is set when the import must stop.</summary>
+    private async Task<(ConfigRunResult Result, int? Refused)> RunAsync(JsonElement config, string handle, CancellationToken ct)
+    {
+        var caller = ConfigCaller.ForUser(User);
+        using var scope = services.CreateScopeForTenant(handle);
+        var engine = scope.ServiceProvider.GetRequiredService<ConfigEngine>();
+
+        // The plan writes nothing and records nothing. The apply that follows can still be refused
+        // by a write that lands in between, and that records one config.refused entry.
+        var plan = await engine.RunAsync(config, caller, apply: false, allowDestructive: false, ct);
+        if (Refusal(plan) is { } refused)
+        {
+            return (plan, refused);
+        }
+
+        var applied = await engine.RunAsync(config, caller, apply: true, allowDestructive: false, ct);
+        return (applied, applied.Response.Applied ? null : applied.StatusCode == 200 ? 409 : applied.StatusCode);
+    }
+
+    /// <summary>Takes the claim back. The apply is one transaction, so a run that did not apply wrote nothing but the claim.</summary>
+    private async Task ReleaseAsync(Tenant tenant)
+    {
+        session.Delete(tenant);
+        await session.SaveChangesAsync(CancellationToken.None);
+        domains.Invalidate();
+    }
+
+    private async Task ActivateAsync(Tenant tenant, ConfigPlanResponse applied, CancellationToken ct)
     {
         var handle = tenant.Slug;
+        var callerId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var id) ? id : (Guid?)null;
+        tenant.Status = TenantStatus.Active;
         session.Store(tenant);
 
         // The creator is its administrator, or the cross-tenant token guard denies them the tenant
@@ -119,6 +167,19 @@ internal sealed class Endpoint(
             }, ct: ct);
         await session.SaveChangesAsync(ct);
         domains.Invalidate();
+    }
+
+    private static bool IsUniqueViolation(Exception? ex)
+    {
+        for (var current = ex; current is not null; current = current.InnerException)
+        {
+            if (current is Npgsql.PostgresException { SqlState: "23505" })
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>The status a plan that must not be applied is answered with, or null when it can be.</summary>
@@ -142,6 +203,8 @@ internal sealed class Endpoint(
         bundle.TryGetProperty("tenant", out var t) && t.ValueKind == System.Text.Json.JsonValueKind.Object
         && t.TryGetProperty("name", out var n) && n.ValueKind == System.Text.Json.JsonValueKind.String
         && !string.IsNullOrWhiteSpace(n.GetString())
-            ? n.GetString()!.Trim()
+            ? Cap(n.GetString()!.Trim())
             : null;
+
+    private static string Cap(string name) => name.Length > NameMaxLength ? name[..NameMaxLength] : name;
 }

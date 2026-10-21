@@ -4,6 +4,7 @@ using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using Marten;
+using Marten.Linq.MatchesSql;
 using Microsoft.AspNetCore.Http;
 using ContentDoc = barakoCMS.Models.Content;
 
@@ -47,8 +48,11 @@ internal static class TenantBundle
         configuration.GetValue<int?>(MaxImportEntriesKey) is > 0 and var configured ? configured : DefaultMaxImportEntries;
 
     /// <summary>The entries of the tenant the scope is bound to, as the caller may read them, page by page.</summary>
-    /// <returns>How many were written, and how many were left out because the caller may read none of them.</returns>
-    public static async Task<(int Written, int Withheld)> WriteEntriesAsync(
+    /// <returns>
+    /// How many were written, how many were left out because the caller may read none of them, and how
+    /// many were written with a field the caller may not read taken out or masked.
+    /// </returns>
+    public static async Task<(int Written, int Withheld, int Redacted)> WriteEntriesAsync(
         IServiceProvider scope, Utf8JsonWriter writer, Func<Task> flush, User caller, HttpContext http, CancellationToken ct)
     {
         var session = scope.GetRequiredService<IQuerySession>();
@@ -57,20 +61,24 @@ internal static class TenantBundle
         var types = (await session.Query<ContentTypeDefinition>().ToListAsync(ct)).ToList();
 
         const string siteType = barakoCMS.Features.Site.ShareLinks.ShareLinkKeys.SiteType;
-        var written = 0;
-        var withheld = 0;
-        for (var skip = 0; ; skip += PageSize)
+        int written = 0, withheld = 0, redacted = 0;
+        var last = Guid.Empty;
+        while (true)
         {
+            // Keyset paging: a write between two pages cannot repeat or skip an entry, and each page
+            // is an index range rather than a count of every row before it.
+            var after = last;
             var page = await session.Query<ContentDoc>()
-                .Where(c => c.ContentType != siteType)
+                .Where(c => c.ContentType != siteType && c.MatchesSql("id > ?", after))
                 .OrderBy(c => c.Id)
-                .Skip(skip).Take(PageSize)
+                .Take(PageSize)
                 .ToListAsync(ct);
             if (page.Count == 0)
             {
                 break;
             }
 
+            last = page[^1].Id;
             foreach (var entry in page)
             {
                 if (await RecordAsync(entry, types, caller, http, permissions, sensitivity, ct) is not { } record)
@@ -81,18 +89,19 @@ internal static class TenantBundle
 
                 JsonSerializer.Serialize(writer, record, barakoCMS.Features.Config.ConfigJson.Options);
                 written++;
+                redacted += record.MaskedFields.Count > 0 ? 1 : 0;
             }
 
             await flush();
         }
 
-        return (written, withheld);
+        return (written, withheld, redacted);
     }
 
     /// <summary>
-    /// The entry as the caller may read it, or null when they may read none of it. A masked field is
-    /// named so an import leaves it out, and a generated token is left out for everyone: a bundle is
-    /// a file, and a file gets passed on.
+    /// The entry as the caller may read it, or null when they may read none of it. A field the
+    /// caller's read rules masked or removed is named in <c>MaskedFields</c> so an import leaves it
+    /// out, and a generated token is left out for everyone: a bundle is a file, and a file gets passed on.
     /// </summary>
     private static async Task<EntryRecord?> RecordAsync(
         ContentDoc entry, List<ContentTypeDefinition> types, User caller, HttpContext http,
@@ -110,6 +119,10 @@ internal static class TenantBundle
             return null;
         }
 
+        var masked = entry.Data.Keys
+            .Where(k => !data.TryGetValue(k, out var seen) || !ReferenceEquals(seen, entry.Data[k]))
+            .ToList();
+
         var definition = types.FirstOrDefault(t => string.Equals(t.Name, entry.ContentType, StringComparison.OrdinalIgnoreCase));
         foreach (var field in (definition?.Fields ?? []).Where(f => f is not null && barakoCMS.Core.Validation.FieldTypeRegistry.IsServerGenerated(f)))
         {
@@ -117,6 +130,8 @@ internal static class TenantBundle
             {
                 data.Remove(key);
             }
+
+            masked.RemoveAll(k => string.Equals(k, field.Name, StringComparison.OrdinalIgnoreCase));
         }
 
         return new EntryRecord
@@ -126,8 +141,7 @@ internal static class TenantBundle
             Data = data,
             Status = entry.Status.ToString(),
             Sensitivity = entry.Sensitivity,
-            MaskedFields = data.Where(kv => !entry.Data.TryGetValue(kv.Key, out var stored) || !ReferenceEquals(kv.Value, stored))
-                .Select(kv => kv.Key).ToList(),
+            MaskedFields = masked,
         };
     }
 

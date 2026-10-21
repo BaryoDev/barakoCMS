@@ -64,6 +64,16 @@ internal sealed class Endpoint(
         var config = await scope.ServiceProvider.GetRequiredService<ConfigEngine>()
             .ExportAsync(ConfigCaller.ForUser(User), null, ct);
 
+        // Recorded before the body starts: an export that is aborted halfway has still handed out
+        // part of the tenant, and must leave its record.
+        await AuditLog.RecordAsync(writes, tenant.Slug, "tenant.exported", callerId, User.FindFirst("Username")?.Value,
+            metadata: new Dictionary<string, object>
+            {
+                ["sections"] = string.Join(", ", config.Sections.Keys),
+                ["withheldSections"] = string.Join(", ", config.Withheld),
+            }, ct: ct);
+        await writes.SaveChangesAsync(ct);
+
         HttpContext.Response.ContentType = "application/json";
         HttpContext.Response.Headers.ContentDisposition = $"attachment; filename=\"{tenant.Slug}.tenant-bundle.json\"";
         await HttpContext.Response.StartAsync(ct);
@@ -82,23 +92,14 @@ internal sealed class Endpoint(
         writer.WriteStartArray("contents");
         await writer.FlushAsync(ct);
 
-        var (written, withheld) = await TenantBundle.WriteEntriesAsync(
+        var (_, withheld, redacted) = await TenantBundle.WriteEntriesAsync(
             scope.ServiceProvider, writer, () => writer.FlushAsync(ct), caller, HttpContext, ct);
 
         writer.WriteEndArray();
         writer.WriteNumber("contentsWithheld", withheld);
-        writer.WriteBoolean("complete", withheld == 0 && config.Withheld.Count == 0);
+        writer.WriteNumber("contentsRedacted", redacted);
+        writer.WriteBoolean("complete", withheld == 0 && redacted == 0 && config.Withheld.Count == 0);
         writer.WriteEndObject();
         await writer.FlushAsync(ct);
-
-        await AuditLog.RecordAsync(writes, tenant.Slug, "tenant.exported", callerId, User.FindFirst("Username")?.Value,
-            metadata: new Dictionary<string, object>
-            {
-                ["sections"] = string.Join(", ", config.Sections.Keys),
-                ["withheldSections"] = string.Join(", ", config.Withheld),
-                ["contents"] = written,
-                ["contentsWithheld"] = withheld,
-            }, ct: ct);
-        await writes.SaveChangesAsync(ct);
     }
 }

@@ -222,7 +222,9 @@ public class TenantBundleTests
 
         bundle.RootElement.GetProperty("complete").GetBoolean().Should().BeFalse("the caller may read neither the sections nor the entries");
         bundle.RootElement.GetProperty("config").GetProperty("withheld").GetArrayLength().Should().BeGreaterThan(0);
-        Titles(bundle.RootElement).Should().NotContain("Held back");
+        bundle.RootElement.GetProperty("contentsWithheld").GetInt32().Should().BeGreaterThan(0, "the entry was left out and counted");
+        bundle.RootElement.GetProperty("contents").GetArrayLength().Should().Be(0);
+        Titles(bundle.RootElement).Should().BeEmpty();
     }
 
     [Fact]
@@ -292,5 +294,103 @@ public class TenantBundleTests
         (await BodyAsync(response)).Should().Contain("Tenants:MaxImportEntries");
         using var scope = _fixture.Services.CreateScope();
         (await scope.ServiceProvider.GetRequiredService<IQuerySession>().Query<Tenant>().AnyAsync(t => t.Slug == handle, Ct)).Should().BeFalse();
+    }
+
+    private async Task<(int Tenants, int Memberships, int Entries)> FootprintAsync(string handle)
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
+        await using var all = store.QuerySession();
+        await using var partition = store.QuerySession(handle);
+        return (
+            await all.Query<Tenant>().CountAsync(t => t.Slug == handle, Ct),
+            await all.Query<Membership>().CountAsync(m => m.TenantSlug == handle, Ct),
+            await partition.Query<barakoCMS.Models.Content>().CountAsync(Ct));
+    }
+
+    [Fact]
+    public async Task A_second_import_of_a_handle_the_first_holds_answers_409_and_writes_nothing()
+    {
+        var (slug, _, _) = await SeedAsync(["Contested"]);
+        var platform = await PlatformAdminAsync();
+        using var bundle = JsonDocument.Parse(await BodyAsync(await platform.GetAsync($"/api/tenants/{slug}/export", Ct)));
+
+        var handle = NewHandle();
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = handle, Name = "Claimed", Status = TenantStatus.Suspended });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var second = await platform.PostAsJsonAsync("/api/tenants/import", new { handle, bundle = bundle.RootElement.Clone() }, Ct);
+
+        second.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var footprint = await FootprintAsync(handle);
+        footprint.Tenants.Should().Be(1, "only the claim exists");
+        footprint.Memberships.Should().Be(0);
+        footprint.Entries.Should().Be(0);
+        var stored = await TenantProfileSeed.StoredAsync(_fixture, handle, Ct);
+        stored.Name.Should().Be("Claimed");
+        stored.Status.Should().Be(TenantStatus.Suspended, "the loser does not activate or rename the holder's claim");
+    }
+
+    [Fact]
+    public async Task An_import_refused_for_a_missing_section_capability_leaves_no_tenant_membership_or_entries()
+    {
+        var (slug, _, _) = await SeedAsync(["Refused one", "Refused two"]);
+        var platform = await PlatformAdminAsync();
+        using var bundle = JsonDocument.Parse(await BodyAsync(await platform.GetAsync($"/api/tenants/{slug}/export", Ct)));
+        bundle.RootElement.GetProperty("contents").GetArrayLength().Should().Be(2);
+
+        var roleName = $"Importer {Guid.NewGuid():N}";
+        var userId = Guid.NewGuid();
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var role = new Role { Id = Guid.NewGuid(), Name = roleName, SystemCapabilities = [SystemCapabilities.ManageTenants] };
+            session.Store(role);
+            session.Store(new User
+            {
+                Id = userId, Username = $"im-{userId:n}"[..14], Email = $"im-{userId:n}@example.com", RoleIds = [role.Id],
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var importer = _fixture.CreateClient();
+        importer.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", _fixture.CreateToken(roles: [roleName], userId: userId.ToString()));
+        var handle = NewHandle();
+
+        var response = await importer.PostAsJsonAsync("/api/tenants/import", new { handle, bundle = bundle.RootElement.Clone() }, Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden, await BodyAsync(response));
+        using var body = JsonDocument.Parse(await BodyAsync(response));
+        (!body.RootElement.TryGetProperty("tenant", out var tenant) || tenant.ValueKind == JsonValueKind.Null)
+            .Should().BeTrue("a refusal returns no tenant");
+        var footprint = await FootprintAsync(handle);
+        footprint.Tenants.Should().Be(0);
+        footprint.Memberships.Should().Be(0);
+        footprint.Entries.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_tenant_name_taken_from_the_bundle_is_cut_to_200_characters()
+    {
+        var platform = await PlatformAdminAsync();
+        var handle = NewHandle();
+
+        var response = await platform.PostAsJsonAsync("/api/tenants/import", new
+        {
+            handle,
+            bundle = new
+            {
+                kind = "barako.tenant-bundle", bundleVersion = 1, tenant = new { handle = "x", name = new string('n', 300) },
+                config = new { version = 1 }, contents = Array.Empty<object>(),
+            },
+        }, Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(response));
+        (await TenantProfileSeed.StoredAsync(_fixture, handle, Ct)).Name.Should().HaveLength(200);
     }
 }

@@ -19,7 +19,8 @@ internal sealed class Request
 
 internal sealed class Response
 {
-    public TenantResponse Tenant { get; init; } = null!;
+    /// <summary>The new tenant, or null when the import was refused and none was made.</summary>
+    public TenantResponse? Tenant { get; init; }
 
     /// <summary>What was applied to the new tenant, section by section.</summary>
     public ConfigPlanResponse Config { get; init; } = null!;
