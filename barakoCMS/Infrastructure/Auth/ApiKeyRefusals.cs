@@ -95,19 +95,19 @@ internal sealed class ApiKeyRefusals(TimeProvider clock)
 
     private static readonly TimeSpan SweepEvery = TimeSpan.FromMinutes(1);
     private int _sweeping;
-    private DateTime _lastSweep = DateTime.MinValue;
+    private long _lastSweepTicks = DateTime.MinValue.Ticks;
 
     // At the cap every refusal from an untracked key would sweep, so one sweep runs at a time and
     // at most once a minute. Anything that finds the cap still full is dropped.
     private void TrySweep(DateTime now)
     {
-        if (now - Volatile.Read(ref _lastSweep) < SweepEvery
+        if (now.Ticks - Interlocked.Read(ref _lastSweepTicks) < SweepEvery.Ticks
             || Interlocked.CompareExchange(ref _sweeping, 1, 0) != 0)
             return;
         try
         {
             SweepExpired(now);
-            Volatile.Write(ref _lastSweep, now);
+            Interlocked.Exchange(ref _lastSweepTicks, now.Ticks);
         }
         finally
         {
