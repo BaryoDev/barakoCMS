@@ -42,6 +42,54 @@ public class CreateContentActionTests(IntegrationTestFixture fixture)
     }
 
     [Fact]
+    public async Task An_existing_entry_of_another_type_under_the_id_is_a_permanent_failure_not_a_hit()
+    {
+        var type = await StoreTypeAsync();
+        var other = await StoreTypeAsync();
+        var runId = Guid.CreateVersion7();
+        var first = await RunAsync(Parameters(type, runId, $"{runId:N}-0"));
+
+        var clash = Parameters(other, runId, "different-key");
+        clash["Id"] = first.Outputs["id"];
+        var result = await RunAsync(clash);
+
+        result.Succeeded.Should().BeFalse();
+        result.Retryable.Should().BeFalse();
+        result.Error.Should().Contain("not made by this action");
+    }
+
+    [Fact]
+    public async Task An_existing_entry_made_by_another_run_under_the_id_is_a_permanent_failure()
+    {
+        var type = await StoreTypeAsync();
+        var runId = Guid.CreateVersion7();
+        var first = await RunAsync(Parameters(type, runId, $"{runId:N}-0"));
+
+        var clash = Parameters(type, Guid.CreateVersion7(), "another-key");
+        clash["Id"] = first.Outputs["id"];
+        var result = await RunAsync(clash);
+
+        result.Succeeded.Should().BeFalse();
+        result.Retryable.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task An_existing_entry_of_another_branch_under_the_id_is_a_permanent_failure()
+    {
+        var type = await StoreTypeAsync();
+        var runId = Guid.CreateVersion7();
+        var key = $"{runId:N}-0";
+        var first = await RunAsync(Parameters(type, runId, key));
+
+        var elsewhere = new Content { Id = Guid.NewGuid(), ContentType = "Order", BranchId = Guid.CreateVersion7() };
+        var result = await RunAsync(Parameters(type, runId, key), elsewhere);
+
+        first.Succeeded.Should().BeTrue(first.Error);
+        result.Succeeded.Should().BeFalse();
+        result.Retryable.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task A_failing_rule_is_a_permanent_failure_and_creates_nothing()
     {
         var type = await StoreTypeAsync();
@@ -205,7 +253,7 @@ public class CreateContentActionTests(IntegrationTestFixture fixture)
         lines.Should().ContainSingle().Which.Should().BeAssignableTo<Dictionary<string, object>>()
             .Which["Quantity"].Should().Be(2L);
         made.Data["Meta"].Should().BeAssignableTo<Dictionary<string, object>>().Which["Ward"].Should().Be("A");
-        made.Data["Name"].Should().Be("Queue ticket", "a text field keeps its text");
+        made.Data["Name"].Should().Be("Sample entry", "a text field keeps its text");
     }
 
     [Fact]
@@ -241,7 +289,7 @@ public class CreateContentActionTests(IntegrationTestFixture fixture)
     private static Dictionary<string, string> Parameters(string type, Guid runId, string key) => new()
     {
         ["ContentType"] = type,
-        ["Data.Name"] = "Queue ticket",
+        ["Data.Name"] = "Sample entry",
         ["IdempotencyKey"] = key,
         ["RunId"] = runId.ToString(),
     };

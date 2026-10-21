@@ -51,8 +51,21 @@ internal sealed class CreateContentAction(
             return WorkflowActionResult.PermanentFailure("ContentType is required.");
 
         var id = ResolveId(parameters);
+        var runId = Guid.TryParse(parameters.GetValueOrDefault("RunId"), out var parsedRun) ? parsedRun : (Guid?)null;
+
+        // The new entry takes the branch of the entry that triggered the run, unless told not to.
+        var branch = parameters.GetValueOrDefault("BranchFrom", "subject") == "none" ? null : content.BranchId;
+
         if (await session.LoadAsync<barakoCMS.Models.Content>(id, ct) is { } existing)
-            return await DoneAsync(existing, type, ct);
+        {
+            // Done only when the entry is the one an earlier attempt of this action made. An id from
+            // a template can name any entry, and reporting a stranger's as created would hand its
+            // number and id on to the next action.
+            return barakoCMS.Core.ContentTypeName.Same(existing.ContentType, type)
+                && existing.BranchId == branch && existing.SourceRunId == runId
+                ? await DoneAsync(existing, type, ct)
+                : WorkflowActionResult.PermanentFailure("An entry with that id exists and was not made by this action.");
+        }
 
         var request = new ContentCreateRequest
         {
@@ -64,7 +77,7 @@ internal sealed class CreateContentAction(
             // Always a draft. A Status parameter is not read: the HTTP create asks nothing of the status
             // it is sent, and a workflow must not publish what no user chose to publish.
             Status = ContentStatus.Draft,
-            SourceRunId = Guid.TryParse(parameters.GetValueOrDefault("RunId"), out var runId) ? runId : null,
+            SourceRunId = runId,
         };
 
         // A json field takes only a whole list or object, which a template fills as JSON text. A
@@ -75,8 +88,6 @@ internal sealed class CreateContentAction(
         if (refusal is not null)
             return WorkflowActionResult.PermanentFailure(refusal);
 
-        // The new entry takes the branch of the entry that triggered the run, unless told not to.
-        var branch = parameters.GetValueOrDefault("BranchFrom", "subject") == "none" ? null : content.BranchId;
         // The code goes with the id: a {branch} number series reads it, as it does on the HTTP path.
         var code = branch is { } branchId ? await branchCodes.CodeOfAsync(branchId, ct) : null;
         using var _ = envelope.Use(branch, code);
