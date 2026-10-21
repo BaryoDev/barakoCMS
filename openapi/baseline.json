@@ -2793,9 +2793,14 @@
             "items": {
               "$ref": "#/components/schemas/BarakoCMSFeaturesContentBatchBatchStep"
             },
+            "minLength": 1,
+            "nullable": false,
             "type": "array"
           }
         },
+        "required": [
+          "steps"
+        ],
         "type": "object"
       },
       "BarakoCMSFeaturesContentBatchBatchResponse": {
@@ -3051,7 +3056,7 @@
             "type": "string"
           },
           "lifecycleState": {
-            "description": "The lifecycle state: the stored state, or the type's initial state for an entry not yet moved. Null for a type with no lifecycle and for a hidden entry.",
+            "description": "The lifecycle state: the stored state, or the type's initial state for an entry not yet\nmoved. Null for a type with no lifecycle and for a hidden entry.",
             "nullable": true,
             "type": "string"
           },
@@ -3251,7 +3256,7 @@
             "type": "string"
           },
           "lifecycleState": {
-            "description": "The lifecycle state, the same value the single-item GET returns: the stored state, or the type's initial state for an entry not yet moved. Null for a type with no lifecycle and for a row shown as hidden.",
+            "description": "The lifecycle state, the same value the single-item GET returns: the stored state, or the\ntype's initial state for an entry not yet moved. Null for a type with no lifecycle and for a\nrow shown as hidden.",
             "nullable": true,
             "type": "string"
           },
@@ -3897,6 +3902,11 @@
               }
             ]
           },
+          "realtimeTopic": {
+            "description": "The realtime topic clients subscribe to for this type, or null when it has none.",
+            "nullable": true,
+            "type": "string"
+          },
           "routeTemplate": {
             "description": "Where an entry of this type lives on the site, such as /blog/{slug}, or null when the\ntype declares none.",
             "nullable": true,
@@ -4312,6 +4322,10 @@
       "BarakoCMSFeaturesContentTypeSetNumberingRequest": {
         "additionalProperties": false,
         "properties": {
+          "clientAllocated": {
+            "description": "True when a client may take numbers of this series from the next-number route.",
+            "type": "boolean"
+          },
           "field": {
             "description": "The text field that holds the number. Null or empty takes the rule off the type.",
             "nullable": true,
@@ -4326,6 +4340,11 @@
           },
           "reset": {
             "$ref": "#/components/schemas/BarakoCMSCoreInterfacesNumberReset"
+          },
+          "seriesTemplate": {
+            "description": "Series name with {branch} and {type} tokens. Null keeps the type's own series.",
+            "nullable": true,
+            "type": "string"
           },
           "strategy": {
             "$ref": "#/components/schemas/BarakoCMSCoreInterfacesNumberStrategy"
@@ -5227,6 +5246,39 @@
       },
       "BarakoCMSFeaturesNumberingGapsRequest": {
         "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSFeaturesNumberingNextNextNumberRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "contentType": {
+            "minLength": 1,
+            "nullable": false,
+            "type": "string"
+          }
+        },
+        "required": [
+          "contentType"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSFeaturesNumberingNextNextNumberResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "number": {
+            "description": "The formatted number, to send as the numbering field of the new entry.",
+            "type": "string"
+          },
+          "series": {
+            "description": "The series the number is from.",
+            "type": "string"
+          },
+          "value": {
+            "description": "The number without prefix or padding.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
         "type": "object"
       },
       "BarakoCMSFeaturesPreviewCreatePreviewTokenRequest": {
@@ -7145,6 +7197,30 @@
         "type": "object"
       },
       "BarakoCMSFeaturesUsersRemoveRoleResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesUsersResetMfaRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 0,
+            "nullable": false,
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSFeaturesUsersResetMfaResponse": {
         "additionalProperties": false,
         "properties": {
           "message": {
@@ -9238,6 +9314,11 @@
               }
             ]
           },
+          "realtimeTopic": {
+            "description": "Realtime topic for this type. Null means none. Lower case words joined by dots or dashes.",
+            "nullable": true,
+            "type": "string"
+          },
           "routeTemplate": {
             "description": "Where an entry of this type lives on the site, as a path holding {slug}, for example\n/blog/{slug}.",
             "nullable": true,
@@ -9618,6 +9699,10 @@
         "additionalProperties": false,
         "description": "How a content type numbers its entries, for example INV-2026-00042.",
         "properties": {
+          "clientAllocated": {
+            "description": "True when a client may reserve numbers of this series through the next-number route.",
+            "type": "boolean"
+          },
           "field": {
             "description": "A text field of the type, not required, that holds the number.",
             "type": "string"
@@ -9638,6 +9723,11 @@
                 "$ref": "#/components/schemas/BarakoCMSCoreInterfacesNumberReset"
               }
             ]
+          },
+          "seriesTemplate": {
+            "description": "Series name with the tokens {branch} (the lower-case branch code) and {type}.\nNull keeps type.{name}.",
+            "nullable": true,
+            "type": "string"
           },
           "strategy": {
             "description": "How numbers are handed out. Gapless unless set.",
@@ -17200,6 +17290,7 @@
     },
     "/api/contents/batch": {
       "post": {
+        "description": "Every step is held to the checks of the single create and the status change (see\nBatchSteps), and the first refusal rolls back the whole batch, so a client never\nholds half of one. An Idempotency-Key applies as on any other write: a retry of a\nbatch that was answered 200 gets the stored answer and runs nothing.",
         "operationId": "barakoCMSFeaturesContentBatchEndpoint",
         "requestBody": {
           "content": {
@@ -17608,7 +17699,7 @@
     },
     "/api/contents/{id}/runs": {
       "get": {
-        "description": "With includeCreated=true it also lists the runs whose actions created the entry, so a\nscreen on a created entry can say which run made it.\nA caller who cannot read the entry gets the 404 an unknown id gets. A 403 here would tell them\nthe entry exists. The read check is the one the entry endpoint makes, so it covers branch rules\ntoo. The capability gate runs first, so a caller without\nViewWorkflowRuns gets 403 whatever the id.",
+        "description": "With includeCreated=true it also lists the runs whose actions created the entry, so a\nscreen on a created entry can say which run made it.\nAn id that is not a Guid is a 400. A caller who cannot read the entry gets the 404 an unknown id gets. A 403 here would tell them\nthe entry exists. The read check is the one the entry endpoint makes, so it covers branch rules\ntoo. The capability gate runs first, so a caller without\nViewWorkflowRuns gets 403 whatever the id.",
         "operationId": "barakoCMSFeaturesContentRunsEndpoint",
         "parameters": [
           {
@@ -19570,6 +19661,62 @@
           }
         ],
         "summary": "Numbers in a range of an external series that were never recorded.",
+        "tags": [
+          "Numbering"
+        ]
+      }
+    },
+    "/api/numbering/next": {
+      "post": {
+        "description": "For a client that has to put a number on a paper form before it can reach the server. The number\nis committed here, so it is never handed out twice; the client sends it back as the numbering\nfield of the entry it creates. Only a caller who may create the type can take one, and only from\na series the type's rule marks ClientAllocated; every other series is numbered by the server.",
+        "operationId": "barakoCMSFeaturesNumberingNextNextNumberEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesNumberingNextNextNumberRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "NextNumberRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesNumberingNextNextNumberResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "The next number of a client-allocated series.",
         "tags": [
           "Numbering"
         ]
@@ -23700,6 +23847,70 @@
             "JWTBearerAuth": []
           }
         ],
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/api/users/{userId}/mfa/reset": {
+      "post": {
+        "operationId": "barakoCMSFeaturesUsersResetMfaEndpoint",
+        "parameters": [
+          {
+            "description": "Bound from the {userId} route segment.",
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesUsersResetMfaRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "Request",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesUsersResetMfaResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/users/{userId}/mfa/reset: an administrator holding manage_users removes another user's\ntwo-factor enrollment (secret, recovery codes and any pending setup), so someone who lost both\ntheir authenticator and their recovery codes can sign in and enroll again. Refresh tokens are\nrevoked, and the reason is audited. Your own MFA is turned off with /api/auth/mfa/disable.",
         "tags": [
           "Users"
         ]
