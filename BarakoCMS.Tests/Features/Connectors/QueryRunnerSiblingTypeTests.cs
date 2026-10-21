@@ -66,13 +66,15 @@ public class QueryRunnerSiblingTypeTests(IntegrationTestFixture factory)
 
     private static async Task<string> DropNameIndexAsync(IDocumentStore store, CancellationToken ct)
     {
+        // Marten checks a type's schema on first use. Do it now, or the seed below puts the index back.
+        await store.Storage.Database.EnsureStorageExistsAsync(typeof(ContentTypeDefinition), ct);
         await using var session = store.LightweightSession();
         await using var read = session.Connection.CreateCommand();
         read.CommandText = $"select indexdef from pg_indexes where indexname = '{IndexName}'";
         var definition = (string?)await read.ExecuteScalarAsync(ct)
             ?? throw new InvalidOperationException("The content type name index is missing.");
         await RunAsync(store, $"drop index public.{IndexName}", ct);
-        return definition;
+        return definition.Replace("INDEX " + IndexName, "INDEX IF NOT EXISTS " + IndexName);
     }
 
     private static async Task RunAsync(IDocumentStore store, string sql, CancellationToken ct)
