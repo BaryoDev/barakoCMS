@@ -75,9 +75,9 @@ internal sealed class NextNumberEndpoint(
         {
             series = NumberingRules.SeriesFor(definition, rule, envelope.BranchCode);
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException e)
         {
-            ThrowError("The numbering needs a branch with a code.");
+            ThrowError(e.Message);
             return;
         }
 

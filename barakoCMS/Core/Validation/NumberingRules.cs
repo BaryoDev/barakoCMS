@@ -4,9 +4,13 @@ using barakoCMS.Models;
 namespace barakoCMS.Core.Validation;
 
 /// <summary>A content type's <see cref="NumberingRule"/>: what it may say, and the series it counts in.</summary>
-internal static class NumberingRules
+internal static partial class NumberingRules
 {
     public const int MaxPrefixLength = 20;
+    public const int MaxSeriesNameLength = 64;
+
+    /// <summary>The branch code as a placeholder, for a caller that needs the shape of a branch series and not a real one.</summary>
+    public const string BranchPlaceholder = "{branch}";
 
     private static readonly string[] TextTypes = ["string", "text"];
 
@@ -18,13 +22,21 @@ internal static class NumberingRules
     /// The series for a rule, with the rule's template filled in. Without a template it is the type's
     /// own series. A template with <c>{branch}</c> needs the code of the branch the write is for.
     /// </summary>
-    /// <exception cref="InvalidOperationException">The template needs a branch and none was given.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// The template needs a branch and none was given, the branch code cannot be part of a series
+    /// name, or the name is too long. The message says which, and is safe to show the caller.
+    /// </exception>
     public static NumberSeries SeriesFor(ContentTypeDefinition definition, NumberingRule rule, string? branchCode)
     {
         var name = rule.SeriesTemplate is { Length: > 0 } template
             ? ExpandTemplate(template, definition.Name, branchCode)
             : "type." + definition.Name.ToLowerInvariant();
-        return new NumberSeries(name.Length > 64 ? name[..64] : name, rule.Prefix, rule.Padding, rule.Reset, rule.TimeZoneId);
+        // A template names a series from a branch code, so a name that does not fit is refused. Cut
+        // short, two branches could end up counting in one series.
+        if (rule.SeriesTemplate is { Length: > 0 } && name.Length > MaxSeriesNameLength)
+            throw new InvalidOperationException(
+                $"The series name is {name.Length} characters, and the most is {MaxSeriesNameLength}. Use a shorter branch code or template.");
+        return new NumberSeries(name.Length > MaxSeriesNameLength ? name[..MaxSeriesNameLength] : name, rule.Prefix, rule.Padding, rule.Reset, rule.TimeZoneId);
     }
 
     /// <summary>Whether a rule's series name depends on the branch.</summary>
@@ -40,13 +52,20 @@ internal static class NumberingRules
             ? [SeriesFor(definition, rule, NeedsBranch(rule) ? "{branch}" : null).Name]
             : [];
 
+    [System.Text.RegularExpressions.GeneratedRegex("^[a-z0-9._-]+\\z")]
+    private static partial System.Text.RegularExpressions.Regex BranchCodePattern();
+
     private static string ExpandTemplate(string template, string typeName, string? branchCode)
     {
         if (template.Contains("{branch}", StringComparison.Ordinal))
         {
             if (string.IsNullOrWhiteSpace(branchCode))
-                throw new InvalidOperationException("The series template needs a branch and the request has none.");
-            template = template.Replace("{branch}", branchCode.ToLowerInvariant(), StringComparison.Ordinal);
+                throw new InvalidOperationException("The numbering needs a branch with a code.");
+            var code = branchCode.ToLowerInvariant();
+            if (code != BranchPlaceholder && !BranchCodePattern().IsMatch(code))
+                throw new InvalidOperationException(
+                    "The branch code cannot be part of a series name. Use lower case letters, digits, dots, dashes and underscores.");
+            template = template.Replace("{branch}", code, StringComparison.Ordinal);
         }
 
         return template.Replace("{type}", typeName.ToLowerInvariant(), StringComparison.Ordinal);
@@ -79,6 +98,12 @@ internal static class NumberingRules
         if (!Enum.IsDefined(rule.Strategy) || !Enum.IsDefined(rule.Reset))
         {
             errors.Add("strategy is gapless, sequence or hiLo, and reset is never, yearly, monthly or daily.");
+        }
+
+        if (rule.ClientAllocated && rule.Strategy == NumberStrategy.HiLo)
+        {
+            // A hiLo counter holds the end of a block, so it cannot say which numbers it handed out.
+            errors.Add("A client-allocated series cannot use hiLo. Use gapless or sequence.");
         }
 
         if (rule.ClientAllocated && rule.Reset != NumberReset.Never)

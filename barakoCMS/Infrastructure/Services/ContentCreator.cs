@@ -360,9 +360,9 @@ public sealed class ContentCreator(
         {
             series = barakoCMS.Core.Validation.NumberingRules.SeriesFor(definition, rule, envelope?.BranchCode);
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException e)
         {
-            throw new ContentCreateRefusedException("The numbering needs a branch with a code.");
+            throw new ContentCreateRefusedException(e.Message);
         }
 
         if (rule.ClientAllocated && !string.IsNullOrWhiteSpace(sent) && ledger is not null)

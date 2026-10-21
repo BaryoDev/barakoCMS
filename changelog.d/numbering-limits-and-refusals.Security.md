@@ -1,0 +1,4 @@
+- A client-allocated series cannot use the hiLo strategy, because a hiLo counter cannot say which numbers it handed out. Such a rule is refused when it is saved.
+- The next-number route resolves the content type (ignoring case, refusing a name two stored types share) before it checks the caller's permission, and checks it on the stored name.
+- A saved query returns only the rows of the type it names when two stored types differ only by case.
+- A branch code that cannot be part of a series name, or a template name over 64 characters, is a 400 (or a permanent action failure) instead of a 500, and the name is no longer cut short.
