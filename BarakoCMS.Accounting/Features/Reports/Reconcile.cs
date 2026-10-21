@@ -1,4 +1,5 @@
 using barakoCMS.Infrastructure.Auth;
+using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
@@ -24,7 +25,7 @@ public sealed record ReconcileResponse(int Checked, List<ReconcileRow> Mismatche
 /// since this route is open to anyone who may view the ledger and not to anyone who may read the
 /// subject. <c>from</c> and <c>to</c> are dates, both days included, at most 366 days apart.
 /// </remarks>
-public class ReconcileEndpoint(IQuerySession session) : Endpoint<ReconcileEndpoint.Request, ReconcileResponse>
+public class ReconcileEndpoint(IQuerySession session, IPermissionResolver permissions) : Endpoint<ReconcileEndpoint.Request, ReconcileResponse>
 {
     private const int BatchSize = 200;
     private const int ListCap = 500;
@@ -61,7 +62,14 @@ public class ReconcileEndpoint(IQuerySession session) : Endpoint<ReconcileEndpoi
             return;
         }
 
-        await Send.ResponseAsync(await ReconcileAsync(req, ct), cancellation: ct);
+        if (!Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId)
+            || await session.LoadAsync<User>(userId, ct) is not { } user)
+        {
+            await Send.UnauthorizedAsync(ct);
+            return;
+        }
+
+        await Send.ResponseAsync(await ReconcileAsync(req, user, ct), cancellation: ct);
     }
 
     private async Task<string?> NotPublicAsync(string contentType, CancellationToken ct)
@@ -71,31 +79,43 @@ public class ReconcileEndpoint(IQuerySession session) : Endpoint<ReconcileEndpoi
             && (string.Equals(f.Name, "Total", StringComparison.OrdinalIgnoreCase) || string.Equals(f.Name, "Number", StringComparison.OrdinalIgnoreCase)))?.Name;
     }
 
-    private async Task<ReconcileResponse> ReconcileAsync(Request req, CancellationToken ct)
+    private async Task<ReconcileResponse> ReconcileAsync(Request req, User user, CancellationToken ct)
     {
         var start = req.From!.Value.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
         var end = req.To!.Value.AddDays(1).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
         var response = new ReconcileResponse(0, [], []);
         var checkedCount = 0;
+        var branchFilter = await Resolve<IBranchScopeGuard>().FilterAsync(User, ct);
 
         for (var page = 0; ; page++)
         {
-            var subjects = await session.Query<Content>()
-                .Where(c => c.ContentType == req.ContentType && c.CreatedAt >= start && c.CreatedAt < end)
+            var rows = session.Query<Content>()
+                .Where(c => c.ContentType == req.ContentType && c.CreatedAt >= start && c.CreatedAt < end);
+            if (branchFilter is not null)
+                rows = rows.Where(c => c.MatchesSql(branchFilter.Sql, branchFilter.Parameters));
+
+            var batch = await rows
                 .OrderBy(c => c.CreatedAt).ThenBy(c => c.Id)
                 .Skip(page * BatchSize).Take(BatchSize)
                 .ToListAsync(ct);
-            if (subjects.Count == 0)
+            if (batch.Count == 0)
                 break;
 
-            var postings = await PostingsAsync(subjects, ct);
+            var subjects = new List<Content>();
+            foreach (var row in batch)
+            {
+                if (await permissions.CanPerformActionAsync(user, row.ContentType, "read", row, ct))
+                    subjects.Add(row);
+            }
+
+            var postings = subjects.Count == 0 ? [] : await PostingsAsync(subjects, ct);
             foreach (var subject in subjects)
             {
                 checkedCount++;
                 Compare(subject, postings.GetValueOrDefault(subject.Id) ?? [], req.ActionKey, response);
             }
 
-            if (subjects.Count < BatchSize)
+            if (batch.Count < BatchSize)
                 break;
         }
 
