@@ -14,8 +14,9 @@ namespace BarakoCMS.Accounting;
 /// <remarks>
 /// A retry finishes the job rather than repeating it. The reversal takes its id from the original's
 /// reference, so it is posted once, and a retry that finds it still voids an original left posted by
-/// a crash between the two steps. Voiding takes the original and its reversal out of the books
-/// together, so the balances come back to what they were before the posting.
+/// a crash between the two steps. Voiding only marks the original. Both entries stay in the books,
+/// each on its own date, so a report after the reversal date nets to zero and an earlier one still
+/// shows the original.
 /// </remarks>
 [WorkflowActionMetadata(
     Description = "Reverse the journal entry posted for an entry and key, and void the original",

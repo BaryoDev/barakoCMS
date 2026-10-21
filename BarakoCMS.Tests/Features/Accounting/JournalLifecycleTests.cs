@@ -12,7 +12,7 @@ namespace BarakoCMS.Tests.Features.Accounting;
 
 /// <summary>
 /// A journal entry is Posted when it is made and Voided by the Void transition, and a Voided entry
-/// leaves the books. An upgraded database reads the same way after the 5.1.0 migration.
+/// stays in the books, counted on its own date, and its reversal counts on the reversal date. An upgraded database reads the same way after the 5.1.0 migration.
 /// </summary>
 [Collection("Sequential")]
 public class JournalLifecycleTests(IntegrationTestFixture fixture)
@@ -62,24 +62,55 @@ public class JournalLifecycleTests(IntegrationTestFixture fixture)
     }
 
     [Fact]
-    public async Task A_voided_entry_leaves_balances_and_cash_flow()
+    public async Task A_voided_entry_stays_in_balances_and_cash_flow()
     {
         var (cash, income, id) = await PostedAsync(250m, month: 11);
-        using (var scope = fixture.Services.CreateScope())
-        {
-            var reports = scope.ServiceProvider.GetRequiredService<ReportingService>();
-            (await reports.BalancesAsync(null, Ct)).Single(b => b.Code == cash).Balance.Should().Be(250m);
-            (await reports.CashFlowAsync([cash], 2026, 11, Ct)).Receipts.Should().Be(250m);
-        }
 
         (await VoidAsync(id, "wrong account")).Succeeded.Should().BeTrue();
 
         using var after = fixture.Services.CreateScope();
         var later = after.ServiceProvider.GetRequiredService<ReportingService>();
-        (await later.BalancesAsync(null, Ct)).Single(b => b.Code == income).Balance.Should().Be(0m);
+        (await later.BalancesAsync(null, Ct)).Single(b => b.Code == income).Balance.Should().Be(250m);
         var flow = await later.CashFlowAsync([cash], 2026, 11, Ct);
-        flow.Receipts.Should().Be(0m);
-        flow.Lines.Should().BeEmpty();
+        flow.Receipts.Should().Be(250m);
+        flow.Lines.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task An_entry_reversed_in_the_next_month_still_shows_in_its_own_month()
+    {
+        var cash = await AccountingTestData.AccountAsync(fixture, "1000", AccountType.Asset);
+        var income = await AccountingTestData.AccountAsync(fixture, "4000", AccountType.Income);
+        var original = await AccountingTestData.PostAsync(fixture, new DateOnly(2026, 3, 10), cash, income, 300m);
+        await AccountingTestData.PostAsync(fixture, new DateOnly(2026, 4, 2), income, cash, 300m);
+        (await VoidAsync(original, "cancelled")).Succeeded.Should().BeTrue();
+
+        using var scope = fixture.Services.CreateScope();
+        var reports = scope.ServiceProvider.GetRequiredService<ReportingService>();
+
+        (await reports.BalancesAsync(new DateOnly(2026, 3, 31), Ct)).Single(b => b.Code == cash).Balance.Should().Be(300m);
+        var march = await reports.CashFlowAsync([cash], 2026, 3, Ct);
+        march.Receipts.Should().Be(300m);
+        march.Closing.Should().Be(300m);
+        var april = await reports.CashFlowAsync([cash], 2026, 4, Ct);
+        april.Disbursements.Should().Be(300m);
+        april.Opening.Should().Be(300m);
+    }
+
+    [Fact]
+    public async Task A_report_after_the_reversal_date_nets_the_pair_to_zero()
+    {
+        var cash = await AccountingTestData.AccountAsync(fixture, "1000", AccountType.Asset);
+        var income = await AccountingTestData.AccountAsync(fixture, "4000", AccountType.Income);
+        var original = await AccountingTestData.PostAsync(fixture, new DateOnly(2026, 3, 10), cash, income, 300m);
+        await AccountingTestData.PostAsync(fixture, new DateOnly(2026, 4, 2), income, cash, 300m);
+        (await VoidAsync(original, "cancelled")).Succeeded.Should().BeTrue();
+
+        using var scope = fixture.Services.CreateScope();
+        var balances = await scope.ServiceProvider.GetRequiredService<ReportingService>().BalancesAsync(new DateOnly(2026, 4, 30), Ct);
+
+        balances.Single(b => b.Code == cash).Balance.Should().Be(0m);
+        balances.Single(b => b.Code == income).Balance.Should().Be(0m);
     }
 
     private async Task<IReadOnlyList<string>> UpdateErrorsAsync(Guid id, Action<Dictionary<string, object>> change)
@@ -118,37 +149,6 @@ public class JournalLifecycleTests(IntegrationTestFixture fixture)
     }
 
     [Fact]
-    public async Task A_voided_entry_cannot_be_edited_or_have_its_lines_changed()
-    {
-        var (_, _, id) = await PostedAsync();
-        (await VoidAsync(id, "wrong account")).Succeeded.Should().BeTrue();
-
-        (await UpdateErrorsAsync(id, ChangeLines)).Should().Contain(e => e.Contains("voided journal entry cannot be edited"));
-        (await UpdateErrorsAsync(id, d => d["Memo"] = "changed")).Should().Contain(e => e.Contains("voided journal entry cannot be edited"));
-    }
-
-    [Fact]
-    public async Task The_migration_states_legacy_entries_and_adds_the_lifecycle_and_runs_twice_without_change()
-    {
-        await AccountingTestData.EnsureTypesAsync(fixture);
-        var scratch = "journal_lifecycle_" + Guid.NewGuid().ToString("N")[..8];
-        var legacyType = "jlmig" + Guid.NewGuid().ToString("N")[..10];
-        var posted = Guid.NewGuid();
-        var voided = Guid.NewGuid();
-
-        using (var scope = fixture.Services.CreateScope())
-        {
-            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            foreach (var (id, status) in new[] { (posted, "Posted"), (voided, "Voided") })
-            {
-                session.Store(new Content
-                {
-                    Id = id,
-                    ContentType = legacyType,
-                    Data = new Dictionary<string, object> { ["Status"] = status },
-                });
-            }
-    [Fact]
     public async Task A_posted_entrys_date_reference_and_amount_cannot_be_changed()
     {
         var (_, _, id) = await PostedAsync();
@@ -182,6 +182,37 @@ public class JournalLifecycleTests(IntegrationTestFixture fixture)
         (await UpdateErrorsAsync(id, d => d["Memo"] = "clearer memo")).Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task A_voided_entry_cannot_be_edited_or_have_its_lines_changed()
+    {
+        var (_, _, id) = await PostedAsync();
+        (await VoidAsync(id, "wrong account")).Succeeded.Should().BeTrue();
+
+        (await UpdateErrorsAsync(id, ChangeLines)).Should().Contain(e => e.Contains("voided journal entry cannot be edited"));
+        (await UpdateErrorsAsync(id, d => d["Memo"] = "changed")).Should().Contain(e => e.Contains("voided journal entry cannot be edited"));
+    }
+
+    [Fact]
+    public async Task The_migration_states_legacy_entries_and_adds_the_lifecycle_and_runs_twice_without_change()
+    {
+        await AccountingTestData.EnsureTypesAsync(fixture);
+        var scratch = "journal_lifecycle_" + Guid.NewGuid().ToString("N")[..8];
+        var legacyType = "jlmig" + Guid.NewGuid().ToString("N")[..10];
+        var posted = Guid.NewGuid();
+        var voided = Guid.NewGuid();
+
+        using (var scope = fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            foreach (var (id, status) in new[] { (posted, "Posted"), (voided, "Voided") })
+            {
+                session.Store(new Content
+                {
+                    Id = id,
+                    ContentType = legacyType,
+                    Data = new Dictionary<string, object> { ["Status"] = status },
+                });
+            }
 
             await session.SaveChangesAsync(Ct);
         }
