@@ -391,7 +391,8 @@ the strictest applies, and leaving them unset is what a tenant did before they e
   (`services.AddSingleton<ISignInMethod>(new MyMethod())`). A tenant can then name it in `methods`,
   and a write that names a method nobody registered is refused. Unlike the three above, a module
   method is off until a tenant names it. An empty list does not turn it on, and neither does the
-  default tenant.
+  default tenant. Naming only a module method turns the three built-ins off for that tenant, so
+  list the built-ins it keeps too, for example `["password", "sms"]`.
 - `sessionMinutes`, between 5 and 10080, caps the refresh token minted for the tenant at sign-in and
   at every refresh, and the access token when it is shorter than fifteen minutes. A refresh is
   capped from the moment it happens, so a session that keeps refreshing within the length keeps going.
