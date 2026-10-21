@@ -4,6 +4,7 @@ using System.Text;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Events;
 using barakoCMS.Infrastructure.Connectors;
+using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using Marten;
 
@@ -64,6 +65,7 @@ internal sealed class CollectionSyncRunner(
     IRequestComposer composer,
     IConnectorFetcher fetcher,
     IContentWriter writer,
+    IContentLifecycleRunner lifecycle,
     ILogger<CollectionSyncRunner> logger) : ICollectionSyncRunner
 {
     /// <summary>The largest response body a sync will read.</summary>
@@ -264,6 +266,16 @@ internal sealed class CollectionSyncRunner(
             if (!changed && !restore)
             {
                 unchanged++;
+                continue;
+            }
+
+            // The same hooks an edit by hand goes through, so a rule a type keeps (a posted entry
+            // that may not change, say) holds for a sync too. A row they refuse is skipped.
+            if (changed
+                && await lifecycle.RunBeforeSaveAsync(sync.ContentType, id, merged, existing.Data, SystemActor, ct) is { Count: > 0 } refused)
+            {
+                skipped++;
+                firstSkip ??= string.Join(" ", refused);
                 continue;
             }
 
