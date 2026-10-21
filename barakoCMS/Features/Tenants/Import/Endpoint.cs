@@ -78,6 +78,8 @@ internal sealed class Endpoint(
             throw;
         }
 
+        // Outside the try: a throw here must not release a tenant that is already Active.
+        domains.Invalidate();
         if (refused is { } status)
         {
             await ReleaseAsync(tenant);
@@ -174,7 +176,6 @@ internal sealed class Endpoint(
                 ["changes"] = applied.Sections.Sum(s => s.Changes.Count),
             }, ct: ct);
         await session.SaveChangesAsync(ct);
-        domains.Invalidate();
     }
 
     /// <summary>The unique index Marten builds on <c>Tenant.Slug</c> (see the schema in ServiceCollectionExtensions).</summary>

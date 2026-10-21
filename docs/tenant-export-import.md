@@ -38,6 +38,7 @@ written. Generated token fields are left out of entries.
   returned and the plan that explains the refusal is. If the process is killed mid-import the claim
   stays as a Suspended tenant. No route deletes a tenant, so that handle stays taken (409): import
   under another handle, and `PUT` the stale one to Archived so it is not mistaken for a live tenant.
+  A retry after a failed activation may be refused (409) because the earlier apply's data is still there.
 - Entries need the Portability module (the `contents` section). Without it the bundle is refused.
 - At most `Tenants:MaxImportEntries` entries (default 5000) per import.
 

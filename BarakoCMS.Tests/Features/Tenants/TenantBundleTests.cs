@@ -476,6 +476,26 @@ public class TenantBundleTests
     }
 
     [Fact]
+    public async Task The_tenant_slug_unique_index_has_the_name_the_import_claim_filters_on()
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        await using var command = session.Connection.CreateCommand();
+        command.CommandText = "select indexname from pg_indexes where tablename = 'mt_doc_tenants'";
+        var names = new List<string>();
+        await using (var reader = await command.ExecuteReaderAsync(Ct))
+        {
+            while (await reader.ReadAsync(Ct))
+            {
+                names.Add(reader.GetString(0));
+            }
+        }
+
+        names.Should().NotBeEmpty();
+        names.Should().Contain("mt_doc_tenants_uidx_slug");
+    }
+
+    [Fact]
     public async Task A_tenant_name_taken_from_the_bundle_is_cut_to_200_characters()
     {
         var platform = await PlatformAdminAsync();
