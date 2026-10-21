@@ -104,6 +104,8 @@ public class SemanticSearchScanBoundTests
     private List<(string Sql, NpgsqlParameter[] Parameters)> StatementsAgainst(string table) =>
         _logger.RawCommands
             .Where(c => Regex.IsMatch(c.Sql, $@"\b{table}\b", RegexOptions.IgnoreCase))
+            // The private site gate reads the content table once per anonymous request.
+            .Where(c => !c.Sql.Contains("lower(e.key) = 'mode'"))
             .ToList();
 
     [Fact]

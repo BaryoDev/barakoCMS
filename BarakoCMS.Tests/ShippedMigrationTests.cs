@@ -26,6 +26,7 @@ public class ShippedMigrationTests
         "5.0.0/accounting-number-sequences",
         "5.0.0/pages-settings",
         "5.0.0/files-storage-settings",
+        "5.1.0/915-external-auth-role-maps",
         "5.2.0/booking-resources",
     ];
 
@@ -69,6 +70,11 @@ public class ShippedMigrationTests
         ["core/5.0.0/role-tenancy"] = "1cdf8bea3d8efbd67134cfc02b154042e620cabe469b5b525c0059636c70be17",
         ["core/5.0.0/site-field-schemas"] = "982871901171d8bf8bae595987abe0d560b1e71771f6e0d57e721bdced3ee4ad",
         ["core/5.0.0/tenant-status"] = "158094c6e3234029157f411909efde433353c5ae00c73481ecb78f6ed67c8d52",
+        ["core/5.1.0/1158-content-type-name-index-ignore-case"] = "2f131a9e9d0a65db5255ed7221a4e3896052639f4413e553f7c6c19450e22040",
+        ["ExternalAuth/5.1.0/915-external-auth-role-maps"] = "8df8e9bb5661a91bcf896ee15dbe87b560bfa90d705d8d51cbf4967ff02b3507",
+        ["core/5.1.0/seed-markers"] = "0635c09690d8d33fe92ef8189277aff93383d708ff9a28df5a75f4dbd65d421e",
+        ["core/5.1.0/workflow-run-updated-at-index"] = "096c752f26b5372a0fc3b8858620742a80482d241f0242a0a5e1090f9c6dab0a",
+        ["core/5.1.0/workflow-run-workflow-index"] = "588062405fa26596a8472b717f804c18d29e6495c2a7d570b9533a825f2e7024",
     };
 
     private static IReadOnlyList<ShippedMigration> FirstParty() =>

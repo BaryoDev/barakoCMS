@@ -118,6 +118,11 @@ jobs:
       - name: Prove the method-length check can fail
         run: bash scripts/test-method-length.sh
 
+      # The shard split is only worth trusting if it covers every class once. A listing that found
+      # nothing would read as an even split of nothing, so the 400-class floor is proven here too.
+      - name: Prove the test shard split covers every class once
+        run: bash scripts/test-test-shards.sh
+
       - name: Methods over 70 lines do not grow
         run: python3 scripts/check-method-length.py
 

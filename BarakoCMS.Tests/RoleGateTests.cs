@@ -159,6 +159,7 @@ public class RoleGateTests
         new("POST", "/api/users/{userId}/roles", $"/api/users/{NotAGuid}/roles"),
         new("DELETE", "/api/users/{userId}/roles/{roleId}", $"/api/users/{NotAGuid}/roles/{NotAGuid}"),
         new("POST", "/api/users/{userId}/password", $"/api/users/{NotAGuid}/password"),
+        new("POST", "/api/users/{userId}/mfa/reset", $"/api/users/{NotAGuid}/mfa/reset"),
         // to before from: the endpoint answers 400 from its own range check, before any ledger read.
         new("GET", "/api/numbering/external/{series}/gaps", "/api/numbering/external/no-such-series/gaps?from=5&to=1"),
         new("GET", "/api/stations", "/api/stations"),

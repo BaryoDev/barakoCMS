@@ -157,9 +157,9 @@ apply_file() { # $1 = path under migrations/
 }
 
 apply_files() { # $1 = paths, one per line
-    local files file
-    mapfile -t files <<< "$1"
-    for file in "${files[@]}"; do
+    local files=() file
+    while IFS= read -r file; do files+=("$file"); done <<< "$1"
+    for file in ${files[@]+"${files[@]}"}; do
         if [ -n "$file" ]; then apply_file "$file"; fi
     done
 }
