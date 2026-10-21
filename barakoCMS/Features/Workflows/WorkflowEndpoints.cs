@@ -15,7 +15,8 @@ internal class CreateWorkflowEndpoint(
     IDocumentSession session,
     barakoCMS.Infrastructure.Services.IWorkflowSchemaValidator validator,
     ISecretProtector protector,
-    IPermissionResolver permissions) : Endpoint<CreateWorkflowRequest, barakoCMS.Features.Workflows.WorkflowResponse>
+    IPermissionResolver permissions,
+    IWorkflowPluginRegistry registry) : Endpoint<CreateWorkflowRequest, barakoCMS.Features.Workflows.WorkflowResponse>
 {
     public override void Configure()
     {
@@ -40,7 +41,7 @@ internal class CreateWorkflowEndpoint(
             return;
         }
 
-        var missing = await WorkflowSaveRights.MissingAsync(session, permissions, User, workflow, ct);
+        var missing = await WorkflowSaveRights.MissingAsync(session, permissions, registry, User, workflow, ct);
         if (missing.Count > 0)
         {
             foreach (var line in missing) AddError(line);
@@ -384,7 +385,8 @@ internal sealed class UpdateWorkflowEndpoint(
     barakoCMS.Infrastructure.Services.IWorkflowSchemaValidator validator,
     ISecretProtector protector,
     TenantContext tenant,
-    IPermissionResolver permissions) : Endpoint<UpdateWorkflowRequest, WorkflowResponse>
+    IPermissionResolver permissions,
+    IWorkflowPluginRegistry registry) : Endpoint<UpdateWorkflowRequest, WorkflowResponse>
 {
     public override void Configure()
     {
@@ -420,7 +422,7 @@ internal sealed class UpdateWorkflowEndpoint(
             return;
         }
 
-        var missing = await WorkflowSaveRights.MissingAsync(session, permissions, User, workflow, ct);
+        var missing = await WorkflowSaveRights.MissingAsync(session, permissions, registry, User, workflow, ct);
         if (missing.Count > 0)
         {
             foreach (var line in missing) AddError(line);

@@ -38,6 +38,11 @@ public class WorkflowActionMetadata
     public string? Group { get; set; }
 
     /// <summary>
+    /// The capability a user must hold to save a workflow that carries this action. Empty when none.
+    /// </summary>
+    public string RequiredCapability { get; set; } = string.Empty;
+
+    /// <summary>
     /// Example configuration JSON.
     /// </summary>
     public string ExampleConfiguration { get; set; } = string.Empty;
