@@ -60,13 +60,13 @@ Each row is a control that is implemented and checkable, not a plan.
 There is no push to Splunk, Sentinel, Elastic or Datadog. There is a pull a poller can run.
 `GET /api/audit?since=<cursor>` returns entries oldest first in pages of at most 100
 (`pageSize`). Send a timestamp as `since` the first time. Every response carries a `cursor`; send
-it back as `since` on the next call and the read resumes where the last page stopped, with no entry
-skipped or repeated across a page boundary. When a page comes back empty, wait and poll again with
-the same cursor.
+it back as `since` on the next call and the read resumes where the last page stopped. When a page comes back empty, wait and poll again with the
+same cursor.
 
 Entries are stored with the time the request stamped, which can be a moment before the transaction
 commits. The cursor stays about five seconds behind the newest entry for that reason, so a late
-commit is read on the next poll and the last few entries can arrive twice. Key on `id`.
+commit is read on the next poll. No entry is skipped, and the last few can arrive twice, so key
+on `id`.
 
 The caller needs `view_audit_log`. A tenant administrator reads only their own tenant, and a role
 or API key row carries the same trimmed metadata as the list. A SuperAdmin may narrow with
