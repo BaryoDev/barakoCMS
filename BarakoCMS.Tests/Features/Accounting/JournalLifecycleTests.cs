@@ -148,6 +148,40 @@ public class JournalLifecycleTests(IntegrationTestFixture fixture)
                     Data = new Dictionary<string, object> { ["Status"] = status },
                 });
             }
+    [Fact]
+    public async Task A_posted_entrys_date_reference_and_amount_cannot_be_changed()
+    {
+        var (_, _, id) = await PostedAsync();
+        var before = await AccountingTestData.LoadAsync(fixture, id);
+
+        (await UpdateErrorsAsync(id, d => d["Date"] = "2026-01-02")).Should().Contain(e => e.Contains("date of a posted"));
+        (await UpdateErrorsAsync(id, d => d["Reference"] = "other-ref")).Should().Contain(e => e.Contains("Reference of a posted"));
+        (await UpdateErrorsAsync(id, d => d["Amount"] = 1m)).Should().Contain(e => e.Contains("amount of a posted"));
+
+        var after = await AccountingTestData.LoadAsync(fixture, id);
+        AccountingTestData.Text(after, "Date").Should().Be(AccountingTestData.Text(before, "Date"));
+        AccountingTestData.Text(after, "Reference").Should().Be(AccountingTestData.Text(before, "Reference"));
+    }
+
+    [Fact]
+    public async Task A_posted_entry_cannot_be_made_to_void_another()
+    {
+        var (_, _, id) = await PostedAsync();
+
+        var errors = await UpdateErrorsAsync(id, d => d["VoidsEntryId"] = Guid.NewGuid().ToString());
+
+        errors.Should().Contain(e => e.Contains("VoidsEntryId of a posted"));
+        AccountingTestData.Text(await AccountingTestData.LoadAsync(fixture, id), "VoidsEntryId").Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_posted_entry_updated_with_its_own_values_and_a_new_memo_is_accepted()
+    {
+        var (_, _, id) = await PostedAsync();
+
+        (await UpdateErrorsAsync(id, d => d["Memo"] = "clearer memo")).Should().BeEmpty();
+    }
+
 
             await session.SaveChangesAsync(Ct);
         }
