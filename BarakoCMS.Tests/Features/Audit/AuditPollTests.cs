@@ -76,13 +76,35 @@ public class AuditPollTests
         seen.Should().Equal(entries.Select(e => e.Id), "oldest first, each once");
     }
 
+    /// <summary>
+    /// A time with a seventh digit of 5 that Postgres stores rounded down. Whether a tie rounds down
+    /// depends on the double the fraction parses to, so Postgres is asked instead of guessed at.
+    /// </summary>
+    private async Task<DateTime> TieThatPostgresRoundsDownAsync()
+    {
+        var baseTime = DateTime.UtcNow.AddHours(-3);
+        baseTime = new DateTime(baseTime.Ticks - baseTime.Ticks % TimeSpan.TicksPerSecond, DateTimeKind.Utc);
+
+        await using var connection = new Npgsql.NpgsqlConnection(_factory.ConnectionString);
+        await connection.OpenAsync(Ct);
+        for (var micro = 0; micro < 200; micro++)
+        {
+            var tie = baseTime.AddTicks(micro * 10 + 5);
+            var cut = baseTime.AddTicks(micro * 10);
+            await using var command = new Npgsql.NpgsqlCommand("SELECT (@tie)::timestamptz = (@cut)::timestamptz", connection);
+            command.Parameters.AddWithValue("tie", tie.ToString("O"));
+            command.Parameters.AddWithValue("cut", cut.ToString("O"));
+            if ((bool)(await command.ExecuteScalarAsync(Ct))!) return tie;
+        }
+
+        throw new Xunit.Sdk.XunitException("Postgres rounded every candidate tie up, so there is no tie to test with.");
+    }
+
     [Fact]
     public async Task Entries_written_at_one_instant_are_not_skipped_or_repeated_across_pages()
     {
         var tenant = $"poll_{Guid.NewGuid():N}";
-        // A seventh digit of 5 after an even microsecond is the tie Postgres rounds down.
-        var at = DateTime.UtcNow.AddHours(-3);
-        at = new DateTime(at.Ticks - at.Ticks % 20 + 5, DateTimeKind.Utc);
+        var at = await TieThatPostgresRoundsDownAsync();
         var entries = Entries(tenant, 5, at, sameInstant: true);
         await SeedAsync(entries.ToArray());
 
