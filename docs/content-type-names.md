@@ -11,7 +11,12 @@ would change what those readers see and leave old entries in the old spelling ne
 
 What that means for you:
 
-- `GET /api/contents?contentType=article` lists entries stored as `article` and `Article` alike.
+- Case is ignored when a type is looked up by name, and `GET /api/contents?contentType=` finds the
+  type that way. It then lists entries stored under the type's own spelling and under the
+  spelling you asked with, so `contentType=article` lists entries stored as `article`, and `Article`
+  too when the type is stored as `Article`. An entry stored in some third spelling is listed only
+  when you ask with that spelling. The filter compares the stored value exactly so it can use the
+  index.
 - Each entry still reports the spelling it was written with.
 - Code that reads `contentType` off an entry and compares it exactly should compare ignoring case,
   or use the spelling your own writers send.
