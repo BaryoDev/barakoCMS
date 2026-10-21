@@ -37,4 +37,33 @@ internal static class SubjectSensitivity
 
         return null;
     }
+
+    /// <summary>
+    /// Why an amount parameter may not be used: it names a sensitive field, or it is that field's
+    /// number, which is what the runner leaves once it has filled <c>{{Data.Field}}</c> in. An amount
+    /// that happens to equal a sensitive number is refused too.
+    /// </summary>
+    public static string? AmountProblem(string? amount, Content subject, HashSet<string> sensitive)
+    {
+        if (string.IsNullOrWhiteSpace(amount))
+            return null;
+
+        if (Problem([amount], subject, sensitive.Where(f => amount.Contains($"{{{{Data.{f}}}}}", StringComparison.OrdinalIgnoreCase)).ToHashSet()) is { } named)
+            return named;
+
+        if (!decimal.TryParse(amount, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var given))
+            return null;
+
+        foreach (var field in sensitive)
+        {
+            var raw = ContentData.Get(subject.Data, field);
+            if (raw is null || raw is string { Length: 0 })
+                continue;
+            if (decimal.TryParse(Convert.ToString(raw, System.Globalization.CultureInfo.InvariantCulture), System.Globalization.NumberStyles.Number,
+                    System.Globalization.CultureInfo.InvariantCulture, out var number) && number == given)
+                return $"A parameter shows the sensitive field '{field}', which an accounting entry must not carry.";
+        }
+
+        return null;
+    }
 }
