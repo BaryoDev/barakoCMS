@@ -63,6 +63,9 @@ public sealed class ReverseAction(LedgerService ledger, IContentTransitioner tra
 
         var reversalId = PostingReference.EntryId(reference);
         var number = reversal is null ? string.Empty : ContentData.AsString(ContentData.Get(reversal.Data, "EntryNumber")) ?? string.Empty;
+        if (original is not null && !string.IsNullOrWhiteSpace(ContentData.AsString(ContentData.Get(original.Data, "VoidsEntryId"))))
+            return WorkflowActionResult.PermanentFailure("That entry is itself a reversal, which cannot be reversed. Post the original again instead.");
+
         if (reversal is null)
         {
             var posted = await PostReversalAsync(original, reference, reversalId, parameters, ct);

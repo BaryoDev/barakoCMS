@@ -93,6 +93,25 @@ public class ReverseActionTests(IntegrationTestFixture fixture)
     }
 
     [Fact]
+    public async Task A_reversal_cannot_itself_be_reversed()
+    {
+        var (cash, _, mapping) = await MappingAsync();
+        var subject = Subject(200m);
+        await PostAsync(subject, mapping);
+        (await ReverseAsync(subject)).Succeeded.Should().BeTrue();
+
+        var again = await RunAsync<ReverseAction>(subject, new() { ["ActionKey"] = "receipt:reverse", ["Reason"] = "undo the undo" });
+
+        again.Succeeded.Should().BeFalse();
+        again.Retryable.Should().BeFalse();
+        again.Error.Should().Contain("itself a reversal");
+        (await AccountingTestData.EntriesAsync(fixture, $"{subject.Id:N}:")).Should().HaveCount(2);
+        using var scope = fixture.Services.CreateScope();
+        var balances = await scope.ServiceProvider.GetRequiredService<ReportingService>().BalancesAsync(null, Ct);
+        balances.Single(b => b.Code == cash).Balance.Should().Be(0m);
+    }
+
+    [Fact]
     public async Task Reversing_without_a_posting_is_a_permanent_failure()
     {
         var result = await ReverseAsync(Subject(10m));
