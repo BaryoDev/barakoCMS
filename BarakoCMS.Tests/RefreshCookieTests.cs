@@ -343,7 +343,7 @@ public class RefreshCookieTests
     /// Signing out is not held to the password-guessing limit.
     /// </summary>
     /// <remarks>
-    /// Login, refresh, MFA and OTP share a bucket of five per fifteen minutes per IP. A few reloads,
+    /// Login, MFA and OTP share a bucket of five per fifteen minutes per IP (refresh has its own). A few attempts,
     /// or an office behind one address, used it up, and a logout refused with 429 left the server
     /// side of the session alive while the console had already forgotten it.
     /// </remarks>
@@ -361,7 +361,7 @@ public class RefreshCookieTests
         var attempts = 0;
         do
         {
-            last = await client.PostAsJsonAsync("/api/auth/refresh", new { refreshToken = "not-a-token" });
+            last = await client.PostAsJsonAsync("/api/auth/login", new { username = "nobody-" + attempts, password = "wrong-password" });
             attempts++;
         }
         while (last.StatusCode != HttpStatusCode.TooManyRequests && attempts < 20);
