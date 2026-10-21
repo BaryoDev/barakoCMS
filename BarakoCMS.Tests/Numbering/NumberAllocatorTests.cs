@@ -1,6 +1,6 @@
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Infrastructure.Numbering;
-using BarakoCMS.Tests.Clinic;
+using BarakoCMS.Tests.SampleProbe;
 using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
@@ -9,7 +9,7 @@ using Xunit;
 namespace BarakoCMS.Tests.Numbering;
 
 [Collection("Sequential")]
-public class NumberAllocatorTests(ClinicProbeHost host) : IClassFixture<ClinicProbeHost>
+public class NumberAllocatorTests(SampleProbeHost host) : IClassFixture<SampleProbeHost>
 {
     private INumberAllocator Allocator => host.Services.GetRequiredService<INumberAllocator>();
 

@@ -88,7 +88,8 @@ internal sealed class ExternalNumberLedger(TimeProvider clock) : IExternalNumber
     }
 
     // The tenant is part of the id, so the same number can be used once in each tenant.
-    private static Guid IdFor(string tenantId, string series, long number)
+    // Record and the already-issued check read it through here, so they cannot disagree on the key.
+    internal static Guid IdFor(string tenantId, string series, long number)
     {
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes($"{tenantId}\u001f{series}\u001f{number}"));
         return new Guid(bytes.AsSpan(0, 16));
