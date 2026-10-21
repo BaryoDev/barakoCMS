@@ -90,18 +90,14 @@ internal sealed record AuditCursor(DateTimeOffset At, Guid Id)
     }
 
     /// <summary>
-    /// Postgres keeps a timestamp to the microsecond and rounds the seventh digit of the stored text
-    /// to get there, while a bound parameter is cut at the microsecond. A cursor left at 100 ns would
-    /// sit just under the row it came from, and that row would be read again on every poll.
+    /// Cuts a time at the microsecond. Postgres keeps a timestamp to the microsecond and parses the
+    /// stored text with its own rounding (half to even), so a guess at that rounding can land one
+    /// microsecond over the stored value and skip rows. An entry stamped with this has no seventh
+    /// digit to round, and a cursor cut the same way agrees with it exactly.
     /// </summary>
-    private static DateTimeOffset ToMicroseconds(DateTimeOffset at)
-    {
-        var ticks = at.UtcTicks;
-        var rest = ticks % 10;
-        ticks -= rest;
-        if (rest >= 5) ticks += 10;
-        return new(ticks, TimeSpan.Zero);
-    }
+    internal static DateTime TruncateToMicroseconds(DateTime at) => new(at.Ticks - at.Ticks % 10, at.Kind);
+
+    private static DateTimeOffset ToMicroseconds(DateTimeOffset at) => new(at.UtcTicks - at.UtcTicks % 10, TimeSpan.Zero);
 
     private static DateTimeOffset Floor(DateTimeOffset at) =>
         new(at.UtcTicks - at.UtcTicks % TimeSpan.TicksPerMillisecond, TimeSpan.Zero);

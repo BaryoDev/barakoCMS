@@ -80,7 +80,10 @@ public class AuditPollTests
     public async Task Entries_written_at_one_instant_are_not_skipped_or_repeated_across_pages()
     {
         var tenant = $"poll_{Guid.NewGuid():N}";
-        var entries = Entries(tenant, 5, DateTime.UtcNow.AddHours(-3), sameInstant: true);
+        // A seventh digit of 5 after an even microsecond is the tie Postgres rounds down.
+        var at = DateTime.UtcNow.AddHours(-3);
+        at = new DateTime(at.Ticks - at.Ticks % 20 + 5, DateTimeKind.Utc);
+        var entries = Entries(tenant, 5, at, sameInstant: true);
         await SeedAsync(entries.ToArray());
 
         var seen = new List<Guid>();

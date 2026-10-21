@@ -25,14 +25,36 @@ public class AuditCursorTests
     }
 
     [Fact]
-    public void An_exact_cursor_sits_where_Postgres_stores_the_row_to_the_microsecond()
+    public void An_exact_cursor_on_a_seventh_digit_of_five_is_cut_not_rounded()
+    {
+        var at = Now.AddHours(-1).UtcDateTime.AddTicks(5);
+        var page = new List<AuditEvent> { new() { Id = Guid.NewGuid(), CreatedAt = at } };
+
+        var next = AuditCursor.Next(Input(TimeSpan.FromHours(2)), page, hasMore: true, Now);
+
+        next.At.UtcTicks.Should().Be(at.Ticks - 5, "a tie must never land above the stored value");
+    }
+
+    [Fact]
+    public void An_exact_cursor_cuts_a_fraction_above_half_a_microsecond_down_too()
     {
         var at = Now.AddHours(-1).UtcDateTime.AddTicks(7);
         var page = new List<AuditEvent> { new() { Id = Guid.NewGuid(), CreatedAt = at } };
 
         var next = AuditCursor.Next(Input(TimeSpan.FromHours(2)), page, hasMore: true, Now);
 
-        next.At.UtcTicks.Should().Be(at.Ticks - 7 + 10, "the seventh digit rounds up the way Postgres stores it");
+        next.At.UtcTicks.Should().Be(at.Ticks - 7);
+    }
+
+    [Fact]
+    public void A_stamp_is_cut_at_the_microsecond_and_keeps_its_kind()
+    {
+        var at = new DateTime(2026, 10, 21, 12, 0, 0, DateTimeKind.Utc).AddTicks(1234565);
+
+        var stamp = AuditCursor.TruncateToMicroseconds(at);
+
+        stamp.Ticks.Should().Be(at.Ticks - 5);
+        stamp.Kind.Should().Be(DateTimeKind.Utc);
     }
 
     [Fact]
