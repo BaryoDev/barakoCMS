@@ -268,4 +268,39 @@ public class ReconcileTests(IntegrationTestFixture fixture)
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
         (await response.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("checked").GetInt32().Should().Be(0);
     }
+
+    [Fact]
+    public async Task A_reversed_key_settles_only_itself_when_no_action_key_is_given()
+    {
+        var type = NewType();
+        var receipt = await MappingAsync();
+        var fee = await AmountMappingAsync();
+        var subject = await SubjectAsync(type, 100m, June(10), "R-20");
+        await PostAsync(subject, receipt);
+        (await RunAsync<PostJournalAction>(subject, new() { ["Mapping"] = fee, ["ActionKey"] = "fee", ["Amount"] = "40" })).Succeeded.Should().BeTrue();
+        (await RunAsync<ReverseAction>(subject, new() { ["ActionKey"] = "receipt", ["Reason"] = "cancelled" })).Succeeded.Should().BeTrue();
+        var client = await _callers.SuperAdminAsync(null);
+
+        var body = await (await client.GetAsync(Url(type), Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
+
+        var mismatch = body.GetProperty("mismatches").EnumerateArray().Should().ContainSingle().Subject;
+        mismatch.GetProperty("subjectId").GetGuid().Should().Be(subject.Id);
+        mismatch.GetProperty("journalAmount").GetDecimal().Should().Be(40m);
+    }
+
+    private async Task<string> AmountMappingAsync()
+    {
+        var cash = await AccountingTestData.AccountAsync(fixture, "1010", AccountType.Asset);
+        var income = await AccountingTestData.AccountAsync(fixture, "4010", AccountType.Income);
+        var name = $"map-{Guid.NewGuid():N}"[..14];
+        using var scope = fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(new AccountMapping
+        {
+            Name = name,
+            Rule = new MappingRule([new(cash, "debit", "{{Amount}}"), new(income, "credit", "{{Amount}}")], true, null),
+        });
+        await session.SaveChangesAsync(Ct);
+        return name;
+    }
 }

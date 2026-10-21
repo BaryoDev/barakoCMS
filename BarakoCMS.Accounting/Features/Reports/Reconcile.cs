@@ -20,7 +20,7 @@ public sealed record ReconcileResponse(int Checked, List<ReconcileRow> Mismatche
 /// <remarks>
 /// A subject's amount is its <c>Total</c> field. It matches when the entries a workflow run posted for
 /// it add up to that amount, or when the posting was reversed (a reversed posting is settled, however
-/// large the subject still reads). Only entries a workflow run made count, as when the action looks
+/// large the subject still reads, and only the key that was reversed). Only entries a workflow run made count, as when the action looks
 /// for its own posting. <c>Total</c> and <c>Number</c> are read only when the type marks them Public,
 /// since this route is open to anyone who may view the ledger and not to anyone who may read the
 /// subject. <c>from</c> and <c>to</c> are dates, both days included, at most 366 days apart.
@@ -149,8 +149,17 @@ public class ReconcileEndpoint(IQuerySession session, IPermissionResolver permis
         IReadOnlyList<Content> mine = string.IsNullOrWhiteSpace(actionKey)
             ? entries
             : entries.Where(e => KeyOf(e) == actionKey || KeyOf(e) == actionKey + ":reverse").ToList();
-        if (mine.Any(e => KeyOf(e).EndsWith(":reverse", StringComparison.Ordinal)))
-            return;
+
+        // A reversed key is settled, and only that key: the entries of the others still have to add up.
+        const string Reversed = ":reverse";
+        var reversedKeys = mine.Select(KeyOf).Where(k => k.EndsWith(Reversed, StringComparison.Ordinal))
+            .Select(k => k[..^Reversed.Length]).ToHashSet(StringComparer.Ordinal);
+        if (reversedKeys.Count > 0)
+        {
+            mine = mine.Where(e => !reversedKeys.Contains(KeyOf(e).EndsWith(Reversed, StringComparison.Ordinal) ? KeyOf(e)[..^Reversed.Length] : KeyOf(e))).ToList();
+            if (mine.Count == 0)
+                return;
+        }
 
         var live = mine.Where(e => e.LifecycleState != AccountingContentTypes.VoidedState).ToList();
         var subjectAmount = ContentData.AsDecimal(ContentData.Get(subject.Data, "Total"));
