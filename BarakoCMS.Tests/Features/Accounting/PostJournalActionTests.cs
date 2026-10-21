@@ -304,6 +304,46 @@ public class PostJournalActionTests(IntegrationTestFixture fixture)
     }
 
     [Fact]
+    public async Task An_amount_taken_from_a_sensitive_field_fails_and_posts_nothing()
+    {
+        var setup = await SetupAsync(true, ("debit", "{{Amount}}"), ("credit", "{{Amount}}"));
+        var type = "rcpt" + Guid.NewGuid().ToString("N")[..8];
+        using (var scope = fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(),
+                Name = type,
+                DisplayName = type,
+                Fields =
+                [
+                    new FieldDefinition { Name = "Total", DisplayName = "Total", Type = "decimal" },
+                    new FieldDefinition { Name = "Dosage", DisplayName = "Dosage", Type = "decimal", Sensitivity = SensitivityLevel.Sensitive },
+                ],
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var subject = new Content
+        {
+            Id = Guid.NewGuid(),
+            ContentType = type,
+            Data = new Dictionary<string, object> { ["Total"] = 40m, ["Dosage"] = 75.5m },
+        };
+
+        var filled = await RunAsync(subject, setup.Mapping, "receipt", amount: "75.5");
+        var unfilled = await RunAsync(subject, setup.Mapping, "receipt", amount: "{{Data.Dosage}}");
+
+        filled.Succeeded.Should().BeFalse();
+        filled.Retryable.Should().BeFalse();
+        filled.Error.Should().Contain("Dosage");
+        unfilled.Succeeded.Should().BeFalse();
+        (await EntriesForAsync(subject)).Should().BeEmpty();
+        (await RunAsync(subject, setup.Mapping, "receipt", amount: "40")).Succeeded.Should().BeTrue();
+    }
+
+    [Fact]
     public void The_module_registers_the_action_under_its_prefix()
     {
         var services = new ServiceCollection();

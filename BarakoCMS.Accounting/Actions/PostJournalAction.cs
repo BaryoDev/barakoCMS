@@ -54,7 +54,8 @@ public sealed class PostJournalAction(LedgerService ledger, AccountMappingStore 
 
         var sensitive = await SubjectSensitivity.FieldsAsync(session, content, ct);
         var (lines, problem) = ResolveLines(rule, parameters, content, sensitive);
-        problem ??= SubjectSensitivity.Problem([parameters.GetValueOrDefault("Memo"), actionKey], content, sensitive);
+        problem ??= SubjectSensitivity.Problem([parameters.GetValueOrDefault("Memo"), actionKey, mappingName], content, sensitive)
+            ?? SubjectSensitivity.AmountProblem(parameters.GetValueOrDefault("Amount"), content, sensitive);
         if (problem is not null)
             return WorkflowActionResult.PermanentFailure(problem);
         if (lines.Count == 0)
