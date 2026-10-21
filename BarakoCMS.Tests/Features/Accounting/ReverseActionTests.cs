@@ -216,7 +216,7 @@ public class ReverseActionTests(IntegrationTestFixture fixture)
     }
 
     [Fact]
-    public async Task An_entry_that_points_at_a_voided_one_still_counts_in_balances()
+    public async Task An_entry_that_points_at_a_voided_one_and_the_voided_one_both_count_in_balances()
     {
         var cash = await AccountingTestData.AccountAsync(fixture, "1010", AccountType.Asset);
         var income = await AccountingTestData.AccountAsync(fixture, "4010", AccountType.Income);
@@ -235,6 +235,6 @@ public class ReverseActionTests(IntegrationTestFixture fixture)
 
         using var read = fixture.Services.CreateScope();
         var balances = await read.ServiceProvider.GetRequiredService<ReportingService>().BalancesAsync(null, Ct);
-        balances.Single(b => b.Code == cash).Balance.Should().Be(70m);
+        balances.Single(b => b.Code == cash).Balance.Should().Be(100m);
     }
 }

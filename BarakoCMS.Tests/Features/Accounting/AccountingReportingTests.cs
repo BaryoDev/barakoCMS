@@ -173,7 +173,7 @@ public class AccountingReportingTests
     }
 
     [Fact]
-    public async Task A_voided_entry_is_excluded_from_balances()
+    public async Task A_voided_status_is_a_marker_and_the_entry_stays_in_balances()
     {
         var cash = await AccountAsync("1000", "Asset");
         var income = await AccountAsync("4000", "Income");
@@ -193,7 +193,7 @@ public class AccountingReportingTests
         using var scope = _factory.Services.CreateScope();
         var balances = await Reporting(scope).BalancesAsync(null, default);
 
-        balances.Single(b => b.Code == cash).Balance.Should().Be(0m,
-            "a voided entry must not move the books");
+        balances.Single(b => b.Code == cash).Balance.Should().Be(999m,
+            "voiding marks an entry, it does not take it out of the books");
     }
 }

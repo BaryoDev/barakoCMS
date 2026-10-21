@@ -35,7 +35,7 @@ public class CashFlowRouteTests(IntegrationTestFixture fixture)
     }
 
     [Fact]
-    public async Task Seeded_postings_give_receipts_disbursements_opening_and_closing_and_a_voided_entry_is_left_out()
+    public async Task Seeded_postings_give_receipts_disbursements_opening_and_closing_and_a_voided_entry_stays_in()
     {
         var cashA = await AccountingTestData.AccountAsync(fixture, "1010", AccountType.Asset);
         var cashB = await AccountingTestData.AccountAsync(fixture, "1020", AccountType.Asset);
@@ -54,9 +54,9 @@ public class CashFlowRouteTests(IntegrationTestFixture fixture)
         var body = await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
         body.GetProperty("period").GetString().Should().Be("2026-10");
         body.GetProperty("opening").GetDecimal().Should().Be(100m);
-        body.GetProperty("receipts").GetDecimal().Should().Be(50m);
+        body.GetProperty("receipts").GetDecimal().Should().Be(1049m);
         body.GetProperty("disbursements").GetDecimal().Should().Be(30m);
-        body.GetProperty("closing").GetDecimal().Should().Be(120m);
+        body.GetProperty("closing").GetDecimal().Should().Be(1119m);
     }
 
     [Theory]
