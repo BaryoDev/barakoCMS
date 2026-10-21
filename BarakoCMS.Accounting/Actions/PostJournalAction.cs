@@ -53,7 +53,9 @@ public sealed class PostJournalAction(LedgerService ledger, AccountMappingStore 
             return Done(existing.Id, ContentData.AsString(ContentData.Get(existing.Data, "EntryNumber")) ?? string.Empty);
 
         var sensitive = await SubjectSensitivity.FieldsAsync(session, content, ct);
-        var (lines, problem) = ResolveLines(rule, parameters, content, sensitive);
+        var chart = (await AccountingContentReader.AccountsAsync(session, ct))
+            .GroupBy(a => a.Code, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First().Code, StringComparer.OrdinalIgnoreCase);
+        var (lines, problem) = ResolveLines(rule, parameters, content, sensitive, chart);
         problem ??= SubjectSensitivity.Problem([parameters.GetValueOrDefault("Memo"), actionKey, mappingName], content, sensitive)
             ?? SubjectSensitivity.AmountProblem(parameters.GetValueOrDefault("Amount"), content, sensitive);
         if (problem is not null)
@@ -88,7 +90,7 @@ public sealed class PostJournalAction(LedgerService ledger, AccountMappingStore 
     }
 
     /// <summary>The lines to post, with zero lines dropped when the rule says so, or the reason one cannot be read.</summary>
-    private static (List<PostLine> Lines, string? Problem) ResolveLines(MappingRule rule, Dictionary<string, string> parameters, Content subject, HashSet<string> sensitive)
+    private static (List<PostLine> Lines, string? Problem) ResolveLines(MappingRule rule, Dictionary<string, string> parameters, Content subject, HashSet<string> sensitive, Dictionary<string, string> chart)
     {
         var lines = new List<PostLine>();
         for (var i = 0; i < rule.Lines.Count; i++)
@@ -100,7 +102,7 @@ public sealed class PostJournalAction(LedgerService ledger, AccountMappingStore 
                 continue;
 
             var debit = string.Equals(line.Side, "debit", StringComparison.OrdinalIgnoreCase);
-            lines.Add(new PostLine(line.Account, debit ? amount : 0m, debit ? 0m : amount));
+            lines.Add(new PostLine(chart.GetValueOrDefault(line.Account, line.Account), debit ? amount : 0m, debit ? 0m : amount));
         }
 
         return (lines, null);

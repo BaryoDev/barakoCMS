@@ -344,6 +344,36 @@ public class PostJournalActionTests(IntegrationTestFixture fixture)
     }
 
     [Fact]
+    public async Task A_mapping_that_spells_an_account_differently_posts_the_charts_spelling()
+    {
+        var cash = await AccountingTestData.AccountAsync(fixture, "CASH", AccountType.Asset);
+        var income = await AccountingTestData.AccountAsync(fixture, "SALES", AccountType.Income);
+        var name = $"map-{Guid.NewGuid():N}"[..14];
+        using (var scope = fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new AccountMapping
+            {
+                Name = name,
+                Rule = new MappingRule(
+                    [new(cash.ToUpperInvariant(), "debit", "{{Data.Total}}"), new(income.ToUpperInvariant(), "credit", "{{Data.Total}}")], true, null),
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var subject = Subject(80m);
+        (await RunAsync(subject, name, "receipt")).Succeeded.Should().BeTrue();
+
+        AccountingTestData.Lines((await EntriesForAsync(subject)).Single()).Select(l => l.Account).Should().Equal(cash, income);
+        using var read = fixture.Services.CreateScope();
+        var reports = read.ServiceProvider.GetRequiredService<ReportingService>();
+        (await reports.CashFlowAsync([cash], 2026, 10, Ct)).Receipts.Should().Be(80m);
+        (await reports.CashFlowAsync([cash.ToUpperInvariant()], 2026, 10, Ct)).Receipts.Should().Be(80m);
+        var balances = (await reports.BalancesAsync(null, Ct)).Where(b => string.Equals(b.Code, cash, StringComparison.OrdinalIgnoreCase)).ToList();
+        balances.Should().ContainSingle().Which.Balance.Should().Be(80m);
+    }
+
+    [Fact]
     public void The_module_registers_the_action_under_its_prefix()
     {
         var services = new ServiceCollection();

@@ -90,7 +90,7 @@ internal sealed class AccountMappingConfigProvider(IDocumentSession session) : I
         return errors;
     }
 
-    /// <summary>The document as a rule with its sides in lower case, or null with the reasons in <paramref name="errors"/>.</summary>
+    /// <summary>The document as a rule with its sides in lower case and its accounts spelled as the chart spells them, or null with the reasons in <paramref name="errors"/>.</summary>
     private async Task<MappingRule?> ReadAsync(string name, JsonElement document, List<string> errors, CancellationToken ct)
     {
         MappingRule? rule;
@@ -112,12 +112,17 @@ internal sealed class AccountMappingConfigProvider(IDocumentSession session) : I
 
         var problems = new List<string>();
         var chart = new AccountService(session);
+        var canonical = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var codes = lines.Select(l => l.Account).Concat(rule.AccountByField?.Values ?? Enumerable.Empty<string>());
         foreach (var code in codes.Where(c => !string.IsNullOrWhiteSpace(c)).Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            if (await chart.GetByCodeAsync(code, ct) is null)
+            if (await chart.GetByCodeAsync(code, ct) is not { } account)
             {
                 problems.Add($"account '{code}' is not in the chart.");
+            }
+            else
+            {
+                canonical[code] = account.Code;
             }
         }
 
@@ -144,6 +149,10 @@ internal sealed class AccountMappingConfigProvider(IDocumentSession session) : I
         errors.AddRange(problems.Select(p => $"'{name}': {p}"));
         return problems.Count > 0
             ? null
-            : rule with { Lines = [.. lines.Select(l => l with { Side = l.Side.ToLowerInvariant() })] };
+            : rule with
+            {
+                Lines = [.. lines.Select(l => l with { Account = canonical.GetValueOrDefault(l.Account, l.Account), Side = l.Side.ToLowerInvariant() })],
+                AccountByField = rule.AccountByField?.ToDictionary(f => f.Key, f => canonical.GetValueOrDefault(f.Value, f.Value)),
+            };
     }
 }
