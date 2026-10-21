@@ -4,3 +4,5 @@
 - A branch code that cannot be part of a series name, or a template name over 64 characters, is a 400 (or a permanent action failure) instead of a 500, and the name is no longer cut short.
 - A client number taken by two creates at once is kept once; the other create gets a 409 instead of a 500.
 - PUT and DELETE on a workflow a module owns are refused with a 409, as config apply already does.
+- The runs list of an entry (`includeCreated=true`) shows a run of another entry only through the actions that name this entry, without their error text, and lists a created entry only when the caller may read it.
+- A CreateContent action reports an existing entry under its id as done only when it has the same type and branch and was made by the same run. Otherwise it fails for good.

@@ -1,0 +1,1 @@
+- The Transition workflow action moves only entries of the trigger entry's own branch. A trigger entry with no branch no longer moves entries that have one.

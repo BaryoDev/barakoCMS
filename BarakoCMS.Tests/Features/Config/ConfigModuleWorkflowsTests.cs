@@ -227,15 +227,6 @@ public class ConfigModuleWorkflowsTests
         await using var read = store.QuerySession();
         (await read.LoadAsync<WorkflowDefinition>(stored.Id, Ct))!.Enabled.Should().BeFalse();
     }
-}
-
-internal static class WorkflowTestExtensions
-{
-    public static WorkflowDefinition WithId(this WorkflowDefinition workflow, Guid id)
-    {
-        workflow.Id = id;
-        return workflow;
-    }
 
     [Fact]
     public async Task A_module_owned_workflow_cannot_be_replaced_or_deleted_over_the_api()
@@ -255,5 +246,14 @@ internal static class WorkflowTestExtensions
         put.StatusCode.Should().Be(HttpStatusCode.Conflict, await put.Content.ReadAsStringAsync(Ct));
         delete.StatusCode.Should().Be(HttpStatusCode.Conflict, await delete.Content.ReadAsStringAsync(Ct));
         (await _callers.InTenantAsync(tenant, s => s.LoadAsync<WorkflowDefinition>(id, Ct)))!.OwnerModule.Should().Be("Shipping");
+    }
+}
+
+internal static class WorkflowTestExtensions
+{
+    public static WorkflowDefinition WithId(this WorkflowDefinition workflow, Guid id)
+    {
+        workflow.Id = id;
+        return workflow;
     }
 }
