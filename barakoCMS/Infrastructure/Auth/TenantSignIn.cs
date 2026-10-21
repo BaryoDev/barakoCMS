@@ -22,5 +22,8 @@ public static class TenantSignIn
         return tenant is null || tenant.SignIn.Allows(method);
     }
 
+    public static Task<bool> AllowsExplicitlyAsync(IQuerySession session, string? tenantSlug, string method, CancellationToken ct) =>
+        throw new NotImplementedException();
+
     public static string RefusedMessage(string method) => $"This tenant does not allow {method} sign-in.";
 }

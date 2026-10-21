@@ -180,4 +180,8 @@ public class TenantSignInPolicy
     /// <summary>Whether <paramref name="method"/> may start a sign-in here.</summary>
     public bool Allows(string method) =>
         Methods.Count == 0 || Methods.Contains(method, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Whether <paramref name="method"/> is named in <see cref="Methods"/>. An empty list names nothing.</summary>
+    public bool AllowsExplicitly(string method) =>
+        throw new NotImplementedException();
 }
