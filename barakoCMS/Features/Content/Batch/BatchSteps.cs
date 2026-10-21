@@ -150,6 +150,10 @@ internal sealed class BatchSteps(IServiceProvider scope, User user, HttpContext 
         {
             return (null, new BatchFailure(index, 400, ex.Message));
         }
+        catch (JasperFx.DocumentAlreadyExistsException ex) when (ex.DocType == typeof(ExternalNumberUse))
+        {
+            return (null, new BatchFailure(index, 409, "That number is already issued."));
+        }
     }
 
     /// <summary>

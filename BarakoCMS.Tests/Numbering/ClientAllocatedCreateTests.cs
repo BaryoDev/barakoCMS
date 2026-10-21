@@ -83,6 +83,19 @@ public class ClientAllocatedCreateTests(IntegrationTestFixture fixture)
     }
 
     [Fact]
+    public async Task The_same_number_sent_at_once_is_kept_once_and_never_a_server_error()
+    {
+        var client = await CustomerClientAsync(clientAllocated: true);
+        await AllocateAsync(client, 7);
+
+        var responses = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => CreateAsync(client, "P-0007")));
+
+        responses.Count(r => r.StatusCode == HttpStatusCode.OK).Should().Be(1);
+        responses.Where(r => r.StatusCode != HttpStatusCode.OK).Select(r => r.StatusCode)
+            .Should().OnlyContain(c => c == HttpStatusCode.BadRequest || c == HttpStatusCode.Conflict);
+    }
+
+    [Fact]
     public async Task A_number_that_does_not_fit_the_series_is_refused()
     {
         var client = await CustomerClientAsync(clientAllocated: true);

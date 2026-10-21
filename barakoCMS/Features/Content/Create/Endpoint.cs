@@ -76,7 +76,17 @@ internal class Endpoint(
             return;
         }
 
-        await session.SaveChangesAsync(ct);
+        try
+        {
+            await session.SaveChangesAsync(ct);
+        }
+        catch (JasperFx.DocumentAlreadyExistsException e) when (e.DocType == typeof(barakoCMS.Models.ExternalNumberUse))
+        {
+            // Two creates took the same client number at once; the ledger let the first one have it.
+            AddError(new FluentValidation.Results.ValidationFailure("numbering", "That number is already issued."));
+            ThrowIfAnyErrors(409);
+            return;
+        }
 
         // Workflows are triggered out-of-band by the async WorkflowProjection reacting to the
         // committed ContentCreated event — deliberately NOT awaited here, so a slow or failing
