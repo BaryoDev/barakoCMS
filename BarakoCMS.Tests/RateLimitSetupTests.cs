@@ -64,6 +64,7 @@ public class RateLimitSetupTests
                     {
                         e.MapGet("/", () => "ok");
                         e.MapPost("/auth", () => "ok").RequireRateLimiting(RateLimitSetup.AuthPolicy);
+                        e.MapPost("/refresh", () => "ok").RequireRateLimiting("refresh");
                         e.MapPost("/batch", () => "ok").RequireRateLimiting(RateLimitSetup.BatchPolicy);
                         e.MapPost("/registration", () => "ok").RequireRateLimiting(RateLimitSetup.RegistrationPolicy);
                         e.MapPost("/site-share", () => "ok").RequireRateLimiting(RateLimitSetup.SiteSharePolicy);
@@ -102,6 +103,44 @@ public class RateLimitSetupTests
         settings.Registration.Should().Be(new RateLimitWindow(5, 3600, 0));
         settings.SiteShare.Should().Be(new RateLimitWindow(10, 60, 0));
         settings.RendererKey.Should().BeNull("no key configured means no renderer partition");
+    }
+
+    [Fact]
+    public async Task Six_refreshes_do_not_use_up_the_sign_in_limit()
+    {
+        using var host = await StartHost(Config());
+        var client = host.GetTestClient();
+
+        var refreshes = await SendMany(client, 6, path: "/refresh");
+        var login = await Send(client, path: "/auth");
+
+        refreshes.Should().HaveCount(6);
+        refreshes.Should().OnlyContain(c => c == HttpStatusCode.OK, "a refresh has a limit of its own, well above five");
+        login.Should().Be(HttpStatusCode.OK, "refreshes are counted apart from login");
+    }
+
+    [Fact]
+    public async Task The_sixth_login_in_the_window_is_still_refused()
+    {
+        using var host = await StartHost(Config());
+        var client = host.GetTestClient();
+
+        var logins = await SendMany(client, 6, path: "/auth");
+
+        logins.Take(5).Should().OnlyContain(c => c == HttpStatusCode.OK);
+        logins[5].Should().Be(HttpStatusCode.TooManyRequests);
+    }
+
+    [Fact]
+    public async Task Refreshes_alone_past_their_limit_are_refused()
+    {
+        using var host = await StartHost(Config());
+        var client = host.GetTestClient();
+
+        var refreshes = await SendMany(client, 61, path: "/refresh");
+
+        refreshes.Take(60).Should().OnlyContain(c => c == HttpStatusCode.OK);
+        refreshes[60].Should().Be(HttpStatusCode.TooManyRequests);
     }
 
     [Fact]
