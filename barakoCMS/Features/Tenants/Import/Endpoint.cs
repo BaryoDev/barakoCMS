@@ -60,13 +60,17 @@ internal sealed class Endpoint(
         // The claim holds the handle in a state nothing serves, so the unique index on the handle
         // settles a race before any data is written. The apply runs in its own transaction (the
         // config engine opens it), so it cannot share a session with the claim. Instead the claim is
-        // taken back when the plan or apply refuses or throws, and only a committed apply is
-        // followed by the activation, which is one small save.
+        // taken back when the plan, the apply or the activation refuses, throws or is cancelled, and
+        // only a committed apply is followed by the activation, which is one small save.
         ConfigRunResult result;
         int? refused;
         try
         {
             (result, refused) = await RunAsync(config, handle, ct);
+            if (refused is null)
+            {
+                await ActivateAsync(tenant, result.Response, ct);
+            }
         }
         catch
         {
@@ -81,7 +85,6 @@ internal sealed class Endpoint(
             return;
         }
 
-        await ActivateAsync(tenant, result.Response, ct);
         await Send.OkAsync(new Response { Tenant = TenantResponse.From(tenant), Config = result.Response }, ct);
     }
 
@@ -135,9 +138,14 @@ internal sealed class Endpoint(
         return (applied, applied.Response.Applied ? null : applied.StatusCode == 200 ? 409 : applied.StatusCode);
     }
 
-    /// <summary>Takes the claim back. The apply is one transaction, so a run that did not apply wrote nothing but the claim.</summary>
+    /// <summary>
+    /// Takes the claim back, even when the request was cancelled, so the handle can be imported again
+    /// (no route deletes a tenant). Only the tenant row goes: audit entries the engine recorded under
+    /// the handle stay, and so does anything an apply committed before the activation failed.
+    /// </summary>
     private async Task ReleaseAsync(Tenant tenant)
     {
+        session.EjectAllPendingChanges();
         session.Delete(tenant);
         await session.SaveChangesAsync(CancellationToken.None);
         domains.Invalidate();
@@ -169,11 +177,14 @@ internal sealed class Endpoint(
         domains.Invalidate();
     }
 
+    /// <summary>The unique index Marten builds on <c>Tenant.Slug</c> (see the schema in ServiceCollectionExtensions).</summary>
+    private const string SlugIndex = "mt_doc_tenants_uidx_slug";
+
     private static bool IsUniqueViolation(Exception? ex)
     {
         for (var current = ex; current is not null; current = current.InnerException)
         {
-            if (current is Npgsql.PostgresException { SqlState: "23505" })
+            if (current is Npgsql.PostgresException { SqlState: "23505", ConstraintName: SlugIndex })
             {
                 return true;
             }

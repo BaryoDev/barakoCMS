@@ -34,8 +34,10 @@ written. Generated token fields are left out of entries.
   handle cannot both go on. The bundle is then applied through the config engine in one transaction,
   so the caller needs the capability each section asks for, as with `POST /api/config/apply`. Only
   after it committed is the tenant made Active, with the caller as its administrator.
-- If the plan or the apply is refused or fails, the claim is removed, no tenant is returned and the
-  plan that explains the refusal is.
+- If the plan, the apply or the activation is refused or fails, the claim is removed, no tenant is
+  returned and the plan that explains the refusal is. If the process is killed mid-import the claim
+  stays as a Suspended tenant. No route deletes a tenant, so that handle stays taken (409): import
+  under another handle, and `PUT` the stale one to Archived so it is not mistaken for a live tenant.
 - Entries need the Portability module (the `contents` section). Without it the bundle is refused.
 - At most `Tenants:MaxImportEntries` entries (default 5000) per import.
 

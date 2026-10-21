@@ -1,3 +1,4 @@
+using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -372,6 +373,106 @@ public class TenantBundleTests
         footprint.Tenants.Should().Be(0);
         footprint.Memberships.Should().Be(0);
         footprint.Entries.Should().Be(0);
+    }
+
+    private static object MinimalBundle() => new
+    {
+        kind = "barako.tenant-bundle", bundleVersion = 1, config = new { version = 1 }, contents = Array.Empty<object>(),
+    };
+
+    [Fact]
+    public async Task Two_imports_of_one_handle_at_once_give_one_200_and_one_409_and_one_tenant_row()
+    {
+        var platform = await PlatformAdminAsync();
+
+        // Several rounds, because the loser only reaches the unique index when both requests pass the
+        // pre-check before either has stored its claim.
+        for (var round = 0; round < 6; round++)
+        {
+            var handle = NewHandle();
+            var statuses = (await Task.WhenAll(Enumerable.Range(0, 2).Select(async _ =>
+                (await platform.PostAsJsonAsync("/api/tenants/import", new { handle, bundle = MinimalBundle() }, Ct)).StatusCode))).ToList();
+
+            statuses.Should().HaveCount(2);
+            statuses.Should().BeEquivalentTo([HttpStatusCode.OK, HttpStatusCode.Conflict], $"round {round}");
+            (await FootprintAsync(handle)).Tenants.Should().Be(1);
+            (await TenantProfileSeed.StoredAsync(_fixture, handle, Ct)).Status.Should().Be(TenantStatus.Active);
+        }
+    }
+
+    [Fact]
+    public async Task A_refused_import_frees_the_handle_for_a_caller_who_holds_the_capabilities()
+    {
+        var (slug, _, _) = await SeedAsync(["Retry me"]);
+        var platform = await PlatformAdminAsync();
+        using var bundle = JsonDocument.Parse(await BodyAsync(await platform.GetAsync($"/api/tenants/{slug}/export", Ct)));
+
+        var roleName = $"Importer {Guid.NewGuid():N}";
+        var userId = Guid.NewGuid();
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var role = new Role { Id = Guid.NewGuid(), Name = roleName, SystemCapabilities = [SystemCapabilities.ManageTenants] };
+            session.Store(role);
+            session.Store(new User
+            {
+                Id = userId, Username = $"rf-{userId:n}"[..14], Email = $"rf-{userId:n}@example.com", RoleIds = [role.Id],
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var limited = _fixture.CreateClient();
+        limited.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", _fixture.CreateToken(roles: [roleName], userId: userId.ToString()));
+        var handle = NewHandle();
+
+        (await limited.PostAsJsonAsync("/api/tenants/import", new { handle, bundle = bundle.RootElement.Clone() }, Ct))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await FootprintAsync(handle)).Tenants.Should().Be(0, "the refusal took the claim back");
+
+        var retried = await platform.PostAsJsonAsync("/api/tenants/import", new { handle, bundle = bundle.RootElement.Clone() }, Ct);
+
+        retried.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(retried));
+        (await TenantProfileSeed.StoredAsync(_fixture, handle, Ct)).Status.Should().Be(TenantStatus.Active);
+    }
+
+    [Fact]
+    public async Task An_import_whose_activation_fails_frees_the_handle()
+    {
+        var platform = await PlatformAdminAsync();
+        var callerId = Guid.Parse(new JwtSecurityTokenHandler()
+            .ReadJwtToken(platform.DefaultRequestHeaders.Authorization!.Parameter).Claims.First(c => c.Type == "UserId").Value);
+        var handle = NewHandle();
+
+        // A membership already held by the caller in this handle makes the activation's save violate
+        // the one-row-per-person-per-tenant index, after the apply committed.
+        Guid blocker;
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            blocker = Guid.NewGuid();
+            session.Store(new Membership
+            {
+                Id = blocker, UserId = callerId, TenantSlug = handle, Status = MembershipStatus.Active,
+                RoleIds = [SystemRoles.SuperAdminRoleId],
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var failed = await platform.PostAsJsonAsync("/api/tenants/import", new { handle, bundle = MinimalBundle() }, Ct);
+
+        failed.StatusCode.Should().Be(HttpStatusCode.InternalServerError, await BodyAsync(failed));
+        (await FootprintAsync(handle)).Tenants.Should().Be(0, "a failed activation took the claim back");
+
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.DeleteWhere<Membership>(m => m.Id == blocker);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var retried = await platform.PostAsJsonAsync("/api/tenants/import", new { handle, bundle = MinimalBundle() }, Ct);
+        retried.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(retried));
     }
 
     [Fact]
