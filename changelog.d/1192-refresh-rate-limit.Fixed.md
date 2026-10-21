@@ -1,0 +1,1 @@
+- **A token refresh no longer uses up the sign-in limit.** Refresh has its own limit, `RateLimiting:Refresh` (60 per 15 minutes per IP by default), so reloading the console does not lock out sign-in. Login, OTP and MFA keep `RateLimiting:Auth`. A refresh with no cookie is still counted.

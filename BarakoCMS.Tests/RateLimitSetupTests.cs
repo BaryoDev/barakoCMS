@@ -64,7 +64,7 @@ public class RateLimitSetupTests
                     {
                         e.MapGet("/", () => "ok");
                         e.MapPost("/auth", () => "ok").RequireRateLimiting(RateLimitSetup.AuthPolicy);
-                        e.MapPost("/refresh", () => "ok").RequireRateLimiting("refresh");
+                        e.MapPost("/refresh", () => "ok").RequireRateLimiting(RateLimitSetup.RefreshPolicy);
                         e.MapPost("/batch", () => "ok").RequireRateLimiting(RateLimitSetup.BatchPolicy);
                         e.MapPost("/registration", () => "ok").RequireRateLimiting(RateLimitSetup.RegistrationPolicy);
                         e.MapPost("/site-share", () => "ok").RequireRateLimiting(RateLimitSetup.SiteSharePolicy);
@@ -99,6 +99,7 @@ public class RateLimitSetupTests
 
         settings.Global.Should().Be(new RateLimitWindow(100, 60, 10));
         settings.Auth.Should().Be(new RateLimitWindow(5, 900, 0));
+        settings.Refresh.Should().Be(new RateLimitWindow(60, 900, 0));
         settings.Batch.Should().Be(new RateLimitWindow(20, 60, 0));
         settings.Registration.Should().Be(new RateLimitWindow(5, 3600, 0));
         settings.SiteShare.Should().Be(new RateLimitWindow(10, 60, 0));

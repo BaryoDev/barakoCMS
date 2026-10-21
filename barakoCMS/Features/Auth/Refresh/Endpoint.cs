@@ -40,7 +40,7 @@ internal class Endpoint : Endpoint<Request, Response>
         Post("/api/auth/refresh");
         AllowAnonymous(); // No auth required, validated by refresh token
         barakoCMS.Infrastructure.Auth.Mfa.MfaEnrollment.AllowDuringMfaEnrollment(Definition);
-        Options(x => x.RequireRateLimiting("auth")); // Rate limit to prevent brute-force attacks
+        Options(x => x.RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.RefreshPolicy));
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
