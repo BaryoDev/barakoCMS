@@ -124,7 +124,9 @@ public class BranchRowScopeTests
         var user = await MemberAsync(type, b1, b2);
         var entries = await EntriesAsync(type, b1, b2);
 
-        (await ListAsync(user, type, b1)).Should().Be((HttpStatusCode.OK, new List<Guid> { entries[b1] }));
+        var first = await ListAsync(user, type, b1);
+        first.Status.Should().Be(HttpStatusCode.OK);
+        first.Ids.Should().Equal(entries[b1]);
         (await ListAsync(user, type, b2)).Ids.Should().Equal(entries[b2]);
 
         var none = await ListAsync(user, type, branch: null);
