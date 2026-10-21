@@ -42,6 +42,11 @@ internal sealed class Endpoint(
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         var handle = req.Handle.Trim().ToLowerInvariant();
+        if (!TenantHandles.IsValidHandle(handle))
+        {
+            ThrowError("handle is not a valid tenant handle.", 400);
+        }
+
         if (await session.Query<Tenant>().FirstOrDefaultAsync(t => t.Slug == handle, ct) is not { } tenant)
         {
             await Send.NotFoundAsync(ct);
