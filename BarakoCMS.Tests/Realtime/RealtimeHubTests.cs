@@ -3,7 +3,7 @@ using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Models;
 using barakoCMS.Infrastructure.Realtime;
-using BarakoCMS.Tests.Clinic;
+using BarakoCMS.Tests.SampleProbe;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.Routing;
@@ -15,11 +15,11 @@ using Xunit;
 namespace BarakoCMS.Tests.Realtime;
 
 [Collection("Sequential")]
-public class RealtimeHubTests(ClinicProbeHost host) : IClassFixture<ClinicProbeHost>
+public class RealtimeHubTests(SampleProbeHost host) : IClassFixture<SampleProbeHost>
 {
     private static readonly string[] Tickets = ["read_probe_tickets"];
 
-    internal static async Task<HubConnection> ConnectAsync(ClinicProbeHost host, string token, string? tenant = null)
+    internal static async Task<HubConnection> ConnectAsync(SampleProbeHost host, string token, string? tenant = null)
     {
         var connection = new HubConnectionBuilder()
             .WithUrl(new Uri(host.CreateClient().BaseAddress!, RealtimeHub.Path), o =>

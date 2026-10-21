@@ -1,6 +1,7 @@
 using barakoCMS.Core.Interfaces;
 using System.IdentityModel.Tokens.Jwt;
 using barakoCMS.Infrastructure.Auth.Stations;
+using barakoCMS.Infrastructure.Envelope;
 using barakoCMS.Infrastructure.Middleware;
 using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Infrastructure.Services;
@@ -26,6 +27,12 @@ namespace barakoCMS.Infrastructure.Realtime;
 /// same bound HTTP has. Until then a connection whose capability is revoked keeps hearing notices,
 /// but a notice holds only a topic, a sequence, a stream id and an event type, and the feed refuses
 /// the read that would follow it.
+///
+/// A topic a content type declares is held by whoever may read the type. The hub checks that
+/// permission when they subscribe and, for a branch scoped type, joins them to the groups of the
+/// branches they hold, so a notice reaches only the readers of the entry's branch. A notice names
+/// no field value. Rule conditions on the read permission are not run for a notice, only for the
+/// feed, which checks each entry before it returns it.
 /// </remarks>
 [Authorize]
 public sealed class RealtimeHub(TopicRegistry topics, TenantContext tenant, IServiceProvider services) : Hub
@@ -33,6 +40,9 @@ public sealed class RealtimeHub(TopicRegistry topics, TenantContext tenant, ISer
     public const string Path = "/hubs/realtime";
 
     public static string GroupName(string tenantSlug, string topic) => $"{tenantSlug}:{topic}";
+
+    /// <summary>The group of one branch of a branch scoped content topic.</summary>
+    public static string BranchGroupName(string tenantSlug, string topic, Guid branch) => $"{tenantSlug}:{topic}:{branch:N}";
 
     public override Task OnConnectedAsync()
     {
@@ -49,44 +59,120 @@ public sealed class RealtimeHub(TopicRegistry topics, TenantContext tenant, ISer
 
     public async Task Subscribe(string topic)
     {
-        if (IsApiKey())
-            throw new HubException("API keys cannot use the realtime hub.");
+        Guard();
 
-        // Before the topic lookup and any group join: a token that must enroll in MFA hears nothing.
-        if (barakoCMS.Infrastructure.Auth.Mfa.MfaEnrollment.MustEnroll(Context.User))
-            throw new HubException("Set up MFA before subscribing.");
-
-        var found = topics.Find(topic) ?? throw new HubException($"Unknown topic '{topic}'.");
         var slug = UseCallersTenant();
+        var module = topics.Find(topic);
+        var content = module is null
+            ? await services.GetRequiredService<ContentTopicCatalog>().FindAsync(slug, topic, Context.ConnectionAborted)
+            : null;
+        if (module is null && content is null) throw new HubException($"Unknown topic '{topic}'.");
 
+        if (module is not null) await RequireCapabilityAsync(module);
+        else await RequireReadAsync(content!);
+
+        await EnsureSessionValidAsync(Context.ConnectionAborted);
+
+        if (module is not null) await JoinAsync(GroupName(slug, module.Name));
+        else await JoinContentGroupsAsync(slug, content!);
+    }
+
+    private async Task RequireCapabilityAsync(RealtimeTopic found)
+    {
         var callers = services.GetRequiredService<ICallerCapabilities>();
         if (!await callers.HoldsAsync(Context.User!, found.Capability, Context.ConnectionAborted))
             throw new HubException($"This caller is missing the '{found.Capability}' capability.");
+    }
 
+    // The refusals that need no lookup, made before the topic lookup and any group join.
+    private void Guard()
+    {
+        if (IsApiKey())
+            throw new HubException("API keys cannot use the realtime hub.");
+
+        // A token that must enroll in MFA hears nothing.
+        if (barakoCMS.Infrastructure.Auth.Mfa.MfaEnrollment.MustEnroll(Context.User))
+            throw new HubException("Set up MFA before subscribing.");
+    }
+
+    // The read permission on the type, the check the content GET starts with. Rule conditions and
+    // field values are not decided here: a notice names no values, and the feed checks each entry.
+    private async Task RequireReadAsync(ContentTopic content)
+    {
+        var ct = Context.ConnectionAborted;
+        var user = Guid.TryParse(Context.User!.FindFirst("UserId")?.Value, out var id)
+            ? await services.GetRequiredService<Marten.IQuerySession>().LoadAsync<User>(id, ct)
+            : null;
+
+        if (user is null
+            || !await services.GetRequiredService<IPermissionResolver>().CanPerformActionAsync(user, content.ContentType, "read", null, ct))
+            throw new HubException($"This caller cannot read '{content.ContentType}'.");
+    }
+
+    private async Task EnsureSessionValidAsync(CancellationToken ct)
+    {
         var user = Context.User!;
 
         // A station principal is built once, when the connection opens, so a revoke is read from the
         // store here. A station has no jti and no UserId, so the two checks below pass it by.
-        if (await user.IsRevokedStationAsync(services.GetRequiredService<Marten.IDocumentStore>(), Context.ConnectionAborted))
+        if (await user.IsRevokedStationAsync(services.GetRequiredService<Marten.IDocumentStore>(), ct))
             throw new HubException("This station key has been revoked.");
 
         var jti = user.FindFirst(JwtRegisteredClaimNames.Jti)?.Value;
         if (jti is not null
-            && await services.GetRequiredService<ITokenRevocationService>().IsTokenRevokedAsync(jti, Context.ConnectionAborted))
+            && await services.GetRequiredService<ITokenRevocationService>().IsTokenRevokedAsync(jti, ct))
             throw new HubException("This token has been revoked.");
 
         if (await SessionEpochCheck.IsBeforeSessionEpochAsync(
                 user,
                 services.GetRequiredService<ISessionEpochService>(),
                 services.GetRequiredService<ILogger<RealtimeHub>>(),
-                Context.ConnectionAborted))
+                ct))
             throw new HubException("This token has been revoked.");
-
-        await Groups.AddToGroupAsync(Context.ConnectionId, GroupName(slug, found.Name), Context.ConnectionAborted);
     }
 
-    public Task Unsubscribe(string topic) =>
-        Groups.RemoveFromGroupAsync(Context.ConnectionId, GroupName(UseCallersTenant(), topic), Context.ConnectionAborted);
+    // A topic of a branch scoped type has one group per branch, so a notice reaches only the readers
+    // of the entry's branch. The branches are those the caller holds when they subscribe.
+    private async Task JoinContentGroupsAsync(string slug, ContentTopic content)
+    {
+        if (!content.BranchScoped)
+        {
+            await JoinAsync(GroupName(slug, content.Name));
+            return;
+        }
+
+        var branches = await services.GetRequiredService<IBranchMembership>()
+            .BranchesOfAsync(Context.User!, Context.ConnectionAborted);
+        if (branches.Count == 0) throw new HubException("This caller holds no branch.");
+
+        foreach (var branch in branches)
+            await JoinAsync(BranchGroupName(slug, content.Name, branch));
+    }
+
+    private async Task JoinAsync(string group)
+    {
+        await Groups.AddToGroupAsync(Context.ConnectionId, group, Context.ConnectionAborted);
+        Joined().Add(group);
+    }
+
+    // Remembered per connection, so Unsubscribe leaves exactly the groups Subscribe joined even when
+    // the caller's branches have changed since.
+    private HashSet<string> Joined() =>
+        (HashSet<string>)(Context.Items[JoinedKey] ??= new HashSet<string>(StringComparer.Ordinal));
+
+    private const string JoinedKey = "joined-groups";
+
+    public async Task Unsubscribe(string topic)
+    {
+        var plain = GroupName(UseCallersTenant(), topic);
+        await Groups.RemoveFromGroupAsync(Context.ConnectionId, plain, Context.ConnectionAborted);
+
+        foreach (var group in Joined().Where(g => g.StartsWith(plain + ":", StringComparison.Ordinal)).ToList())
+        {
+            await Groups.RemoveFromGroupAsync(Context.ConnectionId, group, Context.ConnectionAborted);
+            Joined().Remove(group);
+        }
+    }
 
     private string UseCallersTenant()
     {
