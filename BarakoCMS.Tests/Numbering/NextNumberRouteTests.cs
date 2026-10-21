@@ -79,4 +79,18 @@ public class NextNumberRouteTests(IntegrationTestFixture fixture)
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
+
+    [Fact]
+    public async Task A_name_that_matches_two_stored_types_neither_exactly_is_refused()
+    {
+        var (tenant, admin) = await TenantWithRuleAsync(clientAllocated: true);
+        await callers.StoreInTenantAsync(tenant, Type("CUSTOMER", ("CustomerNo", "string")));
+        await callers.StoreInTenantAsync(tenant, Type("customer", ("CustomerNo", "string")));
+
+        var response = await NextAsync(admin, "Customer");
+        response.StatusCode.Should().Be(HttpStatusCode.OK, "the exact spelling is stored, so it is not a guess");
+
+        var mixed = await NextAsync(admin, "cUSTOMER");
+        mixed.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
 }

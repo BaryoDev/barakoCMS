@@ -1,3 +1,4 @@
+using barakoCMS.Core;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Core.Validation;
 using barakoCMS.Infrastructure.Envelope;
@@ -38,16 +39,28 @@ internal sealed class NextNumberEndpoint(
             return;
         }
 
-        if (!await permissionResolver.CanPerformActionAsync(user, req.ContentType, "create", null, ct))
+        // The canonical definition first, then the permission on its stored name, so a differently
+        // cased spelling is checked against the grant of the type it stands for.
+        ContentTypeDefinition? definition;
+        try
         {
-            await Send.ForbiddenAsync(ct);
+            definition = await session.Query<ContentTypeDefinition>().FirstNamedAsync(req.ContentType, ct);
+        }
+        catch (AmbiguousContentTypeException e)
+        {
+            ThrowError(e.Message);
             return;
         }
 
-        var lowered = req.ContentType.ToLower();
-        if (await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct) is not { } definition)
+        if (definition is null)
         {
             await Send.NotFoundAsync(ct);
+            return;
+        }
+
+        if (!await permissionResolver.CanPerformActionAsync(user, definition.Name, "create", null, ct))
+        {
+            await Send.ForbiddenAsync(ct);
             return;
         }
 
