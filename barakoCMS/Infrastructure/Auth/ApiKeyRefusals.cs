@@ -32,8 +32,8 @@ internal sealed class ApiKeyRefusals(TimeProvider clock)
 
     private static readonly Counter RefusalCounter = Metrics.CreateCounter(
         "barakocms_api_key_refusals_total",
-        "Requests refused for an API key that exists, by key id and reason.",
-        new CounterConfiguration { LabelNames = ["key_id", "reason"] });
+        "Requests refused for an API key that exists, by reason. /metrics is anonymous, so no key id.",
+        new CounterConfiguration { LabelNames = ["reason"] });
 
     private readonly ConcurrentDictionary<Guid, Queue<ApiKeyRefusal>> _byKey = new();
 
@@ -47,21 +47,34 @@ internal sealed class ApiKeyRefusals(TimeProvider clock)
 
     public void Record(Guid keyId, ApiKeyRefusalReason reason, string? contentType = null)
     {
-        RefusalCounter.WithLabels(keyId.ToString(), ReasonName(reason)).Inc();
+        RefusalCounter.WithLabels(ReasonName(reason)).Inc();
 
         if (contentType is { Length: > MaxContentTypeLength })
             contentType = contentType[..MaxContentTypeLength];
-        if (!_byKey.ContainsKey(keyId) && _byKey.Count >= MaxKeys)
-            return;
-
         var now = clock.GetUtcNow().UtcDateTime;
+        if (!_byKey.ContainsKey(keyId) && _byKey.Count >= MaxKeys)
+        {
+            SweepExpired(now);
+            if (_byKey.Count >= MaxKeys)
+                return;
+        }
+
+        while (!TryAdd(keyId, new ApiKeyRefusal(now, reason, contentType), now)) { }
+    }
+
+    // False when a sweep removed the queue between the lookup and the lock; the caller looks again.
+    private bool TryAdd(Guid keyId, ApiKeyRefusal refusal, DateTime now)
+    {
         var queue = _byKey.GetOrAdd(keyId, _ => new Queue<ApiKeyRefusal>());
         lock (queue)
         {
+            if (!_byKey.TryGetValue(keyId, out var current) || !ReferenceEquals(current, queue))
+                return false;
             Trim(queue, now);
             while (queue.Count >= MaxPerKey)
                 queue.Dequeue();
-            queue.Enqueue(new ApiKeyRefusal(now, reason, contentType));
+            queue.Enqueue(refusal);
+            return true;
         }
     }
 
@@ -73,9 +86,25 @@ internal sealed class ApiKeyRefusals(TimeProvider clock)
         lock (queue)
         {
             Trim(queue, clock.GetUtcNow().UtcDateTime);
-            if (queue.Count == 0)
-                _byKey.TryRemove(new KeyValuePair<Guid, Queue<ApiKeyRefusal>>(keyId, queue));
             return [.. queue];
+        }
+    }
+
+    /// <summary>Keys with an entry in the window. Idle keys are only dropped when the cap is reached.</summary>
+    internal int TrackedKeys => _byKey.Count;
+
+    // Removing under the queue's lock means a Record that already holds the queue either finished
+    // first (so it is not empty) or runs after and finds its queue gone, and adds a fresh one.
+    private void SweepExpired(DateTime now)
+    {
+        foreach (var (id, queue) in _byKey)
+        {
+            lock (queue)
+            {
+                Trim(queue, now);
+                if (queue.Count == 0)
+                    _byKey.TryRemove(new KeyValuePair<Guid, Queue<ApiKeyRefusal>>(id, queue));
+            }
         }
     }
 

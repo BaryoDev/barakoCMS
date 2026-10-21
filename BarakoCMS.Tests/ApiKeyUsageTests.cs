@@ -110,10 +110,12 @@ public class ApiKeyUsageTests(IntegrationTestFixture factory)
     public async Task A_secret_that_matches_no_key_is_refused_and_leaves_nothing_behind()
     {
         var (id, _) = await StoreKeyAsync(["content:read"]);
+        var tracked = factory.Services.GetRequiredService<ApiKeyRefusals>().TrackedKeys;
 
         (await UseKeyAsync("bcms_" + Guid.NewGuid().ToString("N"), HttpMethod.Get, "/api/contents")).Should().Be(HttpStatusCode.Unauthorized);
 
         (await UsageBodyAsync(id)).GetProperty("totalRefusals").GetInt32().Should().Be(0);
+        factory.Services.GetRequiredService<ApiKeyRefusals>().TrackedKeys.Should().Be(tracked);
     }
 
     [Fact]
@@ -159,6 +161,51 @@ public class ApiKeyUsageTests(IntegrationTestFixture factory)
             scope.ServiceProvider.GetRequiredService<IQuerySession>(), Tenant.DefaultSlug, [type], CancellationToken.None);
 
         warnings.Should().ContainSingle().Which.KeyId.Should().Be(named);
+    }
+
+    [Fact]
+    public async Task A_push_to_a_type_that_does_not_exist_is_counted_as_other_not_as_the_path_text()
+    {
+        var (id, secret) = await StoreKeyAsync(["content:write"], contentTypes: ["site-pages"]);
+
+        await UseKeyAsync(secret, HttpMethod.Post, "/api/collections/%3Cscript%3E/push");
+
+        var by = (await UsageBodyAsync(id)).GetProperty("refusalsByContentType");
+        by.GetProperty("other").GetInt32().Should().Be(1);
+        by.EnumerateObject().Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task A_key_naming_a_type_in_another_case_is_not_reported_missing()
+    {
+        var type = $"cased{Guid.NewGuid():N}"[..14];
+        using (var scope = factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new ContentTypeDefinition { Id = Guid.NewGuid(), Name = type, DisplayName = "x", Fields = [] });
+            await session.SaveChangesAsync();
+        }
+        var (id, _) = await StoreKeyAsync(["content:write"], contentTypes: [type.ToUpperInvariant()]);
+
+        (await UsageBodyAsync(id)).GetProperty("missingContentTypes").GetArrayLength().Should().Be(0);
+    }
+
+    [Fact]
+    public void An_idle_key_is_swept_when_the_cap_is_reached_so_new_keys_are_still_counted()
+    {
+        var clock = new Clock(DateTimeOffset.UtcNow);
+        var refusals = new ApiKeyRefusals(clock);
+        for (var i = 0; i < ApiKeyRefusals.MaxKeys; i++)
+            refusals.Record(Guid.NewGuid(), ApiKeyRefusalReason.Scope);
+        refusals.Record(Guid.NewGuid(), ApiKeyRefusalReason.Scope);
+        refusals.TrackedKeys.Should().Be(ApiKeyRefusals.MaxKeys, "nothing is old enough to sweep yet");
+
+        clock.Now = clock.Now.AddHours(25);
+        var fresh = Guid.NewGuid();
+        refusals.Record(fresh, ApiKeyRefusalReason.Scope);
+
+        refusals.Recent(fresh).Should().HaveCount(1);
+        refusals.TrackedKeys.Should().Be(1);
     }
 
     [Fact]

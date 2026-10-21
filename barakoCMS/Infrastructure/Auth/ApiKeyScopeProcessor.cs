@@ -115,10 +115,29 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
         path.Equals(prefix, StringComparison.OrdinalIgnoreCase)
         || path.StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase);
 
+    // The type in the path is the caller's text, and the admin reads it back. Keep it only when the key
+    // names it or the type exists; anything else is counted as "other".
+    private static async Task<string?> KnownTypeAsync(HttpContext http, string? type, CancellationToken ct)
+    {
+        if (type is null)
+            return null;
+        if (http.User.FindAll(ApiKeyAuthenticationHandler.ContentTypeClaim)
+            .Any(c => c.Value.Equals(type, StringComparison.OrdinalIgnoreCase)))
+            return type;
+        var session = http.RequestServices.GetService<Marten.IQuerySession>();
+        return session is not null && await Marten.QueryableExtensions.AnyAsync(
+            session.Query<ContentTypeDefinition>().Where(d => d.Name == type), ct)
+            ? type
+            : "other";
+    }
+
     private static async Task Deny(HttpContext http, ApiKeyRefusalReason reason, string message, CancellationToken ct)
     {
         if (Guid.TryParse(http.User.FindFirst("apikey_id")?.Value, out var keyId))
-            http.RequestServices.GetService<ApiKeyRefusals>()?.Record(keyId, reason, PushedType(http.Request.Path.Value ?? string.Empty));
+        {
+            var type = await KnownTypeAsync(http, PushedType(http.Request.Path.Value ?? string.Empty), ct);
+            http.RequestServices.GetService<ApiKeyRefusals>()?.Record(keyId, reason, type);
+        }
         http.Response.StatusCode = 403;
         // Writing the body short-circuits the endpoint (setting the status alone would not).
         await http.Response.WriteAsync(message, ct);

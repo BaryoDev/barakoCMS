@@ -46,9 +46,10 @@ internal class KeyUsageEndpoint(IQuerySession session, ApiKeyRefusals refusals) 
         if (key is null) { await Send.NotFoundAsync(ct); return; }
 
         var named = (key.ContentTypes ?? []).ToList();
+        var lowered = named.Select(t => t.ToLowerInvariant()).ToList();
         var existing = named.Count == 0
             ? []
-            : (await session.Query<ContentTypeDefinition>().Where(d => named.Contains(d.Name)).Select(d => d.Name).ToListAsync(ct)).ToHashSet();
+            : (await session.Query<ContentTypeDefinition>().Where(d => lowered.Contains(d.Name.ToLower())).Select(d => d.Name).ToListAsync(ct)).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var recent = refusals.Recent(key.Id);
         await Send.OkAsync(new UsageResponse(
