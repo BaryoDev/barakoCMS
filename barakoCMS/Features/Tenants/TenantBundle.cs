@@ -150,27 +150,9 @@ internal static class TenantBundle
     /// </summary>
     public static JsonElement? ToConfigDocument(JsonElement bundle, int maxEntries, List<string> errors)
     {
-        if (bundle.ValueKind != JsonValueKind.Object)
+        if (EnvelopeError(bundle) is { } envelope)
         {
-            errors.Add("bundle must be the JSON object GET /api/tenants/{handle}/export returns.");
-            return null;
-        }
-
-        if (!bundle.TryGetProperty("kind", out var kind) || kind.ValueKind != JsonValueKind.String || kind.GetString() != Kind)
-        {
-            errors.Add($"bundle is not a tenant bundle: its kind must be \"{Kind}\".");
-            return null;
-        }
-
-        if (!bundle.TryGetProperty("bundleVersion", out var version) || !version.TryGetInt32(out var number) || number < 1)
-        {
-            errors.Add("bundle declares no bundleVersion.");
-            return null;
-        }
-
-        if (number > Version)
-        {
-            errors.Add($"bundle is written for version {number} of the format, and this server reads up to version {Version}.");
+            errors.Add(envelope);
             return null;
         }
 
@@ -220,5 +202,27 @@ internal static class TenantBundle
         }
 
         return errors.Count > 0 ? null : JsonSerializer.SerializeToElement(document);
+    }
+
+    private static string? EnvelopeError(JsonElement bundle)
+    {
+        if (bundle.ValueKind != JsonValueKind.Object)
+        {
+            return "bundle must be the JSON object GET /api/tenants/{handle}/export returns.";
+        }
+
+        if (!bundle.TryGetProperty("kind", out var kind) || kind.ValueKind != JsonValueKind.String || kind.GetString() != Kind)
+        {
+            return $"bundle is not a tenant bundle: its kind must be \"{Kind}\".";
+        }
+
+        if (!bundle.TryGetProperty("bundleVersion", out var version) || !version.TryGetInt32(out var number) || number < 1)
+        {
+            return "bundle declares no bundleVersion.";
+        }
+
+        return number > Version
+            ? $"bundle is written for version {number} of the format, and this server reads up to version {Version}."
+            : null;
     }
 }

@@ -92,6 +92,14 @@ internal sealed class Endpoint(
             return;
         }
 
+        await StoreAsync(tenant, callerId, result.Response, ct);
+
+        await Send.OkAsync(new Response { Tenant = TenantResponse.From(tenant), Config = result.Response }, ct);
+    }
+
+    private async Task StoreAsync(Tenant tenant, Guid? callerId, ConfigPlanResponse applied, CancellationToken ct)
+    {
+        var handle = tenant.Slug;
         session.Store(tenant);
 
         // The creator is its administrator, or the cross-tenant token guard denies them the tenant
@@ -106,13 +114,11 @@ internal sealed class Endpoint(
         await AuditLog.RecordAsync(session, handle, "tenant.imported", callerId, User.FindFirst("Username")?.Value,
             metadata: new Dictionary<string, object>
             {
-                ["sections"] = string.Join(", ", result.Response.Sections.Where(s => s.Changes.Count > 0).Select(s => s.Section)),
-                ["changes"] = result.Response.Sections.Sum(s => s.Changes.Count),
+                ["sections"] = string.Join(", ", applied.Sections.Where(s => s.Changes.Count > 0).Select(s => s.Section)),
+                ["changes"] = applied.Sections.Sum(s => s.Changes.Count),
             }, ct: ct);
         await session.SaveChangesAsync(ct);
         domains.Invalidate();
-
-        await Send.OkAsync(new Response { Tenant = TenantResponse.From(tenant), Config = result.Response }, ct);
     }
 
     /// <summary>The status a plan that must not be applied is answered with, or null when it can be.</summary>
