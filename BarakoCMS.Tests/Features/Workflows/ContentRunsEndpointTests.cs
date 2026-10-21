@@ -27,7 +27,8 @@ public class ContentRunsEndpointTests(IntegrationTestFixture fixture) : IAsyncLi
         var type = NewType();
         var entry = await StoreEntryAsync(type);
         var other = await StoreEntryAsync(type);
-        var created = new CreatedRef("order", Guid.CreateVersion7(), "QC-0001");
+        var made = await StoreEntryAsync(type);
+        var created = new CreatedRef(type, made, "BR1-0001");
         var older = await StoreRunAsync(entry, DateTimeOffset.UtcNow.AddMinutes(-10), RunStatus.Failed, created);
         var newer = await StoreRunAsync(entry, DateTimeOffset.UtcNow.AddMinutes(-1), RunStatus.Succeeded);
         await StoreRunAsync(other, DateTimeOffset.UtcNow, RunStatus.Succeeded);
@@ -42,7 +43,7 @@ public class ContentRunsEndpointTests(IntegrationTestFixture fixture) : IAsyncLi
         action.GetProperty("error").GetString().Should().Be("It broke.");
         var ref0 = action.GetProperty("created")[0];
         ref0.GetProperty("id").GetGuid().Should().Be(created.Id);
-        ref0.GetProperty("number").GetString().Should().Be("QC-0001");
+        ref0.GetProperty("number").GetString().Should().Be("BR1-0001");
     }
 
     [Fact]
@@ -57,6 +58,46 @@ public class ContentRunsEndpointTests(IntegrationTestFixture fixture) : IAsyncLi
         var withCreated = await ListAsync(_admin, child, includeCreated: true);
 
         withCreated.Should().ContainSingle().Which.GetProperty("id").GetGuid().Should().Be(runId);
+    }
+
+    [Fact]
+    public async Task Include_created_shows_a_foreign_run_only_as_far_as_it_touches_the_entry()
+    {
+        var readable = NewType();
+        var hidden = NewType();
+        var parent = await StoreEntryAsync(hidden);
+        var child = await StoreEntryAsync(readable);
+        var sibling = await StoreEntryAsync(hidden);
+        var runId = await StoreRunWithActionsAsync(parent,
+            Attempt(0, "Create", "Failed", "child detail", new CreatedRef(readable, child, null), new CreatedRef(hidden, sibling, null)),
+            Attempt(1, "Create", "Failed", "unrelated detail", new CreatedRef(hidden, sibling, null)),
+            Attempt(2, "Webhook", "Failed", "other error"));
+        var caller = await CallerAsync(readable, SystemCapabilities.ViewWorkflowRuns);
+
+        var runs = await ListAsync(caller, child, includeCreated: true);
+
+        var run = runs.Should().ContainSingle().Subject;
+        run.GetProperty("id").GetGuid().Should().Be(runId);
+        var actions = run.GetProperty("actions");
+        actions.GetArrayLength().Should().Be(1, "only the action that names this entry is shown");
+        actions[0].GetProperty("error").ValueKind.Should().Be(JsonValueKind.Null, "an error belongs to work the caller did not ask about");
+        actions[0].GetProperty("created").EnumerateArray().Select(c => c.GetProperty("id").GetGuid())
+            .Should().Equal(child);
+    }
+
+    [Fact]
+    public async Task A_created_entry_the_caller_cannot_read_is_left_out_of_their_own_run()
+    {
+        var readable = NewType();
+        var hidden = NewType();
+        var entry = await StoreEntryAsync(readable);
+        var secret = await StoreEntryAsync(hidden);
+        await StoreRunWithActionsAsync(entry, Attempt(0, "Create", "Succeeded", null, new CreatedRef(hidden, secret, "H-1")));
+        var caller = await CallerAsync(readable, SystemCapabilities.ViewWorkflowRuns);
+
+        var runs = await ListAsync(caller, entry);
+
+        runs.Should().ContainSingle().Which.GetProperty("actions")[0].GetProperty("created").GetArrayLength().Should().Be(0);
     }
 
     [Fact]
@@ -139,6 +180,37 @@ public class ContentRunsEndpointTests(IntegrationTestFixture fixture) : IAsyncLi
                     Created = created is null ? null : [created],
                 },
             ],
+        };
+        session.Store(run);
+        await session.SaveChangesAsync(Ct);
+        return run.Id;
+    }
+
+    private static WorkflowActionAttempt Attempt(int ordinal, string type, string status, string? error, params CreatedRef[] created) => new()
+    {
+        Ordinal = ordinal,
+        ActionType = type,
+        Status = Enum.Parse<AttemptStatus>(status),
+        Error = error,
+        Created = created.Length == 0 ? null : [.. created],
+    };
+
+    private async Task<Guid> StoreRunWithActionsAsync(Guid contentId, params WorkflowActionAttempt[] actions)
+    {
+        using var scope = fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var run = new WorkflowRun
+        {
+            Id = Guid.NewGuid(),
+            WorkflowDefinitionId = Guid.NewGuid(),
+            WorkflowName = "Runs listing",
+            ContentId = contentId,
+            ContentType = "article",
+            TriggerEvent = WorkflowEvents.Published,
+            Status = RunStatus.Failed,
+            CreatedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow,
+            Actions = [.. actions],
         };
         session.Store(run);
         await session.SaveChangesAsync(Ct);

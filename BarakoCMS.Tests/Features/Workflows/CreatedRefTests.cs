@@ -18,10 +18,10 @@ public class CreatedRefTests
     {
         var id = Guid.CreateVersion7();
 
-        var result = WorkflowActionResult.Success(null, [new CreatedRef("order", id, "QC-0001")]);
+        var result = WorkflowActionResult.Success(null, [new CreatedRef("order", id, "BR1-0001")]);
 
         result.Succeeded.Should().BeTrue();
-        result.Created.Should().ContainSingle().Which.Should().Be(new CreatedRef("order", id, "QC-0001"));
+        result.Created.Should().ContainSingle().Which.Should().Be(new CreatedRef("order", id, "BR1-0001"));
         WorkflowActionResult.Success().Created.Should().BeNull();
     }
 
@@ -31,7 +31,7 @@ public class CreatedRefTests
         var run = await DrainAsync(Creating(fail: false));
 
         run.Actions[0].Status.Should().Be(AttemptStatus.Succeeded);
-        run.Actions[0].Created.Should().ContainSingle().Which.Number.Should().Be("QC-0001");
+        run.Actions[0].Created.Should().ContainSingle().Which.Number.Should().Be("BR1-0001");
     }
 
     [Fact]
@@ -78,5 +78,5 @@ internal sealed class CreatingRunnerAction : IWorkflowAction
     public Task<WorkflowActionResult> RunAsync(WorkflowContext context, CancellationToken ct) =>
         Task.FromResult(context.Parameters.GetValueOrDefault("Fail") == "true"
             ? WorkflowActionResult.PermanentFailure("Told to fail.")
-            : WorkflowActionResult.Success(null, [new CreatedRef("order", Guid.CreateVersion7(), "QC-0001")]));
+            : WorkflowActionResult.Success(null, [new CreatedRef("order", Guid.CreateVersion7(), "BR1-0001")]));
 }
