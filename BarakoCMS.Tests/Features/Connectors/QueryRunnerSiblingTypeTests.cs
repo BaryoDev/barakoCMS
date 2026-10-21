@@ -68,8 +68,9 @@ public class QueryRunnerSiblingTypeTests(IntegrationTestFixture factory)
     {
         // Marten checks a type's schema on first use. Do it now, or the seed below puts the index back.
         await store.Storage.Database.EnsureStorageExistsAsync(typeof(ContentTypeDefinition), ct);
-        await using var session = store.LightweightSession();
-        await using var read = session.Connection.CreateCommand();
+        await using var connection = store.Storage.Database.CreateConnection();
+        await connection.OpenAsync(ct);
+        await using var read = connection.CreateCommand();
         read.CommandText = $"select indexdef from pg_indexes where indexname = '{IndexName}'";
         var definition = (string?)await read.ExecuteScalarAsync(ct)
             ?? throw new InvalidOperationException("The content type name index is missing.");
@@ -77,10 +78,12 @@ public class QueryRunnerSiblingTypeTests(IntegrationTestFixture factory)
         return definition.Replace("INDEX " + IndexName, "INDEX IF NOT EXISTS " + IndexName);
     }
 
+    // A plain connection, not a session's: a session runs its commands in a transaction it never commits here.
     private static async Task RunAsync(IDocumentStore store, string sql, CancellationToken ct)
     {
-        await using var session = store.LightweightSession();
-        await using var command = session.Connection.CreateCommand();
+        await using var connection = store.Storage.Database.CreateConnection();
+        await connection.OpenAsync(ct);
+        await using var command = connection.CreateCommand();
         command.CommandText = sql;
         await command.ExecuteNonQueryAsync(ct);
     }
