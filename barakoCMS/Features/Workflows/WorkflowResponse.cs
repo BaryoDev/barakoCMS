@@ -30,6 +30,9 @@ internal sealed class WorkflowResponse
     /// <summary>What runs the workflow. Null for the built-in runner.</summary>
     public string? Executor { get; init; }
 
+    /// <summary>The role told when a run fails. Null for nobody.</summary>
+    public string? NotifyRoleOnFailure { get; init; }
+
     /// <summary>
     /// The placeholder warnings, on the response to a save: an array, empty when there are none.
     /// </summary>
@@ -60,6 +63,7 @@ internal sealed class WorkflowResponse
         Actions = (w.Actions ?? []).Select(WorkflowActionResponse.From).ToList(),
         Enabled = w.Enabled,
         Executor = WorkflowExecutors.ForRun(w),
+        NotifyRoleOnFailure = w.NotifyRoleOnFailure,
     };
 }
 

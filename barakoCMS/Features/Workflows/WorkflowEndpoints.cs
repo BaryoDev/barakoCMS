@@ -5,6 +5,7 @@ using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Infrastructure.Security;
+using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using Marten;
 
@@ -13,7 +14,8 @@ namespace barakoCMS.Features.Workflows;
 internal class CreateWorkflowEndpoint(
     IDocumentSession session,
     barakoCMS.Infrastructure.Services.IWorkflowSchemaValidator validator,
-    ISecretProtector protector) : Endpoint<CreateWorkflowRequest, barakoCMS.Features.Workflows.WorkflowResponse>
+    ISecretProtector protector,
+    IPermissionResolver permissions) : Endpoint<CreateWorkflowRequest, barakoCMS.Features.Workflows.WorkflowResponse>
 {
     public override void Configure()
     {
@@ -35,6 +37,14 @@ internal class CreateWorkflowEndpoint(
                 AddError($"{error.Field}: {error.Message}");
             }
             await Send.ErrorsAsync(cancellation: ct);
+            return;
+        }
+
+        var missing = await WorkflowSaveRights.MissingAsync(session, permissions, User, workflow, ct);
+        if (missing.Count > 0)
+        {
+            foreach (var line in missing) AddError(line);
+            await Send.ErrorsAsync(403, ct);
             return;
         }
 
@@ -342,7 +352,8 @@ internal sealed class UpdateWorkflowEndpoint(
     IDocumentSession session,
     barakoCMS.Infrastructure.Services.IWorkflowSchemaValidator validator,
     ISecretProtector protector,
-    TenantContext tenant) : Endpoint<UpdateWorkflowRequest, WorkflowResponse>
+    TenantContext tenant,
+    IPermissionResolver permissions) : Endpoint<UpdateWorkflowRequest, WorkflowResponse>
 {
     public override void Configure()
     {
@@ -369,6 +380,14 @@ internal sealed class UpdateWorkflowEndpoint(
                 AddError($"{error.Field}: {error.Message}");
             }
             await Send.ErrorsAsync(cancellation: ct);
+            return;
+        }
+
+        var missing = await WorkflowSaveRights.MissingAsync(session, permissions, User, workflow, ct);
+        if (missing.Count > 0)
+        {
+            foreach (var line in missing) AddError(line);
+            await Send.ErrorsAsync(403, ct);
             return;
         }
 

@@ -66,11 +66,14 @@ public class CustomActionTests
     public async Task CreateTaskAction_Should_CreateContent()
     {
         // Arrange
-        // Events is stubbed explicitly rather than via DefaultValue.Mock, because auto-mocking tries
-        // to proxy StreamAction, which has no parameterless constructor. The action discards the
-        // return value, so a loose mock returning null is enough.
+        // The writer stamps the store's node and the envelope headers on the stream it starts, so the
+        // session needs a store to ask and a started stream to hand back. Auto-mocking cannot make
+        // the StreamAction, which has no parameterless constructor.
         var mockSession = new Mock<IDocumentSession>();
-        mockSession.SetupGet(x => x.Events).Returns(new Mock<Marten.Events.IEventStoreOperations>().Object);
+        mockSession.SetupGet(x => x.DocumentStore).Returns(Mock.Of<IDocumentStore>(s => s.Options == new StoreOptions()));
+        var events = new Mock<Marten.Events.IEventStoreOperations>();
+        events.SetReturnsDefault(JasperFx.Events.StreamAction.Start(Guid.NewGuid(), new JasperFx.Events.Event<object>(new object())));
+        mockSession.SetupGet(x => x.Events).Returns(events.Object);
         var mockLogger = new Mock<ILogger<CreateTaskAction>>();
         var action = new CreateTaskAction(mockSession.Object, mockLogger.Object, new barakoCMS.Infrastructure.Services.ContentWriter(
             mockSession.Object, new barakoCMS.Infrastructure.Services.ContentSourcingPolicyService(mockSession.Object)));

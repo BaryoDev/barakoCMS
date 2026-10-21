@@ -22,6 +22,7 @@ internal class CreateWorkflowRequest
     public List<WorkflowAction> Actions { get; set; } = new();
     public bool Enabled { get; set; } = true;
     public string? Executor { get; set; }
+    public string? NotifyRoleOnFailure { get; set; }
 
     /// <summary>The definition this request describes, with no id.</summary>
     /// <remarks>
@@ -39,5 +40,6 @@ internal class CreateWorkflowRequest
         Actions = Actions,
         Enabled = Enabled,
         Executor = Executor,
+        NotifyRoleOnFailure = NotifyRoleOnFailure,
     };
 }

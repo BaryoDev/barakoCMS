@@ -41,4 +41,38 @@ public class ActionParametersTests
         resolved.Should().HaveCount(1);
         resolved["Condition"].Should().Be("Published == Published");
     }
+
+    [Theory]
+    [InlineData("{{data.Lines}}", true)]
+    [InlineData("  {{ data.Lines | json }}  ", true)]
+    [InlineData("{{data.Text}}", false)]
+    [InlineData("{{data.Text | json}}", false)]
+    [InlineData("{\"a\":{{data.Lines}}}", false)]
+    [InlineData("x{{data.Lines}}", false)]
+    public void Only_one_whole_placeholder_for_a_list_or_object_is_marked_as_structured(string template, bool marked)
+    {
+        var entry = new Content
+        {
+            Id = Guid.NewGuid(),
+            Data = new Dictionary<string, object>
+            {
+                ["Lines"] = new List<object> { 1L },
+                ["Text"] = "{\"admin\":true}",
+            },
+        };
+
+        var resolved = ActionParameters.Resolve("UpdateField", new Dictionary<string, string> { ["Value"] = template }, entry);
+
+        ActionParameters.IsStructured(resolved, "Value").Should().Be(marked);
+    }
+
+    [Fact]
+    public void A_workflow_cannot_declare_the_structured_marker_itself()
+    {
+        var parameters = new Dictionary<string, string> { ["Value"] = "{}", [ActionParameters.StructuredParameter] = "Value" };
+
+        var resolved = ActionParameters.Resolve("UpdateField", parameters, Entry);
+
+        ActionParameters.IsStructured(resolved, "Value").Should().BeFalse();
+    }
 }

@@ -215,7 +215,7 @@ internal class UpdateFieldAction : IWorkflowAction
             try
             {
                 var definition = await _session.Query<barakoCMS.Models.ContentTypeDefinition>()
-                    .FirstOrDefaultAsync(d => d.Name == targetContent.ContentType, ct);
+                    .FirstNamedAsync(targetContent.ContentType, ct);
                 token = definition?.Fields.FirstOrDefault(
                     f => f is not null
                          && string.Equals(f.Name, tokenKey, StringComparison.OrdinalIgnoreCase)
@@ -246,7 +246,7 @@ internal class UpdateFieldAction : IWorkflowAction
             try
             {
                 var definition = await _session.Query<barakoCMS.Models.ContentTypeDefinition>()
-                    .FirstOrDefaultAsync(d => d.Name == targetContent.ContentType, ct);
+                    .FirstNamedAsync(targetContent.ContentType, ct);
                 declared = definition?.Fields.FirstOrDefault(
                     f => f is not null && string.Equals(f.Name, dataKey, StringComparison.OrdinalIgnoreCase));
             }
@@ -348,6 +348,7 @@ internal class UpdateFieldAction : IWorkflowAction
 
                 data[writtenKey!] = amount;
             }
+            if (JsonFieldRefusal(declared, value, ActionParameters.IsStructured(parameters, "Value"), data, writtenKey!) is { } notJson) return notJson;
         }
 
         if (dataChanged)
@@ -494,5 +495,20 @@ internal class UpdateFieldAction : IWorkflowAction
         {
             _session.Delete(m);
         }
+    }
+
+    /// <summary>
+    /// Stores a json field's text as the list or object it holds, or the permanent failure when it
+    /// is not one JSON array or object. The value is not named, as for an amount.
+    /// </summary>
+    private static WorkflowActionResult? JsonFieldRefusal(
+        barakoCMS.Models.FieldDefinition? declared, string value, bool structured, Dictionary<string, object> data, string key)
+    {
+        if (!barakoCMS.Core.Validation.JsonTextFields.Holds(declared)) return null;
+        if (!structured || !barakoCMS.Core.Validation.JsonTextFields.TryRead(value, out var parsed))
+            return WorkflowActionResult.PermanentFailure(barakoCMS.Core.Validation.JsonTextFields.Refusal(declared!.Name));
+
+        data[key] = parsed;
+        return null;
     }
 }

@@ -100,6 +100,26 @@ public class WorkflowOutputTests
     }
 
     [Fact]
+    public async Task A_list_field_reaches_an_action_as_json_text_through_the_json_format()
+    {
+        var lines = new List<object>
+        {
+            new Dictionary<string, object> { ["ItemCode"] = "PARA-500", ["Quantity"] = 2L, ["UnitCost"] = 1.50m },
+            new Dictionary<string, object> { ["ItemCode"] = "AMOX-250", ["Quantity"] = 10L, ["UnitCost"] = 0.1m },
+        };
+        var contentId = await _harness.StoreContentAsync(new() { ["Lines"] = lines });
+
+        var run = await DrainAsync(contentId, Reads(new() { ["Lines"] = "{{data.Lines | json}}" }));
+
+        run.Actions[0].Status.Should().Be(AttemptStatus.Succeeded, run.Actions[0].Error);
+        var received = RecordingRunnerAction.Seen[run.Actions[0].IdempotencyKey].Parameters["Lines"];
+        var back = JsonSerializer.Deserialize<List<Dictionary<string, JsonElement>>>(received)!;
+        back.Select(l => l["ItemCode"].GetString()).Should().Equal("PARA-500", "AMOX-250");
+        back.Select(l => l["Quantity"].GetInt64()).Should().Equal(2, 10);
+        back.Select(l => l["UnitCost"].GetDecimal()).Should().Equal(1.50m, 0.1m);
+    }
+
+    [Fact]
     public async Task An_entry_value_that_looks_like_an_output_reference_is_sent_as_text()
     {
         var contentId = await _harness.StoreContentAsync(new()

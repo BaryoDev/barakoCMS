@@ -28,8 +28,8 @@ internal class WorkflowEngine(
         try
         {
             workflows = WorkflowTriggers.SwitchedOn(await session.Query<WorkflowDefinition>()
-                .Where(WorkflowTriggers.FiredBy(contentType, eventType))
-                .ToListAsync(ct));
+                .Where(WorkflowTriggers.FiredBy(eventType))
+                .ToListAsync(ct), contentType);
         }
         catch (Exception ex)
         {

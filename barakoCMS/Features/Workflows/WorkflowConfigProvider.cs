@@ -16,7 +16,9 @@ internal sealed record WorkflowConfig(
     List<string>? TriggerEvents,
     Dictionary<string, string>? Conditions,
     List<WorkflowAction>? Actions,
-    bool Enabled = true);
+    bool Enabled = true,
+    ScheduleTrigger? Schedule = null,
+    string? NotifyRoleOnFailure = null);
 
 /// <summary>
 /// The <c>workflows</c> section: each workflow of the tenant under its name.
@@ -31,7 +33,9 @@ internal sealed record WorkflowConfig(
 /// secret is never carried to an address its owner did not enter it for.
 /// </para>
 /// <para>
-/// A workflow the document leaves out is deleted, destructively. Workflows are keyed by name, so
+/// A workflow the document leaves out is deleted, destructively, unless a module seeded it
+/// (<see cref="WorkflowDefinition.OwnerModule"/>). A module-owned workflow is never exported and
+/// never planned for delete, and a document naming one with other content is refused. Workflows are keyed by name, so
 /// two stored under one name cannot be told apart: the export carries the first and names the rest
 /// as a gap, and a document naming one is refused until they are renamed.
 /// </para>
@@ -39,7 +43,8 @@ internal sealed record WorkflowConfig(
 internal sealed class WorkflowConfigProvider(
     IDocumentSession session,
     IWorkflowSchemaValidator validator,
-    TenantContext tenant) : IConfigProvider
+    TenantContext tenant,
+    IPermissionResolver permissions) : IConfigProvider
 {
     public string Section => "workflows";
 
@@ -54,7 +59,10 @@ internal sealed class WorkflowConfigProvider(
         var gaps = new List<string>();
         var documents = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
 
-        foreach (var group in (await session.Query<WorkflowDefinition>().ToListAsync(ct)).GroupBy(w => w.Name, StringComparer.Ordinal))
+        // A module-owned workflow is the module's code and is seeded again on every start, so a document
+        // does not carry it.
+        foreach (var group in (await session.Query<WorkflowDefinition>().ToListAsync(ct))
+                     .Where(w => w.OwnerModule is null).GroupBy(w => w.Name, StringComparer.Ordinal))
         {
             var ordered = group.OrderBy(w => w.Id).ToList();
             if (ordered.Count > 1)
@@ -92,13 +100,38 @@ internal sealed class WorkflowConfigProvider(
                 continue;
             }
 
-            if (Plan(name, workflow, held?.Single(), document) is { } change)
+            // A document applied by a person is held to that person's rights over the content the
+            // workflow creates and moves. The host's own file (no caller) is the operator's to trust.
+            if (caller.Principal is { } who)
+            {
+                var missing = await WorkflowSaveRights.MissingAsync(session, permissions, who, workflow, ct);
+                if (missing.Count > 0)
+                {
+                    errors.AddRange(missing.Select(m => $"'{name}': {m}"));
+                    continue;
+                }
+            }
+
+            var change = Plan(name, workflow, held?.Single(), document);
+            if (held?.Single() is { OwnerModule: { } owner })
+            {
+                if (change is not null)
+                {
+                    errors.Add($"'{name}': this workflow belongs to the {owner} module and is set by the module, so a document cannot change it. "
+                               + "Leave it out of the document, or name it exactly as it is stored.");
+                }
+
+                continue;
+            }
+
+            if (change is not null)
             {
                 changes.Add(change);
             }
         }
 
-        changes.AddRange(stored.Keys.Where(name => !desired.ContainsKey(name)).Order(StringComparer.Ordinal).Select(name =>
+        changes.AddRange(stored.Where(entry => !desired.ContainsKey(entry.Key) && entry.Value.All(w => w.OwnerModule is null))
+            .Select(entry => entry.Key).Order(StringComparer.Ordinal).Select(name =>
             new ConfigChange { Key = name, Kind = ConfigChangeKind.Destructive, Summary = $"delete workflow '{name}'" }));
 
         return new ConfigSectionPlan { Section = Section, Changes = changes, Errors = errors };
@@ -162,9 +195,12 @@ internal sealed class WorkflowConfigProvider(
             actions.Add(new WorkflowAction { Type = action.Type, Parameters = parameters, OnFailure = action.OnFailure });
         }
 
+        // A schedule workflow has no events of its own: its stored trigger is derived from its name.
         var config = new WorkflowConfig(
-            WorkflowTriggers.ContentTypes(workflow), WorkflowTriggers.Events(workflow),
-            new Dictionary<string, string>(workflow.Conditions ?? [], StringComparer.Ordinal), actions, workflow.Enabled);
+            WorkflowTriggers.ContentTypes(workflow), workflow.Schedule is null ? WorkflowTriggers.Events(workflow) : [],
+            new Dictionary<string, string>(workflow.Conditions ?? [], StringComparer.Ordinal), actions, workflow.Enabled,
+            workflow.Schedule is { } schedule ? Copy(schedule) : null,
+            string.IsNullOrWhiteSpace(workflow.NotifyRoleOnFailure) ? null : workflow.NotifyRoleOnFailure);
         return (config, held);
     }
 
@@ -184,6 +220,8 @@ internal sealed class WorkflowConfigProvider(
             Conditions = config.Conditions ?? [],
             Actions = (config.Actions ?? []).Where(a => a is not null).ToList(),
             Enabled = config.Enabled,
+            Schedule = config.Schedule is { } schedule ? Copy(schedule) : null,
+            NotifyRoleOnFailure = string.IsNullOrWhiteSpace(config.NotifyRoleOnFailure) ? null : config.NotifyRoleOnFailure,
         };
         foreach (var action in workflow.Actions)
         {
@@ -204,12 +242,22 @@ internal sealed class WorkflowConfigProvider(
             action.Parameters = Shown(action, out _);
         }
 
+        if (!await PrepareScheduleAsync(name, workflow, errors, ct))
+        {
+            return null;
+        }
+
         WorkflowTriggers.Normalise(workflow);
         var validation = await validator.ValidateAsync(workflow, ct);
         if (!validation.IsValid)
         {
             errors.AddRange(validation.Errors.Select(e => $"'{name}': {e.Field}: {e.Message}"));
             return null;
+        }
+
+        if (workflow.Schedule is not null)
+        {
+            return Scheduled(name, workflow);
         }
 
         if (validation.NormalisedTriggerEvents is { Count: > 0 } declared)
@@ -224,6 +272,71 @@ internal sealed class WorkflowConfigProvider(
         workflow.TriggerEvent = string.Empty;
         WorkflowTriggers.Normalise(workflow);
         return workflow;
+    }
+
+    /// <summary>
+    /// Checks a schedule, and for a schedule workflow stands an ordinary event in for its trigger so
+    /// the validator can check the rest. True when there is no schedule or it is fine.
+    /// </summary>
+    /// <remarks>
+    /// Named by the schedule and not by events: the stored event is not one the validator knows.
+    /// </remarks>
+    private async Task<bool> PrepareScheduleAsync(string name, WorkflowDefinition workflow, List<string> errors, CancellationToken ct)
+    {
+        if (workflow.Schedule is not { } due)
+        {
+            return true;
+        }
+
+        if (await ScheduleErrorAsync(name, due, ct) is { } error)
+        {
+            errors.Add(error);
+            return false;
+        }
+
+        workflow.TriggerContentTypes = [due.ContentType];
+        workflow.TriggerEvents = [WorkflowEvents.Created];
+        return true;
+    }
+
+    /// <summary>The schedule workflow as it is stored: its content type, and an event only its own name carries.</summary>
+    private static WorkflowDefinition Scheduled(string name, WorkflowDefinition workflow)
+    {
+        workflow.TriggerEvents = [ScheduleOffset.EventOf(name)];
+        workflow.TriggerEvent = string.Empty;
+        WorkflowTriggers.Normalise(workflow);
+        return workflow;
+    }
+
+    private static ScheduleTrigger Copy(ScheduleTrigger schedule) => new()
+    {
+        ContentType = schedule.ContentType,
+        DateField = schedule.DateField,
+        Offset = schedule.Offset,
+        InState = schedule.InState,
+        Where = new Dictionary<string, string>(schedule.Where ?? [], StringComparer.Ordinal),
+    };
+
+    /// <summary>What is wrong with a schedule, in the words of the other trigger errors, or null.</summary>
+    private async Task<string?> ScheduleErrorAsync(string name, ScheduleTrigger schedule, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(schedule.DateField))
+        {
+            return $"'{name}': schedule.dateField: A date field is required";
+        }
+
+        if (!ScheduleOffset.TryParse(schedule.Offset, out _))
+        {
+            return $"'{name}': schedule.offset: Use a whole number plus m, h or d, such as -24h, of at most 365 days";
+        }
+
+        if (string.IsNullOrWhiteSpace(schedule.ContentType)
+            || !await session.Query<ContentTypeDefinition>().AnyAsync(barakoCMS.Core.ContentTypeName.Named(schedule.ContentType), ct))
+        {
+            return $"'{name}': schedule.contentType: Content type '{schedule.ContentType}' does not exist";
+        }
+
+        return null;
     }
 
     private static ConfigChange? Plan(string name, WorkflowDefinition workflow, WorkflowDefinition? current, JsonElement document)
@@ -248,7 +361,9 @@ internal sealed class WorkflowConfigProvider(
         var details = new List<string>();
         AddIfChanged(details, "triggers", (held.TriggerContentTypes, held.TriggerEvents), (desired.TriggerContentTypes, desired.TriggerEvents));
         AddIfChanged(details, "conditions", held.Conditions, desired.Conditions);
+        AddIfChanged(details, "schedule", held.Schedule, desired.Schedule);
         AddIfChanged(details, "actions", held.Actions, desired.Actions);
+        AddIfChanged(details, "the role notified on failure", held.NotifyRoleOnFailure, desired.NotifyRoleOnFailure);
         AddIfChanged(details, held.Enabled ? "is switched off" : "is switched on", held.Enabled, desired.Enabled);
         details.AddRange(lost.Select(i => $"action {i} changes, so the credential its stored copy held is dropped and has to be set again"));
 

@@ -19,6 +19,7 @@ internal class Request
     public Dictionary<string, string> Conditions { get; set; } = new();
     public List<WorkflowAction> Actions { get; set; } = new();
     public string? Executor { get; set; }
+    public string? NotifyRoleOnFailure { get; set; }
 }
 
 /// <summary>
@@ -49,6 +50,7 @@ internal class Endpoint(
                 Conditions = req.Conditions,
                 Actions = req.Actions,
                 Executor = req.Executor,
+                NotifyRoleOnFailure = req.NotifyRoleOnFailure,
             };
 
             var result = await validator.ValidateAsync(workflow, ct);

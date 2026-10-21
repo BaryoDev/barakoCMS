@@ -25,14 +25,49 @@ internal partial class WorkflowProjection : EventProjection
     public async Task Project(IEvent<barakoCMS.Events.ContentUpdated> e, IDocumentOperations ops, CancellationToken ct)
     {
         using var origin = OriginOf(e);
-        await ProcessEventAsync(barakoCMS.Models.WorkflowEvents.Updated, e.Data.Id, e.TenantId, e.Sequence, ops);
+        await ProcessEventAsync(
+            barakoCMS.Models.WorkflowEvents.Updated, e.Data.Id, e.TenantId, e.Sequence, ops,
+            stored => AsWritten(stored, e.Data.Data, stored.Status));
     }
 
     public async Task Project(IEvent<barakoCMS.Events.ContentCreated> e, IDocumentOperations ops, CancellationToken ct)
     {
         using var origin = OriginOf(e);
-        await ProcessEventAsync(barakoCMS.Models.WorkflowEvents.Created, e.Data.Id, e.TenantId, e.Sequence, ops);
+        await ProcessEventAsync(
+            barakoCMS.Models.WorkflowEvents.Created, e.Data.Id, e.TenantId, e.Sequence, ops,
+            stored => AsWritten(stored, e.Data.Data, e.Data.Status));
     }
+
+    /// <summary>The stored entry as the event left it: its data, and the status given.</summary>
+    /// <remarks>
+    /// The daemon reads an event after it commits, and by then the document can hold a later save.
+    /// Matching conditions against that document matched every earlier event of the entry against
+    /// the latest data: a workflow's UpdateField wrote StockEvent Done, a person then saved Waste
+    /// before the daemon got there, and both events read Waste, so one save queued the Waste
+    /// workflow twice. ContentUpdated and ContentCreated carry the whole data bag (Apply replaces
+    /// it), so the event is what that write said. A copy, so the loaded document is never changed.
+    /// </remarks>
+    private static barakoCMS.Models.Content AsWritten(
+        barakoCMS.Models.Content stored, System.Collections.Generic.Dictionary<string, object>? data, barakoCMS.Models.ContentStatus status) => new()
+    {
+        Id = stored.Id,
+        ContentType = stored.ContentType,
+        Data = data ?? stored.Data,
+        Status = status,
+        Sensitivity = stored.Sensitivity,
+        CreatedAt = stored.CreatedAt,
+        UpdatedAt = stored.UpdatedAt,
+        ScheduledPublishAt = stored.ScheduledPublishAt,
+        ScheduledUnpublishAt = stored.ScheduledUnpublishAt,
+        ScheduledSensitivity = stored.ScheduledSensitivity,
+        ScheduledSensitivityAt = stored.ScheduledSensitivityAt,
+        LastModifiedBy = stored.LastModifiedBy,
+        LifecycleState = stored.LifecycleState,
+        SourceRunId = stored.SourceRunId,
+        CreatedBy = stored.CreatedBy,
+        BranchId = stored.BranchId,
+        SearchText = stored.SearchText,
+    };
 
     public async Task Project(IEvent<barakoCMS.Events.ContentStatusChanged> e, IDocumentOperations ops, CancellationToken ct)
     {
@@ -155,7 +190,8 @@ internal partial class WorkflowProjection : EventProjection
         barakoCMS.Infrastructure.Tracing.Correlation.BeginFrom(e.CorrelationId, e.CausationId);
 
     private async Task ProcessEventAsync(
-        string eventType, Guid contentId, string tenantId, long sequence, IDocumentOperations ops)
+        string eventType, Guid contentId, string tenantId, long sequence, IDocumentOperations ops,
+        Func<barakoCMS.Models.Content, barakoCMS.Models.Content>? asOfEvent = null)
     {
         // This runs inside Marten's async projection daemon. Any unhandled exception here stops the
         // projection shard, and every workflow stops firing with no further signal in the logs, so
@@ -179,7 +215,7 @@ internal partial class WorkflowProjection : EventProjection
                 // the duration of all three, so one slow provider stalled workflow processing for
                 // every tenant and a hanging one stopped it. Writing a run is one Postgres round
                 // trip, and WorkflowRunner does the I/O outside this path.
-                await queue.EnqueueAsync(content, eventType, sequence, CancellationToken.None);
+                await queue.EnqueueAsync(asOfEvent is null ? content : asOfEvent(content), eventType, sequence, CancellationToken.None);
             }
         }
         catch (Exception ex)

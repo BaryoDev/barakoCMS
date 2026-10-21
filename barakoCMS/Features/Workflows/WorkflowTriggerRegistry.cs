@@ -86,7 +86,10 @@ internal sealed partial class WorkflowTriggerRegistry
 /// <summary>Fires a module's trigger by queueing runs, in the scope's tenant.</summary>
 internal sealed class WorkflowTriggerSource(WorkflowTriggerRegistry registry, IWorkflowRunQueue queue) : barakoCMS.Core.Interfaces.IWorkflowTriggers
 {
-    public Task<int> FireAsync(string trigger, barakoCMS.Models.Content content, CancellationToken ct)
+    public Task<int> FireAsync(string trigger, barakoCMS.Models.Content content, CancellationToken ct) =>
+        FireAsync(trigger, content, triggerKey: null, ct);
+
+    public Task<int> FireAsync(string trigger, barakoCMS.Models.Content content, string? triggerKey, CancellationToken ct)
     {
         if (!registry.IsModuleTrigger(trigger))
         {
@@ -102,6 +105,6 @@ internal sealed class WorkflowTriggerSource(WorkflowTriggerRegistry registry, IW
             throw new ArgumentException("The entry needs an id and a content type for a workflow to run on it.", nameof(content));
         }
 
-        return queue.FireAsync(content, trigger, ct);
+        return queue.FireAsync(content, trigger, triggerKey, ct);
     }
 }
