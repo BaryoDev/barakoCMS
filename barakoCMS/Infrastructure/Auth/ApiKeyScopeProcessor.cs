@@ -31,20 +31,20 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
         var contentTypes = user.FindAll(ApiKeyAuthenticationHandler.ContentTypeClaim).Select(c => c.Value).ToList();
         if (contentTypes.Count > 0 && !IsPushTo(path, contentTypes))
         {
-            await Deny(http, "This API key is limited to pushing to the content types it names.", ct);
+            await Deny(http, ApiKeyRefusalReason.ContentType, "This API key is limited to pushing to the content types it names.", ct);
             return;
         }
 
         var required = RequiredScope(path, isWrite);
         if (required is null)
         {
-            await Deny(http, "API keys are limited to the content API.", ct);
+            await Deny(http, ApiKeyRefusalReason.Scope, "API keys are limited to the content API.", ct);
             return;
         }
 
         var scopes = user.FindAll("scope").Select(c => c.Value);
         if (!ApiKeyScopes.Satisfies(scopes, required))
-            await Deny(http, $"This API key is missing the '{required}' scope.", ct);
+            await Deny(http, ApiKeyRefusalReason.Scope, $"This API key is missing the '{required}' scope.", ct);
     }
 
     // The scope a request needs, or null if API keys may not touch this path at all.
@@ -115,8 +115,10 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
         path.Equals(prefix, StringComparison.OrdinalIgnoreCase)
         || path.StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase);
 
-    private static async Task Deny(HttpContext http, string message, CancellationToken ct)
+    private static async Task Deny(HttpContext http, ApiKeyRefusalReason reason, string message, CancellationToken ct)
     {
+        if (Guid.TryParse(http.User.FindFirst("apikey_id")?.Value, out var keyId))
+            http.RequestServices.GetService<ApiKeyRefusals>()?.Record(keyId, reason, PushedType(http.Request.Path.Value ?? string.Empty));
         http.Response.StatusCode = 403;
         // Writing the body short-circuits the endpoint (setting the status alone would not).
         await http.Response.WriteAsync(message, ct);
