@@ -166,7 +166,7 @@ public class ScheduledContentService : BackgroundService
             using var span = Tracing.BarakoTracing.StartTenantWork(Tracing.BarakoTracing.ScheduledTenantSpan, slug);
             await using var session = slug is null ? _store.LightweightSession() : _store.LightweightSession(slug);
             var changed = await SweepTenantAsync(session, nowUtc, _logger, ct);
-            await SweepScheduleWorkflowsAsync(session, nowUtc, _logger, ct);
+            await SweepScheduleWorkflowsAsync(session, nowUtc, _logger, _configuration, ct);
             span?.SetTag(Tracing.BarakoTracing.ScheduledTransitionsTag, changed);
             if (changed > 0)
                 _logger.LogInformation("Scheduled sweep applied {Count} transition(s) for tenant {Tenant}",
@@ -289,13 +289,13 @@ public class ScheduledContentService : BackgroundService
     /// tenants after this one, and the next sweep a minute later reads the same state again.
     /// </remarks>
     private static async Task SweepScheduleWorkflowsAsync(
-        IDocumentSession session, DateTime nowUtc, ILogger? logger, CancellationToken ct)
+        IDocumentSession session, DateTime nowUtc, ILogger? logger, IConfiguration? configuration, CancellationToken ct)
     {
         try
         {
             var queue = new barakoCMS.Features.Workflows.WorkflowRunQueue(
                 session, Microsoft.Extensions.Logging.Abstractions.NullLogger<barakoCMS.Features.Workflows.WorkflowRunQueue>.Instance);
-            await barakoCMS.Features.Workflows.ScheduleSweep.RunAsync(session, queue, nowUtc, ct);
+            await barakoCMS.Features.Workflows.ScheduleSweep.RunAsync(session, queue, nowUtc, ct, configuration);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

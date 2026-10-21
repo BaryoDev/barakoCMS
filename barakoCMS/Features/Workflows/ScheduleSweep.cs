@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using System.Globalization;
 using barakoCMS.Models;
 using Marten;
@@ -28,18 +29,35 @@ namespace barakoCMS.Features.Workflows;
 /// </remarks>
 internal static class ScheduleSweep
 {
-    /// <summary>How long after its fire time a run can still be queued.</summary>
+    /// <summary>How long after its fire time a run can still be queued, when nothing is set.</summary>
     internal static readonly TimeSpan Grace = TimeSpan.FromDays(7);
 
-    private const int PageSize = 200;
+    /// <summary>How many entries one read takes, when nothing is set.</summary>
+    internal const int DefaultPageSize = 200;
+
+    /// <summary>The setting for the grace, in days.</summary>
+    internal const string GraceDaysKey = "Workflows:ScheduleGraceDays";
+
+    /// <summary>The setting for the page size.</summary>
+    internal const string PageSizeKey = "Workflows:SchedulePageSize";
+
+    /// <summary>The grace and page size from settings, each falling back to its default when missing or not above zero.</summary>
+    internal static (TimeSpan Grace, int PageSize) SettingsFrom(Microsoft.Extensions.Configuration.IConfiguration? config)
+    {
+        var days = config?.GetValue<double?>(GraceDaysKey);
+        var page = config?.GetValue<int?>(PageSizeKey);
+        return (days is > 0 and <= 3650 ? TimeSpan.FromDays(days.Value) : Grace, page is > 0 ? page.Value : DefaultPageSize);
+    }
 
     private const string PrefilterSql =
         @"substr(d.data -> 'Data' ->> ?, 1, 10) COLLATE ""C"" >= ? AND substr(d.data -> 'Data' ->> ?, 1, 10) COLLATE ""C"" <= ?";
 
     /// <returns>How many runs were queued.</returns>
     internal static async Task<int> RunAsync(
-        IDocumentSession session, IWorkflowRunQueue queue, DateTime nowUtc, CancellationToken ct)
+        IDocumentSession session, IWorkflowRunQueue queue, DateTime nowUtc, CancellationToken ct,
+        Microsoft.Extensions.Configuration.IConfiguration? config = null)
     {
+        var (grace, pageSize) = SettingsFrom(config);
         var workflows = (await session.Query<WorkflowDefinition>().ToListAsync(ct))
             .Where(w => w.Enabled && w.Schedule is not null)
             .OrderBy(w => w.Name, StringComparer.Ordinal)
@@ -60,8 +78,8 @@ internal static class ScheduleSweep
             // Fire time is value + offset, so it is due when value <= now - offset and still inside
             // the grace when value > now - offset - Grace.
             var latest = now - offset;
-            var earliest = latest - Grace;
-            queued += await SweepWorkflowAsync(session, queue, workflow, earliest, latest, ct);
+            var earliest = latest - grace;
+            queued += await SweepWorkflowAsync(session, queue, workflow, earliest, latest, pageSize, ct);
         }
 
         return queued;
@@ -69,7 +87,7 @@ internal static class ScheduleSweep
 
     private static async Task<int> SweepWorkflowAsync(
         IDocumentSession session, IWorkflowRunQueue queue, WorkflowDefinition workflow,
-        DateTimeOffset earliest, DateTimeOffset latest, CancellationToken ct)
+        DateTimeOffset earliest, DateTimeOffset latest, int pageSize, CancellationToken ct)
     {
         var schedule = workflow.Schedule!;
         var field = schedule.DateField;
@@ -91,7 +109,7 @@ internal static class ScheduleSweep
                 page = page.Where(c => c.LifecycleState == state);
             }
 
-            var rows = await page.OrderBy(c => c.Id).Skip(skipped).Take(PageSize).ToListAsync(ct);
+            var rows = await page.OrderBy(c => c.Id).Skip(skipped).Take(pageSize).ToListAsync(ct);
 
             foreach (var content in rows)
             {
@@ -102,7 +120,7 @@ internal static class ScheduleSweep
                 if (await queue.EnqueueScheduledAsync(workflow, content, key, ct)) queued++;
             }
 
-            if (rows.Count < PageSize) return queued;
+            if (rows.Count < pageSize) return queued;
             skipped += rows.Count;
         }
     }

@@ -254,10 +254,22 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
         }
 
         var trigger = ScheduleOffset.EventOf(workflow.Name);
-        var run = NewRun(workflow, content.Id, content.ContentType, trigger, eventSequence: 0);
+        // The run's id comes from the key, and it is inserted. Two sweeps that both passed the check
+        // above then collide on the id, and the one that lost reports the value as already queued.
+        var run = NewRun(workflow, content.Id, content.ContentType, trigger, eventSequence: 0,
+            runId: barakoCMS.Features.Workflows.Actions.DeterministicId.From("scheduled-run:" + triggerKey));
         run.TriggerKey = triggerKey;
-        session.Store(run);
-        await session.SaveChangesAsync(ct);
+        session.Insert(run);
+        try
+        {
+            await session.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (ex is JasperFx.DocumentAlreadyExistsException
+            || ex.InnerException is JasperFx.DocumentAlreadyExistsException)
+        {
+            session.EjectAllPendingChanges();
+            return false;
+        }
 
         WorkflowMetrics.Default.Queued(trigger, 1);
         return true;

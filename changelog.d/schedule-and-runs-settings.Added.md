@@ -1,0 +1,1 @@
+- **Four limits are settings.** `Workflows:ScheduleGraceDays` (default 7) and `Workflows:SchedulePageSize` (default 200) set how long after its fire time a schedule workflow can still queue and how many entries one sweep read takes. `Workflows:RunsListLimit` (default 100) and `Workflows:RunsCandidateLimit` (default 1000) bound the runs list of an entry.

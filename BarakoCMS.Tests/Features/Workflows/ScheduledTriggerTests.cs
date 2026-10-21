@@ -38,6 +38,40 @@ public class ScheduledTriggerTests
     }
 
     [Fact]
+    public async Task Sweeps_that_see_one_value_at_once_queue_one_run()
+    {
+        var (type, workflow) = await TypeAndWorkflowAsync(offset: "-24h");
+        await StoreEntryAsync(type, Text(Now.AddHours(20)));
+
+        var counts = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => SweepAsync(Now)));
+
+        counts.Sum().Should().Be(1);
+        (await RunsAsync(workflow)).Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task The_grace_is_a_setting()
+    {
+        var (type, workflow) = await TypeAndWorkflowAsync(offset: "-24h");
+        // Fire time is 4 days before Now: inside the default 7 days, outside a 2 day setting.
+        await StoreEntryAsync(type, Text(Now.AddDays(-3)));
+
+        (await SweepAsync(Now, Settings((ScheduleSweep.GraceDaysKey, "2")))).Should().Be(0);
+        (await SweepAsync(Now)).Should().Be(1);
+        (await RunsAsync(workflow)).Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task A_small_page_size_still_sweeps_every_entry()
+    {
+        var (type, workflow) = await TypeAndWorkflowAsync(offset: "-24h");
+        for (var i = 0; i < 5; i++) await StoreEntryAsync(type, Text(Now.AddHours(20)));
+
+        (await SweepAsync(Now, Settings((ScheduleSweep.PageSizeKey, "2")))).Should().Be(5);
+        (await RunsAsync(workflow)).Should().HaveCount(5);
+    }
+
+    [Fact]
     public async Task A_second_sweep_for_the_same_value_queues_nothing()
     {
         var (type, workflow) = await TypeAndWorkflowAsync(offset: "-24h");
@@ -218,12 +252,16 @@ public class ScheduledTriggerTests
         await session.SaveChangesAsync(Ct);
     }
 
-    private async Task<int> SweepAsync(DateTime now)
+    private async Task<int> SweepAsync(DateTime now, Microsoft.Extensions.Configuration.IConfiguration? config = null)
     {
         await using var session = _harness.Store.LightweightSession();
         var queue = new WorkflowRunQueue(session, NullLogger<WorkflowRunQueue>.Instance);
-        return await ScheduleSweep.RunAsync(session, queue, now, Ct);
+        return await ScheduleSweep.RunAsync(session, queue, now, Ct, config);
     }
+
+    private static Microsoft.Extensions.Configuration.IConfiguration Settings(params (string Key, string Value)[] pairs) =>
+        new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+            .AddInMemoryCollection(pairs.Select(p => new KeyValuePair<string, string?>(p.Key, p.Value))).Build();
 
     private async Task<List<WorkflowRun>> RunsAsync(Guid workflow)
     {
