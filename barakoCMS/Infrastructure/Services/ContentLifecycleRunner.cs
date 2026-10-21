@@ -22,6 +22,20 @@ public interface IContentLifecycleRunner
         IReadOnlyDictionary<string, object>? existing,
         Guid userId,
         CancellationToken ct);
+
+    /// <summary>
+    /// The same run, told which lifecycle transition the write is (null for a plain save). The
+    /// default ignores the transition, so an existing implementation keeps working.
+    /// </summary>
+    Task<IReadOnlyList<string>> RunBeforeSaveAsync(
+        string contentType,
+        Guid? entryId,
+        Dictionary<string, object> data,
+        IReadOnlyDictionary<string, object>? existing,
+        Guid userId,
+        ContentTransition? transition,
+        CancellationToken ct) =>
+        RunBeforeSaveAsync(contentType, entryId, data, existing, userId, ct);
 }
 
 /// <summary>
@@ -38,12 +52,22 @@ public class ContentLifecycleRunner(
     IEnumerable<IContentLifecycleHook> hooks,
     IDocumentSession session) : IContentLifecycleRunner
 {
+    public Task<IReadOnlyList<string>> RunBeforeSaveAsync(
+        string contentType,
+        Guid? entryId,
+        Dictionary<string, object> data,
+        IReadOnlyDictionary<string, object>? existing,
+        Guid userId,
+        CancellationToken ct) =>
+        RunBeforeSaveAsync(contentType, entryId, data, existing, userId, null, ct);
+
     public async Task<IReadOnlyList<string>> RunBeforeSaveAsync(
         string contentType,
         Guid? entryId,
         Dictionary<string, object> data,
         IReadOnlyDictionary<string, object>? existing,
         Guid userId,
+        ContentTransition? transition,
         CancellationToken ct)
     {
         var matching = hooks
@@ -59,6 +83,7 @@ public class ContentLifecycleRunner(
             Existing = existing,
             Session = session,
             UserId = userId,
+            Transition = transition,
         };
 
         var errors = new List<string>();
