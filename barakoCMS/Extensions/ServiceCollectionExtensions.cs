@@ -915,7 +915,11 @@ public static class ServiceCollectionExtensions
             .SingleTenanted()
             .DocumentAlias("account_managers")
             .Index(x => x.UserId)
-            .Index(x => new { x.AccountId, x.UserId }, idx => idx.IsUnique = true);
+            .Index(x => new { x.AccountId, x.UserId }, idx =>
+            {
+                idx.IsUnique = true;
+                idx.Name = AccountManagerUniqueIndex;
+            });
     }
 
     private static void MapApiKeysAndAccounts(StoreOptions options)
@@ -2358,6 +2362,9 @@ public static class ServiceCollectionExtensions
 
     /// <summary>Root key under which every module's own settings live.</summary>
     internal const string ModulesConfigurationSection = "Modules";
+
+    /// <summary>The unique index on an account manager's account and user, named as migrations/5.2.0/898-accounts.sql creates it.</summary>
+    internal const string AccountManagerUniqueIndex = "mt_doc_account_managers_uidx_account_iduser_id";
 
     /// <summary>The unique index on a membership's user and tenant, named as the 4.7.0 migration creates it.</summary>
     internal const string MembershipUniqueIndex = "mt_doc_memberships_uidx_user_id_tenant_slug";

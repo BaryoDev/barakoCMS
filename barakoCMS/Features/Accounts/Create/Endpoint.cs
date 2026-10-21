@@ -36,7 +36,22 @@ internal class Endpoint(IDocumentSession session) : Endpoint<AccountWriteRequest
             Colours = req.Colours ?? new(),
         };
         session.Store(account);
-        await session.SaveChangesAsync(ct);
+        try
+        {
+            await session.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (IsUniqueViolation(ex))
+        {
+            AddError(r => r.Slug, "An account with this slug already exists.");
+            ThrowIfAnyErrors();
+        }
         await Send.OkAsync(AccountResponse.From(account), ct);
+    }
+
+    private static bool IsUniqueViolation(Exception? ex)
+    {
+        for (var current = ex; current is not null; current = current.InnerException)
+            if (current is Npgsql.PostgresException { SqlState: "23505" }) return true;
+        return false;
     }
 }
