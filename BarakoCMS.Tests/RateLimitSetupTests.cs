@@ -154,6 +154,26 @@ public class RateLimitSetupTests
         settings.Auth.Should().Be(RateLimitSetup.DefaultAuth);
     }
 
+    [Fact]
+    public void A_configured_refresh_value_is_honoured_and_the_auth_value_does_not_govern_it()
+    {
+        var settings = RateLimitSetup.Read(Config(
+            ("Refresh:PermitLimit", "7"), ("Refresh:WindowSeconds", "30"), ("Auth:PermitLimit", "2")));
+
+        settings.Refresh.Should().Be(new RateLimitWindow(7, 30, 0));
+        settings.Auth.Should().Be(new RateLimitWindow(2, 900, 0));
+    }
+
+    [Theory]
+    [InlineData("Refresh:PermitLimit", "0")]
+    [InlineData("Refresh:WindowSeconds", "0")]
+    public void An_invalid_refresh_value_fails_at_startup_naming_the_setting(string key, string value)
+    {
+        var read = () => RateLimitSetup.Read(Config((key, value)));
+
+        read.Should().Throw<InvalidOperationException>().WithMessage($"*RateLimiting:{key}*");
+    }
+
     [Theory]
     [InlineData("Global:PermitLimit", "0")]
     [InlineData("Global:PermitLimit", "-1")]
