@@ -38,6 +38,15 @@ public partial class PermissionResolver(
     /// </remarks>
     private IReadOnlyDictionary<string, string>? _profile;
 
+    /// <summary>
+    /// The permission a role holds for a content type. The exact spelling wins; only when the role
+    /// holds no such spelling does a different case match. A role holding both <c>Article</c> and
+    /// <c>article</c> then resolves each to its own, whatever order they are listed in.
+    /// </summary>
+    internal static Models.ContentTypePermission? PermissionFor(IEnumerable<Models.ContentTypePermission>? permissions, string? slug) =>
+        permissions?.FirstOrDefault(p => p is not null && string.Equals(p.ContentTypeSlug, slug, StringComparison.Ordinal))
+        ?? permissions?.FirstOrDefault(p => p is not null && string.Equals(p.ContentTypeSlug, slug, StringComparison.OrdinalIgnoreCase));
+
     private async Task<IReadOnlyList<Models.Role>> RolesForAsync(Models.User user, CancellationToken cancellationToken)
     {
         if (_roles is not null && _rolesFor == user.Id)
@@ -89,8 +98,7 @@ public partial class PermissionResolver(
         var rules = new List<Models.PermissionRule>();
         foreach (var role in roles)
         {
-            var permission = role.Permissions
-                .FirstOrDefault(p => string.Equals(p.ContentTypeSlug, contentTypeSlug, StringComparison.OrdinalIgnoreCase));
+            var permission = PermissionFor(role.Permissions, contentTypeSlug);
 
             if (permission != null)
             {
@@ -149,7 +157,7 @@ public partial class PermissionResolver(
         var rules = new List<Models.PermissionRule>();
         foreach (var role in roles)
         {
-            var permission = role.Permissions.FirstOrDefault(p => string.Equals(p.ContentTypeSlug, contentTypeSlug, StringComparison.OrdinalIgnoreCase));
+            var permission = PermissionFor(role.Permissions, contentTypeSlug);
             if (permission is null) continue;
 
             var rule = GetRuleForAction(permission, "read");
@@ -178,7 +186,7 @@ public partial class PermissionResolver(
         var rules = new List<Models.PermissionRule>();
         foreach (var role in roles)
         {
-            var permission = role.Permissions.FirstOrDefault(p => string.Equals(p.ContentTypeSlug, contentTypeSlug, StringComparison.OrdinalIgnoreCase));
+            var permission = PermissionFor(role.Permissions, contentTypeSlug);
             if (permission is not null && GetRuleForAction(permission, action) is { Enabled: true } rule)
                 rules.Add(rule);
         }

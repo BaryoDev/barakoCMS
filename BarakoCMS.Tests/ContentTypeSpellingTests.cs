@@ -112,4 +112,43 @@ public class ContentTypeSpellingTests
         (await resolver.CanPerformActionAsync(stored!, slug.ToUpperInvariant(), "read", cancellationToken: Ct))
             .Should().BeTrue("the list matches the type name ignoring case, so the rule has to as well");
     }
+
+    [Fact]
+    public async Task A_role_holding_two_spellings_resolves_each_to_its_own_rule()
+    {
+        var slug = "dualperm" + Guid.NewGuid().ToString("N")[..8];
+        var upper = slug.ToUpperInvariant();
+        var roleId = Guid.NewGuid();
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            Username = "dual" + Guid.NewGuid().ToString("N")[..10],
+            Email = $"{Guid.NewGuid():N}@example.com",
+            PasswordHash = "x",
+            RoleIds = [roleId],
+        };
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(new Role
+        {
+            Id = roleId,
+            Name = "dualreader" + slug,
+            TenantSlug = null,
+            // The upper-case spelling is listed first, so a case-insensitive first match would take it.
+            Permissions =
+            [
+                new ContentTypePermission { ContentTypeSlug = upper, Read = new PermissionRule { Enabled = false } },
+                new ContentTypePermission { ContentTypeSlug = slug, Read = new PermissionRule { Enabled = true } },
+            ],
+        });
+        session.Store(user);
+        await session.SaveChangesAsync(Ct);
+
+        var resolver = scope.ServiceProvider.GetRequiredService<IPermissionResolver>();
+        resolver.InvalidateAllPermissions();
+        var stored = await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<User>(user.Id, Ct);
+
+        (await resolver.CanPerformActionAsync(stored!, slug, "read", cancellationToken: Ct)).Should().BeTrue();
+        (await resolver.CanPerformActionAsync(stored!, upper, "read", cancellationToken: Ct)).Should().BeFalse();
+    }
 }

@@ -494,7 +494,7 @@ public partial class PermissionResolver
 
         foreach (var role in roles)
         {
-            var permission = role.Permissions.FirstOrDefault(p => string.Equals(p.ContentTypeSlug, contentTypeSlug, StringComparison.OrdinalIgnoreCase));
+            var permission = PermissionFor(role.Permissions, contentTypeSlug);
             if (permission is null)
                 continue;
 
