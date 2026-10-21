@@ -81,12 +81,26 @@ internal sealed record AuditCursor(DateTimeOffset At, Guid Id)
 
         var last = items[^1];
         var lastAt = new DateTimeOffset(DateTime.SpecifyKind(last.CreatedAt, DateTimeKind.Utc));
-        var exact = new AuditCursor(lastAt, last.Id);
+        var exact = new AuditCursor(ToMicroseconds(lastAt), last.Id);
 
         var cap = Floor(now - Margin);
         if (lastAt <= cap) return exact;
         if (cap > input.At) return new AuditCursor(cap, Guid.Empty);
         return hasMore ? exact : input;
+    }
+
+    /// <summary>
+    /// Postgres keeps a timestamp to the microsecond and rounds the seventh digit of the stored text
+    /// to get there, while a bound parameter is cut at the microsecond. A cursor left at 100 ns would
+    /// sit just under the row it came from, and that row would be read again on every poll.
+    /// </summary>
+    private static DateTimeOffset ToMicroseconds(DateTimeOffset at)
+    {
+        var ticks = at.UtcTicks;
+        var rest = ticks % 10;
+        ticks -= rest;
+        if (rest >= 5) ticks += 10;
+        return new(ticks, TimeSpan.Zero);
     }
 
     private static DateTimeOffset Floor(DateTimeOffset at) =>

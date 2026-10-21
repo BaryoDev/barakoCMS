@@ -25,6 +25,28 @@ public class AuditCursorTests
     }
 
     [Fact]
+    public void An_exact_cursor_sits_where_Postgres_stores_the_row_to_the_microsecond()
+    {
+        var at = Now.AddHours(-1).UtcDateTime.AddTicks(7);
+        var page = new List<AuditEvent> { new() { Id = Guid.NewGuid(), CreatedAt = at } };
+
+        var next = AuditCursor.Next(Input(TimeSpan.FromHours(2)), page, hasMore: true, Now);
+
+        next.At.UtcTicks.Should().Be(at.Ticks - 7 + 10, "the seventh digit rounds up the way Postgres stores it");
+    }
+
+    [Fact]
+    public void An_exact_cursor_cuts_a_fraction_under_half_a_microsecond_down()
+    {
+        var at = Now.AddHours(-1).UtcDateTime.AddTicks(3);
+        var page = new List<AuditEvent> { new() { Id = Guid.NewGuid(), CreatedAt = at } };
+
+        var next = AuditCursor.Next(Input(TimeSpan.FromHours(2)), page, hasMore: true, Now);
+
+        next.At.UtcTicks.Should().Be(at.Ticks - 3);
+    }
+
+    [Fact]
     public void A_page_inside_the_margin_lags_so_a_late_commit_is_read_on_the_next_poll()
     {
         var page = Page(TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(1));
