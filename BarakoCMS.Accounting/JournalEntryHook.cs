@@ -178,10 +178,34 @@ public sealed class JournalEntryHook : IContentLifecycleHook
             errors.Add("A voided journal entry cannot be edited.");
         else if (linesChanged)
             errors.Add("A posted journal entry cannot be edited. Post a reversing entry instead.");
+        else
+            errors.AddRange(LockedFieldErrors(context.Data, previous));
         if (StatusChanged(context.Data, previous))
             errors.Add("The status of a journal entry changes only by voiding it.");
         return errors;
     }
+
+    /// <summary>Date, Reference, VoidsEntryId and Amount decide what the books show, so a posted entry keeps them. A value the update leaves as it was is not a change.</summary>
+    private static IEnumerable<string> LockedFieldErrors(IReadOnlyDictionary<string, object> data, IReadOnlyDictionary<string, object> previous)
+    {
+        string Text(IReadOnlyDictionary<string, object> d, string f) => ContentData.AsString(ContentData.Get(d, f)) ?? string.Empty;
+
+        if (ContentData.Get(data, "Date") is { } date && !SameDate(date, ContentData.Get(previous, "Date")))
+            yield return "The date of a posted journal entry cannot be changed. Post a reversing entry instead.";
+        foreach (var field in new[] { "Reference", "VoidsEntryId" })
+        {
+            if (ContentData.Get(data, field) is not null && Text(data, field) != Text(previous, field))
+                yield return $"The {field} of a posted journal entry cannot be changed.";
+        }
+
+        if (ContentData.Get(data, "Amount") is { } amount && ContentData.AsDecimal(amount) != ContentData.AsDecimal(ContentData.Get(previous, "Amount")))
+            yield return "The amount of a posted journal entry cannot be changed.";
+    }
+
+    private static bool SameDate(object sent, object? stored) =>
+        ReadDate(sent) is { } a && ReadDate(stored) is { } b
+            ? a.Date == b.Date
+            : ContentData.AsString(sent) == ContentData.AsString(stored);
 
     private static bool StatusChanged(IReadOnlyDictionary<string, object> data, IReadOnlyDictionary<string, object> previous) =>
         ContentData.AsString(ContentData.Get(data, "Status")) is { Length: > 0 } sent
