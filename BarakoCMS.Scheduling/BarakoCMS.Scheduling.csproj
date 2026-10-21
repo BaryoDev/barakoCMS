@@ -26,4 +26,9 @@
     <ProjectReference Include="..\BarakoCMS.Abstractions\BarakoCMS.Abstractions.csproj" />
     <ProjectReference Include="..\barakoCMS\barakoCMS.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- The module's own tables, for db-migrate (docs/migrations.md). -->
+    <EmbeddedResource Include="..\migrations\5.2.0\scheduled-entries.sql" LogicalName="barako-migrations/5.2.0/scheduled-entries.sql" />
+  </ItemGroup>
 </Project>

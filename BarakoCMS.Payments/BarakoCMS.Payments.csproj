@@ -26,4 +26,11 @@
     <ProjectReference Include="..\BarakoCMS.Abstractions\BarakoCMS.Abstractions.csproj" />
     <ProjectReference Include="..\barakoCMS\barakoCMS.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- The module's own tables, for db-migrate (docs/migrations.md). -->
+    <EmbeddedResource Include="..\migrations\5.2.0\payments-payable-types.sql" LogicalName="barako-migrations/5.2.0/payments-payable-types.sql" />
+    <EmbeddedResource Include="..\migrations\5.2.0\payments-attempts.sql" LogicalName="barako-migrations/5.2.0/payments-attempts.sql" />
+    <EmbeddedResource Include="..\migrations\5.2.0\payments-events.sql" LogicalName="barako-migrations/5.2.0/payments-events.sql" />
+  </ItemGroup>
 </Project>

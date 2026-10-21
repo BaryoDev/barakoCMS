@@ -26,4 +26,9 @@
     <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- The module's own tables, for db-migrate (docs/migrations.md). -->
+    <EmbeddedResource Include="..\migrations\5.2.0\report-definitions.sql" LogicalName="barako-migrations/5.2.0/report-definitions.sql" />
+  </ItemGroup>
 </Project>
