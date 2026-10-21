@@ -142,10 +142,10 @@ public sealed class ContentCreator(
     IContentValidatorService validator,
     IContentLifecycleRunner lifecycle,
     IContentWriter writer,
-    IRuleEngine rules,
     INumberStrategies? numbering = null,
     IEventEnvelopeContext? envelope = null,
-    IExternalNumberLedger? ledger = null) : IContentCreator
+    IExternalNumberLedger? ledger = null,
+    IRuleEngine? rules = null) : IContentCreator
 {
     public async Task<IReadOnlyList<string>> CheckAsync(
         ContentCreateRequest request, Guid userId, HttpContext httpContext, ContentCreateBatch? batch, CancellationToken ct)
@@ -243,6 +243,9 @@ public sealed class ContentCreator(
     /// </summary>
     private async Task<string?> RuleRefusalAsync(ContentCreateRequest request, Guid userId, CancellationToken ct)
     {
+        // A creator built without an engine, as callers built it before rules existed, runs no rules.
+        if (rules is null) return null;
+
         var working = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
         foreach (var (key, value) in request.Data) working[key] = value;
         var before = new Dictionary<string, object?>(working, StringComparer.OrdinalIgnoreCase);
