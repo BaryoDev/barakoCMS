@@ -266,6 +266,12 @@ internal sealed class DeleteWorkflowEndpoint(
             return;
         }
 
+        if (workflow.OwnerModule is { } owner)
+        {
+            ThrowError(WorkflowOwnership.Refusal(owner, "deleted"), 409);
+            return;
+        }
+
         var workflowId = workflow.Id;
 
         var queued = await session.Query<WorkflowRun>()
@@ -323,6 +329,13 @@ internal sealed class DeleteWorkflowEndpoint(
     }
 }
 
+/// <summary>What is said when a change reaches a workflow a module owns.</summary>
+internal static class WorkflowOwnership
+{
+    public static string Refusal(string owner, string verb) =>
+        $"This workflow belongs to the {owner} module and is set by the module, so it cannot be {verb} here.";
+}
+
 internal sealed class UpdateWorkflowRequest : CreateWorkflowRequest
 {
     public Guid Id { get; set; }
@@ -367,6 +380,12 @@ internal sealed class UpdateWorkflowEndpoint(
         if (stored is null)
         {
             await Send.NotFoundAsync(ct);
+            return;
+        }
+
+        if (stored.OwnerModule is { } owner)
+        {
+            ThrowError(WorkflowOwnership.Refusal(owner, "changed"), 409);
             return;
         }
 

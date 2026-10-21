@@ -59,7 +59,7 @@ internal sealed class WorkflowConfigProvider(
         var gaps = new List<string>();
         var documents = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
 
-        // A module-owned workflow is the module's code and is seeded again on every start, so a document
+        // A module-owned workflow is the module's code, marked as the module's when it seeds, so a document
         // does not carry it.
         foreach (var group in (await session.Query<WorkflowDefinition>().ToListAsync(ct))
                      .Where(w => w.OwnerModule is null).GroupBy(w => w.Name, StringComparer.Ordinal))

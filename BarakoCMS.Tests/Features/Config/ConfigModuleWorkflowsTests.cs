@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
 using Marten;
@@ -50,7 +51,7 @@ public class ConfigModuleWorkflowsTests
             Id = Guid.NewGuid(), Name = "delivery", DisplayName = "Delivery",
             Fields = [new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" }],
         };
-        await _callers.StoreInTenantAsync(tenant, delivery, Workflow(owned, "Purchasing"), Workflow(plain, null));
+        await _callers.StoreInTenantAsync(tenant, delivery, Workflow(owned, "Shipping"), Workflow(plain, null));
         return (tenant, await _callers.SuperAdminAsync(tenant), owned, plain);
     }
 
@@ -196,20 +197,20 @@ public class ConfigModuleWorkflowsTests
 
         await using (var session = store.LightweightSession())
         {
-            await ModuleWorkflows.SeedAsync(session, "Purchasing", [fresh, Workflow(older.Name, null).WithId(older.Id)], Ct);
+            await ModuleWorkflows.SeedAsync(session, "Shipping", [fresh, Workflow(older.Name, null).WithId(older.Id)], Ct);
             await session.SaveChangesAsync(Ct);
         }
 
         await using var read = store.QuerySession();
-        (await read.LoadAsync<WorkflowDefinition>(fresh.Id, Ct))!.OwnerModule.Should().Be("Purchasing");
-        (await read.LoadAsync<WorkflowDefinition>(older.Id, Ct))!.OwnerModule.Should().Be("Purchasing");
+        (await read.LoadAsync<WorkflowDefinition>(fresh.Id, Ct))!.OwnerModule.Should().Be("Shipping");
+        (await read.LoadAsync<WorkflowDefinition>(older.Id, Ct))!.OwnerModule.Should().Be("Shipping");
     }
 
     [Fact]
     public async Task Seeding_does_not_overwrite_a_workflow_that_is_already_stored()
     {
         var store = _fixture.Services.GetRequiredService<IDocumentStore>();
-        var stored = Workflow(Unique("seed-kept-"), "Purchasing");
+        var stored = Workflow(Unique("seed-kept-"), "Shipping");
         stored.Enabled = false;
         await using (var session = store.LightweightSession())
         {
@@ -219,7 +220,7 @@ public class ConfigModuleWorkflowsTests
 
         await using (var session = store.LightweightSession())
         {
-            await ModuleWorkflows.SeedAsync(session, "Purchasing", [Workflow(stored.Name, null).WithId(stored.Id)], Ct);
+            await ModuleWorkflows.SeedAsync(session, "Shipping", [Workflow(stored.Name, null).WithId(stored.Id)], Ct);
             await session.SaveChangesAsync(Ct);
         }
 
@@ -234,5 +235,25 @@ internal static class WorkflowTestExtensions
     {
         workflow.Id = id;
         return workflow;
+    }
+
+    [Fact]
+    public async Task A_module_owned_workflow_cannot_be_replaced_or_deleted_over_the_api()
+    {
+        var (tenant, client, owned, _) = await TenantWithBothAsync();
+        var id = (await _callers.InTenantAsync(tenant, s => s.Query<WorkflowDefinition>().FirstAsync(w => w.Name == owned, Ct))).Id;
+
+        var put = await client.PutAsJsonAsync($"/api/workflows/{id}", new
+        {
+            name = owned,
+            triggerContentTypes = new[] { "delivery" },
+            triggerEvents = new[] { "Created" },
+            actions = new[] { new { type = "Webhook", parameters = new Dictionary<string, string> { ["Url"] = "https://hooks.example.com/a" } } },
+        }, Ct);
+        var delete = await client.DeleteAsync($"/api/workflows/{id}", Ct);
+
+        put.StatusCode.Should().Be(HttpStatusCode.Conflict, await put.Content.ReadAsStringAsync(Ct));
+        delete.StatusCode.Should().Be(HttpStatusCode.Conflict, await delete.Content.ReadAsStringAsync(Ct));
+        (await _callers.InTenantAsync(tenant, s => s.LoadAsync<WorkflowDefinition>(id, Ct)))!.OwnerModule.Should().Be("Shipping");
     }
 }
