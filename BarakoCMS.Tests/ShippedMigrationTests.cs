@@ -184,6 +184,7 @@ public class ShippedMigrationTests
         var owned = all.Where(m => m.Owner != ShippedMigrations.CoreOwner).Select(m => m.Key).ToList();
         owned.Should().Equal(
             "Accounting/5.0.0/accounting-number-sequences",
+            "Accounting/5.1.0/accounting-journal-lifecycle",
             "Booking/5.2.0/booking-resources",
             "Comments/5.2.0/253-comments",
             "Contacts/5.2.0/contacts",
