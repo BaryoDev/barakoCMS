@@ -38,7 +38,7 @@ public class AccountMappingTests(IntegrationTestFixture fixture)
         var name = Name();
         var client = await _callers.SuperAdminAsync(null);
 
-        var (applied, body) = await ApplyAsync(client, Document(name, Rule(cash, income)));
+        var (applied, body) = await ApplyAsync(client, Document(name, Rule(cash, income)), allowDestructive: true);
         applied.StatusCode.Should().Be(HttpStatusCode.OK, body.ToString());
 
         var (_, export) = await ExportAsync(client, "accountingMappings");
@@ -60,7 +60,7 @@ public class AccountMappingTests(IntegrationTestFixture fixture)
         var name = Name();
         var client = await _callers.SuperAdminAsync(null);
 
-        var (applied, body) = await ApplyAsync(client, Document(name, Rule(cash.ToUpperInvariant(), income.ToUpperInvariant())));
+        var (applied, body) = await ApplyAsync(client, Document(name, Rule(cash.ToUpperInvariant(), income.ToUpperInvariant())), allowDestructive: true);
         applied.StatusCode.Should().Be(HttpStatusCode.OK, body.ToString());
 
         var (_, export) = await ExportAsync(client, "accountingMappings");
@@ -114,7 +114,7 @@ public class AccountMappingTests(IntegrationTestFixture fixture)
         var income = await AccountingTestData.AccountAsync(fixture, "4010", AccountType.Income);
         var name = Name();
         var client = await _callers.SuperAdminAsync(null);
-        (await ApplyAsync(client, Document(name, Rule(cash, income)))).Response.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await ApplyAsync(client, Document(name, Rule(cash, income)), allowDestructive: true)).Response.StatusCode.Should().Be(HttpStatusCode.OK);
 
         using var scope = fixture.Services.CreateScope();
         var store = scope.ServiceProvider.GetRequiredService<AccountMappingStore>();
