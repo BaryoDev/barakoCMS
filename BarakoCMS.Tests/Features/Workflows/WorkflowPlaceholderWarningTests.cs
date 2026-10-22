@@ -146,11 +146,13 @@ public class WorkflowPlaceholderWarningTests : IAsyncLifetime
         result.Warnings[0].Field.Should().Be("actions[0].parameters.ThenActions[0].parameters.Attachments");
         result.Warnings[0].Message.Should().Contain("Conditional").And.Contain("earlier step");
 
-        var top = _validator.Validate(Workflow("Created", new WorkflowAction
-        {
-            Type = "Email",
-            Parameters = new() { ["To"] = "a@example.com", ["Attachments"] = "{{actions.0.FileId}}" },
-        }));
+        var top = _validator.Validate(Workflow("Created",
+            new WorkflowAction { Type = "Email", Parameters = new() { ["To"] = "a@example.com" }, Capture = ["FileId"] },
+            new WorkflowAction
+            {
+                Type = "Email",
+                Parameters = new() { ["To"] = "a@example.com", ["Attachments"] = "{{actions.0.FileId}}" },
+            }));
         top.Warnings.Should().BeEmpty("the same reference outside a Conditional is what the feature is for");
     }
 
