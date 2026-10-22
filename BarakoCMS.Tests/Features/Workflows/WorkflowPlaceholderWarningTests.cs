@@ -154,6 +154,26 @@ public class WorkflowPlaceholderWarningTests : IAsyncLifetime
         top.Warnings.Should().BeEmpty("the same reference outside a Conditional is what the feature is for");
     }
 
+    /// <summary>Red without the change. Only an attachment has its own warning, so another parameter keeps the one on the branch.</summary>
+    [Fact]
+    public void A_step_output_in_a_conditionals_child_subject_is_warned_about_once()
+    {
+        var children = JsonSerializer.Serialize(new[]
+        {
+            new { Type = "Email", Parameters = new Dictionary<string, string> { ["To"] = "a@example.com", ["Subject"] = "{{actions.0.FileId}}" } },
+        });
+
+        var result = _validator.Validate(Workflow("Created", new WorkflowAction
+        {
+            Type = "Conditional",
+            Parameters = new() { ["Condition"] = "{{data.State}} == Open", ["ThenActions"] = children },
+        }));
+
+        result.Warnings.Should().HaveCount(1);
+        result.Warnings[0].Field.Should().Be("actions[0].parameters.ThenActions");
+        result.Warnings[0].Message.Should().Contain("sent as written");
+    }
+
     /// <summary>Red without the change. Past fifty the list stops, and its last entry says so.</summary>
     [Fact]
     public void The_list_stops_at_fifty_and_says_there_are_more()

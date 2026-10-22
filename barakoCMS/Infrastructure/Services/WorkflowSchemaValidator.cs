@@ -267,7 +267,8 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
                 var resolvedByTheAction = ActionParameters.IsResolvedByTheAction(action.Type ?? string.Empty, name)
                     && !ActionParameters.ReadsStepOutputsItself(action.Type ?? string.Empty, name);
 
-                foreach (var (ordinal, output) in ActionOutputs.References(template))
+                var read = resolvedByTheAction && IsBranch(action.Type, name) ? WithoutAttachmentsOfChildren(template, 0) : template;
+                foreach (var (ordinal, output) in ActionOutputs.References(read))
                 {
                     if (result.Warnings.Count >= MaxPlaceholderWarnings)
                     {
@@ -323,6 +324,33 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
     private static readonly System.Text.RegularExpressions.Regex StepOutputReference = new(
         @"\{\{\s*actions\.[0-9]",
         System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    private static bool IsBranch(string? actionType, string name) =>
+        actionType == "Conditional"
+        && (name.Equals("ThenActions", StringComparison.OrdinalIgnoreCase) || name.Equals("ElseActions", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// A branch's text with the attachments of its child emails left out. A step output named there
+    /// has its own warning on the child, so the branch does not say it a second time.
+    /// </summary>
+    private static string WithoutAttachmentsOfChildren(string? branch, int depth)
+    {
+        var text = new System.Text.StringBuilder();
+        foreach (var child in ChildActions(branch))
+        {
+            foreach (var (name, value) in child.Parameters ?? [])
+            {
+                if (ActionParameters.ReadsStepOutputsItself(child.Type ?? string.Empty, name))
+                {
+                    continue;
+                }
+
+                text.Append(IsBranch(child.Type, name) && depth < MaxWarningDepth ? WithoutAttachmentsOfChildren(value, depth + 1) : value).Append(' ');
+            }
+        }
+
+        return text.ToString();
+    }
 
     /// <summary>
     /// Lists every placeholder of an action that the engine will send as written. Never an error:
