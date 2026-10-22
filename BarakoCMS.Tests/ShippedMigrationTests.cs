@@ -130,6 +130,7 @@ public class ShippedMigrationTests
             new BarakoCMS.ExternalAuth.ExternalAuthModule(),
             new BarakoCMS.Accounting.AccountingModule(),
             new BarakoCMS.Pages.PagesModule(),
+            new BarakoCMS.Notifications.NotificationsModule(),
         ];
 
         var all = ShippedMigrations.Discover(modules);
