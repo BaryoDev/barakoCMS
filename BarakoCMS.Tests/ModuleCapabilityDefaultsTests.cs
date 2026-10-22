@@ -252,6 +252,7 @@ public class ModuleCapabilityDefaultsTests
                 [
                     BarakoCMS.Accounting.AccountingCapabilities.ViewLedger,
                     BarakoCMS.Accounting.AccountingCapabilities.PostEntries,
+                    BarakoCMS.Accounting.AccountingCapabilities.ManageMappings,
                 ];
                 role.Permissions =
                 [
@@ -273,7 +274,7 @@ public class ModuleCapabilityDefaultsTests
             after!.Name.Should().Be(renamed);
             after.Permissions.Should().ContainSingle()
                 .Which.ContentTypeSlug.Should().Be("renamed-accountant-marker");
-            after.SystemCapabilities.Should().HaveCount(2);
+            after.SystemCapabilities.Should().HaveCount(3);
             (await LoadByNameAsync("Accountant")).Should().BeNull("no second role was made under the seeded name");
         }
         finally
@@ -342,12 +343,13 @@ public class ModuleCapabilityDefaultsTests
             var created = await LoadAsync(id);
             created.Should().NotBeNull();
             created!.Name.Should().Be("Accountant");
-            created.SystemCapabilities.Should().HaveCount(2);
+            created.SystemCapabilities.Should().HaveCount(3);
             created.SystemCapabilities.Should().BeEquivalentTo(
                 new[]
                 {
                     BarakoCMS.Accounting.AccountingCapabilities.ViewLedger,
                     BarakoCMS.Accounting.AccountingCapabilities.PostEntries,
+                    BarakoCMS.Accounting.AccountingCapabilities.ManageMappings,
                 });
         }
         finally
@@ -433,7 +435,7 @@ public class ModuleCapabilityDefaultsTests
             var created = await LoadAsync(id);
             created.Should().NotBeNull("the module's own role is made under its id");
             created!.IsPlatform.Should().BeTrue();
-            created.SystemCapabilities.Should().HaveCount(2);
+            created.SystemCapabilities.Should().HaveCount(3);
             (await LoadAsync(tenants.Id))!.SystemCapabilities.Should().BeEmpty();
         }
         finally

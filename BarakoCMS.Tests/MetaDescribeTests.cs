@@ -551,7 +551,7 @@ public class MetaDescribeTests
             action.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(
             [
                 "type", "description", "requiredParameters", "optionalParameters", "secretParameters",
-                "group", "exampleConfiguration",
+                "group", "exampleConfiguration", "requiredCapability", "selfResolvedParameters",
             ]);
         }
     }
