@@ -8156,6 +8156,18 @@
           "name": {
             "type": "string"
           },
+          "schedule": {
+            "nullable": true,
+            "type": "string"
+          },
+          "scheduleCatchUp": {
+            "nullable": true,
+            "type": "string"
+          },
+          "scheduleTimeZone": {
+            "nullable": true,
+            "type": "string"
+          },
           "triggerContentType": {
             "type": "string"
           },
