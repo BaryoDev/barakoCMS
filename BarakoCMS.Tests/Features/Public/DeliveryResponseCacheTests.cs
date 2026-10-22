@@ -297,7 +297,8 @@ public class DeliveryResponseCacheTests(IntegrationTestFixture fixture)
     public async Task The_feed_the_sitemap_and_the_type_description_are_served_from_the_cache(string route)
     {
         // The private-site gate reads Postgres before the cache and remembers the answer for 5 seconds.
-        // The counter below counts every command, so a slow first read would let that expire.
+        // The feed and sitemap counter takes every command in this tenant, so a slow first read would
+        // let that expire. Other tenants are left out: the host's background work runs beside the test.
         var (host, tenant, type) = await SeededAsync(("Feeds:SiteUrl", "https://example.com"), ("Delivery:PrivateSite:CacheSeconds", "3600"));
         await EntryAsync(host, tenant, type, "the-entry", "marker");
         using var client = In(host, tenant);
@@ -310,13 +311,16 @@ public class DeliveryResponseCacheTests(IntegrationTestFixture fixture)
 
         var first = await BodyAsync(client, url);
         first.Should().NotBeEmpty();
-        int Asked() => route == "description" ? Reads(host, type) : host.Logger.Commands.Count;
-        Asked().Should().BePositive("the first read has to ask Postgres, or the check below proves nothing");
+        string[] Asked() => host.Logger.Commands
+            .Where(c => c.Parameters.Contains(route == "description" ? type : tenant))
+            .Select(c => c.Sql)
+            .ToArray();
+        Asked().Should().NotBeEmpty("the first read has to ask Postgres, or the check below proves nothing");
         host.Logger.Commands.Clear();
         var second = await BodyAsync(client, url);
 
         second.Should().Be(first);
-        Asked().Should().Be(0, $"a repeat of the {route} route is answered from the cache");
+        Asked().Should().BeEmpty($"a repeat of the {route} route is answered from the cache");
     }
 
     [Fact]
