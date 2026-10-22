@@ -126,9 +126,10 @@ public class ReconcileEndpoint(IQuerySession session, IPermissionResolver permis
     private async Task<Dictionary<Guid, List<Content>>> PostingsAsync(IReadOnlyList<Content> subjects, CancellationToken ct)
     {
         var prefixes = subjects.Select(s => $"{s.Id:N}:%").ToArray();
+        // One array parameter: passed bare, a string[] would spread over params object[] as one parameter per prefix.
         var entries = await session.Query<Content>()
             .Where(c => c.ContentType == AccountingContentTypes.JournalEntry)
-            .Where(c => c.MatchesSql("d.data -> 'Data' ->> 'Reference' LIKE ANY(?)", prefixes))
+            .Where(c => c.MatchesSql("d.data -> 'Data' ->> 'Reference' LIKE ANY(?)", new object[] { prefixes }))
             .ToListAsync(ct);
 
         var byId = subjects.ToDictionary(s => $"{s.Id:N}", s => s.Id);
