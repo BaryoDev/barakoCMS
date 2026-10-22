@@ -22,7 +22,7 @@
 ## Where it lives
 
 **Recommendation: a new opt-in module, `BarakoCMS.DeviceTrust`** (same shape as
-`BarakoCMS.Accounting` / `Files` / `Email.Resend`), plus four small **generic
+`BarakoCMS.Accounting` / `Files` / `Email.Smtp`), plus four small **generic
 seams in core**. Not hardcoded in core (not every barakoCMS app wants device
 binding), not in `ClubManager.Api` (it is universal security, reusable by any
 app, shippable as a NuGet).

@@ -63,7 +63,7 @@ public static class DataSeeder
     /// <remarks>
     /// These used to be unconditional, so every production first run came up with an attendance
     /// schema nobody asked for and a stored-active workflow that mails whatever address
-    /// <c>{{data.Email}}</c> holds. Once an operator configures Resend, a demo fixture becomes an
+    /// <c>{{data.Email}}</c> holds. Once an operator configures email, a demo fixture becomes an
     /// outbound mail path in their system.
     ///
     /// Setting <c>Seed:DemoContent</c> (env <c>Seed__DemoContent</c>) decides it. Unset, it follows

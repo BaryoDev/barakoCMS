@@ -44,7 +44,6 @@ Optional packages, each installable on its own:
 | `BarakoCMS.Analytics.Umami` | Privacy-friendly analytics |
 | `BarakoCMS.DeviceTrust` | Device binding and approval |
 | `BarakoCMS.Diagnostics` | Browser error capture |
-| `BarakoCMS.Email.Resend` | Transactional email |
 | `BarakoCMS.Email.Smtp` | Transactional email over any SMTP relay |
 | `BarakoCMS.ExternalAuth` | Google / GitHub / Facebook / LinkedIn sign-in |
 | `BarakoCMS.FeatureFlags` | Flags with targeting |
