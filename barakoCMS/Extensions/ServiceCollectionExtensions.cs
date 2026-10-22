@@ -1145,7 +1145,7 @@ public static class ServiceCollectionExtensions
                     sp.GetRequiredService<barakoCMS.Infrastructure.Http.OutboundResilience>(),
                     sp.GetService<Microsoft.AspNetCore.Http.IHttpContextAccessor>()))
                 // Above the retry budget, so the client's own timeout never cuts the tries short; it
-                // still bounds a buffered body read after the headers.
+                // bounds a buffered body only; a read made after the headers has to bound itself.
                 .ConfigureHttpClient(client => client.Timeout = outbound.ClientTimeout);
     }
 
