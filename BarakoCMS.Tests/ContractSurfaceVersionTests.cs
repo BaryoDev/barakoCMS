@@ -51,7 +51,7 @@ public class ContractSurfaceVersionTests
 
         response.Headers.TryGetValues(AdminHeader, out var admin).Should().BeTrue(
             "the header a released console reads keeps its name");
-        admin!.Should().ContainSingle().Which.Should().Be("10");
+        admin!.Should().ContainSingle().Which.Should().Be("11");
 
         response.Headers.TryGetValues(DeliveryHeader, out var delivery).Should().BeTrue(
             "a site reads the delivery number from whatever answer it gets first, as a console reads the admin one");

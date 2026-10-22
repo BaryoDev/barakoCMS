@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests;
 /// <remarks>
 /// Every production first run came up with an AttendanceRecord content type nobody asked for, fake
 /// records, and an active "Attendance Confirmation Email" workflow. The workflow is the part that
-/// bites: it is stored active, and once an operator configures Resend it sends real mail to whatever
+/// bites: it is stored active, and once an operator configures email it sends real mail to whatever
 /// address a record's Email field holds. A demo fixture becomes an outbound mail path in someone's
 /// production system.
 ///

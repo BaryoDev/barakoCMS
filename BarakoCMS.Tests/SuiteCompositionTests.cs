@@ -64,7 +64,6 @@ public class SuiteCompositionTests
             "Analytics.Umami",
             "DeviceTrust",
             "Diagnostics",
-            "Email.Resend",
             "Email.Smtp",
             "ExternalAuth",
             "FeatureFlags",
@@ -141,17 +140,16 @@ public class SuiteCompositionTests
     }
 
     /// <summary>
-    /// Email.Smtp joined the set by being referenced, so this pins that it changes nothing until
-    /// asked: Resend is the provider, exactly as the hand-written list left it.
+    /// Email.Smtp is the Suite's email provider. It changes nothing until a host is configured, so
+    /// a Suite with no email settings keeps core's mock rather than a provider with nowhere to send.
     /// </summary>
     [Fact]
-    public void Email_goes_through_Resend_until_an_smtp_host_is_configured()
+    public void Email_goes_through_the_mock_until_an_smtp_host_is_configured()
     {
         var email = Registrations<IEmailService>(Build());
 
-        email.Should().ContainSingle("Smtp registers nothing without a host, and core's mock yields to Resend");
-        email[0].ImplementationType.Should().NotBe<MockEmailService>();
-        email[0].ImplementationType.Should().NotBe<SmtpEmailService>();
+        email.Should().ContainSingle("Smtp registers nothing without a host");
+        email[0].ImplementationType.Should().Be<MockEmailService>();
     }
 
     [Fact]
@@ -159,8 +157,8 @@ public class SuiteCompositionTests
     {
         var email = Registrations<IEmailService>(Build(("Modules:Email.Smtp:Host", "smtp.example.com")));
 
-        // Smtp configures after Resend (sorted by type name), so its registration is the last one
-        // and the one the container resolves.
+        // Smtp registers after core's mock, so its registration is the last one and the one the
+        // container resolves.
         email.Should().HaveCount(2);
         email[^1].ImplementationType.Should().Be<SmtpEmailService>();
     }
