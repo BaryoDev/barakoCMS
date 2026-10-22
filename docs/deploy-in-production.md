@@ -285,21 +285,23 @@ container so the swap is one restart.
 ## Connection poolers and advisory locks
 
 Startup and the background sweeps take Postgres session advisory locks: one to apply the schema, one
-each for the scheduled-content sweep and the workflow run retention sweep. A session lock lives on
+each for the scheduled-content sweep, the workflow run retention sweep and the webhook delivery
+retention sweep. A session lock lives on
 one server connection. Connect barakoCMS to Postgres directly or through a pooler in session mode.
 A pooler in transaction mode hands each statement to whichever server connection is free, so the
 lock can be taken on one and released on another, and a lock can be left held with no owner.
 
 The schema lock does not wait forever. A host that cannot get it within five minutes stops with an
 error naming the lock key (`8242026003`) and the Postgres pid holding it. Set
-`Schema__ApplyLockTimeoutSeconds` to change the wait. The two sweeps skip a tick when they cannot
+`Schema__ApplyLockTimeoutSeconds` to change the wait. The sweeps skip a tick when they cannot
 get their lock, and their writes check state again before they act, so a second instance taking over
-mid-sweep does not repeat a transition. Each sweep also asks Postgres whether it still owns its
+mid-sweep does not repeat a transition. Each sweep (scheduled content, workflow run retention, webhook delivery retention) also asks Postgres whether it still owns its
 lock before every tenant, and stops if it does not.
 
 barakoCMS detects a transaction-mode pooler by running two statements on the lock connection and
-comparing the Postgres backend pid. If they differ it logs an error naming the lock key. Nothing
-else changes by default. Set `Leadership__RefuseBehindPooler=true` to make the two sweeps skip their
+comparing the Postgres backend pid. This is best effort and can miss on a quiet pooler that hands
+both statements to the same backend. If they differ it logs an error naming the lock key, once per
+process. Nothing else changes by default. Set `Leadership__RefuseBehindPooler=true` to make the sweeps skip their
 ticks and the schema lock fail startup with the same message, instead of running with a lock that
 cannot hold.
 

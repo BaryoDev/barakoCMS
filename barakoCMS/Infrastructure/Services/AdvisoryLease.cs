@@ -36,7 +36,48 @@ internal sealed class AdvisoryLease : IAsyncDisposable
     /// </summary>
     public bool PoolerSuspected { get; }
 
-    /// <summary>The lock was taken on <paramref name="connection"/>, which the lease now owns.</summary>
+    /// <summary>Tests only: runs once the lock is taken, before the lease exists. A throw here is the leak case.</summary>
+    internal static Func<CancellationToken, Task>? AfterLockTaken { get; set; }
+
+    /// <summary>Tests only: overrides the pooler check, which needs a real pooler to trigger.</summary>
+    internal static bool? ForcePoolerSuspected { get; set; }
+
+    private static int _poolerLogged;
+
+    private static readonly int CommandTimeoutSeconds = 5;
+
+    /// <summary>
+    /// Opens a connection and takes the lock on it. The connection belongs to the lease on success
+    /// and is disposed here on a null answer or any throw, so nothing is left holding the lock.
+    /// </summary>
+    /// <returns>The lease, or null when another session holds the lock.</returns>
+    public static async Task<AdvisoryLease?> AcquireAsync(Marten.IDocumentStore store, long key, CancellationToken ct)
+    {
+        // The connection object, not one built from its ConnectionString: Npgsql redacts the
+        // password out of that string unless Persist Security Info is set.
+        var connection = store.Storage.Database.CreateConnection();
+        try
+        {
+            await connection.OpenAsync(ct);
+            var lease = await TryAcquireAsync(connection, key, ct);
+            if (lease is null)
+            {
+                await connection.DisposeAsync();
+            }
+
+            return lease;
+        }
+        catch
+        {
+            await connection.DisposeAsync();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Takes the lock on <paramref name="connection"/>. The caller keeps the connection on a null
+    /// answer or a throw (and must dispose it, which frees the lock); the lease owns it on success.
+    /// </summary>
     /// <returns>The lease, or null when another session holds the lock.</returns>
     public static async Task<AdvisoryLease?> TryAcquireAsync(NpgsqlConnection connection, long key, CancellationToken ct)
     {
@@ -55,10 +96,15 @@ internal sealed class AdvisoryLease : IAsyncDisposable
             firstPid = reader.GetInt32(1);
         }
 
+        if (AfterLockTaken is { } hook)
+        {
+            await hook(ct);
+        }
+
         await using var pid = connection.CreateCommand();
         pid.CommandText = "select pg_backend_pid()";
         var secondPid = Convert.ToInt32(await pid.ExecuteScalarAsync(ct));
-        return new AdvisoryLease(connection, key, firstPid != secondPid);
+        return new AdvisoryLease(connection, key, ForcePoolerSuspected ?? firstPid != secondPid);
     }
 
     /// <summary>
@@ -82,6 +128,7 @@ internal sealed class AdvisoryLease : IAsyncDisposable
             }
 
             await using var check = _connection.CreateCommand();
+            check.CommandTimeout = CommandTimeoutSeconds;
             check.CommandText =
                 "select count(*) from pg_locks where locktype = 'advisory' and granted "
                 + "and pid = pg_backend_pid() and ((classid::bigint << 32) | objid::bigint) = @key";
@@ -111,6 +158,7 @@ internal sealed class AdvisoryLease : IAsyncDisposable
 
             _released = true;
             await using var release = _connection.CreateCommand();
+            release.CommandTimeout = CommandTimeoutSeconds;
             release.CommandText = "select pg_advisory_unlock(@key)";
             release.Parameters.AddWithValue("key", _key);
             await release.ExecuteScalarAsync(CancellationToken.None);
@@ -136,6 +184,22 @@ internal sealed class AdvisoryLease : IAsyncDisposable
     /// <summary>The configured refusal, off unless <see cref="RefuseBehindPoolerKey"/> is true.</summary>
     public static bool RefuseBehindPooler(IConfiguration? configuration) =>
         configuration?.GetValue<bool?>(RefuseBehindPoolerKey) == true;
+
+    /// <summary>
+    /// Logs the pooler message as an error the first time in this process and at debug after, so a
+    /// deployment that has not set the flag is not flooded every tick.
+    /// </summary>
+    public static void ReportPooler(ILogger logger, long key)
+    {
+        if (Interlocked.Exchange(ref _poolerLogged, 1) == 0)
+        {
+            logger.LogError("{Message}", PoolerMessage(key));
+        }
+        else
+        {
+            logger.LogDebug("{Message}", PoolerMessage(key));
+        }
+    }
 
     /// <summary>The message logged, or thrown, when a transaction-mode pooler is suspected.</summary>
     public static string PoolerMessage(long key) =>

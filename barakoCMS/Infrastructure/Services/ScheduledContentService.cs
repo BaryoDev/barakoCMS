@@ -93,8 +93,8 @@ public class ScheduledContentService : BackgroundService
 
     /// <summary>Sweeps the default partition and every active tenant. Exposed for tests.</summary>
     /// <returns>
-    /// True if this instance held the lock and swept; false if another instance was already sweeping
-    /// and this tick did nothing.
+    /// True if this instance held the lock and swept every tenant; false if another instance was
+    /// already sweeping, or this one lost the lock partway and stopped.
     /// </returns>
     /// <remarks>
     /// This runs on every node, unlike the projection daemon, because a BackgroundService has no
@@ -110,38 +110,31 @@ public class ScheduledContentService : BackgroundService
     /// </remarks>
     public async Task<bool> TrySweepAllTenantsAsync(DateTime nowUtc, CancellationToken ct)
     {
-        // The connection object, not a new one built from its ConnectionString: Npgsql redacts the
-        // password out of ConnectionString unless Persist Security Info is set, so rebuilding from it
-        // fails authentication.
         using var span = Tracing.BarakoTracing.StartSweep(Tracing.BarakoTracing.ScheduledSweepSpan);
-        var lockConnection = _store.Storage.Database.CreateConnection();
-        await lockConnection.OpenAsync(ct);
-        await using var lease = await AdvisoryLease.TryAcquireAsync(lockConnection, SweepLockKey, ct);
+        await using var lease = await AdvisoryLease.AcquireAsync(_store, SweepLockKey, ct);
         span?.SetTag(Tracing.BarakoTracing.SweepHeldTag, lease is not null);
         if (lease is null)
         {
-            await lockConnection.DisposeAsync();
             _logger.LogDebug("Another instance is sweeping scheduled content; skipping this tick.");
             return false;
         }
 
         if (lease.PoolerSuspected)
         {
-            _logger.LogError("{Message}", AdvisoryLease.PoolerMessage(SweepLockKey));
+            AdvisoryLease.ReportPooler(_logger, SweepLockKey);
             if (AdvisoryLease.RefuseBehindPooler(_configuration))
             {
                 return false;
             }
         }
 
-        await SweepHeldAsync(nowUtc, lease, ct);
-        return true;
+        return await SweepHeldAsync(nowUtc, lease, ct);
     }
 
     /// <summary>Runs once, after a tenant's due items are loaded and before the first is written. Tests only.</summary>
     internal Func<CancellationToken, Task>? AfterLoad { get; set; }
 
-    private async Task SweepHeldAsync(DateTime nowUtc, AdvisoryLease lease, CancellationToken ct)
+    private async Task<bool> SweepHeldAsync(DateTime nowUtc, AdvisoryLease lease, CancellationToken ct)
     {
         // null slug => the default (no-explicit-tenant) partition, where single-deployment sites like
         // baryo.dev keep their content; named slugs are the path-based tenants. In Multi the default
@@ -166,7 +159,7 @@ public class ScheduledContentService : BackgroundService
             {
                 _logger.LogWarning("The scheduled sweep lost its advisory lock; stopping before tenant {Tenant}",
                     slug ?? "(default)");
-                return;
+                return false;
             }
 
             using var span = Tracing.BarakoTracing.StartTenantWork(Tracing.BarakoTracing.ScheduledTenantSpan, slug);
@@ -192,6 +185,8 @@ public class ScheduledContentService : BackgroundService
                 _logger.LogError(ex, "Scheduled workflow sweep failed for tenant {Tenant}", slug ?? "(default)");
             }
         }
+
+        return true;
     }
 
     /// <summary>How many due items one query loads, and one transaction commits.</summary>

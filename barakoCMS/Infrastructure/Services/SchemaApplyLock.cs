@@ -86,11 +86,11 @@ internal static class SchemaApplyLock
         // password out of ConnectionString unless Persist Security Info is set, so rebuilding from
         // it fails authentication.
         var connection = store.Storage.Database.CreateConnection();
-        await connection.OpenAsync(ct);
 
         AdvisoryLease? lease = null;
         try
         {
+            await connection.OpenAsync(ct);
             var started = System.Diagnostics.Stopwatch.StartNew();
             while ((lease = await AdvisoryLease.TryAcquireAsync(connection, Key, ct)) is null)
             {
