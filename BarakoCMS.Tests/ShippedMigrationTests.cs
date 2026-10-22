@@ -26,6 +26,7 @@ public class ShippedMigrationTests
         "5.0.0/accounting-number-sequences",
         "5.0.0/pages-settings",
         "5.0.0/files-storage-settings",
+        "5.2.0/253-comments",
     ];
 
     /// <summary>
@@ -79,6 +80,7 @@ public class ShippedMigrationTests
             new BarakoCMS.ExternalAuth.ExternalAuthModule(),
             new BarakoCMS.Accounting.AccountingModule(),
             new BarakoCMS.Pages.PagesModule(),
+            new BarakoCMS.Comments.CommentsModule(),
         ]);
 
     private sealed class SecondOwnerOfTheFilesAssembly : IBarakoModule
@@ -128,6 +130,7 @@ public class ShippedMigrationTests
             new BarakoCMS.ExternalAuth.ExternalAuthModule(),
             new BarakoCMS.Accounting.AccountingModule(),
             new BarakoCMS.Pages.PagesModule(),
+            new BarakoCMS.Comments.CommentsModule(),
         ];
 
         var all = ShippedMigrations.Discover(modules);
@@ -136,6 +139,7 @@ public class ShippedMigrationTests
         var owned = all.Where(m => m.Owner != ShippedMigrations.CoreOwner).Select(m => m.Key).ToList();
         owned.Should().Equal(
             "Accounting/5.0.0/accounting-number-sequences",
+            "Comments/5.2.0/253-comments",
             "Email.Resend/4.5.0/email-sent-emails",
             "ExternalAuth/4.6.0/external-auth-identities",
             "ExternalAuth/4.8.0/external-auth-used-nonces",
@@ -147,7 +151,7 @@ public class ShippedMigrationTests
             "Forms/4.7.0/forms-tenant-policy-restore",
             "Pages/5.0.0/pages-settings");
         coreOnly.Count.Should().BeGreaterThanOrEqualTo(7, "seven core files were released before the ledger");
-        coreOnly.Should().HaveCount(all.Count - 11, "a module that is not enabled contributes nothing");
+        coreOnly.Should().HaveCount(all.Count - 12, "a module that is not enabled contributes nothing");
         coreOnly.Should().OnlyContain(m => m.Owner == ShippedMigrations.CoreOwner);
         coreOnly.Select(m => m.Id).Should().NotIntersectWith(ModuleOwned, "core must not also ship a module's file");
     }
