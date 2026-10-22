@@ -159,6 +159,48 @@ public class ResponseOutputTests
         outputs["b"].Should().Be("{{actions.0.token}}");
     }
 
+    [Fact]
+    public void A_credential_with_a_quote_in_it_is_found_inside_an_object_output()
+    {
+        const string secret = "ab\"cd-secret-9";
+        var body = "{\"o\":{\"k\":\"left " + "ab\\\"cd-secret-9" + " right\"}}";
+
+        var (outputs, error) = ResponseOutputs.Extract(body, Capture(paths: [("o", "$.o")]), [secret]);
+
+        outputs.Should().BeNull("the raw JSON text escapes the quote, the decoded string does not");
+        error.Should().Contain("'o'");
+    }
+
+    [Fact]
+    public void A_credential_inside_an_array_output_is_found()
+    {
+        var (outputs, error) = ResponseOutputs.Extract(
+            "{\"a\":[\"fine\",{\"b\":\"has sk-live-12345 in it\"}]}", Capture(paths: [("a", "$.a")]), ["sk-live-12345"]);
+
+        outputs.Should().BeNull();
+        error.Should().Contain("'a'");
+    }
+
+    [Fact]
+    public void A_short_secret_does_not_fail_every_output()
+    {
+        var (outputs, error) = ResponseOutputs.Extract(
+            "{\"n\":1,\"t\":\"a 1 b\"}", Capture(paths: [("n", "$.n"), ("t", "$.t")]), ["1", "ab"]);
+
+        error.Should().BeNull("a one character pin is in nearly every value");
+        outputs.Should().NotBeNull();
+        outputs!.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void A_secret_of_the_minimum_length_is_still_checked()
+    {
+        var (outputs, _) = ResponseOutputs.Extract(
+            "{\"t\":\"a abcdef b\"}", Capture(paths: [("t", "$.t")]), ["abcdef"]);
+
+        outputs.Should().BeNull();
+    }
+
     [Theory]
     [InlineData("$..a")]
     [InlineData("$.a[*]")]

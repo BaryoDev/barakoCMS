@@ -1,5 +1,6 @@
 using barakoCMS.Features.Requests;
 using barakoCMS.Features.Workflows;
+using barakoCMS.Models;
 using FluentAssertions;
 using Xunit;
 
@@ -85,6 +86,55 @@ public class RequestOutputRulesTests
         req.MaxOutputLength = ActionOutputs.MaxValueLength + 1;
 
         RequestRules.Check(req).Should().Contain("MaxOutputLength").And.Contain(ActionOutputs.MaxValueLength.ToString());
+    }
+
+    [Theory]
+    [InlineData("7")]
+    [InlineData("-1")]
+    [InlineData("Ignore")]
+    public void A_missing_value_rule_that_is_not_a_named_one_is_refused_even_when_it_parses_as_a_number(string rule)
+    {
+        var req = Valid();
+        req.Outputs = new() { ["plan"] = "$.a" };
+        req.MissingOutput = rule;
+
+        RequestRules.Check(req).Should().Contain("MissingOutput");
+    }
+
+    [Fact]
+    public void A_save_that_leaves_the_output_fields_out_keeps_what_is_stored()
+    {
+        var stored = new RequestDefinition
+        {
+            Outputs = new() { ["plan"] = "$.a" },
+            MissingOutput = MissingOutputRule.Empty,
+            MaxOutputLength = 300,
+        };
+
+        RequestRules.ApplyOutputs(new SaveRequestRequest { Outputs = null, MissingOutput = null, MaxOutputLength = null }, stored);
+
+        stored.Outputs.Should().HaveCount(1);
+        stored.Outputs["plan"].Should().Be("$.a");
+        stored.MissingOutput.Should().Be(MissingOutputRule.Empty);
+        stored.MaxOutputLength.Should().Be(300);
+    }
+
+    [Fact]
+    public void A_save_that_sends_the_output_fields_replaces_them_and_an_empty_set_clears_them()
+    {
+        var stored = new RequestDefinition
+        {
+            Outputs = new() { ["plan"] = "$.a" },
+            MissingOutput = MissingOutputRule.Empty,
+            MaxOutputLength = 300,
+        };
+
+        RequestRules.ApplyOutputs(
+            new SaveRequestRequest { Outputs = new(), MissingOutput = "Fail", MaxOutputLength = 50 }, stored);
+
+        stored.Outputs.Should().BeEmpty();
+        stored.MissingOutput.Should().Be(MissingOutputRule.Fail);
+        stored.MaxOutputLength.Should().Be(50);
     }
 
     [Fact]
