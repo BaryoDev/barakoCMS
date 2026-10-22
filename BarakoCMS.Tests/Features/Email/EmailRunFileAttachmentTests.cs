@@ -378,4 +378,95 @@ public class EmailRunFileAttachmentTests
         sent[1].Attachments[0].Content.Should().Equal(sent[0].Attachments[0].Content);
         sent[1].Attachments[0].FileName.Should().Be(sent[0].Attachments[0].FileName);
     }
+
+    private sealed class PublicOnly : IFileStore
+    {
+        public Task<StoredFileInfo?> FindPublicAsync(Guid id, CancellationToken cancellationToken = default) =>
+            Task.FromResult<StoredFileInfo?>(null);
+
+        public Task<Stream?> OpenPublicAsync(Guid id, CancellationToken cancellationToken = default) =>
+            Task.FromResult<Stream?>(null);
+    }
+
+    private static WorkflowContext AtStep(WorkflowContext c, int ordinal) => new()
+    {
+        Parameters = c.Parameters,
+        Content = c.Content,
+        TriggerEvent = c.TriggerEvent,
+        Outputs = c.Outputs,
+        ProducedFiles = c.ProducedFiles,
+        Ordinal = ordinal,
+    };
+
+    [Fact]
+    public async Task A_store_that_cannot_read_run_files_fails_the_step_for_good()
+    {
+        var id = Guid.NewGuid();
+        var recorder = new RecordingEmailService();
+
+        var failed = await RunAsync(
+            Build(recorder, new PublicOnly()), Context("{{actions.0.FileId}}", Entry(), id.ToString(), id));
+
+        failed.Succeeded.Should().BeFalse();
+        failed.Retryable.Should().BeFalse();
+        failed.Error.Should().Contain("cannot read run files");
+        recorder.Messages.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_reference_to_the_step_itself_or_a_later_one_is_refused_for_good()
+    {
+        var files = new RunFiles();
+        var produced = files.Add("po.pdf", Order, isPublic: false);
+        var recorder = new RecordingEmailService();
+        var context = Context("{{actions.2.FileId}}", Entry(), (2, produced.ToString()), 2, produced);
+
+        var self = await RunAsync(Build(recorder, files), AtStep(context, 2));
+        var later = await RunAsync(Build(recorder, files), AtStep(context, 1));
+
+        foreach (var refused in new[] { self, later })
+        {
+            refused.Succeeded.Should().BeFalse();
+            refused.Retryable.Should().BeFalse();
+            refused.Error.Should().Contain("earlier step");
+        }
+
+        recorder.Messages.Should().BeEmpty();
+        files.RunCalls.Should().Be(0);
+
+        var earlier = await RunAsync(Build(recorder, files), AtStep(context, 3));
+        earlier.Succeeded.Should().BeTrue(earlier.Error ?? string.Empty);
+    }
+
+    [Fact]
+    public async Task Attachments_go_out_in_the_order_the_author_listed_them()
+    {
+        var files = new RunFiles();
+        var produced = files.Add("po.pdf", Order, isPublic: false);
+        var terms = files.Add("terms.pdf", [1, 2, 3], isPublic: true);
+        var recorder = new RecordingEmailService();
+
+        var result = await RunAsync(
+            Build(recorder, files),
+            Context("{{data.Terms}}, {{actions.0.FileId}}", Entry(("Terms", terms.ToString())), produced.ToString(), produced));
+
+        result.Succeeded.Should().BeTrue(result.Error ?? string.Empty);
+        recorder.Messages.Should().ContainSingle().Which.Attachments.Select(a => a.FileName)
+            .Should().Equal("terms.pdf", "po.pdf");
+    }
+
+    [Fact]
+    public async Task A_run_file_listed_twice_is_attached_once()
+    {
+        var files = new RunFiles();
+        var produced = files.Add("po.pdf", Order, isPublic: false);
+        var recorder = new RecordingEmailService();
+
+        var result = await RunAsync(
+            Build(recorder, files),
+            Context("{{actions.0.FileId}}, {{actions.0.FileId}}", Entry(), produced.ToString(), produced));
+
+        result.Succeeded.Should().BeTrue(result.Error ?? string.Empty);
+        recorder.Messages.Should().ContainSingle().Which.Attachments.Should().HaveCount(1);
+    }
 }
