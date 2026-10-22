@@ -562,6 +562,9 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Comments.CommentsModule(), opts));
             services.AddSingleton<BarakoCMS.Comments.ICommentTarget>(BarakoCMS.Tests.Features.Comments.TicketCommentTarget.Instance);
 
+            // Documents: its schema, so the per-tenant unique slug index exists in the test store.
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Documents.DocumentsModule(), opts));
+
             // ExternalAuth: the OAuth start/callback endpoints are anonymous, so what they refuse
             // is only checkable over real HTTP. ConfigureServices gives them IHttpClientFactory.
             new BarakoCMS.ExternalAuth.ExternalAuthModule().ConfigureServices(services, ctx.Configuration);

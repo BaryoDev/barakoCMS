@@ -33,6 +33,7 @@ public class ShippedMigrationTests
         "5.2.0/report-definitions",
         "5.2.0/scheduled-entries",
         "5.2.0/253-comments",
+        "5.2.0/585-documents",
         "5.2.0/contacts",
         "5.2.0/notifications",
     ];
@@ -113,6 +114,7 @@ public class ShippedMigrationTests
             new BarakoCMS.Payments.PaymentsModule(),
             new BarakoCMS.Reports.ReportsModule(),
             new BarakoCMS.Scheduling.SchedulingModule(),
+            new BarakoCMS.Documents.DocumentsModule(),
         ]);
 
     private sealed class SecondOwnerOfTheFilesAssembly : IBarakoModule
@@ -168,6 +170,7 @@ public class ShippedMigrationTests
             new BarakoCMS.Comments.CommentsModule(),
             new BarakoCMS.Contacts.ContactsModule(),
             new BarakoCMS.Notifications.NotificationsModule(),
+            new BarakoCMS.Documents.DocumentsModule(),
         ];
 
         var all = ShippedMigrations.Discover(modules);
@@ -179,6 +182,7 @@ public class ShippedMigrationTests
             "Booking/5.2.0/booking-resources",
             "Comments/5.2.0/253-comments",
             "Contacts/5.2.0/contacts",
+            "Documents/5.2.0/585-documents",
             "ExternalAuth/4.6.0/external-auth-identities",
             "ExternalAuth/4.8.0/external-auth-used-nonces",
             "ExternalAuth/5.1.0/915-external-auth-role-maps",
