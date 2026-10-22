@@ -388,7 +388,7 @@ public class EmailRunFileAttachmentTests
             Task.FromResult<Stream?>(null);
     }
 
-    private static WorkflowContext AtStep(WorkflowContext c, int ordinal) => new()
+    private static WorkflowContext AtStep(WorkflowContext c, int ordinal, bool undoing = false) => new()
     {
         Parameters = c.Parameters,
         Content = c.Content,
@@ -396,6 +396,7 @@ public class EmailRunFileAttachmentTests
         Outputs = c.Outputs,
         ProducedFiles = c.ProducedFiles,
         Ordinal = ordinal,
+        Undoing = undoing,
     };
 
     [Fact]
@@ -436,6 +437,50 @@ public class EmailRunFileAttachmentTests
 
         var earlier = await RunAsync(Build(recorder, files), AtStep(context, 3));
         earlier.Succeeded.Should().BeTrue(earlier.Error ?? string.Empty);
+    }
+
+    [Fact]
+    public async Task An_undo_reads_the_file_of_the_step_it_undoes_and_no_later_one()
+    {
+        var files = new RunFiles();
+        var produced = files.Add("po.pdf", Order, isPublic: false);
+        var recorder = new RecordingEmailService();
+        var context = Context("{{actions.2.FileId}}", Entry(), (2, produced.ToString()), 2, produced);
+
+        var undoOfSelf = await RunAsync(Build(recorder, files), AtStep(context, 2, undoing: true));
+        undoOfSelf.Succeeded.Should().BeTrue(undoOfSelf.Error ?? string.Empty);
+        recorder.Messages.Should().ContainSingle().Which.Attachments.Should().HaveCount(1);
+
+        var undoOfEarlier = await RunAsync(Build(recorder, files), AtStep(context, 1, undoing: true));
+        undoOfEarlier.Succeeded.Should().BeFalse();
+        undoOfEarlier.Retryable.Should().BeFalse();
+        undoOfEarlier.Error.Should().Contain("earlier step");
+
+        var forward = await RunAsync(Build(recorder, files), AtStep(context, 2));
+        forward.Succeeded.Should().BeFalse("the forward rule is unchanged");
+        recorder.Messages.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task A_file_named_by_a_field_and_by_a_run_reference_is_attached_once_and_counted_once()
+    {
+        var files = new RunFiles();
+        var produced = files.Add("po.pdf", new byte[700], isPublic: false);
+        var recorder = new RecordingEmailService();
+        var limits = Limits((EmailAttachmentLimits.MaxTotalBytesKey, "1000"));
+        var entry = Entry(("Po", produced.ToString()));
+
+        foreach (var order in new[] { "{{data.Po}}, {{actions.0.FileId}}", "{{actions.0.FileId}}, {{data.Po}}" })
+        {
+            var result = await RunAsync(
+                Build(recorder, files, limits), Context(order, entry, produced.ToString(), produced));
+
+            result.Succeeded.Should().BeTrue($"{order}: {result.Error}");
+        }
+
+        var sent = recorder.Messages.ToArray();
+        sent.Should().HaveCount(2);
+        sent.Should().OnlyContain(m => m.Attachments.Count == 1);
     }
 
     [Fact]

@@ -115,6 +115,15 @@ public class WorkflowProducedFileTests
     }
 
     [Fact]
+    public async Task An_action_that_returns_no_file_list_succeeds_with_no_files()
+    {
+        var run = await DrainAsync(Step("NullFilesRunner"));
+
+        run.Actions[0].Status.Should().Be(AttemptStatus.Succeeded, run.Actions[0].Error);
+        run.Actions[0].ProducedFiles.Should().BeNull();
+    }
+
+    [Fact]
     public async Task A_file_is_recorded_even_when_the_workflow_captures_no_output()
     {
         var run = await DrainAsync(Step("FileRunner"), Step("RecordingRunner"));

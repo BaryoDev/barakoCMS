@@ -20,6 +20,9 @@ public sealed class WorkflowContext
     /// </summary>
     public int Ordinal { get; init; } = -1;
 
+    /// <summary>True when this is the undo of the action at <see cref="Ordinal"/>, which can read what that action made.</summary>
+    public bool Undoing { get; init; }
+
     /// <summary>The tenant the run belongs to.</summary>
     public string TenantId { get; init; } = string.Empty;
 

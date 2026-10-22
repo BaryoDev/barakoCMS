@@ -148,9 +148,14 @@ internal static class EmailAttachments
                     return new Resolution(Array.Empty<EmailAttachment>(), refusal);
                 }
 
-                if (!wanted.Contains(file))
+                var at = wanted.FindIndex(w => w.Id == file.Id);
+                if (at < 0)
                 {
                     wanted.Add(file);
+                }
+                else if (file.FromRun)
+                {
+                    wanted[at] = file;
                 }
 
                 continue;
@@ -191,7 +196,10 @@ internal static class EmailAttachments
                 return NotAttachable(wanted.Count);
             }
 
-            wanted.Add(new Wanted(id, FromRun: false));
+            if (!wanted.Exists(w => w.Id == id))
+            {
+                wanted.Add(new Wanted(id, FromRun: false));
+            }
         }
 
         return null;
@@ -253,7 +261,7 @@ internal static class EmailAttachments
                 $"Attachment {index + 1} reads a step output, which this way of running the email cannot supply."));
         }
 
-        if (run.Ordinal >= 0 && ordinal >= run.Ordinal)
+        if (run.Ordinal >= 0 && ordinal >= (run.Undoing ? run.Ordinal + 1 : run.Ordinal))
         {
             return (default, WorkflowActionResult.PermanentFailure(
                 $"Attachment {index + 1} reads action {ordinal}, which is not an earlier step than this one. "

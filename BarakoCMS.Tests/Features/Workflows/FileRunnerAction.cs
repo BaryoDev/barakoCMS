@@ -86,3 +86,15 @@ internal sealed class UndeclaredFileRunnerAction : IWorkflowAction
     public Task<WorkflowActionResult> RunAsync(WorkflowContext context, CancellationToken ct) =>
         Task.FromResult(WorkflowActionResult.Success(new Dictionary<string, string> { ["FileId"] = SomeoneElsesFile.ToString() }));
 }
+
+/// <summary>A custom action that sets ProducedFiles to null, which the runner has to take as none.</summary>
+internal sealed class NullFilesRunnerAction : IWorkflowAction
+{
+    public string Type => "NullFilesRunner";
+
+    public Task ExecuteAsync(Dictionary<string, string> parameters, Content content, CancellationToken ct) =>
+        throw new NotSupportedException("The runner calls RunAsync(WorkflowContext).");
+
+    public Task<WorkflowActionResult> RunAsync(WorkflowContext context, CancellationToken ct) =>
+        Task.FromResult(WorkflowActionResult.Success() with { ProducedFiles = null! });
+}
