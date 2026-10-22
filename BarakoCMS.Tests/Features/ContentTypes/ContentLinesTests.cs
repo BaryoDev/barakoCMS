@@ -233,6 +233,7 @@ public class ContentLinesTests : IAsyncLifetime
             fields = new object[]
             {
                 new { name = "Amount", type = "decimal" },
+                new { name = "Memo", type = "string" },
                 new { name = "Invoice", type = "reference", referenceType = header },
             },
         }, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
@@ -380,7 +381,7 @@ public class ContentLinesTests : IAsyncLifetime
         var control = await _client.PutAsJsonAsync($"/api/contents/{id}", new { data = new { Total = 100 } }, Ct);
 
         refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain("add up to 100");
+        (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain($"Header {id}:").And.Contain("add up to 100");
         control.StatusCode.Should().Be(HttpStatusCode.OK, await control.Content.ReadAsStringAsync(Ct));
         decimal.Parse((await StoredAsync(header)).Single().Data["Total"].ToString()!, System.Globalization.CultureInfo.InvariantCulture)
             .Should().Be(100m);
@@ -405,20 +406,104 @@ public class ContentLinesTests : IAsyncLifetime
         (await StoredAsync(line)).Single(c => c.Id == lineIds[0]).Data["Amount"].ToString().Should().Be("60");
     }
 
+    private Task<HttpResponseMessage> ChangeAsync(string type, string field, object body) =>
+        _client.PostAsJsonAsync($"/api/content-types/{type}/fields/{field}/change", body, Ct);
+
+    private async Task CompletedAsync(HttpResponseMessage accepted)
+    {
+        accepted.StatusCode.Should().Be(HttpStatusCode.Accepted, await accepted.Content.ReadAsStringAsync(Ct));
+        var id = (await accepted.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("change").GetProperty("id").GetGuid();
+        for (var i = 0; i < 150; i++)
+        {
+            var status = await (await _client.GetAsync($"/api/content-types/field-changes/{id}", Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
+            if (status.GetProperty("state").GetString() == "completed") return;
+            await Task.Delay(200, Ct);
+        }
+
+        throw new Xunit.Sdk.XunitException($"Field change {id} did not complete.");
+    }
+
+    private async Task<ContentTypeDefinition> DefinitionAsync(string type)
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        return await session.Query<ContentTypeDefinition>().SingleAsync(d => d.Name == type, Ct);
+    }
+
     [Fact]
-    public async Task The_lines_of_a_total_hold_their_fields_against_a_rename()
+    public async Task The_lines_of_a_total_hold_their_parent_and_amount_fields_against_a_change()
     {
         var (header, line) = await TotalTypesAsync();
 
-        var lineAmount = await _client.PostAsJsonAsync($"/api/content-types/{line}/fields/Amount/change",
-            new { newName = "Price" }, Ct);
-        var total = await _client.PostAsJsonAsync($"/api/content-types/{header}/fields/Total/change",
-            new { remove = true, allowDataLoss = true }, Ct);
+        var amount = await ChangeAsync(line, "Amount", new { newName = "Price" });
+        var parent = await ChangeAsync(line, "Invoice", new { newName = "Bill" });
+        var removed = await ChangeAsync(line, "Amount", new { remove = true, allowDestructive = true });
 
-        lineAmount.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await lineAmount.Content.ReadAsStringAsync(Ct)).Should().Contain("lines");
-        total.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await total.Content.ReadAsStringAsync(Ct)).Should().Contain("lines total");
+        foreach (var (res, field) in new[] { (amount, "Amount"), (parent, "Invoice"), (removed, "Amount") })
+        {
+            res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            (await res.Content.ReadAsStringAsync(Ct)).Should().Contain($"'{field}' is named by the lines of '{header}'");
+        }
+    }
+
+    [Fact]
+    public async Task An_unrelated_field_of_a_line_type_is_still_renamed()
+    {
+        var (_, line) = await TotalTypesAsync();
+
+        var res = await ChangeAsync(line, "Memo", new { newName = "Note" });
+
+        await CompletedAsync(res);
+        (await DefinitionAsync(line)).Fields.Select(f => f.Name).Should().Contain("Note").And.NotContain("Memo");
+    }
+
+    [Fact]
+    public async Task The_header_total_field_cannot_be_removed_and_follows_a_rename_into_the_lines()
+    {
+        var (header, _) = await TotalTypesAsync();
+
+        var removed = await ChangeAsync(header, "Total", new { remove = true, allowDestructive = true });
+        var renamed = await ChangeAsync(header, "Total", new { newName = "Revenue" });
+
+        removed.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await removed.Content.ReadAsStringAsync(Ct)).Should().Contain("'Total' is named by the lines total");
+        await CompletedAsync(renamed);
+        (await DefinitionAsync(header)).Lines!.TotalField.Should().Be("Revenue");
+    }
+
+    [Fact]
+    public async Task A_line_stored_on_its_own_that_breaks_its_headers_total_is_refused()
+    {
+        var (header, line) = await TotalTypesAsync();
+        var (id, _) = await InvoiceAsync(header);
+
+        var refused = await _client.PostAsJsonAsync("/api/contents",
+            new { contentType = line, data = new { Amount = 10, Invoice = id } }, Ct);
+        var control = await _client.PostAsJsonAsync("/api/contents",
+            new { contentType = line, data = new { Amount = 0, Invoice = id } }, Ct);
+
+        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain($"Header {id}:").And.Contain("add up to 110");
+        control.StatusCode.Should().Be(HttpStatusCode.OK, await control.Content.ReadAsStringAsync(Ct));
+        (await StoredAsync(line)).Should().HaveCount(3);
+    }
+
+    [Fact]
+    public async Task A_parent_reference_in_capitals_is_checked_and_listed_like_any_other()
+    {
+        var (header, line) = await TotalTypesAsync();
+        var (id, _) = await InvoiceAsync(header);
+        var capitals = id.ToString().ToUpperInvariant();
+
+        var refused = await _client.PostAsJsonAsync("/api/contents",
+            new { contentType = line, data = new { Amount = 10, Invoice = capitals } }, Ct);
+        var control = await _client.PostAsJsonAsync("/api/contents",
+            new { contentType = line, data = new { Amount = 0, Invoice = capitals } }, Ct);
+        var read = await (await _client.GetAsync($"/api/contents/{id}/lines", Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
+
+        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        control.StatusCode.Should().Be(HttpStatusCode.OK, await control.Content.ReadAsStringAsync(Ct));
+        read.GetProperty("lines").GetArrayLength().Should().Be(3);
     }
 
     [Fact]
