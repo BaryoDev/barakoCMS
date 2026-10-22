@@ -5,7 +5,8 @@
 Build it in three steps. Each keeps today's behaviour as the default.
 
 1. Capability scopes. A scope names a capability, and the scope processor maps more routes to scopes
-   instead of denying them. Done so far: `files:read` and `files:write` for `/api/files`.
+   instead of denying them. Done so far: `files:read` and `files:write` for `/api/files`, and `monitor:read` for
+   `GET /api/contents/counts`, `GET /api/analytics/**` and `GET /api/monitoring/health`.
 2. Rotation with an overlap window. Done: `POST /api/api-keys/{id}/rotate`.
 3. A service principal per tenant that owns keys and holds its own roles. Not built yet.
 
@@ -30,3 +31,7 @@ change.
 - A migration to move existing keys to a principal, per tenant, opt in.
 - Scopes for roles, workflows, connectors, module endpoints, the pages tree and export. The files
   scopes are the pattern: one scope per capability, mapped in `ApiKeyScopeProcessor`.
+
+## Usage
+
+`GET /api/api-keys/{id}/usage` (tenant admin) returns when the key was last used, its refusals in the last 24 hours by reason (scope, content type, expired, revoked) and by content type, and the content types it names that no longer exist. The refusals are counted in memory, so each replica has its own and a restart clears them. A refused request for a type the key does not name and the tenant does not have is counted as `other`. `barakocms_api_key_refusals_total` counts the same refusals by reason only, since `/metrics` is anonymous.

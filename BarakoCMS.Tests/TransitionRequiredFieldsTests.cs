@@ -531,12 +531,18 @@ public class TransitionRequiredFieldsTests
     private const string RefusedByHook = "the hook refuses this one";
     private const string EditedMeanwhile = "edited by somebody else before the version was read";
 
+    /// <summary>Every entry id the hook ran for, with the transition it was told, null for a plain save.</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentBag<(Guid Id, ContentTransition? Transition)> SeenTransitions = [];
+
     private sealed class RefusingHook : IContentLifecycleHook
     {
         public string ContentType => HookType;
 
         public Task<IReadOnlyList<string>> OnBeforeSaveAsync(ContentLifecycleContext context, CancellationToken ct)
         {
+            if (context.EntryId is { } entry)
+                SeenTransitions.Add((entry, context.Transition));
+
             IReadOnlyList<string> errors = [];
             if (context.Data.Any(kv => kv.Key == "RejectionReason" && kv.Value?.ToString() == RefusedByHook))
                 errors = ["The hook refused this reason."];
@@ -626,6 +632,38 @@ public class TransitionRequiredFieldsTests
 
         var allowed = await MoveAsync(reviewer, id, "Reject", new() { ["RejectionReason"] = "No receipt attached" });
         allowed.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", allowed.StatusCode, await allowed.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task A_hook_is_told_the_transition_on_a_move_and_none_on_a_plain_save()
+    {
+        var type = await StoredTypeAsync(Review("RejectionReason"), Fields(), fixedName: HookType);
+        var id = await SubmittedAsync(type);
+        var reviewer = await UserAsync(Reviewer(type), GateHost());
+
+        var moved = await MoveAsync(reviewer, id, "Reject", new() { ["RejectionReason"] = "No receipt attached" });
+        moved.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", moved.StatusCode, await moved.Content.ReadAsStringAsync());
+
+        var seen = SeenTransitions.Where(s => s.Id == id && s.Transition is not null).Select(s => s.Transition!).ToList();
+        seen.Should().ContainSingle("the hook ran once for the move");
+        seen[0].Name.Should().Be("Reject");
+        seen[0].FromState.Should().Be("Submitted");
+        seen[0].ToState.Should().Be("Rejected");
+
+        var admin = GateHost().CreateClient();
+        admin.DefaultRequestHeaders.Authorization = (await AdminAsync()).DefaultRequestHeaders.Authorization;
+        var before = SeenTransitions.Count(s => s.Id == id);
+        var saved = await admin.PutAsJsonAsync($"/api/contents/{id}", new
+        {
+            id,
+            data = new Dictionary<string, object> { ["Title"] = "edited" },
+        });
+        saved.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", saved.StatusCode, await saved.Content.ReadAsStringAsync());
+
+        var after = SeenTransitions.Where(s => s.Id == id).ToList();
+        after.Count.Should().BeGreaterThan(before, "the hook ran for the plain save too");
+        after.Count(s => s.Transition is null).Should().BeGreaterThan(0);
+        after.Count(s => s.Transition is not null).Should().Be(1, "the plain save names no transition");
     }
 
     /// <summary>

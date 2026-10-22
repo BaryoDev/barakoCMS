@@ -2,7 +2,7 @@ using barakoCMS.Features.Workflows;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using barakoCMS.Modules;
-using BarakoCMS.Tests.Clinic;
+using BarakoCMS.Tests.SampleProbe;
 using FluentAssertions;
 using Marten;
 using NSubstitute;
@@ -22,13 +22,13 @@ public class WorkflowTriggerRegistryTests
     [Fact]
     public void A_module_trigger_is_registered_with_the_module_that_named_it()
     {
-        var registry = new WorkflowTriggerRegistry([new ClinicProbeModule()]);
+        var registry = new WorkflowTriggerRegistry([new SampleProbeModule()]);
 
         registry.ModuleTriggers.Should().ContainSingle()
             .Which.Should().Be(new ModuleWorkflowTrigger(
-                ClinicProbeModule.TicketCalledTrigger, "ClinicProbe", "A ticket was called to a counter."));
-        registry.IsRegistered(ClinicProbeModule.TicketCalledTrigger).Should().BeTrue();
-        registry.IsModuleTrigger(ClinicProbeModule.TicketCalledTrigger).Should().BeTrue();
+                SampleProbeModule.TicketCalledTrigger, "SampleProbe", "A ticket was called to a counter."));
+        registry.IsRegistered(SampleProbeModule.TicketCalledTrigger).Should().BeTrue();
+        registry.IsModuleTrigger(SampleProbeModule.TicketCalledTrigger).Should().BeTrue();
     }
 
     [Theory]
@@ -40,7 +40,7 @@ public class WorkflowTriggerRegistryTests
     [InlineData("transition:Approve")]
     public void Core_triggers_are_registered_and_are_not_a_module_s_to_fire(string trigger)
     {
-        var registry = new WorkflowTriggerRegistry([new ClinicProbeModule()]);
+        var registry = new WorkflowTriggerRegistry([new SampleProbeModule()]);
 
         registry.IsRegistered(trigger).Should().BeTrue();
         registry.IsModuleTrigger(trigger).Should().BeFalse();
@@ -52,7 +52,7 @@ public class WorkflowTriggerRegistryTests
     [InlineData("")]
     public void A_name_nothing_registered_is_not_registered(string trigger)
     {
-        new WorkflowTriggerRegistry([new ClinicProbeModule()]).IsRegistered(trigger).Should().BeFalse();
+        new WorkflowTriggerRegistry([new SampleProbeModule()]).IsRegistered(trigger).Should().BeFalse();
     }
 
     [Theory]
@@ -95,16 +95,16 @@ public class WorkflowTriggerRegistryTests
         plugins.GetAllActions().Returns([]);
 
         var validator = new WorkflowSchemaValidator(plugins, Substitute.For<IQuerySession>(), null,
-            new WorkflowTriggerRegistry([new ClinicProbeModule()]), new WorkflowExecutors([]));
+            new WorkflowTriggerRegistry([new SampleProbeModule()]), new WorkflowExecutors([]));
 
-        validator.Validate(Workflow(ClinicProbeModule.TicketCalledTrigger), TestContext.Current.CancellationToken).IsValid.Should().BeTrue();
+        validator.Validate(Workflow(SampleProbeModule.TicketCalledTrigger), TestContext.Current.CancellationToken).IsValid.Should().BeTrue();
 
         var refused = validator.Validate(Workflow("probe.nothing"), TestContext.Current.CancellationToken);
         refused.IsValid.Should().BeFalse();
         refused.Errors.Should().ContainSingle(e => e.Field == "triggerEvent")
-            .Which.Message.Should().Contain(ClinicProbeModule.TicketCalledTrigger, "the error lists what may be chosen");
+            .Which.Message.Should().Contain(SampleProbeModule.TicketCalledTrigger, "the error lists what may be chosen");
 
-        var listed = validator.Validate(Workflow("Created", ClinicProbeModule.TicketCalledTrigger), TestContext.Current.CancellationToken);
+        var listed = validator.Validate(Workflow("Created", SampleProbeModule.TicketCalledTrigger), TestContext.Current.CancellationToken);
         listed.IsValid.Should().BeTrue("a list entry is checked against the same registry");
     }
 

@@ -41,7 +41,15 @@ public sealed class ContentLifecycleContext : IContentHookContext
 #pragma warning restore CS0618
 
     private IContentReader? _reader;
+    /// <summary>
+    /// The lifecycle transition this write is, with its name and the states it moves between; null
+    /// for a plain save. A hook picks its checks from the real move instead of a client-sent field.
+    /// </summary>
+    public ContentTransition? Transition { get; init; }
 }
+
+/// <summary>A lifecycle transition in progress: its declared name, and the states it leaves and enters.</summary>
+public sealed record ContentTransition(string Name, string? FromState, string ToState);
 
 /// <summary>
 /// A per-content-type rule that runs inside the generic content write pipeline, so a domain with real

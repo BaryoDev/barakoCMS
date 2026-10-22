@@ -68,7 +68,7 @@ public class ConfigSectionsTests
         }, Ct));
         await OkAsync(await client.PostAsJsonAsync("/api/contents", new
         {
-            contentType = "site", status = "Published", data = new Dictionary<string, object> { ["Name"] = "Clinic", ["Tagline"] = "Open daily" },
+            contentType = "site", status = "Published", data = new Dictionary<string, object> { ["Name"] = "Shop", ["Tagline"] = "Open daily" },
         }, Ct));
 
         return (tenant, type, role, workflow, connector, secret);
@@ -279,7 +279,7 @@ public class ConfigSectionsTests
         var document = new
         {
             version = 1,
-            siteSettings = new Dictionary<string, object> { ["site"] = new { status = "Published", data = new Dictionary<string, object> { ["Name"] = "Clinic" } } },
+            siteSettings = new Dictionary<string, object> { ["site"] = new { status = "Published", data = new Dictionary<string, object> { ["Name"] = "Shop" } } },
         };
 
         var (_, plan) = await PlanAsync(client, document);

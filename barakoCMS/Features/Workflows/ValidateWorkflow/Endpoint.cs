@@ -22,6 +22,7 @@ internal class Request
     public string? Schedule { get; set; }
     public string? ScheduleTimeZone { get; set; }
     public string? ScheduleCatchUp { get; set; }
+    public string? NotifyRoleOnFailure { get; set; }
 }
 
 /// <summary>
@@ -55,6 +56,7 @@ internal class Endpoint(
                 Schedule = req.Schedule,
                 ScheduleTimeZone = req.ScheduleTimeZone,
                 ScheduleCatchUp = req.ScheduleCatchUp,
+                NotifyRoleOnFailure = req.NotifyRoleOnFailure,
             };
 
             var result = await validator.ValidateAsync(workflow, ct);

@@ -1,0 +1,1 @@
+- **The numbering config section and two new fields on the numbering route.** `GET /api/config/export?sections=numbering` and apply carry each type's rule (including `seriesTemplate` and `clientAllocated`) under the type name. Applying never removes a rule. `PUT /api/content-types/{name}/numbering` takes `seriesTemplate` and `clientAllocated`.

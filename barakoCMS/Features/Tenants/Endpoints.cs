@@ -1,3 +1,4 @@
+using barakoCMS.Features.Accounts;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Models;
@@ -59,18 +60,22 @@ internal class PublicTenantEndpoint(IQuerySession session, IDocumentStore store)
     }
 }
 
-/// <summary>GET /api/tenants: list all tenants (platform admin).</summary>
+/// <summary>GET /api/tenants: list all tenants (platform admin), or the tenants of the accounts the caller manages.</summary>
 internal class ListTenantsEndpoint(IQuerySession session) : Endpoint<ListRequest, PaginatedResponse<TenantResponse>>
 {
     public override void Configure()
     {
         Get("/api/tenants");
         Definition.RequireCapability(SystemCapabilities.ManageTenants, "SuperAdmin");
+        Definition.Metadata(new AccountScopedManagement());
     }
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
-        var page = await session.Query<Tenant>()
+        var reach = await AccountReach.ForAsync(HttpContext, session, ct);
+        if (reach is null) { await Send.ForbiddenAsync(ct); return; }
+
+        var page = await reach.Tenants(session)
             .OrderBy(t => t.Name)
             .ToPagedResponseAsync(req, ct);
 
@@ -133,6 +138,13 @@ internal sealed class TenantWriteRequest
     /// wiping its domains.
     /// </remarks>
     public List<string>? Domains { get; set; }
+
+    /// <summary>
+    /// The account that owns the tenant. Null on create puts it in the default account (or, for a
+    /// caller who manages exactly one account, that account), and null on an update leaves it.
+    /// Moving a tenant to another account is for a platform manager.
+    /// </summary>
+    public Guid? AccountId { get; set; }
 }
 
 /// <summary>A tenant's sign-in rules as the API reads and writes them. See <see cref="TenantSignInPolicy"/>.</summary>
@@ -252,6 +264,15 @@ internal static class TenantSignUpRole
 /// </remarks>
 internal static class TenantDomainClash
 {
+    /// <summary>
+    /// The 409 text. A caller who manages only some accounts is not told the handle of a tenant that
+    /// may be in another one.
+    /// </summary>
+    public static string Message((string Domain, string Slug) clash, AccountReach reach) =>
+        reach.IsGlobal
+            ? $"'{clash.Domain}' is already a domain of tenant '{clash.Slug}'. A domain belongs to one tenant."
+            : $"'{clash.Domain}' is already a domain of another tenant. A domain belongs to one tenant.";
+
     public static async Task<(string Domain, string Slug)?> FindAsync(
         IQuerySession session, IReadOnlyCollection<string> domains, string? exceptSlug, CancellationToken ct)
     {
@@ -292,10 +313,24 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
     {
         Post("/api/tenants");
         Definition.RequireCapability(SystemCapabilities.ManageTenants, "SuperAdmin");
+        Definition.Metadata(new AccountScopedManagement());
     }
 
     public override async Task HandleAsync(TenantWriteRequest req, CancellationToken ct)
     {
+        var reach = await AccountReach.ForAsync(HttpContext, _session, ct);
+        if (reach is null) { await Send.ForbiddenAsync(ct); return; }
+
+        var accountId = req.AccountId;
+        if (!reach.IsGlobal && accountId is null && reach.AccountIds.Count == 1)
+            accountId = reach.AccountIds[0];
+        if (!reach.IsGlobal && accountId is null)
+        { AddError(r => r.AccountId, "Name the account the tenant belongs to."); ThrowIfAnyErrors(); }
+        if (accountId is { } named && !reach.Covers(named))
+        { await Send.ForbiddenAsync(ct); return; }
+        if (accountId is { } owner && owner != TenantAccount.DefaultId && await _session.LoadAsync<TenantAccount>(owner, ct) is null)
+        { AddError(r => r.AccountId, "No such account."); ThrowIfAnyErrors(); }
+
         var handle = req.Handle?.Trim().ToLowerInvariant() ?? string.Empty;
         if (!TenantHandles.IsValidHandle(handle))
         { AddError(r => r.Handle, "Invalid or reserved handle (3-40 chars, a-z, 0-9, hyphens)."); }
@@ -314,7 +349,7 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         { AddError(r => r.SignIn, "One or more MFA roles do not exist."); ThrowIfAnyErrors(); }
 
         if (await TenantDomainClash.FindAsync(_session, domains, exceptSlug: null, ct) is { } clash)
-        { ThrowError($"'{clash.Domain}' is already a domain of tenant '{clash.Slug}'. A domain belongs to one tenant.", 409); }
+        { ThrowError(TenantDomainClash.Message(clash, reach), 409); }
 
         var tenant = new Tenant
         {
@@ -326,6 +361,7 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
             SignUpRoleId = req.SignUpRoleId,
             SignIn = req.SignIn?.ToPolicy() ?? new TenantSignInPolicy(),
             Domains = domains.ToList(),
+            AccountId = accountId is { } id ? AccountReach.Stored(id) : null,
         };
         _session.Store(tenant);
 
@@ -370,13 +406,25 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
     {
         Put("/api/tenants/{handle}");
         Definition.RequireCapability(SystemCapabilities.ManageTenants, "SuperAdmin");
+        Definition.Metadata(new AccountScopedManagement());
     }
 
     public override async Task HandleAsync(TenantWriteRequest req, CancellationToken ct)
     {
+        var reach = await AccountReach.ForAsync(HttpContext, _session, ct);
+        if (reach is null) { await Send.ForbiddenAsync(ct); return; }
+
         var handle = Route<string>("handle")?.ToLowerInvariant();
         var tenant = await _session.Query<Tenant>().FirstOrDefaultAsync(x => x.Slug == handle, ct);
-        if (tenant is null) { await Send.NotFoundAsync(ct); return; }
+        // A tenant of another account answers as a tenant that does not exist.
+        if (tenant is null || !reach.Covers(tenant)) { await Send.NotFoundAsync(ct); return; }
+
+        if (req.AccountId is { } moveTo && moveTo != (tenant.AccountId ?? TenantAccount.DefaultId))
+        {
+            if (!reach.IsGlobal) { await Send.ForbiddenAsync(ct); return; }
+            if (moveTo != TenantAccount.DefaultId && await _session.LoadAsync<TenantAccount>(moveTo, ct) is null)
+                AddError(r => r.AccountId, "No such account.");
+        }
 
         IReadOnlyList<string>? domains = null;
         if (req.Domains is not null)
@@ -393,9 +441,11 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
 
         if (domains is not null
             && await TenantDomainClash.FindAsync(_session, domains, exceptSlug: tenant.Slug, ct) is { } clash)
-        { ThrowError($"'{clash.Domain}' is already a domain of tenant '{clash.Slug}'. A domain belongs to one tenant.", 409); }
+        { ThrowError(TenantDomainClash.Message(clash, reach), 409); }
 
         tenant.Name = req.Name;
+        if (req.AccountId is { } account)
+            tenant.AccountId = AccountReach.Stored(account);
         TenantProfiles.ClearBlanked(tenant, req);
         // Switching a tenant off stops it being served, tokens being issued for it and its API keys,
         // and switching it on restores all three, so any change is recorded in that tenant's log.

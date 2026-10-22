@@ -136,6 +136,16 @@ bash scripts/wiki-publish.sh /tmp/wiki
 `bash scripts/wiki-sync.sh /tmp/wiki` on its own writes the pages into the clone and stops, which is
 the way to read the result before anything is pushed.
 
+## The backend tests run in four shards
+
+CI runs the backend tests as four parallel jobs behind the one required check, `Backend (.NET)`.
+`scripts/test-shards.py` splits the test classes by the durations in
+`scripts/test-class-durations.json`, so the shards finish close together. A class not in that file
+still runs, on a shard picked by hash. To refresh the timings, download the `test-class-durations`
+artifact from a recent run on master and commit it over that file. A stale file only makes the
+shards uneven. Running `python3 scripts/test-shards.py --shard 1 --of 4` after a build prints the
+classes one shard would run.
+
 ## Writing a module
 
 Modules are how barakoCMS grows without the core growing. A module is an ordinary class library that

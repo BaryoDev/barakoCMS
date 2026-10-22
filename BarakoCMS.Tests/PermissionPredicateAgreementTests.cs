@@ -40,6 +40,18 @@ public class PermissionPredicateAgreementTests
     private static readonly Guid Caller = Guid.Parse("11111111-2222-3333-4444-555555555555");
     private static readonly Guid Other = Guid.Parse("99999999-8888-7777-6666-555555555555");
 
+    private static readonly Guid B1 = Guid.Parse("b1b1b1b1-0000-0000-0000-000000000001");
+    private static readonly Guid B2 = Guid.Parse("b2b2b2b2-0000-0000-0000-000000000002");
+
+    /// <summary>The request's branch, as PermissionResolver puts it in the profile.</summary>
+    private static readonly Dictionary<string, string> Profile = new() { ["branch"] = B1.ToString() };
+
+    /// <summary>A row's branch: one of two, or none, which is where the two sides could part.</summary>
+    private static Guid? BranchOf(Random rng) => rng.Next(3) switch { 0 => B1, 1 => B2, _ => null };
+
+    /// <summary>What a <c>$branch</c> condition compares with, the variable included.</summary>
+    private static readonly object[] BranchValues = [B1.ToString(), B2.ToString(), "$CURRENT_BRANCH"];
+
     /// <summary>
     /// Values chosen to sit on the edges the two implementations could disagree about.
     /// </summary>
@@ -91,17 +103,23 @@ public class PermissionPredicateAgreementTests
 
         foreach (var _ in Enumerable.Range(0, rng.Next(1, 3)))
         {
-            var field = rng.Next(6) == 0
-                ? (rng.Next(2) == 0 ? "$createdBy" : "$lastModifiedBy")
-                : Fields[rng.Next(Fields.Length)];
+            var pick = rng.Next(6);
+            var field = pick switch
+            {
+                0 => rng.Next(2) == 0 ? "$createdBy" : "$lastModifiedBy",
+                1 => "$branch",
+                _ => Fields[rng.Next(Fields.Length)],
+            };
+
+            var values = field == "$branch" ? BranchValues : Values;
 
             var op = new[] { "_eq", "_ne", "_in", "_nin" }[rng.Next(4)];
 
             object expected = op is "_in" or "_nin"
                 ? Enumerable.Range(0, rng.Next(0, 3))
-                    .Select(_ => Values[rng.Next(Values.Length)] ?? "alpha")
+                    .Select(_ => values[rng.Next(values.Length)] ?? "alpha")
                     .ToList()
-                : Values[rng.Next(Values.Length)] ?? "alpha";
+                : values[rng.Next(values.Length)] ?? "alpha";
 
             conditions[field] = new Dictionary<string, object> { [op] = expected };
         }
@@ -133,6 +151,7 @@ public class PermissionPredicateAgreementTests
                     Data = Data(rng),
                     CreatedBy = rng.Next(2) == 0 ? Caller : Other,
                     LastModifiedBy = rng.Next(2) == 0 ? Caller : Other,
+                    BranchId = BranchOf(rng),
                     Status = ContentStatus.Draft,
                 };
 
@@ -169,7 +188,7 @@ public class PermissionPredicateAgreementTests
             var conditions = Conditions(rng);
 
             var rule = new PermissionRule { Enabled = true, Conditions = conditions };
-            var predicate = PermissionPredicateCompiler.Compile([rule], user.Id);
+            var predicate = PermissionPredicateCompiler.Compile([rule], user.Id, Profile);
 
             if (!predicate.Compiled) continue;
 
@@ -177,7 +196,7 @@ public class PermissionPredicateAgreementTests
 
             // What the evaluator says, in memory, over the same documents.
             var expected = contents
-                .Where(c => evaluator.Evaluate(conditions, c, user))
+                .Where(c => evaluator.Evaluate(conditions, c, user, Profile))
                 .Select(c => c.Id)
                 .OrderBy(id => id)
                 .ToList();
@@ -223,6 +242,80 @@ public class PermissionPredicateAgreementTests
             120 - compiled);
 
         checkedRules.Should().Be(compiled);
+    }
+
+    /// <summary>Three rows of a fresh type, in B1, in B2 and in no branch, read back from storage.</summary>
+    private async Task<(string Type, Content InB1, Content InB2, Content NoBranch, List<Content> Stored)> BranchRowsAsync()
+    {
+        var type = "agreebr" + Guid.NewGuid().ToString("N")[..8];
+        var rows = new[] { B1, B2, (Guid?)null }
+            .Select(b => new Content
+            {
+                Id = Guid.NewGuid(), ContentType = type, Data = new() { ["Title"] = "x" },
+                BranchId = b, Status = ContentStatus.Draft,
+            })
+            .ToArray();
+
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(rows);
+            await session.SaveChangesAsync();
+        }
+
+        using var read = _fixture.Services.CreateScope();
+        var stored = await read.ServiceProvider.GetRequiredService<IQuerySession>()
+            .Query<Content>().Where(c => c.ContentType == type).ToListAsync();
+        return (type, rows[0], rows[1], rows[2], stored.ToList());
+    }
+
+    /// <summary>The ids each side selects for one rule and one profile.</summary>
+    private async Task<(List<Guid> Evaluator, List<Guid> Sql)> BothAsync(
+        string type, List<Content> stored, Dictionary<string, object> conditions, IReadOnlyDictionary<string, string>? profile)
+    {
+        var user = new User { Id = Caller, Username = "caller", Email = "caller@example.com" };
+        var evaluated = stored.Where(c => new ConditionEvaluator().Evaluate(conditions, c, user, profile))
+            .Select(c => c.Id).OrderBy(id => id).ToList();
+
+        var predicate = PermissionPredicateCompiler.Compile(
+            [new PermissionRule { Enabled = true, Conditions = conditions }], Caller, profile);
+        predicate.Compiled.Should().BeTrue("$branch and $CURRENT_BRANCH compile");
+
+        using var scope = _fixture.Services.CreateScope();
+        var sql = (await scope.ServiceProvider.GetRequiredService<IQuerySession>().Query<Content>()
+                .Where(c => c.ContentType == type && c.MatchesSql(predicate.Sql!, predicate.Parameters))
+                .ToListAsync())
+            .Select(c => c.Id).OrderBy(id => id).ToList();
+
+        return (evaluated, sql);
+    }
+
+    private static Dictionary<string, object> OnBranch(string op) =>
+        new() { ["$branch"] = new Dictionary<string, object> { [op] = "$CURRENT_BRANCH" } };
+
+    [Fact]
+    public async Task Branch_rules_pick_the_same_rows_when_a_row_has_no_branch()
+    {
+        var (type, _, inB2, noBranch, stored) = await BranchRowsAsync();
+
+        var (evaluated, sql) = await BothAsync(type, stored, OnBranch("_ne"), Profile);
+
+        var expected = new[] { inB2.Id, noBranch.Id }.OrderBy(id => id).ToList();
+        evaluated.Should().Equal(expected);
+        sql.Should().Equal(expected);
+    }
+
+    [Fact]
+    public async Task A_caller_with_no_branch_variable_matches_nothing_on_CURRENT_BRANCH()
+    {
+        var (type, _, _, _, stored) = await BranchRowsAsync();
+
+        foreach (var op in new[] { "_eq", "_ne" })
+        {
+            var (evaluated, sql) = await BothAsync(type, stored, OnBranch(op), new Dictionary<string, string>());
+            evaluated.Should().BeEmpty("{0} against a branch the caller does not have denies", op);
+            sql.Should().BeEmpty("{0} against a branch the caller does not have denies", op);
+        }
     }
 
     [Fact]

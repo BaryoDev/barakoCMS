@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- BarakoCMS.Testing: the test host pools its database connections (at most 20) and clears the pool when it is disposed, so a long run no longer runs out of local ports.
+
 ## [5.1.0] - 2026-10-20
 
 5.1 is a minor release. Delivery gets a Members audience with viewer tokens and a Private site mode, roles and groups can be deleted and restored, a workflow can be run by hand and report its health, an administrator can reset a user's two-factor authentication, and a tenant can map identity provider claims to roles. The API contract and the delivery contract both move from 8 to 9. The module contract and every module's HTTP contract stay as they are. Read Upgrade before deploying.

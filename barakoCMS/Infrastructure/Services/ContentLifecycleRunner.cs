@@ -17,12 +17,22 @@ public class ContentLifecycleRunner(
     IEnumerable<IContentLifecycleHook> hooks,
     IDocumentSession session) : IContentLifecycleRunner
 {
+    public Task<IReadOnlyList<string>> RunBeforeSaveAsync(
+        string contentType,
+        Guid? entryId,
+        Dictionary<string, object> data,
+        IReadOnlyDictionary<string, object>? existing,
+        Guid userId,
+        CancellationToken ct) =>
+        RunBeforeSaveAsync(contentType, entryId, data, existing, userId, null, ct);
+
     public async Task<IReadOnlyList<string>> RunBeforeSaveAsync(
         string contentType,
         Guid? entryId,
         Dictionary<string, object> data,
         IReadOnlyDictionary<string, object>? existing,
         Guid userId,
+        ContentTransition? transition,
         CancellationToken ct)
     {
         var matching = hooks
@@ -39,6 +49,7 @@ public class ContentLifecycleRunner(
             Existing = existing,
             Session = session,
             UserId = userId,
+            Transition = transition,
         };
 #pragma warning restore CS0618
 

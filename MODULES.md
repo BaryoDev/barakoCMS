@@ -340,7 +340,7 @@ A module names the groups of its own events a client may follow, and the capabil
 ```csharp
 public void ConfigureTopics(IModuleTopics topics)
 {
-    topics.Add("queue.tickets", "read_queue", typeof(TicketIssued), typeof(TicketCalled));
+    topics.Add("desk.tickets", "read_queue", typeof(TicketIssued), typeof(TicketCalled));
 }
 ```
 
@@ -355,7 +355,7 @@ A module names the things it knows happened, so a workflow can listen for them:
 ```csharp
 public void ConfigureWorkflowTriggers(IModuleWorkflowTriggers triggers)
 {
-    triggers.Add("forms.submitted", "A visitor submitted a form.");
+    triggers.Add("forms.submitted", "A orderor submitted a form.");
 }
 ```
 
@@ -369,6 +369,19 @@ var queued = await services.GetRequiredService<IWorkflowTriggers>()
 ```
 
 It queues a run of every switched-on workflow on that trigger and the entry's content type whose conditions the entry meets, in the scope's tenant only, and commits them through the scope's session. A module cannot fire core's triggers or one it did not register: both throw `ArgumentException`. The runner loads the entry again by id when each action runs, so fire on an entry that is stored. A host older than 5.0 never calls `ConfigureWorkflowTriggers` and has no `IWorkflowTriggers`.
+
+#### Workflow actions
+
+A module adds the action types a workflow can run, named under the module:
+
+```csharp
+public void ConfigureWorkflowActions(IModuleWorkflowActions actions)
+{
+    actions.Add<PostItemAction>("Sample.PostItem");
+}
+```
+
+The type starts with the module's `Name` and a dot (case sensitive) and has a name after the dot. It may not be one core owns (`Email`, `SMS`, `Webhook`, `CreateTask`, `UpdateField`, `Request`, `Conditional`) or one any module already added. Any of those stops the host at startup with an error naming the module and the type. The class implements `IWorkflowAction`, is created per run from the request's services, and its `[WorkflowActionMetadata]` is what `GET /api/workflows/actions` lists under the prefixed type. A workflow that names a type nobody added is refused with 400. A host older than 5.1 never calls `ConfigureWorkflowActions`.
 
 #### Sensitive actions
 

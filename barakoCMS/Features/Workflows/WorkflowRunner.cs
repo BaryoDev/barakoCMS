@@ -526,7 +526,7 @@ internal sealed class WorkflowRunner(
     /// </summary>
     /// <remarks>
     /// Rows rather than the registry, which is what ScheduledContentService reads. The registry is
-    /// the right source for a sweep that visits every tenant looking for something to do; it is the
+    /// the right source for a sweep that orders every tenant looking for something to do; it is the
     /// wrong one for draining a queue, because a partition it does not list would never execute and
     /// nothing would say so. Asking the rows themselves cannot miss one.
     ///
@@ -713,9 +713,46 @@ internal sealed class WorkflowRunner(
             Metrics.Finished(latest.Status);
 
             if (WorkflowMetrics.HaltedTheRun(latest, attempt)) Metrics.Halted();
+            await NotifyOnFailureAsync(session, latest, tenantId, ct);
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Tells each registered <see cref="barakoCMS.Modules.IWorkflowRunFailureHandler"/> when the run
+    /// just ended badly. The outcome is already saved, so a handler that throws is logged and changes
+    /// nothing about the run.
+    /// </summary>
+    private async Task NotifyOnFailureAsync(IDocumentSession session, WorkflowRun run, string tenantId, CancellationToken ct)
+    {
+        if (run.Status is not (RunStatus.Failed or RunStatus.PartiallyFailed))
+            return;
+
+        try
+        {
+            using var scope = services.CreateScopeForTenant(tenantId);
+            var handlers = scope.ServiceProvider.GetServices<barakoCMS.Modules.IWorkflowRunFailureHandler>().ToList();
+            if (handlers.Count == 0) return;
+
+            var definition = await session.LoadAsync<WorkflowDefinition>(run.WorkflowDefinitionId, ct);
+            var failure = new barakoCMS.Modules.WorkflowRunFailure(run, definition?.NotifyRoleOnFailure);
+            foreach (var handler in handlers)
+            {
+                try
+                {
+                    await handler.OnRunFailedAsync(failure, ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    logger.LogError(ex, "A failure handler {Handler} failed for run {RunId}", handler.GetType().Name, run.Id);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "Could not report the failure of run {RunId}", run.Id);
+        }
     }
 
     /// <summary>Puts one attempt's outcome on the run, with what it means for the rest of the run.</summary>
@@ -1070,7 +1107,8 @@ internal sealed class WorkflowRunner(
         return new Outcome(
             AttemptStatus.Succeeded, notes.Count == 0 ? null : string.Join(" ", notes), elapsedMs, Outputs: kept,
             ResponseStatus: result.ResponseStatus,
-            ProducedFiles: files.Count > 0 ? [.. files.Take(WorkflowActionResult.MaxProducedFiles)] : null);
+            ProducedFiles: files.Count > 0 ? [.. files.Take(WorkflowActionResult.MaxProducedFiles)] : null,
+            Created: result.Created?.ToList());
     }
 
     private static Outcome NoHandler(WorkflowActionSet handlers, string actionType) =>
@@ -1156,6 +1194,7 @@ internal sealed class WorkflowRunner(
         attempt.Status = outcome.Status;
         attempt.Outputs = outcome.Status == AttemptStatus.Succeeded ? outcome.Outputs : null;
         attempt.ProducedFiles = outcome.Status == AttemptStatus.Succeeded ? outcome.ProducedFiles : null;
+        attempt.Created = outcome.Status == AttemptStatus.Succeeded ? outcome.Created : null;
         attempt.Retryable = outcome.Status == AttemptStatus.Failed ? outcome.Retryable : null;
         attempt.NextAttemptAt = null;
         attempt.CompletedAt = DateTimeOffset.UtcNow;
@@ -1207,9 +1246,10 @@ internal sealed class WorkflowRunner(
     /// <param name="ProducedFiles">On a success, the stored files the action declared it made on this run.</param>
     /// <param name="ResponseStatus">The status the action's remote call answered with, when it reported one.</param>
     /// <param name="Outbox">On a success, the messages the action queued, stored in the save that records the outcome.</param>
+    /// <param name="Created">On a success, the entries the action reported it created.</param>
     /// <param name="Registered">Whether a handler was found for the action type. Only then is the type used as a metric label.</param>
     private readonly record struct Outcome(
         AttemptStatus Status, string? Error, long ElapsedMs, bool Retryable = true, bool Registered = true,
         Dictionary<string, string>? Outputs = null, int? ResponseStatus = null, IReadOnlyList<OutboxMessage>? Outbox = null,
-        List<Guid>? ProducedFiles = null);
+        List<Guid>? ProducedFiles = null, List<barakoCMS.Models.CreatedRef>? Created = null);
 }

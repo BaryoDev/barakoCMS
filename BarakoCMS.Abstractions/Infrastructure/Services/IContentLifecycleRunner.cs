@@ -21,4 +21,18 @@ public interface IContentLifecycleRunner
         IReadOnlyDictionary<string, object>? existing,
         Guid userId,
         CancellationToken ct);
+
+    /// <summary>
+    /// The same run, told which lifecycle transition the write is (null for a plain save). The
+    /// default ignores the transition, so an existing implementation keeps working.
+    /// </summary>
+    Task<IReadOnlyList<string>> RunBeforeSaveAsync(
+        string contentType,
+        Guid? entryId,
+        Dictionary<string, object> data,
+        IReadOnlyDictionary<string, object>? existing,
+        Guid userId,
+        ContentTransition? transition,
+        CancellationToken ct) =>
+        RunBeforeSaveAsync(contentType, entryId, data, existing, userId, ct);
 }

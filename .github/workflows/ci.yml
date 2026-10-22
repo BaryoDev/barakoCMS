@@ -17,8 +17,11 @@ on:
   workflow_dispatch:
 
 jobs:
-  backend:
-    name: Backend (.NET)
+  # The backend tests run as shards (backend-shard) and the job named "Backend (.NET)" below is the
+  # one required check. This job holds everything else the old single job did: the script gates, the
+  # build, and the package checks.
+  backend-checks:
+    name: Backend checks
     runs-on: ubuntu-latest
     steps:
       # Full history: the module-version check walks each .csproj's history to find when its
@@ -151,39 +154,64 @@ jobs:
       - name: Check every package is released
         run: bash scripts/check-release-packages.sh
 
-      - name: Test BarakoCMS.Tests
+  # Each shard builds the tests and runs its share of the classes, chosen by scripts/test-shards.py
+  # from the recorded durations in scripts/test-class-durations.json. SHARDS and the matrix list
+  # must agree; the aggregate job below counts the reports and fails when one is missing.
+  backend-shard:
+    name: Backend shard ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    env:
+      SHARDS: 4
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore dependencies
+        run: dotnet restore --locked-mode
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Test shard ${{ matrix.shard }} of ${{ env.SHARDS }}
         run: >
           dotnet test --project BarakoCMS.Tests/BarakoCMS.Tests.csproj --no-build --configuration Release
-          --report-trx --report-trx-filename results.trx --results-directory ./testresults
+          $(python3 scripts/test-shards.py --shard ${{ matrix.shard }} --of $SHARDS --filter-args)
+          --report-trx --report-trx-filename results-${{ matrix.shard }}.trx --results-directory ./testresults
+        env:
+          # TestContainers needs Docker to be available
+          DOCKER_HOST: unix:///var/run/docker.sock
 
-      # Same reasoning as the release gate: dotnet test exits 0 when it discovers nothing, so a
-      # green step is not by itself evidence that anything was checked. Here it also protects the
-      # release gate, by catching a discovery break on the pull request that caused it.
-      - name: Confirm the suite actually ran
+      # dotnet test exits 0 when it discovers nothing, so a green step is not evidence that a shard
+      # checked anything. A shard that ran no test fails here. The floor of 500 across all shards is
+      # held by the aggregate job.
+      - name: Confirm the shard ran tests
         run: |
           set -euo pipefail
           TRX=$(find ./testresults -name '*.trx' | head -1)
           [ -n "$TRX" ] || { echo "::error::No .trx was produced, so nothing can be verified."; exit 1; }
           TOTAL=$(grep -o 'total="[0-9]*"' "$TRX" | head -1 | grep -o '[0-9]*' || true)
           FAILED=$(grep -o 'failed="[0-9]*"' "$TRX" | head -1 | grep -o '[0-9]*' || true)
-
-          # Both counters must actually parse. Defaulting a missing or malformed value to 0 makes
-          # the zero-failure assertion pass on an unreadable report, which is the same fail-open
-          # shape this whole gate exists to remove.
           case "$TOTAL"  in ''|*[!0-9]*) echo "::error::Could not read a numeric total from $TRX."; exit 1 ;; esac
           case "$FAILED" in ''|*[!0-9]*) echo "::error::Could not read a numeric failed count from $TRX."; exit 1 ;; esac
-          echo "ran $TOTAL, failed $FAILED"
-          [ "${TOTAL:-0}" -ge 500 ] || { echo "::error::Only $TOTAL tests ran, expected at least 500."; exit 1; }
-          [ "${FAILED:-0}" -eq 0 ] || { echo "::error::$FAILED test(s) failed."; exit 1; }
-        env:
-          # TestContainers needs Docker to be available
-          DOCKER_HOST: unix:///var/run/docker.sock
+          echo "shard ${{ matrix.shard }} ran $TOTAL, failed $FAILED"
+          [ "$TOTAL" -gt 0 ] || { echo "::error::Shard ${{ matrix.shard }} ran no tests."; exit 1; }
+          [ "$FAILED" -eq 0 ] || { echo "::error::$FAILED test(s) failed in shard ${{ matrix.shard }}."; exit 1; }
 
+      # Always, not only on failure: the aggregate job sums these, and the durations are read from
+      # them.
       - name: Upload test results
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: backend-test-results
+          name: backend-trx-${{ matrix.shard }}
           path: testresults/*.trx
           if-no-files-found: ignore
           retention-days: 14
@@ -197,11 +225,82 @@ jobs:
           [ -n "$TRX" ] || { echo "No .trx was produced, so there is nothing to list."; exit 0; }
           python3 scripts/report-trx-failures.py "$TRX" || true
 
-      - name: Test Summary
+  # The one check branch protection and the merge queue require. It keeps the name the single job
+  # had. It runs even when a job it needs failed, was cancelled or was skipped, and is red then:
+  # a required check that is skipped would leave the queue waiting until it times out.
+  backend:
+    name: Backend (.NET)
+    runs-on: ubuntu-latest
+    needs: [backend-checks, backend-shard]
+    if: always()
+    env:
+      SHARDS: 4
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Every job this check depends on succeeded
+        run: |
+          set -euo pipefail
+          echo "backend-checks: $CHECKS"
+          echo "backend-shard:  $SHARD"
+          [ "$CHECKS" = success ] || { echo "::error::Backend checks finished as '$CHECKS'."; exit 1; }
+          [ "$SHARD" = success ] || { echo "::error::The backend shards finished as '$SHARD'."; exit 1; }
+        env:
+          CHECKS: ${{ needs.backend-checks.result }}
+          SHARD: ${{ needs.backend-shard.result }}
+
+      - name: Download the shard reports
+        if: always()
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: backend-trx-*
+          path: testresults
+
+      # Same reasoning as the release gate: a green shard is not by itself evidence that anything
+      # was checked. The totals are summed across the shards, and every shard must have reported.
+      - name: Confirm the suite actually ran
+        run: |
+          set -euo pipefail
+          REPORTS=$(find ./testresults -name '*.trx' | wc -l | tr -d ' ')
+          [ "$REPORTS" -eq "$SHARDS" ] || { echo "::error::Expected $SHARDS shard reports, found $REPORTS."; exit 1; }
+          TOTAL=0
+          FAILED=0
+          for TRX in $(find ./testresults -name '*.trx' | sort); do
+            T=$(grep -o 'total="[0-9]*"' "$TRX" | head -1 | grep -o '[0-9]*' || true)
+            F=$(grep -o 'failed="[0-9]*"' "$TRX" | head -1 | grep -o '[0-9]*' || true)
+            case "$T" in ''|*[!0-9]*) echo "::error::Could not read a numeric total from $TRX."; exit 1 ;; esac
+            case "$F" in ''|*[!0-9]*) echo "::error::Could not read a numeric failed count from $TRX."; exit 1 ;; esac
+            [ "$T" -gt 0 ] || { echo "::error::$TRX holds no tests."; exit 1; }
+            TOTAL=$((TOTAL + T))
+            FAILED=$((FAILED + F))
+          done
+          echo "ran $TOTAL across $REPORTS shards, failed $FAILED"
+          [ "$TOTAL" -ge 500 ] || { echo "::error::Only $TOTAL tests ran, expected at least 500."; exit 1; }
+          [ "$FAILED" -eq 0 ] || { echo "::error::$FAILED test(s) failed."; exit 1; }
+
+      # How long each shard took, so a split that has drifted is visible, and the durations a
+      # refresh of scripts/test-class-durations.json needs (CONTRIBUTING.md says how).
+      - name: Shard timings and class durations
         if: always()
         run: |
-          echo "## Backend" >> $GITHUB_STEP_SUMMARY
-          echo "✅ BarakoCMS.Tests completed" >> $GITHUB_STEP_SUMMARY
+          set -uo pipefail
+          ls testresults/*/*.trx >/dev/null 2>&1 || { echo "No reports to time."; exit 0; }
+          {
+            echo "## Backend shards"
+            echo '```'
+            python3 scripts/test-durations.py --summary testresults
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 scripts/test-durations.py --out class-durations/test-class-durations.json testresults || true
+
+      - name: Upload class durations
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: test-class-durations
+          path: class-durations/test-class-durations.json
+          if-no-files-found: ignore
+          retention-days: 14
 
   upgrade:
     name: Upgrade from 4.x

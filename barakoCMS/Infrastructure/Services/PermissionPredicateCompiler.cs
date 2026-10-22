@@ -282,6 +282,12 @@ internal static class PermissionPredicateCompiler
                 value = "(d.data ->> 'LastModifiedBy')";
                 return true;
 
+            case "branch":
+                // No presence term: a row without a branch is SQL NULL here and null in the
+                // evaluator, so _eq denies it and _ne grants it on both sides.
+                value = "(d.data ->> 'BranchId')";
+                return true;
+
             default:
                 // Includes $status, which is the one that looks compilable and is not.
                 return false;

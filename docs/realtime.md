@@ -19,7 +19,7 @@ Only the caller's tenant is read. The feed never reads past the event store's hi
 SignalR at `/hubs/realtime`. Sign in with the same bearer token as HTTP (or `access_token` in the query string, which only hub paths accept). Then:
 
 ```
-await connection.InvokeAsync("Subscribe", "queue.tickets");
+await connection.InvokeAsync("Subscribe", "desk.tickets");
 connection.On<RealtimeNotice>("changed", n => /* read the feed from your last sequence */);
 ```
 
@@ -38,3 +38,5 @@ A notice goes out as soon as the write commits, but the feed stops at the high-w
 - A station should send its key in the `Authorization: Bearer bsta_...` header. The hub also reads the key from `access_token` in the query string, for a browser display board that cannot set headers on a WebSocket. A station key never expires, and the full URL, query string included, lands in reverse proxy and request logs, so the query form puts a permanent secret in your access logs. The .NET and MAUI SignalR clients can send the header.
 
 Notices come from the server instance that committed the write. On reconnect, read the feed from the last stored sequence; a missed notice never loses data.
+
+Content types can declare a topic too, see `docs/realtime-content-topics.md`.

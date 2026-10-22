@@ -455,7 +455,7 @@ internal class WebhookAction : IWorkflowAction
             return new Dictionary<string, object>();
 
         var definition = await _session.Query<ContentTypeDefinition>()
-            .FirstOrDefaultAsync(d => d.Name == content.ContentType, ct);
+            .FirstNamedAsync(content.ContentType, ct);
 
         // A file field holds the id of a file the receiver may not be allowed to read, and a
         // workflow has no caller to ask the file store as, so it is left out as delivery leaves out

@@ -236,19 +236,19 @@ public class EntriesListFieldFilterTests
         var high = await SeedEntryAsync(type, "Ana", "open", 60000, pin: Pin);
         var low = await SeedEntryAsync(type, "Ben", "open", 20000);
 
-        var nurse = await ReaderAsync(SystemCapabilities.ViewSensitive, type);
+        var clerk = await ReaderAsync(SystemCapabilities.ViewSensitive, type);
         var auditor = await ReaderAsync(SystemCapabilities.ViewHidden, type);
         var superAdmin = await ReaderAsync("SuperAdmin", type);
 
-        var all = await ListAsync(nurse, $"contentType={type}&pageSize=100");
+        var all = await ListAsync(clerk, $"contentType={type}&pageSize=100");
         all.Ids.Should().HaveCount(2);
         all.Ids.Should().BeEquivalentTo(new[] { high, low });
 
-        var bySalary = await ListAsync(nurse, $"contentType={type}&pageSize=100&filter[Salary][gte]=50000");
+        var bySalary = await ListAsync(clerk, $"contentType={type}&pageSize=100&filter[Salary][gte]=50000");
         bySalary.Ids.Should().HaveCount(1);
         bySalary.Ids.Should().Equal(high);
 
-        await RefusedAsync(nurse, $"contentType={type}&filter[Pin][eq]={Pin}");
+        await RefusedAsync(clerk, $"contentType={type}&filter[Pin][eq]={Pin}");
 
         var byPin = await ListAsync(superAdmin, $"contentType={type}&pageSize=100&filter[Pin][eq]={Pin}");
         byPin.Ids.Should().HaveCount(1);

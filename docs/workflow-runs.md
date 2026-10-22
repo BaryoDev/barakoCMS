@@ -449,7 +449,7 @@ published, and the backlog alerts below have nothing to read, so remove them wit
 What a measurement costs: one count per tenant partition, which reads what a pass already reads
 there to find what is due, and one more read of a single timestamp in a partition that has something
 due. An idle runner makes a pass every 5 seconds, so at the default the measurement adds about one
-partition sweep to every six the runner makes anyway. The partitions are the ones a pass visits:
+partition sweep to every six the runner makes anyway. The partitions are the ones a pass orders:
 those holding unfinished runs, or every registered tenant when the list comes from the tenant
 registry (`Tenancy:DatabaseEnforcement` on, or `Multi` mode). A measurement stops after 10 seconds,
 and that is the most it can hold up the next pass.
@@ -587,6 +587,16 @@ The action is recorded in the audit log as `workflow.run.manual`, with the actor
 The `lastOutcomes` list includes cancelled and abandoned runs. Workflows are ordered by name, then id.
 
 `GET /api/workflow-runs` takes `workflowId`. `statusCounts` follow it. When you page with a `changedSince` cursor, send the same filters (`workflowId`, `contentId`, `status`) on every page: the cursor does not remember them.
+
+## Tracing a run and what it created
+
+An action that creates entries reports them in its result with `WorkflowActionResult.Success(outputs, created)`, each a `CreatedRef(ContentType, Id, Number)`. They are kept on the attempt as `Created`, and only when the attempt succeeds. An entry a run created through `IContentCreator` also carries the run's id in `Content.SourceRunId`. That field lives on the document only, so a projection rebuild loses it; the attempt's `Created` list is the record.
+
+`GET /api/contents/{id}/runs` lists the runs of an entry, newest first, capped at 100. With `includeCreated=true` it also lists the runs whose actions created the entry. It needs the `ViewWorkflowRuns` capability, and a caller who cannot read the entry gets 404.
+
+A module can fire its trigger with a key: `IWorkflowTriggers.FireAsync(trigger, content, triggerKey, ct)`. A second fire with the same key, for the same entry and workflow, queues nothing, so a retried request starts the work once. A null key queues a run every time. The key is kept on the run as `TriggerKey`.
+
+A workflow can name a role in `NotifyRoleOnFailure`. It is stored and returned by the workflow API; a module that wants to tell that role about a failed run implements `IWorkflowRunFailureHandler`.
 
 ## This is not an audit trail
 

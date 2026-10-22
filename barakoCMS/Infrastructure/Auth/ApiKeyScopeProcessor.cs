@@ -7,7 +7,8 @@ namespace barakoCMS.Infrastructure.Auth;
 /// Enforces API-key scope. Runs for every request but only acts when the caller authenticated with an
 /// API key (<c>auth_method=apikey</c>). API keys are confined to the content surface (content,
 /// content types, schemas, collection pushes) and to read vs write by HTTP method, except that
-/// erasing and rolling back an entry need <c>content:destructive</c>. A key that names content types
+/// erasing and rolling back an entry need <c>content:destructive</c>. <c>monitor:read</c> reaches only the
+/// content counts, the analytics reads and the per-check health read. A key that names content types
 /// reaches only the push route for those types. Everything else (managing users,
 /// roles, tenants, or keys themselves) stays behind human JWTs, so a leaked key can never escalate
 /// into platform administration. Human JWT callers are untouched: they carry no scope claims and use
@@ -31,23 +32,57 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
         var contentTypes = user.FindAll(ApiKeyAuthenticationHandler.ContentTypeClaim).Select(c => c.Value).ToList();
         if (contentTypes.Count > 0 && !IsPushTo(path, contentTypes))
         {
-            await Deny(http, "This API key is limited to pushing to the content types it names.", ct);
+            await Deny(http, ApiKeyRefusalReason.ContentType, "This API key is limited to pushing to the content types it names.", ct);
             return;
         }
 
-        var required = RequiredScope(path, isWrite);
+        var required = RequiredScopes(path, isWrite);
         if (required is null)
         {
-            await Deny(http, "API keys are limited to the content API.", ct);
+            await Deny(http, ApiKeyRefusalReason.Scope, "API keys are limited to the content API.", ct);
             return;
         }
 
         var scopes = user.FindAll("scope").Select(c => c.Value);
-        if (!ApiKeyScopes.Satisfies(scopes, required))
-            await Deny(http, $"This API key is missing the '{required}' scope.", ct);
+        var granted = scopes.ToList();
+        if (!required.Any(r => ApiKeyScopes.Satisfies(granted, r)))
+            await Deny(http, ApiKeyRefusalReason.Scope, $"This API key is missing the '{string.Join("' or '", required)}' scope.", ct);
     }
 
-    // The scope a request needs, or null if API keys may not touch this path at all.
+    // The scopes a request needs (any one of them), or null if API keys may not touch this path at all.
+    internal static string[]? RequiredScopes(string path, bool isWrite)
+    {
+        // Before the /api/contents prefix rule, or monitor:read would never apply to the counts route.
+        if (!isWrite && IsCounts(path))
+            return [ApiKeyScopes.ContentRead, ApiKeyScopes.MonitorRead];
+        if (!isWrite && IsMonitoringHealth(path))
+            return [ApiKeyScopes.MonitorRead];
+        if (Match(path, "/api/analytics"))
+            return isWrite ? null : [ApiKeyScopes.MonitorRead];
+        var one = RequiredScope(path, isWrite);
+        return one is null ? null : [one];
+    }
+
+    // GET /api/contents/counts, the exact two segments after /api. by-slug/counts/x is a content route.
+    private static bool IsCounts(string path)
+    {
+        var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return segments.Length == 3
+               && segments[0].Equals("api", StringComparison.OrdinalIgnoreCase)
+               && segments[1].Equals("contents", StringComparison.OrdinalIgnoreCase)
+               && segments[2].Equals("counts", StringComparison.OrdinalIgnoreCase);
+    }
+
+    // GET /api/monitoring/health, the exact two segments after /api. Every other monitoring route stays closed to keys.
+    private static bool IsMonitoringHealth(string path)
+    {
+        var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return segments.Length == 3
+               && segments[0].Equals("api", StringComparison.OrdinalIgnoreCase)
+               && segments[1].Equals("monitoring", StringComparison.OrdinalIgnoreCase)
+               && segments[2].Equals("health", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string? RequiredScope(string path, bool isWrite)
     {
         if (Match(path, "/api/contents"))
@@ -115,8 +150,41 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
         path.Equals(prefix, StringComparison.OrdinalIgnoreCase)
         || path.StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase);
 
-    private static async Task Deny(HttpContext http, string message, CancellationToken ct)
+    // The type in the path is the caller's text, and the admin reads it back. Keep it only when the key
+    // names it or, for a content type refusal, the type exists; anything else is counted as "other".
+    // A failed lookup must not turn the 403 into a 500.
+    private static async Task<string?> KnownTypeAsync(
+        HttpContext http, ApiKeyRefusalReason reason, string? type, CancellationToken ct)
     {
+        if (type is null)
+            return null;
+        if (http.User.FindAll(ApiKeyAuthenticationHandler.ContentTypeClaim)
+            .Any(c => c.Value.Equals(type, StringComparison.OrdinalIgnoreCase)))
+            return type;
+        if (reason != ApiKeyRefusalReason.ContentType)
+            return "other";
+        try
+        {
+            var session = http.RequestServices.GetService<Marten.IQuerySession>();
+            var lowered = type.ToLowerInvariant();
+            return session is not null && await Marten.QueryableExtensions.AnyAsync(
+                session.Query<ContentTypeDefinition>().Where(d => d.Name.ToLower() == lowered), ct)
+                ? type
+                : "other";
+        }
+        catch (Exception) when (!ct.IsCancellationRequested)
+        {
+            return "other";
+        }
+    }
+
+    private static async Task Deny(HttpContext http, ApiKeyRefusalReason reason, string message, CancellationToken ct)
+    {
+        if (Guid.TryParse(http.User.FindFirst("apikey_id")?.Value, out var keyId))
+        {
+            var type = await KnownTypeAsync(http, reason, PushedType(http.Request.Path.Value ?? string.Empty), ct);
+            http.RequestServices.GetService<ApiKeyRefusals>()?.Record(keyId, reason, type);
+        }
         http.Response.StatusCode = 403;
         // Writing the body short-circuits the endpoint (setting the status alone would not).
         await http.Response.WriteAsync(message, ct);

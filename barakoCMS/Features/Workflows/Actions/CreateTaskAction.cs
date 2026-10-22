@@ -50,7 +50,7 @@ internal class CreateTaskAction : IWorkflowAction
         if (copied.Count > 0)
         {
             var definition = await _session.Query<barakoCMS.Models.ContentTypeDefinition>()
-                .FirstOrDefaultAsync(d => d.Name == contentType, ct);
+                .FirstNamedAsync(contentType, ct);
             var image = definition?.Fields.FirstOrDefault(f =>
                 f is not null
                 && barakoCMS.Core.Validation.InlineImageFields.Is(f.Type)
@@ -80,6 +80,10 @@ internal class CreateTaskAction : IWorkflowAction
             data[fieldName] = param.Value;
         }
 
+        var refusal = await ReadJsonFieldsAsync(parameters, contentType, copied, data, ct);
+        if (refusal is not null)
+            return WorkflowActionResult.PermanentFailure(refusal);
+
         var created = new barakoCMS.Events.ContentCreated(
             contentId,
             contentType,
@@ -99,5 +103,29 @@ internal class CreateTaskAction : IWorkflowAction
             contentType, newContent.Id, content.Id);
 
         return WorkflowActionResult.Success();
+    }
+
+    /// <summary>
+    /// A copied json field takes only a whole list or object from one placeholder, read from its
+    /// JSON text. Returns the refusal, which does not name the value, or null.
+    /// </summary>
+    private async Task<string?> ReadJsonFieldsAsync(
+        Dictionary<string, string> parameters, string contentType, List<string> copied,
+        Dictionary<string, object> data, CancellationToken ct)
+    {
+        if (copied.Count == 0)
+            return null;
+
+        var declared = (await _session.Query<barakoCMS.Models.ContentTypeDefinition>()
+            .FirstNamedAsync(contentType, ct))?.Fields;
+        var sent = copied.Where(data.ContainsKey).ToDictionary(k => k, k => data[k]);
+        var refusal = barakoCMS.Core.Validation.JsonTextFields.Read(
+            declared, sent, key => ActionParameters.IsStructured(parameters, "Data." + key));
+        if (refusal is not null)
+            return refusal;
+
+        foreach (var (key, value) in sent)
+            data[key] = value;
+        return null;
     }
 }

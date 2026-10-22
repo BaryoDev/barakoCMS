@@ -25,7 +25,7 @@ A change that touches entries answers 202 with the job that applies it:
 
 ```json
 { "classification": "rename",
-  "change": { "id": "...", "contentType": "clinic", "field": "Doctor", "kind": "rename",
+  "change": { "id": "...", "contentType": "shop", "field": "Owner", "kind": "rename",
     "state": "running", "step": 0, "steps": 3, "processed": 0, "total": 1200, "valuesLost": 0,
     "error": null, "startedAt": "...", "completedAt": null } }
 ```

@@ -75,7 +75,112 @@ public class WorkflowProjectionTests
         await _ops.Received(1).LoadAsync<Content>(contentId, Arg.Any<CancellationToken>());
 
         // Verify Engine called
-        await queue.Received(1).EnqueueAsync(content, "Updated", Arg.Any<long>(), Arg.Any<CancellationToken>());
+        await queue.Received(1).EnqueueAsync(Arg.Is<Content>(c => c.Id == contentId), "Updated", Arg.Any<long>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// One update starts one run of the workflow it matches, even when the daemon reads an earlier
+    /// event of the same entry after the update has landed.
+    /// </summary>
+    /// <remarks>
+    /// The case found in a shop: a workflow's UpdateField set StockEvent to Done, and before the
+    /// daemon got to that event a person saved StockEvent Waste. The daemon then read both events
+    /// against the document as it stood, which said Waste both times, so a workflow conditioned on
+    /// Waste was queued twice for one save and took the stock twice. Each event is matched against
+    /// the data it wrote.
+    /// </remarks>
+    [Fact]
+    public async Task An_earlier_update_read_late_does_not_match_against_the_data_of_a_later_one()
+    {
+        var contentId = Guid.NewGuid();
+        var queue = new MatchingQueue(new WorkflowDefinition
+        {
+            Id = Guid.NewGuid(),
+            Name = "waste-stock",
+            TriggerContentType = "Shipment",
+            TriggerEvent = WorkflowEvents.Updated,
+            Conditions = new Dictionary<string, string> { ["StockEvent"] = "Waste" },
+        });
+        _serviceProvider.GetService(typeof(IWorkflowRunQueue)).Returns(queue);
+        _ops.LoadAsync<Content>(contentId, Arg.Any<CancellationToken>()).Returns(new Content
+        {
+            Id = contentId, ContentType = "Shipment", Data = new Dictionary<string, object> { ["StockEvent"] = "Waste" },
+        });
+
+        await _sut.Project(UpdatedEvent(contentId, 10, new() { ["StockEvent"] = "Done" }), _ops, CancellationToken.None);
+        await _sut.Project(UpdatedEvent(contentId, 11, new() { ["StockEvent"] = "Waste" }), _ops, CancellationToken.None);
+
+        queue.Runs.Should().Equal([11L], "only the save that wrote Waste matches");
+    }
+
+    [Fact]
+    public async Task A_create_read_after_a_later_update_matches_against_the_data_it_was_created_with()
+    {
+        var contentId = Guid.NewGuid();
+        var queue = new MatchingQueue(new WorkflowDefinition
+        {
+            Id = Guid.NewGuid(),
+            Name = "on-create",
+            TriggerContentType = "Shipment",
+            TriggerEvent = WorkflowEvents.Created,
+            Conditions = new Dictionary<string, string> { ["Kind"] = "Urgent" },
+        });
+        _serviceProvider.GetService(typeof(IWorkflowRunQueue)).Returns(queue);
+        _ops.LoadAsync<Content>(contentId, Arg.Any<CancellationToken>()).Returns(new Content
+        {
+            Id = contentId, ContentType = "Shipment", Data = new Dictionary<string, object> { ["Kind"] = "Urgent" },
+        });
+
+        var created = Substitute.For<IEvent<barakoCMS.Events.ContentCreated>>();
+        created.Data.Returns(new barakoCMS.Events.ContentCreated(
+            contentId, "Shipment", new Dictionary<string, object> { ["Kind"] = "Routine" }, ContentStatus.Draft,
+            Guid.NewGuid(), null, SensitivityLevel.Public, DateTime.UtcNow));
+        created.Sequence.Returns(5L);
+        created.TenantId.Returns(JasperFx.StorageConstants.DefaultTenantId);
+
+        await _sut.Project(created, _ops, CancellationToken.None);
+
+        queue.Runs.Should().BeEmpty("the entry was created Routine and only later edited to Urgent");
+    }
+
+    private static IEvent<barakoCMS.Events.ContentUpdated> UpdatedEvent(Guid id, long sequence, Dictionary<string, object> data)
+    {
+        var e = Substitute.For<IEvent<barakoCMS.Events.ContentUpdated>>();
+        e.Data.Returns(new barakoCMS.Events.ContentUpdated(id, data, Guid.NewGuid(), null, DateTime.UtcNow));
+        e.Sequence.Returns(sequence);
+        e.TenantId.Returns(JasperFx.StorageConstants.DefaultTenantId);
+        return e;
+    }
+
+    /// <summary>Queues a run of one workflow per event its conditions match, as the real queue decides.</summary>
+    private sealed class MatchingQueue(WorkflowDefinition workflow) : IWorkflowRunQueue
+    {
+        public List<long> Runs { get; } = [];
+
+        public Task<int> EnqueueAsync(Content content, string eventType, long eventSequence, CancellationToken ct)
+        {
+            if (!WorkflowTriggers.Events(workflow).Contains(eventType)
+                || !WorkflowConditions.Matches(workflow, content)
+                || Runs.Contains(eventSequence))
+            {
+                return Task.FromResult(0);
+            }
+
+            Runs.Add(eventSequence);
+            return Task.FromResult(1);
+        }
+
+        public Task<int> QueueDeletedAsync(Guid contentId, string contentType, CancellationToken ct) => Task.FromResult(0);
+
+        public Task<int> FireAsync(Content content, string trigger, string? triggerKey, CancellationToken ct) => Task.FromResult(0);
+
+        public Task<bool> EnqueueScheduledAsync(WorkflowDefinition workflow, Content content, string triggerKey, CancellationToken ct) =>
+            Task.FromResult(false);
+
+        public WorkflowRun StageManual(WorkflowDefinition workflow, Content content, Guid? runId, Guid? startedBy) =>
+            throw new NotSupportedException();
+
+        public Task<bool> ListensAsync(string contentType, string eventType, CancellationToken ct) => Task.FromResult(true);
     }
 
     /// <summary>

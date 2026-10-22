@@ -39,10 +39,15 @@ public class CreateWorkflowRequestTests
         "Schedule",
         "ScheduleTimeZone",
         "ScheduleCatchUp",
+        "NotifyRoleOnFailure",
     ];
 
-    /// <summary>What the stored workflow has that no request may set.</summary>
-    private static readonly string[] ServerOwned = ["Id", "ScheduleArmedAt"];
+    /// <summary>
+    /// What the stored workflow has that no request may set. A date schedule is set by config apply,
+    /// which checks it and stores the trigger event only it carries, and a create request would
+    /// store a schedule with an event the validator does not know.
+    /// </summary>
+    private static readonly string[] ServerOwned = ["Id", "ScheduleArmedAt", "OwnerModule", "DateSchedule"];
 
     private readonly IntegrationTestFixture _factory;
     private readonly WorkflowStopHarness _harness;
@@ -74,7 +79,7 @@ public class CreateWorkflowRequestTests
 
         var names = PropertiesOf(CreateRequest).Keys.ToList();
 
-        names.Should().HaveCount(12);
+        names.Should().HaveCount(13);
         names.Should().BeEquivalentTo(Accepted);
         names.Should().NotContain("Id");
     }
@@ -89,7 +94,7 @@ public class CreateWorkflowRequestTests
         var stored = PropertiesOf(typeof(WorkflowDefinition));
         var request = PropertiesOf(CreateRequest);
 
-        stored.Should().HaveCount(14);
+        stored.Should().HaveCount(17);
         stored.Keys.Should().BeEquivalentTo(Accepted.Concat(ServerOwned));
         request.Keys.Should().BeEquivalentTo(stored.Keys.Except(ServerOwned));
 
@@ -112,7 +117,7 @@ public class CreateWorkflowRequestTests
         var create = PropertiesOf(CreateRequest);
         var validate = PropertiesOf(ValidateRequest);
 
-        validate.Should().HaveCount(11);
+        validate.Should().HaveCount(12);
         create.Keys.Except(validate.Keys).Should().Equal("Enabled");
         validate.Keys.Except(create.Keys).Should().BeEmpty();
 
@@ -132,7 +137,7 @@ public class CreateWorkflowRequestTests
 
         var names = PropertiesOf(DryRunWorkflow).Keys.ToList();
 
-        names.Should().HaveCount(13);
+        names.Should().HaveCount(14);
         names.Should().BeEquivalentTo(Accepted.Append("Id"));
     }
 
@@ -144,7 +149,7 @@ public class CreateWorkflowRequestTests
         var body = OpenApiSchemaReader.RequestBody(doc, OpenApiSchemaReader.Operation(doc, "/api/workflows", "post"));
         var names = OpenApiSchemaReader.PropertyNames(body);
 
-        names.Should().HaveCount(12);
+        names.Should().HaveCount(13);
         names.Should().BeEquivalentTo(Accepted.Select(JsonNamingPolicy.CamelCase.ConvertName));
         names.Should().NotContain("id");
     }

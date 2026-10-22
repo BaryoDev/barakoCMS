@@ -69,7 +69,7 @@ internal class CreatePreviewTokenEndpoint(
         var user = await session.LoadAsync<User>(userId, ct);
         if (user is null) { await Send.UnauthorizedAsync(ct); return; }
 
-        var def = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == req.Type, ct);
+        var def = await session.Query<ContentTypeDefinition>().FirstNamedAsync(req.Type, ct);
         var slugField = def is null ? null : PublicDelivery.SlugField(def);
         if (slugField is null) { await Send.NotFoundAsync(ct); return; }
 

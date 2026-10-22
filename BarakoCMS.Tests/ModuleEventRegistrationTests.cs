@@ -97,7 +97,7 @@ public class ModuleEventRegistrationTests
     }
 
     [Theory]
-    [InlineData("ClinicProbe", typeof(ProbeHappened), "clinic-probe.probe_happened")]
+    [InlineData("SampleProbe", typeof(ProbeHappened), "sample-probe.probe_happened")]
     [InlineData("Queue", typeof(ProbeDoc), "queue.probe_doc")]
     [InlineData("HTTPTools", typeof(ProbeDocProjection), "http-tools.probe_doc_projection")]
     [InlineData("my module", typeof(ProbeHappened), "my-module.probe_happened")]

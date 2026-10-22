@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Models;
-using BarakoCMS.Tests.Clinic;
+using BarakoCMS.Tests.SampleProbe;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -10,7 +10,7 @@ using Xunit;
 namespace BarakoCMS.Tests.Numbering;
 
 [Collection("Sequential")]
-public class ExternalNumberLedgerTests(ClinicProbeHost host) : IClassFixture<ClinicProbeHost>
+public class ExternalNumberLedgerTests(SampleProbeHost host) : IClassFixture<SampleProbeHost>
 {
     private IExternalNumberLedger Ledger => host.Services.GetRequiredService<IExternalNumberLedger>();
 

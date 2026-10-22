@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests;
 /// Production runs <c>AutoCreate.CreateOnly</c>, so an upgraded database gets the two columns on
 /// <c>mt_events</c> and the new <c>mt_quick_append_events</c> only from
 /// <c>migrations/4.6.0/event-correlation-metadata.sql</c>, followed by the 5.0.0 file that moves the
-/// function body to Marten 9.49's. The function is the part that can go
+/// function body to Marten 9.49's and the 5.1.0 file that adds the headers argument. The function is the part that can go
 /// wrong quietly: Marten compares its text, so a body that differs by one space is a schema the
 /// host refuses to start on.
 ///
@@ -57,6 +57,10 @@ public class EventCorrelationMigrationTests
             var marten = await ScopedAsync("5.0.0", "marten-9-49-quick-append-events.sql", scratch, ct);
             await ExecuteAsync(connection, marten, ct);
             await ExecuteAsync(connection, marten, ct);
+
+            // The store has event headers on since 5.1.0, and an upgrade runs that file after these.
+            var headers = await ScopedAsync("5.1.0", "event-headers.sql", scratch, ct);
+            await ExecuteAsync(connection, headers, ct);
 
             var expectedColumns = await MetadataColumnsAsync(connection, "public", ct);
             expectedColumns.Should().HaveCount(2, "the core turns on the correlation id and the causation id");

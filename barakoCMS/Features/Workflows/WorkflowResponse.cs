@@ -48,6 +48,8 @@ internal sealed class WorkflowResponse
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public List<DateTime>? NextDueTimes { get; set; }
+    /// <summary>The role told when a run fails. Null for nobody.</summary>
+    public string? NotifyRoleOnFailure { get; init; }
 
     /// <summary>
     /// The placeholder warnings, on the response to a save: an array, empty when there are none.
@@ -82,6 +84,7 @@ internal sealed class WorkflowResponse
         Schedule = w.Schedule,
         ScheduleTimeZone = w.Schedule is null ? null : w.ScheduleTimeZone ?? WorkflowSchedule.TenantZone,
         ScheduleCatchUp = w.Schedule is null ? null : w.ScheduleCatchUp ?? WorkflowSchedule.CatchUpOnce,
+        NotifyRoleOnFailure = w.NotifyRoleOnFailure,
     };
 }
 

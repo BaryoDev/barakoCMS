@@ -180,6 +180,7 @@ public class LockedAccountResponseTests
     public async Task The_attempt_that_locks_an_account_does_not_wait_for_the_notice()
     {
         var slow = new SlowEmailService(TimeSpan.FromSeconds(3));
+        using var resolver = FastEndpointsResolver.Keep();
         await using var host = _factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
         {
             services.RemoveAll<IEmailService>();

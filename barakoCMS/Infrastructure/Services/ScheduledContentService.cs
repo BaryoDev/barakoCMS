@@ -143,7 +143,7 @@ public class ScheduledContentService : BackgroundService
         if (Multitenancy.TenantPartitions.ServesDefaultPartition(_configuration))
             partitions.Add(null);
 
-        // A tenant that is not Active is not visited, so its schedules wait rather than fire. Filtered
+        // A tenant that is not Active is not ordered, so its schedules wait rather than fire. Filtered
         // in memory: a document stored before Status existed has only IsActive.
         await using (var query = _store.QuerySession())
         {
@@ -167,6 +167,7 @@ public class ScheduledContentService : BackgroundService
             var changed = await SweepTenantAsync(
                 session, nowUtc, _logger, DefaultBatchSize, DefaultMaxBatchesPerSweep,
                 beforeSave: null, afterLoad: AfterLoad, ct);
+            await SweepScheduleWorkflowsAsync(session, nowUtc, _logger, _configuration, ct);
             span?.SetTag(Tracing.BarakoTracing.ScheduledTransitionsTag, changed);
             if (changed > 0)
                 _logger.LogInformation("Scheduled sweep applied {Count} transition(s) for tenant {Tenant}",
@@ -293,6 +294,30 @@ public class ScheduledContentService : BackgroundService
         }
 
         return events;
+    }
+
+    /// <summary>
+    /// Queues the runs of the schedule workflows that are due, after the publish work and inside the
+    /// same sweep lock.
+    /// </summary>
+    /// <remarks>
+    /// A failure here is logged and not thrown: it must not stop the content transitions of the
+    /// tenants after this one, and the next sweep a minute later reads the same state again.
+    /// </remarks>
+    private static async Task SweepScheduleWorkflowsAsync(
+        IDocumentSession session, DateTime nowUtc, ILogger? logger, IConfiguration? configuration, CancellationToken ct)
+    {
+        try
+        {
+            var queue = new barakoCMS.Features.Workflows.WorkflowRunQueue(
+                session, Microsoft.Extensions.Logging.Abstractions.NullLogger<barakoCMS.Features.Workflows.WorkflowRunQueue>.Instance);
+            await barakoCMS.Features.Workflows.ScheduleSweep.RunAsync(session, queue, nowUtc, ct, configuration);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            session.EjectAllPendingChanges();
+            logger?.LogError(ex, "Sweeping the schedule workflows failed; the next sweep tries again");
+        }
     }
 
     /// <summary>

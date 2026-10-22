@@ -59,7 +59,7 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         // fixture it genuinely is registered, and naming it keeps the assertion exact: removing a
         // real action still fails this test.
         actions!.Select(a => a.Type).Should().BeEquivalentTo(
-            ["Email", "SMS", "Webhook", "CreateTask", "UpdateField", "CreateEntry", "Transition", "Conditional", "Request", "BuildHook", "Publish", "ThrowingRunner", "CredentialEcho", "DeletedEcho", "CountingRunner", "HookedRunner", "SlowRunner", "MeteredRunner", "OutputRunner", "RecordingRunner", "FileRunner", "UndeclaredFileRunner", "ManyFilesRunner", "SavedFileRunner", "NullFilesRunner", "AttemptHistoryRunner"],
+            ["Email", "SMS", "Webhook", "CreateTask", "UpdateField", "CreateEntry", "CreateContent", "Transition", "Conditional", "Request", "BuildHook", "Publish", "ThrowingRunner", "CredentialEcho", "DeletedEcho", "CountingRunner", "HookedRunner", "SlowRunner", "MeteredRunner", "OutputRunner", "RecordingRunner", "FileRunner", "UndeclaredFileRunner", "ManyFilesRunner", "SavedFileRunner", "NullFilesRunner", "AttemptHistoryRunner", "CreatingRunner"],
             "every registered action is offered to the workflow builder, and adding one is a line here");
     }
 
@@ -98,14 +98,14 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         var actions = await response.Content.ReadFromJsonAsync<List<WorkflowActionMetadata>>(TestContext.Current.CancellationToken);
         actions.Should().NotBeNull();
         var byType = actions!.ToDictionary(a => a.Type);
-        byType.Should().HaveCount(26);
+        byType.Should().HaveCount(28);
 
         byType["Webhook"].RequiredParameters.Should().Equal("Url");
         byType["Webhook"].OptionalParameters.Should().Equal("Secret");
         byType["Webhook"].SecretParameters.Should().Equal("Secret");
 
         byType["CreateTask"].OptionalParameters.Should().Equal("Status");
-        byType["UpdateField"].OptionalParameters.Should().Equal("TargetId");
+        byType["UpdateField"].OptionalParameters.Should().Equal("TargetId", "ContentType");
         byType["Conditional"].OptionalParameters.Should().Equal("ElseActions");
 
         byType["Email"].OptionalParameters.Should().Equal("Attachments", "Template");
@@ -137,7 +137,7 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         var byType = doc.RootElement.EnumerateArray().ToDictionary(
             a => a.GetProperty("type").GetString()!,
             a => a.TryGetProperty("group", out var g) ? g : default);
-        byType.Should().HaveCount(26);
+        byType.Should().HaveCount(28);
 
         var expected = new Dictionary<string, string>
         {
@@ -150,6 +150,7 @@ public class WorkflowToolsApiTests : IAsyncLifetime
             ["CreateTask"] = "Content",
             ["UpdateField"] = "Content",
             ["CreateEntry"] = "Content",
+            ["CreateContent"] = "Content",
             ["Transition"] = "Content",
             ["Conditional"] = "Flow",
         };
@@ -368,7 +369,7 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         result.SystemVariables.Should().Contain(v => v.Name == "{{transition.by.name}}");
         result.SystemVariables.Should().Contain(v => v.Name == "{{schedule.at}}");
         result.SystemVariables.Should().Contain(v => v.Name == "{{schedule.previousAt}}");
-        result.Formats.Should().HaveCount(10);
+        result.Formats.Should().HaveCount(11);
         result.Formats.Should().Contain(v => v.Name == "{{hours createdAt updatedAt}}");
     }
 

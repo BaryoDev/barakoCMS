@@ -60,7 +60,7 @@ public class SeedFileTests
         {
             [slug] = new
             {
-                name = "Seeded Clinic",
+                name = "Seeded Shop",
                 domains = new[] { domain },
                 members = new[] { new { email, roles = new[] { role } } },
                 config = new
@@ -79,7 +79,7 @@ public class SeedFileTests
         var domain = $"{slug}.example.com";
         var email = $"{slug}@example.com";
         var role = Unique("Seed Desk ");
-        var type = Unique("patient");
+        var type = Unique("customer");
         var path = await FileAsync(Document(slug, domain, email, role, type));
 
         await StartAsync(path);

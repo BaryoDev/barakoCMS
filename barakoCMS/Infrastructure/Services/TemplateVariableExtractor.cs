@@ -547,7 +547,7 @@ public class TemplateVariableExtractor(
         if (content is barakoCMS.Features.Workflows.ErasedContent) return followed;
 
         var type = content.ContentType;
-        var definition = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
+        var definition = await session.Query<ContentTypeDefinition>().FirstNamedAsync(type, ct);
 
         var fields = definition?.Fields
             .Where(f => f is not null
@@ -915,6 +915,13 @@ public class TemplateVariableExtractor(
             Name = "{{data.Field | lower}}",
             Description = "The value in small letters",
             Example = "text",
+            Type = "string"
+        },
+        new()
+        {
+            Name = "{{data.Field | json}}",
+            Description = "The value as compact JSON: a list or object as JSON, text in quotes, a number as stored. For a parameter that takes JSON text, such as the Lines of a stock action",
+            Example = "[{\"Sku\":\"A\",\"Qty\":2}]",
             Type = "string"
         },
         new()

@@ -74,7 +74,7 @@ internal static class EntryUrls
         }
 
         var type = entry.ContentType;
-        var def = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
+        var def = await session.Query<ContentTypeDefinition>().FirstNamedAsync(type, ct);
         var slugField = def is null ? null : barakoCMS.Features.Public.PublicDelivery.SlugField(def);
         if (slugField is null
             || barakoCMS.Features.Public.PublicDelivery.ToPublic(entry, def, slugField) is not { Slug: { Length: > 0 } slug })

@@ -65,6 +65,7 @@ public class RoleGateTests
         new("GET", "/api/jobs", "/api/jobs"),
         new("DELETE", "/api/contents/{id}/erase", $"/api/contents/{NotAGuid}/erase"),
         new("POST", "/api/contents/{id}/rollback/{versionId}", $"/api/contents/{NotAGuid}/rollback/{NotAGuid}"),
+        new("GET", "/api/contents/{id}/runs", $"/api/contents/{NotAGuid}/runs"),
         new("POST", "/api/content-types", "/api/content-types"),
         new("GET", "/api/content-types", "/api/content-types"),
         new("GET", "/api/schemas", "/api/schemas"),
@@ -142,6 +143,8 @@ public class RoleGateTests
         new("GET", "/api/tenants", "/api/tenants"),
         new("POST", "/api/tenants", "/api/tenants"),
         new("PUT", "/api/tenants/{handle}", "/api/tenants/no-such-tenant"),
+        new("GET", "/api/tenants/{handle}/export", $"/api/tenants/{NotASlug}/export"),
+        new("POST", "/api/tenants/import", "/api/tenants/import"),
         new("GET", "/api/tenants/members", "/api/tenants/members"),
         new("POST", "/api/tenants/members", "/api/tenants/members"),
         new("PUT", "/api/tenants/members/{userId}", $"/api/tenants/members/{NotAGuid}"),
@@ -198,8 +201,16 @@ public class RoleGateTests
         new("GET", "/api/user-groups/deleted", "/api/user-groups/deleted"),
         new("GET", "/api/tenant-settings/email", "/api/tenant-settings/email"),
         new("PUT", "/api/tenant-settings/email", "/api/tenant-settings/email"),
+        new("GET", "/api/api-keys/{id}/usage", $"/api/api-keys/{NotAGuid}/usage"),
         new("POST", "/api/api-keys/{id}/rotate", $"/api/api-keys/{NotAGuid}/rotate"),
         new("POST", "/api/viewer-tokens", "/api/viewer-tokens"),
+        new("GET", "/api/accounts", "/api/accounts"),
+        new("POST", "/api/accounts", "/api/accounts"),
+        new("GET", "/api/accounts/{slug}", "/api/accounts/default"),
+        new("PUT", "/api/accounts/{slug}", "/api/accounts/default"),
+        new("GET", "/api/accounts/{slug}/managers", "/api/accounts/default/managers"),
+        new("POST", "/api/accounts/{slug}/managers", "/api/accounts/default/managers"),
+        new("DELETE", "/api/accounts/{slug}/managers/{userId}", $"/api/accounts/default/managers/{NotAGuid}"),
     ];
 
     public static TheoryData<GatedRoute> AllGatedRoutes()

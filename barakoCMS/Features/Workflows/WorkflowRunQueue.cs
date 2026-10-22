@@ -77,7 +77,30 @@ internal interface IWorkflowRunQueue
     /// stored event, so it is never replayed. Two fires are two things that happened.
     /// </remarks>
     /// <returns>How many runs were queued.</returns>
-    Task<int> FireAsync(barakoCMS.Models.Content content, string trigger, CancellationToken ct);
+    Task<int> FireAsync(barakoCMS.Models.Content content, string trigger, CancellationToken ct) =>
+        FireAsync(content, trigger, triggerKey: null, ct);
+
+    /// <summary>
+    /// Records the runs for a trigger a module fired, and commits them, skipping a workflow that
+    /// already has a run for this entry with the same <paramref name="triggerKey"/>.
+    /// </summary>
+    /// <remarks>
+    /// A null key is never deduped: two fires are two things that happened. A key says the caller
+    /// may fire the same thing again, as a retried request does, and wants it to start once.
+    /// </remarks>
+    /// <returns>How many runs were queued.</returns>
+    Task<int> FireAsync(barakoCMS.Models.Content content, string trigger, string? triggerKey, CancellationToken ct);
+
+    /// <summary>
+    /// Records, and commits, the run of a schedule workflow for one entry and one date value, unless
+    /// a run with this <paramref name="triggerKey"/> exists already.
+    /// </summary>
+    /// <remarks>
+    /// The key is the workflow, the entry and the date value, so one value is queued once however
+    /// many sweeps see it. The caller has decided the workflow is due and has matched its conditions.
+    /// </remarks>
+    /// <returns>True if a run was queued, false when one with that key exists.</returns>
+    Task<bool> EnqueueScheduledAsync(WorkflowDefinition workflow, barakoCMS.Models.Content content, string triggerKey, CancellationToken ct);
 
     /// <summary>
     /// Stages one run of one chosen workflow on one entry, as an insert on the caller's session and
@@ -101,8 +124,8 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
     public async Task<int> EnqueueAsync(barakoCMS.Models.Content content, string eventType, long eventSequence, CancellationToken ct)
     {
         var workflows = WorkflowTriggers.SwitchedOn(await session.Query<WorkflowDefinition>()
-            .Where(WorkflowTriggers.FiredBy(content.ContentType, eventType))
-            .ToListAsync(ct));
+            .Where(WorkflowTriggers.FiredBy(eventType))
+            .ToListAsync(ct), content.ContentType);
 
         if (workflows.Count == 0) return 0;
 
@@ -144,8 +167,8 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
     public async Task<int> QueueDeletedAsync(Guid contentId, string contentType, CancellationToken ct)
     {
         var workflows = WorkflowTriggers.SwitchedOn(await session.Query<WorkflowDefinition>()
-            .Where(WorkflowTriggers.FiredBy(contentType, WorkflowEvents.Deleted))
-            .ToListAsync(ct));
+            .Where(WorkflowTriggers.FiredBy(WorkflowEvents.Deleted))
+            .ToListAsync(ct), contentType);
 
         var queued = 0;
 
@@ -172,11 +195,11 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
         return queued;
     }
 
-    public async Task<int> FireAsync(barakoCMS.Models.Content content, string trigger, CancellationToken ct)
+    public async Task<int> FireAsync(barakoCMS.Models.Content content, string trigger, string? triggerKey, CancellationToken ct)
     {
         var workflows = WorkflowTriggers.SwitchedOn(await session.Query<WorkflowDefinition>()
-            .Where(WorkflowTriggers.FiredBy(content.ContentType, trigger))
-            .ToListAsync(ct));
+            .Where(WorkflowTriggers.FiredBy(trigger))
+            .ToListAsync(ct), content.ContentType);
 
         var queued = 0;
 
@@ -187,8 +210,16 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
                 continue;
             }
 
+            if (triggerKey is not null && await session.Query<WorkflowRun>().AnyAsync(
+                    r => r.WorkflowDefinitionId == workflow.Id && r.ContentId == content.Id && r.TriggerKey == triggerKey, ct))
+            {
+                continue;
+            }
+
             // Sequence zero, as for an erasure: no stored event caused this run.
-            session.Store(NewRun(workflow, content.Id, content.ContentType, trigger, eventSequence: 0));
+            var run = NewRun(workflow, content.Id, content.ContentType, trigger, eventSequence: 0);
+            run.TriggerKey = triggerKey;
+            session.Store(run);
             queued++;
         }
 
@@ -213,10 +244,41 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
         return run;
     }
 
+    public async Task<bool> EnqueueScheduledAsync(
+        WorkflowDefinition workflow, barakoCMS.Models.Content content, string triggerKey, CancellationToken ct)
+    {
+        if (await session.Query<WorkflowRun>().AnyAsync(
+                r => r.WorkflowDefinitionId == workflow.Id && r.ContentId == content.Id && r.TriggerKey == triggerKey, ct))
+        {
+            return false;
+        }
+
+        var trigger = ScheduleOffset.EventOf(workflow.Name);
+        // The run's id comes from the key, and it is inserted. Two sweeps that both passed the check
+        // above then collide on the id, and the one that lost reports the value as already queued.
+        var run = NewRun(workflow, content.Id, content.ContentType, trigger, eventSequence: 0,
+            runId: barakoCMS.Features.Workflows.Actions.DeterministicId.From("scheduled-run:" + triggerKey));
+        run.TriggerKey = triggerKey;
+        session.Insert(run);
+        try
+        {
+            await session.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (ex is JasperFx.DocumentAlreadyExistsException
+            || ex.InnerException is JasperFx.DocumentAlreadyExistsException)
+        {
+            session.EjectAllPendingChanges();
+            return false;
+        }
+
+        WorkflowMetrics.Default.Queued(trigger, 1);
+        return true;
+    }
+
     public async Task<bool> ListensAsync(string contentType, string eventType, CancellationToken ct) =>
         WorkflowTriggers.SwitchedOn(await session.Query<WorkflowDefinition>()
-            .Where(WorkflowTriggers.FiredBy(contentType, eventType))
-            .ToListAsync(ct)).Count > 0;
+            .Where(WorkflowTriggers.FiredBy(eventType))
+            .ToListAsync(ct), contentType).Count > 0;
 
     internal static WorkflowRun NewRun(
         WorkflowDefinition workflow, Guid contentId, string contentType, string eventType, long eventSequence,

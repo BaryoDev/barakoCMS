@@ -69,8 +69,9 @@ public static class ModuleCapabilities
                 continue;
             }
 
+            var held = role.SystemCapabilities ?? [];
             var missing = capabilities
-                .Where(c => !role.SystemCapabilities.Contains(c, StringComparer.OrdinalIgnoreCase))
+                .Where(c => !held.Contains(c, StringComparer.OrdinalIgnoreCase))
                 .ToList();
 
             if (missing.Count == 0)
@@ -78,7 +79,7 @@ public static class ModuleCapabilities
                 continue;
             }
 
-            role.SystemCapabilities = [.. role.SystemCapabilities, .. missing];
+            role.SystemCapabilities = [.. held, .. missing];
             session.Store(role);
             changed++;
         }

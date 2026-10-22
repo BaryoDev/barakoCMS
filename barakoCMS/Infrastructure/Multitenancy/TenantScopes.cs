@@ -51,4 +51,12 @@ public static class TenantScopes
         || string.Equals(martenTenantId, StorageConstants.DefaultTenantId, StringComparison.Ordinal)
             ? Models.Tenant.DefaultSlug
             : martenTenantId;
+
+    /// <summary>
+    /// The inverse of <see cref="SlugFor"/>: the tenant id Marten opens a session under for a slug.
+    /// </summary>
+    public static string TenantIdFor(string slug) =>
+        string.Equals(slug, Models.Tenant.DefaultSlug, StringComparison.Ordinal)
+            ? StorageConstants.DefaultTenantId
+            : slug;
 }

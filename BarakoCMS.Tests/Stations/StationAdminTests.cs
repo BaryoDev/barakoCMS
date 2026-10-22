@@ -3,7 +3,7 @@ using System.Net.Http.Json;
 using barakoCMS.Features.Stations;
 using barakoCMS.Infrastructure.Auth.Stations;
 using barakoCMS.Models;
-using BarakoCMS.Tests.Clinic;
+using BarakoCMS.Tests.SampleProbe;
 using FluentAssertions;
 using Marten;
 using Xunit;
@@ -11,7 +11,7 @@ using Xunit;
 namespace BarakoCMS.Tests.Stations;
 
 [Collection("Sequential")]
-public class StationAdminTests(ClinicProbeHost host) : IClassFixture<ClinicProbeHost>
+public class StationAdminTests(SampleProbeHost host) : IClassFixture<SampleProbeHost>
 {
     private static readonly string[] Manager = ["manage_stations", "read_probe_tickets"];
 

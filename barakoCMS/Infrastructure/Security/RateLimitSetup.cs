@@ -43,7 +43,8 @@ internal sealed record RateLimitSettings(
     RateLimitWindow? ApiKey,
     IReadOnlyList<NamedRateLimit> Policies,
     RateLimitWindow Lookup,
-    RateLimitWindow LookupReference)
+    RateLimitWindow LookupReference,
+    RateLimitWindow Refresh)
 {
     public override string ToString() =>
         $"RateLimitSettings {{ Global = {Global}, Auth = {Auth}, Batch = {Batch}, "
@@ -92,6 +93,7 @@ internal static class RateLimitSetup
     public const int RendererKeyMinLength = 32;
 
     public const string AuthPolicy = "auth";
+    public const string RefreshPolicy = "refresh";
     public const string BatchPolicy = "telemetry";
     public const string RegistrationPolicy = "registration";
     public const string SiteSharePolicy = "site-share";
@@ -115,6 +117,7 @@ internal static class RateLimitSetup
     private static readonly Dictionary<string, string?> BuiltInPolicies = new(StringComparer.OrdinalIgnoreCase)
     {
         [AuthPolicy] = "Auth",
+        [RefreshPolicy] = "Refresh",
         [BatchPolicy] = "Batch",
         [RegistrationPolicy] = "Registration",
         [SiteSharePolicy] = "SiteShare",
@@ -129,6 +132,11 @@ internal static class RateLimitSetup
 
     public static readonly RateLimitWindow DefaultGlobal = new(100, 60, 10);
     public static readonly RateLimitWindow DefaultAuth = new(5, 15 * 60, 0);
+    /// <summary>
+    /// A refresh cannot be used to guess a password, and the console refreshes silently on every page
+    /// load, so it is counted apart from login. A request with no refresh cookie is still counted.
+    /// </summary>
+    public static readonly RateLimitWindow DefaultRefresh = new(60, 15 * 60, 0);
     public static readonly RateLimitWindow DefaultBatch = new(20, 60, 0);
     public static readonly RateLimitWindow DefaultRegistration = new(5, 60 * 60, 0);
     public static readonly RateLimitWindow DefaultRenderer = new(1000, 60, 10);
@@ -198,7 +206,8 @@ internal static class RateLimitSetup
             OptInWindow(section, "ApiKey"),
             Policies(section),
             Window(section, "Lookup", DefaultLookup),
-            Window(section, "LookupReference", DefaultLookupReference));
+            Window(section, "LookupReference", DefaultLookupReference),
+            Window(section, "Refresh", DefaultRefresh));
     }
 
     /// <summary>
@@ -232,6 +241,9 @@ internal static class RateLimitSetup
 
         options.AddPolicy(AuthPolicy, context =>
             RateLimitPartition.GetFixedWindowLimiter($"auth-{ClientIp(context)}", _ => Options(settings.Auth)));
+
+        options.AddPolicy(RefreshPolicy, context =>
+            RateLimitPartition.GetFixedWindowLimiter($"refresh-{ClientIp(context)}", _ => Options(settings.Refresh)));
 
         options.AddPolicy(LogoutPolicy, context =>
             RateLimitPartition.GetFixedWindowLimiter($"logout-{ClientIp(context)}", _ => Options(Logout)));

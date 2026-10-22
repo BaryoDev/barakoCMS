@@ -15,7 +15,7 @@ namespace barakoCMS.Features.Workflows.Actions;
     Description = "Update fields on content items (status, data fields, etc.)",
     Group = WorkflowActionGroup.Content,
     RequiredParameters = new[] { "Field", "Value" },
-    OptionalParameters = new[] { "TargetId" },
+    OptionalParameters = new[] { "TargetId", "ContentType" },
     ExampleJson = @"{""Type"":""UpdateField"",""Parameters"":{""Field"":""data.Status"",""Value"":""Approved""}}"
 )]
 internal class UpdateFieldAction : IWorkflowAction
@@ -158,6 +158,8 @@ internal class UpdateFieldAction : IWorkflowAction
             return WorkflowActionResult.Failure($"Target content {targetId} was not found.");
         }
 
+        if (WrongTypeRefusal(parameters, targetContent) is { } wrongType) return wrongType;
+
         if (idempotencyKey is not null && marker is not null && marker.Attempt == attemptNumber)
         {
             _logger.LogInformation(
@@ -215,7 +217,7 @@ internal class UpdateFieldAction : IWorkflowAction
             try
             {
                 var definition = await _session.Query<barakoCMS.Models.ContentTypeDefinition>()
-                    .FirstOrDefaultAsync(d => d.Name == targetContent.ContentType, ct);
+                    .FirstNamedAsync(targetContent.ContentType, ct);
                 token = definition?.Fields.FirstOrDefault(
                     f => f is not null
                          && string.Equals(f.Name, tokenKey, StringComparison.OrdinalIgnoreCase)
@@ -246,7 +248,7 @@ internal class UpdateFieldAction : IWorkflowAction
             try
             {
                 var definition = await _session.Query<barakoCMS.Models.ContentTypeDefinition>()
-                    .FirstOrDefaultAsync(d => d.Name == targetContent.ContentType, ct);
+                    .FirstNamedAsync(targetContent.ContentType, ct);
                 declared = definition?.Fields.FirstOrDefault(
                     f => f is not null && string.Equals(f.Name, dataKey, StringComparison.OrdinalIgnoreCase));
             }
@@ -328,26 +330,8 @@ internal class UpdateFieldAction : IWorkflowAction
                 }
             }
 
-            if (declared is not null
-                && barakoCMS.Core.Validation.MoneyFields.TryResolve(declared, out var currency, out var scale))
-            {
-                // Permanent, and the value is not named: it parses the same way on every retry, and
-                // it can carry whatever a template resolved out of the triggering content.
-                if (!barakoCMS.Core.Validation.MoneyFields.TryReadAmountText(declared, value, out var amount))
-                {
-                    return WorkflowActionResult.PermanentFailure(
-                        $"Field '{declared.Name}' holds an amount in {currency}, and the value this action was given is not a plain decimal number.");
-                }
-
-                if (!barakoCMS.Core.Validation.MoneyFields.Fits(amount, scale))
-                {
-                    return WorkflowActionResult.PermanentFailure(
-                        $"Field '{declared.Name}' holds an amount in {currency} with at most {scale} decimal "
-                        + $"{(scale == 1 ? "place" : "places")}, and the value this action was given has more.");
-                }
-
-                data[writtenKey!] = amount;
-            }
+            if (AmountRefusal(declared, value, data, writtenKey!) is { } notAmount) return notAmount;
+            if (JsonFieldRefusal(declared, value, ActionParameters.IsStructured(parameters, "Value"), data, writtenKey!) is { } notJson) return notJson;
         }
 
         if (dataChanged)
@@ -494,5 +478,68 @@ internal class UpdateFieldAction : IWorkflowAction
         {
             _session.Delete(m);
         }
+    }
+
+    /// <summary>
+    /// Stores a json field's text as the list or object it holds, or the permanent failure when it
+    /// is not one JSON array or object. The value is not named, as for an amount.
+    /// </summary>
+    private static WorkflowActionResult? JsonFieldRefusal(
+        barakoCMS.Models.FieldDefinition? declared, string value, bool structured, Dictionary<string, object> data, string key)
+    {
+        if (!barakoCMS.Core.Validation.JsonTextFields.Holds(declared)) return null;
+        if (!structured || !barakoCMS.Core.Validation.JsonTextFields.TryRead(value, out var parsed))
+            return WorkflowActionResult.PermanentFailure(barakoCMS.Core.Validation.JsonTextFields.Refusal(declared!.Name));
+
+        data[key] = parsed;
+        return null;
+    }
+
+    /// <summary>
+    /// The permanent failure when the type named at save time, the type the author was held to the
+    /// update right on, is not the target's type, so a target of another type is refused rather than written.
+    /// </summary>
+    private static WorkflowActionResult? WrongTypeRefusal(Dictionary<string, string> parameters, barakoCMS.Models.Content target)
+    {
+        if (!parameters.TryGetValue("ContentType", out var expectedType) || string.IsNullOrWhiteSpace(expectedType)
+            || string.Equals(target.ContentType, expectedType.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return WorkflowActionResult.PermanentFailure($"Target is not a '{expectedType.Trim()}' entry.");
+    }
+
+    /// <summary>
+    /// Stores an amount field's text as its decimal, or the permanent failure when it is not a plain
+    /// decimal with at most the field's places.
+    /// </summary>
+    private static WorkflowActionResult? AmountRefusal(
+        barakoCMS.Models.FieldDefinition? declared, string value, Dictionary<string, object> data, string writtenKey)
+    {
+        if (declared is null
+            || !barakoCMS.Core.Validation.MoneyFields.TryResolve(declared, out var currency, out var scale))
+        {
+            return null;
+        }
+
+        // Permanent, and the value is not named: it parses the same way on every retry, and
+        // it can carry whatever a template resolved out of the triggering content.
+        if (!barakoCMS.Core.Validation.MoneyFields.TryReadAmountText(declared, value, out var amount))
+        {
+            return WorkflowActionResult.PermanentFailure(
+                $"Field '{declared.Name}' holds an amount in {currency}, and the value this action was given is not a plain decimal number.");
+        }
+
+        if (!barakoCMS.Core.Validation.MoneyFields.Fits(amount, scale))
+        {
+            return WorkflowActionResult.PermanentFailure(
+                $"Field '{declared.Name}' holds an amount in {currency} with at most {scale} decimal "
+                + $"{(scale == 1 ? "place" : "places")}, and the value this action was given has more.");
+        }
+
+        data[writtenKey] = amount;
+
+        return null;
     }
 }

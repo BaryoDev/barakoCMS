@@ -90,6 +90,11 @@ its name, its domains, its first members, and under `config` the sections applie
 client. Members are added the way step 5 describes: by email, with no password, holding the roles
 named, each found among that tenant's own roles and then the platform roles.
 
+Two rules for names in a document. A content type name is matched ignoring case everywhere it is
+read (`Order` and `order` are one type; a name that matches two stored types differing only by case,
+with none spelled exactly, is refused). A workflow a module seeds is module-owned: `workflows` never
+exports it, never plans to delete it, and refuses a document that names it with other content.
+
 What the seeder does with it:
 
 - **Applied once per file.** It records the file's SHA-256 under the setting `Seed:File:Sha256`. A

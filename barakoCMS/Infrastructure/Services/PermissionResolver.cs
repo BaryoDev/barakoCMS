@@ -12,6 +12,7 @@ public partial class PermissionResolver(
     IDocumentSession session,
     IConditionEvaluator conditionEvaluator,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
+    barakoCMS.Core.Interfaces.IEventEnvelopeContext envelope,
     ILogger<PermissionResolver>? logger = null) : IPermissionResolver
 {
     /// <summary>The user's roles in this tenant, read once per request.</summary>
@@ -38,6 +39,15 @@ public partial class PermissionResolver(
     /// </remarks>
     private IReadOnlyDictionary<string, string>? _profile;
 
+    /// <summary>
+    /// The permission a role holds for a content type. The exact spelling wins; only when the role
+    /// holds no such spelling does a different case match, and two different-case spellings with
+    /// none exact match nothing. A role holding both <c>Article</c> and
+    /// <c>article</c> then resolves each to its own, whatever order they are listed in.
+    /// </summary>
+    internal static Models.ContentTypePermission? PermissionFor(IEnumerable<Models.ContentTypePermission>? permissions, string? slug) =>
+        permissions is null ? null : barakoCMS.Core.ContentTypeName.PickByName(permissions.Where(p => p is not null), p => p.ContentTypeSlug, slug);
+
     private async Task<IReadOnlyList<Models.Role>> RolesForAsync(Models.User user, CancellationToken cancellationToken)
     {
         if (_roles is not null && _rolesFor == user.Id)
@@ -61,7 +71,9 @@ public partial class PermissionResolver(
 
         _rolesFor = user.Id;
         _roles = roles;
-        _profile = membership?.Profile;
+        // The request's branch joins the profile as "branch" only when the member holds it, so
+        // $CURRENT_BRANCH reads the same place in both evaluators.
+        _profile = CallerBranches.WithRequestBranch(membership?.Profile, envelope.BranchId);
 
         return roles;
     }
@@ -89,8 +101,7 @@ public partial class PermissionResolver(
         var rules = new List<Models.PermissionRule>();
         foreach (var role in roles)
         {
-            var permission = role.Permissions
-                .FirstOrDefault(p => p.ContentTypeSlug == contentTypeSlug);
+            var permission = PermissionFor(role.Permissions, contentTypeSlug);
 
             if (permission != null)
             {
@@ -149,7 +160,7 @@ public partial class PermissionResolver(
         var rules = new List<Models.PermissionRule>();
         foreach (var role in roles)
         {
-            var permission = role.Permissions.FirstOrDefault(p => p.ContentTypeSlug == contentTypeSlug);
+            var permission = PermissionFor(role.Permissions, contentTypeSlug);
             if (permission is null) continue;
 
             var rule = GetRuleForAction(permission, "read");
@@ -178,7 +189,7 @@ public partial class PermissionResolver(
         var rules = new List<Models.PermissionRule>();
         foreach (var role in roles)
         {
-            var permission = role.Permissions.FirstOrDefault(p => p.ContentTypeSlug == contentTypeSlug);
+            var permission = PermissionFor(role.Permissions, contentTypeSlug);
             if (permission is not null && GetRuleForAction(permission, action) is { Enabled: true } rule)
                 rules.Add(rule);
         }
@@ -243,7 +254,7 @@ public partial class PermissionResolver(
         if (roles.Any(r => r.Id == Models.SystemRoles.SuperAdminRoleId))
             return true;
 
-        return roles.Any(r => Models.SystemCapabilities.Satisfies(r.SystemCapabilities, capability));
+        return roles.Any(r => Models.SystemCapabilities.Satisfies(r.SystemCapabilities ?? [], capability));
     }
 
     // No caching in the inner resolver, so invalidation is a no-op here. The CachedPermissionResolver

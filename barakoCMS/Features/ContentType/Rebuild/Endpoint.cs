@@ -65,7 +65,7 @@ internal class Endpoint(
         var name = barakoCMS.Core.ContentTypeName.Normalize(req.Name);
 
         var def = await session.Query<ContentTypeDefinition>()
-            .FirstOrDefaultAsync(d => d.Name == name, ct);
+            .FirstNamedAsync(name, ct);
 
         if (def is null)
         {

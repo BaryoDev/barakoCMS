@@ -73,6 +73,24 @@ public sealed partial record NumberSeries(
         };
     }
 
+    /// <summary>
+    /// Reads a number this series formatted (prefix, then digits, no period) back to its value.
+    /// False when the prefix differs, anything but digits follows it, there are fewer digits than the
+    /// padding, or the value is not above zero.
+    /// </summary>
+    public bool TryParse(string? text, out long value)
+    {
+        value = 0;
+        if (text is null || !text.StartsWith(Prefix, StringComparison.Ordinal))
+            return false;
+
+        var digits = text[Prefix.Length..];
+        return digits.Length >= Padding
+            && digits.All(char.IsAsciiDigit)
+            && long.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out value)
+            && value > 0;
+    }
+
     public string Format(long value, string period)
     {
         var digits = value.ToString(CultureInfo.InvariantCulture).PadLeft(Padding, '0');

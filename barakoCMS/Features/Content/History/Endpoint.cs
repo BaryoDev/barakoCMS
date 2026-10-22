@@ -36,7 +36,7 @@ internal class Endpoint(
 
         // 2. Load current content and authorize "read" on it (same gate as GET /api/contents/{id}).
         var content = await session.LoadAsync<Models.Content>(req.Id, ct);
-        if (content == null)
+        if (content == null || !await Resolve<barakoCMS.Infrastructure.Services.IBranchScopeGuard>().MayAccessAsync(User, content, ct))
         {
             await Send.NotFoundAsync(ct);
             return;
@@ -84,7 +84,7 @@ internal class Endpoint(
             .Select(v => (stored[v], v.Data!))
             .ToList();
         var type = content.ContentType;
-        var definition = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
+        var definition = await session.Query<ContentTypeDefinition>().FirstNamedAsync(type, ct);
         await barakoCMS.Infrastructure.Audit.SensitiveReadAudit.RecordAsync(
             HttpContext,
             [await barakoCMS.Infrastructure.Audit.SensitiveReadAudit.DescribeVersionsAsync(

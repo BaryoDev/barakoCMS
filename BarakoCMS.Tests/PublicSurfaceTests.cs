@@ -327,6 +327,9 @@ public class PublicSurfaceTests
         var transition = Contract.GetExportedTypes()
             .Where(t => t.Name.Contains("ContentTransition", StringComparison.Ordinal))
             .Where(t => t.Namespace == "barakoCMS.Core.Interfaces")
+            // The hook context's record of the move in progress. It belongs to IContentLifecycleHook,
+            // not to what a module calls to transition an entry.
+            .Where(t => t != typeof(barakoCMS.Core.Interfaces.ContentTransition))
             .Select(t => t.FullName!)
             .ToArray();
 
@@ -383,8 +386,8 @@ public class PublicSurfaceTests
             .Select(o => $"{o} = {(int)o}")
             .ToArray();
 
-        outcomes.Should().HaveCount(5);
-        outcomes.Should().Equal("Unknown = 0", "Transitioned = 1", "Forbidden = 2", "Invalid = 3", "Conflict = 4");
+        outcomes.Should().HaveCount(6);
+        outcomes.Should().Equal("Unknown = 0", "Transitioned = 1", "Forbidden = 2", "Invalid = 3", "Conflict = 4", "RuleFailed = 5");
     }
 
     // D34 for these seams: no Marten, Wolverine, FastEndpoints or ASP.NET type anywhere a consumer

@@ -1,0 +1,1 @@
+- **Numbering rules take a series template and a client-allocated flag.** `SeriesTemplate` puts the branch code in the series name (`{branch}.customer`), so each branch counts on its own, and `ClientAllocated` marks a series a client may take numbers from. A client-allocated series cannot reset.

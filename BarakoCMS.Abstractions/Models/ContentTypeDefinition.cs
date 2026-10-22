@@ -114,6 +114,25 @@ public class ContentTypeDefinition
     /// registrations.
     /// </remarks>
     public LookupDefinition? Lookup { get; set; }
+
+    /// <summary>How edits made on two stations are merged when they sync. Null means the host decides.</summary>
+    public MergeClass? MergeClass { get; set; }
+
+    /// <summary>
+    /// Whether every entry of this type belongs to one branch. A write then needs a branch
+    /// (X-Branch-Id), and access rules can narrow rows with <c>$branch</c>.
+    /// </summary>
+    public bool BranchScoped { get; set; }
+
+    /// <summary>Realtime topic for this type. Null means none. Lower case words joined by dots or dashes.</summary>
+    /// <remarks>
+    /// A client subscribes to the topic on the realtime hub and reads <c>GET /api/changes</c> for it.
+    /// The name is shared with the topics modules declare, so a clash is refused when the type is saved.
+    /// </remarks>
+    public string? RealtimeTopic { get; set; }
+
+    /// <summary>Server checks run on save and on transitions, or null for none. See <see cref="RuleDefinition"/>.</summary>
+    public List<RuleDefinition>? Rules { get; set; }
 }
 
 /// <summary>How a content type numbers its entries, for example <c>INV-2026-00042</c>.</summary>
@@ -140,6 +159,15 @@ public class NumberingRule
 
     /// <summary>How numbers are handed out. Gapless unless set.</summary>
     public barakoCMS.Core.Interfaces.NumberStrategy Strategy { get; set; }
+
+    /// <summary>
+    /// Series name with the tokens <c>{branch}</c> (the lower-case branch code) and <c>{type}</c>.
+    /// Null keeps <c>type.{name}</c>.
+    /// </summary>
+    public string? SeriesTemplate { get; set; }
+
+    /// <summary>True when a client may reserve numbers of this series through the next-number route.</summary>
+    public bool ClientAllocated { get; set; }
 }
 
 /// <summary>

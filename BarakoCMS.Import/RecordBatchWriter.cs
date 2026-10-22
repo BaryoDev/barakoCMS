@@ -127,10 +127,10 @@ internal static class RecordBatchWriter
             await batchSession.SaveChangesAsync(token);
             return null;
         }
-        catch (ContentUniquenessException ex)
+        catch (Exception ex) when (ex is ContentUniquenessException or ContentCreateRefusedException)
         {
-            // Another entry, stored or an earlier row, holds this row's values under a uniqueness
-            // rule of the type. A row error like any other.
+            // A uniqueness rule or the type's numbering refused the row: another entry, stored or
+            // an earlier row, holds its values, or the number was taken. A row error like any other.
             batchSession.EjectAllPendingChanges();
             return [ex.Message];
         }

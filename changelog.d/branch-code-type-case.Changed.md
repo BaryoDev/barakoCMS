@@ -1,0 +1,1 @@
+- **Behavior change:** the branch code lookup (`Envelope:BranchContentType`) and the content type of a CreateContent target match the type name ignoring case, as every other lookup by type name does.

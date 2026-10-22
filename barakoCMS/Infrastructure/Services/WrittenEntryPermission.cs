@@ -49,6 +49,8 @@ internal static class WrittenEntryPermission
             Sensitivity = request.Sensitivity,
             CreatedBy = user.Id,
             LastModifiedBy = user.Id,
+            // The branch the writer will stamp, so a rule on $branch judges the entry as stored.
+            BranchId = Envelope.EventEnvelopeContext.CurrentBranch,
         }, ct);
 
     /// <summary>A copy of the stored entry holding the data the write is about to store.</summary>
@@ -69,5 +71,7 @@ internal static class WrittenEntryPermission
         LifecycleState = existing.LifecycleState,
         CreatedBy = existing.CreatedBy,
         SearchText = existing.SearchText,
+        BranchId = existing.BranchId,
+        SourceRunId = existing.SourceRunId,
     };
 }

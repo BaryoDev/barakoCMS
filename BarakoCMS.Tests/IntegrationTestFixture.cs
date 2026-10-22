@@ -607,6 +607,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.NullFilesRunnerAction>();
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.AttemptHistoryRunnerAction>();
             services.ConfigureMarten(opts => opts.Listeners.Add(new BarakoCMS.Tests.Features.Workflows.RunnerSaveRaceListener()));
+            services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.CreatingRunnerAction>();
             // A second executor, so a test can route a workflow away from the built-in runner.
             services.AddSingleton<barakoCMS.Features.Workflows.IWorkflowExecutor, BarakoCMS.Tests.Features.Workflows.ElsewhereExecutor>();
 

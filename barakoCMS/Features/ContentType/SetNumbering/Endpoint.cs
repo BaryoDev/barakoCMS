@@ -19,6 +19,12 @@ internal sealed class Request
     public NumberReset Reset { get; set; }
     public string? TimeZoneId { get; set; }
     public NumberStrategy Strategy { get; set; }
+
+    /// <summary>Series name with <c>{branch}</c> and <c>{type}</c> tokens. Null keeps the type's own series.</summary>
+    public string? SeriesTemplate { get; set; }
+
+    /// <summary>True when a client may take numbers of this series from the next-number route.</summary>
+    public bool ClientAllocated { get; set; }
 }
 
 internal sealed class Response
@@ -65,6 +71,8 @@ internal sealed class Endpoint(IDocumentSession session, barakoCMS.Infrastructur
             {
                 Field = req.Field.Trim(), Prefix = req.Prefix ?? string.Empty, Padding = req.Padding,
                 Reset = req.Reset, TimeZoneId = req.TimeZoneId, Strategy = req.Strategy,
+                SeriesTemplate = string.IsNullOrWhiteSpace(req.SeriesTemplate) ? null : req.SeriesTemplate.Trim(),
+                ClientAllocated = req.ClientAllocated,
             };
             foreach (var error in NumberingRules.DefinitionErrors(definition, rule))
             {
@@ -89,7 +97,8 @@ internal sealed class Endpoint(IDocumentSession session, barakoCMS.Infrastructur
             }, ct: ct);
         await session.SaveChangesAsync(ct);
 
-        var series = rule is null ? null : NumberingRules.SeriesFor(definition, rule);
+        // The example shows the number's form only, so a branch series is read with a placeholder branch.
+        var series = rule is null ? null : NumberingRules.SeriesFor(definition, rule, NumberingRules.NeedsBranch(rule) ? "{branch}" : null);
         await Send.OkAsync(new Response
         {
             ContentType = definition.Name,

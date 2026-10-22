@@ -94,14 +94,14 @@ public class TenantSiteOriginTests
     {
         var type = $"news{Guid.NewGuid():n}"[..12];
         var bakery = await TenantAsync(type, "https://bakery.example/");
-        var clinic = await TenantAsync(type, "https://clinic.example");
+        var shop = await TenantAsync(type, "https://shop.example");
 
         var bakeryFeed = await GetAsync(bakery, $"/api/public/{type}/feed.xml");
-        var clinicFeed = await GetAsync(clinic, $"/api/public/{type}/feed.xml");
+        var shopFeed = await GetAsync(shop, $"/api/public/{type}/feed.xml");
 
         bakeryFeed.Should().Contain("<link>https://bakery.example/news/hours</link>")
-            .And.NotContain("clinic.example").And.NotContain(Fallback);
-        clinicFeed.Should().Contain("<link>https://clinic.example/news/hours</link>")
+            .And.NotContain("shop.example").And.NotContain(Fallback);
+        shopFeed.Should().Contain("<link>https://shop.example/news/hours</link>")
             .And.NotContain("bakery.example").And.NotContain(Fallback);
 
         var bakeryMap = await GetAsync(bakery, "/api/public/sitemap.xml");

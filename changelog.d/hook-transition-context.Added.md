@@ -1,0 +1,1 @@
+- **Lifecycle hooks are told the transition.** `ContentLifecycleContext.Transition` carries the transition name and its from and to states, and is null for a plain save. `IContentLifecycleRunner` gains an overload that takes it; the existing signature and existing hooks keep working.

@@ -189,6 +189,16 @@ public interface IBarakoModule
     void ConfigureWorkflowTriggers(IModuleWorkflowTriggers triggers) { }
 
     /// <summary>
+    /// Add the workflow action types this module provides. Optional. Each type starts with this
+    /// module's <see cref="Name"/> and a dot, for example <c>Sample.PostItem</c>.
+    /// </summary>
+    /// <remarks>
+    /// Called once, when the host adds modules at startup. A type outside the prefix, one core owns
+    /// or one already added stops the host with an error naming this module and the type.
+    /// </remarks>
+    void ConfigureWorkflowActions(IModuleWorkflowActions actions) { }
+
+    /// <summary>
     /// Register document types directly on the shared Marten store.
     /// </summary>
     /// <remarks>

@@ -135,14 +135,12 @@ public sealed class ObjectJsonConverter : JsonConverter<Dictionary<string, objec
             case float v: writer.WriteNumberValue(v); return;
             case bool v: writer.WriteBooleanValue(v); return;
             case string v: writer.WriteStringValue(v); return;
-            case Dictionary<string, object> nested:
-                writer.WriteStartObject();
-                foreach (var (k, item) in nested)
-                {
-                    writer.WritePropertyName(k);
-                    WriteValue(writer, item, options);
-                }
-                writer.WriteEndObject();
+            case System.Collections.IDictionary map when map.GetType().GetGenericArguments() is [var k0, ..] && k0 == typeof(string)
+                                                          || map is Dictionary<string, object>:
+                WriteStringKeyed(writer, map.Keys.Cast<object>().Select(k => ((string)k, map[k])), options);
+                return;
+            case System.Collections.IEnumerable when TryGetStringKeyedPairs(value, out var pairs):
+                WriteStringKeyed(writer, pairs, options);
                 return;
             case System.Collections.IEnumerable seq and not string:
                 writer.WriteStartArray();
@@ -153,5 +151,34 @@ public sealed class ObjectJsonConverter : JsonConverter<Dictionary<string, objec
                 JsonSerializer.Serialize(writer, value, value.GetType(), options);
                 return;
         }
+    }
+
+    private static void WriteStringKeyed(
+        Utf8JsonWriter writer, IEnumerable<(string Key, object? Value)> pairs, JsonSerializerOptions options)
+    {
+        writer.WriteStartObject();
+        foreach (var (k, item) in pairs)
+        {
+            writer.WritePropertyName(k);
+            WriteValue(writer, item, options);
+        }
+        writer.WriteEndObject();
+    }
+
+    // IReadOnlyDictionary<string, T> and friends that are not IDictionary.
+    private static bool TryGetStringKeyedPairs(object value, out IEnumerable<(string Key, object? Value)> pairs)
+    {
+        pairs = [];
+        var iface = value.GetType().GetInterfaces().FirstOrDefault(i =>
+            i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IReadOnlyDictionary<,>)
+            && i.GetGenericArguments()[0] == typeof(string));
+        if (iface is null) return false;
+
+        var keyProp = iface.GetProperty("Keys")!;
+        var indexer = iface.GetProperty("Item")!;
+        pairs = ((System.Collections.IEnumerable)keyProp.GetValue(value)!).Cast<string>()
+            .Select(k => (k, indexer.GetValue(value, [k])))
+            .ToList();
+        return true;
     }
 }

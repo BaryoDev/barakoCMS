@@ -26,21 +26,11 @@ internal static class EntryResponse
     {
         var streamState = await session.Events.FetchStreamStateAsync(content.Id, ct);
 
-        // #565 / D16: the document's own Marten version, exposed as a standard ETag so a client can
-        // do read-modify-write safely. Gated on the same eventSourced check Update/Endpoint.cs uses
-        // for If-Match, and for the same reason: an event-sourced type's PUT does not consult
-        // If-Match at all (it already has its own expected-version check on the stream, D3), so an
-        // ETag here would promise a precondition nothing on the write side honours. A client that
-        // did a correct read-modify-write against one would believe it was protected when nothing
-        // was checking. One header, one meaning: emit it only where PUT will act on it.
-        if (!await sourcing.IsEventSourcedAsync(content.ContentType, ct))
-        {
-            var metadata = await session.MetadataForAsync(content, ct);
-            if (metadata is not null)
-            {
-                http.Response.Headers.ETag = ContentETag.Format(metadata.CurrentVersion);
-            }
-        }
+        await SetETagAsync(content, session, sourcing, http, ct);
+
+        var type = content.ContentType;
+        var definition = await session.Query<barakoCMS.Models.ContentTypeDefinition>()
+            .FirstNamedAsync(type, ct);
 
         var response = new Response
         {
@@ -52,6 +42,7 @@ internal static class EntryResponse
             Status = content.Status,
             LastModifiedBy = content.LastModifiedBy,
             Sensitivity = content.Sensitivity,
+            LifecycleState = content.LifecycleState ?? definition?.Lifecycle?.InitialState,
             // Stored as DateTime with Kind Utc. Stated explicitly rather than relying on the
             // implicit conversion, which would read an Unspecified Kind as local time.
             ScheduledPublishAt = content.ScheduledPublishAt is { } p
@@ -68,11 +59,11 @@ internal static class EntryResponse
         };
 
         if (await sensitivity.ApplyAsync(content, response.Data, http, ct))
+        {
             response.ContentType = "HIDDEN";
+            response.LifecycleState = null;
+        }
 
-        var type = content.ContentType;
-        var definition = await session.Query<barakoCMS.Models.ContentTypeDefinition>()
-            .FirstOrDefaultAsync(d => d.Name == type, ct);
         await SensitiveReadAudit.RecordAsync(
             http,
             [await SensitiveReadAudit.DescribeAsync(content, definition, response.Data, sensitivity, http, ct)],
@@ -83,5 +74,29 @@ internal static class EntryResponse
             [(response.ContentType, response.Data)], session, files, http.User, ct))[0];
 
         return response;
+    }
+
+    private static async Task SetETagAsync(
+        barakoCMS.Models.Content content,
+        IQuerySession session,
+        IContentSourcingPolicy sourcing,
+        HttpContext http,
+        CancellationToken ct)
+    {
+        // #565 / D16: the document's own Marten version, exposed as a standard ETag so a client can
+        // do read-modify-write safely. Gated on the same eventSourced check Update/Endpoint.cs uses
+        // for If-Match, and for the same reason: an event-sourced type's PUT does not consult
+        // If-Match at all (it already has its own expected-version check on the stream, D3), so an
+        // ETag here would promise a precondition nothing on the write side honours. A client that
+        // did a correct read-modify-write against one would believe it was protected when nothing
+        // was checking. One header, one meaning: emit it only where PUT will act on it.
+        if (!await sourcing.IsEventSourcedAsync(content.ContentType, ct))
+        {
+            var metadata = await session.MetadataForAsync(content, ct);
+            if (metadata is not null)
+            {
+                http.Response.Headers.ETag = ContentETag.Format(metadata.CurrentVersion);
+            }
+        }
     }
 }

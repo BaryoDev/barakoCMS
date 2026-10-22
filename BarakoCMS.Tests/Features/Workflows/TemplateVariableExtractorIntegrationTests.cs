@@ -62,7 +62,7 @@ public class TemplateVariableExtractorIntegrationTests
 
         var result = await extractor.GetVariablesAsync("TestType");
 
-        Assert.Equal(10, result.Formats.Count);
+        Assert.Equal(11, result.Formats.Count);
         Assert.Contains(result.Formats, v => v.Name == "{{createdAt | date \"MMM d, h:mm tt\"}}");
         Assert.Contains(result.Formats, v => v.Name == "{{data.Field | money}}");
         Assert.Contains(result.Formats, v => v.Name == "{{duration createdAt updatedAt}}");

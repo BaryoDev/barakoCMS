@@ -1,6 +1,10 @@
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Infrastructure.Auth.Stations;
+using barakoCMS.Infrastructure.Envelope;
+using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Infrastructure.Realtime;
+using barakoCMS.Infrastructure.Services;
+using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
 using JasperFx.Events;
@@ -56,7 +60,12 @@ internal sealed class ChangesEndpoint(
     IQuerySession session,
     TopicRegistry topics,
     ICallerCapabilities callers,
-    IHighWaterMark highWater) : Endpoint<ChangesRequest, ChangesResponse>
+    IHighWaterMark highWater,
+    TenantContext tenant,
+    ContentTopicCatalog content,
+    IPermissionResolver permissions,
+    IBranchScopeGuard branchScope,
+    ISensitivityService sensitivity) : Endpoint<ChangesRequest, ChangesResponse>
 {
     public const int DefaultLimit = 200;
     public const int MaxLimit = 1000;
@@ -74,6 +83,12 @@ internal sealed class ChangesEndpoint(
         if (req.After < 0) AddError(r => r.After, "'after' must be 0 or more.");
         if (req.Topics.Count == 0) AddError(r => r.Topics, "Name at least one topic.");
         ThrowIfAnyErrors();
+
+        if (await ContentTopicAsync(req, ct) is { } contentTopic)
+        {
+            await ReadContentAsync(contentTopic, req, ct);
+            return;
+        }
 
         var requested = new List<RealtimeTopic>();
         foreach (var name in req.Topics.Distinct(StringComparer.Ordinal))
@@ -121,5 +136,38 @@ internal sealed class ChangesEndpoint(
                 Data = e.Data,
             }).ToList(),
         }, ct);
+    }
+
+    // A content topic is looked up only for a name no module owns. It must be the only name asked for.
+    private async Task<ContentTopic?> ContentTopicAsync(ChangesRequest req, CancellationToken ct)
+    {
+        var names = req.Topics.Distinct(StringComparer.Ordinal).ToList();
+        if (topics.Find(names[0]) is not null) return null;
+
+        var found = await content.FindAsync(tenant.Slug, names[0], ct);
+        if (found is null) return null;
+
+        if (names.Count > 1) AddError(r => r.Topics, "A content topic cannot be combined with other topics.");
+        ThrowIfAnyErrors();
+        return found;
+    }
+
+    private async Task ReadContentAsync(ContentTopic topic, ChangesRequest req, CancellationToken ct)
+    {
+        var user = Guid.TryParse(User.FindFirst("UserId")?.Value, out var id)
+            ? await session.LoadAsync<User>(id, ct)
+            : null;
+        if (user is null || !await permissions.CanPerformActionAsync(user, topic.ContentType, "read", null, ct))
+        {
+            await Send.StringAsync($"This caller cannot read '{topic.ContentType}'.", 403, cancellation: ct);
+            return;
+        }
+
+        var limit = Math.Clamp(req.Limit ?? DefaultLimit, 1, MaxLimit);
+        var ceiling = await highWater.CurrentAsync(ct);
+        var (items, next) = await ContentChangeFeed.ReadAsync(
+            topic, User, user, req.After, ceiling, limit, session, permissions, branchScope, sensitivity, HttpContext, ct);
+
+        await Send.OkAsync(new ChangesResponse { Next = Math.Max(req.After, next), Items = items }, ct);
     }
 }

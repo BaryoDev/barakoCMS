@@ -57,7 +57,7 @@ internal sealed class RequestComposer(
         RequestDefinition definition, Connector connector, Content content, string? idempotencyKey, CancellationToken ct)
     {
         var schema = await session.Query<ContentTypeDefinition>()
-            .FirstOrDefaultAsync(d => d.Name == content.ContentType, ct);
+            .FirstNamedAsync(content.ContentType, ct);
 
         // Refused rather than composed against no schema. Without the field definitions there is no
         // way to tell a Public field from a Sensitive one, and the whole sensitivity check below

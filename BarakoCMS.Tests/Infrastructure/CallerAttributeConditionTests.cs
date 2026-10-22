@@ -319,7 +319,9 @@ public class CallerAttributeConditionTests
     public void A_profile_a_request_sends_is_refused_when_a_condition_could_not_read_it()
     {
         CallerAttributes.ProfileError(null).Should().BeNull("a request that sends no profile changes none");
-        CallerAttributes.ProfileError(Profile("branch", "north")).Should().BeNull();
+        CallerAttributes.ProfileError(Profile("ward", "north")).Should().BeNull();
+        CallerAttributes.ProfileError(Profile("branch", "north")).Should().Contain("'branch'",
+            "the request names the branch with X-Branch-Id, so a profile never stores one (ed15c065)");
         CallerAttributes.ProfileError(Profile("person_record2", "x")).Should().BeNull();
 
         CallerAttributes.ProfileError(Profile("", "north")).Should().NotBeNull();
@@ -328,12 +330,12 @@ public class CallerAttributeConditionTests
         CallerAttributes.ProfileError(Profile("branch name", "north")).Should().NotBeNull();
         CallerAttributes.ProfileError(Profile(new string('a', CallerAttributes.MaxNameLength + 1), "north"))
             .Should().NotBeNull();
-        CallerAttributes.ProfileError(Profile("branch", "")).Should().NotBeNull();
-        CallerAttributes.ProfileError(Profile("branch", "  ")).Should().NotBeNull();
-        CallerAttributes.ProfileError(new Dictionary<string, string> { ["branch"] = null! }).Should().NotBeNull();
-        CallerAttributes.ProfileError(Profile("branch", new string('n', CallerAttributes.MaxValueLength + 1)))
+        CallerAttributes.ProfileError(Profile("ward", "")).Should().NotBeNull();
+        CallerAttributes.ProfileError(Profile("ward", "  ")).Should().NotBeNull();
+        CallerAttributes.ProfileError(new Dictionary<string, string> { ["ward"] = null! }).Should().NotBeNull();
+        CallerAttributes.ProfileError(Profile("ward", new string('n', CallerAttributes.MaxValueLength + 1)))
             .Should().NotBeNull();
-        CallerAttributes.ProfileError(new Dictionary<string, string> { ["branch"] = "north", ["Branch"] = "south" })
+        CallerAttributes.ProfileError(new Dictionary<string, string> { ["ward"] = "north", ["Ward"] = "south" })
             .Should().NotBeNull("two names that differ only by case are a mistake waiting to be read");
 
         foreach (var value in new[] { "nor\u0000th", "nor\nth", "north\t", "\u001fnorth" })
@@ -342,7 +344,7 @@ public class CallerAttributeConditionTests
                 "a control character is refused, naming the attribute, before the database refuses it");
         }
 
-        CallerAttributes.ProfileError(Profile("branch", "it's 50% a\\b 1.5 \u00e9")).Should().BeNull(
+        CallerAttributes.ProfileError(Profile("ward", "it's 50% a\\b 1.5 \u00e9")).Should().BeNull(
             "punctuation and letters outside ASCII are values like any other");
 
         var tooMany = Enumerable.Range(0, CallerAttributes.MaxAttributes + 1)

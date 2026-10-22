@@ -42,6 +42,7 @@ public class UnhandledExceptionResponseTests
     [Fact]
     public async Task A_500_does_not_carry_the_exception_message_and_keeps_the_contract_headers()
     {
+        using var resolver = FastEndpointsResolver.Keep();
         using var host = _factory.WithWebHostBuilder(b =>
             b.ConfigureServices(s => s.AddSingleton<IStartupFilter, ThrowingFilter>()));
         using var client = host.CreateClient();

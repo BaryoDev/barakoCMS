@@ -82,9 +82,16 @@ public sealed class ContentWriter : IContentWriter
         _batch = batch;
         _tokens = new ContentTokenIssuer(session);
         _uniqueness = new ContentUniqueness(session, logger);
+        _origin = new Envelope.OriginSequence(new Numbering.GaplessNumberAllocator(TimeProvider.System));
     }
 
     private readonly ContentTokenIssuer _tokens;
+
+    /// <summary>
+    /// Numbers each event this writer stages with the node's next origin sequence, before the save
+    /// (see <see cref="Envelope.EventEnvelopeListener"/> for why not during it).
+    /// </summary>
+    private readonly Envelope.OriginSequence _origin;
 
     private readonly Multitenancy.BatchTransaction? _batch;
 
@@ -121,22 +128,29 @@ public sealed class ContentWriter : IContentWriter
         await RefuseWhileFieldChangeRunsAsync(entry.ContentType, cancellationToken);
         await _uniqueness.EnforceAsync(entry, cancellationToken);
 
-        return CreateCore(@event, append);
+        // Reserved last, after every check that can refuse, so a refused create takes no number.
+        var node = Envelope.EventEnvelopeContext.NodeOf(_session.DocumentStore);
+        var headers = append && node != Guid.Empty
+            ? await _origin.HeadersAsync(_session, node, cancellationToken)
+            : null;
+
+        return CreateCore(@event, append, headers);
     }
 
-    private Content CreateCore(ContentCreated @event, bool append = true)
+    private Content CreateCore(ContentCreated @event, bool append = true, Dictionary<string, object>? headers = null)
     {
         var content = new Content();
         ApplyToDocument(content, @event);
+        content.BranchId = Envelope.EventEnvelopeContext.CurrentBranch;
 
         if (append)
         {
             // The stream and the document are staged together so a partial failure cannot leave one
             // without the other.
             if (_batch?.DefersStreams == true)
-                _batch.DeferStream(@event.Id, @event);
+                _batch.DeferStream(@event.Id, @event, headers);
             else
-                _session.Events.StartStream<Content>(@event.Id, @event);
+                SetHeaders(_session.Events.StartStream<Content>(@event.Id, @event).Events, headers);
         }
 
         _session.Store(content);
@@ -182,6 +196,7 @@ public sealed class ContentWriter : IContentWriter
         if (await ShouldAppendAsync(content.ContentType, cancellationToken))
         {
             _session.Events.Append(content.Id, @event);
+            await StampOriginAsync(content.Id, cancellationToken);
         }
 
         if (!_staged.Contains(content.Id))
@@ -202,6 +217,36 @@ public sealed class ContentWriter : IContentWriter
 
         _session.Store(content);
         _staged.Add(content.Id);
+    }
+
+    /// <summary>Numbers the staged events of one stream that carry no origin sequence yet, in order.</summary>
+    private async Task StampOriginAsync(Guid streamId, CancellationToken cancellationToken)
+    {
+        var node = Envelope.EventEnvelopeContext.NodeOf(_session.DocumentStore);
+        if (node == Guid.Empty) return;
+
+        foreach (var stream in _session.PendingChanges.Streams())
+        {
+            if (stream.Id != streamId) continue;
+
+            foreach (var @event in stream.Events)
+            {
+                await _origin.StampAsync(_session, node, @event, cancellationToken);
+            }
+        }
+    }
+
+    internal static void SetHeaders(IEnumerable<JasperFx.Events.IEvent> events, IReadOnlyDictionary<string, object>? headers)
+    {
+        if (headers is null) return;
+
+        foreach (var @event in events)
+        {
+            foreach (var (key, value) in headers)
+            {
+                @event.SetHeader(key, value);
+            }
+        }
     }
 
     /// <summary>Does a change to this type get written to a stream?</summary>
@@ -259,6 +304,11 @@ public sealed class ContentWriter : IContentWriter
         else
         {
             await _session.Events.AppendOptimistic(content.Id, cancellationToken, events.ToArray());
+        }
+
+        if (append)
+        {
+            await StampOriginAsync(content.Id, cancellationToken);
         }
 
         // The document is rebuilt on top of what is committed now, not on top of the caller's load.

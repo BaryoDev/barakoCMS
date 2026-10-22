@@ -60,6 +60,12 @@ public class WorkflowRun
     public string? Executor { get; set; }
 
     /// <summary>
+    /// The key a module fired the trigger with, or null. A second fire with the same key for the same
+    /// entry and workflow queues no run.
+    /// </summary>
+    public string? TriggerKey { get; set; }
+
+    /// <summary>
     /// The sequence of the event that caused this run.
     /// </summary>
     /// <remarks>
@@ -703,6 +709,8 @@ public class WorkflowActionAttempt
     /// </summary>
     /// <remarks>Not served over the API: the ids of private files do not leave the run record.</remarks>
     public List<Guid>? ProducedFiles { get; set; }
+    /// <summary>The entries the action created, once it has succeeded. Null until then, and when it reported none.</summary>
+    public List<CreatedRef>? Created { get; set; }
 
     /// <summary>What undoes this action, copied from the workflow when the run was queued. Null when nothing does.</summary>
     public WorkflowCompensation? Compensate { get; set; }

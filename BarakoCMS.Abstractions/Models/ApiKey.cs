@@ -75,6 +75,12 @@ public static class ApiKeyScopes
     public const string FilesWrite = "files:write";
 
     /// <summary>
+    /// Read-only monitoring: <c>GET /api/contents/counts</c>, <c>GET /api/analytics/**</c> and <c>GET /api/monitoring/health</c>, nothing else.
+    /// Not implied by <see cref="All"/>, so keys made before it existed gain nothing.
+    /// </summary>
+    public const string MonitorRead = "monitor:read";
+
+    /// <summary>
     /// Erasing an entry (<c>DELETE /api/contents/{id}/erase</c>) and rolling one back
     /// (<c>POST /api/contents/{id}/rollback/{versionId}</c>). Not implied by <see cref="ContentWrite"/>,
     /// because an erasure cannot be undone and a key minted to author content should not carry it by
@@ -85,18 +91,18 @@ public static class ApiKeyScopes
     public static readonly IReadOnlySet<string> Known = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         All, ContentRead, ContentWrite, ContentDestructive, ContentTypeRead, ContentTypeWrite,
-        FilesRead, FilesWrite,
+        FilesRead, FilesWrite, MonitorRead,
     };
 
     public static bool IsKnown(string scope) => !string.IsNullOrWhiteSpace(scope) && Known.Contains(scope);
 
     /// <summary>
     /// Does a key's granted scope set satisfy a required scope? <c>*</c> satisfies everything except
-    /// the files scopes, which a key has to name.
+    /// the files and monitor scopes, which a key has to name.
     /// </summary>
     public static bool Satisfies(IEnumerable<string> granted, string required)
     {
-        var explicitOnly = required is FilesRead or FilesWrite;
+        var explicitOnly = required is FilesRead or FilesWrite or MonitorRead;
         return granted.Any(s => (s == All && !explicitOnly)
                                 || string.Equals(s, required, StringComparison.OrdinalIgnoreCase));
     }

@@ -149,6 +149,20 @@ public class TemplateExpressionTests
             .Should().Be("1,234.50", "with no site currency read, the amount carries no code");
     }
 
+    /// <summary>Red without the change: a whole list or object was its type name.</summary>
+    [Fact]
+    public void A_list_or_object_with_no_format_is_written_as_json()
+    {
+        var entry = Entry(new()
+        {
+            ["Lines"] = new List<object> { new Dictionary<string, object> { ["Code"] = "PARA", ["Quantity"] = 2L } },
+            ["Meta"] = new Dictionary<string, object> { ["Ward"] = "A" },
+        });
+
+        Resolve("{{data.Lines}}", entry).Should().Be("[{\"Code\":\"PARA\",\"Quantity\":2}]");
+        Resolve("{{data.Meta}}", entry).Should().Be("{\"Ward\":\"A\"}");
+    }
+
     /// <summary>Red without the change.</summary>
     [Fact]
     public void Upper_and_lower_change_the_case_of_a_value()
@@ -420,7 +434,7 @@ public class TemplateExpressionTests
             onTransition: false).ToList();
 
         problems.Should().HaveCount(5);
-        problems[0].Should().Be("'{{createdAt | dat \"h:mm\"}}' uses 'dat', which is not a format (the formats are date, money, upper, lower), so it is sent as written.");
+        problems[0].Should().Be("'{{createdAt | dat \"h:mm\"}}' uses 'dat', which is not a format (the formats are date, money, upper, lower, json), so it is sent as written.");
         problems[1].Should().Be("'{{creatdAt}}' names 'creatdAt', which is not a placeholder, so it is sent as written.");
         problems[2].Should().Be("'{{status | date}}' formats 'status' as a date, which it is not, so it is sent as written.");
         problems[3].Should().Be("'{{createdAt | date \"h\" \"Mars/Phobos\"}}' names the time zone 'Mars/Phobos', which this server does not know, so it is sent as written.");
@@ -429,5 +443,57 @@ public class TemplateExpressionTests
         var onTransition = TemplateExpression.Problems("{{transition.name}} {{nope}}", onTransition: true).ToList();
         onTransition.Should().HaveCount(1);
         onTransition[0].Should().StartWith("'{{nope}}' names 'nope'");
+    }
+
+    private static readonly List<object> Lines =
+    [
+        new Dictionary<string, object> { ["ItemCode"] = "PARA-500", ["Quantity"] = 2L, ["UnitCost"] = 1.50m },
+        new Dictionary<string, object> { ["ItemCode"] = "AMOX-250", ["Quantity"] = 10L, ["UnitCost"] = 0.1m },
+    ];
+
+    [Fact]
+    public void Json_writes_a_list_as_compact_json_that_parses_back_to_the_same_list()
+    {
+        var text = Resolve("{{data.Lines | json}}", Entry(new() { ["Lines"] = Lines }));
+
+        text.Should().Be("""[{"ItemCode":"PARA-500","Quantity":2,"UnitCost":1.50},{"ItemCode":"AMOX-250","Quantity":10,"UnitCost":0.1}]""");
+        var back = JsonSerializer.Deserialize<List<Dictionary<string, JsonElement>>>(text)!;
+        back.Should().HaveCount(2);
+        back[0]["UnitCost"].GetDecimal().Should().Be(1.50m);
+        back[1]["ItemCode"].GetString().Should().Be("AMOX-250");
+    }
+
+    [Fact]
+    public void Json_writes_an_object_a_string_and_a_number()
+    {
+        var entry = Entry(new()
+        {
+            ["Vitals"] = new Dictionary<string, object> { ["Bp"] = "120/80", ["Pulse"] = 72L },
+            ["Name"] = "Maria \"Mia\" Santos",
+            ["Amount"] = 1234.50m,
+        });
+
+        Resolve("{{data.Vitals | json}}", entry).Should().Be("""{"Bp":"120/80","Pulse":72}""");
+        Resolve("{{data.Name | json}}", entry).Should().Be("\"Maria \\\"Mia\\\" Santos\"");
+        Resolve("{{data.Amount | json}}", entry).Should().Be("1234.50");
+        Resolve("{{data.Gone | json}}", entry).Should().Be("{{data.Gone | json}}");
+    }
+
+    [Fact]
+    public void Json_does_not_encode_a_field_that_already_holds_json_text_a_second_time()
+    {
+        var text = Resolve("{{data.RowsJson | json}}", Entry(new() { ["RowsJson"] = """[ {"ItemCode": "A", "Quantity": 1} ]""" }));
+
+        text.Should().Be("""[{"ItemCode":"A","Quantity":1}]""");
+        JsonSerializer.Deserialize<JsonElement>(text).ValueKind.Should().Be(JsonValueKind.Array);
+    }
+
+    [Fact]
+    public void Json_takes_no_argument_and_is_listed_as_a_format()
+    {
+        TemplateExpression.Formats.Should().Contain("json");
+        TemplateExpression.Problems("{{data.Lines | json}}", onTransition: false).Should().BeEmpty();
+        TemplateExpression.Problems("{{data.Lines | json \"x\"}}", onTransition: false).Should().ContainSingle()
+            .Which.Should().Contain("gives 'json' an argument");
     }
 }

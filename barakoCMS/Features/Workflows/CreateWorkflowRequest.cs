@@ -25,6 +25,7 @@ internal class CreateWorkflowRequest
     public string? Schedule { get; set; }
     public string? ScheduleTimeZone { get; set; }
     public string? ScheduleCatchUp { get; set; }
+    public string? NotifyRoleOnFailure { get; set; }
 
     /// <summary>The definition this request describes, with no id.</summary>
     /// <remarks>
@@ -45,5 +46,6 @@ internal class CreateWorkflowRequest
         Schedule = Schedule,
         ScheduleTimeZone = ScheduleTimeZone,
         ScheduleCatchUp = ScheduleCatchUp,
+        NotifyRoleOnFailure = NotifyRoleOnFailure,
     };
 }

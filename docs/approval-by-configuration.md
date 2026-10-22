@@ -562,6 +562,7 @@ the braces is sent as written. An email template stored as content resolves the 
 | `{{data.Amount \| money}}` | Two decimals with thousands separators, after the site's currency code when it has one: `PHP 1,250.00` |
 | `{{data.Amount \| money "USD"}}` | The same after the code named |
 | `{{data.Name \| upper}}`, `{{data.Name \| lower}}` | The value in capitals or in small letters |
+| `{{data.Lines \| json}}` | The value as compact JSON, for a parameter that takes JSON text such as the `Lines` of `Inventory.Receive`. A list or object is written as JSON, text is quoted, a number keeps its stored digits. Text that is already a JSON array or object is written as that array or object and not quoted again. An empty value gives nothing |
 | `{{duration createdAt transition.at}}` | The time between two dates: `8 hours 30 minutes`. Seconds are dropped |
 | `{{hours createdAt transition.at}}` | The same in hours to one decimal: `8.5` |
 | `{{createdBy.name}}`, `{{createdBy.email}}` | The username and address of whoever created the entry |

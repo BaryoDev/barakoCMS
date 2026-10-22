@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Json;
 using FluentAssertions;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -64,6 +65,7 @@ public class RateLimitSetupTests
                     {
                         e.MapGet("/", () => "ok");
                         e.MapPost("/auth", () => "ok").RequireRateLimiting(RateLimitSetup.AuthPolicy);
+                        e.MapPost("/refresh", () => "ok").RequireRateLimiting(RateLimitSetup.RefreshPolicy);
                         e.MapPost("/batch", () => "ok").RequireRateLimiting(RateLimitSetup.BatchPolicy);
                         e.MapPost("/registration", () => "ok").RequireRateLimiting(RateLimitSetup.RegistrationPolicy);
                         e.MapPost("/site-share", () => "ok").RequireRateLimiting(RateLimitSetup.SiteSharePolicy);
@@ -98,10 +100,49 @@ public class RateLimitSetupTests
 
         settings.Global.Should().Be(new RateLimitWindow(100, 60, 10));
         settings.Auth.Should().Be(new RateLimitWindow(5, 900, 0));
+        settings.Refresh.Should().Be(new RateLimitWindow(60, 900, 0));
         settings.Batch.Should().Be(new RateLimitWindow(20, 60, 0));
         settings.Registration.Should().Be(new RateLimitWindow(5, 3600, 0));
         settings.SiteShare.Should().Be(new RateLimitWindow(10, 60, 0));
         settings.RendererKey.Should().BeNull("no key configured means no renderer partition");
+    }
+
+    [Fact]
+    public async Task Six_refreshes_do_not_use_up_the_sign_in_limit()
+    {
+        using var host = await StartHost(Config());
+        var client = host.GetTestClient();
+
+        var refreshes = await SendMany(client, 6, path: "/refresh");
+        var login = await Send(client, path: "/auth");
+
+        refreshes.Should().HaveCount(6);
+        refreshes.Should().OnlyContain(c => c == HttpStatusCode.OK, "a refresh has a limit of its own, well above five");
+        login.Should().Be(HttpStatusCode.OK, "refreshes are counted apart from login");
+    }
+
+    [Fact]
+    public async Task The_sixth_login_in_the_window_is_still_refused()
+    {
+        using var host = await StartHost(Config());
+        var client = host.GetTestClient();
+
+        var logins = await SendMany(client, 6, path: "/auth");
+
+        logins.Take(5).Should().OnlyContain(c => c == HttpStatusCode.OK);
+        logins[5].Should().Be(HttpStatusCode.TooManyRequests);
+    }
+
+    [Fact]
+    public async Task Refreshes_alone_past_their_limit_are_refused()
+    {
+        using var host = await StartHost(Config());
+        var client = host.GetTestClient();
+
+        var refreshes = await SendMany(client, 61, path: "/refresh");
+
+        refreshes.Take(60).Should().OnlyContain(c => c == HttpStatusCode.OK);
+        refreshes[60].Should().Be(HttpStatusCode.TooManyRequests);
     }
 
     [Fact]
@@ -111,6 +152,26 @@ public class RateLimitSetupTests
 
         settings.Global.Should().Be(new RateLimitWindow(600, 60, 10));
         settings.Auth.Should().Be(RateLimitSetup.DefaultAuth);
+    }
+
+    [Fact]
+    public void A_configured_refresh_value_is_honoured_and_the_auth_value_does_not_govern_it()
+    {
+        var settings = RateLimitSetup.Read(Config(
+            ("Refresh:PermitLimit", "7"), ("Refresh:WindowSeconds", "30"), ("Auth:PermitLimit", "2")));
+
+        settings.Refresh.Should().Be(new RateLimitWindow(7, 30, 0));
+        settings.Auth.Should().Be(new RateLimitWindow(2, 900, 0));
+    }
+
+    [Theory]
+    [InlineData("Refresh:PermitLimit", "0")]
+    [InlineData("Refresh:WindowSeconds", "0")]
+    public void An_invalid_refresh_value_fails_at_startup_naming_the_setting(string key, string value)
+    {
+        var read = () => RateLimitSetup.Read(Config((key, value)));
+
+        read.Should().Throw<InvalidOperationException>().WithMessage($"*RateLimiting:{key}*");
     }
 
     [Theory]
@@ -416,5 +477,27 @@ public class RateLimitWiringTests
         keyed.Headers.Add(RateLimitSetup.RendererHeader, Key);
         using var keyedResponse = await client.SendAsync(keyed, ct);
         keyedResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Six_refreshes_without_a_cookie_do_not_lock_out_a_sign_in_from_the_same_address()
+    {
+        var host = _fixture.WithSettings(new Dictionary<string, string?>());
+        var client = host.CreateClient();
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, "203.0.113.231");
+        var ct = TestContext.Current.CancellationToken;
+
+        var refreshes = new List<HttpStatusCode>();
+        for (var i = 0; i < 6; i++)
+        {
+            using var refresh = await client.PostAsJsonAsync("/api/auth/refresh", new { }, ct);
+            refreshes.Add(refresh.StatusCode);
+        }
+        using var login = await client.PostAsJsonAsync(
+            "/api/auth/login", new { Username = "nobody-1192", Password = "wrong-password" }, ct);
+
+        refreshes.Should().HaveCount(6);
+        refreshes.Should().OnlyContain(c => c == HttpStatusCode.Unauthorized);
+        login.StatusCode.Should().Be(HttpStatusCode.Unauthorized, "a refresh is not counted against the sign-in limit");
     }
 }

@@ -172,7 +172,7 @@ internal sealed class CollectionSyncRunner(
     private async Task<CollectionSyncOutcome> ApplyAsync(CollectionSync sync, CancellationToken ct)
     {
         var schema = await session.Query<ContentTypeDefinition>()
-            .FirstOrDefaultAsync(d => d.Name == sync.ContentType, ct);
+            .FirstNamedAsync(sync.ContentType, ct);
 
         if (schema is null)
         {

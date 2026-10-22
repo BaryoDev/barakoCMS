@@ -72,7 +72,8 @@ public class WorkflowPluginRegistry : IWorkflowPluginRegistry
         // Discover all actions and extract metadata
         foreach (var action in actions)
         {
-            var actionType = action.GetType();
+            // A module's action is wrapped to report its prefixed type; the metadata is on the class it wrote.
+            var actionType = (action as ModuleWorkflowAction)?.Inner.GetType() ?? action.GetType();
             var metadataAttr = actionType.GetCustomAttributes(typeof(WorkflowActionMetadataAttribute), false)
                 .FirstOrDefault() as WorkflowActionMetadataAttribute;
 

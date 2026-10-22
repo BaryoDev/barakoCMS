@@ -117,11 +117,7 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>(),
             sp.GetRequiredService<ILogger<barakoCMS.Features.Public.Events.ContentChangeListener>>()));
 
-        // Realtime topic notices, after commit, on this instance. See RealtimeEventListener.
-        options.Listeners.Add(new barakoCMS.Infrastructure.Realtime.RealtimeEventListener(
-            sp.GetRequiredService<Microsoft.AspNetCore.SignalR.IHubContext<barakoCMS.Infrastructure.Realtime.RealtimeHub>>(),
-            sp.GetRequiredService<barakoCMS.Infrastructure.Realtime.TopicRegistry>(),
-            sp.GetRequiredService<ILogger<barakoCMS.Infrastructure.Realtime.RealtimeEventListener>>()));
+        AddRealtimeListeners(options, sp);
 
         // The delivery response cache evicts by tag when a commit changes what a read was built from.
         // Only when it is on, so a deployment that leaves it off pays nothing on its commits.
@@ -135,6 +131,22 @@ public static class ServiceCollectionExtensions
         // The private site check forgets its cached answer when a site entry is written.
         options.Listeners.Add(new barakoCMS.Infrastructure.Multitenancy.PrivateSiteCacheListener(
             sp.GetRequiredService<barakoCMS.Infrastructure.Multitenancy.PrivateSiteCache>()));
+    }
+
+    /// <summary>
+    /// Correlation, cause and the event envelope (branch, node, origin sequence; core item 1).
+    /// </summary>
+    private static void ConfigureEventEnvelope(StoreOptions options, IConfiguration configuration)
+    {
+        options.Events.MetadataConfig.CorrelationIdEnabled = true;
+        options.Events.MetadataConfig.CausationIdEnabled = true;
+        options.Events.MetadataConfig.HeadersEnabled = true;
+
+        barakoCMS.Infrastructure.Envelope.EventEnvelopeContext.SetNode(options,
+            Guid.TryParse(configuration[barakoCMS.Infrastructure.Envelope.EventEnvelopeContext.NodeIdKey], out var node)
+                ? node
+                : Guid.Empty);
+        options.Listeners.Add(new barakoCMS.Infrastructure.Envelope.EventEnvelopeListener());
     }
 
     private static (IReadOnlyList<IBarakoModule> Seen, IReadOnlyList<IBarakoModule> Enabled, IReadOnlyList<IBarakoModule> Ordered, IReadOnlyList<UnloadableModuleAssembly> Unloadable) AddModules(
@@ -209,16 +221,28 @@ public static class ServiceCollectionExtensions
         }
 
 
+        var actionRegistry = new barakoCMS.Features.Workflows.ModuleWorkflowActionRegistry();
         foreach (var module in modules)
         {
-            // Keep the instance discoverable at runtime (used by the seed runner).
-            services.AddSingleton<IBarakoModule>(module);
-            var before = SealedCoreServices.Snapshot(services);
-            module.ConfigureServices(services, ModuleConfiguration(configuration, module));
-            SealedCoreServices.WarnAbout(module, services, before);
+            RegisterModule(services, configuration, module, actionRegistry);
         }
 
         return (seen, enabled, modules, moduleBuilder.Skipped);
+    }
+
+    /// <summary>One module's services, then the workflow actions it adds under its own name.</summary>
+    private static void RegisterModule(
+        IServiceCollection services,
+        IConfiguration configuration,
+        IBarakoModule module,
+        barakoCMS.Features.Workflows.ModuleWorkflowActionRegistry actionRegistry)
+    {
+        // Keep the instance discoverable at runtime (used by the seed runner).
+        services.AddSingleton<IBarakoModule>(module);
+        var before = SealedCoreServices.Snapshot(services);
+        module.ConfigureServices(services, ModuleConfiguration(configuration, module));
+        SealedCoreServices.WarnAbout(module, services, before);
+        module.ConfigureWorkflowActions(actionRegistry.For(services, module));
     }
 
     /// <summary>
@@ -500,7 +524,7 @@ public static class ServiceCollectionExtensions
                         : Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme;
                 };
             });
-        services.AddSingleton<barakoCMS.Infrastructure.Auth.ApiKeyService>();
+        barakoCMS.Infrastructure.Auth.ApiKeyServiceRegistration.AddApiKeyServices(services);
 
         services.AddAuthorization();
     }
@@ -944,7 +968,7 @@ public static class ServiceCollectionExtensions
             // requests with the same code can't both read the old LastUsedTimeStep and both win.
             .UseOptimisticConcurrency(true);
 
-        MapApiKeys(options);
+        MapApiKeysAndAccounts(options);
 
         options.Schema.For<Station>()
             .SingleTenanted() // credentials are global, like API keys; the tenant is kept as data
@@ -987,7 +1011,30 @@ public static class ServiceCollectionExtensions
             });
     }
 
-    private static void MapApiKeys(StoreOptions options) =>
+    private static void MapAccounts(StoreOptions options)
+    {
+        options.Schema.For<Models.TenantAccount>()
+            .SingleTenanted() // accounts sit above tenants, so they are global
+            .DocumentAlias("accounts")
+            .Index(x => x.Slug, idx => idx.IsUnique = true);
+        options.Schema.For<Models.TenantAccountManager>()
+            .SingleTenanted()
+            .DocumentAlias("account_managers")
+            .Index(x => x.UserId)
+            .Index(x => new { x.AccountId, x.UserId }, idx =>
+            {
+                idx.IsUnique = true;
+                idx.Name = AccountManagerUniqueIndex;
+            });
+    }
+
+    private static void MapApiKeysAndAccounts(StoreOptions options)
+    {
+        MapAccounts(options);
+        MapApiKeyDocument(options);
+    }
+
+    private static void MapApiKeyDocument(StoreOptions options) =>
         options.Schema.For<ApiKey>()
             .SingleTenanted() // credentials are global, like users and tokens
             .DocumentAlias("api_keys")
@@ -997,6 +1044,21 @@ public static class ServiceCollectionExtensions
             .Index(x => x.KeyHash, idx => idx.IsUnique = true) // hash lookup at auth time
             .Index(x => x.UserId)
             .Index(x => x.TenantSlug);
+
+    /// <summary>
+    /// Realtime topic notices, after commit, on this instance (see RealtimeEventListener), and the
+    /// catalog of content type topics, which drops a tenant's cache when a type of it is saved.
+    /// </summary>
+    private static void AddRealtimeListeners(StoreOptions options, IServiceProvider sp)
+    {
+        options.Listeners.Add(new barakoCMS.Infrastructure.Realtime.RealtimeEventListener(
+            sp.GetRequiredService<Microsoft.AspNetCore.SignalR.IHubContext<barakoCMS.Infrastructure.Realtime.RealtimeHub>>(),
+            sp.GetRequiredService<barakoCMS.Infrastructure.Realtime.TopicRegistry>(),
+            sp.GetRequiredService<barakoCMS.Infrastructure.Realtime.ContentTopicCatalog>(),
+            () => sp.GetRequiredService<IDocumentStore>(),
+            sp.GetRequiredService<ILogger<barakoCMS.Infrastructure.Realtime.RealtimeEventListener>>()));
+        options.Listeners.Add(sp.GetRequiredService<barakoCMS.Infrastructure.Realtime.ContentTopicCatalog>());
+    }
 
     private static void AddMartenStore(
         IServiceCollection services,
@@ -1055,13 +1117,12 @@ public static class ServiceCollectionExtensions
             options.Policies.AllDocumentsAreMultiTenanted();
             options.Events.TenancyStyle = JasperFx.MultiTenancy.TenancyStyle.Conjoined;
 
-            // Each event keeps the correlation id of the request that wrote it and the traceparent
-            // of the span that did. Two columns on mt_events and two more arguments on the declared
-            // mt_quick_append_events, so a database that already exists takes
-            // migrations/4.6.0/event-correlation-metadata.sql before this build starts. An event
-            // stored before the columns existed reads back with both null.
-            options.Events.MetadataConfig.CorrelationIdEnabled = true;
-            options.Events.MetadataConfig.CausationIdEnabled = true;
+            // Each event keeps the correlation id of the request that wrote it, the traceparent of
+            // the span that did, and its envelope headers. Columns on mt_events and arguments on the
+            // declared mt_quick_append_events, so a database that already exists takes
+            // migrations/4.6.0/event-correlation-metadata.sql and migrations/5.1.0/event-headers.sql
+            // before this build starts. An event stored before the columns existed reads them as null.
+            ConfigureEventEnvelope(options, configuration);
 
             // Postgres enforces the tenant filter too, when a deployment has been set up for it.
             // Off by default, because turning it on is not a setting change: it needs the app to
@@ -1193,6 +1254,13 @@ public static class ServiceCollectionExtensions
         // one that runs. Both constructors are satisfiable from the container and the selection would
         // otherwise be a container detail, which is how EventSourcing:DocumentTypesAppend would end
         // up being a setting nothing reads.
+        services.AddScoped<barakoCMS.Core.Interfaces.IEventEnvelopeContext, barakoCMS.Infrastructure.Envelope.EventEnvelopeContext>();
+        services.AddScoped<barakoCMS.Infrastructure.Envelope.IBranchMembership, barakoCMS.Infrastructure.Envelope.BranchMembership>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.IBranchScopeGuard, barakoCMS.Infrastructure.Services.BranchScopeGuard>();
+        services.AddScoped<barakoCMS.Infrastructure.Envelope.IBranchCodes, barakoCMS.Infrastructure.Envelope.BranchCodes>();
+        services.AddSingleton<barakoCMS.Core.Interfaces.IOriginSequence>(_ =>
+            new barakoCMS.Infrastructure.Envelope.OriginSequence(
+                new barakoCMS.Infrastructure.Numbering.GaplessNumberAllocator(TimeProvider.System)));
         services.AddScoped<barakoCMS.Core.Interfaces.IContentWriter>(sp =>
             new barakoCMS.Infrastructure.Services.ContentWriter(
                 sp.GetRequiredService<IDocumentSession>(),
@@ -1384,6 +1452,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<barakoCMS.Features.Workflows.Outbox.IOutboxTransport, barakoCMS.Features.Workflows.Outbox.SignedHttpOutboxTransport>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.UpdateFieldAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.CreateEntryAction>();
+        services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.CreateContentAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.TransitionAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.RequestAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.ConditionalAction>();
@@ -1432,6 +1501,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<barakoCMS.Features.Config.ConfigEngine>();
         services.AddHostedService<barakoCMS.Features.Config.ConfigSectionCheck>();
         services.AddScoped<barakoCMS.Core.Interfaces.IConfigProvider, barakoCMS.Features.ContentType.ContentTypeConfigProvider>();
+        services.AddScoped<barakoCMS.Core.Interfaces.IConfigProvider, barakoCMS.Features.Numbering.NumberingConfigProvider>();
         services.AddScoped<barakoCMS.Core.Interfaces.IConfigProvider, barakoCMS.Features.Roles.RoleConfigProvider>();
         services.AddScoped<barakoCMS.Core.Interfaces.IConfigProvider, barakoCMS.Features.Roles.PermissionRuleConfigProvider>();
         services.AddScoped<barakoCMS.Core.Interfaces.IConfigProvider, barakoCMS.Features.Workflows.WorkflowConfigProvider>();
@@ -1444,6 +1514,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IContentValidatorService, ContentValidatorService>();
         services.AddScoped<IContentCreator, ContentCreator>();
         services.AddScoped<IContentBatchRunner, ContentBatchRunner>();
+        services.AddScoped<barakoCMS.Core.Interfaces.IRuleEngine, barakoCMS.Infrastructure.Rules.RuleEngine>();
         services.AddScoped<IContentTypeValidatorService, ContentTypeValidatorService>();
         services.AddScoped<barakoCMS.Features.ContentType.Blueprints.BlueprintCatalog>();
         services.AddSingleton<IKubernetesMonitorService, KubernetesMonitorService>();
@@ -1485,6 +1556,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<barakoCMS.Infrastructure.Auth.CapabilityVocabulary>();
         services.AddScoped<barakoCMS.Core.Interfaces.ICallerCapabilities, barakoCMS.Infrastructure.Auth.CallerCapabilities>();
         services.AddSingleton(sp => new barakoCMS.Infrastructure.Realtime.TopicRegistry(sp.GetServices<IBarakoModule>()));
+        services.AddSingleton(sp => new barakoCMS.Infrastructure.Realtime.ContentTopicCatalog(
+            () => sp.GetRequiredService<IDocumentStore>()));
         services.AddSignalR();
         services.AddSingleton<barakoCMS.Infrastructure.Realtime.IHighWaterMark, barakoCMS.Infrastructure.Realtime.MartenHighWaterMark>();
 
@@ -1979,7 +2052,7 @@ public static class ServiceCollectionExtensions
                 .LogInformation(
                     "Tenancy:Mode is Multi. The default partition and any partition with no Tenant document are not served, "
                   + "and the workflow runner, the retention sweeps, the credential encryption pass, the scheduled content sweep "
-                  + "and the collection sync sweep do not visit them. Rows already stored there are left as they are. "
+                  + "and the collection sync sweep do not order them. Rows already stored there are left as they are. "
                   + "docs/multi-tenancy.md has a query that lists them.");
         }
 
@@ -2007,6 +2080,9 @@ public static class ServiceCollectionExtensions
 
         // A tenant whose site Mode is Private serves no delivery route without a link or a viewer.
         app.UseMiddleware<barakoCMS.Infrastructure.Multitenancy.PrivateSiteMiddleware>();
+
+        // The request's branch, from X-Branch-Id, once the caller is known (core item 1).
+        app.UseMiddleware<barakoCMS.Infrastructure.Envelope.EventEnvelopeMiddleware>();
 
         app.UseAuthorization();
     }
@@ -2438,6 +2514,9 @@ public static class ServiceCollectionExtensions
 
     /// <summary>Root key under which every module's own settings live.</summary>
     internal const string ModulesConfigurationSection = "Modules";
+
+    /// <summary>The unique index on an account manager's account and user, named as migrations/5.2.0/898-accounts.sql creates it.</summary>
+    internal const string AccountManagerUniqueIndex = "mt_doc_account_managers_uidx_account_iduser_id";
 
     /// <summary>The unique index on a membership's user and tenant, named as the 4.7.0 migration creates it.</summary>
     internal const string MembershipUniqueIndex = "mt_doc_memberships_uidx_user_id_tenant_slug";
