@@ -32,6 +32,7 @@ public class ShippedMigrationTests
         "5.2.0/payments-events",
         "5.2.0/report-definitions",
         "5.2.0/scheduled-entries",
+        "5.2.0/253-comments",
         "5.2.0/notifications",
     ];
 
@@ -86,6 +87,14 @@ public class ShippedMigrationTests
         ["core/5.2.0/pending-builds"] = "a169671e0291d7153f383041f5d9faded2817d7bfbe7aad3fad5a7ba389763f2",
         ["core/5.2.0/signed-link-uses"] = "038b3f05443ea16918589b1bad1d11bc89311d406001e44794ade130c8fac426",
         ["core/5.2.0/workflow-schedule-claims"] = "51d6a157ef250942f01f3d4d5060fbdee32e9efee187f7551d7a42721e4f4371",
+        ["Booking/5.2.0/booking-resources"] = "01aab1064f0fbefb9c7580d06a486338d258c25c91feb633579ae81910fe0a5b",
+        ["Comments/5.2.0/253-comments"] = "6fa6040b649fb8de053d0a0562d0a4d9f67e6bb226484f2fa92cc279ba48375c",
+        ["Notifications/5.2.0/notifications"] = "1b67a01b978c5a0ad72830510666f9753884bbc95d87b6d718acfb6d98724703",
+        ["Payments/5.2.0/payments-attempts"] = "8902981ecb6379ee7ab9b6abe2319fab9c437d8c98c03f5e75acea8308e11577",
+        ["Payments/5.2.0/payments-events"] = "861608b1ddb306ea7df2f7773ab09f944511dee6e5185e9902ace3864d410f20",
+        ["Payments/5.2.0/payments-payable-types"] = "9a858e1ac3deddf710beaac891c06e90506d0e4d9690bdc31ae232ab59afac72",
+        ["Reports/5.2.0/report-definitions"] = "ef0af931ee858f6b45c69fa330f0899881547aab3dcdc15c7b9765724eb0a4f1",
+        ["Scheduling/5.2.0/scheduled-entries"] = "5d53624df8efaf75dade91db2d193845524941866665ae9b39aab5b5f9a13249",
     };
 
     private static IReadOnlyList<ShippedMigration> FirstParty() =>
@@ -96,7 +105,12 @@ public class ShippedMigrationTests
             new BarakoCMS.ExternalAuth.ExternalAuthModule(),
             new BarakoCMS.Accounting.AccountingModule(),
             new BarakoCMS.Pages.PagesModule(),
+            new BarakoCMS.Comments.CommentsModule(),
             new BarakoCMS.Notifications.NotificationsModule(),
+            new BarakoCMS.Booking.BookingModule(),
+            new BarakoCMS.Payments.PaymentsModule(),
+            new BarakoCMS.Reports.ReportsModule(),
+            new BarakoCMS.Scheduling.SchedulingModule(),
         ]);
 
     private sealed class SecondOwnerOfTheFilesAssembly : IBarakoModule
@@ -149,6 +163,7 @@ public class ShippedMigrationTests
             new BarakoCMS.Payments.PaymentsModule(),
             new BarakoCMS.Reports.ReportsModule(),
             new BarakoCMS.Scheduling.SchedulingModule(),
+            new BarakoCMS.Comments.CommentsModule(),
             new BarakoCMS.Notifications.NotificationsModule(),
         ];
 
@@ -159,6 +174,7 @@ public class ShippedMigrationTests
         owned.Should().Equal(
             "Accounting/5.0.0/accounting-number-sequences",
             "Booking/5.2.0/booking-resources",
+            "Comments/5.2.0/253-comments",
             "ExternalAuth/4.6.0/external-auth-identities",
             "ExternalAuth/4.8.0/external-auth-used-nonces",
             "ExternalAuth/5.1.0/915-external-auth-role-maps",
@@ -175,7 +191,7 @@ public class ShippedMigrationTests
             "Reports/5.2.0/report-definitions",
             "Scheduling/5.2.0/scheduled-entries");
         coreOnly.Count.Should().BeGreaterThanOrEqualTo(7, "seven core files were released before the ledger");
-        coreOnly.Should().HaveCount(all.Count - 17, "a module that is not enabled contributes nothing");
+        coreOnly.Should().HaveCount(all.Count - owned.Count, "a module that is not enabled contributes nothing");
         coreOnly.Should().OnlyContain(m => m.Owner == ShippedMigrations.CoreOwner);
         coreOnly.Select(m => m.Id).Should().NotIntersectWith(ModuleOwned, "core must not also ship a module's file");
     }

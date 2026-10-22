@@ -491,6 +491,14 @@ internal static class PublicDelivery
 
         yield return CacheScope.Type(type);
 
+        // A reference with no declared target type can point at any type, so no type tag names what
+        // it resolves to. Every content commit evicts this tag, which is what drops a target that
+        // was unpublished from a cached list.
+        if (def?.Fields.Any(f => string.Equals(f.Type, "reference", StringComparison.OrdinalIgnoreCase)
+                                 && f.Sensitivity == SensitivityLevel.Public
+                                 && string.IsNullOrEmpty(f.ReferenceType)) == true)
+            yield return CacheScope.Named(DeliveryResponseCacheListener.UntypedReferences);
+
         var referenced = def?.Fields
             .Where(f => string.Equals(f.Type, "reference", StringComparison.OrdinalIgnoreCase)
                         && f.Sensitivity == SensitivityLevel.Public
@@ -542,7 +550,7 @@ internal class ListPublishedEndpoint(
         AllowAnonymous();
         Options(x => x
             .RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy)
-            .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators));
+            .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators, barakoCMS.Infrastructure.Caching.DeliveryResponseCachePolicy.Instance));
     }
 
     public override async Task HandleAsync(PublicListRequest req, CancellationToken ct)
@@ -716,7 +724,7 @@ internal class PublicSearchEndpoint(IQuerySession session, IConfiguration config
         AllowAnonymous();
         Options(x => x
             .RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy)
-            .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators));
+            .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators, barakoCMS.Infrastructure.Caching.DeliveryResponseCachePolicy.Instance));
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -823,7 +831,7 @@ internal class GetBySlugEndpoint(
         AllowAnonymous();
         Options(x => x
             .RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy)
-            .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators));
+            .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators, barakoCMS.Infrastructure.Caching.DeliveryResponseCachePolicy.Instance));
     }
 
     public override async Task HandleAsync(CancellationToken ct)

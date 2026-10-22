@@ -64,6 +64,7 @@ public class SuiteCompositionTests
             "CdnPurge",
             "Analytics.Umami",
             "Booking",
+            "Comments",
             "DeviceTrust",
             "Diagnostics",
             "Email.Smtp",
