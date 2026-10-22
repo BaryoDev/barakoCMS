@@ -100,6 +100,19 @@ public class AccountScopedTenantTests
         return body.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("slug").GetString()!).ToList();
     }
 
+    private static async Task<List<string>> AllSlugsAsync(HttpClient client, string path)
+    {
+        var all = new List<string>();
+        for (var page = 1; ; page++)
+        {
+            var response = await client.GetAsync($"{path}?pageSize=100&page={page}", Ct);
+            response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
+            all.AddRange(body.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("slug").GetString()!));
+            if (all.Count >= body.GetProperty("totalItems").GetInt32()) return all;
+        }
+    }
+
     [Fact]
     public async Task A_scoped_manager_lists_only_the_tenants_of_their_account()
     {
@@ -194,7 +207,7 @@ public class AccountScopedTenantTests
         var unassigned = await StoreTenantAsync(null);
         var admin = await PlatformManagerAsync();
 
-        var slugs = await SlugsAsync(await admin.GetAsync("/api/tenants?pageSize=100", Ct));
+        var slugs = await AllSlugsAsync(admin, "/api/tenants");
         slugs.Should().Contain([other.Slug, unassigned.Slug]);
 
         var update = await admin.PutAsJsonAsync($"/api/tenants/{unassigned.Slug}", new { name = "Still works" }, Ct);
