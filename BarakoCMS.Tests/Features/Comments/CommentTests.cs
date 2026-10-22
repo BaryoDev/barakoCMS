@@ -3,6 +3,9 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using BarakoCMS.Comments;
+using barakoCMS.Infrastructure.Audit;
+using barakoCMS.Infrastructure.Auth;
+using Microsoft.AspNetCore.Mvc.Testing;
 using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
@@ -413,6 +416,146 @@ public class CommentTests
         res.StatusCode.Should().Be(HttpStatusCode.Forbidden);
         TicketCommentTarget.Instance.Add(id, readable: true);
         Bodies(await ListAsync(admin, "ticket", id)).Should().Equal("mine");
+    }
+
+    private async Task RemoveContentAsync(Guid id)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.HardDelete<Content>(id);
+        await session.SaveChangesAsync(Ct);
+    }
+
+    private async Task<int> CommentCountAsync(Guid targetId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<IQuerySession>()
+            .Query<Comment>().Where(c => c.TargetId == targetId).CountAsync(Ct);
+    }
+
+    [Fact]
+    public async Task A_moderator_can_delete_comments_on_an_erased_record_and_anyone_else_gets_not_found()
+    {
+        var type = NewType();
+        var entry = await EntryAsync(type);
+        var (author, _) = await UserAsync(Both, type);
+        var (moderator, _) = await UserAsync([CommentsCapabilities.ManageComments], type);
+        var root = await PostAsync(author, "content", entry, "orphan to be");
+        await PostAsync(author, "content", entry, "its reply", root.GetProperty("id").GetGuid());
+        await RemoveContentAsync(entry);
+        var path = $"/api/comments/{root.GetProperty("id").GetGuid()}";
+
+        (await author.DeleteAsync(path, Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await CommentCountAsync(entry)).Should().Be(2);
+        (await moderator.DeleteAsync(path, Ct)).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        (await CommentCountAsync(entry)).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_moderator_can_delete_a_comment_whose_target_type_is_no_longer_registered()
+    {
+        var targetId = Guid.NewGuid();
+        var comment = new Comment
+        {
+            Id = Guid.NewGuid(),
+            TargetType = "retired_kind",
+            TargetId = targetId,
+            AuthorId = Guid.NewGuid(),
+            Body = "left behind",
+        };
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(comment);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var (other, _) = await UserAsync(Both);
+        var (moderator, _) = await UserAsync([CommentsCapabilities.ManageComments]);
+
+        (await other.DeleteAsync($"/api/comments/{comment.Id}", Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await CommentCountAsync(targetId)).Should().Be(1);
+        (await moderator.DeleteAsync($"/api/comments/{comment.Id}", Ct)).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await CommentCountAsync(targetId)).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Deleting_comments_that_are_not_all_the_callers_own_is_audited_and_deleting_ones_own_is_not()
+    {
+        var type = NewType();
+        var entry = await EntryAsync(type);
+        var (author, _) = await UserAsync(Both, type);
+        var (moderator, moderatorId) = await UserAsync([CommentsCapabilities.ManageComments], type);
+        var own = await PostAsync(author, "content", entry, "own");
+        var root = await PostAsync(author, "content", entry, "root");
+        await PostAsync(author, "content", entry, "reply", root.GetProperty("id").GetGuid());
+
+        (await author.DeleteAsync($"/api/comments/{own.GetProperty("id").GetGuid()}", Ct))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await moderator.DeleteAsync($"/api/comments/{root.GetProperty("id").GetGuid()}", Ct))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        using var scope = _factory.Services.CreateScope();
+        var entries = await scope.ServiceProvider.GetRequiredService<IQuerySession>()
+            .Query<AuditEvent>().Where(e => e.TargetId == entry.ToString()).ToListAsync(Ct);
+        var logged = entries.Should().ContainSingle().Subject;
+        logged.Action.Should().Be("comment.moderated");
+        logged.ActorUserId.Should().Be(moderatorId);
+        logged.TargetType.Should().Be("content");
+        logged.Metadata!["count"].ToString().Should().Be("2");
+        logged.Metadata["commentId"].ToString().Should().Be(root.GetProperty("id").GetGuid().ToString());
+    }
+
+    [Fact]
+    public async Task A_legacy_admin_role_can_moderate_when_the_legacy_fallback_is_on_and_not_otherwise()
+    {
+        var id = Guid.NewGuid();
+        TicketCommentTarget.Instance.Add(id, readable: true);
+        var admin = await AdminAsync();
+        var comment = await PostAsync(admin, "ticket", id, "someone else's");
+        var path = $"/api/comments/{comment.GetProperty("id").GetGuid()}";
+        var token = _factory.CreateToken(roles: ["Admin"], userId: Guid.NewGuid().ToString());
+
+        var defaultHost = ClientFor(token);
+        (await defaultHost.DeleteAsync(path, Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await CommentCountAsync(id)).Should().Be(1);
+
+        var legacyClient = LegacyHost().CreateClient();
+        legacyClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        legacyClient.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, "198.51.100.77");
+        (await legacyClient.DeleteAsync(path, Ct)).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await CommentCountAsync(id)).Should().Be(0);
+    }
+
+    private static readonly Lock LegacyHostGate = new();
+    private static WebApplicationFactory<Program>? _legacyHost;
+
+    private WebApplicationFactory<Program> LegacyHost()
+    {
+        lock (LegacyHostGate)
+        {
+            return _legacyHost ??= _factory.WithSetting(CapabilityGateProcessor.LegacyRoleFallbackKey, "true");
+        }
+    }
+
+    [Fact]
+    public async Task The_same_id_under_two_target_types_keeps_the_threads_apart()
+    {
+        var type = NewType();
+        var shared = await EntryAsync(type);
+        TicketCommentTarget.Instance.Add(shared, readable: true);
+        var admin = await AdminAsync();
+
+        var onContent = await PostAsync(admin, "content", shared, "on the entry");
+        var onTicket = await PostAsync(admin, "ticket", shared, "on the ticket");
+
+        Bodies(await ListAsync(admin, "content", shared)).Should().Equal("on the entry");
+        Bodies(await ListAsync(admin, "ticket", shared)).Should().Equal("on the ticket");
+        await PostAsync(admin, "ticket", shared, "crossed", onContent.GetProperty("id").GetGuid(), HttpStatusCode.BadRequest);
+        await PostAsync(admin, "content", shared, "crossed", onTicket.GetProperty("id").GetGuid(), HttpStatusCode.BadRequest);
+        Bodies(await ListAsync(admin, "content", shared)).Should().Equal("on the entry");
+        Bodies(await ListAsync(admin, "ticket", shared)).Should().Equal("on the ticket");
     }
 
     [Fact]

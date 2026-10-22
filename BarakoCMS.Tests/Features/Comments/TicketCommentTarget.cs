@@ -18,6 +18,8 @@ internal sealed class TicketCommentTarget : ICommentTarget
 
     public void Add(Guid id, bool readable) => _tickets[id] = readable;
 
+    public void Remove(Guid id) => _tickets.TryRemove(id, out _);
+
     public Task<CommentTargetAccess> CheckReadAsync(Guid targetId, ClaimsPrincipal caller, CancellationToken ct) =>
         Task.FromResult(!_tickets.TryGetValue(targetId, out var readable)
             ? CommentTargetAccess.NotFound

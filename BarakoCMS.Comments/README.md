@@ -43,7 +43,8 @@ is JSON, and the consumer must escape it where it renders it as HTML.
 Delete: the author may delete their own comment, and the replies under it only when every one of
 them is also theirs. If anyone else replied, deleting that subtree needs `manage_comments`. A
 caller holding `manage_comments` can delete any comment on a record they can read, without
-`post_comments`.
+`post_comments`. A moderator can also remove comments whose record was erased or whose type is no
+longer registered, and that removal is written to the audit log.
 
 ## Two record types on one surface
 

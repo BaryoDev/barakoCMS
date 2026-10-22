@@ -1054,6 +1054,9 @@ it on the routing table, which is where `GET /api/capabilities` and the role wri
 | AI | `manage_search_index` | `POST /api/ai/index/{type}` |
 | Analytics (Umami) | `view_analytics` | the five read endpoints under `/api/analytics` |
 | Analytics (Umami) | `manage_analytics_websites` | `POST /api/analytics/websites` |
+| Comments | `read_comments` | `GET /api/comments` |
+| Comments | `post_comments` | `POST /api/comments`, and `DELETE /api/comments/{id}` for the caller's own comments |
+| Comments | `manage_comments` | no route of its own: `DELETE /api/comments/{id}` for anyone's comment, including one whose record is gone |
 | Diagnostics | `manage_client_errors` | `GET /api/client-errors`, `POST /api/client-errors/{id}/resolve` |
 | Email (Resend) | `view_email_events` | `GET /api/email-events` |
 | Feature flags | `manage_feature_flags` | everything under `/api/feature-flags/admin` |
