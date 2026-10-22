@@ -1,4 +1,5 @@
 using Marten;
+using barakoCMS.Infrastructure.Services;
 using barakoCMS.Infrastructure.Multitenancy;
 
 namespace barakoCMS.Infrastructure.Retention;
