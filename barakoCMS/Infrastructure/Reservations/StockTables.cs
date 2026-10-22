@@ -13,6 +13,12 @@ internal static class StockTables
     public const string Holds = "barako_stock_holds";
     public const string Movements = "barako_stock_movements";
 
+    public static void AddTo(Marten.StoreOptions options)
+    {
+        foreach (var table in Build(options.DatabaseSchemaName))
+            options.Storage.ExtendedSchemaObjects.Add(table);
+    }
+
     public static IEnumerable<Table> Build(string schema)
     {
         var counters = new Table(new PostgresqlObjectName(schema, Counters));

@@ -1,8 +1,11 @@
 using barakoCMS.Core.Interfaces;
+using barakoCMS.Infrastructure.Reservations;
 using BarakoCMS.Tests.Clinic;
 using FluentAssertions;
 using Marten;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace BarakoCMS.Tests.Reservations;
@@ -414,5 +417,64 @@ public class StockReservationTests(ClinicProbeHost host) : IClassFixture<ClinicP
         }
 
         (await BalanceAsync(counter, owner)).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task The_sweeper_returns_a_lapsed_hold_on_a_counter_nobody_reserves_again()
+    {
+        var counter = Fresh();
+        await ReceiveAsync(counter, 1);
+        var hold = await ReserveAsync(counter, 1, TimeSpan.FromMilliseconds(1));
+        await Task.Delay(100);
+        var sweeper = new StockHoldSweeper(
+            host.Services.GetRequiredService<IDocumentStore>(), host.Services.GetRequiredService<IConfiguration>(),
+            Stock, NullLogger<StockHoldSweeper>.Instance);
+
+        (await sweeper.SweepAsync(DateTimeOffset.UtcNow, default)).Should().BeGreaterThanOrEqualTo(1);
+
+        await using var read = host.OpenSession();
+        var movements = await Stock.MovementsAsync(read, counter);
+        movements.Should().NotBeEmpty();
+        movements.Should().ContainSingle(m => m.Kind == StockMovementKind.Expired && m.HoldId == hold.HoldId);
+        (await BalanceAsync(counter)).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Movements_with_the_same_timestamp_read_in_the_order_they_happened()
+    {
+        var counter = Fresh();
+        var stock = new StockReservations(new FixedClock(DateTimeOffset.UtcNow));
+
+        await using (var session = host.OpenSession())
+        {
+            await stock.ReceiveAsync(session, counter, 5);
+            var hold = await stock.ReserveAsync(session, counter, 2);
+            await stock.ReleaseAsync(session, hold.HoldId!.Value);
+            await session.SaveChangesAsync();
+        }
+
+        await using var read = host.OpenSession();
+        var movements = await stock.MovementsAsync(read, counter);
+
+        movements.Should().HaveCount(3);
+        movements.Select(m => m.Kind).Should().Equal(StockMovementKind.Received, StockMovementKind.Reserved, StockMovementKind.Released);
+    }
+
+    [Fact]
+    public async Task A_reference_longer_than_the_cap_is_refused_as_an_argument()
+    {
+        await using var session = host.OpenSession();
+        var tooLong = new string('x', 257);
+
+        var receive = async () => await Stock.ReceiveAsync(session, Fresh(), 1, tooLong);
+        var reserve = async () => await Stock.ReserveAsync(session, Fresh(), 1, null, tooLong);
+
+        await receive.Should().ThrowAsync<ArgumentException>().WithParameterName("reference");
+        await reserve.Should().ThrowAsync<ArgumentException>().WithParameterName("reference");
+    }
+
+    private sealed class FixedClock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
     }
 }

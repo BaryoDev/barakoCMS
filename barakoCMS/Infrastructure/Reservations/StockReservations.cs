@@ -11,6 +11,7 @@ namespace barakoCMS.Infrastructure.Reservations;
 /// </summary>
 internal sealed class StockReservations(TimeProvider clock) : IStockReservations
 {
+    private const int MaxReference = 256;
     private static readonly TimeSpan MaxHold = TimeSpan.FromDays(365);
     private static readonly string Counters = StockTables.Counters;
     private static readonly string Holds = StockTables.Holds;
@@ -21,6 +22,7 @@ internal sealed class StockReservations(TimeProvider clock) : IStockReservations
         ArgumentNullException.ThrowIfNull(session);
         ValidateCounter(counter);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(quantity, 0);
+        ValidateReference(reference);
         await BeginAsync(session, ct);
 
         var sql =
@@ -41,6 +43,7 @@ internal sealed class StockReservations(TimeProvider clock) : IStockReservations
         ArgumentNullException.ThrowIfNull(session);
         ValidateCounter(counter);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(quantity, 0);
+        ValidateReference(reference);
         if (holdFor is { } span)
         {
             ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(span, TimeSpan.Zero);
@@ -144,7 +147,7 @@ internal sealed class StockReservations(TimeProvider clock) : IStockReservations
         ValidateCounter(counter);
         var rows = await session.QueryAsync<MovementRow>(
             "select jsonb_build_object('Counter', counter, 'Kind', kind, 'Delta', delta, 'HoldId', hold_id, 'Reference', reference, 'At', occurred_at) "
-            + $"from {Table(session, Movements)} where tenant_id = ? and counter = ? order by occurred_at, id",
+            + $"from {Table(session, Movements)} where tenant_id = ? and counter = ? order by occurred_at, (case kind when 'received' then 0 when 'reserved' then 1 else 2 end), id",
             ct, session.TenantId, counter);
 
         return rows
@@ -194,6 +197,12 @@ internal sealed class StockReservations(TimeProvider clock) : IStockReservations
     {
         if (string.IsNullOrWhiteSpace(counter) || counter.Length > 128)
             throw new ArgumentException("A counter name is 1 to 128 characters.", nameof(counter));
+    }
+
+    private static void ValidateReference(string? reference)
+    {
+        if (reference is { Length: > MaxReference })
+            throw new ArgumentException($"A reference is at most {MaxReference} characters.", nameof(reference));
     }
 
     private sealed record MovementRow(
