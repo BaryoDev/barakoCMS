@@ -70,6 +70,7 @@ public class SuiteCompositionTests
             "Files.S3",
             "Forms",
             "Import",
+            "Notifications",
             "Pages",
             "Portability",
             "Pwa",
