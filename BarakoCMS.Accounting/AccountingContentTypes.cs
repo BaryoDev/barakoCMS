@@ -43,6 +43,8 @@ public static class AccountingContentTypes
             new() { Name = "MemberId", Type = "string", Sensitivity = SensitivityLevel.Public },
             new() { Name = "PayeeName", Type = "string", Sensitivity = SensitivityLevel.Public },
             new() { Name = "IsActive", Type = "bool", Sensitivity = SensitivityLevel.Public },
+            // When true, no entry may take this account or any account under it below zero.
+            new() { Name = "NoOverdraft", Type = "bool", Sensitivity = SensitivityLevel.Public },
         },
     };
 
