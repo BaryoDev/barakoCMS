@@ -202,6 +202,17 @@ under the caller's own field and row rules.
   are refused on one with measures.
 - A stored date with no zone, such as `2026-03-05`, is read in the site's time zone. A value that
   is not a real date is left out of buckets and ranges.
+- Grouped by a date bucket, a record with no readable date is left out of the rows and of the
+  totals alike, so the totals equal the sum of the rows. `week` is the ISO week in the site's time
+  zone, labelled by its Monday (`2026-03-09`).
+- A range names a relative window (`today`, `last7days`, `last30days`, `thismonth`, `lastmonth`,
+  `thisyear`, any letter case), or `from` and `to`. A range with none of them is refused when the
+  query is saved. `from` and `to` in a run body move the saved range and are refused on a query
+  with no range. Dates must fall in the years 2 to 9998.
+- `count` with a field counts the entries where that number field is present, so the field must be
+  numeric. Leave the field out to count entries.
+- A reference measure counts each link. An id listed twice in a reference array counts twice.
+- A query that runs past 30 seconds is refused with a reason.
 
 ## Deleting a saved query
 

@@ -49,6 +49,7 @@ internal sealed partial class AggregateQuery(
     private const int MaxMeasures = 20;
     private const int MaxGroupBy = 3;
     private const int MaxFilterValueLength = 256;
+    private const int TimeoutSeconds = 30;
 
     private static readonly Dictionary<string, FilterOp> Ops = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -62,10 +63,10 @@ internal sealed partial class AggregateQuery(
     };
 
     private static readonly string[] Functions = ["sum", "count", "avg", "min", "max"];
-    private static readonly string[] Buckets = ["day", "month", "year"];
+    private static readonly string[] Buckets = ["day", "week", "month", "year"];
     private static readonly string[] Relatives = ["today", "last7Days", "last30Days", "thisMonth", "lastMonth", "thisYear"];
 
-    [GeneratedRegex("^[A-Za-z][A-Za-z0-9_]{0,63}$")]
+    [GeneratedRegex(@"\A[A-Za-z][A-Za-z0-9_]{0,63}\z")]
     private static partial Regex NamePattern();
 
     [GeneratedRegex(@"\$(\d+)")]
@@ -88,6 +89,10 @@ internal sealed partial class AggregateQuery(
         {
             return await ExecuteAsync(plan, ct);
         }
+        catch (Exception e) when (IsTimeout(e))
+        {
+            return AggregateResult.Refused($"The query took longer than {TimeoutSeconds} seconds. Narrow it with a filter or a date range.");
+        }
         catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.InvalidParameterValue)
         {
             return AggregateResult.Refused($"The site's time zone '{plan.ZoneId}' is not one the database knows, so days cannot be told apart.");
@@ -104,6 +109,12 @@ internal sealed partial class AggregateQuery(
             return AggregateResult.Refused("A total is too large to report.");
         }
     }
+
+    internal static bool IsTimeout(Exception e) =>
+        e is PostgresException { SqlState: PostgresErrorCodes.QueryCanceled }
+        || e is NpgsqlException { InnerException: TimeoutException };
+
+    internal static bool IsSupportedDay(DateOnly day) => day.Year is > 1 and < 9999;
 
     // ---- planning ---------------------------------------------------------------------------
 
@@ -167,6 +178,9 @@ internal sealed partial class AggregateQuery(
             var refusal = await PlanMeasureAsync(plan, scope, definition.ContentType, measure, aliases, user, caller, ct);
             if (refusal is not null) return Fail(plan, refusal);
         }
+
+        if (definition.Range is null && (!string.IsNullOrWhiteSpace(from) || !string.IsNullOrWhiteSpace(to)))
+            return Fail(plan, "This query has no range, so from and to have nothing to move. Add a range to the saved query.");
 
         var needsZone = plan.Groups.Any(g => g.Bucket is not null) || definition.Range is not null;
         if (needsZone)
@@ -290,8 +304,8 @@ internal sealed partial class AggregateQuery(
                 return Unreadable(measure.Field, typeName);
             if (!UsableName(declared.Name))
                 return $"'{declared.Name}' cannot be measured: its name has characters a figure cannot be built from.";
-            if (fn != "count" && !FieldTypeRegistry.IsNumericType(declared.Type))
-                return $"'{declared.Name}' is not a number, so it cannot be used with {fn}.";
+            if (!FieldTypeRegistry.IsNumericType(declared.Type))
+                return $"'{declared.Name}' is not a number, so it cannot be used with {fn}. Count entries by leaving the field out.";
             field = declared.Name;
         }
         else if (fn != "count")
@@ -313,10 +327,14 @@ internal sealed partial class AggregateQuery(
 
         plan.RangeField = declared.Name;
 
-        var hasRelative = !string.IsNullOrWhiteSpace(range.Relative);
-        if (hasRelative && (!string.IsNullOrWhiteSpace(range.From) || !string.IsNullOrWhiteSpace(range.To)))
+        var relative = range.Relative?.Trim();
+        var hasRelative = !string.IsNullOrEmpty(relative);
+        var hasBounds = !string.IsNullOrWhiteSpace(range.From) || !string.IsNullOrWhiteSpace(range.To);
+        if (hasRelative && hasBounds)
             return "A range is either relative or has from and to, not both.";
-        if (hasRelative && !Relatives.Contains(range.Relative!, StringComparer.Ordinal))
+        if (!hasRelative && !hasBounds)
+            return "A range needs a relative window, a from or a to.";
+        if (hasRelative && !Relatives.Contains(relative!, StringComparer.OrdinalIgnoreCase))
             return $"Unknown range '{range.Relative}'. Supported: {string.Join(", ", Relatives)}.";
 
         DateOnly? start = null;
@@ -325,6 +343,8 @@ internal sealed partial class AggregateQuery(
             return "A range date must be written yyyy-MM-dd.";
         if (!TryDay(from, out var runFrom) || !TryDay(to, out var runTo))
             return "from and to must be written yyyy-MM-dd.";
+        if (new[] { start, end, runFrom, runTo }.Any(d => d is { } day && !IsSupportedDay(day)))
+            return "A range date must fall between the years 2 and 9998.";
 
         var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, zone));
         DateOnly? windowStart = runFrom ?? start;
@@ -333,13 +353,13 @@ internal sealed partial class AggregateQuery(
         if (hasRelative && runFrom is null && runTo is null)
         {
             var monthStart = new DateOnly(today.Year, today.Month, 1);
-            (windowStart, windowEnd) = range.Relative switch
+            (windowStart, windowEnd) = relative!.ToLowerInvariant() switch
             {
                 "today" => (today, today),
-                "last7Days" => (today.AddDays(-6), today),
-                "last30Days" => (today.AddDays(-29), today),
-                "thisMonth" => (monthStart, monthStart.AddMonths(1).AddDays(-1)),
-                "lastMonth" => (monthStart.AddMonths(-1), monthStart.AddDays(-1)),
+                "last7days" => (today.AddDays(-6), today),
+                "last30days" => (today.AddDays(-29), today),
+                "thismonth" => (monthStart, monthStart.AddMonths(1).AddDays(-1)),
+                "lastmonth" => (monthStart.AddMonths(-1), monthStart.AddDays(-1)),
                 _ => (new DateOnly(today.Year, 1, 1), new DateOnly(today.Year, 12, 31)),
             };
         }
@@ -466,7 +486,7 @@ internal sealed partial class AggregateQuery(
         var rows = new List<Dictionary<string, object?>>();
         await using (var command = BuildCommand(plan, grouped))
         {
-            command.CommandTimeout = 30;
+            command.CommandTimeout = TimeoutSeconds;
             await using var reader = await session.ExecuteReaderAsync(command, ct);
             while (await reader.ReadAsync(ct))
             {
@@ -496,7 +516,7 @@ internal sealed partial class AggregateQuery(
         var totals = new Dictionary<string, object?>(StringComparer.Ordinal);
         await using (var command = BuildCommand(plan, false))
         {
-            command.CommandTimeout = 30;
+            command.CommandTimeout = TimeoutSeconds;
             await using var reader = await session.ExecuteReaderAsync(command, ct);
             if (await reader.ReadAsync(ct))
             {
@@ -558,11 +578,8 @@ internal sealed partial class AggregateQuery(
         var text = new StringBuilder($"SELECT {string.Join(", ", select)} FROM ({header}) AS d{joins}");
 
         var conditions = RangeConditions(plan, sql);
-        if (grouped)
-        {
-            foreach (var group in plan.Groups.Where(g => g.Bucket is not null))
-                conditions.Add($"{GroupExpression(group, sql, plan.ZoneId)} IS NOT NULL");
-        }
+        foreach (var group in plan.Groups.Where(g => g.Bucket is not null))
+            conditions.Add($"{GroupExpression(group, sql, plan.ZoneId)} IS NOT NULL");
 
         if (conditions.Count > 0) text.Append(" WHERE ").Append(string.Join(" AND ", conditions));
 
@@ -593,8 +610,11 @@ internal sealed partial class AggregateQuery(
     {
         if (group.Bucket is null) return Text(group.Field, "d");
 
+        var local = $"{DateValue(group.Field, "d", sql.Add(zoneId, NpgsqlDbType.Text))} AT TIME ZONE {sql.Add(zoneId, NpgsqlDbType.Text)}";
+        if (group.Bucket == "week") return $"to_char(date_trunc('week', {local}), 'YYYY-MM-DD')";
+
         var format = group.Bucket switch { "day" => "YYYY-MM-DD", "month" => "YYYY-MM", _ => "YYYY" };
-        return $"to_char({DateValue(group.Field, "d", sql.Add(zoneId, NpgsqlDbType.Text))} AT TIME ZONE {sql.Add(zoneId, NpgsqlDbType.Text)}, '{format}')";
+        return $"to_char({local}, '{format}')";
     }
 
     private static string MeasureExpression(MeasurePlan m, int i, Dictionary<string, string> viaAlias)

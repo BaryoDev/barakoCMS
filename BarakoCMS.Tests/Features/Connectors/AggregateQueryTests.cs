@@ -286,7 +286,7 @@ public class AggregateQueryTests
             ("A", 2m, "2026-03-15T12:00:00Z"),
             ("A", 4m, "2026-04-02T12:00:00Z"));
         var client = await AdminAsync();
-        var slug = await SaveOkAsync(client, type, range: new { field = "Date" },
+        var slug = await SaveOkAsync(client, type, range: new { field = "Date", from = "2000-01-01" },
             measures: [new { fn = "sum", field = "Total", @as = "total" }]);
 
         var march = await PostJsonAsync(client, $"/api/queries/{slug}/run", new { from = "2026-03-01", to = "2026-03-31" });
@@ -311,7 +311,7 @@ public class AggregateQueryTests
         var client = await MemberAsync(tenant);
         var byDay = await SaveOkAsync(client, type, groupBy: [new { field = "Date", bucket = "day" }],
             measures: [new { fn = "sum", field = "Total", @as = "total" }]);
-        var ranged = await SaveOkAsync(client, type, range: new { field = "Date" },
+        var ranged = await SaveOkAsync(client, type, range: new { field = "Date", from = "2000-01-01" },
             measures: [new { fn = "sum", field = "Total", @as = "total" }]);
 
         var rows = (await RunOkAsync(client, byDay)).GetProperty("rows").EnumerateArray().ToList();
@@ -339,7 +339,7 @@ public class AggregateQueryTests
 
         var client = await MemberAsync(tenant);
         var slug = await SaveOkAsync(client, type, groupBy: [new { field = "Date", bucket = "day" }],
-            range: new { field = "Date" },
+            range: new { field = "Date", from = "2000-01-01" },
             measures: [new { fn = "sum", field = "Total", @as = "total" }]);
 
         var body = await PostJsonAsync(client, $"/api/queries/{slug}/run", new { from = "2026-03-01", to = "2026-03-31" });
@@ -536,6 +536,260 @@ public class AggregateQueryTests
 
         res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await res.Content.ReadAsStringAsync(Ct)).Should().Contain("Customer");
+    }
+
+    // ---- review findings --------------------------------------------------------------------
+
+    [Fact]
+    public async Task Counting_a_field_that_is_not_a_number_is_refused_and_a_number_field_counts()
+    {
+        var type = await SeedOrdersAsync(null, ("A", 10m), ("B", 5m));
+        var client = await AdminAsync();
+
+        var refused = await SaveAsync(client, type, measures: [new { fn = "count", field = "Customer", @as = "n" }]);
+        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain("Customer");
+
+        var slug = await SaveOkAsync(client, type, measures: [new { fn = "count", field = "Total", @as = "n" }]);
+        (await RunOkAsync(client, slug)).GetProperty("totals").GetProperty("n").GetDecimal().Should().Be(2m);
+    }
+
+    [Fact]
+    public async Task Totals_equal_the_sum_of_the_rows_when_a_date_is_unreadable_or_absent()
+    {
+        var tenant = await TenantAsync();
+        var type = $"agg_{Guid.NewGuid():n}"[..14];
+        var absent = Order(type, "A", 1000m);
+        absent.Data.Remove("Date");
+        await StoreAsync(tenant,
+            OrderType(type),
+            Order(type, "A", 1m, date: "2026-03-10"),
+            Order(type, "A", 2m, date: "2026-03-11T09:30:00Z"),
+            Order(type, "A", 100m, date: "2026-02-30"),
+            absent,
+            SiteWithZone("UTC"));
+
+        var client = await MemberAsync(tenant);
+        var slug = await SaveOkAsync(client, type, groupBy: [new { field = "Date", bucket = "day" }],
+            measures: [new { fn = "sum", field = "Total", @as = "total" }, new { fn = "count", field = (string?)null, @as = "n" }]);
+
+        var body = await RunOkAsync(client, slug);
+        var rows = body.GetProperty("rows").EnumerateArray().ToList();
+
+        rows.Should().HaveCount(2);
+        rows.Sum(r => r.GetProperty("total").GetDecimal()).Should().Be(3m);
+        body.GetProperty("totals").GetProperty("total").GetDecimal().Should().Be(3m,
+            "1103 would mean the totals counted the records the rows left out");
+        body.GetProperty("totals").GetProperty("n").GetDecimal().Should().Be(2m);
+    }
+
+    [Fact]
+    public async Task A_run_time_from_or_to_on_a_query_with_no_range_is_refused()
+    {
+        var type = await SeedOrdersAsync(null, ("A", 1m));
+        var client = await AdminAsync();
+        var noRange = await SaveOkAsync(client, type, measures: [new { fn = "sum", field = "Total", @as = "t" }]);
+        var ranged = await SaveOkAsync(client, type, range: new { field = "Date", from = "2000-01-01" },
+            measures: [new { fn = "sum", field = "Total", @as = "t" }]);
+
+        var refused = await client.PostAsJsonAsync($"/api/queries/{noRange}/run", new { from = "2026-03-01" }, Ct);
+        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain("no range");
+
+        (await PostJsonAsync(client, $"/api/queries/{ranged}/run", new { from = "2000-02-01" }))
+            .GetProperty("ok").GetBoolean().Should().BeTrue("the control: a saved range takes a run-time from");
+    }
+
+    [Fact]
+    public async Task A_range_that_names_no_relative_from_or_to_is_refused_at_save()
+    {
+        var type = await SeedOrdersAsync(null, ("A", 1m));
+        var client = await AdminAsync();
+
+        var res = await SaveAsync(client, type, range: new { field = "Date" },
+            measures: [new { fn = "sum", field = "Total", @as = "t" }]);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await res.Content.ReadAsStringAsync(Ct)).Should().Contain("range");
+    }
+
+    [Fact]
+    public async Task A_date_whose_next_day_overflows_is_refused_not_a_server_error()
+    {
+        var type = await SeedOrdersAsync(null, ("A", 1m));
+        var client = await AdminAsync();
+        var measures = new object[] { new { fn = "sum", field = "Total", @as = "t" } };
+
+        var savedRange = await SaveAsync(client, type, range: new { field = "Date", to = "9999-12-31" }, measures: measures);
+        savedRange.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var slug = await SaveOkAsync(client, type, range: new { field = "Date", from = "2000-01-01" }, measures: measures);
+        var run = await client.PostAsJsonAsync($"/api/queries/{slug}/run", new { to = "9999-12-31" }, Ct);
+        run.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        (await PostJsonAsync(client, $"/api/queries/{slug}/run", new { to = "9998-12-31" }))
+            .GetProperty("ok").GetBoolean().Should().BeTrue("the control: the last supported day runs");
+    }
+
+    [Fact]
+    public async Task A_week_bucket_is_the_iso_week_in_the_site_zone_labelled_by_its_monday()
+    {
+        var tenant = await TenantAsync();
+        var type = $"agg_{Guid.NewGuid():n}"[..14];
+        // Manila is UTC+8: 20:00Z on Sunday the 15th is 04:00 on Monday the 16th there.
+        await StoreAsync(tenant,
+            OrderType(type),
+            Order(type, "A", 1m, date: "2026-03-09T00:30:00Z"),
+            Order(type, "A", 2m, date: "2026-03-15T10:00:00Z"),
+            Order(type, "A", 4m, date: "2026-03-15T20:00:00Z"),
+            SiteWithZone("Asia/Manila"));
+
+        var client = await MemberAsync(tenant);
+        var slug = await SaveOkAsync(client, type, groupBy: [new { field = "Date", bucket = "week" }],
+            measures: [new { fn = "sum", field = "Total", @as = "total" }]);
+
+        var rows = (await RunOkAsync(client, slug)).GetProperty("rows").EnumerateArray().ToList();
+
+        rows.Should().HaveCount(2, "UTC would put all three in the week of the 9th");
+        RowFor(rows, "Date", "2026-03-09").GetProperty("total").GetDecimal().Should().Be(3m);
+        RowFor(rows, "Date", "2026-03-16").GetProperty("total").GetDecimal().Should().Be(4m);
+    }
+
+    [Theory]
+    [InlineData("last7days")]
+    [InlineData("LAST7DAYS")]
+    [InlineData("last7Days")]
+    public async Task A_relative_range_name_is_matched_without_regard_to_case(string relative)
+    {
+        var now = DateTime.UtcNow;
+        var type = await SeedOrdersAsync(null,
+            ("A", 10m, now.ToString("O")),
+            ("A", 40m, now.AddDays(-30).ToString("O")));
+        var client = await AdminAsync();
+
+        var slug = await SaveOkAsync(client, type, range: new { field = "Date", relative },
+            measures: [new { fn = "sum", field = "Total", @as = "total" }]);
+
+        (await RunOkAsync(client, slug)).GetProperty("totals").GetProperty("total").GetDecimal()
+            .Should().Be(10m, "the entry 30 days back is outside the last seven days");
+    }
+
+    [Fact]
+    public void A_timeout_is_told_from_other_database_errors()
+    {
+        barakoCMS.Features.Queries.Run.AggregateQuery.IsTimeout(new Npgsql.NpgsqlException("timeout", new TimeoutException())).Should().BeTrue();
+        barakoCMS.Features.Queries.Run.AggregateQuery.IsTimeout(new Npgsql.PostgresException("canceled", "ERROR", "ERROR", "57014")).Should().BeTrue();
+        barakoCMS.Features.Queries.Run.AggregateQuery.IsTimeout(new Npgsql.PostgresException("bad", "ERROR", "ERROR", "22023")).Should().BeFalse();
+        barakoCMS.Features.Queries.Run.AggregateQuery.IsTimeout(new Npgsql.NpgsqlException("other", new InvalidOperationException())).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Lines_the_callers_conditions_hide_are_not_counted_through_a_reference()
+    {
+        var invoice = $"inv_{Guid.NewGuid():n}"[..14];
+        var line = $"lin_{Guid.NewGuid():n}"[..14];
+        Content NewLine(decimal amount, string region) => new()
+        {
+            Id = Guid.NewGuid(), ContentType = line, Status = ContentStatus.Published,
+            Data = new Dictionary<string, object> { ["Amount"] = amount, ["Region"] = region },
+        };
+
+        var seen = NewLine(10m, "north");
+        var hidden = NewLine(1000m, "south");
+        FieldDefinition[] LineFields() =>
+            [new() { Name = "Amount", Type = "decimal" }, new() { Name = "Region", Type = "string" }];
+        await StoreAsync(null,
+            new ContentTypeDefinition { Id = Guid.NewGuid(), Name = line, DisplayName = line, Fields = [.. LineFields()] },
+            new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(), Name = invoice, DisplayName = invoice,
+                Fields =
+                [
+                    new FieldDefinition { Name = "Region", Type = "string" },
+                    new FieldDefinition { Name = "Lines", Type = "reference", ReferenceType = line, Multiple = true },
+                ],
+            },
+            seen, hidden,
+            new Content
+            {
+                Id = Guid.NewGuid(), ContentType = invoice, Status = ContentStatus.Published,
+                Data = new Dictionary<string, object>
+                {
+                    ["Region"] = "north", ["Lines"] = new List<string> { seen.Id.ToString(), hidden.Id.ToString() },
+                },
+            });
+
+        var admin = await AdminAsync();
+        var slug = await SaveOkAsync(admin, invoice,
+            measures:
+            [
+                new { fn = "sum", field = "Amount", @as = "billed", via = "Lines" },
+                new { fn = "count", field = (string?)null, @as = "lines", via = "Lines" },
+            ]);
+
+        var all = await RunOkAsync(admin, slug);
+        all.GetProperty("totals").GetProperty("billed").GetDecimal().Should().Be(1010m, "the control: an administrator sees both lines");
+
+        var north = await RestrictedAsync([invoice, line], new Dictionary<string, object>
+        {
+            ["Region"] = new Dictionary<string, object> { ["_eq"] = "north" },
+        });
+        var body = await RunOkAsync(north, slug);
+
+        body.GetProperty("totals").GetProperty("billed").GetDecimal().Should().Be(10m);
+        body.GetProperty("totals").GetProperty("lines").GetDecimal().Should().Be(1m, "the south line is hidden from this caller");
+    }
+
+    [Theory]
+    [InlineData("Bad;Name")]
+    [InlineData("Bad->>Name")]
+    [InlineData("Bad'Name")]
+    [InlineData("Bad\"Name")]
+    [InlineData("Customer2\n")]
+    public async Task A_declared_field_whose_name_is_not_a_plain_name_is_refused_by_the_name_pattern(string hostile)
+    {
+        var type = $"agg_{Guid.NewGuid():n}"[..14];
+        var definition = OrderType(type);
+        definition.Fields.Add(new FieldDefinition { Name = hostile, Type = "decimal" });
+        await StoreAsync(null, definition, Order(type, "A", 1m));
+        var client = await AdminAsync();
+
+        var grouped = await SaveAsync(client, type, groupBy: [new { field = hostile }],
+            measures: [new { fn = "count", field = (string?)null, @as = "n" }]);
+        grouped.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await grouped.Content.ReadAsStringAsync(Ct)).Should().Contain("cannot be grouped on",
+            "the field is declared, so the name pattern refuses it, not the undeclared lookup");
+
+        var measured = await SaveAsync(client, type, measures: [new { fn = "sum", field = hostile, @as = "s" }]);
+        measured.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await measured.Content.ReadAsStringAsync(Ct)).Should().Contain("cannot be measured");
+    }
+
+    [Fact]
+    public async Task A_measure_name_ending_in_a_newline_is_refused()
+    {
+        var type = await SeedOrdersAsync(null, ("A", 1m));
+        var client = await AdminAsync();
+
+        var res = await SaveAsync(client, type, measures: [new { fn = "count", field = (string?)null, @as = "n\n" }]);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await res.Content.ReadAsStringAsync(Ct)).Should().Contain("needs a name");
+    }
+
+    [Fact]
+    public async Task A_null_fields_list_on_an_aggregate_save_is_not_a_server_error()
+    {
+        var type = await SeedOrdersAsync(null, ("A", 1m));
+        var client = await AdminAsync();
+
+        var res = await client.PostAsJsonAsync("/api/queries", new
+        {
+            name = "Report", slug = NewSlug("q"), contentType = type, fields = (string[]?)null,
+            measures = new[] { new { fn = "count", field = (string?)null, @as = "n" } },
+        }, Ct);
+
+        res.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", res.StatusCode, await res.Content.ReadAsStringAsync(Ct));
     }
 
     // ---- helpers ----------------------------------------------------------------------------

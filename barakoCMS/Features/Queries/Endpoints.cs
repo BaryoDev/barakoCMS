@@ -161,7 +161,7 @@ internal sealed class SaveQueryEndpoint(
     {
         if (req.Measures is { Count: > 0 })
         {
-            if (req.Fields.Count > 0) return "An aggregate query returns figures, not fields. Remove fields.";
+            if (req.Fields is { Count: > 0 }) return "An aggregate query returns figures, not fields. Remove fields.";
             if (!string.IsNullOrWhiteSpace(req.SortField)) return "An aggregate query is ordered by its groups. Remove the sort field.";
             if (req.Limit != QueryDefinition.DefaultLimit) return "An aggregate query is capped by its groups, not a limit. Remove the limit.";
             return null;
@@ -201,7 +201,7 @@ internal sealed class SaveQueryEndpoint(
         definition.SortField = req.SortField;
         definition.Descending = req.Descending;
         definition.Limit = req.Limit;
-        definition.Fields = req.Fields;
+        definition.Fields = req.Fields ?? [];
         definition.Range = req.Range;
         definition.GroupBy = req.GroupBy;
         definition.Measures = req.Measures;
