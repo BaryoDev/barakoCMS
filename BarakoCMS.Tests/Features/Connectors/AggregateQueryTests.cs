@@ -296,6 +296,105 @@ public class AggregateQueryTests
         fromOnly.GetProperty("totals").GetProperty("total").GetDecimal().Should().Be(6m, "the 1 March entry is before it");
     }
 
+    [Fact]
+    public async Task A_date_only_value_is_read_in_the_site_zone_for_buckets_and_range_edges()
+    {
+        var tenant = await TenantAsync();
+        var type = $"agg_{Guid.NewGuid():n}"[..14];
+        // Read as UTC midnight, 2026-03-11 is 17:00 on the 10th in Los Angeles and lands in the wrong day.
+        await StoreAsync(tenant,
+            OrderType(type),
+            Order(type, "A", 1m, date: "2026-03-10"),
+            Order(type, "A", 2m, date: "2026-03-11"),
+            SiteWithZone("America/Los_Angeles"));
+
+        var client = await MemberAsync(tenant);
+        var byDay = await SaveOkAsync(client, type, groupBy: [new { field = "Date", bucket = "day" }],
+            measures: [new { fn = "sum", field = "Total", @as = "total" }]);
+        var ranged = await SaveOkAsync(client, type, range: new { field = "Date" },
+            measures: [new { fn = "sum", field = "Total", @as = "total" }]);
+
+        var rows = (await RunOkAsync(client, byDay)).GetProperty("rows").EnumerateArray().ToList();
+        rows.Should().HaveCount(2);
+        RowFor(rows, "Date", "2026-03-10").GetProperty("total").GetDecimal().Should().Be(1m);
+        RowFor(rows, "Date", "2026-03-11").GetProperty("total").GetDecimal().Should().Be(2m);
+
+        var edge = await PostJsonAsync(client, $"/api/queries/{ranged}/run", new { from = "2026-03-11", to = "2026-03-11" });
+        edge.GetProperty("totals").GetProperty("total").GetDecimal().Should().Be(2m,
+            "the 11th is inside its own day in the site zone, and 0 would mean it was read as UTC");
+    }
+
+    [Fact]
+    public async Task A_malformed_stored_date_is_left_out_and_the_good_ones_still_count()
+    {
+        var tenant = await TenantAsync();
+        var type = $"agg_{Guid.NewGuid():n}"[..14];
+        await StoreAsync(tenant,
+            OrderType(type),
+            Order(type, "A", 1m, date: "2026-03-10"),
+            Order(type, "A", 2m, date: "2026-03-10T09:30:00Z"),
+            Order(type, "A", 100m, date: "2026-02-30"),
+            Order(type, "A", 200m, date: "2026-03-10 trailing junk"),
+            SiteWithZone("UTC"));
+
+        var client = await MemberAsync(tenant);
+        var slug = await SaveOkAsync(client, type, groupBy: [new { field = "Date", bucket = "day" }],
+            range: new { field = "Date" },
+            measures: [new { fn = "sum", field = "Total", @as = "total" }]);
+
+        var body = await PostJsonAsync(client, $"/api/queries/{slug}/run", new { from = "2026-03-01", to = "2026-03-31" });
+        var rows = body.GetProperty("rows").EnumerateArray().ToList();
+
+        rows.Should().HaveCount(1);
+        rows[0].GetProperty("total").GetDecimal().Should().Be(3m, "the two malformed values are not in any day");
+    }
+
+    [Fact]
+    public async Task A_range_or_grouping_on_a_query_that_returns_rows_is_refused()
+    {
+        var type = await SeedOrdersAsync(null, ("A", 1m));
+        var client = await AdminAsync();
+
+        var withRange = await client.PostAsJsonAsync("/api/queries", new
+        {
+            name = "Rows", slug = NewSlug("q"), contentType = type, fields = new[] { "Customer" },
+            range = new { field = "Date", relative = "thisMonth" },
+        }, Ct);
+        var withGroup = await client.PostAsJsonAsync("/api/queries", new
+        {
+            name = "Rows", slug = NewSlug("q"), contentType = type, fields = new[] { "Customer" },
+            groupBy = new[] { new { field = "Customer" } },
+        }, Ct);
+        var control = await client.PostAsJsonAsync("/api/queries", new
+        {
+            name = "Rows", slug = NewSlug("q"), contentType = type, fields = new[] { "Customer" },
+        }, Ct);
+
+        withRange.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        withGroup.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        control.IsSuccessStatusCode.Should().BeTrue("the control: the same query without them saves");
+    }
+
+    [Theory]
+    [InlineData("fields")]
+    [InlineData("sortField")]
+    [InlineData("limit")]
+    public async Task Fields_a_sort_or_a_limit_on_an_aggregate_query_are_refused(string extra)
+    {
+        var type = await SeedOrdersAsync(null, ("A", 1m));
+        var client = await AdminAsync();
+        var body = new Dictionary<string, object?>
+        {
+            ["name"] = "Figures", ["slug"] = NewSlug("q"), ["contentType"] = type,
+            ["measures"] = new[] { new { fn = "count", field = (string?)null, @as = "n" } },
+        };
+        body[extra] = extra switch { "fields" => new[] { "Customer" }, "sortField" => "Customer", _ => 5 };
+
+        var res = await client.PostAsJsonAsync("/api/queries", body, Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
     // ---- references -------------------------------------------------------------------------
 
     [Fact]
@@ -515,6 +614,12 @@ public class AggregateQueryTests
 
         await session.SaveChangesAsync(Ct);
     }
+
+    private static Content SiteWithZone(string zone) => new()
+    {
+        Id = Guid.NewGuid(), ContentType = "site", Status = ContentStatus.Published,
+        Data = new Dictionary<string, object> { ["TimeZone"] = zone },
+    };
 
     private static ContentTypeDefinition OrderType(string name) => new()
     {
