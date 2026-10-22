@@ -808,7 +808,7 @@ same registries the API checks requests against, so a client does not keep its o
 
 ```json
 {
-  "apiContractVersion": 10,
+  "apiContractVersion": 11,
   "fieldTypes": [
     { "name": "int", "aliases": ["integer", "number"], "editorHint": "number", "ruleNames": ["min", "max", "requiredWhen"] }
   ],
@@ -1055,7 +1055,6 @@ it on the routing table, which is where `GET /api/capabilities` and the role wri
 | Analytics (Umami) | `view_analytics` | the five read endpoints under `/api/analytics` |
 | Analytics (Umami) | `manage_analytics_websites` | `POST /api/analytics/websites` |
 | Diagnostics | `manage_client_errors` | `GET /api/client-errors`, `POST /api/client-errors/{id}/resolve` |
-| Email (Resend) | `view_email_events` | `GET /api/email-events` |
 | Feature flags | `manage_feature_flags` | everything under `/api/feature-flags/admin` |
 | Files | `upload_files` | `POST /api/files`, `GET /api/files`, `GET /api/files/{id}/meta`, `PATCH /api/files/{id}`, `GET /api/files/{id}/usage`, `DELETE /api/files/{id}` |
 | Files | `manage_all_files` | no route of its own: `GET /api/files/{id}` and `DELETE /api/files/{id}` for a private file somebody else uploaded |
@@ -1080,7 +1079,7 @@ global role, which only a platform administrator grants, or only through a tenan
 
 - Client errors, email events and PWA installs each belong to one tenant. Through a global role you
   see every tenant's rows; through a membership you see the current tenant's. An email event
-  belongs to the tenant that sent the email, recorded against Resend's id at send time; an event
+  belongs to the tenant that sent the email, recorded against the provider's id at send time; an event
   with no recorded sender is visible through a global role only. Only mail sent on a tenant's
   behalf through `IEmailService.SendForTenantAsync` (a workflow's email) is recorded; a user's own
   account mail, such as a sign-in code or a lockout notice, belongs to no tenant.

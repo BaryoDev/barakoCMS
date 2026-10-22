@@ -109,7 +109,6 @@ public class TenancyOptionsTests
     [InlineData("GET", "/health-ui")]
     [InlineData("GET", "/metrics/more")]
     [InlineData("GET", "/swagger/index.html")]
-    [InlineData("POST", "/api/webhooks/resend")]
     [InlineData("GET", "/api/a-route-added-tomorrow")]
     public void Any_other_route_needs_a_tenant(string method, string path)
     {

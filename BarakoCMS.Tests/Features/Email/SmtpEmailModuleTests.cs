@@ -36,8 +36,8 @@ public class SmtpEmailModuleTests
         var config = new ConfigurationBuilder().AddInMemoryCollection(pairs).Build();
 
         var services = new ServiceCollection();
-        // Discovery off: with it on, the Resend module this project references registers its own
-        // IEmailService and the single-registration claim below is about SMTP alone.
+        // Discovery off: with it on, the single-registration claim below would also count whatever
+        // other provider module this project references.
         services.AddBarakoCMS(config, m => { m.Discover = false; m.Add(new SmtpEmailModule()); });
 
         var registrations = services.Where(d => d.ServiceType == typeof(IEmailService)).ToList();
