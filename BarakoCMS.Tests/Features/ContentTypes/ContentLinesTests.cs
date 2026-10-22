@@ -217,4 +217,140 @@ public class ContentLinesTests : IAsyncLifetime
         (await StoredAsync(header)).Should().BeEmpty();
         (await StoredAsync(line)).Should().BeEmpty();
     }
+
+    private async Task<(string Header, string Line)> TotalTypesAsync()
+    {
+        var header = NewName("invoice");
+        var line = NewName("invoiceline");
+        (await _client.PostAsJsonAsync("/api/content-types", new
+        {
+            name = header, displayName = header,
+            fields = new object[] { new { name = "Total", type = "decimal" } },
+        }, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await _client.PostAsJsonAsync("/api/content-types", new
+        {
+            name = line, displayName = line,
+            fields = new object[]
+            {
+                new { name = "Amount", type = "decimal" },
+                new { name = "Invoice", type = "reference", referenceType = header },
+            },
+        }, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        var set = await _client.PutAsJsonAsync($"/api/content-types/{header}/lines",
+            new { lines = new { contentType = line, parentField = "invoice", totalField = "total", lineAmountField = "amount" } }, Ct);
+        set.StatusCode.Should().Be(HttpStatusCode.OK, await set.Content.ReadAsStringAsync(Ct));
+        return (header, line);
+    }
+
+    [Fact]
+    public async Task A_total_that_is_not_the_sum_of_its_lines_stores_nothing()
+    {
+        var (header, line) = await TotalTypesAsync();
+
+        var res = await _client.PostAsJsonAsync("/api/contents", new
+        {
+            contentType = header,
+            data = new { Total = 100 },
+            lines = new object[] { new { Amount = 60 }, new { Amount = 30 } },
+        }, Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await res.Content.ReadAsStringAsync(Ct)).Should().Contain("add up to 90");
+        (await StoredAsync(header)).Should().BeEmpty();
+        (await StoredAsync(line)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_total_that_is_the_sum_of_its_lines_is_stored()
+    {
+        var (header, line) = await TotalTypesAsync();
+
+        var res = await _client.PostAsJsonAsync("/api/contents", new
+        {
+            contentType = header,
+            data = new { Total = 90.5 },
+            lines = new object[] { new { Amount = 60.25 }, new { Amount = 30.25 } },
+        }, Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync(Ct));
+        (await StoredAsync(line)).Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task Declaring_a_total_without_its_line_amount_is_refused()
+    {
+        var (header, line) = await TypesAsync(declare: false);
+
+        var res = await _client.PutAsJsonAsync($"/api/content-types/{header}/lines",
+            new { lines = new { contentType = line, parentField = "order", totalField = "customer" } }, Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task A_header_is_read_with_only_its_own_lines_in_one_response()
+    {
+        var (header, line) = await TypesAsync();
+        var first = await _client.PostAsJsonAsync("/api/contents", new
+        {
+            contentType = header, data = new { Customer = "Gus" },
+            lines = new object[] { new { Sku = "A-1" }, new { Sku = "B-2" }, new { Sku = "C-3" } },
+        }, Ct);
+        var other = await _client.PostAsJsonAsync("/api/contents", new
+        {
+            contentType = header, data = new { Customer = "Hal" }, lines = new object[] { new { Sku = "Z-9" } },
+        }, Ct);
+        var firstId = (await first.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("id").GetGuid();
+        await other.Content.ReadAsStringAsync(Ct);
+
+        var res = await _client.GetAsync($"/api/contents/{firstId}/lines", Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync(Ct));
+        var body = await res.Content.ReadFromJsonAsync<JsonElement>(Ct);
+        body.GetProperty("header").GetProperty("id").GetGuid().Should().Be(firstId);
+        var skus = body.GetProperty("lines").EnumerateArray()
+            .Select(l => l.GetProperty("data").EnumerateObject().First(p => p.NameEquals("Sku") || p.NameEquals("sku")).Value.GetString())
+            .ToList();
+        skus.Should().HaveCount(3);
+        skus.Should().BeEquivalentTo(["A-1", "B-2", "C-3"]);
+    }
+
+    [Fact]
+    public async Task Another_tenant_cannot_read_a_header_or_its_lines()
+    {
+        var (header, line) = await TypesAsync();
+        var created = await _client.PostAsJsonAsync("/api/contents", new
+        {
+            contentType = header, data = new { Customer = "Ivy" }, lines = new object[] { new { Sku = "A-1" } },
+        }, Ct);
+        var headerId = (await created.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("id").GetGuid();
+
+        var slug = "scope" + Guid.NewGuid().ToString("n")[..10];
+        var userId = Guid.NewGuid();
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            await using var session = scope.ServiceProvider.GetRequiredService<IDocumentStore>().LightweightSession();
+            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug });
+            session.Store(new User { Id = userId, Username = slug, Email = slug + "@example.com" });
+            session.Store(new Membership
+            {
+                Id = Guid.NewGuid(), UserId = userId, TenantSlug = slug,
+                Status = MembershipStatus.Active, RoleIds = [SystemRoles.AdminRoleId],
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var other = _fixture.CreateClient();
+        other.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer",
+            _fixture.CreateToken(
+                roles: ["Admin"], userId: userId.ToString(),
+                additionalClaims: new Dictionary<string, string> { ["tenant"] = slug, ["Username"] = slug }));
+        other.DefaultRequestHeaders.Add("X-Tenant", slug);
+        other.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, "198.51.100.77");
+
+        (await other.GetAsync($"/api/contents/{headerId}/lines", Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound,
+            "the header belongs to the default tenant, and the read goes through a tenant-filtered session");
+        (await _client.GetAsync($"/api/contents/{headerId}/lines", Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await StoredAsync(line)).Should().ContainSingle();
+    }
 }

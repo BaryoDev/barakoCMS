@@ -124,6 +124,13 @@ internal class Endpoint(
         };
         var lines = req.Lines!.Select(l => LineWriter.Line(lineType, l, headerId, req.Status, req.Sensitivity)).ToList();
 
+        if (LineWriter.TotalMismatch(lineType, header.Data, lines) is { } mismatch)
+        {
+            AddError(mismatch);
+            ThrowIfAnyErrors();
+            return;
+        }
+
         if (!await permissionResolver.CanPerformActionAsync(user, lineType.ContentType, "create", null, ct))
         {
             await Send.ForbiddenAsync(ct);

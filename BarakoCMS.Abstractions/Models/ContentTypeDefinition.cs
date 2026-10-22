@@ -144,6 +144,15 @@ public class LinesDefinition
     /// the header's id.
     /// </summary>
     public string ParentField { get; set; } = string.Empty;
+
+    /// <summary>
+    /// A number field of the header that must equal the sum of <see cref="LineAmountField"/> over
+    /// its lines, or null for no such rule. Set together with <see cref="LineAmountField"/>.
+    /// </summary>
+    public string? TotalField { get; set; }
+
+    /// <summary>The number field of the line type that <see cref="TotalField"/> adds up.</summary>
+    public string? LineAmountField { get; set; }
 }
 
 /// <summary>How a content type numbers its entries, for example <c>INV-2026-00042</c>.</summary>

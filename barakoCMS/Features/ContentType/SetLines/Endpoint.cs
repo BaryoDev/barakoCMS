@@ -55,6 +55,8 @@ internal class Endpoint(
             {
                 ContentType = child!.Name,
                 ParentField = child.Fields.First(f => string.Equals(f.Name, asked.ParentField, StringComparison.OrdinalIgnoreCase)).Name,
+                TotalField = asked.TotalField is null ? null : def.Fields.First(f => string.Equals(f.Name, asked.TotalField, StringComparison.OrdinalIgnoreCase)).Name,
+                LineAmountField = asked.LineAmountField is null ? null : child.Fields.First(f => string.Equals(f.Name, asked.LineAmountField, StringComparison.OrdinalIgnoreCase)).Name,
             };
         }
 
@@ -107,6 +109,24 @@ internal class Endpoint(
             return [$"Field '{parent.Name}' of '{child.Name}' must be a single reference to '{header.Name}'."];
         }
 
+        if ((asked.TotalField is null) != (asked.LineAmountField is null))
+        {
+            return ["totalField and lineAmountField are set together or not at all."];
+        }
+
+        if (asked.TotalField is not null)
+        {
+            var total = header.Fields.FirstOrDefault(f => string.Equals(f.Name, asked.TotalField, StringComparison.OrdinalIgnoreCase));
+            var amount = child.Fields.FirstOrDefault(f => string.Equals(f.Name, asked.LineAmountField, StringComparison.OrdinalIgnoreCase));
+            if (total is null || !IsNumber(total) || amount is null || !IsNumber(amount))
+            {
+                return [$"'{asked.TotalField}' on '{header.Name}' and '{asked.LineAmountField}' on '{child.Name}' must both be number fields."];
+            }
+        }
+
         return [];
     }
+
+    private static bool IsNumber(FieldDefinition field) =>
+        field.Type.ToLowerInvariant() is "int" or "decimal" or "money" or "integer" or "number";
 }
