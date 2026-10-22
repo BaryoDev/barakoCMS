@@ -320,6 +320,7 @@ public class PrivateSiteModeTests
     {
         var tenant = await _host.TenantAsync();
         await StoreSiteAsync(tenant, "Live");
+        using var resolver = FastEndpointsResolver.Keep();
         using var host = _fixture.WithSettings(new Dictionary<string, string?>
         {
             ["Delivery:Events:Enabled"] = "true",
