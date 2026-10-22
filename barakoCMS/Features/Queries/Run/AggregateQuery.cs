@@ -266,7 +266,7 @@ internal sealed partial class AggregateQuery(
         if (!Functions.Contains(fn))
             return $"Unknown function '{measure.Fn}'. Supported: {string.Join(", ", Functions)}.";
 
-        var alias = measure.As?.Trim() ?? string.Empty;
+        var alias = measure.As ?? string.Empty;
         if (!NamePattern().IsMatch(alias))
             return "Every measure needs a name of letters, digits and underscores, starting with a letter.";
         if (!aliases.Add(alias))
