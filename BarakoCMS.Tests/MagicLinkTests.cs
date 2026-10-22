@@ -23,15 +23,16 @@ public class MagicLinkTests
 
     private readonly IntegrationTestFixture _factory;
     private readonly string _ip = $"198.51.100.{Random.Shared.Next(2, 250)}";
+    private readonly WebApplicationFactory<Program> _host;
     private readonly HttpClient _client;
 
     public MagicLinkTests(IntegrationTestFixture factory)
     {
         _factory = factory;
-        _client = factory
+        _host = factory
             .WithWebHostBuilder(b => b.ConfigureServices(s =>
-                s.AddSingleton<IStartupFilter, TestRemoteIpFilter>()))
-            .CreateClient();
+                s.AddSingleton<IStartupFilter, TestRemoteIpFilter>()));
+        _client = _host.CreateClient();
     }
 
     private async Task<string> SeedUserAsync()
@@ -153,7 +154,7 @@ public class MagicLinkTests
     {
         var known = await SeedUserAsync();
         var unknown = $"nobody-{Guid.NewGuid():N}@example.com";
-        var mail = _factory.Services.GetRequiredService<RecordingEmailService>();
+        var mail = _host.Services.GetRequiredService<RecordingEmailService>();
 
         var a = await Request(known);
         var b = await Request(unknown);
@@ -170,7 +171,7 @@ public class MagicLinkTests
     public async Task A_requested_link_from_the_email_signs_in()
     {
         var email = await SeedUserAsync();
-        var mail = _factory.Services.GetRequiredService<RecordingEmailService>();
+        var mail = _host.Services.GetRequiredService<RecordingEmailService>();
 
         (await Request(email)).StatusCode.Should().Be(HttpStatusCode.OK);
         var token = mail.LastVerificationTokenFor(email);

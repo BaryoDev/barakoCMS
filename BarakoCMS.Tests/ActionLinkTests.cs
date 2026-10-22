@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using barakoCMS.Core.Interfaces;
+using barakoCMS.Events;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using FluentAssertions;
@@ -105,6 +106,12 @@ public class ActionLinkTests
         session.Store(role);
         session.Store(reviewer);
         session.Store(entry);
+        session.Events.StartStream<Content>(
+            entry.Id,
+            new ContentCreated(
+                entry.Id, type, entry.Data, ContentStatus.Draft, entry.CreatedBy, "a claim",
+                SensitivityLevel.Public, DateTime.UtcNow),
+            new ContentTransitioned(entry.Id, "Submit", "Draft", "Submitted", entry.CreatedBy, DateTime.UtcNow));
         await session.SaveChangesAsync();
         return new Setup(type, entry.Id, reviewer, role);
     }
