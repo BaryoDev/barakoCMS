@@ -48,28 +48,10 @@ internal sealed class RequestAction(
             return WorkflowActionResult.Failure("No 'Request' parameter names a request definition.");
         }
 
-        var definition = await session.Query<RequestDefinition>()
-            .FirstOrDefaultAsync(r => r.Slug == slug, ct);
-
-        if (definition is null)
+        var (definition, connector, problem) = await LoadAsync(slug, ct);
+        if (problem is not null)
         {
-            return WorkflowActionResult.Failure($"No request definition with the slug '{slug}'.");
-        }
-
-        var connector = await session.Query<Connector>()
-            .FirstOrDefaultAsync(c => c.Slug == definition.ConnectorSlug, ct);
-
-        if (connector is null)
-        {
-            // Named, because a connector deleted out from under a workflow turns every run into a
-            // failure whose message otherwise says nothing about which piece went missing.
-            return WorkflowActionResult.Failure(
-                $"Request '{slug}' names connector '{definition.ConnectorSlug}', which does not exist.");
-        }
-
-        if (!connector.Enabled)
-        {
-            return WorkflowActionResult.Failure($"Connector '{connector.Slug}' is disabled.");
+            return WorkflowActionResult.Failure(problem);
         }
 
         // Present when the runner queued this attempt (WorkflowRunner.cs sets it on every action's
@@ -78,13 +60,13 @@ internal sealed class RequestAction(
         // agree for a receiver comparing them to see one call rather than two.
         parameters.TryGetValue("IdempotencyKey", out var idempotencyKey);
 
-        var composed = await composer.ComposeAsync(definition, connector, content, idempotencyKey, ct);
+        var composed = await composer.ComposeAsync(definition!, connector!, content, idempotencyKey, ct);
 
         // The sender this host registers also writes the delivery row, for a refusal too, since
         // "did it fire" is asked of a request that was never sent as often as of one that was. A
         // sender a host put in its place is not asked to send a request that was refused.
         var recording = sender as IConnectorDeliverySender;
-        var capture = ResponseCapture.From(definition);
+        var capture = ResponseCapture.From(definition!);
         var delivery = ConnectorDeliveryContext.From(slug, parameters) with { Capture = capture };
 
         if (!composed.Ok)
@@ -93,7 +75,7 @@ internal sealed class RequestAction(
 
             if (recording is not null)
             {
-                await recording.SendAsync(connector, composed, definition.Success, definition.SuccessJsonPath, delivery, ct);
+                await recording.SendAsync(connector!, composed, definition!.Success, definition.SuccessJsonPath, delivery, ct);
             }
 
             return WorkflowActionResult.Failure(composed.Refusal!);
@@ -108,9 +90,14 @@ internal sealed class RequestAction(
         }
 
         var result = recording is not null
-            ? await recording.SendAsync(connector, composed, definition.Success, definition.SuccessJsonPath, delivery, ct)
-            : await sender.SendAsync(connector, composed, definition.Success, definition.SuccessJsonPath, ct);
+            ? await recording.SendAsync(connector!, composed, definition!.Success, definition.SuccessJsonPath, delivery, ct)
+            : await sender.SendAsync(connector!, composed, definition!.Success, definition.SuccessJsonPath, ct);
 
+        return ToActionResult(slug, capture, result);
+    }
+
+    private static WorkflowActionResult ToActionResult(string slug, ResponseCapture? capture, ConnectorCallResult result)
+    {
         if (!result.Succeeded)
         {
             var message = $"Request '{slug}': {result.Error ?? result.Describe()}";
@@ -133,5 +120,31 @@ internal sealed class RequestAction(
         return result.Outputs is { Count: > 0 }
             ? WorkflowActionResult.Success(result.Outputs)
             : WorkflowActionResult.Success();
+    }
+
+    private async Task<(RequestDefinition? Definition, Connector? Connector, string? Problem)> LoadAsync(
+        string slug, CancellationToken ct)
+    {
+        var definition = await session.Query<RequestDefinition>()
+            .FirstOrDefaultAsync(r => r.Slug == slug, ct);
+
+        if (definition is null)
+        {
+            return (null, null, $"No request definition with the slug '{slug}'.");
+        }
+
+        var connector = await session.Query<Connector>()
+            .FirstOrDefaultAsync(c => c.Slug == definition.ConnectorSlug, ct);
+
+        if (connector is null)
+        {
+            // Named, because a connector deleted out from under a workflow turns every run into a
+            // failure whose message otherwise says nothing about which piece went missing.
+            return (definition, null, $"Request '{slug}' names connector '{definition.ConnectorSlug}', which does not exist.");
+        }
+
+        return connector.Enabled
+            ? (definition, connector, null)
+            : (definition, connector, $"Connector '{connector.Slug}' is disabled.");
     }
 }

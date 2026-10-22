@@ -310,39 +310,7 @@ internal sealed class ConnectorSender(
             var response = again ?? first;
             timer.Stop();
 
-            byte[]? held = null;
-            var overCap = false;
-            if (bounded) (held, overCap) = await HoldBodyAsync(response, ResponseOutputs.MaxBodyBytes, ct);
-
-            if (draft is not null) await draft.ReadResponseAsync(response, ct);
-
-            var status = (int)response.StatusCode;
-
-            // The body is read only when a rule needs it, and it is never returned or logged. A 401
-            // from an OAuth provider frequently contains the credential that was sent.
-            string? body = null;
-            if (ruleReadsBody)
-            {
-                if (overCap)
-                {
-                    return new ConnectorCallResult(
-                        false, status, timer.ElapsedMilliseconds,
-                        $"The response was longer than {ResponseOutputs.MaxBodyBytes} bytes, so the success rule could not be checked.");
-                }
-
-                body = Encoding.UTF8.GetString(held!);
-            }
-
-            var ok = SuccessEvaluator.Succeeded(rule, status, body, successJsonPath);
-
-            if (ok && capture is not null && draft is not null)
-            {
-                return CaptureOutputs(status, timer.ElapsedMilliseconds, capture, draft, held, overCap);
-            }
-
-            return new ConnectorCallResult(
-                ok, status, timer.ElapsedMilliseconds,
-                ok ? null : $"The provider answered {status} and the success rule was not met.");
+            return await JudgeAsync(response, rule, successJsonPath, ruleReadsBody, bounded, draft, capture, timer.ElapsedMilliseconds, ct);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -354,6 +322,45 @@ internal sealed class ConnectorSender(
             logger.LogWarning("Connector {Slug} send failed: {Reason}", connector.Slug, ex.GetType().Name);
             return new ConnectorCallResult(false, null, timer.ElapsedMilliseconds, Describe(ex));
         }
+    }
+
+    private static async Task<ConnectorCallResult> JudgeAsync(
+        HttpResponseMessage response, SuccessRule rule, string? successJsonPath, bool ruleReadsBody, bool bounded,
+        ConnectorDeliveryDraft? draft, ResponseCapture? capture, long elapsedMs, CancellationToken ct)
+    {
+        byte[]? held = null;
+        var overCap = false;
+        if (bounded) (held, overCap) = await HoldBodyAsync(response, ResponseOutputs.MaxBodyBytes, ct);
+
+        if (draft is not null) await draft.ReadResponseAsync(response, ct);
+
+        var status = (int)response.StatusCode;
+
+        // The body is read only when a rule needs it, and it is never returned or logged. A 401
+        // from an OAuth provider frequently contains the credential that was sent.
+        string? body = null;
+        if (ruleReadsBody)
+        {
+            if (overCap)
+            {
+                return new ConnectorCallResult(
+                    false, status, elapsedMs,
+                    $"The response was longer than {ResponseOutputs.MaxBodyBytes} bytes, so the success rule could not be checked.");
+            }
+
+            body = Encoding.UTF8.GetString(held!);
+        }
+
+        var ok = SuccessEvaluator.Succeeded(rule, status, body, successJsonPath);
+
+        if (ok && capture is not null && draft is not null)
+        {
+            return CaptureOutputs(status, elapsedMs, capture, draft, held, overCap);
+        }
+
+        return new ConnectorCallResult(
+            ok, status, elapsedMs,
+            ok ? null : $"The provider answered {status} and the success rule was not met.");
     }
 
     /// <summary>

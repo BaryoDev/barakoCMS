@@ -55,42 +55,13 @@ internal static class OutputPath
 
             var c = path[at];
 
-            if (c == '[')
+            var step = c == '['
+                ? TryParseIndex(path, ref at, found, out error)
+                : TryParseName(path, ref at, first, found, out error);
+
+            if (!step)
             {
-                var close = path.IndexOf(']', at);
-                var digits = close < 0 ? string.Empty : path[(at + 1)..close];
-
-                if (digits.Length is 0 or > MaxIndexDigits || !digits.All(char.IsAsciiDigit))
-                {
-                    error = "A [ ] step must hold an array position such as [0].";
-                    return false;
-                }
-
-                found.Add(new OutputPathSegment(null, int.Parse(digits, CultureInfo.InvariantCulture)));
-                at = close + 1;
-            }
-            else
-            {
-                if (c == '.')
-                {
-                    at++;
-                }
-                else if (!first)
-                {
-                    error = "Steps are separated by a dot.";
-                    return false;
-                }
-
-                var start = at;
-                while (at < path.Length && IsNameChar(path[at])) at++;
-
-                if (at == start || at - start > MaxNameLength)
-                {
-                    error = $"A step must be a property name of 1 to {MaxNameLength} letters, digits, underscores or hyphens.";
-                    return false;
-                }
-
-                found.Add(new OutputPathSegment(path[start..at], null));
+                return false;
             }
 
             first = false;
@@ -103,6 +74,49 @@ internal static class OutputPath
         }
 
         segments = found;
+        error = null;
+        return true;
+    }
+
+    private static bool TryParseIndex(string path, ref int at, List<OutputPathSegment> found, out string? error)
+    {
+        var close = path.IndexOf(']', at);
+        var digits = close < 0 ? string.Empty : path[(at + 1)..close];
+
+        if (digits.Length is 0 or > MaxIndexDigits || !digits.All(char.IsAsciiDigit))
+        {
+            error = "A [ ] step must hold an array position such as [0].";
+            return false;
+        }
+
+        found.Add(new OutputPathSegment(null, int.Parse(digits, CultureInfo.InvariantCulture)));
+        at = close + 1;
+        error = null;
+        return true;
+    }
+
+    private static bool TryParseName(string path, ref int at, bool first, List<OutputPathSegment> found, out string? error)
+    {
+        if (path[at] == '.')
+        {
+            at++;
+        }
+        else if (!first)
+        {
+            error = "Steps are separated by a dot.";
+            return false;
+        }
+
+        var start = at;
+        while (at < path.Length && IsNameChar(path[at])) at++;
+
+        if (at == start || at - start > MaxNameLength)
+        {
+            error = $"A step must be a property name of 1 to {MaxNameLength} letters, digits, underscores or hyphens.";
+            return false;
+        }
+
+        found.Add(new OutputPathSegment(path[start..at], null));
         error = null;
         return true;
     }
