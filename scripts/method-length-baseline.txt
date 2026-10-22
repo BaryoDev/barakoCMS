@@ -84,7 +84,6 @@
 91 barakoCMS/Infrastructure/Connectors/ConnectorSender.cs::ConnectorSender.FetchAsync
 83 barakoCMS/Infrastructure/Connectors/ConnectorSender.cs::ConnectorSender.TryAttachGrantedTokenAsync
 75 barakoCMS/Infrastructure/Connectors/ConnectorTokens.cs::ClientCredentialsGrant.RequestAsync
-82 barakoCMS/Infrastructure/Connectors/QueryRunner.cs::QueryRunner.ValidateAsync
 121 barakoCMS/Infrastructure/Connectors/RequestComposer.cs::RequestComposer.ComposeAsync
 82 barakoCMS/Infrastructure/Connectors/RequestComposer.cs::RequestComposer.ResolveQueryAsync
 83 barakoCMS/Infrastructure/Filters/IdempotencyFilter.cs::IdempotencyFilter.AnswerExistingAsync

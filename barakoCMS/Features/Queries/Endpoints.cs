@@ -18,6 +18,9 @@ internal sealed class QueryResponse
     public bool Descending { get; init; }
     public int Limit { get; init; }
     public List<string> Fields { get; init; } = new();
+    public QueryRange? Range { get; init; }
+    public List<QueryGroup>? GroupBy { get; init; }
+    public List<QueryMeasure>? Measures { get; init; }
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; init; }
 
@@ -32,6 +35,9 @@ internal sealed class QueryResponse
         Descending = q.Descending,
         Limit = q.Limit,
         Fields = q.Fields,
+        Range = q.Range,
+        GroupBy = q.GroupBy,
+        Measures = q.Measures,
         CreatedAt = q.CreatedAt,
         UpdatedAt = q.UpdatedAt,
     };
@@ -47,6 +53,9 @@ internal class SaveQueryRequest
     public bool Descending { get; set; }
     public int Limit { get; set; } = QueryDefinition.DefaultLimit;
     public List<string> Fields { get; set; } = new();
+    public QueryRange? Range { get; set; }
+    public List<QueryGroup>? GroupBy { get; set; }
+    public List<QueryMeasure>? Measures { get; set; }
 }
 
 internal sealed class QueryPreviewResponse
@@ -55,6 +64,10 @@ internal sealed class QueryPreviewResponse
     public string? Refusal { get; init; }
     public int Count { get; init; }
     public IReadOnlyList<Dictionary<string, object>> Rows { get; init; } = [];
+
+    /// <summary>Every measure over the whole set, for an aggregate query. Left out otherwise.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, object?>? Totals { get; init; }
 }
 
 internal static class QueryGate
@@ -134,12 +147,29 @@ internal sealed class GetQueryEndpoint(IQuerySession session) : EndpointWithoutR
 internal sealed class SaveQueryEndpoint(
     IDocumentSession session,
     IQueryRunner runner,
+    barakoCMS.Infrastructure.Services.IPermissionResolver permissions,
+    barakoCMS.Core.Interfaces.ISensitivityService sensitivity,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<SaveQueryRequest, QueryResponse>
 {
     public override void Configure()
     {
         Post("/api/queries");
         Definition.RequireCapability(SystemCapabilities.ManageQueries, QueryGate.LegacyRoles);
+    }
+
+    private static string? ShapeRefusal(SaveQueryRequest req)
+    {
+        if (req.Measures is { Count: > 0 })
+        {
+            if (req.Fields is { Count: > 0 }) return "An aggregate query returns figures, not fields. Remove fields.";
+            if (!string.IsNullOrWhiteSpace(req.SortField)) return "An aggregate query is ordered by its groups. Remove the sort field.";
+            if (req.Limit != QueryDefinition.DefaultLimit) return "An aggregate query is capped by its groups, not a limit. Remove the limit.";
+            return null;
+        }
+
+        if (req.Range is not null) return "A range only applies to an aggregate query. Add a measure or remove the range.";
+        if (req.GroupBy is { Count: > 0 }) return "Grouping only applies to an aggregate query. Add a measure or remove the grouping.";
+        return null;
     }
 
     public override async Task HandleAsync(SaveQueryRequest req, CancellationToken ct)
@@ -150,6 +180,9 @@ internal sealed class SaveQueryEndpoint(
             ThrowError("Slug must be lowercase letters, digits and hyphens.", 400);
             return;
         }
+
+        var shapeRefusal = ShapeRefusal(req);
+        if (shapeRefusal is not null) { ThrowError(shapeRefusal, 400); return; }
 
         var existing = await session.Query<QueryDefinition>().FirstOrDefaultAsync(q => q.Slug == req.Slug, ct);
         // A deleted query still holds the slug. Saving over it reuses the row, so creating after a
@@ -168,13 +201,21 @@ internal sealed class SaveQueryEndpoint(
         definition.SortField = req.SortField;
         definition.Descending = req.Descending;
         definition.Limit = req.Limit;
-        definition.Fields = req.Fields;
+        definition.Fields = req.Fields ?? [];
+        definition.Range = req.Range;
+        definition.GroupBy = req.GroupBy;
+        definition.Measures = req.Measures;
         definition.UpdatedAt = DateTime.UtcNow;
 
         // Validated against the schema before it is stored, so an unknown or non-Public field is a
         // 400 while the operator is still looking at the form, rather than a workflow that fails
         // later with a message about a field they thought they had.
-        var refusal = await runner.ValidateAsync(definition, ct);
+        // An aggregate is checked against what this caller may read, since its figures are computed
+        // under the reader's rules, and returns no rows for a projection to name.
+        var refusal = definition.IsAggregate
+            ? (await new Run.AggregateQuery(session, permissions, sensitivity)
+                .RunAsync(definition, User, null, null, execute: false, ct)).Refusal
+            : await runner.ValidateAsync(definition, ct);
         if (refusal is not null)
         {
             ThrowError(refusal, 400);
@@ -340,7 +381,9 @@ internal sealed class EraseQueryEndpoint(
 /// </remarks>
 internal sealed class PreviewQueryEndpoint(
     IQuerySession session,
-    IQueryRunner runner) : EndpointWithoutRequest<QueryPreviewResponse>
+    IQueryRunner runner,
+    barakoCMS.Infrastructure.Services.IPermissionResolver permissions,
+    barakoCMS.Core.Interfaces.ISensitivityService sensitivity) : EndpointWithoutRequest<QueryPreviewResponse>
 {
     public override void Configure()
     {
@@ -362,6 +405,22 @@ internal sealed class PreviewQueryEndpoint(
         if (definition is null)
         {
             await Send.NotFoundAsync(ct);
+            return;
+        }
+
+        if (definition.IsAggregate)
+        {
+            var figures = await new Run.AggregateQuery(session, permissions, sensitivity)
+                .RunAsync(definition, User, null, null, execute: true, ct);
+
+            await Send.ResponseAsync(new QueryPreviewResponse
+            {
+                Ok = figures.Ok,
+                Refusal = figures.Refusal,
+                Count = figures.Rows.Count,
+                Rows = figures.Rows.Select(r => r.ToDictionary(kv => kv.Key, kv => kv.Value!)).ToList(),
+                Totals = figures.Ok ? figures.Totals : null,
+            }, cancellation: ct);
             return;
         }
 

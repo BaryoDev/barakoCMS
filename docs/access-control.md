@@ -938,7 +938,7 @@ says.
 | `Features/ContentType/*` | `manage_public_delivery` | `PUT /api/content-types/{name}/public-delivery`, `PUT /api/content-types/{name}/fields/{field}/sensitivity` | SuperAdmin, Admin |
 | `Features/Monitoring/*` | `view_monitoring` | `GET /api/monitoring/health`, `/k8s`, `/metrics` | SuperAdmin, Admin |
 | `Features/Redirects/*` | `manage_redirects` | `/api/redirects`, `DELETE /api/redirects/{id}`, `POST /api/redirects/import` | SuperAdmin, Admin |
-| `Features/Queries/*` | `manage_queries` | `/api/queries`, `/api/queries/{slug}`, `POST /api/queries/{slug}/preview` | SuperAdmin, Admin |
+| `Features/Queries/*` | `manage_queries` | `/api/queries`, `/api/queries/{slug}`, `POST /api/queries/{slug}/preview`, `POST /api/queries/{slug}/run` | SuperAdmin, Admin |
 | `Features/Requests/*` | `manage_requests` | `/api/requests`, `/api/requests/{slug}`, `POST /api/requests/{slug}/dry-run/{contentId}` | SuperAdmin, Admin |
 | `Features/Connectors/*` | `view_connectors` | `GET /api/connectors`, `GET /api/connectors/{slug}` | SuperAdmin, Admin |
 | `Features/Connectors/*` | `manage_connectors` | `POST /api/connectors`, `PUT` and `DELETE /api/connectors/{slug}`, `POST /api/connectors/{slug}/test` | SuperAdmin, Admin |

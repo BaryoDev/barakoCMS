@@ -113,6 +113,7 @@ public class RoleGateTests
         new("GET", "/api/queries/{slug}", $"/api/queries/{NotASlug}"),
         new("DELETE", "/api/queries/{slug}", $"/api/queries/{NotASlug}"),
         new("POST", "/api/queries/{slug}/preview", $"/api/queries/{NotASlug}/preview"),
+        new("POST", "/api/queries/{slug}/run", $"/api/queries/{NotASlug}/run"),
         new("GET", "/api/webhook-deliveries", "/api/webhook-deliveries"),
         new("GET", "/api/connector-deliveries", "/api/connector-deliveries"),
         new("GET", "/api/workflow-runs", "/api/workflow-runs"),
