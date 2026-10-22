@@ -48,12 +48,89 @@ internal sealed class RequestAction(
             return WorkflowActionResult.Failure("No 'Request' parameter names a request definition.");
         }
 
+        var (definition, connector, problem) = await LoadAsync(slug, ct);
+        if (problem is not null)
+        {
+            return WorkflowActionResult.Failure(problem);
+        }
+
+        // Present when the runner queued this attempt (WorkflowRunner.cs sets it on every action's
+        // parameters), absent when this action was invoked some other way. Passed through unchanged:
+        // WebhookAction sends the same runner-supplied value verbatim, and the two paths have to
+        // agree for a receiver comparing them to see one call rather than two.
+        parameters.TryGetValue("IdempotencyKey", out var idempotencyKey);
+
+        var composed = await composer.ComposeAsync(definition!, connector!, content, idempotencyKey, ct);
+
+        // The sender this host registers also writes the delivery row, for a refusal too, since
+        // "did it fire" is asked of a request that was never sent as often as of one that was. A
+        // sender a host put in its place is not asked to send a request that was refused.
+        var recording = sender as IConnectorDeliverySender;
+        var capture = ResponseCapture.From(definition!);
+        var delivery = ConnectorDeliveryContext.From(slug, parameters) with { Capture = capture };
+
+        if (!composed.Ok)
+        {
+            logger.LogWarning("Request '{Slug}' was refused before sending: {Reason}", slug, composed.Refusal);
+
+            if (recording is not null)
+            {
+                await recording.SendAsync(connector!, composed, definition!.Success, definition.SuccessJsonPath, delivery, ct);
+            }
+
+            return WorkflowActionResult.Failure(composed.Refusal!);
+        }
+
+        if (capture is not null && recording is null)
+        {
+            // Refused before the call. A sender that cannot hand the answer back would make the
+            // call and then drop the values the step was configured to keep.
+            return WorkflowActionResult.PermanentFailure(
+                $"Request '{slug}' keeps outputs from the response, and the connector sender in use cannot return them.");
+        }
+
+        var result = recording is not null
+            ? await recording.SendAsync(connector!, composed, definition!.Success, definition.SuccessJsonPath, delivery, ct)
+            : await sender.SendAsync(connector!, composed, definition!.Success, definition.SuccessJsonPath, ct);
+
+        return ToActionResult(slug, capture, result);
+    }
+
+    private static WorkflowActionResult ToActionResult(string slug, ResponseCapture? capture, ConnectorCallResult result)
+    {
+        if (!result.Succeeded)
+        {
+            var message = $"Request '{slug}': {result.Error ?? result.Describe()}";
+
+            // The provider answered and the call counted as sent, so the same call would fail the
+            // same way. Retrying would spend a second call on the provider for nothing.
+            return result.OutputsFailed
+                ? WorkflowActionResult.PermanentFailure(message)
+                : WorkflowActionResult.Failure(message);
+        }
+
+        if (capture is not null && !capture.Paths.Keys.All(name => result.Outputs?.ContainsKey(name) == true))
+        {
+            // A sender that says it worked but did not hand back what was asked for. Storing
+            // nothing would look like a step that kept its values.
+            return WorkflowActionResult.PermanentFailure(
+                $"Request '{slug}' keeps outputs from the response, and the sender did not return all of them.");
+        }
+
+        return result.Outputs is { Count: > 0 }
+            ? WorkflowActionResult.Success(result.Outputs)
+            : WorkflowActionResult.Success();
+    }
+
+    private async Task<(RequestDefinition? Definition, Connector? Connector, string? Problem)> LoadAsync(
+        string slug, CancellationToken ct)
+    {
         var definition = await session.Query<RequestDefinition>()
             .FirstOrDefaultAsync(r => r.Slug == slug, ct);
 
         if (definition is null)
         {
-            return WorkflowActionResult.Failure($"No request definition with the slug '{slug}'.");
+            return (null, null, $"No request definition with the slug '{slug}'.");
         }
 
         var connector = await session.Query<Connector>()
@@ -63,47 +140,11 @@ internal sealed class RequestAction(
         {
             // Named, because a connector deleted out from under a workflow turns every run into a
             // failure whose message otherwise says nothing about which piece went missing.
-            return WorkflowActionResult.Failure(
-                $"Request '{slug}' names connector '{definition.ConnectorSlug}', which does not exist.");
+            return (definition, null, $"Request '{slug}' names connector '{definition.ConnectorSlug}', which does not exist.");
         }
 
-        if (!connector.Enabled)
-        {
-            return WorkflowActionResult.Failure($"Connector '{connector.Slug}' is disabled.");
-        }
-
-        // Present when the runner queued this attempt (WorkflowRunner.cs sets it on every action's
-        // parameters), absent when this action was invoked some other way. Passed through unchanged:
-        // WebhookAction sends the same runner-supplied value verbatim, and the two paths have to
-        // agree for a receiver comparing them to see one call rather than two.
-        parameters.TryGetValue("IdempotencyKey", out var idempotencyKey);
-
-        var composed = await composer.ComposeAsync(definition, connector, content, idempotencyKey, ct);
-
-        // The sender this host registers also writes the delivery row, for a refusal too, since
-        // "did it fire" is asked of a request that was never sent as often as of one that was. A
-        // sender a host put in its place is not asked to send a request that was refused.
-        var recording = sender as IConnectorDeliverySender;
-        var delivery = ConnectorDeliveryContext.From(slug, parameters);
-
-        if (!composed.Ok)
-        {
-            logger.LogWarning("Request '{Slug}' was refused before sending: {Reason}", slug, composed.Refusal);
-
-            if (recording is not null)
-            {
-                await recording.SendAsync(connector, composed, definition.Success, definition.SuccessJsonPath, delivery, ct);
-            }
-
-            return WorkflowActionResult.Failure(composed.Refusal!);
-        }
-
-        var result = recording is not null
-            ? await recording.SendAsync(connector, composed, definition.Success, definition.SuccessJsonPath, delivery, ct)
-            : await sender.SendAsync(connector, composed, definition.Success, definition.SuccessJsonPath, ct);
-
-        return result.Succeeded
-            ? WorkflowActionResult.Success()
-            : WorkflowActionResult.Failure($"Request '{slug}': {result.Error ?? result.Describe()}");
+        return connector.Enabled
+            ? (definition, connector, null)
+            : (definition, connector, $"Connector '{connector.Slug}' is disabled.");
     }
 }

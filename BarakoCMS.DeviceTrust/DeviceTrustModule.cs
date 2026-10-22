@@ -19,6 +19,16 @@ public sealed class DeviceTrustModule : IBarakoModule
 {
     public string Name => "DeviceTrust";
 
+    public string? PackageId => "BarakoCMS.DeviceTrust";
+
+    public string? PackageVersion => ModuleMetadata.VersionOf(GetType());
+
+    public string? Category => ModuleCategory.Access;
+
+    public string? Description => "Trusted devices and OTP approval of new ones";
+
+    public string? Glyph => "shield-check";
+
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
     {
         services.AddScoped<IDeviceTrustService, DeviceTrustService>();

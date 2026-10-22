@@ -109,13 +109,23 @@ public class SemanticSearchEndpoint(
             .ToListAsync(ct);
         var truncated = filterTruncated || scanned.Count > scanLimit;
 
-        var ranked = scanned
-            .Take(scanLimit)
-            .Select(e => (e, score: Vectors.Cosine(queryVector, e.Vector)))
-            .Where(x => x.score >= Floor)
-            .OrderByDescending(x => x.score)
-            .Take(limit * 3) // buffer for the freshness filter below
-            .ToList();
+        List<(ContentEmbedding e, double score)> ranked;
+        try
+        {
+            ranked = scanned
+                .Take(scanLimit)
+                .Select(e => (e, score: Vectors.Cosine(queryVector, e.Vector)))
+                .Where(x => x.score >= Floor)
+                .OrderByDescending(x => x.score)
+                .Take(limit * 3) // buffer for the freshness filter below
+                .ToList();
+        }
+        catch (VectorDimensionMismatchException ex)
+        {
+            AddError(ex.Message);
+            await Send.ErrorsAsync(409, ct);
+            return;
+        }
 
         // The vector is only a hint; the current content is the source of truth on visibility.
         var current = ranked.Count == 0

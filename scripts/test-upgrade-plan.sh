@@ -229,7 +229,7 @@ copy_repo "$repo"
 mkdir -p "$repo/migrations/9.9.0"
 printf -- 'select 1;\n' > "$repo/migrations/9.9.0/forms-thing.sql"
 forms=$(ls "$repo"/BarakoCMS.Forms/*.csproj)
-sed -i 's#</Project>#  <ItemGroup><EmbeddedResource Include="..\\migrations\\9.9.0\\forms-thing.sql" /></ItemGroup>\n</Project>#' "$forms"
+perl -pi -e 's#</Project>#  <ItemGroup><EmbeddedResource Include="..\\migrations\\9.9.0\\forms-thing.sql" /></ItemGroup>\n</Project>#' "$forms"
 plan "$repo" 3.21.0
 expect "a file a module embeds runs last among module files" "module migrations/9.9.0/forms-thing.sql" "$(grep '^module ' <<< "$out" | tail -1)"
 

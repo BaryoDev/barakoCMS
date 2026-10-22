@@ -93,8 +93,8 @@ public class ScheduledContentService : BackgroundService
 
     /// <summary>Sweeps the default partition and every active tenant. Exposed for tests.</summary>
     /// <returns>
-    /// True if this instance held the lock and swept; false if another instance was already sweeping
-    /// and this tick did nothing.
+    /// True if this instance held the lock and swept every tenant; false if another instance was
+    /// already sweeping, or this one lost the lock partway and stopped.
     /// </returns>
     /// <remarks>
     /// This runs on every node, unlike the projection daemon, because a BackgroundService has no
@@ -110,41 +110,31 @@ public class ScheduledContentService : BackgroundService
     /// </remarks>
     public async Task<bool> TrySweepAllTenantsAsync(DateTime nowUtc, CancellationToken ct)
     {
-        // The connection object, not a new one built from its ConnectionString: Npgsql redacts the
-        // password out of ConnectionString unless Persist Security Info is set, so rebuilding from it
-        // fails authentication.
         using var span = Tracing.BarakoTracing.StartSweep(Tracing.BarakoTracing.ScheduledSweepSpan);
-        await using var lockConnection = _store.Storage.Database.CreateConnection();
-        await lockConnection.OpenAsync(ct);
-
-        await using (var acquire = lockConnection.CreateCommand())
+        await using var lease = await AdvisoryLease.AcquireAsync(_store, SweepLockKey, ct);
+        span?.SetTag(Tracing.BarakoTracing.SweepHeldTag, lease is not null);
+        if (lease is null)
         {
-            acquire.CommandText = "select pg_try_advisory_lock(@key)";
-            acquire.Parameters.AddWithValue("key", SweepLockKey);
-            var acquired = (bool?)await acquire.ExecuteScalarAsync(ct) ?? false;
-            span?.SetTag(Tracing.BarakoTracing.SweepHeldTag, acquired);
-            if (!acquired)
+            _logger.LogDebug("Another instance is sweeping scheduled content; skipping this tick.");
+            return false;
+        }
+
+        if (lease.PoolerSuspected)
+        {
+            AdvisoryLease.ReportPooler(_logger, SweepLockKey);
+            if (AdvisoryLease.RefuseBehindPooler(_configuration))
             {
-                _logger.LogDebug("Another instance is sweeping scheduled content; skipping this tick.");
                 return false;
             }
         }
 
-        try
-        {
-            await SweepHeldAsync(nowUtc, ct);
-            return true;
-        }
-        finally
-        {
-            await using var release = lockConnection.CreateCommand();
-            release.CommandText = "select pg_advisory_unlock(@key)";
-            release.Parameters.AddWithValue("key", SweepLockKey);
-            await release.ExecuteScalarAsync(CancellationToken.None);
-        }
+        return await SweepHeldAsync(nowUtc, lease, ct);
     }
 
-    private async Task SweepHeldAsync(DateTime nowUtc, CancellationToken ct)
+    /// <summary>Runs once, after a tenant's due items are loaded and before the first is written. Tests only.</summary>
+    internal Func<CancellationToken, Task>? AfterLoad { get; set; }
+
+    private async Task<bool> SweepHeldAsync(DateTime nowUtc, AdvisoryLease lease, CancellationToken ct)
     {
         // null slug => the default (no-explicit-tenant) partition, where single-deployment sites like
         // baryo.dev keep their content; named slugs are the path-based tenants. In Multi the default
@@ -163,14 +153,40 @@ public class ScheduledContentService : BackgroundService
 
         foreach (var slug in partitions.Distinct())
         {
+            // Leadership can end between tenants (a dropped connection, a failover). Stop rather
+            // than carry on beside whoever took over; the next tick starts clean.
+            if (!await lease.IsHeldAsync(ct))
+            {
+                _logger.LogWarning("The scheduled sweep lost its advisory lock; stopping before tenant {Tenant}",
+                    slug ?? "(default)");
+                return false;
+            }
+
             using var span = Tracing.BarakoTracing.StartTenantWork(Tracing.BarakoTracing.ScheduledTenantSpan, slug);
             await using var session = slug is null ? _store.LightweightSession() : _store.LightweightSession(slug);
-            var changed = await SweepTenantAsync(session, nowUtc, _logger, ct);
+            var changed = await SweepTenantAsync(
+                session, nowUtc, _logger, DefaultBatchSize, DefaultMaxBatchesPerSweep,
+                beforeSave: null, afterLoad: AfterLoad, ct);
             span?.SetTag(Tracing.BarakoTracing.ScheduledTransitionsTag, changed);
             if (changed > 0)
                 _logger.LogInformation("Scheduled sweep applied {Count} transition(s) for tenant {Tenant}",
                     changed, slug ?? "(default)");
+
+            // A failing schedule must not stop the sweep of the tenants after this one.
+            try
+            {
+                var fired = await barakoCMS.Features.Workflows.WorkflowSchedule.FireDueAsync(session, nowUtc, _logger, ct);
+                if (fired > 0)
+                    _logger.LogInformation("Scheduled workflows queued {Count} run(s) for tenant {Tenant}",
+                        fired, slug ?? "(default)");
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogError(ex, "Scheduled workflow sweep failed for tenant {Tenant}", slug ?? "(default)");
+            }
         }
+
+        return true;
     }
 
     /// <summary>How many due items one query loads, and one transaction commits.</summary>
@@ -295,9 +311,15 @@ public class ScheduledContentService : BackgroundService
     /// constructs its own writer, so a decorator cannot reach in, and this is the smallest seam that
     /// makes the collision certain rather than likely. See #393.
     /// </remarks>
+    internal static Task<int> SweepTenantAsync(
+        IDocumentSession session, DateTime nowUtc, ILogger? logger, int batchSize, int maxBatches,
+        Func<Content, CancellationToken, Task>? beforeSave, CancellationToken ct) =>
+        SweepTenantAsync(session, nowUtc, logger, batchSize, maxBatches, beforeSave, afterLoad: null, ct);
+
     internal static async Task<int> SweepTenantAsync(
         IDocumentSession session, DateTime nowUtc, ILogger? logger, int batchSize, int maxBatches,
-        Func<Content, CancellationToken, Task>? beforeSave, CancellationToken ct)
+        Func<Content, CancellationToken, Task>? beforeSave, Func<CancellationToken, Task>? afterLoad,
+        CancellationToken ct)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(batchSize, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(maxBatches, 1);
@@ -324,28 +346,52 @@ public class ScheduledContentService : BackgroundService
 
             if (due.Count == 0) break;
 
+            if (afterLoad is not null)
+            {
+                await afterLoad(ct);
+                afterLoad = null;
+            }
+
             // Constructed rather than injected: this sweep opens its own session per tenant, so there
             // is no scoped writer to resolve.
             var writer = new ContentWriter(session, new ContentSourcingPolicyService(session));
             var appliedInBatch = 0;
 
-            foreach (var content in due)
+            foreach (var loaded in due)
             {
-                var events = DueEvents(content, nowUtc);
-
-                // Every row the query returns matches at least one branch of DueEvents, so this is
-                // unreachable today. It is here because the predicate and the branches are separate
-                // now: an edit to one and not the other would otherwise append nothing, commit, and
-                // still count the item as applied, inflating the number reported and defeating the
-                // "a full batch that applied nothing" guard that ends the loop.
-                if (events.Count == 0)
-                {
-                    continue;
-                }
-
                 try
                 {
-                    if (await session.Events.FetchStreamStateAsync(content.Id, ct) is null)
+                    // The stream version first, then the document. A writer commits both together, so
+                    // reading the version first means a commit between the two reads shows up as a
+                    // document newer than the version, which the expected-version append then refuses.
+                    // The other order could pair an old document with a new version and pass.
+                    var state = await session.Events.FetchStreamStateAsync(loaded.Id, ct);
+
+                    // Re-read inside the write. This sweep may have lost leadership after it loaded
+                    // the batch (a pooler dropped the lock connection, a failover), and a second
+                    // instance may already have made the transition. The copy in `due` would still
+                    // look due, and appending again fires every Published workflow a second time.
+                    // The fresh copy has the schedule cleared, so nothing is due and nothing is written.
+                    var content = await session.LoadAsync<Content>(loaded.Id, ct);
+                    if (content is null)
+                    {
+                        continue;
+                    }
+
+                    var events = DueEvents(content, nowUtc);
+
+                    // Every row the query returns matches at least one branch of DueEvents, so for a
+                    // current copy this is only empty when another instance got there first. It is
+                    // also the guard for the predicate and the branches drifting apart: appending
+                    // nothing would commit and still count the item as applied, inflating the number
+                    // reported and defeating the "a full batch that applied nothing" guard that ends
+                    // the loop.
+                    if (events.Count == 0)
+                    {
+                        continue;
+                    }
+
+                    if (state is null)
                     {
                         // A document with no stream behind it: seeded demo rows, and anything written
                         // before every write went through the writer. There is no version to check, so
@@ -358,7 +404,7 @@ public class ScheduledContentService : BackgroundService
                     }
                     else
                     {
-                        await writer.AppendOptimisticAsync(content, events, ct);
+                        await writer.AppendAsync(content, events, state.Version, ct);
                     }
 
                     // Between the append and the commit, which is the window AppendOptimistic
@@ -373,6 +419,7 @@ public class ScheduledContentService : BackgroundService
                     appliedInBatch++;
                 }
                 catch (Exception ex) when (ex is JasperFx.ConcurrencyException
+                    || ex is barakoCMS.Core.Interfaces.StaleContentException
                     || ex.GetType().Name.Contains("Concurrency")
                     || ex.GetType().Name.Contains("UnexpectedMaxEventId"))
                 {
@@ -382,7 +429,7 @@ public class ScheduledContentService : BackgroundService
 
                     logger?.LogInformation(
                         "Scheduled transition for {ContentId} was overtaken by another writer; leaving it for the next sweep",
-                        content.Id);
+                        loaded.Id);
                 }
                 catch (barakoCMS.Core.Interfaces.ContentUniquenessException ex)
                 {
@@ -394,7 +441,7 @@ public class ScheduledContentService : BackgroundService
 
                     logger?.LogWarning(
                         "Scheduled transition for {ContentId} was refused by the uniqueness rule {Rule}; leaving it for the next sweep",
-                        content.Id, barakoCMS.Infrastructure.Logging.LogSafe.Value(ex.Rule));
+                        loaded.Id, barakoCMS.Infrastructure.Logging.LogSafe.Value(ex.Rule));
                 }
             }
 

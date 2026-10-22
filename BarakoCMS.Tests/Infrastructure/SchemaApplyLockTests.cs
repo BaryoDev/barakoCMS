@@ -134,4 +134,50 @@ public class SchemaApplyLockTests
         await waiter.WaitAsync(TimeSpan.FromSeconds(30));
         secondGotIn.Task.IsCompletedSuccessfully.Should().BeTrue();
     }
+
+    /// <summary>
+    /// A held lock does not hang startup. The wait ends at the timeout with a message that names the
+    /// key and the pid holding it.
+    /// </summary>
+    [Fact]
+    public async Task A_held_lock_fails_with_the_key_and_the_holder_after_the_timeout()
+    {
+        var schema = FreshSchema();
+        await using var held = StoreOn(schema);
+        await using var waiting = StoreOn(schema);
+
+        await using var holder = held.Storage.Database.CreateConnection();
+        await holder.OpenAsync();
+
+        int holderPid;
+        await using (var take = holder.CreateCommand())
+        {
+            take.CommandText = "select pg_backend_pid(), pg_try_advisory_lock(@key)";
+            take.Parameters.AddWithValue("key", SchemaApplyLock.Key);
+            await using var reader = await take.ExecuteReaderAsync();
+            (await reader.ReadAsync()).Should().BeTrue();
+            holderPid = reader.GetInt32(0);
+            reader.GetBoolean(1).Should().BeTrue("the test holds the lock before the host asks for it");
+        }
+
+        try
+        {
+            var ran = false;
+            var act = () => SchemaApplyLock.RunAsync(
+                waiting, () => { ran = true; return Task.CompletedTask; },
+                TimeSpan.FromSeconds(2), TimeSpan.FromMilliseconds(100), null, CancellationToken.None);
+
+            var thrown = await act.Should().ThrowAsync<TimeoutException>();
+            thrown.Which.Message.Should().Contain(SchemaApplyLock.Key.ToString());
+            thrown.Which.Message.Should().Contain(holderPid.ToString());
+            ran.Should().BeFalse("the apply must not run without the lock");
+        }
+        finally
+        {
+            await using var release = holder.CreateCommand();
+            release.CommandText = "select pg_advisory_unlock(@key)";
+            release.Parameters.AddWithValue("key", SchemaApplyLock.Key);
+            await release.ExecuteScalarAsync();
+        }
+    }
 }

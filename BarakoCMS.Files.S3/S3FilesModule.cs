@@ -19,6 +19,16 @@ public sealed class S3FilesModule : IBarakoModule
 {
     public string Name => "Files.S3";
 
+    public string? PackageId => "BarakoCMS.Files.S3";
+
+    public string? PackageVersion => ModuleMetadata.VersionOf(GetType());
+
+    public string? Category => ModuleCategory.Platform;
+
+    public string? Description => "S3-compatible storage for the Files module";
+
+    public string? Glyph => "cloud";
+
     /// <summary>
     /// Files first. This module replaces the storage FilesModule registers, and RemoveAll only
     /// removes what is already there.

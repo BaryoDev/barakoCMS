@@ -21,4 +21,16 @@ public sealed class PublicForm
     /// or null when the form does not verify. A row stored before this existed reads null.
     /// </summary>
     public string? VerifyEmailField { get; set; }
+
+    /// <summary>
+    /// The singleton content type that holds the form's opening and closing dates, or null when the
+    /// form has no window. A row stored before this existed reads null.
+    /// </summary>
+    public string? WindowContentType { get; set; }
+
+    /// <summary>The date field of <see cref="WindowContentType"/> before which the form refuses submissions, or null.</summary>
+    public string? OpensAtField { get; set; }
+
+    /// <summary>The date field of <see cref="WindowContentType"/> from which the form refuses submissions, or null.</summary>
+    public string? ClosesAtField { get; set; }
 }

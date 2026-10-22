@@ -183,6 +183,48 @@ public class ConnectorOAuthRetryTests : IAsyncLifetime
         provider.ApiCalls.Should().HaveCount(3);
     }
 
+    [Fact]
+    public async Task The_repeat_after_a_refused_token_is_read_only_as_far_as_the_row_keeps()
+    {
+        var (provider, connector, session) = await ArrangeAsync();
+        await using var held = session;
+        var log = new CollectingLog();
+        var sender = OAuthConnectors.Sender(Host.Services, session, new ConnectorTokenCache(_clock), deliveries: log);
+        var context = new ConnectorDeliveryContext("read-it", Guid.NewGuid(), null, "Published", 1);
+        var ct = TestContext.Current.CancellationToken;
+
+        var warm = await sender.SendAsync(connector, provider.Post(), SuccessRule.TwoHundredRange, null, context, ct);
+        warm.Succeeded.Should().BeTrue("got: {0}", warm.Error);
+
+        var endless = new EndlessStream();
+        provider.ApiAnswer = _ => new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StreamContent(endless) };
+        provider.Revoke(1);
+        _clock.Now = _clock.Now.AddMinutes(2);
+
+        var result = await sender.SendAsync(connector, provider.Post(), SuccessRule.TwoHundredRange, null, context, ct);
+
+        result.Succeeded.Should().BeTrue("the repeat carries the new token; got: {0}", result.Error);
+        provider.TokenCalls.Should().HaveCount(2);
+
+        log.Rows.Should().HaveCount(2);
+        log.Rows[1].RequestsSent.Should().Be(2);
+        log.Rows[1].ResponseBody.Should().NotBeNull();
+
+        endless.BytesRead.Should().BeGreaterThan(0).And.BeLessThanOrEqualTo(
+            WebhookDelivery.ResponseBodyLimit + EndlessStream.Chunk);
+    }
+
+    private sealed class CollectingLog : IConnectorDeliveryLog
+    {
+        public List<WebhookDelivery> Rows { get; } = [];
+
+        public Task WriteAsync(string tenantId, WebhookDelivery delivery, CancellationToken ct)
+        {
+            Rows.Add(delivery);
+            return Task.CompletedTask;
+        }
+    }
+
     private async Task<(FakeProvider Provider, Connector Connector, IQuerySession Session)> ArrangeAsync()
     {
         var provider = _scope.Provider();

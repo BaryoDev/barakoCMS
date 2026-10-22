@@ -861,9 +861,10 @@ internal class GetBySlugEndpoint(
         Guid? previewId = null;
         barakoCMS.Models.SiteShareLink? previewLink = null;
         var previewNow = DateTimeOffset.UtcNow;
-        if (!string.IsNullOrEmpty(previewToken) && previewToken.Contains('.'))
+        if (!string.IsNullOrEmpty(previewToken) && (previewToken.Contains('.') || previewToken.Contains('~')))
         {
-            previewId = barakoCMS.Infrastructure.Preview.PreviewToken.ValidatedEntryId(config, previewToken, tenant.Slug, type, slug);
+            previewId = await barakoCMS.Infrastructure.Preview.PreviewToken.ValidatedEntryIdAsync(
+                Resolve<barakoCMS.Core.Interfaces.ISignedLinkService>(), config, previewToken, tenant.Slug, type, slug, ct);
         }
         else if (!string.IsNullOrEmpty(previewToken)
                  && await barakoCMS.Features.Site.ShareLinks.ShareLinkKeys.FindActiveEntryAsync(session, previewToken, previewNow, ct)

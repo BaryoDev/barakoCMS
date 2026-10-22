@@ -94,6 +94,12 @@ ICONS["BarakoCMS.Pwa"] = ("BarakoCMS.Pwa", "#009688", f'''  <rect x="42" y="22" 
   <circle cx="64" cy="96" r="4" fill="#009688"/>
   <path d="M64 44 V70 M53 60 L64 71 L75 60" fill="none" stroke="{GOLD}" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>''')
 
+# Qr: finder square with dots.
+ICONS["BarakoCMS.Qr"] = ("BarakoCMS.Qr", "#37474F", f'''  <rect x="30" y="30" width="30" height="30" rx="6" fill="{WHITE}"/>
+  <rect x="68" y="30" width="30" height="30" rx="6" fill="{WHITE}"/>
+  <rect x="30" y="68" width="30" height="30" rx="6" fill="{WHITE}"/>
+  <rect x="70" y="70" width="12" height="12" rx="3" fill="{GOLD}"/>
+  <rect x="86" y="86" width="12" height="12" rx="3" fill="{GOLD}"/>''')
 # Comments: speech bubble.
 ICONS["BarakoCMS.Comments"] = ("BarakoCMS.Comments", "#3F51B5", f'''  <path d="M36 34 H92 a8 8 0 0 1 8 8 V76 a8 8 0 0 1 -8 8 H62 L46 98 V84 H36 a8 8 0 0 1 -8 -8 V42 a8 8 0 0 1 8 -8 Z" fill="{WHITE}"/>
   <path d="M46 52 H82 M46 66 H70" fill="none" stroke="{GOLD}" stroke-width="7" stroke-linecap="round"/>''')

@@ -42,12 +42,17 @@
     <ProjectReference Include="..\BarakoCMS.Accounting\BarakoCMS.Accounting.csproj" />
     <ProjectReference Include="..\BarakoCMS.Pwa\BarakoCMS.Pwa.csproj" />
     <ProjectReference Include="..\BarakoCMS.Pages\BarakoCMS.Pages.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Qr\BarakoCMS.Qr.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Booking\BarakoCMS.Booking.csproj" />
     <ProjectReference Include="..\BarakoCMS.Forms\BarakoCMS.Forms.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Reports\BarakoCMS.Reports.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Payments\BarakoCMS.Payments.csproj" />
     <ProjectReference Include="..\BarakoCMS.Comments\BarakoCMS.Comments.csproj" />
     <ProjectReference Include="..\BarakoCMS.Notifications\BarakoCMS.Notifications.csproj" />
     <ProjectReference Include="..\BarakoCMS.Secrets.Aws\BarakoCMS.Secrets.Aws.csproj" />
     <ProjectReference Include="..\BarakoCMS.Secrets.Gcp\BarakoCMS.Secrets.Gcp.csproj" />
     <ProjectReference Include="..\BarakoCMS.FeatureFlags\BarakoCMS.FeatureFlags.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Scheduling\BarakoCMS.Scheduling.csproj" />
     <!-- The SMTP module registers a provider only when a host is configured, and it is the
          only place a mail password is held. Both are claims a test has to be able to reach. -->
     <ProjectReference Include="..\BarakoCMS.Email.Smtp\BarakoCMS.Email.Smtp.csproj" />
@@ -69,6 +74,7 @@
          what crosses the wire, so it can only be checked from a test project that can call the
          endpoints. See #123. -->
     <ProjectReference Include="..\BarakoCMS.Analytics.Umami\BarakoCMS.Analytics.Umami.csproj" />
+    <ProjectReference Include="..\BarakoCMS.CdnPurge\BarakoCMS.CdnPurge.csproj" />
     <!-- The packable test host a third-party module tests on. Its own tests run it against
          Portability, so the harness is proved on a real module before anyone outside installs it. -->
     <ProjectReference Include="..\BarakoCMS.Testing\BarakoCMS.Testing.csproj" />

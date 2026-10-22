@@ -37,6 +37,15 @@ public class WorkflowRun
 
     public Guid ContentId { get; set; }
 
+    /// <summary>
+    /// For a run a schedule started, the due time it is for (UTC). Null for every other run. Such
+    /// a run has no entry: <see cref="ContentId"/> is empty.
+    /// </summary>
+    public DateTime? ScheduledFor { get; set; }
+
+    /// <summary>For a scheduled run, the due time before <see cref="ScheduledFor"/>. Null when there was none.</summary>
+    public DateTime? ScheduledPreviousFor { get; set; }
+
     public string ContentType { get; set; } = string.Empty;
 
     public string TriggerEvent { get; set; } = string.Empty;
@@ -686,6 +695,14 @@ public class WorkflowActionAttempt
     /// until then, and when it produced none of them.
     /// </summary>
     public Dictionary<string, string>? Outputs { get; set; }
+
+    /// <summary>
+    /// The stored files the action declared it made on this run, once it has succeeded. Null until
+    /// then, and when it made none. Later actions of the same run may attach these, and no other
+    /// file by this route.
+    /// </summary>
+    /// <remarks>Not served over the API: the ids of private files do not leave the run record.</remarks>
+    public List<Guid>? ProducedFiles { get; set; }
 
     /// <summary>What undoes this action, copied from the workflow when the run was queued. Null when nothing does.</summary>
     public WorkflowCompensation? Compensate { get; set; }

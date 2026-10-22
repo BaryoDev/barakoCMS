@@ -41,7 +41,9 @@ head -1 LICENSE | grep -q '^Mozilla Public License Version 2.0' \
 # Tracked projects only: a nested worktree or a scratch copy is not this checkout. The template's
 # own content is a project for somebody else's repository and is checked by its default below.
 # aspire/ is a spike outside the solution; evaluating it would make the SDK resolver fetch its SDK.
-mapfile -t projects < <(git ls-files '*.csproj' | grep -v '/templates/' | grep -v '^BarakoCMS.Tests/' | grep -v '^aspire/')
+# A read loop, not mapfile, so the script runs on the bash 3.2 macOS ships.
+projects=()
+while IFS= read -r line; do projects+=("$line"); done < <(git ls-files '*.csproj' | grep -v '/templates/' | grep -v '^BarakoCMS.Tests/' | grep -v '^aspire/')
 
 for csproj in "${projects[@]}"; do
     name=$(basename "$csproj" .csproj)

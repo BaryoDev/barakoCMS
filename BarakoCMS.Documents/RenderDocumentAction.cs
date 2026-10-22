@@ -32,7 +32,6 @@ internal sealed class RenderDocumentAction(IDocumentSession session, IFileStore 
 
     public string Type => "RenderDocument";
 
-    [Obsolete("RunAsync is the contract this action implements.")]
     public Task ExecuteAsync(Dictionary<string, string> parameters, Content content, CancellationToken ct) =>
         ((IWorkflowAction)this).RunAsync(parameters, content, ct);
 

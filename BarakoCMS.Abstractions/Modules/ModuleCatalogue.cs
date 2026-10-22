@@ -29,6 +29,11 @@ internal sealed class ModuleCatalogue
             {
                 HttpContractVersion = m.HttpContractVersion,
                 ConfigurationView = m.ConfigurationView,
+                PackageId = m.PackageId,
+                PackageVersion = m.PackageVersion,
+                Category = ModuleCategory.Normalise(m.Category),
+                Description = m.Description,
+                Glyph = m.Glyph,
             })
             .ToArray());
     }
@@ -44,4 +49,19 @@ internal sealed record ModuleCatalogueEntry(string Name, int ContractVersion, bo
 
     /// <summary><see cref="IBarakoModule.ConfigurationView"/>, null when the module declares nothing.</summary>
     public ModuleConfigurationView? ConfigurationView { get; init; }
+
+    /// <summary><see cref="IBarakoModule.PackageId"/>, null when unstated.</summary>
+    public string? PackageId { get; init; }
+
+    /// <summary><see cref="IBarakoModule.PackageVersion"/>, null when unstated.</summary>
+    public string? PackageVersion { get; init; }
+
+    /// <summary><see cref="IBarakoModule.Category"/> if it is in <see cref="ModuleCategory"/>, otherwise null.</summary>
+    public string? Category { get; init; }
+
+    /// <summary><see cref="IBarakoModule.Description"/>, null when unstated.</summary>
+    public string? Description { get; init; }
+
+    /// <summary><see cref="IBarakoModule.Glyph"/>, null when unstated.</summary>
+    public string? Glyph { get; init; }
 }

@@ -12,6 +12,9 @@ namespace barakoCMS.Infrastructure.Connectors;
 internal sealed record ConnectorDeliveryContext(
     string RequestSlug, Guid WorkflowId, Guid? RunId, string Event, int Attempt)
 {
+    /// <summary>The outputs the request keeps from the response, or null when it keeps none.</summary>
+    public ResponseCapture? Capture { get; init; }
+
     /// <summary>
     /// Read from the parameters the runner puts on every action, the same ones
     /// <c>WebhookAction</c> reads. An action invoked some other way leaves them out, and the row is
@@ -96,11 +99,18 @@ internal sealed class ConnectorDeliveryDraft(ComposedRequest composed)
     }
 
     /// <summary>Keeps the answer's body, cut and with the credentials taken out.</summary>
-    public async Task ReadResponseAsync(HttpResponseMessage response, CancellationToken ct)
+    public Task ReadResponseAsync(HttpResponseMessage response, CancellationToken ct) =>
+        HoldAsync(async () => await ConnectorDeliveryRedaction.ReadBodyAsync(response.Content, _secrets, ct), ct);
+
+    /// <summary>Keeps a body the caller has already read, the same way.</summary>
+    public Task ReadResponseAsync(Stream body, CancellationToken ct) =>
+        HoldAsync(() => ConnectorDeliveryRedaction.ReadBodyAsync(body, _secrets, ct), ct);
+
+    private async Task HoldAsync(Func<Task<string?>> read, CancellationToken ct)
     {
         try
         {
-            ResponseBody = await ConnectorDeliveryRedaction.ReadBodyAsync(response.Content, _secrets, ct);
+            ResponseBody = await read();
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -466,10 +476,15 @@ internal static class ConnectorDeliveryRedaction
     internal static async Task<string?> ReadBodyAsync(
         HttpContent content, IReadOnlyCollection<string> secrets, CancellationToken ct)
     {
+        await using var stream = await content.ReadAsStreamAsync(ct);
+        return await ReadBodyAsync(stream, secrets, ct);
+    }
+
+    internal static async Task<string?> ReadBodyAsync(
+        Stream stream, IReadOnlyCollection<string> secrets, CancellationToken ct)
+    {
         var limit = WebhookDelivery.ResponseBodyLimit;
         var longest = secrets.Count == 0 ? 0 : secrets.Max(secret => Encoding.UTF8.GetByteCount(secret));
-
-        await using var stream = await content.ReadAsStreamAsync(ct);
 
         var buffer = new byte[limit + longest];
         var total = 0;

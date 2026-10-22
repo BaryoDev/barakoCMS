@@ -179,10 +179,10 @@ public class DocumentTemplateTests
     public void A_word_wider_than_the_line_is_split_so_every_line_fits()
     {
         const float usable = 495;
-        var lines = PdfRenderer.PageWriter.WrapLines(new string('W', 200), SKTypeface.Default, 11, usable);
+        var lines = PdfRenderer.PageWriter.WrapLines(new string('W', 200), DocumentFonts.Regular, 11, usable);
 
         lines.Count.Should().BeGreaterThan(1);
-        using var font = new SKFont(SKTypeface.Default, 11);
+        using var font = new SKFont(DocumentFonts.Regular, 11);
         lines.Should().OnlyContain(l => font.MeasureText(l) <= usable);
         string.Concat(lines).Should().Be(new string('W', 200), "splitting loses no characters");
     }
@@ -191,10 +191,10 @@ public class DocumentTemplateTests
     public void A_long_token_in_a_four_column_row_wraps_inside_its_column()
     {
         const float column = 495f / 4 - 8;
-        var lines = PdfRenderer.PageWriter.WrapLines(new string('M', 40), SKTypeface.Default, 11, column);
+        var lines = PdfRenderer.PageWriter.WrapLines(new string('M', 40), DocumentFonts.Regular, 11, column);
 
         lines.Count.Should().BeGreaterThan(1);
-        using var font = new SKFont(SKTypeface.Default, 11);
+        using var font = new SKFont(DocumentFonts.Regular, 11);
         lines.Should().OnlyContain(l => font.MeasureText(l) <= column);
     }
 

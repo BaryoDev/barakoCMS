@@ -60,6 +60,39 @@ public interface IBarakoModule
     /// </remarks>
     int HttpContractVersion => 0;
 
+    /// <summary>The NuGet package id this module ships as, e.g. "BarakoCMS.Forms". Optional.</summary>
+    /// <remarks>
+    /// Shown by <c>GET /api/modules</c> so a console can print an install line. The default is
+    /// null, meaning unstated.
+    /// </remarks>
+    string? PackageId => null;
+
+    /// <summary>The version of the package this module ships in. Optional.</summary>
+    /// <remarks>
+    /// Not <see cref="ContractVersion"/> or <see cref="HttpContractVersion"/>. Use
+    /// <see cref="ModuleMetadata.VersionOf"/> to read it from the module's assembly. The default
+    /// is null, meaning unstated.
+    /// </remarks>
+    string? PackageVersion => null;
+
+    /// <summary>
+    /// Which group a console files this module under. Optional. One of <see cref="ModuleCategory"/>.
+    /// </summary>
+    /// <remarks>
+    /// A closed set, so a console can lay out a page without meeting a name it has no place for.
+    /// A value outside the set is reported as null. The default is null, meaning unstated.
+    /// </remarks>
+    string? Category => null;
+
+    /// <summary>A one-line description for a module list. Optional. The default is null.</summary>
+    string? Description => null;
+
+    /// <summary>
+    /// The name of an icon in the console's icon set. Optional. The default is null, and a console
+    /// shows its own fallback.
+    /// </summary>
+    string? Glyph => null;
+
     /// <summary>
     /// Names of modules that must be configured before this one.
     /// </summary>

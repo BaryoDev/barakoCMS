@@ -1,7 +1,7 @@
 # Methods over 70 lines in production code, with their length in lines (#969).
 # Written by scripts/check-method-length.py --update. A number here may only go down;
 # raising one, or adding a line, is a reviewed decision the pull request explains.
-99 BarakoCMS.AI/Features/SemanticSearchEndpoint.cs::SemanticSearchEndpoint.HandleAsync
+109 BarakoCMS.AI/Features/SemanticSearchEndpoint.cs::SemanticSearchEndpoint.HandleAsync
 75 BarakoCMS.Accounting/AccountingMigration.cs::AccountingMigration.RunAsync
 93 BarakoCMS.Accounting/JournalEntryHook.cs::JournalEntryHook.OnBeforeSaveAsync
 81 BarakoCMS.Email.Smtp/SmtpEmailService.cs::SmtpEmailService.SendEmailAsync
@@ -16,11 +16,13 @@
 71 BarakoCMS.ExternalAuth/SocialSignIn.cs::SocialSignIn.IssueForUserAsync
 92 BarakoCMS.Files/Features/Upload/Endpoint.cs::Endpoint.HandleAsync
 124 BarakoCMS.Files/SkiaImageResizer.cs::SkiaImageResizer.ResizeAsync
-86 BarakoCMS.Forms/Features/Manage/SetEndpoint.cs::SetEndpoint.HandleAsync
-96 BarakoCMS.Forms/Features/Submit/Endpoint.cs::Endpoint.HandleAsync
+106 BarakoCMS.Forms/Features/Manage/SetEndpoint.cs::SetEndpoint.HandleAsync
+106 BarakoCMS.Forms/Features/Submit/Endpoint.cs::Endpoint.HandleAsync
 102 BarakoCMS.Forms/FormEmailVerifier.cs::FormEmailVerifier.AcceptAsync
 79 BarakoCMS.Forms/FormEmailVerifier.cs::FormEmailVerifier.RequestCodeAsync
+92 BarakoCMS.Payments/Features/Webhook/Endpoint.cs::Endpoint.HandleAsync
 87 BarakoCMS.Portability/ImportEndpoint.cs::ImportEndpoint.HandleAsync
+80 BarakoCMS.Reports/ReportPlanner.cs::ReportPlanner.PlanAsync
 96 barakoCMS/Core/Validation/FieldRules.cs::FieldRules.DefinitionErrors
 90 barakoCMS/Core/Validation/FieldRules.cs::FieldRules.ValueErrors
 93 barakoCMS/Core/Validation/UniquenessRules.cs::UniquenessRules.Problems
@@ -28,12 +30,11 @@
 95 barakoCMS/Data/DataSeeder.cs::DataSeeder.SeedUsersAsync
 71 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddHstsAndCors
 79 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddJwtAndApiKeyAuth
-131 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddMartenStore
+133 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddMartenStore
 83 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddModules
-118 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.MapGlobalDocuments
-109 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.MapTenantScopedDocuments
+127 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.MapGlobalDocuments
+129 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.MapTenantScopedDocuments
 86 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.ResolveConnectionString
-72 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.UseHealthEndpoints
 72 barakoCMS/Features/ApiKeys/Endpoints.cs::CreateApiKeyEndpoint.HandleAsync
 200 barakoCMS/Features/Auth/Login/Endpoint.cs::Endpoint.HandleAsync
 108 barakoCMS/Features/Auth/Otp/VerifyEndpoint.cs::VerifyEndpoint.HandleAsync
@@ -60,7 +61,7 @@
 87 barakoCMS/Features/EmailTemplates/EmailTemplateRenderer.cs::EmailTemplateRenderer.RenderAsync
 82 barakoCMS/Features/EmailTemplates/Preview/Endpoint.cs::Endpoint.HandleAsync
 151 barakoCMS/Features/Public/DeliveryQuery.cs::DeliveryQuery.Parse
-109 barakoCMS/Features/Public/Endpoints.cs::GetBySlugEndpoint.HandleAsync
+110 barakoCMS/Features/Public/Endpoints.cs::GetBySlugEndpoint.HandleAsync
 79 barakoCMS/Features/Public/Endpoints.cs::ListPublishedEndpoint.HandleAsync
 75 barakoCMS/Features/Public/Endpoints.cs::PublicDelivery.ResolveIncludesAsync
 99 barakoCMS/Features/Public/Events/ContentChangeListener.cs::ContentChangeListener.BroadcastAsync
@@ -72,13 +73,14 @@
 75 barakoCMS/Features/Users/RemoveRole/Endpoint.cs::Endpoint.HandleAsync
 128 barakoCMS/Features/WorkflowRuns/Endpoints.cs::RetryAttemptEndpoint.HandleAsync
 182 barakoCMS/Features/Workflows/Actions/ConditionalAction.cs::ConditionalAction.RunAsync
-156 barakoCMS/Features/Workflows/Actions/EmailAction.cs::EmailAction.RunAsync
-108 barakoCMS/Features/Workflows/Actions/EmailAttachments.cs::EmailAttachments.ResolveAsync
+125 barakoCMS/Features/Workflows/Actions/EmailAction.cs::EmailAction.RunAsync
+86 barakoCMS/Features/Workflows/Actions/PublishAction.cs::PublishAction.RunAsync
 377 barakoCMS/Features/Workflows/Actions/UpdateFieldAction.cs::UpdateFieldAction.RunAsync
-241 barakoCMS/Features/Workflows/Actions/WebhookAction.cs::WebhookAction.RunAsync
+222 barakoCMS/Features/Workflows/Actions/WebhookAction.cs::WebhookAction.RunAsync
 82 barakoCMS/Features/Workflows/DryRunWorkflow/Endpoint.cs::Endpoint.HandleAsync
+86 barakoCMS/Features/Workflows/Outbox/SignedHttpOutboxTransport.cs::SignedHttpOutboxTransport.SendAsync
 105 barakoCMS/Features/Workflows/WorkflowEngine.cs::WorkflowEngine.ExecuteActionsAsync
-101 barakoCMS/Features/Workflows/WorkflowRunner.cs::WorkflowRunner.ExecuteAttemptAsync
+110 barakoCMS/Features/Workflows/WorkflowRunner.cs::WorkflowRunner.ExecuteAttemptAsync
 77 barakoCMS/Infrastructure/Auth/ApiKeyAuthenticationHandler.cs::ApiKeyAuthenticationHandler.HandleAuthenticateAsync
 77 barakoCMS/Infrastructure/Auth/TokenIssuer.cs::TokenIssuer.IssueAccessTokenAsync
 91 barakoCMS/Infrastructure/Connectors/ConnectorSender.cs::ConnectorSender.FetchAsync
@@ -93,15 +95,16 @@
 88 barakoCMS/Infrastructure/Migrations/MigrationLedger.cs::MigrationLedger.ApplyLockedAsync
 74 barakoCMS/Infrastructure/Migrations/ShippedMigration.cs::ShippedMigrations.Parse
 355 barakoCMS/Infrastructure/Services/ContentTransitioner.cs::ContentTransitioner.TransitionAsync
-110 barakoCMS/Infrastructure/Services/ContentTypeValidatorService.cs::ContentTypeValidatorService.Validate
+111 barakoCMS/Infrastructure/Services/ContentTypeValidatorService.cs::ContentTypeValidatorService.Validate
 77 barakoCMS/Infrastructure/Services/ContentUniqueness.cs::ContentUniqueness.TryRead
+73 barakoCMS/Infrastructure/Services/ContentValidatorService.cs::ContentValidatorService.ValidateFieldsAsync
 87 barakoCMS/Infrastructure/Services/KubernetesMonitorService.cs::KubernetesMonitorService.GetClusterStatusAsync
 78 barakoCMS/Infrastructure/Services/PermissionPredicateCompiler.cs::PermissionPredicateCompiler.TryCompileOperator
 93 barakoCMS/Infrastructure/Services/PermissionPredicateCompiler.cs::PermissionPredicateCompiler.TryCompileRule
 88 barakoCMS/Infrastructure/Services/PermissionResolver.References.cs::PermissionResolver.ResolveAsync
-111 barakoCMS/Infrastructure/Services/ScheduledContentService.cs::ScheduledContentService.SweepTenantAsync
+137 barakoCMS/Infrastructure/Services/ScheduledContentService.cs::ScheduledContentService.SweepTenantAsync
 98 barakoCMS/Infrastructure/Services/SensitivityService.cs::SensitivityService.GuardWriteAsync
-113 barakoCMS/Infrastructure/Services/WorkflowSchemaValidator.cs::WorkflowSchemaValidator.Validate
+114 barakoCMS/Infrastructure/Services/WorkflowSchemaValidator.cs::WorkflowSchemaValidator.Validate
 110 barakoCMS/Infrastructure/Services/WorkflowSchemaValidator.cs::WorkflowSchemaValidator.ValidateAction
 134 barakoCMS/Infrastructure/Sync/CollectionSyncRunner.cs::CollectionSyncRunner.ApplyAsync
 99 barakoCMS/Infrastructure/Sync/CollectionSyncRunner.cs::CollectionSyncRunner.Map

@@ -98,6 +98,12 @@ as they were when it is enabled again. Nothing here drops anything.
 "installed but off" and "not installed" can be told apart. See
 [docs/module-inventory.md](docs/module-inventory.md).
 
+**Saying who a module is.** `PackageId`, `PackageVersion`, `Category`, `Description` and `Glyph` are
+default members of `IBarakoModule`, all null unless you declare them, and `GET /api/modules` reports
+them. `Category` is one of `ModuleCategory.Content`, `Comms`, `Access`, `Platform`, `Insight` or
+`Business`; anything else is reported as null. `ModuleMetadata.VersionOf(GetType())` reads
+`PackageVersion` from your assembly. Adding them does not move `ModuleContract.Version`.
+
 ### Schema preflight
 
 Production runs `AutoCreate.CreateOnly`, which creates a missing table with its indexes and never
@@ -912,19 +918,25 @@ template ships a placeholder.
 | [BarakoCMS.Import](BarakoCMS.Import) | Bulk import: analyze `.xlsx`/CSV uploads and create content |
 | [BarakoCMS.Files](BarakoCMS.Files) | File attachments (upload/download) stored in Postgres |
 | [BarakoCMS.Forms](BarakoCMS.Forms) | Public form submissions: a content type marked as a form takes anonymous, rate limited submissions stored Sensitive |
+| [BarakoCMS.Reports](BarakoCMS.Reports) | Saved reports: group, count and sum a content type, computed in the database as the reader, with CSV export |
+| [BarakoCMS.Payments](BarakoCMS.Payments) | Checkout for a payable entry at the amount stored on it, and a signed, idempotent provider webhook that runs the paid transition. Provider adapters implement `IPaymentProvider` |
 | [BarakoCMS.Comments](BarakoCMS.Comments) | A comment thread on any record, behind the record's own read permission: post, reply, list (paged) and delete |
 | [BarakoCMS.Contacts](BarakoCMS.Contacts) | Contacts: a person or an organization with custom fields, links, email dedupe and merge, tenant scoped |
 | [BarakoCMS.Email.Smtp](BarakoCMS.Email.Smtp) | SMTP email provider (`IEmailService`), inert until a host is configured |
 | [BarakoCMS.Documents](BarakoCMS.Documents) | Renders an entry to a PDF with the `RenderDocument` workflow action, from a narrow template language, and stores it through Files |
 | [BarakoCMS.Pages](BarakoCMS.Pages) | Page tree over a content type: parent loop, depth and reserved slug rules, public navigation and path resolution, and an authenticated tree |
+| [BarakoCMS.Booking](BarakoCMS.Booking) | Bookable resources with time zones and opening hours, a no-overlap rule inside the booking write, and public availability |
 | [BarakoCMS.Files.S3](BarakoCMS.Files.S3) | S3-compatible storage for the Files module (AWS S3, Cloudflare R2, SeaweedFS); public files get a direct URL, private files are proxied |
 | [BarakoCMS.DeviceTrust](BarakoCMS.DeviceTrust) | Records the device behind each sign-in, binds sessions to devices, and can require OTP approval for a new device |
 | [BarakoCMS.ExternalAuth](BarakoCMS.ExternalAuth) | Sign-in with Google, GitHub, Facebook or LinkedIn over OAuth, matched to a user by verified email, and with any OpenID Connect provider configured by issuer URL |
 | [BarakoCMS.FeatureFlags](BarakoCMS.FeatureFlags) | Feature flags, toggled and targeted by tenant, user or percentage, evaluated server side |
+| [BarakoCMS.Scheduling](BarakoCMS.Scheduling) | Schedule a named action for a due time; one instance hands it to a registered handler, once |
 | [BarakoCMS.Portability](BarakoCMS.Portability) | Export and import content types and their entries as a JSON bundle |
 | [BarakoCMS.Diagnostics](BarakoCMS.Diagnostics) | Client error log: browser errors posted to `/api/client-errors`, deduplicated by fingerprint |
 | [BarakoCMS.Analytics.Umami](BarakoCMS.Analytics.Umami) | Admin-only proxy over an Umami instance: visitors, pages, referrers, countries, and site registration |
+| [BarakoCMS.CdnPurge](BarakoCMS.CdnPurge) | A `CdnPurge` workflow action that purges a published entry's cache tags from Cloudflare |
 | [BarakoCMS.Pwa](BarakoCMS.Pwa) | Records PWA installs and installed-app launches, anonymous or tied to the signed-in user |
+| [BarakoCMS.Qr](BarakoCMS.Qr) | Renders one allowed field of a public entry as a PNG or SVG QR code at `GET /api/public/{type}/{id}/qr/{field}` |
 | [BarakoCMS.Notifications](BarakoCMS.Notifications) | In-app notifications any module can raise for a user, with a per-user inbox and pluggable delivery sinks (email built in) |
 | [BarakoCMS.AI](BarakoCMS.AI) | Semantic search over published, public content with an embedding model run by Ollama by default |
 

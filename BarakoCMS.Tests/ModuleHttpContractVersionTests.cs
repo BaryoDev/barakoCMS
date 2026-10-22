@@ -90,6 +90,6 @@ public class ModuleHttpContractVersionTests
         ];
 
         modules.Should().HaveCount(4);
-        modules.Select(m => (m.Name, m.HttpContractVersion)).Should().Equal([("Forms", 1), ("Files", 2), ("AI", 1), ("Comments", 1)]);
+        modules.Select(m => (m.Name, m.HttpContractVersion)).Should().Equal([("Forms", 1), ("Files", 2), ("AI", 2), ("Comments", 1)]);
     }
 }

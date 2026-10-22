@@ -247,8 +247,17 @@ public class RoleSoftDeleteTests
 
     private static async Task<List<Guid>> IdsAsync(HttpClient client, string url)
     {
-        var page = await client.GetFromJsonAsync<JsonElement>(url + "?pageSize=100", Ct);
-        return page.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("id").GetGuid()).ToList();
+        var ids = new List<Guid>();
+        for (var number = 1; ; number++)
+        {
+            var page = await client.GetFromJsonAsync<JsonElement>($"{url}?pageSize=100&page={number}", Ct);
+            var items = page.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("id").GetGuid()).ToList();
+            ids.AddRange(items);
+            if (items.Count < 100)
+            {
+                return ids;
+            }
+        }
     }
 
     private async Task<HttpClient> ClientFor(params string[] roles)

@@ -16,7 +16,17 @@ public sealed class AiModule : IBarakoModule
 {
     public string Name => "AI";
 
-    public int HttpContractVersion => 1;
+    public string? PackageId => "BarakoCMS.AI";
+
+    public string? PackageVersion => ModuleMetadata.VersionOf(GetType());
+
+    public string? Category => ModuleCategory.Insight;
+
+    public string? Description => "Semantic search over published content";
+
+    public string? Glyph => "sparkles";
+
+    public int HttpContractVersion => 2;
 
     /// <summary>Settings used to live at the root "Ai" section. See IBarakoModule.</summary>
     public string? LegacyConfigurationSection => AiOptions.SectionName;

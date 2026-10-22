@@ -3,9 +3,15 @@
 Renders an entry to a PDF and stores it through the Files module. The PDF is drawn with SkiaSharp.
 There is no browser, and the template language has no way to fetch anything.
 
+## Install
+
 ```sh
 dotnet add package BarakoCMS.Documents
 ```
+
+The package reference plus a restart is the install. `BarakoCMS:Modules:Enabled` decides which
+modules run (`BarakoCMS__Modules__Enabled=Documents`). To name it by hand, put
+`modules.Add(new BarakoCMS.Documents.DocumentsModule())` in the `AddBarakoCMS` callback.
 
 Enable the Files module as well. A workflow then renders an entry with:
 

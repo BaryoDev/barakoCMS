@@ -55,6 +55,9 @@ internal sealed class Request
     /// <summary>For a token field, how many characters a generated token has, from 16 to 128. Defaults to 32.</summary>
     public int? TokenLength { get; set; }
 
+    /// <summary>How the server computes the field from other fields of the entry. Makes the field read only.</summary>
+    public ComputedDefinition? Computed { get; set; }
+
     public bool IsRequired { get; set; }
     public object? DefaultValue { get; set; }
     public Dictionary<string, object>? ValidationRules { get; set; }
@@ -168,6 +171,7 @@ internal sealed class Endpoint(
             Section = req.Section,
             Role = req.Role,
             TokenLength = req.TokenLength,
+            Computed = req.Computed,
             IsRequired = req.IsRequired,
             DefaultValue = req.DefaultValue,
             ValidationRules = req.ValidationRules ?? new Dictionary<string, object>(),

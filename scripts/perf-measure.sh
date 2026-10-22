@@ -103,7 +103,10 @@ echo "ready in ${startup_seconds}s" >&2
 
 step "idle for ${IDLE_SECONDS}s, then reading resident memory"
 sleep "$IDLE_SECONDS"
-rss_kb=$(docker exec "$API_ID" sh -c 'grep VmRSS /proc/1/status' | awk '{print $2}')
+# The image is chiseled and has no shell, so docker exec cannot run grep in it (exit 127). The
+# container's process is an ordinary process on the Docker host, and its status file is readable there.
+api_pid=$(docker inspect -f '{{.State.Pid}}' "$API_ID")
+rss_kb=$(awk '/^VmRSS:/ {print $2}' "/proc/$api_pid/status" 2>/dev/null || true)
 case "$rss_kb" in ''|*[!0-9]*) fail "could not read VmRSS from the API process" ;; esac
 echo "VmRSS ${rss_kb} kB" >&2
 

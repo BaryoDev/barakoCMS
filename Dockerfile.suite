@@ -29,7 +29,7 @@ RUN set -- /root/.nuget/packages/skiasharp.nativeassets.linux.nodependencies/*/T
     && cp "$1" /app/publish/licenses/SkiaSharp-THIRD-PARTY-NOTICES.txt \
     && cp "$(dirname "$1")/LICENSE.txt" /app/publish/licenses/SkiaSharp-LICENSE.txt
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra AS final
 WORKDIR /app
 COPY --from=build /app/publish .
 EXPOSE 8080

@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests;
 public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLifetime
 {
     private readonly PostgreSqlContainer _postgresContainer = new PostgreSqlBuilder()
-        .WithImage("postgres:16-alpine")
+        .WithImage("pgvector/pgvector:pg16")
         .WithDatabase("barako_test_db")
         .WithUsername("postgres")
         .WithPassword("postgres")
@@ -333,6 +333,11 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                 { "Modules:Pages:ReservedSlugs:0", "api" },
                 { "Modules:Pages:ReservedSlugs:1", "Blog" },
                 { "Modules:Pages:ReservedSlugs:2", "admin" },
+                // Qr lists one field of one probe type, so the allowlist and the empty-allowlist
+                // cases each have a type to use.
+                { "Modules:Qr:Fields:qrprobe:0", "Token" },
+                // Booking runs over its own probe type, so no other test's entries meet its overlap rule.
+                { "Modules:Booking:ContentType", "bookingprobe" },
             });
         });
 
@@ -491,6 +496,10 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             new BarakoCMS.Accounting.AccountingModule().ConfigureServices(services, ctx.Configuration);
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Accounting.AccountingModule(), opts));
 
+            // The fixture module: a capability, a content hook and a gated endpoint for the tests
+            // of core mechanisms that need a module and not a domain.
+            new BarakoCMS.Testing.Fixture.FixtureModule().ConfigureServices(services, ctx.Configuration);
+
             // Diagnostics: the test project references it, so FastEndpoints already discovers
             // /api/client-errors — register its schema too so those endpoints can actually run.
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Diagnostics.DiagnosticsModule(), opts));
@@ -503,11 +512,25 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             // the same options. Registered with its own section, as the host scopes it.
             new BarakoCMS.Pages.PagesModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Pages"));
 
+            // Qr: the route reads its allowlist from the options registered here.
+            new BarakoCMS.Qr.QrModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Qr"));
+            // Booking: its hook guards the probe type configured above, and the availability route reads
+            // the same options. Registered with its own section, as the host scopes it.
+            new BarakoCMS.Booking.BookingModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Booking"));
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Booking.BookingModule(), opts));
+
             // Forms: the submit endpoint is anonymous and rate limited, so its policy, its options and
             // its schema all have to be registered for /api/public/forms/* to answer at all. Scoped to
             // its own section, as the host scopes it.
             new BarakoCMS.Forms.FormsModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Forms"));
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Forms.FormsModule(), opts));
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Reports.ReportsModule(), opts));
+
+            // Payments: the checkout and webhook endpoints need the module's policy and schema, and a
+            // provider to talk to. The fake signs with a fixed secret so a test can sign or tamper.
+            new BarakoCMS.Payments.PaymentsModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Payments"));
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Payments.PaymentsModule(), opts));
+            services.AddSingleton<BarakoCMS.Payments.IPaymentProvider, BarakoCMS.Tests.Features.Payments.FakePaymentProvider>();
 
             // Contacts: its endpoints are discovered with the assembly, and its unique email index lives in its schema.
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Contacts.ContactsModule(), opts));
@@ -531,6 +554,8 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             new BarakoCMS.FeatureFlags.FeatureFlagsModule().ConfigureServices(services, ctx.Configuration);
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.FeatureFlags.FeatureFlagsModule(), opts));
 
+            // Scheduling: the sweep tests drive ScheduleSweepService directly, so only the document is needed.
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Scheduling.SchedulingModule(), opts));
             // Comments: its schema, its content target, and a second kind of record (a ticket) so
             // the tests can show one comment surface serving two kinds of record.
             new BarakoCMS.Comments.CommentsModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Comments"));
@@ -575,6 +600,11 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.MeteredRunnerAction>();
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.OutputRunnerAction>();
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.RecordingRunnerAction>();
+            services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.FileRunnerAction>();
+            services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.UndeclaredFileRunnerAction>();
+            services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.ManyFilesRunnerAction>();
+            services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.SavedFileRunnerAction>();
+            services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.NullFilesRunnerAction>();
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.AttemptHistoryRunnerAction>();
             services.ConfigureMarten(opts => opts.Listeners.Add(new BarakoCMS.Tests.Features.Workflows.RunnerSaveRaceListener()));
             // A second executor, so a test can route a workflow away from the built-in runner.
@@ -616,11 +646,16 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         typeof(BarakoCMS.Files.FilesModule).Assembly,
         typeof(BarakoCMS.AI.AiModule).Assembly,
         typeof(BarakoCMS.Accounting.AccountingModule).Assembly,
+        typeof(BarakoCMS.Testing.Fixture.FixtureModule).Assembly,
         typeof(BarakoCMS.Diagnostics.DiagnosticsModule).Assembly,
         typeof(BarakoCMS.Pwa.PwaModule).Assembly,
         typeof(BarakoCMS.Pages.PagesModule).Assembly,
+        typeof(BarakoCMS.Qr.QrModule).Assembly,
+        typeof(BarakoCMS.Booking.BookingModule).Assembly,
 
         typeof(BarakoCMS.Forms.FormsModule).Assembly,
+        typeof(BarakoCMS.Reports.ReportsModule).Assembly,
+        typeof(BarakoCMS.Payments.PaymentsModule).Assembly,
         typeof(BarakoCMS.Contacts.ContactsModule).Assembly,
         typeof(BarakoCMS.Notifications.NotificationsModule).Assembly,
         typeof(BarakoCMS.FeatureFlags.FeatureFlagsModule).Assembly,
@@ -979,8 +1014,13 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         var roleIds = new List<Guid>();
         foreach (var roleName in roleNames)
         {
-            var role = await session.Query<barakoCMS.Models.Role>()
-                .FirstOrDefaultAsync(r => r.Name == roleName);
+            // A tenant may own a role of the same name, and a test that stores one (an empty
+            // "SuperAdmin" for the legacy-name fallback) must not hand every later caller its
+            // empty capabilities. The role without a tenant is the seeded one.
+            var named = await session.Query<barakoCMS.Models.Role>()
+                .Where(r => r.Name == roleName)
+                .ToListAsync();
+            var role = named.OrderBy(r => r.TenantSlug is not null).FirstOrDefault();
 
             // A name the seeder does not create is left alone rather than invented. Such a role
             // holds nothing, so the user reaches nothing through it, which is the answer these

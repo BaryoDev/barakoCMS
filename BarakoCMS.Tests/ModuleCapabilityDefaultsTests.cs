@@ -179,6 +179,7 @@ public class ModuleCapabilityDefaultsTests
             typeof(BarakoCMS.FeatureFlags.FeatureFlagCapabilities),
             typeof(BarakoCMS.Files.FileCapabilities),
             typeof(BarakoCMS.Forms.FormsCapabilities),
+            typeof(BarakoCMS.Reports.ReportsCapabilities),
             typeof(BarakoCMS.Import.ImportCapabilities),
             typeof(BarakoCMS.Notifications.NotificationsCapabilities),
             typeof(BarakoCMS.Portability.PortabilityCapabilities),

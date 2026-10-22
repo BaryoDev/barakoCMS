@@ -50,9 +50,12 @@ Optional packages, each installable on its own:
 | `BarakoCMS.FeatureFlags` | Flags with targeting |
 | `BarakoCMS.Files` + `.S3` | Uploads stored in Postgres, or in S3-compatible storage with `.S3` |
 | `BarakoCMS.Forms` | Public form submissions into a content type |
+| `BarakoCMS.Reports` | Saved reports that group, count and sum a content type |
 | `BarakoCMS.Comments` | A comment thread on any record |
 | `BarakoCMS.Import` | Bulk import |
 | `BarakoCMS.Pages` | Page tree, navigation and path resolution over a content type |
+| `BarakoCMS.Qr` | QR code PNG or SVG for one allowed field of a public entry |
+| `BarakoCMS.Payments` | Payment checkout and verified provider webhooks for an entry |
 | `BarakoCMS.Portability` | Export / import bundles |
 | `BarakoCMS.Pwa` | Install tracking |
 | `BarakoCMS.Notifications` | In-app notifications any module can raise |

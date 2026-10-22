@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests;
 /// <remarks>
 /// The fixture's shared host serves every first-party module's endpoints but registers no
 /// <see cref="IBarakoModule"/>, so on it a module name is attributed to its assembly. The listing
-/// test builds a host that registers the Accounting module the way <c>AddBarakoCMS</c> would, so the
+/// test builds a host that registers the Fixture module the way <c>AddBarakoCMS</c> would, so the
 /// source column can be checked against the module's own name.
 ///
 /// <c>Roles:RefuseUnknownCapabilities</c> defaults to off, which is today's behaviour: the role
@@ -38,7 +38,7 @@ public class CapabilityVocabularyTests
     [Fact]
     public async Task The_list_holds_a_core_name_and_a_name_from_a_registered_module()
     {
-        var client = await SuperAdminOn(HostWithAccountingRegistered());
+        var client = await SuperAdminOn(HostWithFixtureRegistered());
 
         var response = await client.GetAsync("/api/capabilities?pageSize=100", TestContext.Current.CancellationToken);
 
@@ -49,8 +49,8 @@ public class CapabilityVocabularyTests
         var core = items.Single(i => i.Name == SystemCapabilities.ManageRoles);
         core.Source.Should().Be(CapabilityVocabulary.CoreSource);
 
-        var module = items.Single(i => i.Name == BarakoCMS.Accounting.AccountingCapabilities.ViewLedger);
-        module.Source.Should().Be(new BarakoCMS.Accounting.AccountingModule().Name,
+        var module = items.Single(i => i.Name == BarakoCMS.Testing.Fixture.FixtureCapabilities.ViewFixture);
+        module.Source.Should().Be(new BarakoCMS.Testing.Fixture.FixtureModule().Name,
             "a name a registered module's endpoint asks for is attributed to that module");
 
         var wildcard = items.Single(i => i.Name == SystemCapabilities.All);
@@ -326,7 +326,7 @@ public class CapabilityVocabularyTests
     // server against the shared database.
     private static readonly Lock Gate = new();
     private static WebApplicationFactory<Program>? _strict;
-    private static WebApplicationFactory<Program>? _withAccounting;
+    private static WebApplicationFactory<Program>? _withFixture;
 
     private WebApplicationFactory<Program> StrictHost()
     {
@@ -337,16 +337,16 @@ public class CapabilityVocabularyTests
     }
 
     /// <summary>
-    /// The shared host already runs the Accounting endpoints; this one also registers the module
+    /// The shared host already runs the fixture endpoints; this one also registers the module
     /// instance, which is the half <c>AddBarakoCMS</c> does and the fixture does not.
     /// </summary>
-    private WebApplicationFactory<Program> HostWithAccountingRegistered()
+    private WebApplicationFactory<Program> HostWithFixtureRegistered()
     {
         lock (Gate)
         {
-            return _withAccounting ??= _factory.WithWebHostBuilder(builder =>
+            return _withFixture ??= _factory.WithWebHostBuilder(builder =>
                 builder.ConfigureServices(services =>
-                    services.AddSingleton<IBarakoModule>(new BarakoCMS.Accounting.AccountingModule())));
+                    services.AddSingleton<IBarakoModule>(new BarakoCMS.Testing.Fixture.FixtureModule())));
         }
     }
 }

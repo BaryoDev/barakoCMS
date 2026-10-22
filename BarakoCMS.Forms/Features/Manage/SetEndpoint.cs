@@ -15,6 +15,19 @@ internal sealed class SetRequest
     /// form keeps what it has. An empty string turns verification off.
     /// </summary>
     public string? VerifyEmailField { get; set; }
+
+    /// <summary>
+    /// The singleton content type that holds the opening and closing dates. Sent with
+    /// <c>opensAtField</c> and <c>closesAtField</c> as one group: leave all three out to keep the
+    /// window, send any of them to replace it, and an empty string clears one.
+    /// </summary>
+    public string? WindowContentType { get; set; }
+
+    /// <summary>A date or datetime field of the window type. Submissions before its value are refused.</summary>
+    public string? OpensAtField { get; set; }
+
+    /// <summary>A date or datetime field of the window type. Submissions from its value on are refused.</summary>
+    public string? ClosesAtField { get; set; }
 }
 
 internal sealed class FormResponse
@@ -23,6 +36,9 @@ internal sealed class FormResponse
     public bool Enabled { get; set; }
     public DateTimeOffset? EnabledAt { get; set; }
     public string? VerifyEmailField { get; set; }
+    public string? WindowContentType { get; set; }
+    public string? OpensAtField { get; set; }
+    public string? ClosesAtField { get; set; }
 }
 
 /// <summary>
@@ -88,6 +104,12 @@ internal sealed class SetEndpoint(IDocumentSession session) : Endpoint<SetReques
                 "verifyEmailField must name an email field of this type that a visitor can fill in."));
         }
 
+        var changesWindow = req.WindowContentType is not null || req.OpensAtField is not null || req.ClosesAtField is not null;
+        if (changesWindow)
+        {
+            await CheckWindowAsync(req, ct);
+        }
+
         if (ValidationFailures.Count > 0)
         {
             await Send.ErrorsAsync(400, ct);
@@ -121,6 +143,17 @@ internal sealed class SetEndpoint(IDocumentSession session) : Endpoint<SetReques
             form.VerifyEmailField = restored.Name;
         }
 
+        if (changesWindow)
+        {
+            form.WindowContentType = Blank(req.WindowContentType);
+            form.OpensAtField = Blank(req.OpensAtField);
+            form.ClosesAtField = Blank(req.ClosesAtField);
+            if (!FormWindow.IsConfigured(form))
+            {
+                form.WindowContentType = form.OpensAtField = form.ClosesAtField = null;
+            }
+        }
+
         session.Store(form);
         await session.SaveChangesAsync(ct);
 
@@ -130,6 +163,52 @@ internal sealed class SetEndpoint(IDocumentSession session) : Endpoint<SetReques
             Enabled = true,
             EnabledAt = form.EnabledAt,
             VerifyEmailField = form.VerifyEmailField,
+            WindowContentType = form.WindowContentType,
+            OpensAtField = form.OpensAtField,
+            ClosesAtField = form.ClosesAtField,
         }, ct);
+    }
+
+    private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private async Task CheckWindowAsync(SetRequest req, CancellationToken ct)
+    {
+        var typeName = Blank(req.WindowContentType);
+        var opens = Blank(req.OpensAtField);
+        var closes = Blank(req.ClosesAtField);
+
+        if (typeName is null)
+        {
+            if (opens is not null || closes is not null)
+            {
+                ValidationFailures.Add(new ValidationFailure("windowContentType",
+                    "windowContentType must name the singleton content type that holds the dates."));
+            }
+            return;
+        }
+
+        var window = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == typeName, ct);
+        if (window is null || !window.IsSingleton)
+        {
+            ValidationFailures.Add(new ValidationFailure("windowContentType",
+                "windowContentType must name a singleton content type."));
+            return;
+        }
+
+        if (opens is null && closes is null)
+        {
+            ValidationFailures.Add(new ValidationFailure("opensAtField",
+                "Name opensAtField, closesAtField or both, or send an empty windowContentType to clear the window."));
+            return;
+        }
+
+        foreach (var (property, name) in new[] { ("opensAtField", opens), ("closesAtField", closes) })
+        {
+            if (name is not null && !window.Fields.Any(f => f.Name == name && FormWindow.IsDateField(f)))
+            {
+                ValidationFailures.Add(new ValidationFailure(property,
+                    $"'{name}' is not a date or datetime field of '{window.Name}'."));
+            }
+        }
     }
 }

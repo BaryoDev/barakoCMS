@@ -25,6 +25,13 @@ public class ShippedMigrationTests
         "5.0.0/accounting-number-sequences",
         "5.0.0/pages-settings",
         "5.0.0/files-storage-settings",
+        "5.1.0/915-external-auth-role-maps",
+        "5.2.0/booking-resources",
+        "5.2.0/payments-payable-types",
+        "5.2.0/payments-attempts",
+        "5.2.0/payments-events",
+        "5.2.0/report-definitions",
+        "5.2.0/scheduled-entries",
         "5.2.0/253-comments",
         "5.2.0/585-documents",
         "5.2.0/contacts",
@@ -70,6 +77,29 @@ public class ShippedMigrationTests
         ["core/5.0.0/role-tenancy"] = "1cdf8bea3d8efbd67134cfc02b154042e620cabe469b5b525c0059636c70be17",
         ["core/5.0.0/site-field-schemas"] = "982871901171d8bf8bae595987abe0d560b1e71771f6e0d57e721bdced3ee4ad",
         ["core/5.0.0/tenant-status"] = "158094c6e3234029157f411909efde433353c5ae00c73481ecb78f6ed67c8d52",
+        ["core/5.1.0/1158-content-type-name-index-ignore-case"] = "2f131a9e9d0a65db5255ed7221a4e3896052639f4413e553f7c6c19450e22040",
+        ["ExternalAuth/5.1.0/915-external-auth-role-maps"] = "8df8e9bb5661a91bcf896ee15dbe87b560bfa90d705d8d51cbf4967ff02b3507",
+        ["core/5.1.0/seed-markers"] = "0635c09690d8d33fe92ef8189277aff93383d708ff9a28df5a75f4dbd65d421e",
+        ["core/5.1.0/workflow-run-updated-at-index"] = "096c752f26b5372a0fc3b8858620742a80482d241f0242a0a5e1090f9c6dab0a",
+        ["core/5.1.0/workflow-run-workflow-index"] = "588062405fa26596a8472b717f804c18d29e6495c2a7d570b9533a825f2e7024",
+        ["core/5.2.0/580-stock-reservations"] = "9ef9947628be0b15a2d13b58778a42ffb4d400daa2709dd3faede73960eda970",
+        ["core/5.2.0/910-inbound-webhook-events"] = "96514e93595f69e06588ee266cb1d0376be8661898910a4bc27aef855225f710",
+        ["core/5.2.0/action-link-uses"] = "5cb1eeda12dcc8fc801327f845e531c4c62285eae3ef3dcd6e50f89956341c5d",
+        ["core/5.2.0/magic-link-tokens"] = "ab39ed40193ba3fed9de40089ee02496f012debaf11b9cad91abd9e4c7c03909",
+        ["core/5.2.0/outbox-messages"] = "e19d42500768b05e6406ff2f4c614431f24b4790e95d217008532a0ec1dc6ee1",
+        ["core/5.2.0/pending-builds"] = "a169671e0291d7153f383041f5d9faded2817d7bfbe7aad3fad5a7ba389763f2",
+        ["core/5.2.0/signed-link-uses"] = "038b3f05443ea16918589b1bad1d11bc89311d406001e44794ade130c8fac426",
+        ["core/5.2.0/workflow-schedule-claims"] = "51d6a157ef250942f01f3d4d5060fbdee32e9efee187f7551d7a42721e4f4371",
+        ["Booking/5.2.0/booking-resources"] = "01aab1064f0fbefb9c7580d06a486338d258c25c91feb633579ae81910fe0a5b",
+        ["Comments/5.2.0/253-comments"] = "6fa6040b649fb8de053d0a0562d0a4d9f67e6bb226484f2fa92cc279ba48375c",
+        ["Contacts/5.2.0/contacts"] = "2968c22f7a40931744606e374eaad261e7591eb7d6a9615119cb01a537f73abf",
+        ["Documents/5.2.0/585-documents"] = "803bc108e5819f96927eb90a4d312b6db8df1afbafca9b92a1890f8da2eb1ccb",
+        ["Notifications/5.2.0/notifications"] = "1b67a01b978c5a0ad72830510666f9753884bbc95d87b6d718acfb6d98724703",
+        ["Payments/5.2.0/payments-attempts"] = "8902981ecb6379ee7ab9b6abe2319fab9c437d8c98c03f5e75acea8308e11577",
+        ["Payments/5.2.0/payments-events"] = "861608b1ddb306ea7df2f7773ab09f944511dee6e5185e9902ace3864d410f20",
+        ["Payments/5.2.0/payments-payable-types"] = "9a858e1ac3deddf710beaac891c06e90506d0e4d9690bdc31ae232ab59afac72",
+        ["Reports/5.2.0/report-definitions"] = "ef0af931ee858f6b45c69fa330f0899881547aab3dcdc15c7b9765724eb0a4f1",
+        ["Scheduling/5.2.0/scheduled-entries"] = "5d53624df8efaf75dade91db2d193845524941866665ae9b39aab5b5f9a13249",
     };
 
     private static IReadOnlyList<ShippedMigration> FirstParty() =>
@@ -83,6 +113,10 @@ public class ShippedMigrationTests
             new BarakoCMS.Comments.CommentsModule(),
             new BarakoCMS.Contacts.ContactsModule(),
             new BarakoCMS.Notifications.NotificationsModule(),
+            new BarakoCMS.Booking.BookingModule(),
+            new BarakoCMS.Payments.PaymentsModule(),
+            new BarakoCMS.Reports.ReportsModule(),
+            new BarakoCMS.Scheduling.SchedulingModule(),
             new BarakoCMS.Documents.DocumentsModule(),
         ]);
 
@@ -132,6 +166,10 @@ public class ShippedMigrationTests
             new BarakoCMS.ExternalAuth.ExternalAuthModule(),
             new BarakoCMS.Accounting.AccountingModule(),
             new BarakoCMS.Pages.PagesModule(),
+            new BarakoCMS.Booking.BookingModule(),
+            new BarakoCMS.Payments.PaymentsModule(),
+            new BarakoCMS.Reports.ReportsModule(),
+            new BarakoCMS.Scheduling.SchedulingModule(),
             new BarakoCMS.Comments.CommentsModule(),
             new BarakoCMS.Contacts.ContactsModule(),
             new BarakoCMS.Notifications.NotificationsModule(),
@@ -144,6 +182,7 @@ public class ShippedMigrationTests
         var owned = all.Where(m => m.Owner != ShippedMigrations.CoreOwner).Select(m => m.Key).ToList();
         owned.Should().Equal(
             "Accounting/5.0.0/accounting-number-sequences",
+            "Booking/5.2.0/booking-resources",
             "Comments/5.2.0/253-comments",
             "Contacts/5.2.0/contacts",
             "Documents/5.2.0/585-documents",
@@ -156,7 +195,12 @@ public class ShippedMigrationTests
             "Forms/4.6.0/forms-email-verification",
             "Forms/4.7.0/forms-tenant-policy-restore",
             "Notifications/5.2.0/notifications",
-            "Pages/5.0.0/pages-settings");
+            "Pages/5.0.0/pages-settings",
+            "Payments/5.2.0/payments-attempts",
+            "Payments/5.2.0/payments-events",
+            "Payments/5.2.0/payments-payable-types",
+            "Reports/5.2.0/report-definitions",
+            "Scheduling/5.2.0/scheduled-entries");
         coreOnly.Count.Should().BeGreaterThanOrEqualTo(7, "seven core files were released before the ledger");
         coreOnly.Should().HaveCount(all.Count - owned.Count, "a module that is not enabled contributes nothing");
         coreOnly.Should().OnlyContain(m => m.Owner == ShippedMigrations.CoreOwner);

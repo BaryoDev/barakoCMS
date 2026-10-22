@@ -557,6 +557,65 @@ public class FileStoreSeamTests
     }
 
     [Fact]
+    public async Task A_private_file_is_found_for_a_run_in_its_tenant_and_in_no_other()
+    {
+        var tenant = $"seam-{Guid.NewGuid():N}"[..20];
+        var bytes = PdfBytes();
+
+        Guid id;
+        using (var inTenant = _factory.Services.CreateScopeForTenant(tenant))
+        {
+            using var content = new MemoryStream(bytes);
+            var saved = await inTenant.ServiceProvider.GetRequiredService<IFileStore>().SaveAsync(
+                new FileToStore { Content = content, FileName = NewName(), ContentType = "application/pdf", IsPublic = false },
+                Ct);
+            saved.File.Should().NotBeNull(saved.Refused ?? string.Empty);
+            id = saved.File!.Id;
+        }
+
+        using (var inTenant = _factory.Services.CreateScopeForTenant(tenant))
+        {
+            var store = inTenant.ServiceProvider.GetRequiredService<IFileStore>();
+            (await store.FindPublicAsync(id, Ct)).Should().BeNull("the control: it is private");
+            (await store.FindForRunAsync(id, Ct)).Should().NotBeNull();
+            await using var stream = await store.OpenForRunAsync(id, Ct);
+            stream.Should().NotBeNull();
+            using var read = new MemoryStream();
+            await stream!.CopyToAsync(read, Ct);
+            read.ToArray().Should().Equal(bytes);
+        }
+
+        // From the default tenant's scope the same id is nothing.
+        (await WithStoreAsync(store => store.FindForRunAsync(id, Ct))).Should().BeNull();
+        (await WithStoreAsync(store => store.OpenForRunAsync(id, Ct))).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_cached_resize_is_not_a_file_for_a_run()
+    {
+        var parent = await StoredAsync(PdfBytes());
+        var variant = new StoredFile
+        {
+            FileName = "receipt.pdf",
+            ContentType = "application/pdf",
+            StorageKey = $"{FileKeys.Prefix(false)}{Guid.NewGuid():N}.pdf",
+            ParentFileId = parent,
+            VariantWidth = 400,
+        };
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(variant);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        (await WithStoreAsync(store => store.FindForRunAsync(parent, Ct))).Should().NotBeNull("the control: its original is found");
+        (await WithStoreAsync(store => store.FindForRunAsync(variant.Id, Ct))).Should().BeNull();
+        (await WithStoreAsync(store => store.OpenForRunAsync(variant.Id, Ct))).Should().BeNull();
+    }
+
+    [Fact]
     public async Task A_file_that_fails_an_upload_check_is_refused_and_nothing_is_stored()
     {
         var pdf = FileSamples.Pdf();
