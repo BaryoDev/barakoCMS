@@ -512,6 +512,11 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             // Contacts: its endpoints are discovered with the assembly, and its unique email index lives in its schema.
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Contacts.ContactsModule(), opts));
 
+            // Notifications: the service, the email sink's options and the schema, scoped to its own
+            // section as the host scopes it.
+            new BarakoCMS.Notifications.NotificationsModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Notifications"));
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Notifications.NotificationsModule(), opts));
+
             // Portability: its contents section, so a bundle applies through the config engine. Called
             // through IBarakoModule, the way the host calls every module's ConfigureServices.
             ((barakoCMS.Modules.IBarakoModule)new BarakoCMS.Portability.PortabilityModule()).ConfigureServices(services, ctx.Configuration);
@@ -608,6 +613,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
 
         typeof(BarakoCMS.Forms.FormsModule).Assembly,
         typeof(BarakoCMS.Contacts.ContactsModule).Assembly,
+        typeof(BarakoCMS.Notifications.NotificationsModule).Assembly,
         typeof(BarakoCMS.FeatureFlags.FeatureFlagsModule).Assembly,
         // Portability owns no documents of its own, so beside its endpoints it needs only the
         // config section it registers, which ConfigureWebHost adds.
