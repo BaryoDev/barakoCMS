@@ -519,8 +519,6 @@ public class ApiKeyIntegrationTests
     [InlineData("/api/contents")]
     [InlineData("/api/contents/00000000-0000-0000-0000-000000000001")]
     [InlineData("/api/contents/by-slug/counts/x")]
-    [InlineData("/api/contents/counts/x")]
-    [InlineData("/api/contents/counts/erase")]
     [InlineData("/api/content-types")]
     [InlineData("/api/files")]
     public async Task A_monitor_read_key_is_refused_every_other_route(string path)
@@ -533,19 +531,36 @@ public class ApiKeyIntegrationTests
         res.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
+    [Fact]
+    public async Task A_monitor_read_key_cannot_create_an_analytics_website()
+    {
+        var (userId, _) = await SuperAdminAsync();
+        var secret = await StoreKeyAsync(userId, new[] { "monitor:read" });
+        var req = WithKey(HttpMethod.Post, "/api/analytics/websites", secret);
+        req.Content = JsonContent.Create(new { name = "site", domain = "example.com" });
+
+        var res = await _client.SendAsync(req);
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden, await res.Content.ReadAsStringAsync());
+    }
+
+    // These requests match no route, so routing answers before the scope processor runs. The point is
+    // that a monitor:read key reaches nothing: 403, 404 or 405, never a success.
     [Theory]
-    [InlineData("/api/contents/counts")]
-    [InlineData("/api/analytics/websites")]
-    public async Task A_monitor_read_key_cannot_write_to_its_own_routes(string path)
+    [InlineData("POST", "/api/contents/counts")]
+    [InlineData("GET", "/api/contents/counts/x")]
+    [InlineData("GET", "/api/contents/counts/erase")]
+    [InlineData("PUT", "/api/analytics/websites")]
+    [InlineData("DELETE", "/api/analytics/websites")]
+    public async Task A_monitor_read_key_reaches_nothing_on_routes_that_do_not_exist(string method, string path)
     {
         var (userId, _) = await SuperAdminAsync();
         var secret = await StoreKeyAsync(userId, new[] { "monitor:read" });
 
-        foreach (var method in new[] { HttpMethod.Post, HttpMethod.Put, HttpMethod.Patch, HttpMethod.Delete })
-        {
-            var res = await _client.SendAsync(WithKey(method, path, secret));
-            res.StatusCode.Should().Be(HttpStatusCode.Forbidden, $"{method} {path}");
-        }
+        var res = await _client.SendAsync(WithKey(new HttpMethod(method), path, secret));
+
+        res.StatusCode.Should().BeOneOf(
+            HttpStatusCode.Forbidden, HttpStatusCode.NotFound, HttpStatusCode.MethodNotAllowed);
     }
 
     [Fact]
