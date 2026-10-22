@@ -85,24 +85,24 @@ public sealed class ScheduleSweepService(
         return fired;
     }
 
+    /// <summary>
+    /// Moves one Pending row to Firing in a single conditional UPDATE, so Postgres decides the winner.
+    /// Two instances that both read the row as Pending cannot both match the WHERE clause.
+    /// </summary>
     private async Task<bool> ClaimAsync(Guid id, CancellationToken ct)
     {
+        var table = $"{store.Options.DatabaseSchemaName}.mt_doc_scheduled_entries";
         await using var session = store.LightweightSession();
-        var entry = await session.LoadAsync<ScheduledEntry>(id, ct);
-        if (entry is null || entry.Status != ScheduledEntryStatus.Pending)
-            return false;
-
-        entry.Status = ScheduledEntryStatus.Firing;
-        session.Store(entry);
-        try
-        {
-            await session.SaveChangesAsync(ct);
-            return true;
-        }
-        catch (JasperFx.ConcurrencyException)
-        {
-            return false;
-        }
+        await using var command = session.Connection.CreateCommand();
+        command.CommandText =
+            $"UPDATE {table} SET data = jsonb_set(data, '{{Status}}', '{(int)ScheduledEntryStatus.Firing}'::jsonb), " +
+            "mt_version = mt_version + 1, mt_last_modified = transaction_timestamp() " +
+            $"WHERE id = @id AND data ->> 'Status' = '{(int)ScheduledEntryStatus.Pending}'";
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = "id";
+        parameter.Value = id;
+        command.Parameters.Add(parameter);
+        return await command.ExecuteNonQueryAsync(ct) == 1;
     }
 
     private async Task<bool> FireAsync(ScheduledEntry entry, CancellationToken ct)
