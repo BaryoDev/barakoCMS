@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Headers;
 using BarakoCMS.Services;
+using barakoCMS.Infrastructure.Auth;
 using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
@@ -46,6 +47,7 @@ public class ServiceHeartbeatScopeTests
         MachineKeyId = machineKeyId,
         HeartbeatIntervalSeconds = 60,
         CreatedAt = DateTime.UtcNow.AddDays(-1),
+        UpdatedAt = DateTime.UtcNow.AddDays(-1),
         LastHeartbeatAt = DateTime.UtcNow.AddHours(-1),
     };
 
@@ -73,20 +75,39 @@ public class ServiceHeartbeatScopeTests
         return client;
     }
 
-    private async Task<HttpClient> GlobalAdminAsync(Guid? apiKeyId = null)
-    {
-        var stored = await _factory.StoredUserTokenAsync("Admin");
-        var claims = new JwtSecurityTokenHandler().ReadJwtToken(stored).Claims.ToList();
-        var userId = claims.First(c => c.Type == "UserId").Value;
-        var username = claims.First(c => c.Type == "Username").Value;
-        var extra = new Dictionary<string, string> { ["Username"] = username };
-        if (apiKeyId is { } id) extra["apikey_id"] = id.ToString();
+    private async Task<HttpClient> GlobalAdminAsync() =>
+        WithBearer(await _factory.StoredUserTokenAsync("Admin"));
 
+    private HttpClient WithBearer(string bearer)
+    {
         var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
-            _factory.CreateToken(roles: ["Admin"], userId: userId, additionalClaims: extra));
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
         return client;
     }
+
+    /// <summary>A real stored key, owned by the global admin, authenticated through the API key handler.</summary>
+    private async Task<(Guid Id, string Secret)> StoreKeyAsync(string[] scopes, bool revoked = false)
+    {
+        var token = await _factory.StoredUserTokenAsync("Admin");
+        var ownerId = Guid.Parse(new JwtSecurityTokenHandler().ReadJwtToken(token).Claims.First(c => c.Type == "UserId").Value);
+        var secret = "bcms_" + Guid.NewGuid().ToString("N");
+        var id = Guid.NewGuid();
+        await StoreAsync(new ApiKey
+        {
+            Id = id,
+            Name = "service",
+            KeyHash = ApiKeyService.Hash(secret),
+            Prefix = secret[..12],
+            UserId = ownerId,
+            TenantSlug = Tenant.DefaultSlug,
+            Scopes = scopes.ToList(),
+            Revoked = revoked,
+        });
+        return (id, secret);
+    }
+
+    private static Task<HttpResponseMessage> BeatAsync(HttpClient client, string name) =>
+        client.PostAsync($"/api/services/{name}/heartbeat", null, TestContext.Current.CancellationToken);
 
     [Fact]
     public async Task A_tenant_only_holder_cannot_beat_a_service_and_nothing_changes()
@@ -110,33 +131,82 @@ public class ServiceHeartbeatScopeTests
     {
         var name = Unique("global-beat");
         await StoreAsync(DownService(name));
-        var caller = await GlobalAdminAsync();
 
-        var res = await caller.PostAsync($"/api/services/{name}/heartbeat", null, TestContext.Current.CancellationToken);
+        var res = await BeatAsync(await GlobalAdminAsync(), name);
 
         res.StatusCode.Should().Be(HttpStatusCode.OK);
         (await LoadAsync(name))!.LastHeartbeatAt.Should().BeAfter(DateTime.UtcNow.AddMinutes(-1));
     }
 
     [Fact]
-    public async Task A_service_with_a_machine_key_only_hears_from_that_key()
+    public async Task A_service_with_a_machine_key_hears_from_that_real_key()
     {
         var name = Unique("keyed-beat");
-        var keyId = Guid.NewGuid();
+        var (keyId, secret) = await StoreKeyAsync(["services:heartbeat"]);
+        await StoreAsync(DownService(name, keyId));
+
+        var res = await BeatAsync(WithBearer(secret), name);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+        (await LoadAsync(name))!.LastHeartbeatAt.Should().BeAfter(DateTime.UtcNow.AddMinutes(-1));
+    }
+
+    [Fact]
+    public async Task Another_real_key_or_a_global_role_cannot_beat_a_keyed_service_and_nothing_changes()
+    {
+        var name = Unique("keyed-other");
+        var (keyId, _) = await StoreKeyAsync(["services:heartbeat"]);
+        var (_, otherSecret) = await StoreKeyAsync(["services:heartbeat"]);
         var seeded = DownService(name, keyId);
         await StoreAsync(seeded);
 
-        var otherKey = await GlobalAdminAsync(Guid.NewGuid());
-        (await otherKey.PostAsync($"/api/services/{name}/heartbeat", null, TestContext.Current.CancellationToken))
-            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        var noKey = await GlobalAdminAsync();
-        (await noKey.PostAsync($"/api/services/{name}/heartbeat", null, TestContext.Current.CancellationToken))
-            .StatusCode.Should().Be(HttpStatusCode.Forbidden, "a global role is not the service's identity once a key is registered");
-        (await LoadAsync(name))!.LastHeartbeatAt.Should().BeCloseTo(seeded.LastHeartbeatAt!.Value, TimeSpan.FromSeconds(1));
+        var other = await BeatAsync(WithBearer(otherSecret), name);
+        var global = await BeatAsync(await GlobalAdminAsync(), name);
+        var unknown = await BeatAsync(WithBearer(otherSecret), Unique("nope"));
 
-        var own = await GlobalAdminAsync(keyId);
-        (await own.PostAsync($"/api/services/{name}/heartbeat", null, TestContext.Current.CancellationToken))
-            .StatusCode.Should().Be(HttpStatusCode.OK);
-        (await LoadAsync(name))!.LastHeartbeatAt.Should().BeAfter(DateTime.UtcNow.AddMinutes(-1));
+        other.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        global.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        unknown.StatusCode.Should().Be(other.StatusCode, "an unknown name and a service that is not yours look the same");
+        var after = (await LoadAsync(name))!;
+        after.LastHeartbeatAt.Should().BeCloseTo(seeded.LastHeartbeatAt!.Value, TimeSpan.FromSeconds(1));
+        after.UpdatedAt.Should().BeCloseTo(seeded.UpdatedAt, TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public async Task A_revoked_key_is_refused()
+    {
+        var name = Unique("keyed-revoked");
+        var (keyId, secret) = await StoreKeyAsync(["services:heartbeat"], revoked: true);
+        var seeded = DownService(name, keyId);
+        await StoreAsync(seeded);
+
+        var res = await BeatAsync(WithBearer(secret), name);
+
+        res.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await LoadAsync(name))!.LastHeartbeatAt.Should().BeCloseTo(seeded.LastHeartbeatAt!.Value, TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public async Task A_key_without_the_heartbeat_scope_is_refused()
+    {
+        var name = Unique("keyed-noscope");
+        var (keyId, secret) = await StoreKeyAsync(["*"]);
+        var seeded = DownService(name, keyId);
+        await StoreAsync(seeded);
+
+        var res = await BeatAsync(WithBearer(secret), name);
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden, "the wildcard scope does not reach the heartbeat route");
+        (await LoadAsync(name))!.LastHeartbeatAt.Should().BeCloseTo(seeded.LastHeartbeatAt!.Value, TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public async Task A_key_cannot_reach_the_rest_of_the_registry()
+    {
+        var (_, secret) = await StoreKeyAsync(["services:heartbeat"]);
+
+        var res = await WithBearer(secret).GetAsync("/api/services", TestContext.Current.CancellationToken);
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 }

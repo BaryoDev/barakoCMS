@@ -77,6 +77,14 @@ internal sealed class RegisterServiceEndpoint(IDocumentSession session, TenantCo
             ThrowError(PlatformScope.DeploymentWideMessage, 403);
         }
 
+        if (req.MachineKeyId is { } keyId
+            && await session.LoadAsync<barakoCMS.Models.ApiKey>(keyId, ct) is not { Revoked: false })
+        {
+            AddError(r => r.MachineKeyId!, "MachineKeyId must be an existing API key that is not revoked.");
+            await Send.ErrorsAsync(400, ct);
+            return;
+        }
+
         var name = ServiceAdmin.Normalize(req.Name);
         if (await session.Query<ServiceRegistration>().AnyAsync(s => s.Name == name, ct))
         {

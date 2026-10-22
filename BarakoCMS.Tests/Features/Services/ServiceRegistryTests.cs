@@ -3,6 +3,8 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using BarakoCMS.Services;
+using barakoCMS.Infrastructure.Auth;
+using barakoCMS.Models;
 using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
@@ -40,7 +42,9 @@ public class ServiceRegistryTests
         deliveryUrl = "https://billing.example.com/inbox",
     };
 
-    private async Task StoreAsync(ServiceRegistration service)
+    private async Task StoreAsync(ServiceRegistration service) => await StoreDocumentAsync(service);
+
+    private async Task StoreDocumentAsync(object service)
     {
         using var scope = _factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
@@ -169,6 +173,31 @@ public class ServiceRegistryTests
             .StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await caller.PostAsync($"/api/services/{name}/heartbeat", null, TestContext.Current.CancellationToken))
             .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task A_machine_key_must_exist_and_not_be_revoked()
+    {
+        var admin = await AdminAsync();
+        var live = Guid.NewGuid();
+        var revoked = Guid.NewGuid();
+        await StoreDocumentAsync(new ApiKey { Id = live, Name = "live", KeyHash = Guid.NewGuid().ToString("N"), Prefix = "bcms_live" });
+        await StoreDocumentAsync(new ApiKey { Id = revoked, Name = "gone", KeyHash = Guid.NewGuid().ToString("N"), Prefix = "bcms_gone", Revoked = true });
+
+        object WithKey(Guid key) => new
+        {
+            name = $"keyed-{Guid.NewGuid():N}",
+            messageTypes = new[] { "x" },
+            deliveryUrl = "https://x.example.com",
+            machineKeyId = key,
+        };
+
+        (await admin.PostAsJsonAsync("/api/services", WithKey(live), TestContext.Current.CancellationToken))
+            .StatusCode.Should().Be(HttpStatusCode.Created);
+        (await admin.PostAsJsonAsync("/api/services", WithKey(revoked), TestContext.Current.CancellationToken))
+            .StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await admin.PostAsJsonAsync("/api/services", WithKey(Guid.NewGuid()), TestContext.Current.CancellationToken))
+            .StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     [Fact]
