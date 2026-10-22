@@ -295,36 +295,34 @@ public class TenantEmailSettingsTests
 
     private sealed record SentMessage(string? Authorization, string? From);
 
-    private sealed class CapturingHandler : HttpMessageHandler
+    /// <summary>
+    /// Resolves credentials the way a provider does (the host's for an ordinary send, the tenant's for
+    /// a tenant send) and records what it would have sent with.
+    /// </summary>
+    private sealed class ResolvingEmailService(IEmailSettingsProvider settings) : IEmailService
     {
         public SentMessage? Sent { get; private set; }
 
-        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
-        {
-            var body = await request.Content!.ReadAsStringAsync(ct);
-            using var json = JsonDocument.Parse(body);
-            Sent = new SentMessage(
-                $"{request.Headers.Authorization?.Scheme} {request.Headers.Authorization?.Parameter}",
-                json.RootElement.GetProperty("from").GetString());
-            return new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent("{\"id\":\"abc\"}"),
-            };
-        }
+        public async Task SendEmailAsync(string to, string subject, string body, CancellationToken ct = default) =>
+            Record(await settings.GetAsync(ct));
+
+        public async Task SendForTenantAsync(string tenant, string to, string subject, string body, CancellationToken ct = default) =>
+            Record(await settings.GetForTenantAsync(tenant, ct));
+
+        private void Record(ResolvedEmailSettings resolved) =>
+            Sent = new SentMessage($"Bearer {resolved.ApiKey}", resolved.FromAddress);
     }
 
     private async Task<SentMessage> SendUnderTenantAsync(string slug, Func<IEmailService, CancellationToken, Task> send)
     {
         using var scope = _factory.Services.CreateScope();
         scope.ServiceProvider.GetRequiredService<TenantContext>().Slug = slug;
-        var handler = new CapturingHandler();
-        var service = new BarakoCMS.Email.Resend.ResendEmailService(
-            new HttpClient(handler), scope.ServiceProvider.GetRequiredService<IEmailSettingsProvider>());
+        var service = new ResolvingEmailService(scope.ServiceProvider.GetRequiredService<IEmailSettingsProvider>());
 
         await send(service, TestContext.Current.CancellationToken);
 
-        handler.Sent.Should().NotBeNull();
-        return handler.Sent!;
+        service.Sent.Should().NotBeNull();
+        return service.Sent!;
     }
 
     private async Task<ResolvedEmailSettings> ResolveAsync(string slug)

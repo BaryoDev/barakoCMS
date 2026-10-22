@@ -15,8 +15,7 @@ namespace BarakoCMS.Tests.Features.Forms;
 /// container starts, so an upgraded database gets <c>migrations/4.6.0/forms-email-verification.sql</c>
 /// applied by hand. This runs that file into an empty schema and compares the columns, constraints
 /// and indexes it produces with the ones Marten created in <c>public</c> for the Forms module, so
-/// the file cannot drift from what the module declares. Same shape as
-/// <see cref="SentEmailsMigrationTests"/>.
+/// the file cannot drift from what the module declares.
 /// </remarks>
 [Collection("Sequential")]
 public class FormEmailVerificationMigrationTests

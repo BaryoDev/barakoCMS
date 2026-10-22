@@ -31,7 +31,7 @@ the `api` service when the step says so, then `docker compose up -d api`.
 
 | Key | Why |
 | --- | --- |
-| `Auth__RequireEmailVerification: "false"` and `Auth__AcknowledgeUnverifiedRegistration: "true"` | Step 4 registers two users. Registration emails a confirmation link. With no `RESEND_API_KEY` the suite image's send fails and is logged, and the core-only image's mock logs the recipient and subject only, so either way the link never reaches anyone. The first key turns verification off and the API refuses to start unless the second one says you meant it (`EmailVerificationOptions.Validate`). Remove both once the users exist. |
+| `Auth__RequireEmailVerification: "false"` and `Auth__AcknowledgeUnverifiedRegistration: "true"` | Step 4 registers two users. Registration emails a confirmation link. With no SMTP host set the suite image's mock logs the recipient and subject only, so either way the link never reaches anyone. The first key turns verification off and the API refuses to start unless the second one says you meant it (`EmailVerificationOptions.Validate`). Remove both once the users exist. |
 | `Lifecycle__AllowSelfTransition__Submit: "true"` | Step 6. Whoever raised an entry may not move it on, by default. This lets the clerk submit their own invoice. |
 
 The examples use `jq` to pull ids out of responses. Read them off the JSON by eye if you do not have
@@ -325,12 +325,11 @@ curl -s $BASE/api/settings/email -H "Authorization: Bearer $ADMIN"
 `updatedBy` and `providerRegistered`. Each source is `Stored`, `Configuration` or `None`, so the
 screen can say where a value came from. The key itself is never in the response.
 
-The quickstart's default image is the suite, which registers the Resend provider, so
-`providerRegistered` is true there even with `RESEND_API_KEY` blank; a send then fails with "No
-Resend API key is set" and the workflow run records that. The core-only image (`barako-cms-decaf`)
-has no provider and its mock logs each message's recipient and subject and delivers nothing. Set
-`RESEND_API_KEY` and `RESEND_FROM` in `.env`, or store them here, which wins over the deployment's
-value and takes effect on the next send with no restart:
+The quickstart's default image is the suite, which carries the SMTP provider. With no
+`SMTP_HOST` set it registers nothing and the mock logs each message's recipient and subject and
+delivers nothing, as the core-only image (`barako-cms-decaf`) does. Set `SMTP_HOST` and
+`SMTP_FROM` in `.env`, or store the sender here, which wins over the deployment's value and takes
+effect on the next send with no restart:
 
 ```bash
 curl -s -X PUT $BASE/api/settings/email -H "Authorization: Bearer $ADMIN" \

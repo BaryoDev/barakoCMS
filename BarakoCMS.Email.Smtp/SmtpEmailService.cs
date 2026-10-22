@@ -15,7 +15,7 @@ namespace BarakoCMS.Email.Smtp;
 /// MailKit rather than <c>System.Net.Mail.SmtpClient</c>, which Microsoft's own documentation says
 /// not to use for new code.
 ///
-/// A failure throws, the same as the Resend module. Every call site that treats mail as best effort
+/// A failure throws, the same as any other provider module. Every call site that treats mail as best effort
 /// already catches (OtpService, EmailVerificationService, the workflow email action), and the two
 /// that report the reason (the admin test send, the workflow action) need something to report.
 /// Swallowing it here would make a dead relay look like a delivered message.
@@ -173,7 +173,7 @@ public sealed class SmtpEmailService : IEmailService
     /// </summary>
     /// <remarks>
     /// The stored from address is the one part of the email settings surface that is not about
-    /// Resend, so it carries across: an operator who types a sender at Settings, Email gets that
+    /// an API-key provider, so it carries across: an operator who types a sender at Settings, Email gets that
     /// sender, whichever provider is registered. The API key beside it does not carry across,
     /// because SMTP has no use for one. Always the host's: SMTP has no tenant credential, so a tenant
     /// sender would go out over the host's login.

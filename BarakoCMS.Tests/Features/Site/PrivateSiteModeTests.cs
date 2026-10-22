@@ -406,7 +406,6 @@ public class PrivateSiteModeTests
         ("/api/feature-flags", false, "feature flag evaluation: flags, no content"),
         ("/api/client-errors", false, "a write of client error reports"),
         ("/api/pwa/report", false, "a write of install and usage reports"),
-        ("/api/webhooks/resend", false, "a signed provider webhook"),
         ("/api/renderer/blocks/schema", false, "a write guarded by the renderer key"),
         ("/api/_test/", true, "test host only"),
     ];
