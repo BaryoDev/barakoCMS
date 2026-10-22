@@ -75,7 +75,7 @@ public static class ApiKeyScopes
     public const string FilesWrite = "files:write";
 
     /// <summary>
-    /// Read-only monitoring: <c>GET /api/contents/counts</c> and <c>GET /api/analytics/**</c>, nothing else.
+    /// Read-only monitoring: <c>GET /api/contents/counts</c>, <c>GET /api/analytics/**</c> and <c>GET /api/monitoring/health</c>, nothing else.
     /// Not implied by <see cref="All"/>, so keys made before it existed gain nothing.
     /// </summary>
     public const string MonitorRead = "monitor:read";
