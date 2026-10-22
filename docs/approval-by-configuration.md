@@ -325,12 +325,11 @@ curl -s $BASE/api/settings/email -H "Authorization: Bearer $ADMIN"
 `updatedBy` and `providerRegistered`. Each source is `Stored`, `Configuration` or `None`, so the
 screen can say where a value came from. The key itself is never in the response.
 
-The quickstart's default image is the suite, which registers the Resend provider, so
-`providerRegistered` is true there even with `RESEND_API_KEY` blank; a send then fails with "No
-Resend API key is set" and the workflow run records that. The core-only image (`barako-cms-decaf`)
-has no provider and its mock logs each message's recipient and subject and delivers nothing. Set
-`RESEND_API_KEY` and `RESEND_FROM` in `.env`, or store them here, which wins over the deployment's
-value and takes effect on the next send with no restart:
+The quickstart's default image is the suite, which carries the SMTP provider. With no
+`SMTP_HOST` set it registers nothing and the mock logs each message's recipient and subject and
+delivers nothing, as the core-only image (`barako-cms-decaf`) does. Set `SMTP_HOST` and
+`SMTP_FROM` in `.env`, or store the sender here, which wins over the deployment's value and takes
+effect on the next send with no restart:
 
 ```bash
 curl -s -X PUT $BASE/api/settings/email -H "Authorization: Bearer $ADMIN" \

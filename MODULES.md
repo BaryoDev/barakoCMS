@@ -912,7 +912,6 @@ template ships a placeholder.
 | [BarakoCMS.Import](BarakoCMS.Import) | Bulk import: analyze `.xlsx`/CSV uploads and create content |
 | [BarakoCMS.Files](BarakoCMS.Files) | File attachments (upload/download) stored in Postgres |
 | [BarakoCMS.Forms](BarakoCMS.Forms) | Public form submissions: a content type marked as a form takes anonymous, rate limited submissions stored Sensitive |
-| [BarakoCMS.Email.Resend](BarakoCMS.Email.Resend) | Resend email provider (`IEmailService`) |
 | [BarakoCMS.Email.Smtp](BarakoCMS.Email.Smtp) | SMTP email provider (`IEmailService`), inert until a host is configured |
 | [BarakoCMS.Pages](BarakoCMS.Pages) | Page tree over a content type: parent loop, depth and reserved slug rules, public navigation and path resolution, and an authenticated tree |
 | [BarakoCMS.Files.S3](BarakoCMS.Files.S3) | S3-compatible storage for the Files module (AWS S3, Cloudflare R2, SeaweedFS); public files get a direct URL, private files are proxied |

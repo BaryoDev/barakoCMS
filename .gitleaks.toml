@@ -35,7 +35,7 @@ tags = ["password"]
 [[rules]]
 id = "provider-api-key"
 description = "Third-party provider key committed in configuration"
-regex = '''(?i)"(?:Resend:ApiKey|Resend:WebhookSecret|Files:S3:SecretKey|NUGET_API_KEY)"\s*:\s*"([^"]{8,})"'''
+regex = '''(?i)"(?:Email:ApiKey|Files:S3:SecretKey|NUGET_API_KEY)"\s*:\s*"([^"]{8,})"'''
 secretGroup = 1
 tags = ["key", "provider"]
 
