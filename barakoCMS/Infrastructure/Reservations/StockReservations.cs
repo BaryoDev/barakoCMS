@@ -45,11 +45,8 @@ internal sealed class StockReservations(TimeProvider clock) : IStockReservations
         ValidateCounter(counter);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(quantity, 0);
         ValidateReference(reference);
-        if (holdFor is { } span)
-        {
-            ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(span, TimeSpan.Zero);
-            ArgumentOutOfRangeException.ThrowIfGreaterThan(span, MaxHold);
-        }
+        if (holdFor is { } span && (span <= TimeSpan.Zero || span > MaxHold))
+            throw new ArgumentOutOfRangeException(nameof(holdFor), holdFor, "A hold lasts more than zero and at most 365 days.");
         await BeginAsync(session, ct);
 
         var now = clock.GetUtcNow();

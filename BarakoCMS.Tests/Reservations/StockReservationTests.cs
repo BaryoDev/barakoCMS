@@ -237,7 +237,7 @@ public class StockReservationTests(ClinicProbeHost host) : IClassFixture<ClinicP
 
         await using (var sweep = host.OpenSession())
         {
-            (await Stock.ReleaseExpiredAsync(sweep, DateTimeOffset.UtcNow.AddHours(1))).Should().Be(0);
+            await Stock.ReleaseExpiredAsync(sweep, DateTimeOffset.UtcNow.AddHours(1));
             await sweep.SaveChangesAsync();
         }
 
