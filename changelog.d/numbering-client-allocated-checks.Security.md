@@ -1,1 +1,1 @@
-- A client-allocated number is kept only when the next-number route has handed it out, and a numbering refusal on batch, import, site settings or a CreateContent action is a 400 or a permanent failure, not a 500.
+- **A client could keep a number the server never handed out.** A client-allocated number is kept only when the next-number route has handed it out, and a numbering refusal on batch, import, site settings or a CreateContent action is a 400 or a permanent failure, not a 500.
