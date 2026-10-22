@@ -173,6 +173,7 @@ public class ModuleCapabilityDefaultsTests
             typeof(BarakoCMS.AI.AiCapabilities),
             typeof(BarakoCMS.Accounting.AccountingCapabilities),
             typeof(BarakoCMS.Analytics.Umami.AnalyticsCapabilities),
+            typeof(BarakoCMS.Comments.CommentsCapabilities),
             typeof(BarakoCMS.Diagnostics.DiagnosticsCapabilities),
             typeof(BarakoCMS.Email.Resend.ResendEmailCapabilities),
             typeof(BarakoCMS.FeatureFlags.FeatureFlagCapabilities),

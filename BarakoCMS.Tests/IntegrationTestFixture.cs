@@ -526,6 +526,12 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             new BarakoCMS.FeatureFlags.FeatureFlagsModule().ConfigureServices(services, ctx.Configuration);
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.FeatureFlags.FeatureFlagsModule(), opts));
 
+            // Comments: its schema, its content target, and a second kind of record (a ticket) so
+            // the tests can show one comment surface serving two kinds of record.
+            new BarakoCMS.Comments.CommentsModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Comments"));
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Comments.CommentsModule(), opts));
+            services.AddSingleton<BarakoCMS.Comments.ICommentTarget>(BarakoCMS.Tests.Features.Comments.TicketCommentTarget.Instance);
+
             // ExternalAuth: the OAuth start/callback endpoints are anonymous, so what they refuse
             // is only checkable over real HTTP. ConfigureServices gives them IHttpClientFactory.
             new BarakoCMS.ExternalAuth.ExternalAuthModule().ConfigureServices(services, ctx.Configuration);
@@ -610,6 +616,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
 
         typeof(BarakoCMS.Forms.FormsModule).Assembly,
         typeof(BarakoCMS.FeatureFlags.FeatureFlagsModule).Assembly,
+        typeof(BarakoCMS.Comments.CommentsModule).Assembly,
         // Portability owns no documents of its own, so beside its endpoints it needs only the
         // config section it registers, which ConfigureWebHost adds.
         typeof(BarakoCMS.Portability.PortabilityModule).Assembly,
