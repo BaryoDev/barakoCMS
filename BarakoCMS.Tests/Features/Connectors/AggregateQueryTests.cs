@@ -1,0 +1,635 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text.Json;
+using FluentAssertions;
+using Marten;
+using Microsoft.Extensions.DependencyInjection;
+using Xunit;
+using barakoCMS.Models;
+
+namespace BarakoCMS.Tests.Features.Connectors;
+
+/// <summary>
+/// A saved query that groups, counts and sums in the database, under the reader's rules.
+/// </summary>
+/// <remarks>
+/// Every figure asserted here is computed by hand from the seeded rows, and every set of rows is
+/// built so a wrong grouping, a hidden row that leaks in or a filter that does nothing gives a
+/// different number. Each refusal has a control beside it, so a runner that refused everything
+/// cannot pass.
+/// </remarks>
+[Collection("Sequential")]
+public class AggregateQueryTests
+{
+    private static int _ip;
+
+    private readonly IntegrationTestFixture _factory;
+
+    public AggregateQueryTests(IntegrationTestFixture factory) => _factory = factory;
+
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    // ---- the numbers ------------------------------------------------------------------------
+
+    [Fact]
+    public async Task Sums_counts_and_extremes_match_hand_computed_values_per_group()
+    {
+        var type = await SeedOrdersAsync(null,
+            ("A", 10m), ("A", 20.5m), ("B", 5m), ("C", 100m), ("C", 1m), ("C", 1m));
+        var client = await AdminAsync();
+
+        var slug = await SaveOkAsync(client, type,
+            groupBy: [new { field = "Customer" }],
+            measures:
+            [
+                new { fn = "sum", field = "Total", @as = "total" },
+                new { fn = "count", field = (string?)null, @as = "orders" },
+                new { fn = "avg", field = "Total", @as = "average" },
+                new { fn = "min", field = "Total", @as = "smallest" },
+                new { fn = "max", field = "Total", @as = "largest" },
+            ]);
+
+        var body = await RunOkAsync(client, slug);
+        var rows = body.GetProperty("rows").EnumerateArray().ToList();
+
+        rows.Should().HaveCount(3, "three customers, so three groups");
+        AssertRow(RowFor(rows, "Customer", "A"), 30.5m, 2, 15.25m, 10m, 20.5m);
+        AssertRow(RowFor(rows, "Customer", "B"), 5m, 1, 5m, 5m, 5m);
+        AssertRow(RowFor(rows, "Customer", "C"), 102m, 3, 34m, 1m, 100m);
+
+        var totals = body.GetProperty("totals");
+        totals.GetProperty("total").GetDecimal().Should().Be(137.5m);
+        totals.GetProperty("orders").GetDecimal().Should().Be(6m);
+        totals.GetProperty("smallest").GetDecimal().Should().Be(1m);
+        totals.GetProperty("largest").GetDecimal().Should().Be(100m);
+    }
+
+    [Fact]
+    public async Task A_filter_narrows_what_is_counted()
+    {
+        var type = await SeedOrdersAsync(null, ("A", 10m), ("A", 20m), ("B", 5m));
+        var client = await AdminAsync();
+
+        var slug = await SaveOkAsync(client, type,
+            filters: [new { field = "Customer", op = "eq", value = "A" }],
+            measures: [new { fn = "sum", field = "Total", @as = "total" }]);
+
+        var body = await RunOkAsync(client, slug);
+
+        body.GetProperty("totals").GetProperty("total").GetDecimal().Should().Be(30m,
+            "only A's two orders are in, so 35 would mean the filter was ignored");
+    }
+
+    [Fact]
+    public async Task Preview_of_an_aggregate_returns_the_rows_the_run_returns()
+    {
+        var type = await SeedOrdersAsync(null, ("A", 10m), ("B", 5m), ("B", 7m));
+        var client = await AdminAsync();
+        var slug = await SaveOkAsync(client, type,
+            groupBy: [new { field = "Customer" }],
+            measures: [new { fn = "sum", field = "Total", @as = "total" }]);
+
+        var preview = await PostJsonAsync(client, $"/api/queries/{slug}/preview", new { });
+        preview.GetProperty("ok").GetBoolean().Should().BeTrue(
+            "got refusal: {0}", preview.TryGetProperty("refusal", out var r) ? r.ToString() : "none");
+
+        var rows = preview.GetProperty("rows").EnumerateArray().ToList();
+        rows.Should().HaveCount(2);
+        RowFor(rows, "Customer", "B").GetProperty("total").GetDecimal().Should().Be(12m);
+        preview.GetProperty("count").GetInt32().Should().Be(2, "count is the number of groups");
+    }
+
+    [Fact]
+    public async Task A_saved_query_without_the_new_keys_still_saves_and_previews()
+    {
+        var type = await SeedOrdersAsync(null, ("A", 10m), ("B", 5m));
+        var client = await AdminAsync();
+
+        var res = await client.PostAsJsonAsync("/api/queries", new
+        {
+            name = "Plain", slug = NewSlug("q"), contentType = type,
+            filters = Array.Empty<object>(), fields = new[] { "Customer", "Total" }, limit = 100,
+        }, Ct);
+        res.IsSuccessStatusCode.Should().BeTrue("got {0}", res.StatusCode);
+        var slug = (await res.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("slug").GetString();
+
+        var preview = await PostJsonAsync(client, $"/api/queries/{slug}/preview", new { });
+
+        preview.GetProperty("ok").GetBoolean().Should().BeTrue();
+        preview.GetProperty("count").GetInt32().Should().Be(2);
+    }
+
+    // ---- the reader's rules -----------------------------------------------------------------
+
+    [Theory]
+    [InlineData("group")]
+    [InlineData("measure")]
+    [InlineData("filter")]
+    public async Task A_field_the_caller_may_not_read_is_refused_by_name_and_a_readable_one_runs(string use)
+    {
+        var type = await SeedOrdersAsync(null, ("A", 10m), ("B", 5m));
+        var admin = await AdminAsync();
+
+        var slug = use switch
+        {
+            "group" => await SaveOkAsync(admin, type, groupBy: [new { field = "Secret" }],
+                measures: [new { fn = "count", field = (string?)null, @as = "n" }]),
+            "measure" => await SaveOkAsync(admin, type,
+                measures: [new { fn = "sum", field = "Secret", @as = "s" }]),
+            _ => await SaveOkAsync(admin, type,
+                filters: [new { field = "Secret", op = "gt", value = "0" }],
+                measures: [new { fn = "count", field = (string?)null, @as = "n" }]),
+        };
+        var control = await SaveOkAsync(admin, type, groupBy: [new { field = "Customer" }],
+            measures: [new { fn = "sum", field = "Total", @as = "total" }]);
+
+        var restricted = await RestrictedAsync([type], conditions: null);
+
+        var refused = await restricted.PostAsJsonAsync($"/api/queries/{slug}/run", new { }, Ct);
+        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain("Secret",
+            "the field is named in the refusal, not ignored");
+
+        var allowed = await RunOkAsync(restricted, control);
+        allowed.GetProperty("rows").GetArrayLength().Should().Be(2, "the control: a readable field runs");
+    }
+
+    [Fact]
+    public async Task A_field_inside_a_referenced_type_the_caller_may_not_read_is_refused_by_name()
+    {
+        var (invoice, line) = await SeedInvoicesAsync(null);
+        var admin = await AdminAsync();
+        var hidden = await SaveOkAsync(admin, invoice,
+            measures: [new { fn = "sum", field = "Cost", @as = "c", via = "Lines" }]);
+        var readable = await SaveOkAsync(admin, invoice,
+            measures: [new { fn = "sum", field = "Amount", @as = "a", via = "Lines" }]);
+
+        var restricted = await RestrictedAsync([invoice, line], conditions: null);
+
+        var refused = await restricted.PostAsJsonAsync($"/api/queries/{hidden}/run", new { }, Ct);
+        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain("Cost");
+
+        var body = await RunOkAsync(restricted, readable);
+        body.GetProperty("totals").GetProperty("a").GetDecimal().Should().Be(35m, "the control: Amount is readable");
+    }
+
+    [Fact]
+    public async Task A_row_the_callers_conditions_hide_is_not_counted()
+    {
+        var type = $"agg_{Guid.NewGuid():n}"[..14];
+        await StoreAsync(null,
+            OrderType(type),
+            Order(type, "A", 10m, region: "north"), Order(type, "A", 20m, region: "north"),
+            Order(type, "A", 1000m, region: "south"));
+        var admin = await AdminAsync();
+        var slug = await SaveOkAsync(admin, type, groupBy: [new { field = "Customer" }],
+            measures:
+            [
+                new { fn = "sum", field = "Total", @as = "total" },
+                new { fn = "count", field = (string?)null, @as = "orders" },
+            ]);
+
+        var all = await RunOkAsync(admin, slug);
+        all.GetProperty("totals").GetProperty("total").GetDecimal().Should().Be(1030m,
+            "the control: an administrator is not narrowed, so the south row counts");
+
+        var north = await RestrictedAsync([type], new Dictionary<string, object>
+        {
+            ["Region"] = new Dictionary<string, object> { ["_eq"] = "north" },
+        });
+        var body = await RunOkAsync(north, slug);
+
+        body.GetProperty("totals").GetProperty("total").GetDecimal().Should().Be(30m,
+            "the south row is hidden by the caller's conditions, and counting it would make this 1030");
+        body.GetProperty("totals").GetProperty("orders").GetDecimal().Should().Be(2m);
+    }
+
+    // ---- tenants and time -------------------------------------------------------------------
+
+    [Fact]
+    public async Task Another_tenants_entries_never_reach_a_total()
+    {
+        var acme = await TenantAsync();
+        var globex = await TenantAsync();
+        var type = $"agg_{Guid.NewGuid():n}"[..14];
+        await StoreAsync(acme, OrderType(type), Order(type, "A", 10m), Order(type, "A", 5m));
+        await StoreAsync(globex, OrderType(type), Order(type, "A", 100000m));
+
+        var client = await MemberAsync(acme);
+        var slug = await SaveOkAsync(client, type, groupBy: [new { field = "Customer" }],
+            measures: [new { fn = "sum", field = "Total", @as = "total" }]);
+
+        var body = await RunOkAsync(client, slug);
+        var rows = body.GetProperty("rows").EnumerateArray().ToList();
+
+        rows.Should().HaveCount(1);
+        rows[0].GetProperty("total").GetDecimal().Should().Be(15m, "globex's 100000 is another tenant's");
+    }
+
+    [Fact]
+    public async Task Day_buckets_follow_the_tenants_time_zone_not_UTC()
+    {
+        var tenant = await TenantAsync();
+        var type = $"agg_{Guid.NewGuid():n}"[..14];
+        // Manila is UTC+8: 20:00Z on the 10th is 04:00 on the 11th there, 10:00Z is 18:00 on the 10th.
+        await StoreAsync(tenant,
+            OrderType(type),
+            Order(type, "A", 1m, date: "2026-03-10T20:00:00Z"),
+            Order(type, "A", 2m, date: "2026-03-10T10:00:00Z"),
+            new Content
+            {
+                Id = Guid.NewGuid(), ContentType = "site", Status = ContentStatus.Published,
+                Data = new Dictionary<string, object> { ["TimeZone"] = "Asia/Manila" },
+            });
+
+        var client = await MemberAsync(tenant);
+        var slug = await SaveOkAsync(client, type,
+            groupBy: [new { field = "Date", bucket = "day" }],
+            measures: [new { fn = "sum", field = "Total", @as = "total" }]);
+
+        var rows = (await RunOkAsync(client, slug)).GetProperty("rows").EnumerateArray().ToList();
+
+        rows.Should().HaveCount(2, "UTC would put both on the 10th and give one group");
+        RowFor(rows, "Date", "2026-03-10").GetProperty("total").GetDecimal().Should().Be(2m);
+        RowFor(rows, "Date", "2026-03-11").GetProperty("total").GetDecimal().Should().Be(1m);
+    }
+
+    [Fact]
+    public async Task A_relative_range_keeps_only_the_months_it_names()
+    {
+        var now = DateTime.UtcNow;
+        var monthStart = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+        var type = await SeedOrdersAsync(null,
+            ("A", 10m, now.ToString("O")),
+            ("A", 20m, monthStart.AddDays(-5).ToString("O")),
+            ("A", 40m, monthStart.AddDays(-40).ToString("O")));
+        var client = await AdminAsync();
+
+        var thisMonth = await SaveOkAsync(client, type, range: new { field = "Date", relative = "thisMonth" },
+            measures: [new { fn = "sum", field = "Total", @as = "total" }]);
+        var lastMonth = await SaveOkAsync(client, type, range: new { field = "Date", relative = "lastMonth" },
+            measures: [new { fn = "sum", field = "Total", @as = "total" }]);
+
+        (await RunOkAsync(client, thisMonth)).GetProperty("totals").GetProperty("total").GetDecimal()
+            .Should().Be(10m);
+        (await RunOkAsync(client, lastMonth)).GetProperty("totals").GetProperty("total").GetDecimal()
+            .Should().Be(20m, "five days before this month began is in last month, and 40 days before is not");
+    }
+
+    [Fact]
+    public async Task Named_from_and_to_parameters_bound_the_range_at_run_time()
+    {
+        var type = await SeedOrdersAsync(null,
+            ("A", 1m, "2026-03-01T12:00:00Z"),
+            ("A", 2m, "2026-03-15T12:00:00Z"),
+            ("A", 4m, "2026-04-02T12:00:00Z"));
+        var client = await AdminAsync();
+        var slug = await SaveOkAsync(client, type, range: new { field = "Date" },
+            measures: [new { fn = "sum", field = "Total", @as = "total" }]);
+
+        var march = await PostJsonAsync(client, $"/api/queries/{slug}/run", new { from = "2026-03-01", to = "2026-03-31" });
+        march.GetProperty("totals").GetProperty("total").GetDecimal().Should().Be(3m, "the April entry is past the end");
+
+        var fromOnly = await PostJsonAsync(client, $"/api/queries/{slug}/run", new { from = "2026-03-10" });
+        fromOnly.GetProperty("totals").GetProperty("total").GetDecimal().Should().Be(6m, "the 1 March entry is before it");
+    }
+
+    // ---- references -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task A_header_sums_its_lines_one_hop_away()
+    {
+        var (invoice, _) = await SeedInvoicesAsync(null);
+        var client = await AdminAsync();
+        var slug = await SaveOkAsync(client, invoice, groupBy: [new { field = "Customer" }],
+            measures:
+            [
+                new { fn = "sum", field = "Amount", @as = "billed", via = "Lines" },
+                new { fn = "count", field = (string?)null, @as = "lines", via = "Lines" },
+            ]);
+
+        var rows = (await RunOkAsync(client, slug)).GetProperty("rows").EnumerateArray().ToList();
+
+        rows.Should().HaveCount(2);
+        RowFor(rows, "Customer", "A").GetProperty("billed").GetDecimal().Should().Be(30m, "lines of 10 and 20");
+        RowFor(rows, "Customer", "A").GetProperty("lines").GetDecimal().Should().Be(2m);
+        RowFor(rows, "Customer", "B").GetProperty("billed").GetDecimal().Should().Be(5m);
+    }
+
+    [Fact]
+    public async Task A_second_hop_is_refused()
+    {
+        var (invoice, _) = await SeedInvoicesAsync(null);
+        var client = await AdminAsync();
+
+        var res = await SaveAsync(client, invoice,
+            measures: [new { fn = "sum", field = "Amount", @as = "a", via = "Lines.Parent" }]);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await res.Content.ReadAsStringAsync(Ct)).Should().Contain("one hop");
+    }
+
+    // ---- bounds and hostile input -----------------------------------------------------------
+
+    [Fact]
+    public async Task Past_the_group_cap_the_query_is_refused_with_the_cap_in_the_message()
+    {
+        var type = $"agg_{Guid.NewGuid():n}"[..14];
+        var docs = new List<object> { OrderType(type) };
+        docs.AddRange(Enumerable.Range(0, 1001).Select(i => (object)Order(type, $"c{i:0000}", 1m)));
+        await StoreAsync(null, docs.ToArray());
+        var client = await AdminAsync();
+        var slug = await SaveOkAsync(client, type, groupBy: [new { field = "Customer" }],
+            measures: [new { fn = "count", field = (string?)null, @as = "n" }]);
+
+        var res = await client.PostAsJsonAsync($"/api/queries/{slug}/run", new { }, Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, "1001 groups is one past the cap, and a cut-short answer is a wrong one");
+        (await res.Content.ReadAsStringAsync(Ct)).Should().Contain("1000");
+    }
+
+    [Theory]
+    [InlineData("Customer'; DROP TABLE x;--")]
+    [InlineData("Customer->>'x'")]
+    [InlineData("Cus\"tomer;")]
+    public async Task A_field_name_holding_a_quote_an_arrow_or_a_semicolon_is_refused_and_nothing_runs(string hostile)
+    {
+        var type = await SeedOrdersAsync(null, ("A", 10m), ("B", 5m));
+        var client = await AdminAsync();
+
+        var res = await SaveAsync(client, type, groupBy: [new { field = hostile }],
+            measures: [new { fn = "count", field = (string?)null, @as = "n" }]);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var control = await SaveOkAsync(client, type, groupBy: [new { field = "Customer" }],
+            measures: [new { fn = "count", field = (string?)null, @as = "n" }]);
+        (await RunOkAsync(client, control)).GetProperty("rows").GetArrayLength().Should().Be(2,
+            "the type is intact and a normal query still runs");
+    }
+
+    [Fact]
+    public async Task A_value_holding_a_quote_is_a_parameter_and_matches_nothing()
+    {
+        var type = await SeedOrdersAsync(null, ("A", 10m));
+        var client = await AdminAsync();
+        var slug = await SaveOkAsync(client, type,
+            filters: [new { field = "Customer", op = "eq", value = "A'; DROP TABLE x;--" }],
+            measures: [new { fn = "count", field = (string?)null, @as = "n" }]);
+
+        var body = await RunOkAsync(client, slug);
+
+        body.GetProperty("totals").GetProperty("n").GetDecimal().Should().Be(0m);
+    }
+
+    [Fact]
+    public async Task Summing_a_text_field_is_refused()
+    {
+        var type = await SeedOrdersAsync(null, ("A", 10m));
+        var client = await AdminAsync();
+
+        var res = await SaveAsync(client, type, measures: [new { fn = "sum", field = "Customer", @as = "s" }]);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await res.Content.ReadAsStringAsync(Ct)).Should().Contain("Customer");
+    }
+
+    // ---- helpers ----------------------------------------------------------------------------
+
+    private static void AssertRow(
+        JsonElement row, decimal total, int orders, decimal average, decimal smallest, decimal largest)
+    {
+        row.GetProperty("total").GetDecimal().Should().Be(total);
+        row.GetProperty("orders").GetDecimal().Should().Be(orders);
+        row.GetProperty("average").GetDecimal().Should().Be(average);
+        row.GetProperty("smallest").GetDecimal().Should().Be(smallest);
+        row.GetProperty("largest").GetDecimal().Should().Be(largest);
+    }
+
+    private static string NewSlug(string prefix) => prefix + Guid.NewGuid().ToString("n")[..10];
+
+    private static JsonElement RowFor(List<JsonElement> rows, string field, string key) =>
+        rows.Single(r => r.GetProperty(field).GetString() == key);
+
+    private async Task<HttpClient> AdminAsync()
+    {
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer", await _factory.StoredUserTokenAsync("SuperAdmin", "Admin"));
+        return client;
+    }
+
+    /// <summary>A caller who may manage queries and read only the types given, with no view_sensitive.</summary>
+    private async Task<HttpClient> RestrictedAsync(string[] types, Dictionary<string, object>? conditions)
+    {
+        var role = new Role
+        {
+            Id = Guid.NewGuid(),
+            Name = $"agg_{Guid.NewGuid():n}",
+            SystemCapabilities = [SystemCapabilities.ManageQueries],
+            Permissions = types.Select(t => new ContentTypePermission
+            {
+                ContentTypeSlug = t,
+                Read = new PermissionRule { Enabled = true, Conditions = conditions },
+            }).ToList(),
+        };
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            Username = $"agg-{Guid.NewGuid():n}",
+            Email = $"agg-{Guid.NewGuid():n}@example.com",
+            RoleIds = [role.Id],
+        };
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(role);
+            session.Store(user);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
+            _factory.CreateToken(["Restricted"], user.Id.ToString(),
+                new Dictionary<string, string> { ["Username"] = user.Username }));
+        return client;
+    }
+
+    private async Task<string> TenantAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var slug = $"agg-{Guid.NewGuid():N}"[..14].ToLowerInvariant();
+        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug });
+        await session.SaveChangesAsync(Ct);
+        return slug;
+    }
+
+    private async Task<HttpClient> MemberAsync(string tenantSlug)
+    {
+        var userId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new User
+            {
+                Id = userId,
+                Username = $"agg-{Guid.NewGuid():n}"[..14],
+                Email = $"agg-{Guid.NewGuid():n}@example.com",
+                RoleIds = [SystemRoles.SuperAdminRoleId],
+            });
+            session.Store(new Membership
+            {
+                Id = Guid.NewGuid(), UserId = userId, TenantSlug = tenantSlug,
+                Status = MembershipStatus.Active, RoleIds = [SystemRoles.SuperAdminRoleId],
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
+            _factory.CreateToken(["SuperAdmin"], userId.ToString(),
+                new Dictionary<string, string> { ["tenant"] = tenantSlug }));
+        client.DefaultRequestHeaders.Add("X-Tenant", tenantSlug);
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"198.51.100.{Interlocked.Increment(ref _ip) % 250 + 1}");
+        return client;
+    }
+
+    private async Task StoreAsync(string? tenant, params object[] documents)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
+        await using var session = tenant is null ? store.LightweightSession() : store.LightweightSession(tenant);
+        foreach (var document in documents)
+        {
+            switch (document)
+            {
+                case ContentTypeDefinition definition: session.Store(definition); break;
+                case Content content: session.Store(content); break;
+                default: throw new ArgumentException($"Cannot store a {document.GetType().Name}.");
+            }
+        }
+
+        await session.SaveChangesAsync(Ct);
+    }
+
+    private static ContentTypeDefinition OrderType(string name) => new()
+    {
+        Id = Guid.NewGuid(), Name = name, DisplayName = name,
+        Fields =
+        [
+            new FieldDefinition { Name = "Customer", Type = "string" },
+            new FieldDefinition { Name = "Region", Type = "string" },
+            new FieldDefinition { Name = "Total", Type = "decimal" },
+            new FieldDefinition { Name = "Date", Type = "datetime" },
+            new FieldDefinition { Name = "Secret", Type = "decimal", Sensitivity = SensitivityLevel.Sensitive },
+        ],
+        CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+    };
+
+    private static Content Order(string type, string customer, decimal total, string? region = null, string? date = null) => new()
+    {
+        Id = Guid.NewGuid(), ContentType = type, Status = ContentStatus.Published,
+        Data = new Dictionary<string, object>
+        {
+            ["Customer"] = customer, ["Total"] = total, ["Region"] = region ?? "north",
+            ["Date"] = date ?? DateTime.UtcNow.ToString("O"), ["Secret"] = 7m,
+        },
+        CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+    };
+
+    private async Task<string> SeedOrdersAsync(string? tenant, params (string Customer, decimal Total)[] rows) =>
+        await SeedOrdersAsync(tenant, rows.Select(r => (r.Customer, r.Total, (string?)null)).ToArray());
+
+    private async Task<string> SeedOrdersAsync(string? tenant, params (string Customer, decimal Total, string? Date)[] rows)
+    {
+        var type = $"agg_{Guid.NewGuid():n}"[..14];
+        var docs = new List<object> { OrderType(type) };
+        docs.AddRange(rows.Select(r => (object)Order(type, r.Customer, r.Total, date: r.Date)));
+        await StoreAsync(tenant, docs.ToArray());
+        return type;
+    }
+
+    /// <summary>Invoice A holds lines of 10 and 20, invoice B one of 5. Cost on a line is Sensitive.</summary>
+    private async Task<(string Invoice, string Line)> SeedInvoicesAsync(string? tenant)
+    {
+        var invoice = $"inv_{Guid.NewGuid():n}"[..14];
+        var line = $"lin_{Guid.NewGuid():n}"[..14];
+
+        Content NewLine(decimal amount) => new()
+        {
+            Id = Guid.NewGuid(), ContentType = line, Status = ContentStatus.Published,
+            Data = new Dictionary<string, object> { ["Amount"] = amount, ["Cost"] = 1m },
+        };
+
+        Content NewInvoice(string customer, params Content[] lines) => new()
+        {
+            Id = Guid.NewGuid(), ContentType = invoice, Status = ContentStatus.Published,
+            Data = new Dictionary<string, object>
+            {
+                ["Customer"] = customer,
+                ["Lines"] = lines.Select(l => l.Id.ToString()).ToList(),
+            },
+        };
+
+        var a1 = NewLine(10m);
+        var a2 = NewLine(20m);
+        var b1 = NewLine(5m);
+        await StoreAsync(tenant,
+            new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(), Name = line, DisplayName = line,
+                Fields =
+                [
+                    new FieldDefinition { Name = "Amount", Type = "decimal" },
+                    new FieldDefinition { Name = "Cost", Type = "decimal", Sensitivity = SensitivityLevel.Sensitive },
+                    new FieldDefinition { Name = "Parent", Type = "reference", ReferenceType = invoice },
+                ],
+            },
+            new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(), Name = invoice, DisplayName = invoice,
+                Fields =
+                [
+                    new FieldDefinition { Name = "Customer", Type = "string" },
+                    new FieldDefinition { Name = "Lines", Type = "reference", ReferenceType = line, Multiple = true },
+                ],
+            },
+            a1, a2, b1, NewInvoice("A", a1, a2), NewInvoice("B", b1));
+        return (invoice, line);
+    }
+
+    private Task<HttpResponseMessage> SaveAsync(
+        HttpClient client, string type, object[]? filters = null, object[]? groupBy = null,
+        object[]? measures = null, object? range = null, string? slug = null) =>
+        client.PostAsJsonAsync("/api/queries", new
+        {
+            name = "Report", slug = slug ?? NewSlug("q"), contentType = type,
+            filters = filters ?? [], fields = Array.Empty<string>(), limit = 100,
+            groupBy, measures, range,
+        }, Ct);
+
+    private async Task<string> SaveOkAsync(
+        HttpClient client, string type, object[]? filters = null, object[]? groupBy = null,
+        object[]? measures = null, object? range = null)
+    {
+        var slug = NewSlug("q");
+        var res = await SaveAsync(client, type, filters, groupBy, measures, range, slug);
+        res.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", res.StatusCode, await res.Content.ReadAsStringAsync(Ct));
+        return slug;
+    }
+
+    private async Task<JsonElement> RunOkAsync(HttpClient client, string slug) =>
+        await PostJsonAsync(client, $"/api/queries/{slug}/run", new { });
+
+    private async Task<JsonElement> PostJsonAsync(HttpClient client, string url, object body)
+    {
+        var res = await client.PostAsJsonAsync(url, body, Ct);
+        var text = await res.Content.ReadAsStringAsync(Ct);
+        res.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", res.StatusCode, text);
+        return JsonDocument.Parse(text).RootElement.Clone();
+    }
+}
