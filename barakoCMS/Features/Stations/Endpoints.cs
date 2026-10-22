@@ -94,6 +94,9 @@ internal sealed class CreateStationEndpoint(
             if (!await callers.HoldsAsync(User, capability, ct))
                 AddError(r => r.Capabilities, $"You cannot grant '{capability}' because you do not hold it.");
         }
+
+        foreach (var capability in capabilities.Where(barakoCMS.Features.Users.PlatformRoles.PlatformCapabilities.Contains))
+            AddError(r => r.Capabilities, $"A station key belongs to one tenant, so it cannot carry '{capability}', which reaches past the tenant.");
         ThrowIfAnyErrors();
 
         if (!Guid.TryParse(User.FindFirst("UserId")?.Value, out var createdBy))
