@@ -150,7 +150,7 @@ public class ShippedMigrationTests
             "Notifications/5.2.0/notifications",
             "Pages/5.0.0/pages-settings");
         coreOnly.Count.Should().BeGreaterThanOrEqualTo(7, "seven core files were released before the ledger");
-        coreOnly.Should().HaveCount(all.Count - 12, "a module that is not enabled contributes nothing");
+        coreOnly.Should().HaveCount(all.Count - owned.Count, "a module that is not enabled contributes nothing");
         coreOnly.Should().OnlyContain(m => m.Owner == ShippedMigrations.CoreOwner);
         coreOnly.Select(m => m.Id).Should().NotIntersectWith(ModuleOwned, "core must not also ship a module's file");
     }

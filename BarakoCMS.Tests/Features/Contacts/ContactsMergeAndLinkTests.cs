@@ -88,6 +88,11 @@ public class ContactsMergeAndLinkTests(IntegrationTestFixture factory)
     public async Task A_merge_keeps_what_the_survivor_has_fills_what_it_lacks_and_moves_the_links()
     {
         var tenant = await _host.TenantAsync();
+        await _host.DeclareTypeAsync(tenant, deliverable: false, d =>
+        {
+            d.Fields.Add(new() { Name = "nickname", Type = "string" });
+            d.Fields.Add(new() { Name = "team", Type = "string" });
+        });
         var admin = await _host.AdminAsync(tenant);
         var org = await CreateAsync(admin, "Acme", kind: "Organization");
         var survivor = await ContactsTestHost.CreatedIdAsync(await admin.PostAsJsonAsync("/api/contacts", new
