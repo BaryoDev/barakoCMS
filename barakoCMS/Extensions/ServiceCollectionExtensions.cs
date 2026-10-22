@@ -122,9 +122,13 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<ILogger<barakoCMS.Infrastructure.Realtime.RealtimeEventListener>>()));
 
         // The delivery response cache evicts by tag when a commit changes what a read was built from.
-        options.Listeners.Add(new barakoCMS.Infrastructure.Caching.DeliveryResponseCacheListener(
-            sp.GetRequiredService<Microsoft.AspNetCore.OutputCaching.IOutputCacheStore>(),
-            sp.GetRequiredService<ILogger<barakoCMS.Infrastructure.Caching.DeliveryResponseCacheListener>>()));
+        // Only when it is on, so a deployment that leaves it off pays nothing on its commits.
+        if (sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<barakoCMS.Infrastructure.Caching.DeliveryResponseCacheOptions>>().Value.Enabled)
+        {
+            options.Listeners.Add(new barakoCMS.Infrastructure.Caching.DeliveryResponseCacheListener(
+                sp.GetRequiredService<Microsoft.AspNetCore.OutputCaching.IOutputCacheStore>(),
+                sp.GetRequiredService<ILogger<barakoCMS.Infrastructure.Caching.DeliveryResponseCacheListener>>()));
+        }
 
         // The private site check forgets its cached answer when a site entry is written.
         options.Listeners.Add(new barakoCMS.Infrastructure.Multitenancy.PrivateSiteCacheListener(

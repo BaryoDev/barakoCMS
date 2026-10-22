@@ -61,6 +61,9 @@ internal sealed class DeliveryResponseCachePolicy : IOutputCachePolicy
         context.CacheVaryByRules.HeaderNames =
             new[] { TenantResolutionMiddleware.TenantHeader, HeaderNames.Origin };
         context.CacheVaryByRules.VaryByValues["tenant"] = tenant;
+        // The built-in key is believed to upper-case the path, which would let /api/public/Post/x
+        // and /api/public/post/x share an entry although the endpoints tell them apart.
+        context.CacheVaryByRules.VaryByValues["path"] = http.Request.Path.Value ?? string.Empty;
         return ValueTask.CompletedTask;
     }
 

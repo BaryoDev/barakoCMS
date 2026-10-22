@@ -24,6 +24,9 @@ internal sealed class DeliveryResponseCacheListener(
     IOutputCacheStore store,
     ILogger<DeliveryResponseCacheListener> logger) : DocumentSessionListenerBase
 {
+    /// <summary>The tag on a read that holds a reference field with no target type.</summary>
+    public const string UntypedReferences = "untyped-refs";
+
     public override async Task AfterCommitAsync(IDocumentSession session, IChangeSet commit, CancellationToken token)
     {
         var tenant = TenantScopes.SlugFor(session.TenantId);
@@ -88,5 +91,6 @@ internal sealed class DeliveryResponseCacheListener(
         scopes.Add(CacheScope.Entry(id));
         scopes.Add(CacheScope.Type(type));
         scopes.Add(CacheScope.Named("sitemap"));
+        scopes.Add(CacheScope.Named(UntypedReferences));
     }
 }

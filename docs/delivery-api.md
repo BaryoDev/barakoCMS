@@ -750,6 +750,18 @@ tenant when a deletion names no document. A publish or an unpublish shows on the
 instance that handled the write. The store is per instance, so the others expire the entry after
 `ExpireSeconds`.
 
+Limits of the window:
+
+- A read and a commit can race. A response built from rows read just before a commit may be stored
+  just after the eviction, so it can be served until `ExpireSeconds` passes.
+- The response also depends on things no commit tag names: a public file's visibility (read from
+  the file store), and a site settings change. Those show after `ExpireSeconds`, not at once.
+- A reference field with no target type is tagged so any content commit in the tenant evicts the
+  list that holds it.
+- `SizeLimitMegabytes` and `MaxBodyKilobytes` are the output cache's own limits, so once the cache is
+  enabled they apply to every endpoint that uses the output cache, the redirect lookup included.
+- Eviction runs in the instance that handled the write. Other instances are not told.
+
 | Setting | Default | |
 |---|---|---|
 | `Delivery:ResponseCache:ExpireSeconds` | 60 | longest an entry is kept |

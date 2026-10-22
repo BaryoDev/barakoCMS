@@ -1,5 +1,4 @@
 using System.Net;
-using System.Text.Json;
 using barakoCMS.Infrastructure.Viewers;
 using barakoCMS.Models;
 using BarakoCMS.Tests.Features.Site;
@@ -313,7 +312,7 @@ public class DeliveryResponseCacheTests(IntegrationTestFixture fixture)
     }
 
     [Fact]
-    public async Task The_tags_the_cache_evicts_by_are_the_tags_a_read_sends()
+    public async Task A_commit_evicts_the_entry_by_the_tags_the_read_sent()
     {
         var host = Cached();
         var tenant = await TenantAsync();
@@ -321,13 +320,212 @@ public class DeliveryResponseCacheTests(IntegrationTestFixture fixture)
         await DefineAsync(host, tenant, type);
         var id = await EntryAsync(host, tenant, type, "tagged", "tag-marker");
         using var client = In(host, tenant);
+        var url = $"/api/public/{type}/tagged";
 
-        var response = await client.GetAsync($"/api/public/{type}/tagged", Ct);
+        var response = await client.GetAsync(url, Ct);
         var tags = response.Headers.GetValues("Surrogate-Key").SelectMany(v => v.Split(' ')).ToList();
-
         tags.Should().NotBeEmpty();
         tags.Should().Contain(barakoCMS.Infrastructure.Caching.DeliveryCache.Tag(tenant, barakoCMS.Infrastructure.Caching.CacheScope.Entry(id)));
         tags.Should().Contain(barakoCMS.Infrastructure.Caching.DeliveryCache.Tag(tenant, barakoCMS.Infrastructure.Caching.CacheScope.Type(type)));
-        JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct)).Should().NotBeNull();
+
+        host.Logger.Commands.Clear();
+        await BodyAsync(client, url);
+        Reads(host, type).Should().Be(0, "the control: without a commit the repeat is cached");
+
+        await EntryAsync(host, tenant, type, "tagged", "tag-marker", id: id);
+        host.Logger.Commands.Clear();
+        await BodyAsync(client, url);
+
+        Reads(host, type).Should().BePositive("a commit on the entry evicts what was cached under its tags");
+    }
+
+    [Theory]
+    [InlineData("Authorization")]
+    [InlineData("Cookie")]
+    [InlineData("X-Share-Key")]
+    [InlineData("?preview")]
+    public async Task A_request_with_this_credential_is_never_cached(string credential)
+    {
+        var host = Cached();
+        var tenant = await TenantAsync();
+        var type = $"rsp{Guid.NewGuid():n}"[..12];
+        await DefineAsync(host, tenant, type);
+        await EntryAsync(host, tenant, type, "the-entry", "marker");
+        using var client = In(host, tenant);
+        var url = $"/api/public/{type}";
+        if (credential == "?preview")
+            url += "?preview=not-a-real-token";
+        else if (credential == "Authorization")
+            client.DefaultRequestHeaders.Add(credential, "Bearer not-a-real-token");
+        else
+            client.DefaultRequestHeaders.Add(credential, "a=b");
+
+        await client.GetAsync(url, Ct);
+        host.Logger.Commands.Clear();
+        await client.GetAsync(url, Ct);
+
+        Reads(host, type).Should().BePositive($"a request with {credential} is answered by the endpoint, not the cache");
+    }
+
+    [Fact]
+    public async Task A_status_change_event_evicts_the_cached_read()
+    {
+        var host = Cached();
+        var tenant = await TenantAsync();
+        var type = $"rsp{Guid.NewGuid():n}"[..12];
+        await DefineAsync(host, tenant, type);
+        var id = await EntryAsync(host, tenant, type, "evented", "marker");
+        using var client = In(host, tenant);
+        var url = $"/api/public/{type}/evented";
+        await BodyAsync(client, url);
+        host.Logger.Commands.Clear();
+        await BodyAsync(client, url);
+        Reads(host, type).Should().Be(0, "the control: the repeat is cached");
+
+        await using (var session = host.Store.LightweightSession(tenant))
+        {
+            session.Events.Append(id, new barakoCMS.Events.ContentStatusChanged(id, ContentStatus.Draft, Guid.NewGuid(), DateTime.UtcNow));
+            await session.SaveChangesAsync(Ct);
+        }
+        host.Logger.Commands.Clear();
+        await BodyAsync(client, url);
+
+        Reads(host, type).Should().BePositive("an event on the stream, with no document in the commit, still evicts");
+    }
+
+    [Fact]
+    public async Task A_scheduled_change_evicts_the_cached_list()
+    {
+        var host = Cached();
+        var tenant = await TenantAsync();
+        var type = $"rsp{Guid.NewGuid():n}"[..12];
+        var marker = $"SCHED{Guid.NewGuid():N}";
+        await DefineAsync(host, tenant, type);
+        var id = Guid.NewGuid();
+        await using (var session = host.Store.LightweightSession(tenant))
+        {
+            session.Store(new Content
+            {
+                Id = id,
+                ContentType = type,
+                Status = ContentStatus.Published,
+                Sensitivity = SensitivityLevel.Public,
+                ScheduledSensitivity = SensitivityLevel.Hidden,
+                ScheduledSensitivityAt = DateTime.UtcNow.AddMinutes(-2),
+                Data = new Dictionary<string, object> { ["Title"] = marker, ["Slug"] = "sched", ["Body"] = marker },
+                SearchText = marker,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+        using var client = In(host, tenant);
+        (await BodyAsync(client, $"/api/public/{type}")).Should().Contain(marker);
+        await BodyAsync(client, $"/api/public/{type}");
+
+        await using (var session = host.Store.LightweightSession(tenant))
+        {
+            (await barakoCMS.Infrastructure.Services.ScheduledContentService.SweepTenantAsync(session, DateTime.UtcNow, Ct))
+                .Should().Be(1);
+        }
+
+        (await BodyAsync(client, $"/api/public/{type}")).Should().NotContain(marker);
+    }
+
+    [Fact]
+    public async Task A_deleted_entry_is_gone_from_the_next_read()
+    {
+        var host = Cached();
+        var tenant = await TenantAsync();
+        var type = $"rsp{Guid.NewGuid():n}"[..12];
+        await DefineAsync(host, tenant, type);
+        var id = await EntryAsync(host, tenant, type, "doomed", "marker");
+        using var client = In(host, tenant);
+        await BodyAsync(client, $"/api/public/{type}/doomed");
+        await BodyAsync(client, $"/api/public/{type}/doomed");
+
+        await using (var session = host.Store.LightweightSession(tenant))
+        {
+            session.Delete<Content>(id);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        await BodyAsync(client, $"/api/public/{type}/doomed", HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task A_type_definition_change_is_seen_on_the_next_read()
+    {
+        var host = Cached();
+        var tenant = await TenantAsync();
+        var type = $"rsp{Guid.NewGuid():n}"[..12];
+        await DefineAsync(host, tenant, type);
+        await EntryAsync(host, tenant, type, "typed", "marker");
+        using var client = In(host, tenant);
+        await BodyAsync(client, $"/api/public/{type}/typed");
+        await BodyAsync(client, $"/api/public/{type}/typed");
+
+        await using (var session = host.Store.LightweightSession(tenant))
+        {
+            var def = await session.Query<ContentTypeDefinition>().FirstAsync(d => d.Name == type, Ct);
+            def.IsPubliclyDeliverable = false;
+            session.Store(def);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        await BodyAsync(client, $"/api/public/{type}/typed", HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Unpublishing_a_target_of_an_untyped_reference_drops_it_from_a_cached_list()
+    {
+        var host = Cached();
+        var tenant = await TenantAsync();
+        var type = $"rsp{Guid.NewGuid():n}"[..12];
+        var other = $"rsp{Guid.NewGuid():n}"[..12];
+        await DefineAsync(host, tenant, other);
+        await using (var session = host.Store.LightweightSession(tenant))
+        {
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(),
+                Name = type,
+                DisplayName = type,
+                IsPubliclyDeliverable = true,
+                Fields =
+                [
+                    new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" },
+                    new FieldDefinition { Name = "Slug", DisplayName = "Slug", Type = "slug" },
+                    new FieldDefinition { Name = "Related", DisplayName = "Related", Type = "reference" },
+                ],
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var target = await EntryAsync(host, tenant, other, "target", "target-marker");
+        await using (var session = host.Store.LightweightSession(tenant))
+        {
+            session.Store(new Content
+            {
+                Id = Guid.NewGuid(),
+                ContentType = type,
+                Status = ContentStatus.Published,
+                Sensitivity = SensitivityLevel.Public,
+                Data = new Dictionary<string, object> { ["Title"] = "holder", ["Slug"] = "holder", ["Related"] = target.ToString() },
+                SearchText = "holder",
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        using var client = In(host, tenant);
+        var url = $"/api/public/{type}";
+        (await BodyAsync(client, url)).Should().Contain(target.ToString());
+        await BodyAsync(client, url);
+
+        await EntryAsync(host, tenant, other, "target", "target-marker", ContentStatus.Draft, id: target);
+
+        (await BodyAsync(client, url)).Should().NotContain(target.ToString());
     }
 }

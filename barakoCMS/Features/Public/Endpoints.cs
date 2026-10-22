@@ -491,6 +491,14 @@ internal static class PublicDelivery
 
         yield return CacheScope.Type(type);
 
+        // A reference with no declared target type can point at any type, so no type tag names what
+        // it resolves to. Every content commit evicts this tag, which is what drops a target that
+        // was unpublished from a cached list.
+        if (def?.Fields.Any(f => string.Equals(f.Type, "reference", StringComparison.OrdinalIgnoreCase)
+                                 && f.Sensitivity == SensitivityLevel.Public
+                                 && string.IsNullOrEmpty(f.ReferenceType)) == true)
+            yield return CacheScope.Named(DeliveryResponseCacheListener.UntypedReferences);
+
         var referenced = def?.Fields
             .Where(f => string.Equals(f.Type, "reference", StringComparison.OrdinalIgnoreCase)
                         && f.Sensitivity == SensitivityLevel.Public
