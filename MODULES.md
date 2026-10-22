@@ -922,6 +922,7 @@ template ships a placeholder.
 | [BarakoCMS.Diagnostics](BarakoCMS.Diagnostics) | Client error log: browser errors posted to `/api/client-errors`, deduplicated by fingerprint |
 | [BarakoCMS.Analytics.Umami](BarakoCMS.Analytics.Umami) | Admin-only proxy over an Umami instance: visitors, pages, referrers, countries, and site registration |
 | [BarakoCMS.Pwa](BarakoCMS.Pwa) | Records PWA installs and installed-app launches, anonymous or tied to the signed-in user |
+| [BarakoCMS.Notifications](BarakoCMS.Notifications) | In-app notifications any module can raise for a user, with a per-user inbox and pluggable delivery sinks (email built in) |
 | [BarakoCMS.AI](BarakoCMS.AI) | Semantic search over published, public content with an embedding model run by Ollama by default |
 
 The core also ships passwordless **email OTP sign-in** (`POST /api/auth/otp/request` + `/verify`),

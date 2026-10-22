@@ -133,6 +133,7 @@ public class OpenApiTagTests
             "Me",
             "Modules",
             "Monitoring",
+            "Notifications",
             "Numbering",
             "Pages",
             "Portability",

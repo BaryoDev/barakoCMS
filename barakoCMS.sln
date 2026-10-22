@@ -49,6 +49,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BarakoCMS.Secrets.Aws", "Ba
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BarakoCMS.Secrets.Gcp", "BarakoCMS.Secrets.Gcp\BarakoCMS.Secrets.Gcp.csproj", "{4FA53721-231F-4187-864C-0565B58D3189}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BarakoCMS.Notifications", "BarakoCMS.Notifications\BarakoCMS.Notifications.csproj", "{66937C6C-E0FD-4212-9677-D5D001AB7FE9}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -335,6 +337,18 @@ Global
 		{4FA53721-231F-4187-864C-0565B58D3189}.Release|x64.Build.0 = Release|Any CPU
 		{4FA53721-231F-4187-864C-0565B58D3189}.Release|x86.ActiveCfg = Release|Any CPU
 		{4FA53721-231F-4187-864C-0565B58D3189}.Release|x86.Build.0 = Release|Any CPU
+		{66937C6C-E0FD-4212-9677-D5D001AB7FE9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{66937C6C-E0FD-4212-9677-D5D001AB7FE9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{66937C6C-E0FD-4212-9677-D5D001AB7FE9}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{66937C6C-E0FD-4212-9677-D5D001AB7FE9}.Debug|x64.Build.0 = Debug|Any CPU
+		{66937C6C-E0FD-4212-9677-D5D001AB7FE9}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{66937C6C-E0FD-4212-9677-D5D001AB7FE9}.Debug|x86.Build.0 = Debug|Any CPU
+		{66937C6C-E0FD-4212-9677-D5D001AB7FE9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{66937C6C-E0FD-4212-9677-D5D001AB7FE9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{66937C6C-E0FD-4212-9677-D5D001AB7FE9}.Release|x64.ActiveCfg = Release|Any CPU
+		{66937C6C-E0FD-4212-9677-D5D001AB7FE9}.Release|x64.Build.0 = Release|Any CPU
+		{66937C6C-E0FD-4212-9677-D5D001AB7FE9}.Release|x86.ActiveCfg = Release|Any CPU
+		{66937C6C-E0FD-4212-9677-D5D001AB7FE9}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

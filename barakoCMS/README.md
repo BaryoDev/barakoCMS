@@ -53,6 +53,7 @@ Optional packages, each installable on its own:
 | `BarakoCMS.Pages` | Page tree, navigation and path resolution over a content type |
 | `BarakoCMS.Portability` | Export / import bundles |
 | `BarakoCMS.Pwa` | Install tracking |
+| `BarakoCMS.Notifications` | In-app notifications any module can raise |
 
 Every one is published under the `barakocms-module` tag, so one search on nuget.org returns them all.
 

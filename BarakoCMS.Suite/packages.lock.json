@@ -902,6 +902,15 @@
           "Talaan": "[0.3.0, )"
         }
       },
+      "barakocms.notifications": {
+        "type": "Project",
+        "dependencies": {
+          "BarakoCMS": "[5.0.0, )",
+          "BarakoCMS.Abstractions": "[5.0.1, )",
+          "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
+          "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
+        }
+      },
       "barakocms.pages": {
         "type": "Project",
         "dependencies": {
