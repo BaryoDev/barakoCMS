@@ -157,10 +157,9 @@ public class SuiteCompositionTests
     {
         var email = Registrations<IEmailService>(Build(("Modules:Email.Smtp:Host", "smtp.example.com")));
 
-        // Smtp registers after core's mock, so its registration is the last one and the one the
-        // container resolves.
-        email.Should().HaveCount(2);
-        email[^1].ImplementationType.Should().Be<SmtpEmailService>();
+        // Modules register before core's TryAdd, so the mock is never added once Smtp is in.
+        email.Should().HaveCount(1);
+        email[0].ImplementationType.Should().Be<SmtpEmailService>();
     }
 
     /// <summary>
