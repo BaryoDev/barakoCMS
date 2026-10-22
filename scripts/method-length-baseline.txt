@@ -4,7 +4,6 @@
 99 BarakoCMS.AI/Features/SemanticSearchEndpoint.cs::SemanticSearchEndpoint.HandleAsync
 75 BarakoCMS.Accounting/AccountingMigration.cs::AccountingMigration.RunAsync
 93 BarakoCMS.Accounting/JournalEntryHook.cs::JournalEntryHook.OnBeforeSaveAsync
-72 BarakoCMS.Email.Resend/ResendWebhookEndpoint.cs::ResendWebhookEndpoint.HandleAsync
 81 BarakoCMS.Email.Smtp/SmtpEmailService.cs::SmtpEmailService.SendEmailAsync
 87 BarakoCMS.ExternalAuth/FacebookAuthEndpoints.cs::FacebookCallbackEndpoint.HandleAsync
 97 BarakoCMS.ExternalAuth/GitHubAuthEndpoints.cs::GitHubCallbackEndpoint.HandleAsync

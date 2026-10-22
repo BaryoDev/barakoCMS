@@ -1,0 +1,1 @@
+- **Four modules would have been skipped at publish time.** BarakoCMS.Abstractions is 5.2.0, BarakoCMS.Email.Smtp is 4.5.0, BarakoCMS.ExternalAuth is 4.8.0 and BarakoCMS.Templates is 5.2.0, so the release publishes the changes each one gained since its last version.

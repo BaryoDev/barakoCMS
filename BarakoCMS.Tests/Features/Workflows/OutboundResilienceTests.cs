@@ -385,7 +385,7 @@ public class OutboundResilienceTests
         var defaults = new OutboundResilienceOptions();
 
         defaults.EmailRetries(TimeSpan.FromSeconds(90)).Should().Be(1, "SMTP's three 30 s timeouts: two tries take 182 s of the 240 s, three would take 274 s");
-        defaults.EmailRetries(TimeSpan.FromSeconds(100)).Should().Be(1, "Resend's 100 s client timeout");
+        defaults.EmailRetries(TimeSpan.FromSeconds(100)).Should().Be(1, "an HTTP provider's 100 s client timeout");
         defaults.EmailRetries(null).Should().Be(0);
         (defaults with { EmailSendTimeout = TimeSpan.FromSeconds(60) }).EmailRetries(null)
             .Should().Be(defaults.Retries, "the send timeout covers every try");

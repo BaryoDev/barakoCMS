@@ -58,8 +58,8 @@ public class ModuleWithoutMartenTests
         }
     }
 
-    private static string ProbePath([System.Runtime.CompilerServices.CallerFilePath] string here = "") =>
-        Path.Combine(Path.GetDirectoryName(here)!, "NoMartenProbe.cs");
+    private static string ProbePath() =>
+        Path.Combine(ComposeDefaultsTests.RepoRoot(), "BarakoCMS.Tests", "NoMartenProbe.cs");
 
     [Fact]
     public async Task A_module_seeds_a_content_type_and_a_role_without_naming_marten()

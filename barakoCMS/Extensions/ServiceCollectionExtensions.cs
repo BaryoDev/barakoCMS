@@ -103,6 +103,8 @@ public static class ServiceCollectionExtensions
 
         AddHealthChecksDashboard(services, configuration);
 
+        LegacyEmailKeyCheck.WarnIfIgnored(services, configuration);
+
         return services;
     }
 
@@ -1115,7 +1117,7 @@ public static class ServiceCollectionExtensions
     private static void AddContentServices(IServiceCollection services)
     {
         // Defaults registered with TryAdd so an opted-in module or the host can substitute a real
-        // provider (e.g. a Resend email module) without being clobbered by these mocks.
+        // provider (e.g. an email provider module) without being clobbered by these mocks.
         services.TryAddScoped<barakoCMS.Core.Interfaces.IEmailService, barakoCMS.Infrastructure.Services.MockEmailService>();
         services.TryAddScoped<barakoCMS.Core.Interfaces.ISmsService, barakoCMS.Infrastructure.Services.MockSmsService>();
         services.TryAddScoped<barakoCMS.Core.Interfaces.IFileStore, barakoCMS.Infrastructure.Services.NoFileStore>();
