@@ -72,13 +72,13 @@ internal class SaveRequestRequest
     public string? SuccessJsonPath { get; set; }
 
     /// <summary>Values to keep from the response as step outputs: name, and a plain JSON path such as <c>$.choices[0].message.content</c>.</summary>
-    public Dictionary<string, string> Outputs { get; set; } = new();
+    public Dictionary<string, string>? Outputs { get; set; }
 
     /// <summary>Fail (the default) or Empty: what a path that finds nothing does.</summary>
-    public string MissingOutput { get; set; } = nameof(MissingOutputRule.Fail);
+    public string? MissingOutput { get; set; }
 
     /// <summary>The longest an output may be, in characters. A longer one fails the step.</summary>
-    public int MaxOutputLength { get; set; } = RequestDefinition.DefaultMaxOutputLength;
+    public int? MaxOutputLength { get; set; }
 }
 
 /// <summary>What would be sent, without sending it.</summary>
@@ -141,17 +141,12 @@ internal static class RequestRules
 
     private static string? CheckOutputs(SaveRequestRequest req)
     {
-        if (req.Outputs is not { Count: > 0 })
-        {
-            return null;
-        }
-
-        if (req.Outputs.Count > ActionOutputs.MaxCaptured)
+        if (req.Outputs is { Count: > ActionOutputs.MaxCaptured })
         {
             return $"Outputs may name at most {ActionOutputs.MaxCaptured} values.";
         }
 
-        foreach (var (name, path) in req.Outputs)
+        foreach (var (name, path) in req.Outputs ?? [])
         {
             if (!ActionOutputs.IsValidName(name))
             {
@@ -164,17 +159,32 @@ internal static class RequestRules
             }
         }
 
-        if (!Enum.TryParse<MissingOutputRule>(req.MissingOutput, ignoreCase: true, out _))
+        if (req.MissingOutput is not null && !TryMissingRule(req.MissingOutput, out _))
         {
             return $"MissingOutput must be one of: {string.Join(", ", Enum.GetNames<MissingOutputRule>())}.";
         }
 
-        if (req.MaxOutputLength < 1 || req.MaxOutputLength > ActionOutputs.MaxValueLength)
+        if (req.MaxOutputLength is < 1 or > ActionOutputs.MaxValueLength)
         {
             return $"MaxOutputLength must be between 1 and {ActionOutputs.MaxValueLength}, the most a workflow run keeps.";
         }
 
         return null;
+    }
+
+    /// <summary>Parses a rule by name. A number that parses but names no rule is refused.</summary>
+    internal static bool TryMissingRule(string? value, out MissingOutputRule rule) =>
+        Enum.TryParse(value, ignoreCase: true, out rule) && Enum.IsDefined(rule);
+
+    /// <summary>
+    /// Sets the output fields from a save. A field the request leaves out keeps what is stored, so a
+    /// client that never heard of outputs does not wipe them; an empty set clears them.
+    /// </summary>
+    internal static void ApplyOutputs(SaveRequestRequest req, RequestDefinition definition)
+    {
+        if (req.Outputs is not null) definition.Outputs = req.Outputs;
+        if (req.MissingOutput is not null && TryMissingRule(req.MissingOutput, out var missing)) definition.MissingOutput = missing;
+        if (req.MaxOutputLength is { } max) definition.MaxOutputLength = max;
     }
 }
 
@@ -273,11 +283,7 @@ internal sealed class SaveRequestEndpoint(
         definition.QuerySlug = req.QuerySlug;
         definition.Success = Enum.Parse<SuccessRule>(req.Success, ignoreCase: true);
         definition.SuccessJsonPath = req.SuccessJsonPath;
-        definition.Outputs = req.Outputs ?? new();
-        definition.MissingOutput = Enum.TryParse<MissingOutputRule>(req.MissingOutput, ignoreCase: true, out var missing)
-            ? missing
-            : MissingOutputRule.Fail;
-        definition.MaxOutputLength = req.MaxOutputLength > 0 ? req.MaxOutputLength : RequestDefinition.DefaultMaxOutputLength;
+        RequestRules.ApplyOutputs(req, definition);
         definition.UpdatedAt = DateTime.UtcNow;
 
         session.Store(definition);

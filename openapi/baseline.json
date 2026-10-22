@@ -5938,12 +5938,14 @@
           },
           "maxOutputLength": {
             "format": "int32",
+            "nullable": true,
             "type": "integer"
           },
           "method": {
             "type": "string"
           },
           "missingOutput": {
+            "nullable": true,
             "type": "string"
           },
           "name": {
@@ -5953,6 +5955,7 @@
             "additionalProperties": {
               "type": "string"
             },
+            "nullable": true,
             "type": "object"
           },
           "pathTemplate": {

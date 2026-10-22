@@ -134,7 +134,15 @@ The workflow lists the names it wants kept in the step's `capture`, and a later 
   the output. `Empty` keeps an empty string instead. A response that is not JSON fails under both.
 - A value longer than `maxOutputLength` (1 to 2000, default 2000) fails the step with the cap named.
   It is never cut.
-- A value that repeats a credential the request sent fails the step and is not quoted.
+- A 200 whose body is not JSON fails the step permanently, since the same call would answer the same
+  way. So does a body over the read cap, which is refused from its declared length or cut off while
+  streaming, before the rest is read.
+- A value that repeats a credential the request sent fails the step and is not quoted. It compares
+  decoded strings, including every string inside an object or array output, and catches exact copies
+  only: a credential the provider changed in case or encoding is not caught. A credential shorter
+  than 6 characters is not looked for, since it would match almost any value.
+- Saving a request without `outputs`, `missingOutput` or `maxOutputLength` keeps the stored ones. An
+  empty `outputs` object clears them.
 - These failures are not retried: the same call would answer the same way.
 - A value that holds `{{createdBy.email}}` or `{{actions.0.token}}` is kept and passed on as that
   text. It is never run as a template.

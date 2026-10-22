@@ -122,6 +122,14 @@ internal sealed class RequestAction(
                 : WorkflowActionResult.Failure(message);
         }
 
+        if (capture is not null && !capture.Paths.Keys.All(name => result.Outputs?.ContainsKey(name) == true))
+        {
+            // A sender that says it worked but did not hand back what was asked for. Storing
+            // nothing would look like a step that kept its values.
+            return WorkflowActionResult.PermanentFailure(
+                $"Request '{slug}' keeps outputs from the response, and the sender did not return all of them.");
+        }
+
         return result.Outputs is { Count: > 0 }
             ? WorkflowActionResult.Success(result.Outputs)
             : WorkflowActionResult.Success();

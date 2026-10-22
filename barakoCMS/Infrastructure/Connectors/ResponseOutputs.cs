@@ -137,6 +137,12 @@ internal static class ResponseOutputs
 
     private const int MaxDepth = 32;
 
+    /// <summary>
+    /// The shortest credential looked for in an output. A one or two character secret is a substring
+    /// of nearly any value and would fail every output.
+    /// </summary>
+    internal const int MinSecretLength = 6;
+
     internal static (Dictionary<string, string>? Outputs, string? Error) Extract(
         string? body, ResponseCapture capture, IReadOnlyCollection<string> secrets)
     {
@@ -162,9 +168,9 @@ internal static class ResponseOutputs
                     return (null, $"Output '{name}' has a path that cannot be read: {pathError}");
                 }
 
-                var value = Read(doc.RootElement, segments);
+                var node = Read(doc.RootElement, segments);
 
-                if (value is null)
+                if (node is null)
                 {
                     if (capture.Missing == MissingOutputRule.Empty)
                     {
@@ -175,12 +181,14 @@ internal static class ResponseOutputs
                     return (null, $"Output '{name}' was not found at {path} in the response.");
                 }
 
+                var value = node.Value.ValueKind == JsonValueKind.String ? node.Value.GetString()! : node.Value.GetRawText();
+
                 if (value.Length > capture.MaxValueLength)
                 {
                     return (null, $"Output '{name}' is {value.Length} characters, longer than the cap of {capture.MaxValueLength}. It was not kept.");
                 }
 
-                if (secrets.Any(secret => secret.Length > 0 && value.Contains(secret, StringComparison.Ordinal)))
+                if (HoldsSecret(node.Value, secrets))
                 {
                     return (null, $"Output '{name}' holds a value the request sent as a credential. It was not kept.");
                 }
@@ -192,7 +200,38 @@ internal static class ResponseOutputs
         }
     }
 
-    private static string? Read(JsonElement root, IReadOnlyList<OutputPathSegment> segments)
+    /// <summary>
+    /// Whether any string in the value, decoded, contains a credential the request sent. Exact
+    /// copies only: a provider that changes the credential's case or encoding is not caught.
+    /// </summary>
+    private static bool HoldsSecret(JsonElement node, IReadOnlyCollection<string> secrets)
+    {
+        var candidates = secrets.Where(secret => secret.Length >= MinSecretLength).ToList();
+        return candidates.Count > 0 && Holds(node, candidates);
+    }
+
+    private static bool Holds(JsonElement node, List<string> secrets)
+    {
+        switch (node.ValueKind)
+        {
+            case JsonValueKind.String:
+                var text = node.GetString()!;
+                return secrets.Any(secret => text.Contains(secret, StringComparison.Ordinal));
+            case JsonValueKind.Number:
+                var number = node.GetRawText();
+                return secrets.Any(secret => number.Contains(secret, StringComparison.Ordinal));
+            case JsonValueKind.Array:
+                return node.EnumerateArray().Any(item => Holds(item, secrets));
+            case JsonValueKind.Object:
+                return node.EnumerateObject().Any(property =>
+                    secrets.Any(secret => property.Name.Contains(secret, StringComparison.Ordinal))
+                    || Holds(property.Value, secrets));
+            default:
+                return false;
+        }
+    }
+
+    private static JsonElement? Read(JsonElement root, IReadOnlyList<OutputPathSegment> segments)
     {
         var node = root;
 
@@ -210,11 +249,6 @@ internal static class ResponseOutputs
             }
         }
 
-        return node.ValueKind switch
-        {
-            JsonValueKind.Null or JsonValueKind.Undefined => null,
-            JsonValueKind.String => node.GetString(),
-            _ => node.GetRawText(),
-        };
+        return node.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined ? null : node;
     }
 }
