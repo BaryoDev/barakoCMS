@@ -7,6 +7,11 @@ handler registered for that action name, and the entry never fires twice.
 dotnet add package BarakoCMS.Scheduling
 ```
 
+The package reference plus a restart is the install. `BarakoCMS:Modules:Enabled` decides which
+modules run (`BarakoCMS__Modules__Enabled=Scheduling`). To name it by hand, put
+`modules.Add(new BarakoCMS.Scheduling.SchedulingModule())` in the `AddBarakoCMS` callback. See `MODULES.md`
+in the repository.
+
 ```csharp
 public sealed class SendReminder : IScheduledActionHandler
 {

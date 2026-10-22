@@ -9,8 +9,10 @@ pickup, and usable as an image source in a page or an email.
 dotnet add package BarakoCMS.Qr
 ```
 
-The package reference plus a restart is the install. See `MODULES.md` in the repository for how
-modules are found and enabled (`BarakoCMS__Modules__Enabled=Qr`).
+The package reference plus a restart is the install. `BarakoCMS:Modules:Enabled` decides which
+modules run (`BarakoCMS__Modules__Enabled=Qr`). To name it by hand, put
+`modules.Add(new BarakoCMS.Qr.QrModule())` in the `AddBarakoCMS` callback. See `MODULES.md`
+in the repository.
 
 ## Configure
 

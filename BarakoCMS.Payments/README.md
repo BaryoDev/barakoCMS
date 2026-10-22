@@ -13,7 +13,9 @@ refunds and reconciliation are not built.
 dotnet add package BarakoCMS.Payments
 ```
 
-`BarakoCMS:Modules:Enabled` decides which modules run. Register a provider adapter in the
+The package reference plus a restart is the install. `BarakoCMS:Modules:Enabled` decides which
+modules run. To name it by hand, put `modules.Add(new BarakoCMS.Payments.PaymentsModule())` in the
+`AddBarakoCMS` callback. Register a provider adapter in the
 container as an `IPaymentProvider`.
 
 ## Declare a type payable

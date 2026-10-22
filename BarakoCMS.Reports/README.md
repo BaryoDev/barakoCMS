@@ -9,7 +9,10 @@ filters, one group-by field and measures (count, sum, avg, min, max).
 dotnet add package BarakoCMS.Reports
 ```
 
-The package reference plus a restart is the install.
+The package reference plus a restart is the install. `BarakoCMS:Modules:Enabled` decides which
+modules run (`BarakoCMS__Modules__Enabled=Reports`). To name it by hand, put
+`modules.Add(new BarakoCMS.Reports.ReportsModule())` in the `AddBarakoCMS` callback. See `MODULES.md`
+in the repository.
 
 ## Endpoints
 
