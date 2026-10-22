@@ -7,6 +7,8 @@ namespace BarakoCMS.Documents;
 public static class PdfRenderer
 {
     public const int MaxPages = 50;
+    public const int MaxValueCharacters = 20_000;
+    public const int MaxLines = 2_000;
 
     private const float Margin = 50;
 
@@ -41,17 +43,30 @@ public static class PdfRenderer
         private SKCanvas? _canvas;
         private float _y;
         private int _count;
+        private int _lines;
+
+        private string Fill(string text, Content content)
+        {
+            var filled = DocumentValues.Fill(text, content);
+            if (filled.Length > MaxValueCharacters)
+            {
+                throw new DocumentTooLongException(
+                    $"A value is longer than {MaxValueCharacters} characters.");
+            }
+
+            return filled;
+        }
 
         public void Draw(Block block, Content content)
         {
             switch (block.Kind)
             {
-                case BlockKind.Title: Lines(DocumentValues.Fill(block.Cells[0], content), _bold, 22, Margin, Usable); break;
-                case BlockKind.Heading: Lines(DocumentValues.Fill(block.Cells[0], content), _bold, 14, Margin, Usable); break;
-                case BlockKind.Paragraph: Lines(DocumentValues.Fill(block.Cells[0], content), _regular, 11, Margin, Usable); break;
+                case BlockKind.Title: Lines(Fill(block.Cells[0], content), _bold, 22, Margin, Usable); break;
+                case BlockKind.Heading: Lines(Fill(block.Cells[0], content), _bold, 14, Margin, Usable); break;
+                case BlockKind.Paragraph: Lines(Fill(block.Cells[0], content), _regular, 11, Margin, Usable); break;
                 case BlockKind.Gap: Advance(8); break;
                 case BlockKind.Rule: Rule(); break;
-                case BlockKind.Row: Row(block.Cells.Select(c => DocumentValues.Fill(c, content)).ToArray()); break;
+                case BlockKind.Row: Row(block.Cells.Select(c => Fill(c, content)).ToArray()); break;
             }
         }
 
@@ -113,7 +128,7 @@ public static class PdfRenderer
             _canvas!.DrawText(text, x, baseline, SKTextAlign.Left, font, _ink);
         }
 
-        private static List<string> Wrap(string text, SKTypeface face, float size, float usable)
+        private List<string> Wrap(string text, SKTypeface face, float size, float usable)
         {
             using var font = new SKFont(face, size);
             var lines = new List<string>();
@@ -136,6 +151,11 @@ public static class PdfRenderer
                 }
 
                 lines.Add(line);
+            }
+
+            if ((_lines += lines.Count) > MaxLines)
+            {
+                throw new DocumentTooLongException($"The document is longer than {MaxLines} lines.");
             }
 
             return lines;
@@ -163,5 +183,10 @@ public static class PdfRenderer
     }
 }
 
-public sealed class DocumentTooLongException(int pages)
-    : Exception($"The document is longer than {pages} pages.");
+public sealed class DocumentTooLongException(string message) : Exception(message)
+{
+    public DocumentTooLongException(int pages)
+        : this($"The document is longer than {pages} pages.")
+    {
+    }
+}
