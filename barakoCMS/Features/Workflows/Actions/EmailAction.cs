@@ -243,6 +243,11 @@ internal class EmailAction : IWorkflowAction
         {
             throw;
         }
+        catch (NotSupportedException)
+        {
+            return (none, WorkflowActionResult.PermanentFailure(
+                "This file store cannot read run files, so a file an earlier step produced cannot be attached."));
+        }
         catch (Exception ex)
         {
             _logger.LogWarning("Reading an email attachment failed ({Exception}).", ex.GetType().Name);

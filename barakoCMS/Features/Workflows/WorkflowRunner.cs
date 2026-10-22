@@ -1022,7 +1022,7 @@ internal sealed class WorkflowRunner(
                 Content = content,
                 TriggerEvent = run.TriggerEvent,
                 TenantId = TenantScopes.SlugFor(tenantId),
-                Outputs = outputs, ProducedFiles = ActionOutputs.KeptFiles(run),
+                Outputs = outputs, ProducedFiles = ActionOutputs.KeptFiles(run), Ordinal = attempt.Ordinal,
             }, ct);
             timer.Stop();
 
@@ -1065,13 +1065,12 @@ internal sealed class WorkflowRunner(
 
         // What the templates left out on purpose, such as a loop stopped at its cap, is
         // recorded on the attempt so a message that is short of entries says why.
-        var notes = templateNotes.Concat(dropped is null ? [] : [dropped]).ToList();
+        var files = result.ProducedFiles.Where(id => id != Guid.Empty).Distinct().ToList();
+        var notes = templateNotes.Concat(dropped is null ? [] : [dropped]).Concat(ActionOutputs.DroppedFilesNote(files.Count)).ToList();
         return new Outcome(
             AttemptStatus.Succeeded, notes.Count == 0 ? null : string.Join(" ", notes), elapsedMs, Outputs: kept,
             ResponseStatus: result.ResponseStatus,
-            ProducedFiles: result.ProducedFiles is { Count: > 0 }
-                ? [.. result.ProducedFiles.Where(id => id != Guid.Empty).Distinct().Take(WorkflowActionResult.MaxProducedFiles)]
-                : null);
+            ProducedFiles: files.Count > 0 ? [.. files.Take(WorkflowActionResult.MaxProducedFiles)] : null);
     }
 
     private static Outcome NoHandler(WorkflowActionSet handlers, string actionType) =>

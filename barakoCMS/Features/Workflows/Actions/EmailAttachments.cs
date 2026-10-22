@@ -122,52 +122,44 @@ internal static class EmailAttachments
             return Refuse("No module that stores files is enabled, so nothing can be attached. Enable BarakoCMS.Files and restart.");
         }
 
-        var (references, rest) = SplitRunReferences(named);
-        IReadOnlyList<string> items = rest is null ? [] : Items(rest, content);
-        if (references.Count + items.Count == 0)
+        var pieces = SplitRunReferences(named);
+        var listed = pieces.Select(p => p.Text is null ? (IReadOnlyList<string>)[] : Items(p.Text, content)).ToList();
+        var total = pieces.Count(p => p.Text is null) + listed.Sum(items => items.Count);
+        if (total == 0)
         {
             return Refuse("The 'Attachments' parameter names no file. The list it is filled from is empty.");
         }
 
-        if (references.Count + items.Count > limits.MaxCount)
+        if (total > limits.MaxCount)
         {
             return Refuse(
-                $"The email names {references.Count + items.Count} attachments, over the limit of {limits.MaxCount} in {EmailAttachmentLimits.MaxCountKey}.");
+                $"The email names {total} attachments, over the limit of {limits.MaxCount} in {EmailAttachmentLimits.MaxCountKey}.");
         }
 
-        var wanted = new List<Wanted>(references.Count + items.Count);
-        foreach (var (ordinal, name) in references)
+        // In the order the author wrote them. A run file named twice is one file.
+        var wanted = new List<Wanted>(total);
+        for (var i = 0; i < pieces.Count; i++)
         {
-            var (file, refusal) = ReadRunFile(ordinal, name, wanted.Count, run);
-            if (refusal is not null)
+            if (pieces[i].Text is null)
             {
-                return new Resolution(Array.Empty<EmailAttachment>(), refusal);
+                var (file, refusal) = ReadRunFile(pieces[i].Ordinal, pieces[i].Name!, wanted.Count, run);
+                if (refusal is not null)
+                {
+                    return new Resolution(Array.Empty<EmailAttachment>(), refusal);
+                }
+
+                if (!wanted.Contains(file))
+                {
+                    wanted.Add(file);
+                }
+
+                continue;
             }
 
-            wanted.Add(file);
-        }
-
-        foreach (var raw in items)
-        {
-            var item = raw.Trim(' ', '\t', '\r', '\n');
-            if (item.Length == 0)
+            if (ReadEntryFiles(listed[i], content, wanted) is { } reason)
             {
-                return Refuse($"Attachment {wanted.Count + 1} names no file. The field it is filled from is empty.");
+                return Refuse(reason);
             }
-
-            if (!TryReadFileId(item, out var id))
-            {
-                return Refuse($"Attachment {wanted.Count + 1} is not a file id or a link to a stored file.");
-            }
-
-            // Before the store is asked anything, so a run cannot be used to learn whether a file
-            // the entry does not name exists.
-            if (!References(content, id))
-            {
-                return Refuse(NotAttachable(wanted.Count));
-            }
-
-            wanted.Add(new Wanted(id, FromRun: false));
         }
 
         var (found, refused) = await FindAllAsync(wanted, files, limits, ct);
@@ -176,28 +168,76 @@ internal static class EmailAttachments
             : await ReadAllAsync(found, wanted, files, limits, ct);
     }
 
-    /// <summary>
-    /// The placeholders in the parameter that read an earlier step's output, and the rest of it for
-    /// the entry's own rules. A parameter with none comes back whole.
-    /// </summary>
-    private static (List<(int Ordinal, string Name)> References, string? Remainder) SplitRunReferences(string named)
+    /// <summary>Adds the files the entry names to <paramref name="wanted"/>, or says why one cannot be attached.</summary>
+    private static string? ReadEntryFiles(IReadOnlyList<string> items, barakoCMS.Models.Content content, List<Wanted> wanted)
     {
-        var references = new List<(int Ordinal, string Name)>();
-        var rest = new List<string>();
-        foreach (var piece in named.Split(',', ';', '\n'))
+        foreach (var raw in items)
         {
-            var match = RunReference.Match(piece.Trim());
+            var item = raw.Trim(' ', '\t', '\r', '\n');
+            if (item.Length == 0)
+            {
+                return $"Attachment {wanted.Count + 1} names no file. The field it is filled from is empty.";
+            }
+
+            if (!TryReadFileId(item, out var id))
+            {
+                return $"Attachment {wanted.Count + 1} is not a file id or a link to a stored file.";
+            }
+
+            // Before the store is asked anything, so a run cannot be used to learn whether a file
+            // the entry does not name exists.
+            if (!References(content, id))
+            {
+                return NotAttachable(wanted.Count);
+            }
+
+            wanted.Add(new Wanted(id, FromRun: false));
+        }
+
+        return null;
+    }
+
+    /// <summary>One stretch of the parameter: a step output reference, or text for the entry's own rules.</summary>
+    private readonly record struct Piece(int Ordinal, string? Name, string? Text);
+
+    /// <summary>
+    /// The parameter in the order it was written: each placeholder that reads an earlier step's
+    /// output on its own, and the text between them for the entry's own rules. A parameter with
+    /// none comes back whole.
+    /// </summary>
+    private static List<Piece> SplitRunReferences(string named)
+    {
+        var pieces = new List<Piece>();
+        var text = new List<string>();
+        var any = false;
+        foreach (var part in named.Split(',', ';', '\n'))
+        {
+            var match = RunReference.Match(part.Trim());
             if (match.Success)
             {
-                references.Add((int.Parse(match.Groups["ordinal"].Value, CultureInfo.InvariantCulture), match.Groups["name"].Value));
+                any = true;
+                Flush();
+                pieces.Add(new Piece(int.Parse(match.Groups["ordinal"].Value, CultureInfo.InvariantCulture), match.Groups["name"].Value, null));
             }
-            else if (piece.Trim().Length > 0)
+            else if (part.Trim().Length > 0)
             {
-                rest.Add(piece);
+                text.Add(part);
             }
         }
 
-        return references.Count == 0 ? (references, named) : (references, rest.Count == 0 ? null : string.Join(',', rest));
+        if (!any)
+        {
+            return [new Piece(0, null, named)];
+        }
+
+        Flush();
+        return pieces;
+
+        void Flush()
+        {
+            if (text.Count > 0) pieces.Add(new Piece(0, null, string.Join(',', text)));
+            text.Clear();
+        }
     }
 
     /// <summary>
@@ -211,6 +251,13 @@ internal static class EmailAttachments
         {
             return (default, WorkflowActionResult.PermanentFailure(
                 $"Attachment {index + 1} reads a step output, which this way of running the email cannot supply."));
+        }
+
+        if (run.Ordinal >= 0 && ordinal >= run.Ordinal)
+        {
+            return (default, WorkflowActionResult.PermanentFailure(
+                $"Attachment {index + 1} reads action {ordinal}, which is not an earlier step than this one. "
+                + "Only the output of an earlier step can be attached."));
         }
 
         if (!run.Outputs.TryGetValue(ordinal, out var kept) || !kept.TryGetValue(name, out var text))

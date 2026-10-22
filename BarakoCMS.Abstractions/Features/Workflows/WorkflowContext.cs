@@ -15,6 +15,11 @@ public sealed class WorkflowContext
     /// <summary>The trigger that fired: a content event, a transition or a module's trigger.</summary>
     public required string TriggerEvent { get; init; }
 
+    /// <summary>
+    /// This action's position in the run, counting from zero, or -1 when the caller did not say.
+    /// </summary>
+    public int Ordinal { get; init; } = -1;
+
     /// <summary>The tenant the run belongs to.</summary>
     public string TenantId { get; init; } = string.Empty;
 

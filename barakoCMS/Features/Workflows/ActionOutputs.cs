@@ -69,7 +69,14 @@ internal static partial class ActionOutputs
             .Where(a => a.Status == AttemptStatus.Succeeded && a.ProducedFiles is { Count: > 0 })
             .ToDictionary(a => a.Ordinal, a => (IReadOnlyList<Guid>)a.ProducedFiles!);
 
+    /// <summary>A note for an action that declared more files than a step keeps.</summary>
+    internal static IEnumerable<string> DroppedFilesNote(int declared) =>
+        declared <= WorkflowActionResult.MaxProducedFiles
+            ? []
+            : [$"The action declared {declared} files and only the first {WorkflowActionResult.MaxProducedFiles} were kept."];
+
     /// <summary>The outputs the capture list names, and a note for any it had to leave out.</summary>
+
     internal static (Dictionary<string, string>? Kept, string? Note) Keep(
         IReadOnlyDictionary<string, string>? produced, IReadOnlyCollection<string>? capture)
     {

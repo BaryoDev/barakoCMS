@@ -320,6 +320,10 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
     /// <summary>How far into nested Conditional branches the placeholders are read.</summary>
     internal const int MaxWarningDepth = 5;
 
+    private static readonly System.Text.RegularExpressions.Regex StepOutputReference = new(
+        @"\{\{\s*actions\.[0-9]",
+        System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
     /// <summary>
     /// Lists every placeholder of an action that the engine will send as written. Never an error:
     /// a template has always been allowed to hold text the engine does not know.
@@ -337,6 +341,19 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
         foreach (var (name, template) in action.Parameters)
         {
             if (result.Warnings.Count > MaxPlaceholderWarnings) return;
+
+            if (depth > 0
+                && ActionParameters.ReadsStepOutputsItself(action.Type ?? string.Empty, name)
+                && template is not null
+                && StepOutputReference.IsMatch(template))
+            {
+                result.Warnings.Add(new ValidationError
+                {
+                    Field = $"{field}.parameters.{name}",
+                    Message = "This reads the output of an earlier step, and a step inside a Conditional is not given the run's "
+                            + "step outputs, so the file cannot be attached. Move the email out of the Conditional."
+                });
+            }
 
             if (ActionParameters.IsResolvedByTheAction(action.Type ?? string.Empty, name))
             {
