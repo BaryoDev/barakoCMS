@@ -28,12 +28,13 @@ internal static class WorkflowSaveRights
 
     /// <summary>The rights the user lacks, each said in a sentence. Empty when they hold them all.</summary>
     public static async Task<List<string>> MissingAsync(
-        IDocumentSession session, IPermissionResolver permissions,
+        IDocumentSession session, IPermissionResolver permissions, IWorkflowPluginRegistry registry,
         ClaimsPrincipal principal, WorkflowDefinition workflow, CancellationToken ct)
     {
         var needs = Needs(workflow).ToList();
+        var capabilities = CapabilityNeeds(registry, workflow).ToList();
         var missing = new List<string>();
-        if (needs.Count == 0) return missing;
+        if (needs.Count == 0 && capabilities.Count == 0) return missing;
 
         User? user = null;
         if (Guid.TryParse(principal.FindFirst("UserId")?.Value, out var id))
@@ -48,7 +49,28 @@ internal static class WorkflowSaveRights
             }
         }
 
+        foreach (var (capability, label) in capabilities.Distinct())
+        {
+            if (user is null || !await permissions.HasCapabilityAsync(user.Id, capability, ct))
+                missing.Add(label);
+        }
+
         return missing;
+    }
+
+    /// <summary>
+    /// An action can name a capability in its metadata. Saving a workflow that carries it asks the
+    /// saver for that capability, since the action runs as the system and checks no one at run time.
+    /// </summary>
+    private static IEnumerable<(string Capability, string Label)> CapabilityNeeds(
+        IWorkflowPluginRegistry registry, WorkflowDefinition workflow)
+    {
+        foreach (var action in Flatten(workflow))
+        {
+            var capability = registry.GetActionMetadata(action.Type)?.RequiredCapability;
+            if (!string.IsNullOrWhiteSpace(capability))
+                yield return (capability, $"You do not hold the '{capability}' capability, so you cannot save a workflow with a {action.Type} action.");
+        }
     }
 
     private static IEnumerable<(string Type, string Action, string Label)> Needs(WorkflowDefinition workflow)

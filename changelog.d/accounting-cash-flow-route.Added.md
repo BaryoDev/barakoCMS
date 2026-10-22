@@ -1,0 +1,1 @@
+- **`GET /api/accounting/cash-flow`.** Returns the receipts, disbursements, opening and closing balance of one month over up to 20 cash accounts. Voided entries are left out. Needs `view_ledger`. BarakoCMS.Accounting is 4.5.0.

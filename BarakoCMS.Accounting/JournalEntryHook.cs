@@ -45,22 +45,22 @@ public sealed class JournalEntryHook : IContentLifecycleHook
 
     public string ContentType => AccountingContentTypes.JournalEntry;
 
-    public async Task<IReadOnlyList<string>> OnBeforeSaveAsync(
-        ContentLifecycleContext context, CancellationToken ct)
+    public Task<IReadOnlyList<string>> OnBeforeSaveAsync(ContentLifecycleContext context, CancellationToken ct) =>
+        CheckAsync(context, allowWorkflow: false, ct);
+
+    internal async Task<IReadOnlyList<string>> CheckAsync(ContentLifecycleContext context, bool allowWorkflow, CancellationToken ct)
     {
         var errors = new List<string>();
         var data = context.Data;
+        errors.AddRange(WorkflowOnlyErrors(context, allowWorkflow));
 
-        // Immutability: a posted entry may only be voided, never edited. Voiding flips Status and
-        // is the one field change allowed, so compare everything else against what is stored.
+        // Immutability, failing closed: an entry has no draft state, so an update never changes its
+        // lines, a voided entry takes no update at all, and Status moves only through the Void
+        // transition (which sends neither). The check reads the stored entry, never the caller's data.
         if (!context.IsCreate)
         {
             var previous = context.Existing!;
-            var wasPosted = ContentData.AsString(ContentData.Get(previous, "Status")) != "Voided";
-            var linesChanged = System.Text.Json.JsonSerializer.Serialize(ContentData.Get(data, "Lines"))
-                            != System.Text.Json.JsonSerializer.Serialize(ContentData.Get(previous, "Lines"));
-            if (wasPosted && linesChanged)
-                errors.Add("A posted journal entry cannot be edited. Post a reversing entry instead.");
+            errors.AddRange(await ImmutabilityErrorsAsync(context, ct));
 
             // The server owns these; an update must not rewrite them.
             ContentData.Set(data, "EntryNumber", ContentData.Get(previous, "EntryNumber") ?? string.Empty);
@@ -95,7 +95,29 @@ public sealed class JournalEntryHook : IContentLifecycleHook
         if (totalDebit == 0 && lines.Count > 0)
             errors.Add("Entry total must be greater than zero.");
 
-        // Every referenced account must exist and be active.
+        errors.AddRange(await AccountErrorsAsync(context, lines, ct));
+
+        if (errors.Count > 0)
+            return errors;
+
+        // Server-owned fields. Only stamped once the entry is known to be valid, so a rejected post
+        // never consumes a sequence number.
+        if (context.IsCreate)
+        {
+            ContentData.Set(data, "Amount", totalDebit);
+            ContentData.Set(data, "EntryNumber", await NextEntryNumberAsync(context.Session, data, ct));
+            if (string.IsNullOrWhiteSpace(ContentData.AsString(ContentData.Get(data, "Status"))))
+                ContentData.Set(data, "Status", "Posted");
+        }
+
+        return Array.Empty<string>();
+    }
+
+    /// <summary>Every referenced account must exist and be active.</summary>
+    private static async Task<List<string>> AccountErrorsAsync(
+        ContentLifecycleContext context, List<(string Code, decimal Debit, decimal Credit)> lines, CancellationToken ct)
+    {
+        var errors = new List<string>();
         var codes = lines.Select(l => l.Code)
             .Where(c => !string.IsNullOrWhiteSpace(c))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -123,20 +145,79 @@ public sealed class JournalEntryHook : IContentLifecycleHook
             }
         }
 
-        if (errors.Count > 0)
-            return errors;
+        return errors;
+    }
 
-        // Server-owned fields. Only stamped once the entry is known to be valid, so a rejected post
-        // never consumes a sequence number.
-        if (context.IsCreate)
+    /// <summary>
+    /// A manual entry may not take a reference in the form a workflow posting uses, since the posting
+    /// action is keyed by it, and may not say it voids another entry, since a reversal is what takes
+    /// the voided entry's place in the books. The ledger service passes <paramref name="allowWorkflow"/>
+    /// for the entries a workflow run makes. A value an update leaves as it was is not a change.
+    /// </summary>
+    private static IEnumerable<string> WorkflowOnlyErrors(ContentLifecycleContext context, bool allowWorkflow)
+    {
+        if (allowWorkflow)
+            yield break;
+
+        string? Sent(string field) => ContentData.AsString(ContentData.Get(context.Data, field));
+        bool Changed(string field) => context.IsCreate || Sent(field) != ContentData.AsString(ContentData.Get(context.Existing!, field));
+
+        if (Changed("Reference") && PostingReference.IsReserved(Sent("Reference")))
+            yield return "A reference of the form '<32 hex digits>:<key>' is reserved for workflow postings.";
+        if (Changed("VoidsEntryId") && !string.IsNullOrWhiteSpace(Sent("VoidsEntryId")))
+            yield return "An entry cannot be made to void another. Void it with the Void transition.";
+    }
+
+    private static async Task<List<string>> ImmutabilityErrorsAsync(ContentLifecycleContext context, CancellationToken ct)
+    {
+        var errors = new List<string>();
+        var previous = context.Existing!;
+        var linesChanged = System.Text.Json.JsonSerializer.Serialize(ContentData.Get(context.Data, "Lines"))
+                        != System.Text.Json.JsonSerializer.Serialize(ContentData.Get(previous, "Lines"));
+        if (!await WasPostedAsync(context, ct))
+            errors.Add("A voided journal entry cannot be edited.");
+        else if (linesChanged)
+            errors.Add("A posted journal entry cannot be edited. Post a reversing entry instead.");
+        else
+            errors.AddRange(LockedFieldErrors(context.Data, previous));
+        if (StatusChanged(context.Data, previous))
+            errors.Add("The status of a journal entry changes only by voiding it.");
+        return errors;
+    }
+
+    /// <summary>Date, Reference, VoidsEntryId and Amount decide what the books show, so a posted entry keeps them. A value the update leaves as it was is not a change.</summary>
+    private static IEnumerable<string> LockedFieldErrors(IReadOnlyDictionary<string, object> data, IReadOnlyDictionary<string, object> previous)
+    {
+        string Text(IReadOnlyDictionary<string, object> d, string f) => ContentData.AsString(ContentData.Get(d, f)) ?? string.Empty;
+
+        if (ContentData.Get(data, "Date") is { } date && !SameDate(date, ContentData.Get(previous, "Date")))
+            yield return "The date of a posted journal entry cannot be changed. Post a reversing entry instead.";
+        foreach (var field in new[] { "Reference", "VoidsEntryId" })
         {
-            ContentData.Set(data, "Amount", totalDebit);
-            ContentData.Set(data, "EntryNumber", await NextEntryNumberAsync(context.Session, data, ct));
-            if (string.IsNullOrWhiteSpace(ContentData.AsString(ContentData.Get(data, "Status"))))
-                ContentData.Set(data, "Status", "Posted");
+            if (ContentData.Get(data, field) is not null && Text(data, field) != Text(previous, field))
+                yield return $"The {field} of a posted journal entry cannot be changed.";
         }
 
-        return Array.Empty<string>();
+        if (ContentData.Get(data, "Amount") is { } amount && ContentData.AsDecimal(amount) != ContentData.AsDecimal(ContentData.Get(previous, "Amount")))
+            yield return "The amount of a posted journal entry cannot be changed.";
+    }
+
+    private static bool SameDate(object sent, object? stored) =>
+        ReadDate(sent) is { } a && ReadDate(stored) is { } b
+            ? a.Date == b.Date
+            : ContentData.AsString(sent) == ContentData.AsString(stored);
+
+    private static bool StatusChanged(IReadOnlyDictionary<string, object> data, IReadOnlyDictionary<string, object> previous) =>
+        ContentData.AsString(ContentData.Get(data, "Status")) is { Length: > 0 } sent
+        && sent != (ContentData.AsString(ContentData.Get(previous, "Status")) ?? string.Empty);
+
+    /// <summary>Whether the stored entry is still posted: neither the older Voided status nor the Void transition has been applied.</summary>
+    private static async Task<bool> WasPostedAsync(ContentLifecycleContext context, CancellationToken ct)
+    {
+        if (ContentData.AsString(ContentData.Get(context.Existing!, "Status")) == "Voided") return false;
+        if (context.EntryId is not { } id) return true;
+        var stored = await context.Session.LoadAsync<barakoCMS.Models.Content>(id, ct);
+        return stored?.LifecycleState != AccountingContentTypes.VoidedState;
     }
 
     /// <remarks>

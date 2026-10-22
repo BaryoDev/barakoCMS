@@ -492,6 +492,11 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             // chart-of-accounts rules), so the generic /api/contents endpoint can be tested with
             // real domain rules attached — the whole point of modelling accounting as content.
             new BarakoCMS.Accounting.AccountingModule().ConfigureServices(services, ctx.Configuration);
+            // The host registers a module's workflow actions right after its services; do the same so
+            // the workflow validator and the runner know Accounting.PostJournal and Accounting.Reverse.
+            var accountingModule = new BarakoCMS.Accounting.AccountingModule();
+            accountingModule.ConfigureWorkflowActions(
+                new barakoCMS.Features.Workflows.ModuleWorkflowActionRegistry().For(services, accountingModule));
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Accounting.AccountingModule(), opts));
 
             // Diagnostics: the test project references it, so FastEndpoints already discovers
@@ -554,6 +559,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             // is about.
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.ThrowingRunnerAction>();
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.CredentialEchoAction>();
+            services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.SelfResolvingRunnerAction>();
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.DeletedEchoAction>();
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.CountingRunnerAction>();
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.HookedRunnerAction>();

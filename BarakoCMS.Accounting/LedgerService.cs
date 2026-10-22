@@ -17,6 +17,11 @@ public record PostEntryCommand(
     Guid? VoidsEntryId = null,
     IReadOnlyList<string>? Attachments = null);
 
+/// <summary>What <see cref="LedgerService.StageAsync(PostEntryCommand, Guid, StageOptions?, CancellationToken)"/> may be told about the entry it makes.</summary>
+/// <param name="EntryId">The id to give the entry instead of a new one, so a retry of the same post collides on it.</param>
+/// <param name="Configure">Runs on the entry's content just before it is stored, to set what the ledger does not know.</param>
+public record StageOptions(Guid? EntryId = null, Action<barakoCMS.Models.Content>? Configure = null);
+
 /// <summary>Outcome of a post attempt: either the stored entry or a list of validation errors.</summary>
 public record PostResult(JournalEntry? Entry, IReadOnlyList<string> Errors)
 {
@@ -101,13 +106,22 @@ public class LedgerService
     /// <c>SaveChangesAsync</c> commits the entry, the number sequence and whatever else the caller
     /// staged, in one transaction. A rejected entry stages nothing and returns its errors.
     /// </summary>
-    public async Task<PostResult> StageAsync(PostEntryCommand cmd, Guid userId, CancellationToken ct)
+    public Task<PostResult> StageAsync(PostEntryCommand cmd, Guid userId, CancellationToken ct) =>
+        StageAsync(cmd, userId, null, ct);
+
+    /// <summary>
+    /// <see cref="StageAsync(PostEntryCommand, Guid, CancellationToken)"/> with a fixed entry id and
+    /// a say in the stored content, for a caller that must be able to retry the same post safely.
+    /// </summary>
+    public async Task<PostResult> StageAsync(PostEntryCommand cmd, Guid userId, StageOptions? options, CancellationToken ct)
     {
         var data = ToContentData(cmd);
 
         // The hook both validates and stamps EntryNumber/Amount. A rejected post never reaches the
         // store and never consumes a sequence number.
-        var errors = await _hook.OnBeforeSaveAsync(
+        // A caller that fixes the entry id is a workflow posting, the only one that may use the
+        // reserved reference form.
+        var errors = await _hook.CheckAsync(
             new barakoCMS.Core.Interfaces.ContentLifecycleContext
             {
                 ContentType = AccountingContentTypes.JournalEntry,
@@ -115,7 +129,7 @@ public class LedgerService
                 Existing = null,
                 Session = _session,
                 UserId = userId,
-            }, ct);
+            }, allowWorkflow: options?.EntryId is not null, ct);
 
         if (errors.Count > 0)
         {
@@ -125,7 +139,7 @@ public class LedgerService
         // Start the event stream as well as storing the read model — exactly what the generic
         // content endpoint does. Without this an entry posted through this route would have no
         // history, and traceability is the entire point of a ledger.
-        var contentId = Guid.NewGuid();
+        var contentId = options?.EntryId ?? Guid.NewGuid();
         var searchText = await SearchTextAsync(data, ct);
         // Sensitivity stated rather than defaulted. A journal entry is Public, but the six-value
         // constructor supplied that silently and this is the field a rebuild must not have to guess.
@@ -134,7 +148,14 @@ public class LedgerService
             barakoCMS.Models.ContentStatus.Published, userId, searchText,
             barakoCMS.Models.SensitivityLevel.Public);
 
-        await _contentWriter.CreateAsync(created, ct);
+        var stored = await _contentWriter.CreateAsync(created, ct);
+
+        // The lifecycle starts at Posted. The writer does not read the type's initial state, and a
+        // row with no state would read as Posted anyway, but stating it keeps the migration and a
+        // new post the same shape.
+        stored.LifecycleState = AccountingContentTypes.PostedState;
+        options?.Configure?.Invoke(stored);
+        _session.Store(stored);
 
         return PostResult.Success(new JournalEntry
         {

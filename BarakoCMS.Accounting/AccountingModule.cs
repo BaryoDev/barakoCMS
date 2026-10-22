@@ -29,12 +29,20 @@ public sealed class AccountingModule : IBarakoModule
         services.AddScoped(sp => new AccountService(sp.GetRequiredService<IDocumentSession>()));
         services.AddScoped<LedgerService>();
         services.AddScoped<ReportingService>();
+        services.AddScoped<AccountMappingStore>();
+        services.AddScoped<barakoCMS.Core.Interfaces.IConfigProvider, AccountMappingConfigProvider>();
 
         // The accounting invariants, contributed into the generic content write pipeline. This is
         // what lets accounts and journal entries be ordinary content types (the project's
         // content-type-first rule) without giving up the balance and chart guarantees.
         services.AddScoped<barakoCMS.Core.Interfaces.IContentLifecycleHook, AccountHook>();
         services.AddScoped<barakoCMS.Core.Interfaces.IContentLifecycleHook, JournalEntryHook>();
+    }
+
+    public void ConfigureWorkflowActions(IModuleWorkflowActions actions)
+    {
+        actions.Add<PostJournalAction>("Accounting.PostJournal");
+        actions.Add<ReverseAction>("Accounting.Reverse");
     }
 
     public void ConfigureSchema(IModuleSchema schema)
@@ -52,6 +60,10 @@ public sealed class AccountingModule : IBarakoModule
             .Index(x => x.EntryNumber, idx => idx.IsUnique = true)
             .Index(x => x.Status)
             .Index(x => x.Reference);
+
+        schema.For<AccountMapping>()
+            .DocumentAlias("accounting_mappings")
+            .Identity(x => x.Name);
 
         schema.For<NumberSequence>()
             .DocumentAlias("accounting_number_sequences")

@@ -1007,7 +1007,6 @@ internal sealed class WorkflowRunner(
         try
         {
             var variables = scope.ServiceProvider.GetRequiredService<ITemplateVariableExtractor>();
-
             var (parameters, credentialError) = barakoCMS.Features.Workflows.Actions.WebhookSigning.UnprotectCredentials(
                 stored, scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Security.ISecretProtector>());
 
@@ -1018,9 +1017,10 @@ internal sealed class WorkflowRunner(
                 return new Outcome(AttemptStatus.Failed, credentialError, timer.ElapsedMilliseconds, Retryable: false);
             }
 
-            var (masked, slots) = ActionOutputs.Mask(actionType, parameters);
+            var registry = scope.ServiceProvider.GetService<IWorkflowPluginRegistry>();
+            var (masked, slots) = ActionOutputs.Mask(actionType, parameters, registry);
             var resolved = await ActionParameters.ResolveAsync(
-                variables, actionType, masked, content, run.TriggerEvent, run.TriggeringEventSequence, ct);
+                variables, actionType, masked, content, run.TriggerEvent, run.TriggeringEventSequence, ct, registry);
 
             var outputs = ActionOutputs.Kept(run);
             if (ActionOutputs.Substitute(actionType, resolved, slots, outputs) is { } missing)

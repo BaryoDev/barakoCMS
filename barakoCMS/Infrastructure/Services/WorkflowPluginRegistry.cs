@@ -95,6 +95,8 @@ public class WorkflowPluginRegistry : IWorkflowPluginRegistry
                 Group = metadataAttr is null || metadataAttr.Group == WorkflowActionGroup.Unspecified
                     ? null
                     : metadataAttr.Group.ToString(),
+                RequiredCapability = metadataAttr?.RequiredCapability ?? string.Empty,
+                SelfResolvedParameters = metadataAttr?.SelfResolvedParameters?.ToList() ?? new List<string>(),
                 ExampleConfiguration = metadataAttr?.ExampleJson ?? "{}"
             };
 

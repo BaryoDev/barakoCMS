@@ -17,6 +17,12 @@ public static class AccountingContentTypes
     public const string Account = "account";
     public const string JournalEntry = "journalEntry";
 
+    /// <summary>The lifecycle state of an entry that counts in the books.</summary>
+    public const string PostedState = "Posted";
+
+    /// <summary>The lifecycle state of an entry that was reversed. It no longer counts.</summary>
+    public const string VoidedState = "Voided";
+
     /// <summary>Valid <c>Type</c> values on an account — the five classical account classes.</summary>
     public static readonly IReadOnlyList<string> AccountTypes =
         new[] { "Asset", "Liability", "Equity", "Income", "Expense" };
@@ -67,6 +73,17 @@ public static class AccountingContentTypes
             // Denormalised total (equal to total debits), stamped by the hook for display/sorting.
             new() { Name = "Amount", Type = "decimal", Sensitivity = SensitivityLevel.Public },
             new() { Name = "Attachments", Type = "array", Sensitivity = SensitivityLevel.Public },
+            // Sent with the Void transition, which is the only way an entry leaves Posted.
+            new() { Name = "VoidReason", Type = "string", Sensitivity = SensitivityLevel.Public },
+        },
+        Lifecycle = new LifecycleDefinition
+        {
+            States = ["Posted", "Voided"],
+            InitialState = "Posted",
+            Transitions =
+            [
+                new StateTransition { Name = "Void", From = "Posted", To = "Voided", RequiredFields = ["VoidReason"] },
+            ],
         },
     };
 }

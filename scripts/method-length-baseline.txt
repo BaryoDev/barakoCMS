@@ -3,7 +3,6 @@
 # raising one, or adding a line, is a reviewed decision the pull request explains.
 99 BarakoCMS.AI/Features/SemanticSearchEndpoint.cs::SemanticSearchEndpoint.HandleAsync
 75 BarakoCMS.Accounting/AccountingMigration.cs::AccountingMigration.RunAsync
-93 BarakoCMS.Accounting/JournalEntryHook.cs::JournalEntryHook.OnBeforeSaveAsync
 72 BarakoCMS.Email.Resend/ResendWebhookEndpoint.cs::ResendWebhookEndpoint.HandleAsync
 81 BarakoCMS.Email.Smtp/SmtpEmailService.cs::SmtpEmailService.SendEmailAsync
 87 BarakoCMS.ExternalAuth/FacebookAuthEndpoints.cs::FacebookCallbackEndpoint.HandleAsync
@@ -75,7 +74,7 @@
 86 barakoCMS/Features/Tenants/Members/Endpoints.cs::AddMemberEndpoint.HandleAsync
 75 barakoCMS/Features/Users/RemoveRole/Endpoint.cs::Endpoint.HandleAsync
 128 barakoCMS/Features/WorkflowRuns/Endpoints.cs::RetryAttemptEndpoint.HandleAsync
-182 barakoCMS/Features/Workflows/Actions/ConditionalAction.cs::ConditionalAction.RunAsync
+180 barakoCMS/Features/Workflows/Actions/ConditionalAction.cs::ConditionalAction.RunAsync
 73 barakoCMS/Features/Workflows/Actions/CreateContentAction.cs::CreateContentAction.RunAsync
 156 barakoCMS/Features/Workflows/Actions/EmailAction.cs::EmailAction.RunAsync
 108 barakoCMS/Features/Workflows/Actions/EmailAttachments.cs::EmailAttachments.ResolveAsync
@@ -111,7 +110,7 @@
 98 barakoCMS/Infrastructure/Services/SensitivityService.cs::SensitivityService.GuardWriteAsync
 113 barakoCMS/Infrastructure/Services/WorkflowSchemaValidator.cs::WorkflowSchemaValidator.Validate
 110 barakoCMS/Infrastructure/Services/WorkflowSchemaValidator.cs::WorkflowSchemaValidator.ValidateAction
-134 barakoCMS/Infrastructure/Sync/CollectionSyncRunner.cs::CollectionSyncRunner.ApplyAsync
+128 barakoCMS/Infrastructure/Sync/CollectionSyncRunner.cs::CollectionSyncRunner.ApplyAsync
 99 barakoCMS/Infrastructure/Sync/CollectionSyncRunner.cs::CollectionSyncRunner.Map
 98 barakoCMS/Infrastructure/Sync/CollectionSyncService.cs::CollectionSyncService.SweepTenantAsync
 96 barakoCMS/Infrastructure/Sync/SyncRules.cs::SyncRules.ShapeProblem
