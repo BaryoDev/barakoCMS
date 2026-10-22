@@ -350,6 +350,49 @@ public class AggregateQueryTests
     }
 
     [Fact]
+    public async Task A_stored_offset_the_database_cannot_take_is_left_out_and_the_good_ones_still_count()
+    {
+        var tenant = await TenantAsync();
+        var type = $"agg_{Guid.NewGuid():n}"[..14];
+        await StoreAsync(tenant,
+            OrderType(type),
+            Order(type, "A", 1m, date: "2026-03-10T09:30:00+08:00"),
+            Order(type, "A", 2m, date: "2026-03-10T09:30:00Z"),
+            Order(type, "A", 100m, date: "2026-03-10T09:30:00+19:00"),
+            SiteWithZone("UTC"));
+
+        var client = await MemberAsync(tenant);
+        var slug = await SaveOkAsync(client, type, groupBy: [new { field = "Date", bucket = "day" }],
+            measures: [new { fn = "sum", field = "Total", @as = "total" }]);
+
+        var rows = (await RunOkAsync(client, slug)).GetProperty("rows").EnumerateArray().ToList();
+
+        rows.Should().HaveCount(1);
+        rows[0].GetProperty("total").GetDecimal().Should().Be(3m, "the +19:00 value is not in any day");
+    }
+
+    [Fact]
+    public async Task A_leap_day_is_counted()
+    {
+        var tenant = await TenantAsync();
+        var type = $"agg_{Guid.NewGuid():n}"[..14];
+        await StoreAsync(tenant,
+            OrderType(type),
+            Order(type, "A", 4m, date: "2024-02-29"),
+            Order(type, "A", 8m, date: "2026-02-29"),
+            SiteWithZone("UTC"));
+
+        var client = await MemberAsync(tenant);
+        var slug = await SaveOkAsync(client, type, groupBy: [new { field = "Date", bucket = "day" }],
+            measures: [new { fn = "sum", field = "Total", @as = "total" }]);
+
+        var rows = (await RunOkAsync(client, slug)).GetProperty("rows").EnumerateArray().ToList();
+
+        rows.Should().HaveCount(1, "2026 has no 29 February");
+        RowFor(rows, "Date", "2024-02-29").GetProperty("total").GetDecimal().Should().Be(4m);
+    }
+
+    [Fact]
     public async Task A_range_or_grouping_on_a_query_that_returns_rows_is_refused()
     {
         var type = await SeedOrdersAsync(null, ("A", 1m));
