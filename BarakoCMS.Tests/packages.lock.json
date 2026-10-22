@@ -1186,6 +1186,15 @@
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
       },
+      "barakocms.contacts": {
+        "type": "Project",
+        "dependencies": {
+          "BarakoCMS": "[5.0.0, )",
+          "BarakoCMS.Abstractions": "[5.1.0, )",
+          "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
+          "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
+        }
+      },
       "barakocms.devicetrust": {
         "type": "Project",
         "dependencies": {
