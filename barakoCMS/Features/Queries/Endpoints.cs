@@ -157,6 +157,21 @@ internal sealed class SaveQueryEndpoint(
         Definition.RequireCapability(SystemCapabilities.ManageQueries, QueryGate.LegacyRoles);
     }
 
+    private static string? ShapeRefusal(SaveQueryRequest req)
+    {
+        if (req.Measures is { Count: > 0 })
+        {
+            if (req.Fields.Count > 0) return "An aggregate query returns figures, not fields. Remove fields.";
+            if (!string.IsNullOrWhiteSpace(req.SortField)) return "An aggregate query is ordered by its groups. Remove the sort field.";
+            if (req.Limit != QueryDefinition.DefaultLimit) return "An aggregate query is capped by its groups, not a limit. Remove the limit.";
+            return null;
+        }
+
+        if (req.Range is not null) return "A range only applies to an aggregate query. Add a measure or remove the range.";
+        if (req.GroupBy is { Count: > 0 }) return "Grouping only applies to an aggregate query. Add a measure or remove the grouping.";
+        return null;
+    }
+
     public override async Task HandleAsync(SaveQueryRequest req, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(req.Name)) { ThrowError("Name is required.", 400); return; }
@@ -165,6 +180,9 @@ internal sealed class SaveQueryEndpoint(
             ThrowError("Slug must be lowercase letters, digits and hyphens.", 400);
             return;
         }
+
+        var shapeRefusal = ShapeRefusal(req);
+        if (shapeRefusal is not null) { ThrowError(shapeRefusal, 400); return; }
 
         var existing = await session.Query<QueryDefinition>().FirstOrDefaultAsync(q => q.Slug == req.Slug, ct);
         // A deleted query still holds the slug. Saving over it reuses the row, so creating after a
