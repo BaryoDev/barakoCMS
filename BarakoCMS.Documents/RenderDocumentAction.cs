@@ -25,7 +25,9 @@ namespace BarakoCMS.Documents;
 )]
 internal sealed class RenderDocumentAction(IDocumentSession session, IFileStore files) : IWorkflowAction
 {
-    private static readonly TimeSpan ClaimLifetime = TimeSpan.FromMinutes(5);
+    internal static readonly TimeSpan ClaimLifetime = TimeSpan.FromMinutes(5);
+    private const int MaxClaimAttempts = 20;
+    private const int MaxNameCharacters = 200;
     private const string InvalidNameCharacters = "<>:\"|?*";
 
     public string Type => "RenderDocument";
@@ -94,40 +96,65 @@ internal sealed class RenderDocumentAction(IDocumentSession session, IFileStore 
             return WorkflowActionResult.PermanentFailure(ex.Message);
         }
 
-        if (renderId is not null && !await ClaimAsync(renderId, ct))
+        var claim = Claim.None;
+        if (renderId is not null)
         {
-            return await session.LoadAsync<DocumentRender>(renderId, ct) is { FileId: var won } && won != Guid.Empty
-                ? Produced(won)
-                : WorkflowActionResult.Failure("Another run is rendering this document. Try again.");
+            claim = await ClaimAsync(renderId, ct);
+            if (claim.Done is { } won) return Produced(won);
+            if (claim.Id is null) return WorkflowActionResult.Failure("Another run is rendering this document. Try again.");
         }
 
-        return await StoreAsync(pdf, FileNameFor(template, content), renderId, ct);
+        return await StoreAsync(pdf, FileNameFor(template, content), renderId, claim.Id, ct);
+    }
+
+    private readonly record struct Claim(string? Id, Guid? Done)
+    {
+        public static Claim None => new(null, null);
     }
 
     /// <summary>
-    /// Writes the run's record before the file, so two runs under one key cannot both store. The
-    /// loser sees the insert refused. A claim that never got a file (the process died) is taken over
-    /// once it is old enough that its run cannot still be going.
+    /// Takes the run's claim before the file is stored, so two runs under one key cannot both store.
+    /// A claim row is only ever inserted, never overwritten, so the database lets exactly one run
+    /// own each generation. A generation with no result after <see cref="ClaimLifetime"/> belonged
+    /// to a run that died or is far too slow, and the next run takes the next generation: two
+    /// retries racing for it get one winner, and the original run cannot clobber or release a claim
+    /// that is not its own, because it only ever writes its own generation's row.
+    /// Returns the claim id, or the file id when the work turned out to be done, or neither when a
+    /// live run holds it.
     /// </summary>
-    private async Task<bool> ClaimAsync(string renderId, CancellationToken ct)
+    private async Task<Claim> ClaimAsync(string resultKey, CancellationToken ct)
     {
-        var claim = new DocumentRender { Id = renderId, FileId = Guid.Empty, ClaimedAt = DateTimeOffset.UtcNow };
-        var stale = await session.LoadAsync<DocumentRender>(renderId, ct) is { FileId: var f, ClaimedAt: var at }
-            && f == Guid.Empty && DateTimeOffset.UtcNow - at > ClaimLifetime;
+        var generation = 0;
+        for (var attempt = 0; attempt < MaxClaimAttempts; attempt++)
+        {
+            var id = DocumentRender.ClaimKeyFor(resultKey, generation);
+            try
+            {
+                session.Insert(new DocumentRender { Id = id, ClaimedAt = DateTimeOffset.UtcNow });
+                await session.SaveChangesAsync(ct);
+                return new Claim(id, null);
+            }
+            catch (DocumentAlreadyExistsException)
+            {
+                session.EjectAllPendingChanges();
+            }
 
-        try
-        {
-            if (stale) session.Store(claim); else session.Insert(claim);
-            await session.SaveChangesAsync(ct);
-            return true;
+            if (await session.LoadAsync<DocumentRender>(resultKey, ct) is { } done)
+            {
+                return new Claim(null, done.FileId);
+            }
+
+            var held = await session.LoadAsync<DocumentRender>(id, ct);
+            if (held is null) continue;
+            if (DateTimeOffset.UtcNow - held.ClaimedAt <= ClaimLifetime) return Claim.None;
+            generation++;
         }
-        catch (DocumentAlreadyExistsException)
-        {
-            return false;
-        }
+
+        return Claim.None;
     }
 
-    private async Task<WorkflowActionResult> StoreAsync(byte[] pdf, string name, string? renderId, CancellationToken ct)
+    private async Task<WorkflowActionResult> StoreAsync(
+        byte[] pdf, string name, string? renderId, string? claimId, CancellationToken ct)
     {
         // Nothing is staged on the session here: the store refuses to save over staged work.
         FileSaveResult saved;
@@ -139,43 +166,64 @@ internal sealed class RenderDocumentAction(IDocumentSession session, IFileStore 
         }
         catch
         {
-            await ReleaseAsync(renderId);
+            await ReleaseAsync(claimId);
             throw;
         }
 
         if (saved.File is null)
         {
-            await ReleaseAsync(renderId);
+            await ReleaseAsync(claimId);
             return saved.CanRetry
                 ? WorkflowActionResult.Failure(saved.Refused ?? "The file store did not take the document.")
                 : WorkflowActionResult.PermanentFailure(saved.Refused ?? "The file store refused the document.");
         }
 
-        if (renderId is not null)
-        {
-            session.Store(new DocumentRender { Id = renderId, FileId = saved.File.Id, ClaimedAt = DateTimeOffset.UtcNow });
-            await session.SaveChangesAsync(ct);
-        }
+        if (renderId is null) return Produced(saved.File.Id);
 
-        return Produced(saved.File.Id);
+        // The result is inserted, not stored: if a slower or faster run finished first, this one
+        // returns that run's file instead of replacing its record. The claim goes in the same commit.
+        try
+        {
+            session.Insert(new DocumentRender { Id = renderId, FileId = saved.File.Id });
+            if (claimId is not null) session.Delete<DocumentRender>(claimId);
+            await session.SaveChangesAsync(ct);
+            return Produced(saved.File.Id);
+        }
+        catch (DocumentAlreadyExistsException)
+        {
+            session.EjectAllPendingChanges();
+            await ReleaseAsync(claimId);
+            var first = await session.LoadAsync<DocumentRender>(renderId, ct);
+            return first is null
+                ? WorkflowActionResult.Failure("Another run finished this document first. Try again.")
+                : Produced(first.FileId);
+        }
     }
 
-    private async Task ReleaseAsync(string? renderId)
+    private async Task ReleaseAsync(string? claimId)
     {
-        if (renderId is null) return;
-        session.Delete<DocumentRender>(renderId);
+        if (claimId is null) return;
+        session.EjectAllPendingChanges();
+        session.Delete<DocumentRender>(claimId);
         await session.SaveChangesAsync(CancellationToken.None);
     }
 
-    private static string FileNameFor(DocumentTemplate template, Content content)
+    internal static string FileNameFor(DocumentTemplate template, Content content)
     {
-        var name = string.IsNullOrWhiteSpace(template.FileName) ? template.Slug : template.FileName;
-        name = DocumentValues.Fill(name, content);
+        var name = Clean(string.IsNullOrWhiteSpace(template.FileName)
+            ? template.Slug
+            : DocumentValues.Fill(template.FileName, content));
+        if (name.Length == 0) name = Clean(template.Slug);
+        if (name.Length == 0) name = "document";
+        if (name.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase)) name = name[..^".pdf".Length];
+        if (name.Length > MaxNameCharacters) name = name[..MaxNameCharacters];
+        return name + ".pdf";
+    }
+
+    private static string Clean(string name)
+    {
         name = name[(name.LastIndexOfAny(['/', '\\']) + 1)..];
-        name = new string(name.Where(c => !char.IsControl(c) && !InvalidNameCharacters.Contains(c)).ToArray()).Trim();
-        if (name.Length == 0) name = template.Slug;
-        if (!name.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase)) name += ".pdf";
-        return name;
+        return new string(name.Where(c => !char.IsControl(c) && !InvalidNameCharacters.Contains(c)).ToArray()).Trim();
     }
 
     private static WorkflowActionResult Produced(Guid fileId) =>

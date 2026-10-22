@@ -19,6 +19,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Fonts\*.ttf" LogicalName="barako-fonts/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Fonts\LICENSE-LiberationSans.txt" LogicalName="barako-fonts/LICENSE-LiberationSans.txt" />
+    <EmbeddedResource Include="..\migrations\5.2.0\585-documents.sql" LogicalName="barako-migrations/5.2.0/585-documents.sql" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="SkiaSharp" />
     <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" />
   </ItemGroup>

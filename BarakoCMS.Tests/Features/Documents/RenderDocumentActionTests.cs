@@ -72,6 +72,30 @@ public class RenderDocumentActionTests(IntegrationTestFixture factory)
         }
     }
 
+    private sealed class RefusingFiles(bool canRetry) : IFileStore
+    {
+        public Task<StoredFileInfo?> FindPublicAsync(Guid id, CancellationToken ct = default) =>
+            Task.FromResult<StoredFileInfo?>(null);
+
+        public Task<Stream?> OpenPublicAsync(Guid id, CancellationToken ct = default) => Task.FromResult<Stream?>(null);
+
+        public Task<FileSaveResult> SaveAsync(FileToStore file, CancellationToken ct = default) =>
+            Task.FromResult(new FileSaveResult { Refused = "no room", CanRetry = canRetry });
+    }
+
+    private async Task<string> ResultKeyAsync(string tenant, string key)
+    {
+        await using var session = Store.LightweightSession(tenant);
+        var template = await session.Query<DocumentTemplate>().SingleAsync(Ct);
+        return DocumentRender.KeyFor(template.Id, key);
+    }
+
+    private async Task<bool> ClaimExistsAsync(string tenant, string resultKey, int generation)
+    {
+        await using var session = Store.LightweightSession(tenant);
+        return await session.LoadAsync<DocumentRender>(DocumentRender.ClaimKeyFor(resultKey, generation), Ct) is not null;
+    }
+
     private async Task<(string Tenant, Content Content)> SeedAsync(string source, string fileName = "")
     {
         var tenant = "doc-" + Guid.NewGuid().ToString("n")[..8];
@@ -254,5 +278,108 @@ public class RenderDocumentActionTests(IntegrationTestFixture factory)
         services.Should().ContainSingle(d => d.ServiceType == typeof(barakoCMS.Features.Workflows.IWorkflowAction)
             && d.ImplementationType == typeof(RenderDocumentAction));
         new DocumentsModule().Name.Should().Be("Documents");
+    }
+
+    [Fact]
+    public async Task Two_retries_taking_over_one_abandoned_claim_store_one_document()
+    {
+        var (tenant, content) = await SeedAsync("# Invoice {{Number}}");
+        var key = Guid.NewGuid().ToString("n") + "-0";
+        var resultKey = await ResultKeyAsync(tenant, key);
+
+        await using (var seed = Store.LightweightSession(tenant))
+        {
+            seed.Insert(new DocumentRender
+            {
+                Id = DocumentRender.ClaimKeyFor(resultKey, 0),
+                ClaimedAt = DateTimeOffset.UtcNow - RenderDocumentAction.ClaimLifetime - TimeSpan.FromMinutes(1),
+            });
+            await seed.SaveChangesAsync(Ct);
+        }
+
+        var files = new SlowFiles();
+
+        async Task<WorkflowActionResult> Run()
+        {
+            await using var session = Store.LightweightSession(tenant);
+            return await new RenderDocumentAction(session, files).RunAsync(Parameters(key), content, Ct);
+        }
+
+        var results = await Task.WhenAll(Run(), Run());
+
+        files.Count.Should().Be(1, "only one retry owns the next generation");
+        results.Count(r => r.Succeeded).Should().Be(1);
+        results.Single(r => !r.Succeeded).Retryable.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_claim_that_is_not_abandoned_is_left_alone()
+    {
+        var (tenant, content) = await SeedAsync("# Invoice {{Number}}");
+        var key = Guid.NewGuid().ToString("n") + "-0";
+        var resultKey = await ResultKeyAsync(tenant, key);
+
+        await using (var seed = Store.LightweightSession(tenant))
+        {
+            seed.Insert(new DocumentRender { Id = DocumentRender.ClaimKeyFor(resultKey, 0) });
+            await seed.SaveChangesAsync(Ct);
+        }
+
+        var files = new CountingFiles();
+        await using var session = Store.LightweightSession(tenant);
+        var result = await new RenderDocumentAction(session, files).RunAsync(Parameters(key), content, Ct);
+
+        result.Succeeded.Should().BeFalse();
+        result.Retryable.Should().BeTrue();
+        files.Saved.Should().BeEmpty();
+        (await ClaimExistsAsync(tenant, resultKey, 0)).Should().BeTrue("the live run's claim is not touched");
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_file_store_refusal_releases_the_claim_so_the_retry_stores_one_document(bool canRetry)
+    {
+        var (tenant, content) = await SeedAsync("# Invoice {{Number}}");
+        var key = Guid.NewGuid().ToString("n") + "-0";
+        var resultKey = await ResultKeyAsync(tenant, key);
+
+        await using (var refused = Store.LightweightSession(tenant))
+        {
+            var result = await new RenderDocumentAction(refused, new RefusingFiles(canRetry)).RunAsync(Parameters(key), content, Ct);
+            result.Succeeded.Should().BeFalse();
+            result.Retryable.Should().Be(canRetry);
+        }
+
+        (await ClaimExistsAsync(tenant, resultKey, 0)).Should().BeFalse("a refused save leaves no claim behind");
+
+        var files = new CountingFiles();
+        await using var retry = Store.LightweightSession(tenant);
+        var again = await new RenderDocumentAction(retry, files).RunAsync(Parameters(key), content, Ct);
+
+        again.Succeeded.Should().BeTrue("got: {0}", again.Error);
+        files.Saved.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task A_finished_run_keeps_its_result_when_a_slower_run_finishes_after_it()
+    {
+        var (tenant, content) = await SeedAsync("# Invoice {{Number}}");
+        var key = Guid.NewGuid().ToString("n") + "-0";
+        var resultKey = await ResultKeyAsync(tenant, key);
+        var winner = Guid.NewGuid();
+
+        await using (var seed = Store.LightweightSession(tenant))
+        {
+            seed.Insert(new DocumentRender { Id = resultKey, FileId = winner });
+            await seed.SaveChangesAsync(Ct);
+        }
+
+        var files = new CountingFiles();
+        await using var session = Store.LightweightSession(tenant);
+        var result = await new RenderDocumentAction(session, files).RunAsync(Parameters(key), content, Ct);
+
+        result.Outputs["FileId"].Should().Be(winner.ToString());
+        files.Saved.Should().BeEmpty();
     }
 }

@@ -37,8 +37,8 @@ public static class PdfRenderer
 
     internal sealed class PageWriter(SKDocument document, float width, float height) : IDisposable
     {
-        private readonly SKTypeface _regular = SKTypeface.Default;
-        private readonly SKTypeface _bold = SKTypeface.FromFamilyName(null, SKFontStyle.Bold) ?? SKTypeface.Default;
+        private readonly SKTypeface _regular = DocumentFonts.Regular;
+        private readonly SKTypeface _bold = DocumentFonts.Bold;
         private readonly SKPaint _ink = new() { Color = SKColors.Black, IsAntialias = true, StrokeWidth = 0.75f };
         private SKCanvas? _canvas;
         private float _y;
@@ -76,11 +76,7 @@ public static class PdfRenderer
             _canvas = null;
         }
 
-        public void Dispose()
-        {
-            _ink.Dispose();
-            if (!ReferenceEquals(_bold, _regular)) _bold.Dispose();
-        }
+        public void Dispose() => _ink.Dispose();
 
         private float Usable => width - 2 * Margin;
 

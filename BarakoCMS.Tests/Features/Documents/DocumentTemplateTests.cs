@@ -197,4 +197,50 @@ public class DocumentTemplateTests
         using var font = new SKFont(SKTypeface.Default, 11);
         lines.Should().OnlyContain(l => font.MeasureText(l) <= column);
     }
+
+    [Fact]
+    public void The_embedded_faces_are_real_fonts_that_measure_text()
+    {
+        foreach (var face in new[] { DocumentFonts.Regular, DocumentFonts.Bold })
+        {
+            face.Should().NotBeNull();
+            face.GlyphCount.Should().BeGreaterThan(0);
+            using var font = new SKFont(face, 11);
+            font.MeasureText("A").Should().BeGreaterThan(0);
+        }
+
+        using var regular = new SKFont(DocumentFonts.Regular, 11);
+        using var bold = new SKFont(DocumentFonts.Bold, 11);
+        bold.MeasureText("Invoice").Should().NotBe(regular.MeasureText("Invoice"), "bold is its own face");
+    }
+
+    [Fact]
+    public void A_slug_used_as_the_file_name_is_cleaned_like_a_file_name_template()
+    {
+        var template = Template("# x");
+        template.Slug = "x/..\\inv\u0001oice<>";
+
+        var name = RenderDocumentAction.FileNameFor(template, new Content { ContentType = "invoice" });
+
+        name.Should().Be("invoice.pdf");
+    }
+
+    [Fact]
+    public void A_file_name_is_capped_before_the_extension()
+    {
+        var template = Template("# x", new string('a', 500));
+
+        var name = RenderDocumentAction.FileNameFor(template, new Content { ContentType = "invoice" });
+
+        name.Should().Be(new string('a', 200) + ".pdf");
+    }
+
+    [Fact]
+    public void A_file_name_that_cleans_to_nothing_and_a_slug_that_does_too_still_gets_a_name()
+    {
+        var template = Template("# x", "///");
+        template.Slug = "<>";
+
+        RenderDocumentAction.FileNameFor(template, new Content { ContentType = "invoice" }).Should().Be("document.pdf");
+    }
 }

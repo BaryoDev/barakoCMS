@@ -1,6 +1,5 @@
 using barakoCMS.Features.Workflows;
 using barakoCMS.Modules;
-using Marten.Schema;
 using Marten.Schema.Indexing.Unique;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -26,7 +25,14 @@ public sealed class DocumentsModule : IBarakoModule
 
     public void ConfigureSchema(IModuleSchema schema)
     {
-        schema.For<DocumentTemplate>().DocumentAlias("document_templates").UniqueIndex(UniqueIndexType.Computed, "document_templates_slug", TenancyScope.PerTenant, x => x.Slug);
+        // One template per slug per tenant. The action takes the first match, so a second row with
+        // the same slug would make the document depend on which one a read found first.
+        // migrations/5.2.0/585-documents.sql adds it to an existing database, under this name.
+        schema.For<DocumentTemplate>().DocumentAlias("document_templates").Index(x => x.Slug, idx =>
+        {
+            idx.IsUnique = true;
+            idx.TenancyScope = TenancyScope.PerTenant;
+        });
         schema.For<DocumentRender>().DocumentAlias("document_renders");
     }
 }
