@@ -62,7 +62,6 @@ internal class Endpoint(
         };
         foreach (var child in children)
         {
-
             if (!await permissionResolver.CanPerformActionAsync(user, child.ContentType, "read", child, ct))
                 continue;
             if (response.Lines.Count == LineTotals.MaxLines)

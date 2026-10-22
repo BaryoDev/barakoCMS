@@ -603,6 +603,47 @@ public class ContentLinesTests : IAsyncLifetime
         var ids = body.GetProperty("lines").EnumerateArray().Select(l => l.GetProperty("id").GetGuid()).ToList();
         ids.Should().HaveCount(1, "the caller's own line is present");
         ids.Should().NotContain(foreign, "a line of another tenant is never part of this tenant's header");
-        body.GetProperty("total").GetInt32().Should().Be(1);
+        body.GetProperty("truncated").GetBoolean().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Get_lines_returns_at_most_the_cap_and_says_when_more_are_stored()
+    {
+        var (header, line) = await TypesAsync();
+        var created = await _client.PostAsJsonAsync("/api/contents", new
+        {
+            contentType = header, data = new { Customer = "Jo" }, lines = new object[] { new { Sku = "OWN-1" } },
+        }, Ct);
+        var headerId = (await created.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("id").GetGuid();
+
+        async Task StoreLinesAsync(int count)
+        {
+            using var scope = _fixture.Services.CreateScope();
+            await using var session = scope.ServiceProvider.GetRequiredService<IDocumentStore>().LightweightSession();
+            for (var i = 0; i < count; i++)
+                session.Store(new Content
+                {
+                    Id = Guid.NewGuid(), ContentType = line,
+                    Data = new Dictionary<string, object> { ["Sku"] = $"CAP-{i}", ["Order"] = headerId.ToString() },
+                });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        async Task<JsonElement> LinesAsync()
+        {
+            var res = await _client.GetAsync($"/api/contents/{headerId}/lines", Ct);
+            res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync(Ct));
+            return await res.Content.ReadFromJsonAsync<JsonElement>(Ct);
+        }
+
+        await StoreLinesAsync(barakoCMS.Features.Content.LineTotals.MaxLines - 1);
+        var full = await LinesAsync();
+        full.GetProperty("lines").GetArrayLength().Should().Be(barakoCMS.Features.Content.LineTotals.MaxLines);
+        full.GetProperty("truncated").GetBoolean().Should().BeFalse("exactly the cap is every stored line");
+
+        await StoreLinesAsync(1);
+        var over = await LinesAsync();
+        over.GetProperty("lines").GetArrayLength().Should().Be(barakoCMS.Features.Content.LineTotals.MaxLines);
+        over.GetProperty("truncated").GetBoolean().Should().BeTrue("one line past the cap is left out");
     }
 }
