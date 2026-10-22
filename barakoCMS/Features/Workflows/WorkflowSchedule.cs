@@ -143,6 +143,9 @@ internal static class WorkflowSchedule
 
             var counted = new[] { lastClaim?.DueAt, workflow.ScheduleArmedAt }.Max() ?? nowUtc.AddMinutes(-1);
 
+            // Armed or claimed after this sweep's clock, which another host's faster clock can do.
+            if (counted >= nowUtc) continue;
+
             DateTime? previous = null;
             DateTime? due = null;
             foreach (var occurrence in cron.GetOccurrences(
