@@ -2,6 +2,9 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
+using Marten;
+using Microsoft.Extensions.DependencyInjection;
+using barakoCMS.Models;
 using static BarakoCMS.Tests.Features.Config.ConfigCallers;
 
 namespace BarakoCMS.Tests.Numbering;
@@ -84,6 +87,13 @@ public class NextNumberRouteTests(IntegrationTestFixture fixture)
     public async Task A_name_that_matches_two_stored_types_neither_exactly_is_refused()
     {
         var (tenant, admin) = await TenantWithRuleAsync(clientAllocated: true);
+        var store = fixture.Services.GetRequiredService<IDocumentStore>();
+        await using var legacy = await LegacyNameIndex.DropAsync(store, async () =>
+        {
+            await using var cleanup = store.LightweightSession(tenant);
+            cleanup.DeleteWhere<ContentTypeDefinition>(d => d.Name.ToLower() == "customer");
+            await cleanup.SaveChangesAsync(CancellationToken.None);
+        }, Ct);
         await callers.StoreInTenantAsync(tenant, Type("CUSTOMER", ("CustomerNo", "string")));
         await callers.StoreInTenantAsync(tenant, Type("customer", ("CustomerNo", "string")));
 

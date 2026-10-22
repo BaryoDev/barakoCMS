@@ -381,11 +381,35 @@ public class ContentTypeCaseTests
 /// config "purchaseorder"). A name that is neither exact is a guess, and a guess is refused.
 /// </summary>
 [Collection("Sequential")]
-public class ContentTypeAmbiguousCaseTests
+public class ContentTypeAmbiguousCaseTests : IAsyncLifetime
 {
     private readonly IntegrationTestFixture _factory;
+    private readonly List<string> _stored = [];
+    private LegacyNameIndex? _legacy;
 
     public ContentTypeAmbiguousCaseTests(IntegrationTestFixture factory) => _factory = factory;
+
+    // The name index ignores case, so the two spellings these tests need only fit with it dropped.
+    public async ValueTask InitializeAsync()
+    {
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
+        _legacy = await LegacyNameIndex.DropAsync(store, async () =>
+        {
+            await using var cleanup = store.LightweightSession();
+            var names = _stored.Select(n => n.ToLowerInvariant()).Distinct().ToList();
+            cleanup.DeleteWhere<ContentTypeDefinition>(d => names.Contains(d.Name.ToLower()));
+            cleanup.DeleteWhere<Content>(c => names.Contains(c.ContentType.ToLower()));
+            await cleanup.SaveChangesAsync(CancellationToken.None);
+        }, TestContext.Current.CancellationToken);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_legacy is not null)
+        {
+            await _legacy.DisposeAsync();
+        }
+    }
 
     private static string NewName() => $"dup{Guid.NewGuid():N}"[..14];
 
@@ -395,6 +419,7 @@ public class ContentTypeAmbiguousCaseTests
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         foreach (var name in names)
         {
+            _stored.Add(name);
             session.Store(new ContentTypeDefinition
             {
                 Id = Guid.NewGuid(), Name = name, DisplayName = name,
