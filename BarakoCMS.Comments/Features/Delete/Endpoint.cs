@@ -84,26 +84,29 @@ internal sealed class Endpoint(
 
         if (othersOwn)
         {
-            await barakoCMS.Infrastructure.Audit.AuditLog.RecordAsync(
-                session,
-                tenant.Slug,
-                "comment.moderated",
-                userId,
-                User.FindFirst("Username")?.Value ?? string.Empty,
-                targetType: type,
-                targetId: targetId.ToString(),
-                metadata: new Dictionary<string, object>
-                {
-                    ["commentId"] = comment.Id,
-                    ["count"] = doomed.Count,
-                },
-                ipAddress: HttpContext.Connection.RemoteIpAddress?.ToString(),
-                ct: ct);
+            await RecordModerationAsync(comment, doomed.Count, userId, ct);
         }
 
         await session.SaveChangesAsync(ct);
         await Send.NoContentAsync(ct);
     }
+
+    private Task RecordModerationAsync(Comment comment, int count, Guid userId, CancellationToken ct) =>
+        barakoCMS.Infrastructure.Audit.AuditLog.RecordAsync(
+            session,
+            tenant.Slug,
+            "comment.moderated",
+            userId,
+            User.FindFirst("Username")?.Value ?? string.Empty,
+            targetType: comment.TargetType,
+            targetId: comment.TargetId.ToString(),
+            metadata: new Dictionary<string, object>
+            {
+                ["commentId"] = comment.Id,
+                ["count"] = count,
+            },
+            ipAddress: HttpContext.Connection.RemoteIpAddress?.ToString(),
+            ct: ct);
 
     /// <summary>
     /// Sends the refusal and returns false when the caller may not go on. A moderator is let through
