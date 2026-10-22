@@ -87,13 +87,16 @@ public sealed class ScheduleSweepService(
 
     /// <summary>
     /// Moves one Pending row to Firing in a single conditional UPDATE, so Postgres decides the winner.
-    /// Two instances that both read the row as Pending cannot both match the WHERE clause.
+    /// Two instances that both read the row as Pending cannot both match the WHERE clause. It runs
+    /// on its own autocommit connection: a Marten session's connection is transactional, and the
+    /// claim would roll back when the unsaved session is disposed.
     /// </summary>
     private async Task<bool> ClaimAsync(Guid id, CancellationToken ct)
     {
         var table = $"{store.Options.DatabaseSchemaName}.mt_doc_scheduled_entries";
-        await using var session = store.LightweightSession();
-        await using var command = session.Connection.CreateCommand();
+        await using var connection = store.Storage.Database.CreateConnection();
+        await connection.OpenAsync(ct);
+        await using var command = connection.CreateCommand();
         command.CommandText =
             $"UPDATE {table} SET data = jsonb_set(data, '{{Status}}', '{(int)ScheduledEntryStatus.Firing}'::jsonb), " +
             "mt_version = mt_version + 1, mt_last_modified = transaction_timestamp() " +
