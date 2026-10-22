@@ -160,34 +160,42 @@ internal static class WorkflowSchedule
 
             previous ??= Previous(cron, zone, latest);
 
-            var run = WorkflowRunQueue.NewRun(
-                workflow, Guid.Empty, WorkflowTriggers.ContentTypes(workflow).FirstOrDefault() ?? string.Empty,
-                WorkflowEvents.Schedule, eventSequence: 0);
-            run.ScheduledFor = latest;
-            run.ScheduledPreviousFor = previous;
-
-            session.Insert(new ScheduleClaim
-            {
-                Id = $"{workflow.Id:N}:{latest:yyyyMMddTHHmmZ}",
-                WorkflowId = workflow.Id,
-                DueAt = latest,
-                ClaimedAt = nowUtc,
-            });
-            session.Insert(run);
-
-            try
-            {
-                await session.SaveChangesAsync(ct);
-                queued++;
-                WorkflowMetrics.Default.Queued(WorkflowEvents.Schedule, 1);
-            }
-            catch (DocumentAlreadyExistsException)
-            {
-                session.EjectAllPendingChanges();
-                logger?.LogDebug("Another host already took {DueAt:o} for workflow {WorkflowId}", latest, workflow.Id);
-            }
+            if (await TryQueueAsync(session, workflow, latest, previous, nowUtc, logger, ct)) queued++;
         }
 
         return queued;
+    }
+
+    private static async Task<bool> TryQueueAsync(
+        IDocumentSession session, WorkflowDefinition workflow, DateTime latest, DateTime? previous,
+        DateTime nowUtc, ILogger? logger, CancellationToken ct)
+    {
+        var run = WorkflowRunQueue.NewRun(
+            workflow, Guid.Empty, WorkflowTriggers.ContentTypes(workflow).FirstOrDefault() ?? string.Empty,
+            WorkflowEvents.Schedule, eventSequence: 0);
+        run.ScheduledFor = latest;
+        run.ScheduledPreviousFor = previous;
+
+        session.Insert(new ScheduleClaim
+        {
+            Id = $"{workflow.Id:N}:{latest:yyyyMMddTHHmmZ}",
+            WorkflowId = workflow.Id,
+            DueAt = latest,
+            ClaimedAt = nowUtc,
+        });
+        session.Insert(run);
+
+        try
+        {
+            await session.SaveChangesAsync(ct);
+            WorkflowMetrics.Default.Queued(WorkflowEvents.Schedule, 1);
+            return true;
+        }
+        catch (DocumentAlreadyExistsException)
+        {
+            session.EjectAllPendingChanges();
+            logger?.LogDebug("Another host already took {DueAt:o} for workflow {WorkflowId}", latest, workflow.Id);
+            return false;
+        }
     }
 }
