@@ -107,10 +107,6 @@ public class MigrationSkipQueryTests
             + "and tablename = 'mt_doc_contenttypedefinition' and indexname = 'mt_doc_contenttypedefinition_uidx_name' "
             + "and indexdef like '%lower(%')"),
 
-        ["Email.Resend/4.5.0/email-sent-emails"] = (
-            ImmutableTimestamp,
-            "select to_regclass('public.mt_doc_sent_emails_idx_at') is not null"),
-
         ["Files/4.2.0/stored-files-parent-index"] = (
             "create table public.mt_doc_stored_files (id uuid primary key, data jsonb not null);",
             "select to_regclass('public.mt_doc_stored_files_idx_parent_file_id') is not null"),
@@ -143,7 +139,6 @@ public class MigrationSkipQueryTests
             [
                 new BarakoCMS.Forms.FormsModule(),
                 new BarakoCMS.Files.FilesModule(),
-                new BarakoCMS.Email.Resend.ResendEmailModule(),
                 new BarakoCMS.ExternalAuth.ExternalAuthModule(),
             ])
             .Where(m => m.SkipWhen is not null)

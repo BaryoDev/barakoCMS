@@ -42,7 +42,7 @@ internal class UpdateSettingEndpoint(IDocumentSession session, IConfiguration co
 
         // Everything stored here is written in plaintext and handed back in full by GET
         // /api/settings. That is fine for a feature flag and wrong for a credential, and the screen
-        // invites it: a box labelled Value next to a key called Resend:ApiKey is going to get an API
+        // invites it: a box labelled Value next to a key called Email:ApiKey is going to get an API
         // key typed into it. Refusing names the endpoint that encrypts, rather than leaving the
         // operator to discover the difference from a database dump.
         //

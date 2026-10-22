@@ -9,7 +9,6 @@ The provider is a module, so it is chosen when the host is assembled. The packag
 restart is the install:
 
 ```sh
-dotnet add package BarakoCMS.Email.Resend   # Resend HTTP API
 dotnet add package BarakoCMS.Email.Smtp     # any SMTP relay
 ```
 
@@ -34,19 +33,17 @@ configured:
 
 | Field | Stored | Configured |
 | --- | --- | --- |
-| API key | Settings, Email | `Resend:ApiKey`, or the `RESEND_API_KEY` environment variable |
-| From address | Settings, Email | `Resend:From` |
+| API key | Settings, Email | `Email:ApiKey`, or the `EMAIL_API_KEY` environment variable |
+| From address | Settings, Email | `Email:From` |
 
-Those two fields are the whole of it, and the shape is Resend's. **SMTP credentials do not live
+Those two fields are for a provider that takes an API key and a sender. **SMTP credentials do not live
 here**: host, port, user, password and TLS mode are read by `BarakoCMS.Email.Smtp` from its own
 `Modules:Email.Smtp` section, which is a deployment decision rather than an admin one. The from
 address does carry across, because it is the one field in this screen that is not about a
 particular provider, and a sender stored here wins over the module's own `From`.
 
-The consequence to know about: with SMTP registered, **the test-send button below refuses with "No
-API key is set"**, because it checks for one before sending. Ordinary sends are unaffected.
-Fixing that means making `IEmailSettingsProvider` provider-neutral, which is a change to the core
-contract rather than to a module, so it is not done here.
+The test send does not require an API key, so it works with SMTP. It reports the provider's own
+reason when a send fails.
 
 Stored wins because it is the one a person set most recently, through the surface built for it.
 Configuration is how a deployment with no database row yet is seeded, and it keeps working when
@@ -190,7 +187,7 @@ check the Files module reads a whole file into memory, so the limits bound what 
 the action keeps, not what one read can load for a record whose size is wrong. The files of one
 email stay in memory while it is sent. At the default limits that is about 15 MB of files, and the
 provider adds its own copies: SMTP encodes while it writes to the relay, so about 20 MB an email;
-Resend takes the files as base64 text inside one JSON request, which comes to roughly 100 MB an
+A provider that takes the files as base64 text inside one JSON request comes to roughly 100 MB an
 email at peak. These are estimates from the copies each path makes, not measurements. A node can be
 sending as many emails at once as `Workflows:RunnerConcurrency` allows, so multiply by that.
 
@@ -217,6 +214,16 @@ members that take attachments; until it does, an email that names one fails and 
 A workflow stored before this release that already had an `Attachments` parameter on an Email
 action was sending without it. After the upgrade that action attaches the files or fails with a
 reason on the run.
+
+## Upgrading from the Resend module
+
+The Resend module is no longer built from this repository, and the core no longer reads `Resend:ApiKey`, `Resend:From` or `RESEND_API_KEY`. A host that set any of them has to do one of these:
+
+- Rename them to `Email:ApiKey`, `Email:From` or `EMAIL_API_KEY`.
+- Install the private Resend module from the BarakoCMS.Pro feed and set `Email:ApiKey` (or the key in the admin email settings) for it. It takes its key from the core settings and does not read `Resend:*`.
+- Switch to `BarakoCMS.Email.Smtp` and set `Modules:Email.Smtp:Host`.
+
+A host that still sets `Resend:ApiKey` or `RESEND_API_KEY` and has no provider registered logs a warning at startup, since email then goes to the mock service. The settings test send no longer returns 400 for a missing API key.
 
 ## Auditing
 

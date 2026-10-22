@@ -48,7 +48,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
     private readonly IDisposable _fallbacks;
 
     /// <summary>The API key this host is configured with, standing in for a deployment's own.</summary>
-    public const string ConfiguredResendKey = "re_from_the_deployment_not_the_admin";
+    public const string ConfiguredEmailKey = "key_from_the_deployment_not_the_admin";
 
     private int _hostsBuilt;
 
@@ -297,7 +297,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                 // Seeded the way a deployment with no database row yet seeds it, so the precedence
                 // tests have a configured value for a stored one to beat, and a value to fall back
                 // to when the stored one is cleared.
-                { "Resend:ApiKey", ConfiguredResendKey },
+                { "Email:ApiKey", ConfiguredEmailKey },
                 // Deliberately not the JWT key. ConnectorOptions.Validate refuses a Connectors:Key
                 // that matches another control's, so the test host proves that rule holds every run.
                 { "Connectors:Key", "test-connectors-key-that-is-its-own-and-long-enough" },
@@ -474,9 +474,6 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                 services.Remove(runner);
             }
 
-            new BarakoCMS.Email.Resend.ResendEmailModule().ConfigureServices(services, ctx.Configuration);
-            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Email.Resend.ResendEmailModule(), opts));
-
             new BarakoCMS.Files.FilesModule().ConfigureServices(services, ctx.Configuration);
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Files.FilesModule(), opts));
 
@@ -535,6 +532,11 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Payments.PaymentsModule(), opts));
             services.AddSingleton<BarakoCMS.Payments.IPaymentProvider, BarakoCMS.Tests.Features.Payments.FakePaymentProvider>();
 
+            // Notifications: the service, the email sink's options and the schema, scoped to its own
+            // section as the host scopes it.
+            new BarakoCMS.Notifications.NotificationsModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Notifications"));
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Notifications.NotificationsModule(), opts));
+
             // Portability: its contents section, so a bundle applies through the config engine. Called
             // through IBarakoModule, the way the host calls every module's ConfigureServices.
             ((barakoCMS.Modules.IBarakoModule)new BarakoCMS.Portability.PortabilityModule()).ConfigureServices(services, ctx.Configuration);
@@ -592,10 +594,9 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             // A second executor, so a test can route a workflow away from the built-in runner.
             services.AddSingleton<barakoCMS.Features.Workflows.IWorkflowExecutor, BarakoCMS.Tests.Features.Workflows.ElsewhereExecutor>();
 
-            // Email transport, replacing the Resend provider the module above registered. Resend
-            // throws on every call here because no API key is configured, so any flow that emails
-            // something has been running against a transport that always fails. Registration needs
-            // the opposite: a test has to be able to read a token that only exists in an email.
+            // Email transport, replacing the mock core registers, which delivers nothing and keeps
+            // nothing. Registration needs the opposite: a test has to be able to read a token that
+            // only exists in an email.
             services.RemoveAll<barakoCMS.Core.Interfaces.IEmailService>();
             services.AddSingleton<RecordingEmailService>();
 
@@ -626,7 +627,6 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
     /// </summary>
     public static readonly System.Reflection.Assembly[] ModuleEndpointAssemblies =
     [
-        typeof(BarakoCMS.Email.Resend.ResendEmailModule).Assembly,
         typeof(BarakoCMS.Files.FilesModule).Assembly,
         typeof(BarakoCMS.AI.AiModule).Assembly,
         typeof(BarakoCMS.Accounting.AccountingModule).Assembly,
@@ -640,6 +640,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         typeof(BarakoCMS.Forms.FormsModule).Assembly,
         typeof(BarakoCMS.Reports.ReportsModule).Assembly,
         typeof(BarakoCMS.Payments.PaymentsModule).Assembly,
+        typeof(BarakoCMS.Notifications.NotificationsModule).Assembly,
         typeof(BarakoCMS.FeatureFlags.FeatureFlagsModule).Assembly,
         // Portability owns no documents of its own, so beside its endpoints it needs only the
         // config section it registers, which ConfigureWebHost adds.
