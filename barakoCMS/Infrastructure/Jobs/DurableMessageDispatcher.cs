@@ -19,7 +19,7 @@ public sealed class DurableMessageDispatcher
 {
     public async Task Handle(
         DurableMessage message,
-        Envelope envelope,
+        Wolverine.Envelope envelope,
         IServiceScopeFactory scopes,
         CancellationToken cancellationToken)
     {

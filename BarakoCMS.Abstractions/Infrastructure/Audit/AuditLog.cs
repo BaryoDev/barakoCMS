@@ -42,7 +42,8 @@ public static class AuditLog
 
         var prevHash = previous?.Hash ?? AuditChain.GenesisHash;
         // Cut at the microsecond Postgres stores, so the stored text and the audit cursor agree exactly.
-        var createdAt = Features.Audit.List.AuditCursor.TruncateToMicroseconds(DateTime.UtcNow);
+        var now = DateTime.UtcNow;
+        var createdAt = new DateTime(now.Ticks - now.Ticks % 10, now.Kind);
         var hash = AuditChain.ComputeHash(prevHash, tenantSlug, action, actorUserId, targetType, targetId, createdAt);
 
         session.Store(new AuditEvent

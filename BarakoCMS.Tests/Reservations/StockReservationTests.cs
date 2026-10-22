@@ -1,6 +1,6 @@
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Infrastructure.Reservations;
-using BarakoCMS.Tests.Clinic;
+using BarakoCMS.Tests.SampleProbe;
 using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.Configuration;
@@ -11,7 +11,7 @@ using Xunit;
 namespace BarakoCMS.Tests.Reservations;
 
 [Collection("Sequential")]
-public class StockReservationTests(ClinicProbeHost host) : IClassFixture<ClinicProbeHost>
+public class StockReservationTests(SampleProbeHost host) : IClassFixture<SampleProbeHost>
 {
     private IStockReservations Stock => host.Services.GetRequiredService<IStockReservations>();
 

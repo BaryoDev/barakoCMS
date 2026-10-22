@@ -117,9 +117,9 @@ internal static class WorkflowSchedule
     public static async Task<int> FireDueAsync(
         IDocumentSession session, DateTime nowUtc, ILogger? logger, CancellationToken ct)
     {
-        var workflows = WorkflowTriggers.SwitchedOn(await session.Query<WorkflowDefinition>()
+        var workflows = (await session.Query<WorkflowDefinition>()
             .Where(w => w.Schedule != null)
-            .ToListAsync(ct));
+            .ToListAsync(ct)).Where(w => w.Enabled).ToList();
 
         var queued = 0;
 
