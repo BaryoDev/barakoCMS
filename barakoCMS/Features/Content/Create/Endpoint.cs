@@ -124,20 +124,21 @@ internal class Endpoint(
         };
         var lines = req.Lines!.Select(l => LineWriter.Line(lineType, l, headerId, req.Status, req.Sensitivity)).ToList();
 
-        var allowed = await permissionResolver.CanPerformActionAsync(user, lineType.ContentType, "create", null, ct)
-            && await permissionResolver.AllowsCreatedEntryAsync(user, header, ct);
-        foreach (var line in lines)
-        {
-            allowed = allowed && await permissionResolver.AllowsCreatedEntryAsync(user, line, ct);
-        }
-
-        if (!allowed)
+        if (!await permissionResolver.CanPerformActionAsync(user, lineType.ContentType, "create", null, ct))
         {
             await Send.ForbiddenAsync(ct);
             return;
         }
 
-        var result = await LineWriter.WriteAsync(runner, header, lines, userId, req.DryRun, HttpContext, ct);
+        var result = await LineWriter.WriteAsync(
+            runner, header, lines, userId, req.DryRun, HttpContext,
+            entry => permissionResolver.AllowsCreatedEntryAsync(user, entry, ct), ct);
+        if (result.Forbidden)
+        {
+            await Send.ForbiddenAsync(ct);
+            return;
+        }
+
         foreach (var error in result.Errors)
         {
             AddError(error);
