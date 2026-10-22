@@ -33,6 +33,7 @@ public class ShippedMigrationTests
         "5.2.0/report-definitions",
         "5.2.0/scheduled-entries",
         "5.2.0/253-comments",
+        "5.2.0/contacts",
         "5.2.0/notifications",
     ];
 
@@ -106,6 +107,7 @@ public class ShippedMigrationTests
             new BarakoCMS.Accounting.AccountingModule(),
             new BarakoCMS.Pages.PagesModule(),
             new BarakoCMS.Comments.CommentsModule(),
+            new BarakoCMS.Contacts.ContactsModule(),
             new BarakoCMS.Notifications.NotificationsModule(),
             new BarakoCMS.Booking.BookingModule(),
             new BarakoCMS.Payments.PaymentsModule(),
@@ -164,6 +166,7 @@ public class ShippedMigrationTests
             new BarakoCMS.Reports.ReportsModule(),
             new BarakoCMS.Scheduling.SchedulingModule(),
             new BarakoCMS.Comments.CommentsModule(),
+            new BarakoCMS.Contacts.ContactsModule(),
             new BarakoCMS.Notifications.NotificationsModule(),
         ];
 
@@ -175,6 +178,7 @@ public class ShippedMigrationTests
             "Accounting/5.0.0/accounting-number-sequences",
             "Booking/5.2.0/booking-resources",
             "Comments/5.2.0/253-comments",
+            "Contacts/5.2.0/contacts",
             "ExternalAuth/4.6.0/external-auth-identities",
             "ExternalAuth/4.8.0/external-auth-used-nonces",
             "ExternalAuth/5.1.0/915-external-auth-role-maps",

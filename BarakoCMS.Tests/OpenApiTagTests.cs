@@ -121,6 +121,7 @@ public class OpenApiTagTests
             "Config",
             "ConnectorDeliveries",
             "Connectors",
+            "Contacts",
             "Content",
             "ContentType",
             "DeviceTrust",

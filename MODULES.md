@@ -921,6 +921,7 @@ template ships a placeholder.
 | [BarakoCMS.Reports](BarakoCMS.Reports) | Saved reports: group, count and sum a content type, computed in the database as the reader, with CSV export |
 | [BarakoCMS.Payments](BarakoCMS.Payments) | Checkout for a payable entry at the amount stored on it, and a signed, idempotent provider webhook that runs the paid transition. Provider adapters implement `IPaymentProvider` |
 | [BarakoCMS.Comments](BarakoCMS.Comments) | A comment thread on any record, behind the record's own read permission: post, reply, list (paged) and delete |
+| [BarakoCMS.Contacts](BarakoCMS.Contacts) | Contacts: a person or an organization with custom fields, links, email dedupe and merge, tenant scoped |
 | [BarakoCMS.Email.Smtp](BarakoCMS.Email.Smtp) | SMTP email provider (`IEmailService`), inert until a host is configured |
 | [BarakoCMS.Pages](BarakoCMS.Pages) | Page tree over a content type: parent loop, depth and reserved slug rules, public navigation and path resolution, and an authenticated tree |
 | [BarakoCMS.Booking](BarakoCMS.Booking) | Bookable resources with time zones and opening hours, a no-overlap rule inside the booking write, and public availability |

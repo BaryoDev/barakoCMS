@@ -65,6 +65,7 @@ public class SuiteCompositionTests
             "Analytics.Umami",
             "Booking",
             "Comments",
+            "Contacts",
             "DeviceTrust",
             "Diagnostics",
             "Email.Smtp",
