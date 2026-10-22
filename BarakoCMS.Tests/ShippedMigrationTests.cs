@@ -26,6 +26,7 @@ public class ShippedMigrationTests
         "5.0.0/pages-settings",
         "5.0.0/files-storage-settings",
         "5.2.0/253-comments",
+        "5.2.0/585-documents",
         "5.2.0/contacts",
         "5.2.0/notifications",
     ];
@@ -82,6 +83,7 @@ public class ShippedMigrationTests
             new BarakoCMS.Comments.CommentsModule(),
             new BarakoCMS.Contacts.ContactsModule(),
             new BarakoCMS.Notifications.NotificationsModule(),
+            new BarakoCMS.Documents.DocumentsModule(),
         ]);
 
     private sealed class SecondOwnerOfTheFilesAssembly : IBarakoModule
@@ -133,6 +135,7 @@ public class ShippedMigrationTests
             new BarakoCMS.Comments.CommentsModule(),
             new BarakoCMS.Contacts.ContactsModule(),
             new BarakoCMS.Notifications.NotificationsModule(),
+            new BarakoCMS.Documents.DocumentsModule(),
         ];
 
         var all = ShippedMigrations.Discover(modules);
@@ -143,6 +146,7 @@ public class ShippedMigrationTests
             "Accounting/5.0.0/accounting-number-sequences",
             "Comments/5.2.0/253-comments",
             "Contacts/5.2.0/contacts",
+            "Documents/5.2.0/585-documents",
             "ExternalAuth/4.6.0/external-auth-identities",
             "ExternalAuth/4.8.0/external-auth-used-nonces",
             "ExternalAuth/5.1.0/915-external-auth-role-maps",

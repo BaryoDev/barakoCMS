@@ -47,7 +47,7 @@ public class SuiteCompositionTests
 
     /// <summary>
     /// The thirteen the hand-written list named, plus Email.Smtp, which the Suite project referenced
-    /// all along and the list never added, plus Pages and Forms, plus this project's own probe. A module project added to
+    /// all along and the list never added, plus Pages, Forms and Documents, plus this project's own probe. A module project added to
     /// the Suite without being added here fails this test, which is the point: the set is pinned.
     /// </summary>
     [Fact]
@@ -66,6 +66,7 @@ public class SuiteCompositionTests
             "Contacts",
             "DeviceTrust",
             "Diagnostics",
+            "Documents",
             "Email.Smtp",
             "ExternalAuth",
             "FeatureFlags",

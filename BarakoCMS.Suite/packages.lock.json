@@ -854,6 +854,15 @@
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
       },
+      "barakocms.documents": {
+        "type": "Project",
+        "dependencies": {
+          "BarakoCMS": "[5.0.0, )",
+          "BarakoCMS.Abstractions": "[5.2.0, )",
+          "SkiaSharp": "[4.153.1, )",
+          "SkiaSharp.NativeAssets.Linux.NoDependencies": "[4.153.1, )"
+        }
+      },
       "barakocms.email.smtp": {
         "type": "Project",
         "dependencies": {
