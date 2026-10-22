@@ -59,7 +59,11 @@ internal sealed partial class RegisterServiceValidator : Validator<RegisterServi
         && string.IsNullOrEmpty(uri.UserInfo);
 }
 
-/// <summary>POST /api/services: registers an outside service. A name already registered is a 409.</summary>
+/// <summary>
+/// POST /api/services: registers an outside service. A name already registered is a 409. A machine
+/// key is checked as an API key from any tenant, because the registry is deployment-wide and the
+/// caller is a global administrator.
+/// </summary>
 internal sealed class RegisterServiceEndpoint(IDocumentSession session, TenantContext tenant, IConfiguration configuration)
     : Endpoint<RegisterServiceRequest, ServiceDto>
 {
@@ -78,9 +82,10 @@ internal sealed class RegisterServiceEndpoint(IDocumentSession session, TenantCo
         }
 
         if (req.MachineKeyId is { } keyId
-            && await session.LoadAsync<barakoCMS.Models.ApiKey>(keyId, ct) is not { Revoked: false })
+            && !IsUsableMachineKey(await session.LoadAsync<barakoCMS.Models.ApiKey>(keyId, ct)))
         {
-            AddError(r => r.MachineKeyId!, "MachineKeyId must be an existing API key that is not revoked.");
+            AddError(r => r.MachineKeyId!,
+                "MachineKeyId must be an existing API key that is not revoked or expired, has the services:heartbeat scope and is not limited to content types.");
             await Send.ErrorsAsync(400, ct);
             return;
         }
@@ -127,6 +132,12 @@ internal sealed class RegisterServiceEndpoint(IDocumentSession session, TenantCo
 
         await Send.ResponseAsync(ServiceDto.From(service, now), 201, ct);
     }
+
+    private static bool IsUsableMachineKey(barakoCMS.Models.ApiKey? key) =>
+        key is { Revoked: false }
+        && (key.ExpiresAt is null || key.ExpiresAt > DateTime.UtcNow)
+        && key.Scopes.Contains(barakoCMS.Models.ApiKeyScopes.ServicesHeartbeat, StringComparer.OrdinalIgnoreCase)
+        && key.ContentTypes.Count == 0;
 
     private static bool IsUniqueViolation(Exception? ex)
     {
