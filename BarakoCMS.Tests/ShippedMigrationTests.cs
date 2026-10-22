@@ -26,6 +26,7 @@ public class ShippedMigrationTests
         "5.0.0/accounting-number-sequences",
         "5.0.0/pages-settings",
         "5.0.0/files-storage-settings",
+        "5.2.0/notifications",
     ];
 
     /// <summary>
@@ -79,6 +80,7 @@ public class ShippedMigrationTests
             new BarakoCMS.ExternalAuth.ExternalAuthModule(),
             new BarakoCMS.Accounting.AccountingModule(),
             new BarakoCMS.Pages.PagesModule(),
+            new BarakoCMS.Notifications.NotificationsModule(),
         ]);
 
     private sealed class SecondOwnerOfTheFilesAssembly : IBarakoModule
@@ -145,9 +147,10 @@ public class ShippedMigrationTests
             "Forms/4.2.0/forms-public-forms",
             "Forms/4.6.0/forms-email-verification",
             "Forms/4.7.0/forms-tenant-policy-restore",
+            "Notifications/5.2.0/notifications",
             "Pages/5.0.0/pages-settings");
         coreOnly.Count.Should().BeGreaterThanOrEqualTo(7, "seven core files were released before the ledger");
-        coreOnly.Should().HaveCount(all.Count - 11, "a module that is not enabled contributes nothing");
+        coreOnly.Should().HaveCount(all.Count - 12, "a module that is not enabled contributes nothing");
         coreOnly.Should().OnlyContain(m => m.Owner == ShippedMigrations.CoreOwner);
         coreOnly.Select(m => m.Id).Should().NotIntersectWith(ModuleOwned, "core must not also ship a module's file");
     }

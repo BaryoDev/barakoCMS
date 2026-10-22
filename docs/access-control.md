@@ -1063,6 +1063,7 @@ it on the routing table, which is where `GET /api/capabilities` and the role wri
 | Import | `analyze_spreadsheets` | `POST /api/import/analyze` |
 | Portability | `export_content` | `GET /api/portability/export` |
 | Portability | `import_content` | `POST /api/portability/import` |
+| Notifications | `manage_notifications` | `POST /api/notifications`, `GET /api/notifications/admin` |
 | PWA | `view_pwa_installs` | `GET /api/pwa/installs` |
 
 Three of those are splits of a gate that used to be one role list. Accounting splits reading the

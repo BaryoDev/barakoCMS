@@ -24,6 +24,14 @@ internal sealed class NotificationService(
             throw new ArgumentException("A notification needs a title.", nameof(request));
         if (NotificationRules.HasControlCharacter(request.Type) || NotificationRules.HasControlCharacter(request.Title))
             throw new ArgumentException("A type or title cannot hold control characters.", nameof(request));
+        if (NotificationRules.TooLong(request.Type, NotificationRules.MaxTypeLength)
+            || NotificationRules.TooLong(request.Title, NotificationRules.MaxTitleLength)
+            || NotificationRules.TooLong(request.Body, NotificationRules.MaxBodyLength))
+            throw new ArgumentException(
+                $"A type is at most {NotificationRules.MaxTypeLength}, a title {NotificationRules.MaxTitleLength} and a body {NotificationRules.MaxBodyLength} characters.",
+                nameof(request));
+        if (NotificationRules.TooManyPayloadKeys(request.Payload))
+            throw new ArgumentException($"A payload holds at most {NotificationRules.MaxPayloadKeys} keys.", nameof(request));
         if (NotificationRules.PayloadTooLarge(request.Payload))
             throw new ArgumentException(
                 $"A payload is at most {NotificationRules.MaxPayloadBytes} bytes once serialized.", nameof(request));

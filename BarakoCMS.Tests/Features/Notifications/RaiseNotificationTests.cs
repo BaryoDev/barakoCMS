@@ -210,6 +210,8 @@ public class RaiseNotificationTests
     [InlineData("task.due", "Due\nBcc: x@example.com")]
     [InlineData("task\tdue", "Due")]
     [InlineData("task.due", "Du\u0000e")]
+    [InlineData("task.due", "Due \u202Efdp.exe")]
+    [InlineData("task.\u200Bdue", "Due")]
     public async Task A_type_or_title_with_a_control_character_is_refused_over_http_and_through_the_service(string type, string title)
     {
         var recipient = await _callers.UserAsync();
@@ -221,6 +223,50 @@ public class RaiseNotificationTests
         using var scope = _factory.Services.CreateScope();
         var raise = () => scope.ServiceProvider.GetRequiredService<INotificationService>()
             .RaiseAsync(new RaiseNotification(recipient, type, title), Ct);
+        await raise.Should().ThrowAsync<ArgumentException>();
+    }
+
+    [Fact]
+    public async Task A_notification_body_is_html_encoded_in_the_email()
+    {
+        var recipient = await _callers.UserAsync();
+        var address = $"ntf-{recipient:n}@example.com";
+        var host = _factory.WithSettings(new Dictionary<string, string?> { ["Modules:Notifications:EmailDelivery:Enabled"] = "true" });
+
+        using (var scope = host.Services.CreateScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<INotificationService>().RaiseAsync(
+                new RaiseNotification(recipient, "phish.test", "Look") { Body = "<a href=\"http://evil.example\">Click</a>\nsecond line" }, Ct);
+        }
+
+        var sent = host.Services.GetRequiredService<RecordingEmailService>().Messages.Single(m => m.To == address);
+        sent.Body.Should().NotContain("<a href");
+        sent.Body.Should().Contain("&lt;a href=");
+        sent.Body.Should().Contain("<br>");
+    }
+
+    [Theory]
+    [InlineData("type")]
+    [InlineData("title")]
+    [InlineData("body")]
+    [InlineData("keys")]
+    public async Task The_service_enforces_the_same_length_and_key_caps_as_the_endpoint(string field)
+    {
+        var recipient = await _callers.UserAsync();
+        var request = field switch
+        {
+            "type" => new RaiseNotification(recipient, new string('t', 101), "Due"),
+            "title" => new RaiseNotification(recipient, "task.due", new string('x', 201)),
+            "body" => new RaiseNotification(recipient, "task.due", "Due") { Body = new string('x', 4001) },
+            _ => new RaiseNotification(recipient, "task.due", "Due")
+            {
+                Payload = Enumerable.Range(0, 51).ToDictionary(i => $"k{i}", _ => (object)1),
+            },
+        };
+
+        using var scope = _factory.Services.CreateScope();
+        var raise = () => scope.ServiceProvider.GetRequiredService<INotificationService>().RaiseAsync(request, Ct);
+
         await raise.Should().ThrowAsync<ArgumentException>();
     }
 

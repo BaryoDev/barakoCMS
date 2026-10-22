@@ -1,6 +1,7 @@
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Models;
+using System.Net;
 using Marten;
 using Microsoft.Extensions.Options;
 
@@ -23,6 +24,9 @@ internal sealed class EmailNotificationSink(
         if (string.IsNullOrWhiteSpace(user?.Email)) return;
 
         await email.SendForTenantAsync(tenant.Slug, user.Email, notification.Title,
-            notification.Body ?? notification.Title, ct);
+            ToHtml(notification.Body ?? notification.Title), ct);
     }
+
+    private static string ToHtml(string text) =>
+        WebUtility.HtmlEncode(text).Replace("\r\n", "\n").Replace("\n", "<br>");
 }

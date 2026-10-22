@@ -20,18 +20,16 @@ internal sealed class RaiseResponse
 
 internal sealed class RaiseValidator : Validator<RaiseRequest>
 {
-    internal const int MaxPayloadKeys = 50;
-
     public RaiseValidator()
     {
         RuleFor(x => x.RecipientUserId).NotEmpty();
-        RuleFor(x => x.Type).NotEmpty().MaximumLength(100)
+        RuleFor(x => x.Type).NotEmpty().MaximumLength(NotificationRules.MaxTypeLength)
             .Must(t => !NotificationRules.HasControlCharacter(t)).WithMessage("Type cannot hold control characters.");
-        RuleFor(x => x.Title).NotEmpty().MaximumLength(200)
+        RuleFor(x => x.Title).NotEmpty().MaximumLength(NotificationRules.MaxTitleLength)
             .Must(t => !NotificationRules.HasControlCharacter(t)).WithMessage("Title cannot hold control characters.");
-        RuleFor(x => x.Body).MaximumLength(4000);
-        RuleFor(x => x.Payload).Must(p => p is null || p.Count <= MaxPayloadKeys)
-            .WithMessage($"Payload holds at most {MaxPayloadKeys} keys.");
+        RuleFor(x => x.Body).MaximumLength(NotificationRules.MaxBodyLength);
+        RuleFor(x => x.Payload).Must(p => !NotificationRules.TooManyPayloadKeys(p))
+            .WithMessage($"Payload holds at most {NotificationRules.MaxPayloadKeys} keys.");
         RuleFor(x => x.Payload).Must(p => !NotificationRules.PayloadTooLarge(p))
             .WithMessage($"Payload is at most {NotificationRules.MaxPayloadBytes} bytes once serialized.");
     }
