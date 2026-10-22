@@ -296,7 +296,9 @@ public class DeliveryResponseCacheTests(IntegrationTestFixture fixture)
     [InlineData("description")]
     public async Task The_feed_the_sitemap_and_the_type_description_are_served_from_the_cache(string route)
     {
-        var (host, tenant, type) = await SeededAsync(("Feeds:SiteUrl", "https://example.com"));
+        // The private-site gate reads Postgres before the cache and remembers the answer for 5 seconds.
+        // The counter below counts every command, so a slow first read would let that expire.
+        var (host, tenant, type) = await SeededAsync(("Feeds:SiteUrl", "https://example.com"), ("Delivery:PrivateSite:CacheSeconds", "3600"));
         await EntryAsync(host, tenant, type, "the-entry", "marker");
         using var client = In(host, tenant);
         var url = route switch
