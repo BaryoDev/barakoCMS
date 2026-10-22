@@ -18,7 +18,10 @@ internal sealed record WorkflowConfig(
     List<WorkflowAction>? Actions,
     bool Enabled = true,
     ScheduleTrigger? DateSchedule = null,
-    string? NotifyRoleOnFailure = null);
+    string? NotifyRoleOnFailure = null,
+    string? Schedule = null,
+    string? ScheduleTimeZone = null,
+    string? ScheduleCatchUp = null);
 
 /// <summary>
 /// The <c>workflows</c> section: each workflow of the tenant under its name.
@@ -167,6 +170,8 @@ internal sealed class WorkflowConfigProvider(
                 KeepCredentials(workflow, current);
             }
 
+            ArmSchedule(workflow, current);
+
             // Not protected here: the document carries no credential, and what was carried over from
             // the stored workflow is ciphertext already, which protecting again would make unreadable.
             session.Store(workflow);
@@ -200,8 +205,28 @@ internal sealed class WorkflowConfigProvider(
             WorkflowTriggers.ContentTypes(workflow), workflow.DateSchedule is null ? WorkflowTriggers.Events(workflow) : [],
             new Dictionary<string, string>(workflow.Conditions ?? [], StringComparer.Ordinal), actions, workflow.Enabled,
             workflow.DateSchedule is { } schedule ? Copy(schedule) : null,
-            string.IsNullOrWhiteSpace(workflow.NotifyRoleOnFailure) ? null : workflow.NotifyRoleOnFailure);
+            string.IsNullOrWhiteSpace(workflow.NotifyRoleOnFailure) ? null : workflow.NotifyRoleOnFailure,
+            string.IsNullOrWhiteSpace(workflow.Schedule) ? null : workflow.Schedule,
+            string.IsNullOrWhiteSpace(workflow.ScheduleTimeZone) ? null : workflow.ScheduleTimeZone,
+            string.IsNullOrWhiteSpace(workflow.ScheduleCatchUp) ? null : workflow.ScheduleCatchUp);
         return (config, held);
+    }
+
+    private static void CopyCronSchedule(WorkflowConfig config, WorkflowDefinition workflow)
+    {
+        workflow.Schedule = string.IsNullOrWhiteSpace(config.Schedule) ? null : config.Schedule;
+        workflow.ScheduleTimeZone = string.IsNullOrWhiteSpace(config.ScheduleTimeZone) ? null : config.ScheduleTimeZone;
+        workflow.ScheduleCatchUp = string.IsNullOrWhiteSpace(config.ScheduleCatchUp) ? null : config.ScheduleCatchUp;
+    }
+
+    private static void ArmSchedule(WorkflowDefinition workflow, WorkflowDefinition? current)
+    {
+        if (WorkflowSchedule.Parse(workflow.Schedule) is null) return;
+
+        var same = current?.ScheduleArmedAt is not null
+            && string.Equals(current.Schedule, workflow.Schedule, StringComparison.Ordinal)
+            && string.Equals(current.ScheduleTimeZone, workflow.ScheduleTimeZone, StringComparison.OrdinalIgnoreCase);
+        workflow.ScheduleArmedAt = same ? current!.ScheduleArmedAt : DateTime.UtcNow;
     }
 
     /// <summary>The document as the definition it would store, checked the way the create endpoint checks one.</summary>
@@ -223,6 +248,7 @@ internal sealed class WorkflowConfigProvider(
             DateSchedule = config.DateSchedule is { } schedule ? Copy(schedule) : null,
             NotifyRoleOnFailure = string.IsNullOrWhiteSpace(config.NotifyRoleOnFailure) ? null : config.NotifyRoleOnFailure,
         };
+        CopyCronSchedule(config, workflow);
         foreach (var action in workflow.Actions)
         {
             action.Parameters ??= [];
@@ -362,6 +388,7 @@ internal sealed class WorkflowConfigProvider(
         AddIfChanged(details, "triggers", (held.TriggerContentTypes, held.TriggerEvents), (desired.TriggerContentTypes, desired.TriggerEvents));
         AddIfChanged(details, "conditions", held.Conditions, desired.Conditions);
         AddIfChanged(details, "dateSchedule", held.DateSchedule, desired.DateSchedule);
+        AddIfChanged(details, "schedule", (held.Schedule, held.ScheduleTimeZone, held.ScheduleCatchUp), (desired.Schedule, desired.ScheduleTimeZone, desired.ScheduleCatchUp));
         AddIfChanged(details, "actions", held.Actions, desired.Actions);
         AddIfChanged(details, "the role notified on failure", held.NotifyRoleOnFailure, desired.NotifyRoleOnFailure);
         AddIfChanged(details, held.Enabled ? "is switched off" : "is switched on", held.Enabled, desired.Enabled);
