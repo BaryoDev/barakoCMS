@@ -36,10 +36,13 @@ public class CreateWorkflowRequestTests
         "Actions",
         "Enabled",
         "Executor",
+        "Schedule",
+        "ScheduleTimeZone",
+        "ScheduleCatchUp",
     ];
 
     /// <summary>What the stored workflow has that no request may set.</summary>
-    private static readonly string[] ServerOwned = ["Id"];
+    private static readonly string[] ServerOwned = ["Id", "ScheduleArmedAt"];
 
     private readonly IntegrationTestFixture _factory;
     private readonly WorkflowStopHarness _harness;
@@ -71,7 +74,7 @@ public class CreateWorkflowRequestTests
 
         var names = PropertiesOf(CreateRequest).Keys.ToList();
 
-        names.Should().HaveCount(9);
+        names.Should().HaveCount(12);
         names.Should().BeEquivalentTo(Accepted);
         names.Should().NotContain("Id");
     }
@@ -86,7 +89,7 @@ public class CreateWorkflowRequestTests
         var stored = PropertiesOf(typeof(WorkflowDefinition));
         var request = PropertiesOf(CreateRequest);
 
-        stored.Should().HaveCount(10);
+        stored.Should().HaveCount(14);
         stored.Keys.Should().BeEquivalentTo(Accepted.Concat(ServerOwned));
         request.Keys.Should().BeEquivalentTo(stored.Keys.Except(ServerOwned));
 
@@ -109,7 +112,7 @@ public class CreateWorkflowRequestTests
         var create = PropertiesOf(CreateRequest);
         var validate = PropertiesOf(ValidateRequest);
 
-        validate.Should().HaveCount(8);
+        validate.Should().HaveCount(11);
         create.Keys.Except(validate.Keys).Should().Equal("Enabled");
         validate.Keys.Except(create.Keys).Should().BeEmpty();
 
@@ -129,7 +132,7 @@ public class CreateWorkflowRequestTests
 
         var names = PropertiesOf(DryRunWorkflow).Keys.ToList();
 
-        names.Should().HaveCount(10);
+        names.Should().HaveCount(13);
         names.Should().BeEquivalentTo(Accepted.Append("Id"));
     }
 
@@ -141,7 +144,7 @@ public class CreateWorkflowRequestTests
         var body = OpenApiSchemaReader.RequestBody(doc, OpenApiSchemaReader.Operation(doc, "/api/workflows", "post"));
         var names = OpenApiSchemaReader.PropertyNames(body);
 
-        names.Should().HaveCount(9);
+        names.Should().HaveCount(12);
         names.Should().BeEquivalentTo(Accepted.Select(JsonNamingPolicy.CamelCase.ConvertName));
         names.Should().NotContain("id");
     }

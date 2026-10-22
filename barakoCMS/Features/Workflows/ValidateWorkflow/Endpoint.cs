@@ -19,6 +19,9 @@ internal class Request
     public Dictionary<string, string> Conditions { get; set; } = new();
     public List<WorkflowAction> Actions { get; set; } = new();
     public string? Executor { get; set; }
+    public string? Schedule { get; set; }
+    public string? ScheduleTimeZone { get; set; }
+    public string? ScheduleCatchUp { get; set; }
 }
 
 /// <summary>
@@ -49,6 +52,9 @@ internal class Endpoint(
                 Conditions = req.Conditions,
                 Actions = req.Actions,
                 Executor = req.Executor,
+                Schedule = req.Schedule,
+                ScheduleTimeZone = req.ScheduleTimeZone,
+                ScheduleCatchUp = req.ScheduleCatchUp,
             };
 
             var result = await validator.ValidateAsync(workflow, ct);
