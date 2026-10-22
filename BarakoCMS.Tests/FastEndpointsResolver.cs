@@ -6,7 +6,7 @@ namespace BarakoCMS.Tests;
 
 /// <summary>
 /// Puts FastEndpoints' process-wide service resolver back after a test builds and disposes a host of
-/// its own (#554). Does the same for the job queues, which FastEndpoints also keeps in a static.
+/// its own (#554).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -21,11 +21,6 @@ namespace BarakoCMS.Tests;
 /// the host so the host is disposed first. FastEndpoints 8.3 keeps the resolver internal, so this
 /// reaches it by reflection and throws on first use if that shape changes rather than restoring
 /// nothing.
-/// </para>
-/// <para>
-/// Each host that starts job workers registers its queue per command type in one static dictionary,
-/// last one wins, so a later host's queue takes over <c>QueueJobAsync</c> and the earlier host's
-/// worker is never woken. <see cref="Keep"/> also takes the queues and puts them back.
 /// </para>
 /// </remarks>
 internal static class FastEndpointsResolver
@@ -48,33 +43,50 @@ internal static class FastEndpointsResolver
     /// </summary>
     private static readonly Lock Gate = new();
 
+    private static readonly List<Func<IEnumerable<IServiceProvider>>> Fallbacks = [];
+
     private static readonly System.Collections.IDictionary JobQueues =
         (System.Collections.IDictionary?)typeof(JobQueueExtensions).Assembly.GetType("FastEndpoints.JobQueueBase")?
             .GetField("JobQueues", AnyStatic)?.GetValue(null)
         ?? throw Moved("JobQueueBase.JobQueues");
 
-    private static readonly List<Func<IEnumerable<IServiceProvider>>> Fallbacks = [];
+    private static readonly Type CommandHandlerRegistry =
+        typeof(CommandExtensions).Assembly.GetType("FastEndpoints.CommandHandlerRegistry")
+        ?? throw Moved("the type FastEndpoints.CommandHandlerRegistry");
+
+    /// <summary>
+    /// Points <c>QueueJobAsync</c> and <c>TriggerJobExecution</c> at <paramref name="host"/>'s own job
+    /// queues, for every command type that host handles.
+    /// </summary>
+    /// <remarks>
+    /// FastEndpoints keeps one queue per command type in a static, and every host that starts job
+    /// workers overwrites it with its own. A host disposed since leaves a queue whose worker has
+    /// stopped, and a <c>BarakoTestHost</c> leaves one polling its own database, so a job the
+    /// fixture queues is stored but its wake reaches no worker on the fixture's database. The job
+    /// then waits for the next storage probe, a minute apart. A test that needs the worker to run
+    /// its jobs on time takes the queues back first.
+    /// </remarks>
+    public static void ClaimJobQueues(IServiceProvider host)
+    {
+        var handled = (System.Collections.IDictionary)host.GetRequiredService(CommandHandlerRegistry);
+        lock (Gate)
+        {
+            foreach (var command in JobQueues.Keys.Cast<object>().ToList())
+            {
+                if (handled.Contains(command) && JobQueues[command] is { } queue)
+                {
+                    JobQueues[command] = host.GetRequiredService(queue.GetType());
+                }
+            }
+        }
+    }
 
     /// <summary>Takes the resolver the process has now, and puts it back when the result is disposed.</summary>
     public static IDisposable Keep()
     {
         lock (Gate)
         {
-            return new Restore(Current(), SnapshotJobQueues());
-        }
-    }
-
-    private static List<(object Command, object? Queue)> SnapshotJobQueues() =>
-        JobQueues.Keys.Cast<object>().Select(k => (k, JobQueues[k])).ToList();
-
-    private static void RestoreJobQueues(List<(object Command, object? Queue)> queues)
-    {
-        foreach (var (command, queue) in queues)
-        {
-            if (!ReferenceEquals(JobQueues[command], queue))
-            {
-                JobQueues[command] = queue;
-            }
+            return new Restore(Current());
         }
     }
 
@@ -184,7 +196,7 @@ internal static class FastEndpointsResolver
         }
     }
 
-    private sealed class Restore(IServiceResolver? previous, List<(object Command, object? Queue)> queues) : IDisposable
+    private sealed class Restore(IServiceResolver? previous) : IDisposable
     {
         public void Dispose()
         {
@@ -195,7 +207,6 @@ internal static class FastEndpointsResolver
                     Write(previous);
                 }
 
-                RestoreJobQueues(queues);
                 RepairIfDisposed(Fallbacks.AsEnumerable().Reverse().SelectMany(f => f()).ToList());
             }
         }

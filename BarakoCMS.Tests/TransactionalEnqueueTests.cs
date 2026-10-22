@@ -20,7 +20,11 @@ public class TransactionalEnqueueTests
 {
     private readonly IntegrationTestFixture _factory;
 
-    public TransactionalEnqueueTests(IntegrationTestFixture factory) => _factory = factory;
+    public TransactionalEnqueueTests(IntegrationTestFixture factory)
+    {
+        _factory = factory;
+        FastEndpointsResolver.ClaimJobQueues(factory.Services);
+    }
 
     private static readonly TimeSpan RunTimeout = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan DeadLetterTimeout = TimeSpan.FromSeconds(45);
