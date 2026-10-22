@@ -48,3 +48,10 @@ CREATE TABLE IF NOT EXISTS public.barako_stock_movements (
     occurred_at    timestamp with time zone    NOT NULL,
     CONSTRAINT pkey_barako_stock_movements_tenant_id_id PRIMARY KEY (tenant_id, id)
 );
+
+CREATE INDEX IF NOT EXISTS idx_barako_stock_holds_open
+    ON public.barako_stock_holds (tenant_id, counter)
+    WHERE status = 'held';
+
+CREATE INDEX IF NOT EXISTS idx_barako_stock_movements_counter
+    ON public.barako_stock_movements (tenant_id, counter, occurred_at);

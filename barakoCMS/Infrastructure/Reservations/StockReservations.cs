@@ -11,6 +11,7 @@ namespace barakoCMS.Infrastructure.Reservations;
 /// </summary>
 internal sealed class StockReservations(TimeProvider clock) : IStockReservations
 {
+    private static readonly TimeSpan MaxHold = TimeSpan.FromDays(365);
     private static readonly string Counters = StockTables.Counters;
     private static readonly string Holds = StockTables.Holds;
     private static readonly string Movements = StockTables.Movements;
@@ -41,7 +42,10 @@ internal sealed class StockReservations(TimeProvider clock) : IStockReservations
         ValidateCounter(counter);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(quantity, 0);
         if (holdFor is { } span)
+        {
             ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(span, TimeSpan.Zero);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(span, MaxHold);
+        }
         await BeginAsync(session, ct);
 
         var now = clock.GetUtcNow();
@@ -118,7 +122,7 @@ internal sealed class StockReservations(TimeProvider clock) : IStockReservations
     {
         ArgumentNullException.ThrowIfNull(session);
         await BeginAsync(session, ct);
-        return await ExpireAsync(session, at ?? clock.GetUtcNow(), null, ct);
+        return await ExpireAsync(session, (at ?? clock.GetUtcNow()).ToUniversalTime(), null, ct);
     }
 
     public async Task<long?> BalanceAsync(IQuerySession session, string counter, CancellationToken ct = default)
@@ -126,7 +130,11 @@ internal sealed class StockReservations(TimeProvider clock) : IStockReservations
         ArgumentNullException.ThrowIfNull(session);
         ValidateCounter(counter);
         var rows = await session.QueryAsync<long>(
-            $"select balance from {Table(session, Counters)} where tenant_id = ? and counter = ?", ct, session.TenantId, counter);
+            $"select c.balance + coalesce((select sum(h.quantity) from {Table(session, Holds)} h "
+            + "where h.tenant_id = c.tenant_id and h.counter = c.counter and h.status = 'held' "
+            + "and h.expires_at is not null and h.expires_at <= ?), 0)::bigint "
+            + $"from {Table(session, Counters)} c where c.tenant_id = ? and c.counter = ?",
+            ct, clock.GetUtcNow(), session.TenantId, counter);
         return rows.Count == 0 ? null : rows[0];
     }
 

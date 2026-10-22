@@ -60,7 +60,7 @@ public interface IStockReservations
     /// </summary>
     /// <param name="holdFor">
     /// How long the hold lasts before <see cref="ReleaseExpiredAsync"/> returns the units. Null holds
-    /// until it is confirmed or released.
+    /// until it is confirmed or released. At most 365 days.
     /// </param>
     Task<StockReservation> ReserveAsync(IDocumentSession session, string counter, long quantity, TimeSpan? holdFor = null, string reference = "", CancellationToken ct = default);
 
@@ -78,7 +78,10 @@ public interface IStockReservations
     /// </summary>
     Task<int> ReleaseExpiredAsync(IDocumentSession session, DateTimeOffset? at = null, CancellationToken ct = default);
 
-    /// <summary>The counter's balance, or null when it does not exist.</summary>
+    /// <summary>
+    /// The counter's balance, or null when it does not exist. A hold past its expiry counts as
+    /// returned even before a sweep has run.
+    /// </summary>
     Task<long?> BalanceAsync(IQuerySession session, string counter, CancellationToken ct = default);
 
     /// <summary>Every movement on the counter, oldest first.</summary>
