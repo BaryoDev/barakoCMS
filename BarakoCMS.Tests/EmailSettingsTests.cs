@@ -112,7 +112,7 @@ public class EmailSettingsTests
             var provider = scope.ServiceProvider.GetRequiredService<IEmailSettingsProvider>();
             var fromConfig = await provider.GetAsync(TestContext.Current.CancellationToken);
 
-            fromConfig.ApiKey.Should().Be(IntegrationTestFixture.ConfiguredResendKey,
+            fromConfig.ApiKey.Should().Be(IntegrationTestFixture.ConfiguredEmailKey,
                 "nothing is stored, so the deployment's own value is what a send would use");
             fromConfig.ApiKeySource.Should().Be(EmailSettingSource.Configuration);
         }
@@ -148,7 +148,7 @@ public class EmailSettingsTests
 
         resolved.FromAddress.Should().Be("invoices@example.com");
         resolved.FromAddressSource.Should().Be(EmailSettingSource.Stored);
-        resolved.ApiKey.Should().Be(IntegrationTestFixture.ConfiguredResendKey,
+        resolved.ApiKey.Should().Be(IntegrationTestFixture.ConfiguredEmailKey,
             "an all or nothing cliff would stop email working the moment somebody set a From address");
         resolved.ApiKeySource.Should().Be(EmailSettingSource.Configuration);
     }
@@ -190,7 +190,7 @@ public class EmailSettingsTests
         var provider = scope.ServiceProvider.GetRequiredService<IEmailSettingsProvider>();
         var resolved = await provider.GetAsync(TestContext.Current.CancellationToken);
 
-        resolved.ApiKey.Should().Be(IntegrationTestFixture.ConfiguredResendKey);
+        resolved.ApiKey.Should().Be(IntegrationTestFixture.ConfiguredEmailKey);
         resolved.ApiKeySource.Should().Be(EmailSettingSource.Configuration);
     }
 
@@ -222,7 +222,7 @@ public class EmailSettingsTests
         var client = await SuperAdminAsync();
 
         var res = await client.PostAsJsonAsync("/api/settings",
-            new { key = "Resend:ApiKey", value = Key }, TestContext.Current.CancellationToken);
+            new { key = "Email:ApiKey", value = Key }, TestContext.Current.CancellationToken);
 
         res.StatusCode.Should().Be(HttpStatusCode.BadRequest,
             "everything stored there is plaintext and GET /api/settings hands all of it back");
@@ -230,7 +230,7 @@ public class EmailSettingsTests
         using var scope = _factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
         var stored = await session.Query<SystemSetting>()
-            .Where(s => s.Key == "Resend:ApiKey")
+            .Where(s => s.Key == "Email:ApiKey")
             .ToListAsync(TestContext.Current.CancellationToken);
 
         stored.Should().BeEmpty("refused has to mean not written, not written and complained about");

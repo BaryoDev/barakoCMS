@@ -120,7 +120,7 @@ send counts as sent.
 ## What this module does not get from the admin
 
 barakoCMS has an email settings screen at **Settings, Email**, and it holds an API key and a from
-address. That shape was built for Resend, and it is what a provider gets from
+address. That shape was built for API-key providers, and it is what a provider gets from
 `IEmailSettingsProvider`. SMTP needs a host, a port, a user, a password and a TLS mode, and none of
 those fit in it.
 

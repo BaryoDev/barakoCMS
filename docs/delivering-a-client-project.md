@@ -448,8 +448,8 @@ Two things follow from this that you should tell the client up front:
 
 - **Email has to work before anybody can be invited.** Without a provider module registered and
   credentialled, the core registers a mock that logs and delivers nothing. Register
-  `ResendEmailModule` (the suite image already has it) and set the key, either as `RESEND_API_KEY` or
-  through Settings, Email in the admin. [configuring-email.md](configuring-email.md) covers where each
+  `SmtpEmailModule` (the suite image already has it) and set `Modules:Email.Smtp:Host`, with the
+  sender in Settings, Email in the admin. [configuring-email.md](configuring-email.md) covers where each
   value comes from and why the key can never be read back.
 - **An invited member cannot set their own password.** `POST /api/me/password` verifies the current
   password before changing it, and they have none. Either they keep using the emailed code, or a
@@ -717,7 +717,7 @@ you want from your own host. The package reference plus a restart is the install
 
 ```sh
 dotnet add package BarakoCMS.Files
-dotnet add package BarakoCMS.Email.Resend
+dotnet add package BarakoCMS.Email.Smtp
 ```
 
 ```csharp
@@ -728,7 +728,7 @@ await app.RunBarakoModuleSeedersAsync();
 ```
 
 `AddBarakoCMS` finds every module in the application's dependency context, and
-`BarakoCMS:Modules:Enabled` decides which of them run (`BarakoCMS__Modules__Enabled=Files,Email.Resend`).
+`BarakoCMS:Modules:Enabled` decides which of them run (`BarakoCMS__Modules__Enabled=Files,Email.Smtp`).
 Unset, every referenced module runs and the API logs one warning saying so; an empty string is core
 only. A host that wants to name its modules by hand puts `modules.Add(new BarakoCMS.Files.FilesModule())`
 in the `AddBarakoCMS` callback; discovery skips a type the host already added. See `MODULES.md`.
