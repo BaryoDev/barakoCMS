@@ -69,7 +69,44 @@ internal sealed class QueryRunner(IQuerySession session) : IQueryRunner
             return "Filters and Fields must be present, even if Filters is empty.";
         }
 
-        if (definition.Filters.Any(f => f is null || string.IsNullOrWhiteSpace(f.Field)))
+        var filterRefusal = ValidateFilters(definition, schema, allowed);
+        if (filterRefusal is not null)
+        {
+            return filterRefusal;
+        }
+
+        if (!string.IsNullOrWhiteSpace(definition.SortField) && !allowed.ContainsKey(definition.SortField))
+        {
+            return Unknown(definition.SortField, allowed, schema.Name, "sorted on");
+        }
+
+        if (definition.Fields.Count == 0)
+        {
+            // Refused rather than defaulting to everything. "All fields" is how a personal-data
+            // field added next year ends up in a payload nobody revisited.
+            return "Fields must name at least one field. A query with no projection would send whatever the schema grows.";
+        }
+
+        foreach (var field in definition.Fields)
+        {
+            if (!allowed.ContainsKey(field))
+            {
+                return Unknown(field, allowed, schema.Name, "returned from");
+            }
+        }
+
+        if (definition.Limit is < 1 or > QueryDefinition.MaxLimit)
+        {
+            return $"Limit must be between 1 and {QueryDefinition.MaxLimit}.";
+        }
+
+        return null;
+    }
+
+    private static string? ValidateFilters(
+        QueryDefinition definition, ContentTypeDefinition schema, Dictionary<string, string> allowed)
+    {
+        if (definition.Filters!.Any(f => f is null || string.IsNullOrWhiteSpace(f.Field)))
         {
             return "Every filter needs a field.";
         }
@@ -97,31 +134,6 @@ internal sealed class QueryRunner(IQuerySession session) : IQueryRunner
             {
                 return DeliveryQuery.ListOperatorError(filter.Op, filter.Field, offerHas: false);
             }
-        }
-
-        if (!string.IsNullOrWhiteSpace(definition.SortField) && !allowed.ContainsKey(definition.SortField))
-        {
-            return Unknown(definition.SortField, allowed, schema.Name, "sorted on");
-        }
-
-        if (definition.Fields.Count == 0)
-        {
-            // Refused rather than defaulting to everything. "All fields" is how a personal-data
-            // field added next year ends up in a payload nobody revisited.
-            return "Fields must name at least one field. A query with no projection would send whatever the schema grows.";
-        }
-
-        foreach (var field in definition.Fields)
-        {
-            if (!allowed.ContainsKey(field))
-            {
-                return Unknown(field, allowed, schema.Name, "returned from");
-            }
-        }
-
-        if (definition.Limit is < 1 or > QueryDefinition.MaxLimit)
-        {
-            return $"Limit must be between 1 and {QueryDefinition.MaxLimit}.";
         }
 
         return null;

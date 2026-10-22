@@ -152,53 +152,14 @@ internal sealed partial class AggregateQuery(
         var query = await ScopedAsync(definition.ContentType, scope.Predicate, caller, ct);
 
         var lists = DeliveryQuery.ListFields(scope.Definition);
-        foreach (var filter in filters)
-        {
-            if (filter is null || string.IsNullOrWhiteSpace(filter.Field))
-                return Fail(plan, "Every filter needs a field.");
-            if (!scope.Readable.TryGetValue(filter.Field, out var declared))
-                return Fail(plan, Unreadable(filter.Field, definition.ContentType));
-            if (!Ops.TryGetValue(filter.Op ?? string.Empty, out var op))
-                return Fail(plan, $"Unknown operator '{filter.Op}'. Supported: {string.Join(", ", Ops.Keys)}.");
-            if ((filter.Value?.Length ?? 0) > MaxFilterValueLength)
-                return Fail(plan, $"The value of the filter on '{declared.Name}' is too long.");
-
-            var multiple = lists.Contains(declared.Name);
-            if (multiple && op is not (FilterOp.Eq or FilterOp.Ne))
-                return Fail(plan, DeliveryQuery.ListOperatorError(filter.Op!, declared.Name, offerHas: false));
-
-            var (sql, parameters) = DeliveryQuery.ToSql(
-                new DeliveryFilter(declared.Name, op, filter.Value ?? string.Empty, declared.Type ?? string.Empty, multiple));
-            query = query.Where(c => c.MatchesSql(sql, parameters));
-        }
+        var filterRefusal = ApplyFilters(scope, definition.ContentType, filters, lists, ref query);
+        if (filterRefusal is not null) return Fail(plan, filterRefusal);
 
         plan.Header = query;
 
         var seenGroups = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var group in groupBy)
-        {
-            if (group is null || string.IsNullOrWhiteSpace(group.Field))
-                return Fail(plan, "Every group needs a field.");
-            if (!scope.Readable.TryGetValue(group.Field, out var declared))
-                return Fail(plan, Unreadable(group.Field, definition.ContentType));
-            if (!UsableName(declared.Name))
-                return Fail(plan, $"'{declared.Name}' cannot be grouped on: its name has characters a figure cannot be built from.");
-            if (lists.Contains(declared.Name))
-                return Fail(plan, $"'{declared.Name}' holds a list and cannot be grouped on.");
-            if (!seenGroups.Add(declared.Name))
-                return Fail(plan, $"'{declared.Name}' is grouped on twice.");
-
-            var bucket = string.IsNullOrWhiteSpace(group.Bucket) ? null : group.Bucket.Trim().ToLowerInvariant();
-            if (bucket is not null)
-            {
-                if (!Buckets.Contains(bucket))
-                    return Fail(plan, $"Unknown bucket '{group.Bucket}'. Supported: {string.Join(", ", Buckets)}.");
-                if (!IsDate(declared.Type))
-                    return Fail(plan, $"'{declared.Name}' is not a date field, so it cannot be bucketed by {bucket}.");
-            }
-
-            plan.Groups.Add(new GroupPlan(declared.Name, bucket, declared.Type ?? string.Empty));
-        }
+        var groupRefusal = PlanGroups(plan, scope, definition.ContentType, groupBy, lists, seenGroups);
+        if (groupRefusal is not null) return Fail(plan, groupRefusal);
 
         var aliases = new HashSet<string>(seenGroups, StringComparer.OrdinalIgnoreCase);
         foreach (var measure in measures)
@@ -222,6 +183,63 @@ internal sealed partial class AggregateQuery(
         }
 
         return plan;
+    }
+
+    private static string? ApplyFilters(
+        Scope scope, string contentType, List<QueryFilter> filters, HashSet<string> lists, ref IQueryable<Entry> query)
+    {
+        foreach (var filter in filters)
+        {
+            if (filter is null || string.IsNullOrWhiteSpace(filter.Field))
+                return "Every filter needs a field.";
+            if (!scope.Readable.TryGetValue(filter.Field, out var declared))
+                return Unreadable(filter.Field, contentType);
+            if (!Ops.TryGetValue(filter.Op ?? string.Empty, out var op))
+                return $"Unknown operator '{filter.Op}'. Supported: {string.Join(", ", Ops.Keys)}.";
+            if ((filter.Value?.Length ?? 0) > MaxFilterValueLength)
+                return $"The value of the filter on '{declared.Name}' is too long.";
+
+            var multiple = lists.Contains(declared.Name);
+            if (multiple && op is not (FilterOp.Eq or FilterOp.Ne))
+                return DeliveryQuery.ListOperatorError(filter.Op!, declared.Name, offerHas: false);
+
+            var (sql, parameters) = DeliveryQuery.ToSql(
+                new DeliveryFilter(declared.Name, op, filter.Value ?? string.Empty, declared.Type ?? string.Empty, multiple));
+            query = query.Where(c => c.MatchesSql(sql, parameters));
+        }
+
+        return null;
+    }
+
+    private static string? PlanGroups(
+        Plan plan, Scope scope, string contentType, List<QueryGroup> groupBy, HashSet<string> lists, HashSet<string> seenGroups)
+    {
+        foreach (var group in groupBy)
+        {
+            if (group is null || string.IsNullOrWhiteSpace(group.Field))
+                return "Every group needs a field.";
+            if (!scope.Readable.TryGetValue(group.Field, out var declared))
+                return Unreadable(group.Field, contentType);
+            if (!UsableName(declared.Name))
+                return $"'{declared.Name}' cannot be grouped on: its name has characters a figure cannot be built from.";
+            if (lists.Contains(declared.Name))
+                return $"'{declared.Name}' holds a list and cannot be grouped on.";
+            if (!seenGroups.Add(declared.Name))
+                return $"'{declared.Name}' is grouped on twice.";
+
+            var bucket = string.IsNullOrWhiteSpace(group.Bucket) ? null : group.Bucket.Trim().ToLowerInvariant();
+            if (bucket is not null)
+            {
+                if (!Buckets.Contains(bucket))
+                    return $"Unknown bucket '{group.Bucket}'. Supported: {string.Join(", ", Buckets)}.";
+                if (!IsDate(declared.Type))
+                    return $"'{declared.Name}' is not a date field, so it cannot be bucketed by {bucket}.";
+            }
+
+            plan.Groups.Add(new GroupPlan(declared.Name, bucket, declared.Type ?? string.Empty));
+        }
+
+        return null;
     }
 
     private async Task<string?> PlanMeasureAsync(
