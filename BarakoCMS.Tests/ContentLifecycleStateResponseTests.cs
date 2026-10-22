@@ -3,6 +3,7 @@ using System.Text.Json;
 using FluentAssertions;
 using Marten;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using barakoCMS.Models;
@@ -215,8 +216,23 @@ public class ContentLifecycleStateResponseTests
     [Fact]
     public async Task The_list_does_one_extra_query_not_one_per_row()
     {
+        // The logger sees every session of the derived host, not only the list request's. Two startup
+        // notices read the content type definitions once per tenant partition, and on a loaded machine
+        // they were still running while the lists were counted, so the first count was 85 and the
+        // second 39. They are left out of this host, so what is counted is the request's own reads.
         var derived = _factory.WithWebHostBuilder(builder =>
-            builder.ConfigureServices(services => services.ConfigureMarten(options => options.Logger(_logger))));
+        {
+            builder.ConfigureTestServices(services =>
+            {
+                var notices = services.Where(d =>
+                    d.ImplementationType == typeof(barakoCMS.Infrastructure.Services.StoredValidationRulesNotice)
+                    || d.ImplementationType == typeof(barakoCMS.Infrastructure.Services.StoredReferenceConditionsNotice)).ToList();
+                if (notices.Count != 2)
+                    throw new InvalidOperationException("The startup notices are no longer registered the way this test expects.");
+                foreach (var notice in notices) services.Remove(notice);
+            });
+            builder.ConfigureServices(services => services.ConfigureMarten(options => options.Logger(_logger)));
+        });
         var client = await ClientAsync(derived.CreateClient(), await _factory.StoredUserTokenAsync("Admin", "SuperAdmin"));
 
         var few = await TypeAsync(lifecycle: true);
