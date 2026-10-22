@@ -653,7 +653,7 @@ internal sealed partial class AggregateQuery(
 
         public string Embed(NpgsqlCommand part, string prefix)
         {
-            var text = part.CommandText;
+            var text = part.CommandText.TrimEnd().TrimEnd(';');
 
             if (PositionalParameter().IsMatch(text))
             {
