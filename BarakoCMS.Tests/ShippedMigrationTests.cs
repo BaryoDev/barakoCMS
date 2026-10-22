@@ -145,8 +145,8 @@ public class ShippedMigrationTests
         owned.Should().Equal(
             "Accounting/5.0.0/accounting-number-sequences",
             "Comments/5.2.0/253-comments",
-            "Documents/5.2.0/585-documents",
             "Contacts/5.2.0/contacts",
+            "Documents/5.2.0/585-documents",
             "ExternalAuth/4.6.0/external-auth-identities",
             "ExternalAuth/4.8.0/external-auth-used-nonces",
             "ExternalAuth/5.1.0/915-external-auth-role-maps",
