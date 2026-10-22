@@ -913,6 +913,7 @@ template ships a placeholder.
 | [BarakoCMS.Files](BarakoCMS.Files) | File attachments (upload/download) stored in Postgres |
 | [BarakoCMS.Forms](BarakoCMS.Forms) | Public form submissions: a content type marked as a form takes anonymous, rate limited submissions stored Sensitive |
 | [BarakoCMS.Comments](BarakoCMS.Comments) | A comment thread on any record, behind the record's own read permission: post, reply, list (paged) and delete |
+| [BarakoCMS.Contacts](BarakoCMS.Contacts) | Contacts: a person or an organization with custom fields, links, email dedupe and merge, tenant scoped |
 | [BarakoCMS.Email.Smtp](BarakoCMS.Email.Smtp) | SMTP email provider (`IEmailService`), inert until a host is configured |
 | [BarakoCMS.Documents](BarakoCMS.Documents) | Renders an entry to a PDF with the `RenderDocument` workflow action, from a narrow template language, and stores it through Files |
 | [BarakoCMS.Pages](BarakoCMS.Pages) | Page tree over a content type: parent loop, depth and reserved slug rules, public navigation and path resolution, and an authenticated tree |

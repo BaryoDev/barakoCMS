@@ -52,7 +52,7 @@
          never runs, the tenancy role script, which is a superuser's one-off, and the files a
          module ships from its own assembly so the ledger carries them under that module. -->
     <EmbeddedResource Include="..\migrations\**\*.sql"
-                      Exclude="..\migrations\tenancy\**;..\migrations\**\rollback-*.sql;..\migrations\4.2.0\stored-files-parent-index.sql;..\migrations\4.2.0\forms-public-forms.sql;..\migrations\4.6.0\external-auth-identities.sql;..\migrations\4.6.0\forms-email-verification.sql;..\migrations\4.7.0\forms-tenant-policy-restore.sql;..\migrations\4.8.0\external-auth-used-nonces.sql;..\migrations\5.0.0\accounting-number-sequences.sql;..\migrations\5.0.0\pages-settings.sql;..\migrations\5.0.0\files-storage-settings.sql;..\migrations\5.2.0\notifications.sql;..\migrations\5.2.0\253-comments.sql;..\migrations\5.2.0\585-documents.sql"
+                      Exclude="..\migrations\tenancy\**;..\migrations\**\rollback-*.sql;..\migrations\4.2.0\stored-files-parent-index.sql;..\migrations\4.2.0\forms-public-forms.sql;..\migrations\4.6.0\external-auth-identities.sql;..\migrations\4.6.0\forms-email-verification.sql;..\migrations\4.7.0\forms-tenant-policy-restore.sql;..\migrations\4.8.0\external-auth-used-nonces.sql;..\migrations\5.0.0\accounting-number-sequences.sql;..\migrations\5.0.0\pages-settings.sql;..\migrations\5.0.0\files-storage-settings.sql;..\migrations\5.2.0\notifications.sql;..\migrations\5.2.0\contacts.sql;..\migrations\5.2.0\253-comments.sql;..\migrations\5.2.0\585-documents.sql"
                       LogicalName="barako-migrations/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
