@@ -58,6 +58,30 @@ public class StationAdminTests(ClinicProbeHost host) : IClassFixture<ClinicProbe
         (await response.Content.ReadAsStringAsync()).Should().Contain("read_probe_secrets");
     }
 
+    private static readonly string[] PlatformHolder =
+        ["manage_stations", "manage_tenants", "read_probe_tickets"];
+
+    [Fact]
+    public async Task A_caller_holding_a_platform_capability_can_still_grant_an_ordinary_one()
+    {
+        var client = await host.ClientHoldingAsync(PlatformHolder);
+
+        var response = await CreateAsync(client, "read_probe_tickets");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task A_station_cannot_carry_a_platform_capability_even_when_the_caller_holds_it()
+    {
+        var client = await host.ClientHoldingAsync(PlatformHolder);
+
+        var response = await CreateAsync(client, "read_probe_tickets", "manage_tenants");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("manage_tenants");
+    }
+
     [Fact]
     public async Task Station_Wildcard_Returns400()
     {
