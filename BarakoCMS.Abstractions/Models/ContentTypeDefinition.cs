@@ -114,6 +114,45 @@ public class ContentTypeDefinition
     /// registrations.
     /// </remarks>
     public LookupDefinition? Lookup { get; set; }
+
+    /// <summary>
+    /// The child type whose entries are this type's lines, or null for a type with none.
+    /// </summary>
+    /// <remarks>
+    /// Null is every type stored before this existed, and such a type is written exactly as it was.
+    /// Set, a create of this type may carry lines, which are written with the header in one
+    /// transaction. See <see cref="LinesDefinition"/>. Set with
+    /// <c>PUT /api/content-types/{name}/lines</c>.
+    /// </remarks>
+    public LinesDefinition? Lines { get; set; }
+}
+
+/// <summary>A header's lines: entries of another content type that point back at the header.</summary>
+/// <remarks>
+/// A line is an ordinary entry of <see cref="ContentType"/>, so it keeps that type's sensitivity,
+/// history, delivery and tenancy. What makes it a line is the single reference field
+/// <see cref="ParentField"/>, which the server fills with the header's id when the header is
+/// created with lines.
+/// </remarks>
+public class LinesDefinition
+{
+    /// <summary>The content type a line is an entry of.</summary>
+    public string ContentType { get; set; } = string.Empty;
+
+    /// <summary>
+    /// A single reference field of the line type whose reference type is the header type. Holds
+    /// the header's id.
+    /// </summary>
+    public string ParentField { get; set; } = string.Empty;
+
+    /// <summary>
+    /// A number field of the header that must equal the sum of <see cref="LineAmountField"/> over
+    /// its lines, or null for no such rule. Set together with <see cref="LineAmountField"/>.
+    /// </summary>
+    public string? TotalField { get; set; }
+
+    /// <summary>The number field of the line type that <see cref="TotalField"/> adds up.</summary>
+    public string? LineAmountField { get; set; }
 }
 
 /// <summary>How a content type numbers its entries, for example <c>INV-2026-00042</c>.</summary>

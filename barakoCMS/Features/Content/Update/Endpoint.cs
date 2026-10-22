@@ -81,8 +81,7 @@ internal class Endpoint(
 
         // DOMAIN RULES — must run on update too, or an invariant enforced at create (a balanced
         // journal entry) could simply be edited into an illegal state afterwards.
-        var hookErrors = await Resolve<barakoCMS.Infrastructure.Services.IContentLifecycleRunner>()
-            .RunBeforeSaveAsync(existingContent.ContentType, existingContent.Id, req.Data, existingContent.Data, userId, ct);
+        var hookErrors = await BeforeSaveErrorsAsync(existingContent, req.Data, userId, ct);
         if (hookErrors.Count > 0)
         {
             foreach (var error in hookErrors)
@@ -263,6 +262,20 @@ internal class Endpoint(
             Id = req.Id,
             Version = newVersion,
         });
+    }
+
+    /// <summary>
+    /// The type's before-save hooks, then the total held to its lines, which runs after them on the
+    /// data that will be stored: a total could otherwise be edited out of step from either side.
+    /// </summary>
+    private async Task<List<string>> BeforeSaveErrorsAsync(
+        barakoCMS.Models.Content existing, Dictionary<string, object> data, Guid userId, CancellationToken ct)
+    {
+        var errors = (await Resolve<barakoCMS.Infrastructure.Services.IContentLifecycleRunner>()
+            .RunBeforeSaveAsync(existing.ContentType, existing.Id, data, existing.Data, userId, ct)).ToList();
+        if (errors.Count == 0)
+            errors.AddRange(await barakoCMS.Features.Content.LineTotals.CheckUpdateAsync(session, existing, data, ct));
+        return errors;
     }
 
     /// <summary>The text anonymous search matches: the entry's Public values, as stored with the write.</summary>
