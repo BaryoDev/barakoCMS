@@ -619,6 +619,108 @@ public class ApiKeyIntegrationTests
         res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
     }
 
+    private const string ProjectionCheck = "Workflow Projection";
+
+    private static bool IsAbsentOrNull(System.Text.Json.JsonElement entry, string name) =>
+        !entry.TryGetProperty(name, out var value) || value.ValueKind == System.Text.Json.JsonValueKind.Null;
+
+    [Fact]
+    public async Task A_monitor_read_key_reads_per_check_health_without_description_data_or_tags()
+    {
+        var (userId, _) = await SuperAdminAsync();
+        var secret = await StoreKeyAsync(userId, new[] { "monitor:read" });
+
+        var res = await _client.SendAsync(Get("/api/monitoring/health", secret));
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+        using var doc = System.Text.Json.JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+        var entries = doc.RootElement.GetProperty("entries");
+        entries.TryGetProperty(ProjectionCheck, out var entry).Should().BeTrue();
+        entry.GetProperty("status").GetString().Should().NotBeNullOrEmpty();
+        entry.GetProperty("duration").GetString().Should().NotBeNullOrEmpty();
+        foreach (var check in entries.EnumerateObject())
+        {
+            IsAbsentOrNull(check.Value, "description").Should().BeTrue(check.Name);
+            IsAbsentOrNull(check.Value, "data").Should().BeTrue(check.Name);
+            IsAbsentOrNull(check.Value, "tags").Should().BeTrue(check.Name);
+        }
+    }
+
+    [Fact]
+    public async Task An_admin_jwt_still_reads_health_with_description_data_and_tags()
+    {
+        var (_, token) = await SuperAdminAsync();
+
+        var res = await _client.SendAsync(Get("/api/monitoring/health", token));
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+        using var doc = System.Text.Json.JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+        doc.RootElement.GetProperty("entries").TryGetProperty(ProjectionCheck, out var entry).Should().BeTrue();
+        IsAbsentOrNull(entry, "description").Should().BeFalse();
+        IsAbsentOrNull(entry, "data").Should().BeFalse();
+        IsAbsentOrNull(entry, "tags").Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("content:read")]
+    [InlineData("*")]
+    public async Task A_key_without_monitor_read_is_refused_health(string scope)
+    {
+        var (userId, _) = await SuperAdminAsync();
+        var secret = await StoreKeyAsync(userId, new[] { scope });
+
+        var res = await _client.SendAsync(Get("/api/monitoring/health", secret));
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task A_monitor_read_key_keeps_the_view_monitoring_check_on_its_owner()
+    {
+        Guid ownerId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            ownerId = Guid.NewGuid();
+            session.Store(new User { Id = ownerId, Username = $"plain-{ownerId}", Email = $"plain-{ownerId}@example.com", RoleIds = new() });
+            await session.SaveChangesAsync();
+        }
+        var secret = await StoreKeyAsync(ownerId, new[] { "monitor:read" });
+
+        var res = await _client.SendAsync(Get("/api/monitoring/health", secret));
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Theory]
+    [InlineData("/api/monitoring/metrics")]
+    [InlineData("/api/monitoring/k8s")]
+    public async Task A_monitor_read_key_is_refused_the_other_monitoring_routes(string path)
+    {
+        var (userId, _) = await SuperAdminAsync();
+        var secret = await StoreKeyAsync(userId, new[] { "monitor:read" });
+
+        var res = await _client.SendAsync(Get(path, secret));
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    // No such route, so routing may answer before the scope processor. A monitor:read key never succeeds.
+    [Theory]
+    [InlineData("POST", "/api/monitoring/health")]
+    [InlineData("DELETE", "/api/monitoring/health")]
+    [InlineData("GET", "/api/monitoring/health/x")]
+    public async Task A_monitor_read_key_reaches_nothing_else_under_monitoring_health(string method, string path)
+    {
+        var (userId, _) = await SuperAdminAsync();
+        var secret = await StoreKeyAsync(userId, new[] { "monitor:read" });
+
+        var res = await _client.SendAsync(WithKey(new HttpMethod(method), path, secret));
+
+        res.StatusCode.Should().BeOneOf(
+            HttpStatusCode.Forbidden, HttpStatusCode.NotFound, HttpStatusCode.MethodNotAllowed);
+    }
+
     private async Task<(Guid Id, string Secret)> RotateAsync(string jwt, Guid keyId, int overlapMinutes)
     {
         var req = WithKey(HttpMethod.Post, $"/api/api-keys/{keyId}/rotate", jwt);

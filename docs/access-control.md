@@ -707,7 +707,7 @@ as its owner, so it can never do more than the owner's own roles and capabilitie
 | `contenttype:write` | `POST`, `PUT`, `PATCH` and `DELETE` under `/api/content-types` and `/api/schemas` |
 | `files:read` | `GET` under `/api/files` (list, metadata, download, usage) |
 | `files:write` | `POST`, `PUT`, `PATCH` and `DELETE` under `/api/files` (upload, change, delete) |
-| `monitor:read` | `GET /api/contents/counts` and `GET /api/analytics/**`, nothing else. Counts also accept `content:read` |
+| `monitor:read` | `GET /api/contents/counts`, `GET /api/analytics/**` and `GET /api/monitoring/health`, nothing else. Counts also accept `content:read`. The health read gives a key name, status and duration per check, without description, data or tags; the owner still needs the `ViewMonitoring` capability |
 | `*` | all of the above except `files:read`, `files:write` and `monitor:read` |
 
 `content:destructive` does not include `content:write`, and `content:write` does not include it. Before
