@@ -186,12 +186,13 @@ A rule a save would refuse today and that is stored anyway (a field since remove
 state the lifecycle no longer has) is skipped on every write and logged at warning level with the
 type and the rule's name.
 
-## Blueprints and bundles
+## Blueprints, bundles and config
 
-A blueprint file and a bundle carry `uniqueness` on a type and are checked the way
-`POST /api/content-types` checks it. A bundle importing over a stored type keeps the stored rules
+A blueprint file, a bundle and the `contentTypes` section of a config document carry `uniqueness` on a type and are checked the way
+`POST /api/content-types` checks it. A bundle or config document applied over a stored type keeps the stored rules
 when it carries none, and is refused when it carries different ones or leaves out a field a stored
-rule compares; `PUT /api/content-types/{name}/uniqueness` is how a stored type's rules change.
+rule compares; `PUT /api/content-types/{name}/uniqueness` is how a stored type's rules change. Config export
+writes the rules, so an export applied to an empty tenant creates the type with them.
 
 ## Limits
 

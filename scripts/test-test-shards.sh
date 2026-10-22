@@ -72,5 +72,59 @@ python3 scripts/test-shards.py --shard 1 --of 4 --listing "$work/nocount.txt" >/
 { cat "$work/full.txt"; printf '  BarakoCMS.Tests.Outer+Inner.Nested_test\n'; } | sed 's/^Discovered 900 /Discovered 901 /' > "$work/nested.txt"
 python3 scripts/test-shards.py --shard 1 --of 1 --listing "$work/nested.txt" | grep -qx 'BarakoCMS.Tests.Outer+Inner'; expect "a nested class keeps its plus sign" $?
 
+# Balancing by recorded durations. A file naming some classes, skewed so a hash split would be uneven.
+python3 - "$work/durations.json" <<'PY'
+import json, sys
+classes = {f"BarakoCMS.Tests.Fake{i:04d}Tests": (300.0 if i % 50 == 0 else 1.0 + (i % 7)) for i in range(1, 451)}
+del classes["BarakoCMS.Tests.Fake0007Tests"]
+classes["BarakoCMS.Tests.GoneTests"] = 999.0
+json.dump({"classes": classes}, open(sys.argv[1], "w"))
+PY
+dshards() { # $1 = N
+  for s in $(seq 1 "$1"); do python3 scripts/test-shards.py --shard "$s" --of "$1" --listing "$work/full.txt" --durations "$work/durations.json" || return 1; done
+}
+for n in 2 4 5; do
+  all=$(dshards "$n" | sort); code=$?
+  expect "with durations N=$n runs cleanly" "$code"
+  [ "$all" = "$(grep -o 'BarakoCMS.Tests.Fake[0-9]*Tests' "$work/full.txt" | sort -u)" ]; expect "with durations N=$n places every class exactly once, including one missing from the file" $?
+  grep -q 'GoneTests' <<<"$all"; [ $? -ne 0 ]; expect "with durations N=$n ignores a class that is no longer listed" $?
+done
+[ "$(dshards 4)" = "$(dshards 4)" ]; expect "with durations two runs give the same split" $?
+python3 - "$work/durations.json" "$work/full.txt" <<'PY'
+import json, subprocess, sys
+durations = json.load(open(sys.argv[1]))["classes"]
+loads = []
+for shard in range(1, 5):
+    out = subprocess.run(["python3", "scripts/test-shards.py", "--shard", str(shard), "--of", "4", "--listing", sys.argv[2],
+                          "--durations", sys.argv[1]], capture_output=True, text=True, check=True).stdout.split()
+    loads.append(sum(durations.get(name, 4.0) for name in out))
+sys.exit(0 if max(loads) - min(loads) < 300 else 1)
+PY
+expect "with durations the shards differ by less than the longest class" $?
+
+printf '{"classes": []}' > "$work/bad.json"
+python3 scripts/test-shards.py --shard 1 --of 4 --listing "$work/full.txt" --durations "$work/bad.json" >/dev/null 2>&1; [ $? -ne 0 ]; expect "a durations file of the wrong shape fails" $?
+printf 'not json' > "$work/bad.json"
+python3 scripts/test-shards.py --shard 1 --of 4 --listing "$work/full.txt" --durations "$work/bad.json" >/dev/null 2>&1; [ $? -ne 0 ]; expect "a durations file that is not JSON fails" $?
+[ "$(python3 scripts/test-shards.py --shard 2 --of 4 --listing "$work/full.txt" --durations "$work/none.json")" = "$(python3 scripts/test-shards.py --shard 2 --of 4 --listing "$work/full.txt" --no-durations)" ]; expect "a missing durations file falls back to the hash split" $?
+
+# The report reader behind the durations file.
+cat > "$work/a.trx" <<'TRX'
+<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010"><Results>
+<UnitTestResult testName="A.B.OneTests.First" duration="00:00:01.5000000" outcome="Passed" />
+<UnitTestResult testName="A.B.OneTests.Theory(route: &quot;/a.b&quot;)" duration="00:01:00.2500000" outcome="Passed" />
+<UnitTestResult testName="A.B.TwoTests.Only" duration="00:00:00.1000000" outcome="Failed" />
+</Results></TestRun>
+TRX
+python3 scripts/test-durations.py --out "$work/out.json" "$work/a.trx" >/dev/null; expect "test-durations reads a report" $?
+python3 - "$work/out.json" <<'PY'
+import json, sys
+classes = json.load(open(sys.argv[1]))["classes"]
+sys.exit(0 if classes == {"A.B.OneTests": 61.75, "A.B.TwoTests": 0.1} else 1)
+PY
+expect "test-durations sums a class and strips theory arguments" $?
+python3 scripts/test-durations.py --out "$work/none.json" scripts/testdata/trx/broken.trx >/dev/null 2>&1; [ $? -ne 0 ]; expect "test-durations refuses an unreadable report" $?
+[ ! -e "$work/none.json" ]; expect "test-durations writes nothing for an unreadable report" $?
+
 echo "$pass passed, $fail failed"
 [ "$fail" = 0 ]
