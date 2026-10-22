@@ -94,19 +94,7 @@ internal sealed class Endpoint : EndpointWithoutRequest<ResolveResponse>
 
         foreach (var (node, entry) in candidates)
         {
-            var nodes = new List<PageNode> { node };
-            var parent = node.ParentId;
-            for (var depth = 0; parent is { } parentId && depth < options.MaxDepth; depth++)
-            {
-                if (await PublishedPages.ByIdAsync(_session, _projector, definition!, options, parentId, member, ct) is not { } ancestor)
-                {
-                    break;
-                }
-
-                nodes.Add(ancestor.Node);
-                parent = ancestor.Node.ParentId;
-            }
-
+            var nodes = await WithAncestorsAsync(node, definition!, options, member, ct);
             var tree = new PageTree(nodes, options.HomeSlug, options.MaxDepth);
             if (tree.Ancestry(node.Id) is not { } chain)
             {
@@ -129,20 +117,43 @@ internal sealed class Endpoint : EndpointWithoutRequest<ResolveResponse>
                 ? await _projector.ProjectAsync(doc, definition, member, ct) ?? entry
                 : entry;
 
-            if (member)
-            {
-                ViewerAudience.SetPrivateCache(HttpContext);
-            }
-            else
-            {
-                PublishedPages.SetCache(HttpContext, varyOnViewer: true);
-            }
-
+            SetCache(member);
             var bound = await BoundBlocks.MaterializeAsync(_session, _projector, definition!, served, ct);
             await Send.OkAsync(new ResolveResponse(PagesContract.Version, path, served, breadcrumbs, bound), ct);
             return;
         }
 
         await Send.NotFoundAsync(ct);
+    }
+
+    private async Task<List<PageNode>> WithAncestorsAsync(
+        PageNode node, ContentTypeDefinition definition, PagesOptions options, bool member, CancellationToken ct)
+    {
+        var nodes = new List<PageNode> { node };
+        var parent = node.ParentId;
+        for (var depth = 0; parent is { } parentId && depth < options.MaxDepth; depth++)
+        {
+            if (await PublishedPages.ByIdAsync(_session, _projector, definition, options, parentId, member, ct) is not { } ancestor)
+            {
+                break;
+            }
+
+            nodes.Add(ancestor.Node);
+            parent = ancestor.Node.ParentId;
+        }
+
+        return nodes;
+    }
+
+    private void SetCache(bool member)
+    {
+        if (member)
+        {
+            ViewerAudience.SetPrivateCache(HttpContext);
+        }
+        else
+        {
+            PublishedPages.SetCache(HttpContext, varyOnViewer: true);
+        }
     }
 }
