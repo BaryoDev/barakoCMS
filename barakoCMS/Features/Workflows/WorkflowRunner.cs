@@ -1022,8 +1022,7 @@ internal sealed class WorkflowRunner(
                 Content = content,
                 TriggerEvent = run.TriggerEvent,
                 TenantId = TenantScopes.SlugFor(tenantId),
-                Outputs = outputs,
-                ProducedFiles = ActionOutputs.KeptFiles(run),
+                Outputs = outputs, ProducedFiles = ActionOutputs.KeptFiles(run),
             }, ct);
             timer.Stop();
 
