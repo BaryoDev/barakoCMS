@@ -36,10 +36,6 @@ internal static class LineTotals
         IQuerySession session, LinesDefinition lines, Guid headerId, int take, CancellationToken ct) =>
         await ChildQuery(session, lines, headerId).OrderBy(c => c.CreatedAt).Take(take).ToListAsync(ct);
 
-    public static async Task<int> CountAsync(
-        IQuerySession session, LinesDefinition lines, Guid headerId, CancellationToken ct) =>
-        (int)await ChildQuery(session, lines, headerId).CountAsync(ct);
-
     /// <summary>
     /// What stops <paramref name="header"/> holding its total, or empty when the type declares no
     /// total or the lines add up to it. A line with no amount, or one that is not a number, is
@@ -90,33 +86,51 @@ internal static class LineTotals
     {
         var errors = new List<string>();
         var type = barakoCMS.Core.ContentTypeName.Normalize(existing.ContentType);
-        var definitions = await session.Query<ContentTypeDefinition>().ToListAsync(ct);
 
-        var own = definitions.FirstOrDefault(d => barakoCMS.Core.ContentTypeName.Normalize(d.Name) == type);
+        var own = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == type, ct);
         if (own?.Lines is { TotalField: not null } ownLines)
         {
             var stored = await ChildrenAsync(session, ownLines, existing.Id, CheckCap + 1, ct);
-            errors.AddRange(stored.Count > CheckCap
+            errors.AddRange((stored.Count > CheckCap
                 ? [$"The entry has more than {CheckCap} lines, so its total cannot be checked."]
-                : Mismatches(ownLines, newData, stored.Select(c => (IDictionary<string, object>)c.Data)));
+                : Mismatches(ownLines, newData, stored.Select(c => (IDictionary<string, object>)c.Data)))
+                .Select(e => $"Header {existing.Id}: {e}"));
         }
 
-        foreach (var header in definitions.Where(d =>
-            d.Lines is { TotalField: not null } l && barakoCMS.Core.ContentTypeName.Normalize(l.ContentType) == type))
+        errors.AddRange(await CheckLineAsync(session, type, existing.Id, existing.Data, newData, ct));
+        return errors;
+    }
+
+    /// <summary>
+    /// The refusals for a new entry of <paramref name="contentType"/> stored on its own: when it is
+    /// a line of a type that declares a total, the header it points at must still add up with it.
+    /// </summary>
+    public static Task<List<string>> CheckCreateAsync(
+        IQuerySession session, string contentType, IDictionary<string, object> data, CancellationToken ct) =>
+        CheckLineAsync(session, barakoCMS.Core.ContentTypeName.Normalize(contentType), null, null, data, ct);
+
+    private static async Task<List<string>> CheckLineAsync(
+        IQuerySession session, string type, Guid? selfId, IDictionary<string, object>? oldData,
+        IDictionary<string, object> newData, CancellationToken ct)
+    {
+        var errors = new List<string>();
+        var headers = await session.Query<ContentTypeDefinition>()
+            .Where(d => d.MatchesSql("d.data -> 'Lines' ->> 'TotalField' is not null"))
+            .ToListAsync(ct);
+        foreach (var header in headers.Where(d =>
+            barakoCMS.Core.ContentTypeName.Normalize(d.Lines!.ContentType) == type))
         {
             var lines = header.Lines!;
-            var parents = new[] { Text(existing.Data, lines.ParentField), Text(newData, lines.ParentField) }
-                .Where(p => p is not null).Select(p => p!).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-            foreach (var parentText in parents)
+            var oldParent = ParentId(oldData, lines.ParentField);
+            var newParent = ParentId(newData, lines.ParentField);
+            foreach (var parentId in new[] { oldParent, newParent }.Where(p => p is not null).Select(p => p!.Value).Distinct())
             {
-                if (!Guid.TryParse(parentText, out var parentId)) continue;
                 var parent = await session.LoadAsync<barakoCMS.Models.Content>(parentId, ct);
                 if (parent is null) continue;
 
                 var stored = await ChildrenAsync(session, lines, parentId, CheckCap + 1, ct);
-                var set = stored.Where(c => c.Id != existing.Id).Select(c => (IDictionary<string, object>)c.Data).ToList();
-                if (string.Equals(Text(newData, lines.ParentField), parentText, StringComparison.OrdinalIgnoreCase))
-                    set.Add(newData);
+                var set = stored.Where(c => c.Id != selfId).Select(c => (IDictionary<string, object>)c.Data).ToList();
+                if (newParent == parentId) set.Add(newData);
 
                 errors.AddRange(Mismatches(lines, parent.Data, set).Select(e => $"Header {parentId}: {e}"));
             }
@@ -124,6 +138,13 @@ internal static class LineTotals
 
         return errors;
     }
+
+    /// <summary>
+    /// The header a line points at. Only the canonical text form counts, the one the lines query
+    /// matches on, so what is checked, listed and added up is the same set of entries.
+    /// </summary>
+    private static Guid? ParentId(IDictionary<string, object>? data, string parentField) =>
+        Guid.TryParseExact(Text(data, parentField), "D", out var id) ? id : null;
 
     /// <summary>The number a field holds, or null when it is absent or not a number.</summary>
     private static decimal? Read(IDictionary<string, object>? data, string field) =>

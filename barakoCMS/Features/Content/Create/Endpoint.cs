@@ -45,18 +45,20 @@ internal class Endpoint(
             return;
         }
 
-        var errors = await creator.CheckAsync(request, userId, HttpContext, batch: null, ct);
-        if (errors.Count > 0)
+        IReadOnlyList<string> errors = await creator.CheckAsync(request, userId, HttpContext, batch: null, ct);
+        if (errors.Count == 0)
         {
-            // One entry per failure rather than one flattened string, so a client can show the
-            // failures against the fields they belong to.
-            foreach (var error in errors)
-            {
-                AddError(error);
-            }
-
-            ThrowIfAnyErrors();
+            errors = await barakoCMS.Features.Content.LineTotals.CheckCreateAsync(session, request.ContentType, request.Data, ct);
         }
+
+        // One entry per failure rather than one flattened string, so a client can show the
+        // failures against the fields they belong to.
+        foreach (var error in errors)
+        {
+            AddError(error);
+        }
+
+        ThrowIfAnyErrors();
 
         // The check above asks only whether a Create rule exists. This one asks whether a rule
         // holds for the entry as it will be stored, so its conditions apply to a create as well.
@@ -154,8 +156,7 @@ internal class Endpoint(
 
         await Send.ResponseAsync(req.DryRun
             ? new Response { DryRun = true, Changes = barakoCMS.Core.Validation.DryRuns.Between(null, header.Data) }
-            
-            : new Response { Id = headerId, Version = 1, LineIds = req.Lines is null ? null : result.LineIds }, cancellation: ct);
+            : new Response { Id = headerId, Version = 1, LineIds = result.LineIds }, cancellation: ct);
     }
 
     /// <summary>The signed-in user the write is made for.</summary>

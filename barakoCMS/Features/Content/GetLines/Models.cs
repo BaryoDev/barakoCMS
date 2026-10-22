@@ -10,8 +10,8 @@ internal class Response
     /// <summary>The header, shaped as GET /api/contents/{id} shapes it.</summary>
     public barakoCMS.Features.Content.Get.Response Header { get; set; } = new();
 
-    /// <summary>How many lines the header has, before the caller's read rules. More than are listed when the list is capped.</summary>
-    public int Total { get; set; }
+    /// <summary>True when the header has more lines than are listed. Counted over the lines the caller may read.</summary>
+    public bool Truncated { get; set; }
 
     /// <summary>The lines the caller may read, oldest first.</summary>
     public List<barakoCMS.Features.Content.Get.Response> Lines { get; set; } = [];

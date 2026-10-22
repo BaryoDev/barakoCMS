@@ -55,7 +55,7 @@ internal class Response : barakoCMS.Core.Validation.IDryRunResponse
     /// </summary>
     public long Version { get; set; }
 
-    /// <summary>The ids of the lines written with the entry, in the order sent. Null when none were sent.</summary>
+    /// <summary>The ids of the lines written with the entry, in the order sent. An empty list when the entry was written through the lines path with none, null when it was not.</summary>
     public List<Guid>? LineIds { get; init; }
 
     /// <summary>True when this answers a dry run: nothing was stored.</summary>

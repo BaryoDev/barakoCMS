@@ -52,19 +52,25 @@ internal class Endpoint(
             return;
         }
 
-        var children = await LineTotals.ChildrenAsync(session, lines, header.Id, LineTotals.MaxLines, ct);
+        var children = await LineTotals.ChildrenAsync(session, lines, header.Id, LineTotals.MaxLines + 1, ct);
 
         var sensitivity = Resolve<ISensitivityService>();
         var files = Resolve<IFileStore>();
         var response = new Response
         {
-            Total = await LineTotals.CountAsync(session, lines, header.Id, ct),
             Header = await barakoCMS.Features.Content.Get.EntryResponse.BuildAsync(header, session, sourcing, sensitivity, HttpContext, ct, files),
         };
         foreach (var child in children)
         {
+
             if (!await permissionResolver.CanPerformActionAsync(user, child.ContentType, "read", child, ct))
                 continue;
+            if (response.Lines.Count == LineTotals.MaxLines)
+            {
+                response.Truncated = true;
+                break;
+            }
+
             response.Lines.Add(await barakoCMS.Features.Content.Get.EntryResponse.BuildAsync(child, session, sourcing, sensitivity, HttpContext, ct, files));
         }
 
