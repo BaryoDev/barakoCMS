@@ -218,7 +218,7 @@ public class JournalLifecycleTests(IntegrationTestFixture fixture)
         }
 
         var sql = (await File.ReadAllTextAsync(
-                Path.Combine(RepositoryRoot(), "migrations", "5.1.0", "accounting-journal-lifecycle.sql"), Ct))
+                Path.Combine(RepositoryRoot(), "migrations", "5.2.0", "accounting-journal-lifecycle.sql"), Ct))
             .Replace("public.mt_doc_contents", $"{scratch}.mt_doc_contents")
             .Replace("public.mt_doc_contenttypedefinition", $"{scratch}.mt_doc_contenttypedefinition");
 
