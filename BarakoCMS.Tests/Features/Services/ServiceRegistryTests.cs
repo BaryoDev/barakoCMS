@@ -176,28 +176,36 @@ public class ServiceRegistryTests
     }
 
     [Fact]
-    public async Task A_machine_key_must_exist_and_not_be_revoked()
+    public async Task A_machine_key_must_be_a_live_heartbeat_key()
     {
         var admin = await AdminAsync();
-        var live = Guid.NewGuid();
-        var revoked = Guid.NewGuid();
-        await StoreDocumentAsync(new ApiKey { Id = live, Name = "live", KeyHash = Guid.NewGuid().ToString("N"), Prefix = "bcms_live" });
-        await StoreDocumentAsync(new ApiKey { Id = revoked, Name = "gone", KeyHash = Guid.NewGuid().ToString("N"), Prefix = "bcms_gone", Revoked = true });
 
-        object WithKey(Guid key) => new
+        async Task<Guid> KeyAsync(Action<ApiKey>? tweak = null)
+        {
+            var key = new ApiKey
+            {
+                Id = Guid.NewGuid(), Name = "k", KeyHash = Guid.NewGuid().ToString("N"), Prefix = "bcms_k",
+                Scopes = ["services:heartbeat"],
+            };
+            tweak?.Invoke(key);
+            await StoreDocumentAsync(key);
+            return key.Id;
+        }
+
+        Task<HttpResponseMessage> RegisterAsync(Guid key) => admin.PostAsJsonAsync("/api/services", new
         {
             name = $"keyed-{Guid.NewGuid():N}",
             messageTypes = new[] { "x" },
             deliveryUrl = "https://x.example.com",
             machineKeyId = key,
-        };
+        }, TestContext.Current.CancellationToken);
 
-        (await admin.PostAsJsonAsync("/api/services", WithKey(live), TestContext.Current.CancellationToken))
-            .StatusCode.Should().Be(HttpStatusCode.Created);
-        (await admin.PostAsJsonAsync("/api/services", WithKey(revoked), TestContext.Current.CancellationToken))
-            .StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await admin.PostAsJsonAsync("/api/services", WithKey(Guid.NewGuid()), TestContext.Current.CancellationToken))
-            .StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await RegisterAsync(await KeyAsync())).StatusCode.Should().Be(HttpStatusCode.Created);
+        (await RegisterAsync(await KeyAsync(k => k.Revoked = true))).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await RegisterAsync(await KeyAsync(k => k.ExpiresAt = DateTime.UtcNow.AddDays(-1)))).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await RegisterAsync(await KeyAsync(k => k.Scopes = ["content:read"]))).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await RegisterAsync(await KeyAsync(k => k.ContentTypes = ["post"]))).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await RegisterAsync(Guid.NewGuid())).StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     [Fact]

@@ -209,4 +209,47 @@ public class ServiceHeartbeatScopeTests
 
         res.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
+
+    [Fact]
+    public async Task A_key_owned_by_a_global_admin_cannot_beat_a_service_it_is_not_bound_to()
+    {
+        var unkeyed = Unique("unkeyed");
+        var seeded = DownService(unkeyed);
+        await StoreAsync(seeded);
+        var (_, secret) = await StoreKeyAsync(["services:heartbeat"]);
+
+        var res = await BeatAsync(WithBearer(secret), unkeyed);
+
+        res.StatusCode.Should().Be(HttpStatusCode.NotFound, "an API key counts for its own service only, not for its owner's global right");
+        (await LoadAsync(unkeyed))!.LastHeartbeatAt.Should().BeCloseTo(seeded.LastHeartbeatAt!.Value, TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public async Task A_heartbeat_key_is_refused_on_the_registry_routes_it_was_not_given()
+    {
+        var name = Unique("keyed-routes");
+        var (keyId, secret) = await StoreKeyAsync(["services:heartbeat"]);
+        await StoreAsync(DownService(name, keyId));
+        var client = WithBearer(secret);
+
+        (await client.PostAsJsonAsync("/api/services", new { name = Unique("new") }, TestContext.Current.CancellationToken))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await client.GetAsync($"/api/services/{name}/heartbeat", TestContext.Current.CancellationToken))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await BeatAsync(client, name)).StatusCode.Should().Be(HttpStatusCode.OK, "the same key does reach the heartbeat route");
+    }
+
+    [Fact]
+    public async Task A_trailing_slash_and_other_casing_still_reach_the_bound_key()
+    {
+        var name = Unique("keyed-shape");
+        var (keyId, secret) = await StoreKeyAsync(["services:heartbeat"]);
+        await StoreAsync(DownService(name, keyId));
+        var client = WithBearer(secret);
+
+        (await client.PostAsync($"/api/services/{name}/heartbeat/", null, TestContext.Current.CancellationToken))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await client.PostAsync($"/API/Services/{name.ToUpperInvariant()}/HEARTBEAT", null, TestContext.Current.CancellationToken))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+    }
 }

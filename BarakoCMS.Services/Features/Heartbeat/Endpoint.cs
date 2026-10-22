@@ -15,7 +15,8 @@ internal sealed record HeartbeatResponse(string Name, string Health, DateTime La
 /// POST /api/services/{name}/heartbeat: the service says it is alive. Held by send_service_heartbeat
 /// alone, so the identity a service reports with cannot edit the registry. The registry is one
 /// deployment-wide table, so a registered machine key must be the caller's own API key (scope
-/// services:heartbeat), and a service without one needs the capability through a global role: a tenant membership must not be able to
+/// services:heartbeat), and a service without one needs the capability through a global role, never through an API key, whose
+/// owner's own rights do not count: a tenant membership must not be able to
 /// keep another party's dead service looking healthy. Never replayed from a
 /// stored response, because a replay would answer 200 without recording the beat.
 /// </summary>
@@ -42,7 +43,7 @@ internal sealed class HeartbeatEndpoint(IDocumentSession session, IConfiguration
         var name = ServiceAdmin.Normalize(req.Name);
         var service = await session.Query<ServiceRegistration>().FirstOrDefaultAsync(s => s.Name == name, ct);
         var mayBeat = service is not null
-            && (service.MachineKeyId is { } keyId ? presentedKey == keyId : global);
+            && (presentedKey is { } key ? service.MachineKeyId == key : service.MachineKeyId is null && global);
         if (!mayBeat)
         {
             // The same answer for an unknown name and a service that is not the caller's, so a
