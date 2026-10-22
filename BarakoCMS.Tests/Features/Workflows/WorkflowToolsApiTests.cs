@@ -59,7 +59,7 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         // fixture it genuinely is registered, and naming it keeps the assertion exact: removing a
         // real action still fails this test.
         actions!.Select(a => a.Type).Should().BeEquivalentTo(
-            ["Email", "SMS", "Webhook", "CreateTask", "UpdateField", "CreateEntry", "Transition", "Conditional", "Request", "BuildHook", "Publish", "ThrowingRunner", "CredentialEcho", "DeletedEcho", "CountingRunner", "HookedRunner", "SlowRunner", "MeteredRunner", "OutputRunner", "RecordingRunner", "AttemptHistoryRunner"],
+            ["Email", "SMS", "Webhook", "CreateTask", "UpdateField", "CreateEntry", "Transition", "Conditional", "Request", "BuildHook", "Publish", "ThrowingRunner", "CredentialEcho", "DeletedEcho", "CountingRunner", "HookedRunner", "SlowRunner", "MeteredRunner", "OutputRunner", "RecordingRunner", "FileRunner", "UndeclaredFileRunner", "ManyFilesRunner", "SavedFileRunner", "NullFilesRunner", "AttemptHistoryRunner"],
             "every registered action is offered to the workflow builder, and adding one is a line here");
     }
 
@@ -98,7 +98,7 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         var actions = await response.Content.ReadFromJsonAsync<List<WorkflowActionMetadata>>(TestContext.Current.CancellationToken);
         actions.Should().NotBeNull();
         var byType = actions!.ToDictionary(a => a.Type);
-        byType.Should().HaveCount(21);
+        byType.Should().HaveCount(26);
 
         byType["Webhook"].RequiredParameters.Should().Equal("Url");
         byType["Webhook"].OptionalParameters.Should().Equal("Secret");
@@ -137,7 +137,7 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         var byType = doc.RootElement.EnumerateArray().ToDictionary(
             a => a.GetProperty("type").GetString()!,
             a => a.TryGetProperty("group", out var g) ? g : default);
-        byType.Should().HaveCount(21);
+        byType.Should().HaveCount(26);
 
         var expected = new Dictionary<string, string>
         {

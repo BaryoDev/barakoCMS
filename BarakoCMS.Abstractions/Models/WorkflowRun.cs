@@ -696,6 +696,14 @@ public class WorkflowActionAttempt
     /// </summary>
     public Dictionary<string, string>? Outputs { get; set; }
 
+    /// <summary>
+    /// The stored files the action declared it made on this run, once it has succeeded. Null until
+    /// then, and when it made none. Later actions of the same run may attach these, and no other
+    /// file by this route.
+    /// </summary>
+    /// <remarks>Not served over the API: the ids of private files do not leave the run record.</remarks>
+    public List<Guid>? ProducedFiles { get; set; }
+
     /// <summary>What undoes this action, copied from the workflow when the run was queued. Null when nothing does.</summary>
     public WorkflowCompensation? Compensate { get; set; }
 

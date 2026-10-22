@@ -57,6 +57,22 @@ public sealed record WorkflowActionResult
     /// </remarks>
     public IReadOnlyDictionary<string, string> Outputs { get; }
 
+    /// <summary>
+    /// The ids of stored files this action made on this run, such as a rendered document. Empty
+    /// unless the action sets it.
+    /// </summary>
+    /// <remarks>
+    /// The runner records them on the attempt, whether or not the workflow captures any output. An
+    /// Email action later in the same run may attach one, even a private one, because the run made
+    /// it. Declare only a file this call created or found by a key of its own, never an id taken
+    /// from a parameter or an entry: that would let a workflow author mail any file. Past
+    /// <see cref="MaxProducedFiles"/> the rest are not kept.
+    /// </remarks>
+    public IReadOnlyList<Guid> ProducedFiles { get; init; } = [];
+
+    /// <summary>How many produced files one action may declare.</summary>
+    public const int MaxProducedFiles = 20;
+
     /// <summary>The action completed.</summary>
     public static WorkflowActionResult Success() => new(true, null, retryable: false);
 

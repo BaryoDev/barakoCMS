@@ -49,6 +49,14 @@ internal static class ActionParameters
             && (parameter.Equals(Actions.EmailAction.AttachmentsParameter, StringComparison.OrdinalIgnoreCase)
                 || parameter.Equals(EmailTemplates.EmailTemplateRenderer.TemplateParameter, StringComparison.OrdinalIgnoreCase)));
 
+    /// <summary>
+    /// Whether the action reads <c>{{actions.N.name}}</c> in this parameter itself. An email's
+    /// attachments do, to attach a file an earlier step produced; the others it resolves keep a
+    /// reference as written.
+    /// </summary>
+    public static bool ReadsStepOutputsItself(string actionType, string parameter) =>
+        actionType == "Email" && parameter.Equals(Actions.EmailAction.AttachmentsParameter, StringComparison.OrdinalIgnoreCase);
+
     /// <summary>The parameter the runner and the engine use to tell an action which trigger fired.</summary>
     public const string TriggerEventParameter = "TriggerEvent";
 

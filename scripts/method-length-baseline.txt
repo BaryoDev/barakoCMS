@@ -73,8 +73,7 @@
 75 barakoCMS/Features/Users/RemoveRole/Endpoint.cs::Endpoint.HandleAsync
 128 barakoCMS/Features/WorkflowRuns/Endpoints.cs::RetryAttemptEndpoint.HandleAsync
 182 barakoCMS/Features/Workflows/Actions/ConditionalAction.cs::ConditionalAction.RunAsync
-156 barakoCMS/Features/Workflows/Actions/EmailAction.cs::EmailAction.RunAsync
-108 barakoCMS/Features/Workflows/Actions/EmailAttachments.cs::EmailAttachments.ResolveAsync
+125 barakoCMS/Features/Workflows/Actions/EmailAction.cs::EmailAction.RunAsync
 86 barakoCMS/Features/Workflows/Actions/PublishAction.cs::PublishAction.RunAsync
 377 barakoCMS/Features/Workflows/Actions/UpdateFieldAction.cs::UpdateFieldAction.RunAsync
 222 barakoCMS/Features/Workflows/Actions/WebhookAction.cs::WebhookAction.RunAsync
