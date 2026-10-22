@@ -61,6 +61,9 @@ public class ApiKeyServiceTests
     [InlineData(new[] { "*" }, "files:read", false)]
     [InlineData(new[] { "*" }, "files:write", false)]
     [InlineData(new[] { "files:read" }, "files:read", true)]
+    [InlineData(new[] { "*" }, "monitor:read", false)]
+    [InlineData(new[] { "monitor:read" }, "monitor:read", true)]
+    [InlineData(new[] { "monitor:read" }, "content:read", false)]
     public void Satisfies_EnforcesScopes(string[] granted, string required, bool expected)
     {
         ApiKeyScopes.Satisfies(granted, required).Should().Be(expected);
@@ -68,6 +71,7 @@ public class ApiKeyServiceTests
 
     [Theory]
     [InlineData("content:read", true)]
+    [InlineData("monitor:read", true)]
     [InlineData("*", true)]
     [InlineData("content:destructive", true)]
     [InlineData("admin", false)]        // platform admin is deliberately not a key scope

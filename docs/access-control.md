@@ -707,14 +707,16 @@ as its owner, so it can never do more than the owner's own roles and capabilitie
 | `contenttype:write` | `POST`, `PUT`, `PATCH` and `DELETE` under `/api/content-types` and `/api/schemas` |
 | `files:read` | `GET` under `/api/files` (list, metadata, download, usage) |
 | `files:write` | `POST`, `PUT`, `PATCH` and `DELETE` under `/api/files` (upload, change, delete) |
-| `*` | all of the above except `files:read` and `files:write` |
+| `monitor:read` | `GET /api/contents/counts` and `GET /api/analytics/**`, nothing else. Counts also accept `content:read` |
+| `*` | all of the above except `files:read`, `files:write` and `monitor:read` |
 
 `content:destructive` does not include `content:write`, and `content:write` does not include it. Before
 #653 a `content:write` key could erase and roll back; such a key now gets 403 on both routes and needs
 `content:destructive` added. A `*` key is unchanged.
 
-The files scopes are never implied by `*`, so a key made before they existed does not gain file access.
-Name `files:read` or `files:write` on the key to allow it.
+The files scopes and `monitor:read` are never implied by `*`, so a key made before they existed gains
+nothing. Name `files:read`, `files:write` or `monitor:read` on the key to allow it. A `monitor:read` key
+gets 403 on every other `/api/**` route, and on any write to the counts and analytics routes.
 
 A key can also name content types (`contentTypes` on `POST /api/api-keys`). That makes it a push key:
 it reaches `POST /api/collections/{type}/push` for the types it names and gets 403 everywhere else,

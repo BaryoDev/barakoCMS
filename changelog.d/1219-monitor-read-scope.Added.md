@@ -1,0 +1,1 @@
+- **API keys can watch an instance and nothing else.** New scope `monitor:read` reaches `GET /api/contents/counts` and `GET /api/analytics/**`, read only, and gets 403 on every other route. A `*` key does not imply it, so existing keys gain nothing. Counts also accept `content:read`.
