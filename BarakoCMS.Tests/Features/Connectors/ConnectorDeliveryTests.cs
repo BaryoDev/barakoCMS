@@ -400,6 +400,37 @@ public class ConnectorDeliveryTests : IAsyncLifetime
         body.Should().NotContain("y", "nothing past the cut is kept");
     }
 
+    [Fact]
+    public async Task An_endless_body_is_read_only_as_far_as_the_row_keeps_when_nothing_is_captured()
+    {
+        var tenant = NewTenant();
+        var endless = new EndlessStream();
+
+        var host = Api(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StreamContent(endless),
+        });
+
+        var connector = await SeedAsync(tenant, host, ConnectorAuth.None);
+
+        await using var session = Store.QuerySession(tenant);
+        var result = await Sender(session).SendAsync(
+            connector, new ComposedRequest("GET", $"https://{host}/things", new(), null, null),
+            SuccessRule.TwoHundredRange, null,
+            new ConnectorDeliveryContext("read-it", Guid.NewGuid(), null, "Published", 1), Ct);
+
+        result.Succeeded.Should().BeTrue("got: {0}", result.Error);
+
+        var rows = await RowsAsync(tenant, connector.Id);
+        rows.Should().HaveCount(1);
+        rows[0].ResponseBody.Should().NotBeNull();
+        rows[0].ResponseBody!.Length.Should().Be(WebhookDelivery.ResponseBodyLimit, "the row keeps the cut body");
+
+        endless.BytesRead.Should().BeLessThanOrEqualTo(
+            WebhookDelivery.ResponseBodyLimit + EndlessStream.Chunk,
+            "the client must not buffer a body the row will cut");
+    }
+
     /// <summary>
     /// A guard for the inner half of the change: it is red when nothing is recorded at all, and
     /// passes whether or not the request and the answer are captured, since nothing was sent.
@@ -597,6 +628,55 @@ public class ConnectorDeliveryTests : IAsyncLifetime
     {
         await using var session = Store.QuerySession(tenant);
         return await session.Query<WebhookDelivery>().Where(d => d.ConnectorId == connectorId).ToListAsync(Ct);
+    }
+
+    /// <summary>A body with no end, counting what was read. It stops at a ceiling so a failure ends.</summary>
+    private sealed class EndlessStream : Stream
+    {
+        internal const int Chunk = 8192;
+        private const long Ceiling = 64L * 1024 * 1024;
+        private long _read;
+
+        internal long BytesRead => Interlocked.Read(ref _read);
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) => Fill(buffer.AsSpan(offset, count));
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default) =>
+            ValueTask.FromResult(Fill(buffer.Span));
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken ct) =>
+            Task.FromResult(Fill(buffer.AsSpan(offset, count)));
+
+        private int Fill(Span<byte> target)
+        {
+            var room = (int)Math.Min(Math.Min(target.Length, Chunk), Ceiling - BytesRead);
+            if (room <= 0) return 0;
+
+            target[..room].Fill((byte)'a');
+            Interlocked.Add(ref _read, room);
+            return room;
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
     private sealed class FailingLog : IConnectorDeliveryLog

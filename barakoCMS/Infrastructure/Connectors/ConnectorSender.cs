@@ -285,21 +285,22 @@ internal sealed class ConnectorSender(
 
         try
         {
-            using var first = await client.SendAsync(request, ct);
+            using var first = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
             using var again = await RetryWithNewTokenAsync(client, connector, request, first,
-                () => BuildRequest(composed, target), HttpCompletionOption.ResponseContentRead, ct, draft);
+                () => BuildRequest(composed, target), HttpCompletionOption.ResponseHeadersRead, ct, draft);
             var response = again ?? first;
             timer.Stop();
 
-            if (draft is not null) await draft.ReadResponseAsync(response, ct);
-
             // The body is read only when a rule needs it, and it is never returned or logged. A 401
-            // from an OAuth provider frequently contains the credential that was sent.
+            // from an OAuth provider frequently contains the credential that was sent. That read
+            // buffers the content, so it comes first and the delivery row reads the same bytes.
             string? body = null;
             if (rule == SuccessRule.TwoHundredAndJsonPathAbsent && !string.IsNullOrWhiteSpace(successJsonPath))
             {
                 body = await response.Content.ReadAsStringAsync(ct);
             }
+
+            if (draft is not null) await draft.ReadResponseAsync(response, ct);
 
             var status = (int)response.StatusCode;
             var ok = SuccessEvaluator.Succeeded(rule, status, body, successJsonPath);
