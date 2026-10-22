@@ -117,6 +117,7 @@ public class OpenApiTagTests
             "Capabilities",
             "Changes",
             "Collections",
+            "Comments",
             "Config",
             "ConnectorDeliveries",
             "Connectors",
