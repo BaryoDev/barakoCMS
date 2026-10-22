@@ -1,6 +1,5 @@
 using FastEndpoints;
 using Marten;
-using Marten.Linq.MatchesSql;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Models;
 
@@ -16,9 +15,6 @@ internal class Endpoint(
     barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
     IContentSourcingPolicy sourcing) : Endpoint<Request, Response>
 {
-    private const string ChildrenSql =
-        "EXISTS (SELECT 1 FROM jsonb_each_text(d.data -> 'Data') kv WHERE lower(kv.key) = lower(?) AND kv.value = ?)";
-
     public override void Configure()
     {
         Get("/api/contents/{id}/lines");
@@ -46,8 +42,9 @@ internal class Endpoint(
             return;
         }
 
+        var typeName = barakoCMS.Core.ContentTypeName.Normalize(header.ContentType);
         var definition = await session.Query<ContentTypeDefinition>()
-            .FirstOrDefaultAsync(d => d.Name == header.ContentType, ct);
+            .FirstOrDefaultAsync(d => d.Name.ToLower() == typeName, ct);
         if (definition?.Lines is not { } lines)
         {
             AddError("This content type declares no lines");
@@ -55,19 +52,13 @@ internal class Endpoint(
             return;
         }
 
-        var parentField = lines.ParentField;
-        var headerId = header.Id.ToString();
-        var childType = lines.ContentType.ToLower();
-        var children = await session.Query<barakoCMS.Models.Content>()
-            .Where(c => c.ContentType.ToLower() == childType && c.MatchesSql(ChildrenSql, parentField, headerId))
-            .OrderBy(c => c.CreatedAt)
-            .Take(Create.RequestValidator.MaxLines)
-            .ToListAsync(ct);
+        var children = await LineTotals.ChildrenAsync(session, lines, header.Id, LineTotals.MaxLines, ct);
 
         var sensitivity = Resolve<ISensitivityService>();
         var files = Resolve<IFileStore>();
         var response = new Response
         {
+            Total = await LineTotals.CountAsync(session, lines, header.Id, ct),
             Header = await barakoCMS.Features.Content.Get.EntryResponse.BuildAsync(header, session, sourcing, sensitivity, HttpContext, ct, files),
         };
         foreach (var child in children)

@@ -30,7 +30,7 @@ internal class Request
 /// </summary>
 internal class RequestValidator : FastEndpoints.Validator<Request>
 {
-    public const int MaxLines = 200;
+    public const int MaxLines = LineTotals.MaxLines;
 
     public RequestValidator()
     {

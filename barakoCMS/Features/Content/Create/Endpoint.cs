@@ -39,7 +39,7 @@ internal class Endpoint(
             Sensitivity = req.Sensitivity,
         };
 
-        if (req.Lines is { Count: > 0 })
+        if (req.Lines is { Count: > 0 } || await DeclaresTotalAsync(req.ContentType, ct))
         {
             await CreateWithLinesAsync(req, request, userId, user, ct);
             return;
@@ -87,6 +87,12 @@ internal class Endpoint(
         });
     }
 
+    private async Task<bool> DeclaresTotalAsync(string contentType, CancellationToken ct)
+    {
+        var name = barakoCMS.Core.ContentTypeName.Normalize(contentType);
+        return (await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == name, ct))?.Lines?.TotalField is not null;
+    }
+
     /// <summary>
     /// A header and its lines, written in one transaction. Nothing is stored unless every entry
     /// passes, and a refused line names its position.
@@ -122,16 +128,9 @@ internal class Endpoint(
             ContentType = request.ContentType, Data = request.Data, Status = request.Status,
             Sensitivity = request.Sensitivity, Id = headerId,
         };
-        var lines = req.Lines!.Select(l => LineWriter.Line(lineType, l, headerId, req.Status, req.Sensitivity)).ToList();
+        var lines = (req.Lines ?? []).Select(l => LineWriter.Line(lineType, l, headerId, req.Status, req.Sensitivity)).ToList();
 
-        if (LineWriter.TotalMismatch(lineType, header.Data, lines) is { } mismatch)
-        {
-            AddError(mismatch);
-            ThrowIfAnyErrors();
-            return;
-        }
-
-        if (!await permissionResolver.CanPerformActionAsync(user, lineType.ContentType, "create", null, ct))
+        if (lines.Count > 0 && !await permissionResolver.CanPerformActionAsync(user, lineType.ContentType, "create", null, ct))
         {
             await Send.ForbiddenAsync(ct);
             return;
@@ -139,7 +138,7 @@ internal class Endpoint(
 
         var result = await LineWriter.WriteAsync(
             runner, header, lines, userId, req.DryRun, HttpContext,
-            entry => permissionResolver.AllowsCreatedEntryAsync(user, entry, ct), ct);
+            entry => permissionResolver.AllowsCreatedEntryAsync(user, entry, ct), lineType, ct);
         if (result.Forbidden)
         {
             await Send.ForbiddenAsync(ct);
@@ -155,7 +154,8 @@ internal class Endpoint(
 
         await Send.ResponseAsync(req.DryRun
             ? new Response { DryRun = true, Changes = barakoCMS.Core.Validation.DryRuns.Between(null, header.Data) }
-            : new Response { Id = headerId, Version = 1, LineIds = result.LineIds }, cancellation: ct);
+            
+            : new Response { Id = headerId, Version = 1, LineIds = req.Lines is null ? null : result.LineIds }, cancellation: ct);
     }
 
     /// <summary>The signed-in user the write is made for.</summary>

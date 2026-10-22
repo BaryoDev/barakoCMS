@@ -23,6 +23,7 @@ internal static class LineWriter
         bool dryRun,
         Microsoft.AspNetCore.Http.HttpContext httpContext,
         Func<ContentCreateRequest, Task<bool>> admit,
+        LinesDefinition definition,
         CancellationToken ct) =>
         runner.RunAsync(async (scope, token) =>
         {
@@ -44,6 +45,11 @@ internal static class LineWriter
                 if (lineResult.Errors.Count == 0 && !forbidden)
                     lineIds.Add(lines[i].Id!.Value);
             }
+
+            // After every entry has been through its hooks and numbering, on the data that was stored.
+            if (errors.Count == 0 && !forbidden)
+                errors.AddRange(LineTotals.Mismatches(
+                    definition, header.Data, lines.Select(l => (IDictionary<string, object>)l.Data)));
 
             return new ContentBatchOutcome<LinesResult>(
                 new LinesResult(lineIds, errors, forbidden), errors.Count == 0 && !forbidden && !dryRun);
@@ -80,31 +86,6 @@ internal static class LineWriter
             session.EjectAllPendingChanges();
             return ([prefix + ex.Message], false);
         }
-    }
-
-    /// <summary>
-    /// The refusal when the header's total does not equal the sum of its lines' amounts, or null
-    /// when the type declares no such rule or the totals agree.
-    /// </summary>
-    public static string? TotalMismatch(LinesDefinition lines, IDictionary<string, object>? header, IEnumerable<ContentCreateRequest> entries)
-    {
-        if (lines.TotalField is null || lines.LineAmountField is null) return null;
-
-        var total = Read(header, lines.TotalField);
-        var sum = 0m;
-        foreach (var entry in entries) sum += Read(entry.Data, lines.LineAmountField) ?? 0m;
-        return total == sum
-            ? null
-            : $"'{lines.TotalField}' is {total?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "missing"}, but the lines add up to {sum.ToString(System.Globalization.CultureInfo.InvariantCulture)}.";
-    }
-
-    private static decimal? Read(IDictionary<string, object>? data, string field)
-    {
-        var hit = data?.FirstOrDefault(kv => string.Equals(kv.Key, field, StringComparison.OrdinalIgnoreCase));
-        var text = hit?.Value?.ToString();
-        return decimal.TryParse(text, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var n)
-            ? n
-            : null;
     }
 
     /// <summary>A line request with the parent field set to the header, whatever the caller sent there.</summary>

@@ -85,8 +85,27 @@ internal sealed class Endpoint(
         await Send.OkAsync(new Response { Classification = "additive" }, ct);
     }
 
+    /// <summary>Refuses a change to a field that another type's lines name on this type: its parent field or its line amount.</summary>
+    private async Task RefuseWhileHeaderNamesAsync(ContentTypeDefinition definition, FieldDefinition field, CancellationToken ct)
+    {
+        var type = barakoCMS.Core.ContentTypeName.Normalize(definition.Name);
+        var headers = (await session.Query<ContentTypeDefinition>().ToListAsync(ct))
+            .Where(h => h.Lines is { } l
+                && barakoCMS.Core.ContentTypeName.Normalize(l.ContentType) == type
+                && (string.Equals(l.ParentField, field.Name, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(l.LineAmountField, field.Name, StringComparison.OrdinalIgnoreCase)))
+            .Select(h => $"the lines of '{h.Name}'")
+            .ToList();
+        if (headers.Count > 0)
+        {
+            AddError($"'{field.Name}' is named by {string.Join(", ", headers)}. Take it out of them first.");
+            ThrowIfAnyErrors();
+        }
+    }
+
     private async Task RenameAsync(ContentTypeDefinition definition, FieldDefinition field, string newName, CancellationToken ct)
     {
+        await RefuseWhileHeaderNamesAsync(definition, field, ct);
         if (string.Equals(newName, field.Name, StringComparison.OrdinalIgnoreCase))
         {
             AddError($"'{newName}' differs from '{field.Name}' only in case, and fields are matched ignoring case.");
@@ -154,6 +173,7 @@ internal sealed class Endpoint(
     /// <summary>A convert or a remove: refused while the type's rules name the field, and when it drops values, unless allowed.</summary>
     private async Task ReshapeAsync(ContentTypeDefinition definition, FieldDefinition field, Request req, CancellationToken ct)
     {
+        await RefuseWhileHeaderNamesAsync(definition, field, ct);
         if (barakoCMS.Core.Validation.FieldNames.NamedBy(definition, field.Name) is { Count: > 0 } named)
         {
             AddError($"'{field.Name}' is named by {string.Join(", ", named)}. Take it out of them first.");
