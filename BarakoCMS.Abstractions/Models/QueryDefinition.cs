@@ -58,6 +58,18 @@ public class QueryDefinition
     /// </remarks>
     public List<string> Fields { get; set; } = new();
 
+    /// <summary>The date window an aggregate counts inside, or null for every entry.</summary>
+    public QueryRange? Range { get; set; }
+
+    /// <summary>What an aggregate groups by. Null or empty for a query that returns rows.</summary>
+    public List<QueryGroup>? GroupBy { get; set; }
+
+    /// <summary>What an aggregate computes per group. A query with any is an aggregate.</summary>
+    public List<QueryMeasure>? Measures { get; set; }
+
+    /// <summary>True when the query computes figures in the database instead of returning rows.</summary>
+    public bool IsAggregate => Measures is { Count: > 0 };
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
@@ -77,4 +89,42 @@ public class QueryFilter
     public string Op { get; set; } = "eq";
 
     public string Value { get; set; } = string.Empty;
+}
+
+/// <summary>A date field and the window it must fall in. A relative window or fixed bounds, not both.</summary>
+public class QueryRange
+{
+    public string Field { get; set; } = string.Empty;
+
+    /// <summary>today, last7Days, last30Days, thisMonth, lastMonth or thisYear.</summary>
+    public string? Relative { get; set; }
+
+    /// <summary>First day, as yyyy-MM-dd, in the tenant's time zone.</summary>
+    public string? From { get; set; }
+
+    /// <summary>Last day, as yyyy-MM-dd, in the tenant's time zone.</summary>
+    public string? To { get; set; }
+}
+
+/// <summary>One grouping column. A bucket turns a date field into day, month or year.</summary>
+public class QueryGroup
+{
+    public string Field { get; set; } = string.Empty;
+
+    public string? Bucket { get; set; }
+}
+
+/// <summary>One figure per group: sum, count, avg, min or max of a field, or of a field one reference away.</summary>
+public class QueryMeasure
+{
+    public string Fn { get; set; } = string.Empty;
+
+    /// <summary>Null for a plain count of entries.</summary>
+    public string? Field { get; set; }
+
+    /// <summary>The name the figure carries in a row.</summary>
+    public string As { get; set; } = string.Empty;
+
+    /// <summary>A reference field on the queried type. The measure is taken over the entries it names.</summary>
+    public string? Via { get; set; }
 }

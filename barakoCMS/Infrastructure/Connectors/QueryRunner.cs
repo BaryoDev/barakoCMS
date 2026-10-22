@@ -41,6 +41,11 @@ internal sealed class QueryRunner(IQuerySession session) : IQueryRunner
 
     public async Task<string?> ValidateAsync(QueryDefinition definition, CancellationToken ct)
     {
+        if (definition.IsAggregate)
+        {
+            return "An aggregate query computes figures for a signed-in reader and cannot feed a workflow. Run it from the queries API.";
+        }
+
         var schema = await session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(d => d.Name == definition.ContentType, ct);
 
