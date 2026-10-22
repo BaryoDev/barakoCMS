@@ -239,25 +239,12 @@ internal sealed class CollectionSyncRunner(
 
             if (existing is null)
             {
-                await writer.CreateAsync(
-                    new ContentCreated(
-                        id, sync.ContentType, mapped, sync.EntryStatus, SystemActor,
-                        SearchText(mapped, schema), SensitivityLevel.Public, DateTime.UtcNow),
-                    ct);
-
-                await session.SaveChangesAsync(ct);
+                await CreateEntryAsync(sync, schema, id, mapped, ct);
                 created++;
                 continue;
             }
 
-            // Started from what is stored, so a field an editor filled in by hand and the mapping
-            // does not name survives the next sync. Only mapped fields are overwritten.
-            var merged = new Dictionary<string, object>(existing.Data, StringComparer.Ordinal);
-            foreach (var (field, value) in mapped)
-            {
-                merged[field] = Floor(sync, field, existing.Data, value);
-            }
-
+            var merged = Merged(sync, existing.Data, mapped);
             var changed = Changed(existing.Data, merged);
             var restore = sync.ArchiveMissing
                 && existing.Status == ContentStatus.Archived
@@ -269,13 +256,10 @@ internal sealed class CollectionSyncRunner(
                 continue;
             }
 
-            // The same hooks an edit by hand goes through, so a rule a type keeps (a posted entry
-            // that may not change, say) holds for a sync too. A row they refuse is skipped.
-            if (changed
-                && await lifecycle.RunBeforeSaveAsync(sync.ContentType, id, merged, existing.Data, SystemActor, ct) is { Count: > 0 } refused)
+            if (changed && await RefusalAsync(sync.ContentType, id, merged, existing.Data, ct) is { } refusal)
             {
                 skipped++;
-                firstSkip ??= string.Join(" ", refused);
+                firstSkip ??= refusal;
                 continue;
             }
 
@@ -314,6 +298,45 @@ internal sealed class CollectionSyncRunner(
             Produced = produced,
             ReadAll = payload.Rows.Count > 0 && !payload.Truncated && !fetched.HasNextPage && skipped == 0,
         };
+    }
+
+    private async Task CreateEntryAsync(
+        CollectionSync sync, ContentTypeDefinition schema, Guid id, Dictionary<string, object> mapped, CancellationToken ct)
+    {
+        await writer.CreateAsync(
+            new ContentCreated(
+                id, sync.ContentType, mapped, sync.EntryStatus, SystemActor,
+                SearchText(mapped, schema), SensitivityLevel.Public, DateTime.UtcNow),
+            ct);
+
+        await session.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// The stored entry with the mapped fields written over it. Started from what is stored, so a
+    /// field an editor filled in by hand and the mapping does not name survives the next sync.
+    /// </summary>
+    private static Dictionary<string, object> Merged(
+        CollectionSync sync, Dictionary<string, object> stored, Dictionary<string, object> mapped)
+    {
+        var merged = new Dictionary<string, object>(stored, StringComparer.Ordinal);
+        foreach (var (field, value) in mapped)
+        {
+            merged[field] = Floor(sync, field, stored, value);
+        }
+
+        return merged;
+    }
+
+    /// <summary>
+    /// Runs the same hooks an edit by hand goes through, so a rule a type keeps (a posted entry that
+    /// may not change, say) holds for a sync too. Returns why they refused the row, or null.
+    /// </summary>
+    private async Task<string?> RefusalAsync(
+        string contentType, Guid id, Dictionary<string, object> merged, Dictionary<string, object> stored, CancellationToken ct)
+    {
+        var refused = await lifecycle.RunBeforeSaveAsync(contentType, id, merged, stored, SystemActor, ct);
+        return refused.Count > 0 ? string.Join(" ", refused) : null;
     }
 
     private async Task<(string? Body, string? Error, bool HasNextPage)> FetchAsync(CollectionSync sync, CancellationToken ct)
