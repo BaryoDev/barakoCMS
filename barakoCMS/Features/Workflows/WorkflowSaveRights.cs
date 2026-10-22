@@ -10,9 +10,9 @@ namespace barakoCMS.Features.Workflows;
 /// What the user saving a workflow must hold for the content actions it carries.
 /// </summary>
 /// <remarks>
-/// CreateContent, CreateTask, UpdateField and Transition run as the system, with the permission checks skipped. Saving a
+/// CreateContent, CreateEntry, CreateTask, UpdateField and Transition run as the system, with the permission checks skipped. Saving a
 /// workflow is the one moment a person chooses what they do, so that person is asked then: they
-/// need create on each type a CreateContent or CreateTask action names, update on each type an
+/// need create on each type a CreateContent, CreateEntry or CreateTask action names, update on each type an
 /// UpdateField action writes, and the transition right on each type
 /// and transition a Transition action names. Without this, the ManageWorkflows capability would be
 /// a way to write and move entries a role was never given. Actions inside a Conditional's branches
@@ -57,6 +57,10 @@ internal static class WorkflowSaveRights
         {
             var type = action.Parameters.GetValueOrDefault("ContentType")?.Trim() ?? "";
             if (string.Equals(action.Type, "CreateContent", StringComparison.OrdinalIgnoreCase))
+            {
+                yield return (type, "create", $"You cannot create '{type}' entries, so you cannot save a workflow that does.");
+            }
+            else if (string.Equals(action.Type, "CreateEntry", StringComparison.OrdinalIgnoreCase))
             {
                 yield return (type, "create", $"You cannot create '{type}' entries, so you cannot save a workflow that does.");
             }

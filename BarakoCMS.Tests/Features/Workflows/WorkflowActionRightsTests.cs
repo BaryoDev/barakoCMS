@@ -49,6 +49,20 @@ public class WorkflowActionRightsTests(IntegrationTestFixture fixture)
     }
 
     [Fact]
+    public async Task A_user_without_create_rights_cannot_save_a_create_entry_workflow()
+    {
+        var type = await StoreTypeAsync();
+        var client = await CallerAsync();
+
+        var response = await client.PostAsJsonAsync("/api/workflows",
+            Workflow(type, Action("CreateEntry", ("ContentType", type))), Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await response.Content.ReadAsStringAsync(Ct)).Should()
+            .Contain($"You cannot create '{type}' entries, so you cannot save a workflow that does.");
+    }
+
+    [Fact]
     public async Task A_user_with_create_rights_can_save_a_create_content_workflow()
     {
         var type = await StoreTypeAsync();
