@@ -19,8 +19,13 @@ dotnet add package BarakoCMS.Notifications
 builder.Services.AddBarakoCMS(builder.Configuration);
 ```
 
-The module is found and registered like every first-party module. Its table is created on first
-boot, or by `migrations/5.2.0/notifications.sql` ahead of a deploy.
+The package reference plus a restart is the install. `AddBarakoCMS` finds every module in the
+application's dependency context, and `BarakoCMS:Modules:Enabled` decides which of them run
+(`BarakoCMS__Modules__Enabled=Notifications`). Unset, every referenced module runs and the API logs
+one warning saying so. To name it by hand instead, put
+`modules.Add(new BarakoCMS.Notifications.NotificationsModule())`
+in the `AddBarakoCMS` callback; discovery skips a type the host already added. Its table is created
+on first boot, or by `migrations/5.2.0/notifications.sql` ahead of a deploy.
 
 ## Raise one from a module
 
