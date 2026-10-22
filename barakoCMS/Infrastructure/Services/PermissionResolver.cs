@@ -254,7 +254,7 @@ public partial class PermissionResolver(
         if (roles.Any(r => r.Id == Models.SystemRoles.SuperAdminRoleId))
             return true;
 
-        return roles.Any(r => Models.SystemCapabilities.Satisfies(r.SystemCapabilities, capability));
+        return roles.Any(r => Models.SystemCapabilities.Satisfies(r.SystemCapabilities ?? [], capability));
     }
 
     // No caching in the inner resolver, so invalidation is a no-op here. The CachedPermissionResolver

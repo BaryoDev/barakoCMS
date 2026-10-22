@@ -113,6 +113,24 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             base.ConfigureClient(client);
         }
 
+        // A test that disposes its own derived host (using var) leaves FastEndpoints' static
+        // resolver on the disposed provider until another host starts, and anything that issues a
+        // token outside a request fails in between. Every disposal puts it back, not only a release.
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+            if (disposing)
+            {
+                root.RepairResolver();
+            }
+        }
+
+        public override async ValueTask DisposeAsync()
+        {
+            await base.DisposeAsync();
+            root.RepairResolver();
+        }
+
         private void ThrowIfReleased()
         {
             if (_released is { } when)
@@ -124,6 +142,9 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             }
         }
     }
+
+    private void RepairResolver() =>
+        FastEndpointsResolver.Exclusively(() => FastEndpointsResolver.RepairIfDisposed(_startedHosts.Reverse()));
 
     private static string CurrentClass() =>
         TestContext.Current.TestClass?.TestClassName
