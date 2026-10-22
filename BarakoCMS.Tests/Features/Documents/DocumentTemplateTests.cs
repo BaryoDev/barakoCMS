@@ -146,4 +146,31 @@ public class DocumentTemplateTests
 
         act.Should().Throw<DocumentTooLongException>();
     }
+
+    [Fact]
+    public void A_filled_value_over_the_character_cap_is_refused()
+    {
+        var content = new Content
+        {
+            ContentType = "invoice",
+            Data = new() { ["Number"] = string.Join(' ', Enumerable.Repeat("ab", 12_000)) },
+        };
+        var parsed = DocumentTemplateParser.Parse("{{Number}}");
+        parsed.Ok.Should().BeTrue();
+
+        var act = () => PdfRenderer.Render(parsed, content);
+
+        act.Should().Throw<DocumentTooLongException>().WithMessage("*characters*");
+    }
+
+    [Fact]
+    public void A_document_over_the_wrapped_line_cap_is_refused_before_the_page_limit()
+    {
+        var parsed = new ParsedTemplate("A4",
+            Enumerable.Range(0, 2_500).Select(_ => new Block(BlockKind.Paragraph, ["line"])).ToList(), []);
+
+        var act = () => PdfRenderer.Render(parsed, new Content { ContentType = "invoice" });
+
+        act.Should().Throw<DocumentTooLongException>().WithMessage("*lines*");
+    }
 }
