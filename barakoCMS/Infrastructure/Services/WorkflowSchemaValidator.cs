@@ -264,7 +264,8 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
             foreach (var (name, template) in action.Parameters)
             {
                 var field = $"actions[{i}].parameters.{name}";
-                var resolvedByTheAction = ActionParameters.IsResolvedByTheAction(action.Type ?? string.Empty, name);
+                var resolvedByTheAction = ActionParameters.IsResolvedByTheAction(action.Type ?? string.Empty, name)
+                    && !ActionParameters.ReadsStepOutputsItself(action.Type ?? string.Empty, name);
 
                 foreach (var (ordinal, output) in ActionOutputs.References(template))
                 {

@@ -1023,6 +1023,7 @@ internal sealed class WorkflowRunner(
                 TriggerEvent = run.TriggerEvent,
                 TenantId = TenantScopes.SlugFor(tenantId),
                 Outputs = outputs,
+                ProducedFiles = ActionOutputs.KeptFiles(run),
             }, ct);
             timer.Stop();
 
@@ -1068,7 +1069,10 @@ internal sealed class WorkflowRunner(
         var notes = templateNotes.Concat(dropped is null ? [] : [dropped]).ToList();
         return new Outcome(
             AttemptStatus.Succeeded, notes.Count == 0 ? null : string.Join(" ", notes), elapsedMs, Outputs: kept,
-            ResponseStatus: result.ResponseStatus);
+            ResponseStatus: result.ResponseStatus,
+            ProducedFiles: result.ProducedFiles is { Count: > 0 }
+                ? [.. result.ProducedFiles.Where(id => id != Guid.Empty).Distinct().Take(WorkflowActionResult.MaxProducedFiles)]
+                : null);
     }
 
     private static Outcome NoHandler(WorkflowActionSet handlers, string actionType) =>
@@ -1153,6 +1157,7 @@ internal sealed class WorkflowRunner(
 
         attempt.Status = outcome.Status;
         attempt.Outputs = outcome.Status == AttemptStatus.Succeeded ? outcome.Outputs : null;
+        attempt.ProducedFiles = outcome.Status == AttemptStatus.Succeeded ? outcome.ProducedFiles : null;
         attempt.Retryable = outcome.Status == AttemptStatus.Failed ? outcome.Retryable : null;
         attempt.NextAttemptAt = null;
         attempt.CompletedAt = DateTimeOffset.UtcNow;
@@ -1201,10 +1206,12 @@ internal sealed class WorkflowRunner(
     /// <param name="ElapsedMs">How long the action took.</param>
     /// <param name="Retryable">For a failure, whether trying again could change the answer.</param>
     /// <param name="Outputs">On a success, the outputs the workflow captures, already filtered.</param>
+    /// <param name="ProducedFiles">On a success, the stored files the action declared it made on this run.</param>
     /// <param name="ResponseStatus">The status the action's remote call answered with, when it reported one.</param>
     /// <param name="Outbox">On a success, the messages the action queued, stored in the save that records the outcome.</param>
     /// <param name="Registered">Whether a handler was found for the action type. Only then is the type used as a metric label.</param>
     private readonly record struct Outcome(
         AttemptStatus Status, string? Error, long ElapsedMs, bool Retryable = true, bool Registered = true,
-        Dictionary<string, string>? Outputs = null, int? ResponseStatus = null, IReadOnlyList<OutboxMessage>? Outbox = null);
+        Dictionary<string, string>? Outputs = null, int? ResponseStatus = null, IReadOnlyList<OutboxMessage>? Outbox = null,
+        List<Guid>? ProducedFiles = null);
 }

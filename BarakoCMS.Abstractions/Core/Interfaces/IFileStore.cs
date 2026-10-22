@@ -89,6 +89,25 @@ public interface IFileStore
         throw new NotSupportedException($"{GetType().Name} does not read a file for a caller.");
 
     /// <summary>
+    /// The record of a file by id, public or private, for code that has already established the
+    /// file is one a workflow run produced. Null when this tenant has no such file.
+    /// </summary>
+    /// <remarks>
+    /// No access rule is applied here, so this is not a way to serve a file to a person. The
+    /// caller is responsible for the right to read it: the runner checks the id against the files
+    /// the run's own steps declared, never against text a workflow or an entry supplied.
+    /// </remarks>
+    Task<StoredFileInfo?> FindForRunAsync(Guid id, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException($"{GetType().Name} does not read a file for a run.");
+
+    /// <summary>
+    /// The bytes of the file <see cref="FindForRunAsync"/> would answer, from the start, or null
+    /// when it would answer null or the bytes are gone. The caller disposes the stream.
+    /// </summary>
+    Task<Stream?> OpenForRunAsync(Guid id, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException($"{GetType().Name} does not read a file for a run.");
+
+    /// <summary>
     /// Stores a new file in the scope's tenant and commits it.
     /// </summary>
     /// <remarks>

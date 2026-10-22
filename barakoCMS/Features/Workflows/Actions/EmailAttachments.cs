@@ -69,6 +69,11 @@ internal sealed record EmailAttachmentLimits(int MaxCount, long MaxFileBytes, lo
 /// only when the entry the workflow is running for names it in one of its fields and the file is
 /// public, which means anyone holding its URL can already download it. Naming a file is not enough
 /// on its own, because whoever can write the field can name any file.
+///
+/// The one other file that may be attached, private or not, is one an earlier step of the same
+/// run declared it produced, read as <c>{{actions.N.name}}</c>. The run made it and nobody chose it
+/// by writing a field. The id is checked against the files the run's own record lists for step N,
+/// never against the text of the parameter or the output.
 /// </remarks>
 internal static class EmailAttachments
 {
@@ -85,6 +90,11 @@ internal static class EmailAttachments
         @"^\{\{\s*data\.(?<field>[A-Za-z0-9_.]+)\s*\}\}\z",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
+    // One placeholder that reads an earlier step's output, the syntax ActionOutputs reads.
+    private static readonly Regex RunReference = new(
+        @"^\{\{\s*actions\.(?<ordinal>[0-9]{1,4})\.(?<name>[A-Za-z0-9_]{1,64})\s*\}\}\z",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     private static readonly Regex MediaType = new(
         @"^[A-Za-z0-9!#$&^_.+-]{1,127}/[A-Za-z0-9!#$&^_.+-]{1,127}\z",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -95,8 +105,12 @@ internal static class EmailAttachments
     private static Resolution Refuse(string reason) =>
         new(Array.Empty<EmailAttachment>(), WorkflowActionResult.PermanentFailure(reason));
 
+    /// <summary>One file to attach: its id, and whether the run made it.</summary>
+    private readonly record struct Wanted(Guid Id, bool FromRun);
+
     public static async Task<Resolution> ResolveAsync(
-        string named, barakoCMS.Models.Content content, IFileStore? files, EmailAttachmentLimits limits, CancellationToken ct)
+        string named, barakoCMS.Models.Content content, IFileStore? files, EmailAttachmentLimits limits,
+        WorkflowContext? run, CancellationToken ct)
     {
         if (limits.InvalidKey is { } key)
         {
@@ -108,74 +122,160 @@ internal static class EmailAttachments
             return Refuse("No module that stores files is enabled, so nothing can be attached. Enable BarakoCMS.Files and restart.");
         }
 
-        var items = Items(named, content);
-        if (items.Count == 0)
+        var (references, rest) = SplitRunReferences(named);
+        IReadOnlyList<string> items = rest is null ? [] : Items(rest, content);
+        if (references.Count + items.Count == 0)
         {
             return Refuse("The 'Attachments' parameter names no file. The list it is filled from is empty.");
         }
 
-        if (items.Count > limits.MaxCount)
+        if (references.Count + items.Count > limits.MaxCount)
         {
             return Refuse(
-                $"The email names {items.Count} attachments, over the limit of {limits.MaxCount} in {EmailAttachmentLimits.MaxCountKey}.");
+                $"The email names {references.Count + items.Count} attachments, over the limit of {limits.MaxCount} in {EmailAttachmentLimits.MaxCountKey}.");
         }
 
-        var ids = new List<Guid>(items.Count);
-        for (var i = 0; i < items.Count; i++)
+        var wanted = new List<Wanted>(references.Count + items.Count);
+        foreach (var (ordinal, name) in references)
         {
-            var item = items[i].Trim(' ', '\t', '\r', '\n');
+            var (file, refusal) = ReadRunFile(ordinal, name, wanted.Count, run);
+            if (refusal is not null)
+            {
+                return new Resolution(Array.Empty<EmailAttachment>(), refusal);
+            }
+
+            wanted.Add(file);
+        }
+
+        foreach (var raw in items)
+        {
+            var item = raw.Trim(' ', '\t', '\r', '\n');
             if (item.Length == 0)
             {
-                return Refuse($"Attachment {i + 1} names no file. The field it is filled from is empty.");
+                return Refuse($"Attachment {wanted.Count + 1} names no file. The field it is filled from is empty.");
             }
 
             if (!TryReadFileId(item, out var id))
             {
-                return Refuse($"Attachment {i + 1} is not a file id or a link to a stored file.");
+                return Refuse($"Attachment {wanted.Count + 1} is not a file id or a link to a stored file.");
             }
 
             // Before the store is asked anything, so a run cannot be used to learn whether a file
             // the entry does not name exists.
             if (!References(content, id))
             {
-                return Refuse(NotAttachable(i));
+                return Refuse(NotAttachable(wanted.Count));
             }
 
-            ids.Add(id);
+            wanted.Add(new Wanted(id, FromRun: false));
         }
 
-        var found = new List<StoredFileInfo>(ids.Count);
-        long declared = 0;
-        for (var i = 0; i < ids.Count; i++)
+        var (found, refused) = await FindAllAsync(wanted, files, limits, ct);
+        return refused is not null
+            ? new Resolution(Array.Empty<EmailAttachment>(), refused)
+            : await ReadAllAsync(found, wanted, files, limits, ct);
+    }
+
+    /// <summary>
+    /// The placeholders in the parameter that read an earlier step's output, and the rest of it for
+    /// the entry's own rules. A parameter with none comes back whole.
+    /// </summary>
+    private static (List<(int Ordinal, string Name)> References, string? Rest) SplitRunReferences(string named)
+    {
+        var references = new List<(int Ordinal, string Name)>();
+        var rest = new List<string>();
+        foreach (var piece in named.Split(',', ';', '\n'))
         {
-            var info = await files.FindPublicAsync(ids[i], ct);
+            var match = RunReference.Match(piece.Trim());
+            if (match.Success)
+            {
+                references.Add((int.Parse(match.Groups["ordinal"].Value, CultureInfo.InvariantCulture), match.Groups["name"].Value));
+            }
+            else if (piece.Trim().Length > 0)
+            {
+                rest.Add(piece);
+            }
+        }
+
+        return references.Count == 0 ? (references, named) : (references, rest.Count == 0 ? null : string.Join(',', rest));
+    }
+
+    /// <summary>
+    /// The file an earlier step's output names, when the run's own record says that step produced
+    /// it. The output's text alone decides nothing: a step can capture any id, and only a file the
+    /// action declared on its attempt is one this run made.
+    /// </summary>
+    private static (Wanted File, WorkflowActionResult? Refusal) ReadRunFile(int ordinal, string name, int index, WorkflowContext? run)
+    {
+        if (run is null)
+        {
+            return (default, WorkflowActionResult.PermanentFailure(
+                $"Attachment {index + 1} reads a step output, which this way of running the email cannot supply."));
+        }
+
+        if (!run.Outputs.TryGetValue(ordinal, out var kept) || !kept.TryGetValue(name, out var text))
+        {
+            // Retryable, as every other parameter that reads an output is: an earlier step can still be waiting on its own retry.
+            return (default, WorkflowActionResult.Failure(
+                $"Attachment {index + 1} reads {{{{actions.{ordinal}.{name}}}}}, and action {ordinal} has not "
+                + "succeeded with that output captured. It is tried again once it has."));
+        }
+
+        if (!Guid.TryParseExact(text.Trim(), "D", out var id))
+        {
+            return (default, WorkflowActionResult.PermanentFailure($"Attachment {index + 1} is not a file id."));
+        }
+
+        return run.ProducedFiles.TryGetValue(ordinal, out var produced) && produced.Contains(id)
+            ? (new Wanted(id, FromRun: true), null)
+            : (default, WorkflowActionResult.PermanentFailure(NotAttachable(index)));
+    }
+
+    private static async Task<(List<StoredFileInfo> Files, WorkflowActionResult? Refusal)> FindAllAsync(
+        List<Wanted> wanted, IFileStore files, EmailAttachmentLimits limits, CancellationToken ct)
+    {
+        var found = new List<StoredFileInfo>(wanted.Count);
+        long declared = 0;
+        for (var i = 0; i < wanted.Count; i++)
+        {
+            var info = wanted[i].FromRun
+                ? await files.FindForRunAsync(wanted[i].Id, ct)
+                : await files.FindPublicAsync(wanted[i].Id, ct);
             if (info is null)
             {
-                return Refuse(NotAttachable(i));
+                return (found, WorkflowActionResult.PermanentFailure(wanted[i].FromRun ? RunFileGone(i) : NotAttachable(i)));
             }
 
             if (info.Size > limits.MaxFileBytes)
             {
-                return Refuse(OverFileLimit(i, limits));
+                return (found, WorkflowActionResult.PermanentFailure(OverFileLimit(i, limits)));
             }
 
             declared += info.Size;
             if (declared > limits.MaxTotalBytes)
             {
-                return Refuse(OverTotalLimit(limits));
+                return (found, WorkflowActionResult.PermanentFailure(OverTotalLimit(limits)));
             }
 
             found.Add(info);
         }
 
+        return (found, null);
+    }
+
+    private static async Task<Resolution> ReadAllAsync(
+        List<StoredFileInfo> found, List<Wanted> wanted, IFileStore files, EmailAttachmentLimits limits, CancellationToken ct)
+    {
         var attachments = new List<EmailAttachment>(found.Count);
         long total = 0;
         for (var i = 0; i < found.Count; i++)
         {
-            await using var stream = await files.OpenPublicAsync(found[i].Id, ct);
+            await using var stream = wanted[i].FromRun
+                ? await files.OpenForRunAsync(found[i].Id, ct)
+                : await files.OpenPublicAsync(found[i].Id, ct);
             if (stream is null)
             {
-                return Refuse(NotAttachable(i));
+                return Refuse(wanted[i].FromRun ? RunFileGone(i) : NotAttachable(i));
             }
 
             // The recorded size was checked above, before the store was asked for any bytes. This is
@@ -203,6 +303,9 @@ internal static class EmailAttachments
 
         return new Resolution(attachments, null);
     }
+
+    private static string RunFileGone(int index) =>
+        $"Attachment {index + 1} is a file an earlier step produced, and the store no longer has it.";
 
     // One reason for a file the entry does not name, a file this tenant does not have and a file
     // that is not public, so the run does not say which files exist.

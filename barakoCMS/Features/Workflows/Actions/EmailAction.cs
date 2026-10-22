@@ -76,7 +76,19 @@ internal class EmailAction : IWorkflowAction
     /// rather than a transient one, so it is a <see cref="WorkflowActionResult.PermanentFailure"/>:
     /// retrying does not help until a real <see cref="IEmailService"/> is registered.
     /// </remarks>
-    public async Task<WorkflowActionResult> RunAsync(Dictionary<string, string> parameters, barakoCMS.Models.Content content, CancellationToken ct)
+    public Task<WorkflowActionResult> RunAsync(Dictionary<string, string> parameters, barakoCMS.Models.Content content, CancellationToken ct) =>
+        RunAsync(parameters, content, run: null, ct);
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The runner calls this one. It is the only entry point that can attach a file an earlier step
+    /// of the run produced, because only it is handed what the run's steps made.
+    /// </remarks>
+    public Task<WorkflowActionResult> RunAsync(WorkflowContext context, CancellationToken ct) =>
+        RunAsync(context.Parameters, context.Content, context, ct);
+
+    private async Task<WorkflowActionResult> RunAsync(
+        Dictionary<string, string> parameters, barakoCMS.Models.Content content, WorkflowContext? run, CancellationToken ct)
     {
         var to = parameters.GetValueOrDefault("To", "admin@example.com").Trim();
         var subject = parameters.GetValueOrDefault("Subject", $"Workflow Triggered for Content {content.Id}");
@@ -116,42 +128,10 @@ internal class EmailAction : IWorkflowAction
 
         // Everything that can refuse an attachment happens here, before the send. Nothing after the
         // send reads a file, so a message that went out is never failed over one.
-        IReadOnlyList<EmailAttachment> attachments = Array.Empty<EmailAttachment>();
-        var named = parameters.Where(p => p.Key.Equals(AttachmentsParameter, StringComparison.OrdinalIgnoreCase)).ToList();
-        if (named.Count > 1)
+        var (attachments, attachmentRefusal) = await AttachmentsAsync(parameters, content, run, ct);
+        if (attachmentRefusal is not null)
         {
-            return WorkflowActionResult.PermanentFailure($"The '{AttachmentsParameter}' parameter is declared more than once.");
-        }
-
-        if (named.Count == 1)
-        {
-            if (EmailProvider.IsMock(_emailService))
-            {
-                return WorkflowActionResult.PermanentFailure(
-                    "No email provider is configured, so nothing was sent. Register a real IEmailService and restart.");
-            }
-
-            EmailAttachments.Resolution resolution;
-            try
-            {
-                resolution = await EmailAttachments.ResolveAsync(named[0].Value, content, _files, _limits, ct);
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning("Reading an email attachment failed ({Exception}).", ex.GetType().Name);
-                return WorkflowActionResult.Failure($"A file to attach could not be read ({ex.GetType().Name}).");
-            }
-
-            if (resolution.Refusal is not null)
-            {
-                return resolution.Refusal;
-            }
-
-            attachments = resolution.Files;
+            return attachmentRefusal;
         }
 
         // Retried inside the attempt only on EmailNotSentException, which a provider throws only when
@@ -231,6 +211,45 @@ internal class EmailAction : IWorkflowAction
         }
 
         return WorkflowActionResult.Success();
+    }
+
+    private async Task<(IReadOnlyList<EmailAttachment> Files, WorkflowActionResult? Refusal)> AttachmentsAsync(
+        Dictionary<string, string> parameters, barakoCMS.Models.Content content, WorkflowContext? run, CancellationToken ct)
+    {
+        IReadOnlyList<EmailAttachment> none = Array.Empty<EmailAttachment>();
+        var named = parameters.Where(p => p.Key.Equals(AttachmentsParameter, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (named.Count > 1)
+        {
+            return (none, WorkflowActionResult.PermanentFailure($"The '{AttachmentsParameter}' parameter is declared more than once."));
+        }
+
+        if (named.Count == 0)
+        {
+            return (none, null);
+        }
+
+        if (EmailProvider.IsMock(_emailService))
+        {
+            return (none, WorkflowActionResult.PermanentFailure(
+                "No email provider is configured, so nothing was sent. Register a real IEmailService and restart."));
+        }
+
+        EmailAttachments.Resolution resolution;
+        try
+        {
+            resolution = await EmailAttachments.ResolveAsync(named[0].Value, content, _files, _limits, run, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Reading an email attachment failed ({Exception}).", ex.GetType().Name);
+            return (none, WorkflowActionResult.Failure($"A file to attach could not be read ({ex.GetType().Name})."));
+        }
+
+        return (resolution.Files, resolution.Refusal);
     }
 
     /// <summary>
