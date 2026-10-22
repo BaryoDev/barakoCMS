@@ -469,6 +469,7 @@ public class NamedRateLimitPolicyTests
         Endpoint[] endpoints =
         [
             Naming("/api/auth/login", RateLimitSetup.AuthPolicy),
+            Naming("/api/auth/refresh", RateLimitSetup.RefreshPolicy),
             Naming("/api/auth/logout", RateLimitSetup.LogoutPolicy),
             Naming("/api/tenants/tls-ask", RateLimitSetup.TlsAskPolicy),
             Naming("/api/client-errors", RateLimitSetup.BatchPolicy),
