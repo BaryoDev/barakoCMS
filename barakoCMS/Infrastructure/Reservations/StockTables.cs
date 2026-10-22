@@ -32,12 +32,8 @@ internal static class StockTables
         holds.AddColumn<DateTimeOffset>("created_at").NotNull();
         holds.AddColumn<DateTimeOffset>("expires_at");
         holds.AddColumn<DateTimeOffset>("settled_at");
-        holds.AddIndex(i =>
-        {
-            i.IndexName = "idx_barako_stock_holds_open";
-            i.Columns = ["tenant_id", "counter"];
-            i.Predicate = "status = 'held'";
-        });
+        holds.Indexes.Add(new IndexDefinition("idx_barako_stock_holds_open") { Predicate = "status = 'held'" }
+            .AgainstColumns("tenant_id", "counter"));
         yield return holds;
 
         var movements = new Table(new PostgresqlObjectName(schema, Movements));
@@ -49,11 +45,8 @@ internal static class StockTables
         movements.AddColumn<Guid>("hold_id");
         movements.AddColumn<string>("reference").NotNull();
         movements.AddColumn<DateTimeOffset>("occurred_at").NotNull();
-        movements.AddIndex(i =>
-        {
-            i.IndexName = "idx_barako_stock_movements_counter";
-            i.Columns = ["tenant_id", "counter", "occurred_at"];
-        });
+        movements.Indexes.Add(new IndexDefinition("idx_barako_stock_movements_counter")
+            .AgainstColumns("tenant_id", "counter", "occurred_at"));
         yield return movements;
     }
 }
