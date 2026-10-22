@@ -20,6 +20,7 @@ public sealed class ClinicProbeHost : BarakoTestHost, IAsyncLifetime
     {
         o.Modules.Add(new ClinicProbeModule());
         o.Settings["JWT:Key"] = IntegrationTestFixture.JwtKey;
+        o.Settings["Stock:HoldSweep:Enabled"] = "false";
     })
     {
     }
