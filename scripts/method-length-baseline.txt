@@ -63,7 +63,6 @@
 109 barakoCMS/Features/Public/Endpoints.cs::GetBySlugEndpoint.HandleAsync
 79 barakoCMS/Features/Public/Endpoints.cs::ListPublishedEndpoint.HandleAsync
 75 barakoCMS/Features/Public/Endpoints.cs::PublicDelivery.ResolveIncludesAsync
-99 barakoCMS/Features/Public/Events/ContentChangeListener.cs::ContentChangeListener.BroadcastAsync
 77 barakoCMS/Features/Public/FeedEndpoint.cs::FeedEndpoint.HandleAsync
 93 barakoCMS/Features/Public/SitemapEndpoint.cs::SitemapEndpoint.HandleAsync
 126 barakoCMS/Features/Redirects/ImportEndpoint.cs::ImportRedirectsEndpoint.HandleAsync

@@ -577,13 +577,24 @@ the stream is opt-in, and why it is capped:
   dropped, and the drop is logged once per connection. Nothing a slow subscriber does holds
   memory for anybody else.
 
-### One instance, its own writes
+### Several instances
 
-The stream is fanned out in process, on the instance that committed the write. With several API
-instances behind a load balancer, each streams the writes it handled and nothing else: a subscriber
-connected to instance A does not see a publish that went through instance B. That is the known
-limitation until a shared bus exists between instances; a single-instance deployment sees
-everything. Content types running with `EventSourcing:DocumentTypesAppend` off write no events,
+A change committed on any instance reaches the subscribers on every instance. The writing instance
+streams to its own subscribers directly and sends a Postgres `NOTIFY` on the channel
+`barako_content_events` carrying the tenant, the entry id and the event name, never a field value.
+Each other instance reads the entry again in that tenant and projects it through the same masking as
+the REST reads, using the type definition as it stands when the notice is read. A notice cannot
+loosen masking, whatever it claims. It needs no setting and no new service, only the
+database the instances already share, and it runs whenever `Delivery:Events:Enabled` is on.
+
+Raising a field's sensitivity commits the entry events before the type definition is stored, so an
+instance that reads in that window masks by the old level. A REST read serves the same value in
+that window, so the stream is no looser than REST.
+
+Delivery is still best effort, and no order is promised across instances. A notice sent while an
+instance is reconnecting to the database is not replayed. The connection caps stay per instance.
+
+Content types running with `EventSourcing:DocumentTypesAppend` off write no events,
 so nothing about them is streamed, the same way nothing about them fires a workflow.
 
 ## Serving public content from a module

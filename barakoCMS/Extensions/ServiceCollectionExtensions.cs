@@ -115,7 +115,8 @@ public static class ServiceCollectionExtensions
         // projection.
         options.Listeners.Add(new barakoCMS.Features.Public.Events.ContentChangeListener(
             sp.GetRequiredService<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>(),
-            sp.GetRequiredService<ILogger<barakoCMS.Features.Public.Events.ContentChangeListener>>()));
+            sp.GetRequiredService<ILogger<barakoCMS.Features.Public.Events.ContentChangeListener>>(),
+            sp.GetRequiredService<barakoCMS.Features.Public.Events.ContentChangeBus>()));
 
         // Realtime topic notices, after commit, on this instance. See RealtimeEventListener.
         options.Listeners.Add(new barakoCMS.Infrastructure.Realtime.RealtimeEventListener(
@@ -1237,6 +1238,8 @@ public static class ServiceCollectionExtensions
         // rather than the one passed in here, so a host that layers settings on after this call
         // (the test fixtures do) is read as configured.
         services.AddSingleton<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>();
+        services.AddSingleton<barakoCMS.Features.Public.Events.ContentChangeBus>();
+        services.AddHostedService(sp => sp.GetRequiredService<barakoCMS.Features.Public.Events.ContentChangeBus>());
         services.AddSingleton<barakoCMS.Infrastructure.Multitenancy.PrivateSiteCache>();
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<barakoCMS.Core.Interfaces.INumberAllocator, barakoCMS.Infrastructure.Numbering.GaplessNumberAllocator>();
