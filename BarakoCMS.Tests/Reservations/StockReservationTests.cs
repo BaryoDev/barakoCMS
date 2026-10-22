@@ -473,8 +473,107 @@ public class StockReservationTests(ClinicProbeHost host) : IClassFixture<ClinicP
         await reserve.Should().ThrowAsync<ArgumentException>().WithParameterName("reference");
     }
 
+    [Fact]
+    public async Task An_expiry_and_the_reservation_that_follows_it_read_in_that_order()
+    {
+        var counter = Fresh();
+        var start = DateTimeOffset.UtcNow;
+        var clock = new FixedClock(start);
+        var stock = new StockReservations(clock);
+
+        await using (var first = host.OpenSession())
+        {
+            await stock.ReceiveAsync(first, counter, 1);
+            (await stock.ReserveAsync(first, counter, 1, TimeSpan.FromMinutes(1))).Succeeded.Should().BeTrue();
+            await first.SaveChangesAsync();
+        }
+
+        clock.Now = start.AddMinutes(5);
+        await using (var second = host.OpenSession())
+        {
+            (await stock.ReserveAsync(second, counter, 1)).Succeeded.Should().BeTrue();
+            await second.SaveChangesAsync();
+        }
+
+        await using var read = host.OpenSession();
+        var movements = await stock.MovementsAsync(read, counter);
+
+        movements.Should().HaveCount(4);
+        movements.Select(m => m.Kind).Should().Equal(
+            StockMovementKind.Received, StockMovementKind.Reserved, StockMovementKind.Expired, StockMovementKind.Reserved);
+    }
+
+    [Fact]
+    public async Task Releasing_a_lapsed_hold_before_any_sweep_expires_it_and_returns_false()
+    {
+        var counter = Fresh();
+        await ReceiveAsync(counter, 1);
+        var hold = await ReserveAsync(counter, 1, TimeSpan.FromMilliseconds(1));
+        await Task.Delay(100);
+
+        await using (var session = host.OpenSession())
+        {
+            (await Stock.ReleaseAsync(session, hold.HoldId!.Value)).Should().BeFalse();
+            await session.SaveChangesAsync();
+        }
+
+        await using var read = host.OpenSession();
+        var movements = await Stock.MovementsAsync(read, counter);
+        movements.Should().NotBeEmpty();
+        movements.Select(m => m.Kind).Should().NotContain(StockMovementKind.Released);
+        movements.Should().ContainSingle(m => m.Kind == StockMovementKind.Expired && m.HoldId == hold.HoldId);
+        (await BalanceAsync(counter)).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task One_tenant_failing_does_not_stop_the_sweep_of_the_others()
+    {
+        var tenants = new[] { $"sweep-{Guid.NewGuid():N}"[..16], $"sweep-{Guid.NewGuid():N}"[..16] };
+        foreach (var tenant in tenants)
+        {
+            var counter = Fresh();
+            await ReceiveAsync(counter, 1, tenant: tenant);
+            await ReserveAsync(counter, 1, TimeSpan.FromMilliseconds(1), tenant);
+        }
+        await Task.Delay(100);
+        var failing = new FailsFirstSweep(Stock);
+        var sweeper = new StockHoldSweeper(
+            host.Services.GetRequiredService<IDocumentStore>(), host.Services.GetRequiredService<IConfiguration>(),
+            failing, NullLogger<StockHoldSweeper>.Instance);
+
+        var expired = await sweeper.SweepAsync(DateTimeOffset.UtcNow, default);
+
+        failing.Calls.Should().BeGreaterThanOrEqualTo(2);
+        expired.Should().BeGreaterThanOrEqualTo(1);
+    }
+
+    private sealed class FailsFirstSweep(IStockReservations inner) : IStockReservations
+    {
+        public int Calls { get; private set; }
+
+        public Task<int> ReleaseExpiredAsync(IDocumentSession session, DateTimeOffset? at = null, CancellationToken ct = default) =>
+            ++Calls == 1 ? throw new InvalidOperationException("first tenant fails") : inner.ReleaseExpiredAsync(session, at, ct);
+
+        public Task<long> ReceiveAsync(IDocumentSession session, string counter, long quantity, string reference = "", long floor = 0, CancellationToken ct = default) =>
+            inner.ReceiveAsync(session, counter, quantity, reference, floor, ct);
+
+        public Task<StockReservation> ReserveAsync(IDocumentSession session, string counter, long quantity, TimeSpan? holdFor = null, string reference = "", CancellationToken ct = default) =>
+            inner.ReserveAsync(session, counter, quantity, holdFor, reference, ct);
+
+        public Task<bool> ConfirmAsync(IDocumentSession session, Guid holdId, CancellationToken ct = default) => inner.ConfirmAsync(session, holdId, ct);
+
+        public Task<bool> ReleaseAsync(IDocumentSession session, Guid holdId, CancellationToken ct = default) => inner.ReleaseAsync(session, holdId, ct);
+
+        public Task<long?> BalanceAsync(IQuerySession session, string counter, CancellationToken ct = default) => inner.BalanceAsync(session, counter, ct);
+
+        public Task<IReadOnlyList<StockMovement>> MovementsAsync(IQuerySession session, string counter, CancellationToken ct = default) =>
+            inner.MovementsAsync(session, counter, ct);
+    }
+
     private sealed class FixedClock(DateTimeOffset now) : TimeProvider
     {
-        public override DateTimeOffset GetUtcNow() => now;
+        public DateTimeOffset Now { get; set; } = now;
+
+        public override DateTimeOffset GetUtcNow() => Now;
     }
 }

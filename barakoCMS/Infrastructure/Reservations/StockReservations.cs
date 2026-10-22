@@ -12,6 +12,7 @@ namespace barakoCMS.Infrastructure.Reservations;
 internal sealed class StockReservations(TimeProvider clock) : IStockReservations
 {
     private const int MaxReference = 256;
+    private const int ExpireBatch = 1000;
     private static readonly TimeSpan MaxHold = TimeSpan.FromDays(365);
     private static readonly string Counters = StockTables.Counters;
     private static readonly string Holds = StockTables.Holds;
@@ -52,7 +53,7 @@ internal sealed class StockReservations(TimeProvider clock) : IStockReservations
         await BeginAsync(session, ct);
 
         var now = clock.GetUtcNow();
-        await ExpireAsync(session, now, counter, ct);
+        await ExpireAsync(session, now, counter, null, ct);
 
         var holdId = Guid.NewGuid();
         var expiry = holdFor is { } hold ? "?" : "null::timestamptz";
@@ -108,6 +109,7 @@ internal sealed class StockReservations(TimeProvider clock) : IStockReservations
         await BeginAsync(session, ct);
 
         var now = clock.GetUtcNow();
+        await ExpireAsync(session, now, null, holdId, ct);
         var sql =
             $"with h as (update {Table(session, Holds)} set status = 'released', settled_at = ? "
             + "where tenant_id = ? and id = ? and status = 'held' returning id, counter, quantity), "
@@ -125,7 +127,9 @@ internal sealed class StockReservations(TimeProvider clock) : IStockReservations
     {
         ArgumentNullException.ThrowIfNull(session);
         await BeginAsync(session, ct);
-        return await ExpireAsync(session, (at ?? clock.GetUtcNow()).ToUniversalTime(), null, ct);
+        var cutoff = (at ?? clock.GetUtcNow()).ToUniversalTime();
+
+        return await ExpireAsync(session, cutoff, null, null, ct);
     }
 
     public async Task<long?> BalanceAsync(IQuerySession session, string counter, CancellationToken ct = default)
@@ -147,7 +151,7 @@ internal sealed class StockReservations(TimeProvider clock) : IStockReservations
         ValidateCounter(counter);
         var rows = await session.QueryAsync<MovementRow>(
             "select jsonb_build_object('Counter', counter, 'Kind', kind, 'Delta', delta, 'HoldId', hold_id, 'Reference', reference, 'At', occurred_at) "
-            + $"from {Table(session, Movements)} where tenant_id = ? and counter = ? order by occurred_at, (case kind when 'received' then 0 when 'reserved' then 1 else 2 end), id",
+            + $"from {Table(session, Movements)} where tenant_id = ? and counter = ? order by occurred_at, (case kind when 'received' then 0 when 'expired' then 1 when 'reserved' then 2 else 3 end), id",
             ct, session.TenantId, counter);
 
         return rows
@@ -155,22 +159,38 @@ internal sealed class StockReservations(TimeProvider clock) : IStockReservations
             .ToList();
     }
 
-    private async Task<int> ExpireAsync(IDocumentSession session, DateTimeOffset at, string? counter, CancellationToken ct)
+    private async Task<int> ExpireAsync(IDocumentSession session, DateTimeOffset at, string? counter, Guid? holdId, CancellationToken ct)
     {
-        var only = counter is null ? string.Empty : " and counter = ?";
+        var total = 0;
+        int batch;
+        do
+        {
+            batch = await ExpireBatchAsync(session, at, counter, holdId, ct);
+            total += batch;
+        }
+        while (batch == ExpireBatch);
+        return total;
+    }
+
+    private async Task<int> ExpireBatchAsync(IDocumentSession session, DateTimeOffset at, string? counter, Guid? holdId, CancellationToken ct)
+    {
+        var only = (counter is null ? string.Empty : " and counter = ?") + (holdId is null ? string.Empty : " and id = ?");
         var sql =
-            $"with e as (update {Table(session, Holds)} set status = 'expired', settled_at = ? "
-            + $"where tenant_id = ? and status = 'held' and expires_at is not null and expires_at <= ?{only} returning id, counter, quantity), "
+            $"with e as (update {Table(session, Holds)} set status = 'expired', settled_at = ? where tenant_id = ? and id in "
+            + $"(select id from {Table(session, Holds)} where tenant_id = ? and status = 'held' and expires_at is not null and expires_at <= ?{only} "
+            + "order by expires_at, id limit ?) and status = 'held' returning id, counter, quantity), "
             + "t as (select counter, sum(quantity)::bigint as q from e group by counter), "
             + $"c as (update {Table(session, Counters)} c set balance = c.balance + t.q from t where c.tenant_id = ? and c.counter = t.counter returning 1), "
             + $"m as (insert into {Table(session, Movements)} (tenant_id, id, counter, kind, delta, hold_id, reference, occurred_at) "
             + "select ?, gen_random_uuid(), counter, 'expired', quantity, id, '', ? from e returning 1) "
             + "select quantity from e";
 
-        var args = new List<object> { at, session.TenantId, at };
+        var args = new List<object> { at, session.TenantId, session.TenantId, at };
         if (counter is not null)
             args.Add(counter);
-        args.AddRange([session.TenantId, session.TenantId, at]);
+        if (holdId is not null)
+            args.Add(holdId.Value);
+        args.AddRange([ExpireBatch, session.TenantId, session.TenantId, at]);
 
         var rows = await session.QueryAsync<long>(sql, ct, args.ToArray());
         KeepTransaction(session);
