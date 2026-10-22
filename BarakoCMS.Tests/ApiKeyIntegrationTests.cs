@@ -519,6 +519,8 @@ public class ApiKeyIntegrationTests
     [InlineData("/api/contents")]
     [InlineData("/api/contents/00000000-0000-0000-0000-000000000001")]
     [InlineData("/api/contents/by-slug/counts/x")]
+    [InlineData("/api/contents/counts/x")]
+    [InlineData("/api/contents/counts/erase")]
     [InlineData("/api/content-types")]
     [InlineData("/api/files")]
     public async Task A_monitor_read_key_is_refused_every_other_route(string path)
@@ -544,6 +546,35 @@ public class ApiKeyIntegrationTests
             var res = await _client.SendAsync(WithKey(method, path, secret));
             res.StatusCode.Should().Be(HttpStatusCode.Forbidden, $"{method} {path}");
         }
+    }
+
+    [Fact]
+    public async Task A_monitor_read_key_reads_counts_with_a_trailing_slash()
+    {
+        var (userId, _) = await SuperAdminAsync();
+        var secret = await StoreKeyAsync(userId, new[] { "monitor:read" });
+
+        var res = await _client.SendAsync(Get("/api/contents/counts/", secret));
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task A_monitor_read_key_keeps_the_analytics_capability_check_on_its_owner()
+    {
+        Guid ownerId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            ownerId = Guid.NewGuid();
+            session.Store(new User { Id = ownerId, Username = $"plain-{ownerId}", Email = $"plain-{ownerId}@example.com", RoleIds = new() });
+            await session.SaveChangesAsync();
+        }
+        var secret = await StoreKeyAsync(ownerId, new[] { "monitor:read" });
+
+        var res = await _client.SendAsync(Get("/api/analytics/websites", secret));
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
     [Fact]
