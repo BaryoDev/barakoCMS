@@ -96,6 +96,7 @@ public class WorkflowPluginRegistry : IWorkflowPluginRegistry
                     ? null
                     : metadataAttr.Group.ToString(),
                 RequiredCapability = metadataAttr?.RequiredCapability ?? string.Empty,
+                SelfResolvedParameters = metadataAttr?.SelfResolvedParameters?.ToList() ?? new List<string>(),
                 ExampleConfiguration = metadataAttr?.ExampleJson ?? "{}"
             };
 

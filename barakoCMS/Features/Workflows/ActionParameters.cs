@@ -38,8 +38,16 @@ internal static class ActionParameters
     ///
     /// So is the template an email names: which template is sent is the workflow's choice, never
     /// a value in the entry.
+    ///
+    /// An action can name more of its own with <c>SelfResolvedParameters</c> on its metadata, which
+    /// the registry passed here reports. Callers without a registry only know the built-in ones.
     /// </remarks>
-    public static bool IsResolvedByTheAction(string actionType, string parameter) =>
+    public static bool IsResolvedByTheAction(string actionType, string parameter, IWorkflowPluginRegistry? registry = null) =>
+        IsBuiltInResolvedByTheAction(actionType, parameter)
+        || (registry?.GetActionMetadata(actionType)?.SelfResolvedParameters
+            ?.Contains(parameter, StringComparer.OrdinalIgnoreCase) ?? false);
+
+    private static bool IsBuiltInResolvedByTheAction(string actionType, string parameter) =>
         (actionType == "Conditional"
          && (parameter.Equals("Condition", StringComparison.OrdinalIgnoreCase)
              || parameter.Equals("ThenActions", StringComparison.OrdinalIgnoreCase)
@@ -80,8 +88,9 @@ internal static class ActionParameters
     }
 
     public static Dictionary<string, string> Resolve(
-        ITemplateVariableExtractor extractor, string actionType, IReadOnlyDictionary<string, string> parameters, Models.Content content) =>
-        Resolve(actionType, parameters, content, (template, encoding) => extractor.ResolveVariables(template, content, encoding));
+        ITemplateVariableExtractor extractor, string actionType, IReadOnlyDictionary<string, string> parameters, Models.Content content,
+        IWorkflowPluginRegistry? registry = null) =>
+        Resolve(actionType, parameters, content, (template, encoding) => extractor.ResolveVariables(template, content, encoding), registry);
 
     /// <summary>
     /// The same, after reading what the parameters name beyond the entry: the site's time zone, the
@@ -93,7 +102,8 @@ internal static class ActionParameters
     /// </remarks>
     public static async Task<Dictionary<string, string>> ResolveAsync(
         ITemplateVariableExtractor extractor, string actionType, IReadOnlyDictionary<string, string> parameters,
-        Models.Content content, string? triggerEvent, long eventSequence, CancellationToken ct)
+        Models.Content content, string? triggerEvent, long eventSequence, CancellationToken ct,
+        IWorkflowPluginRegistry? registry = null)
     {
         await extractor.PrepareAsync(content, triggerEvent, eventSequence, parameters.Values, ct);
 
@@ -102,13 +112,14 @@ internal static class ActionParameters
             : null;
         await extractor.ForRecipientAsync(recipient, content, ct);
 
-        return Resolve(extractor, actionType, parameters, content);
+        return Resolve(extractor, actionType, parameters, content, registry);
     }
 
     /// <summary>The same, without an extractor, for a caller that is not handed one.</summary>
     public static Dictionary<string, string> Resolve(
-        string actionType, IReadOnlyDictionary<string, string> parameters, Models.Content content) =>
-        Resolve(actionType, parameters, content, (template, encoding) => TemplateVariableExtractor.Resolve(template, content, encoding));
+        string actionType, IReadOnlyDictionary<string, string> parameters, Models.Content content,
+        IWorkflowPluginRegistry? registry = null) =>
+        Resolve(actionType, parameters, content, (template, encoding) => TemplateVariableExtractor.Resolve(template, content, encoding), registry);
 
     /// <summary>
     /// The reserved parameter that names, one per line, the parameters whose template was one whole
@@ -144,7 +155,7 @@ internal static class ActionParameters
 
     private static Dictionary<string, string> Resolve(
         string actionType, IReadOnlyDictionary<string, string> parameters, Models.Content content,
-        Func<string, TemplateValueEncoding, string> resolve)
+        Func<string, TemplateValueEncoding, string> resolve, IWorkflowPluginRegistry? registry)
     {
         var resolved = new Dictionary<string, string>(parameters.Count);
         var structured = new List<string>();
@@ -155,8 +166,9 @@ internal static class ActionParameters
                 continue;
             }
 
-            resolved[key] = IsResolvedByTheAction(actionType, key) ? value : resolve(value, EncodingFor(actionType, key));
-            if (!IsResolvedByTheAction(actionType, key) && IsWholeStructure(value, content))
+            var byTheAction = IsResolvedByTheAction(actionType, key, registry);
+            resolved[key] = byTheAction ? value : resolve(value, EncodingFor(actionType, key));
+            if (!byTheAction && IsWholeStructure(value, content))
             {
                 structured.Add(key);
             }

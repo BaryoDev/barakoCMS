@@ -59,7 +59,7 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         // fixture it genuinely is registered, and naming it keeps the assertion exact: removing a
         // real action still fails this test.
         actions!.Select(a => a.Type).Should().BeEquivalentTo(
-            ["Email", "SMS", "Webhook", "CreateTask", "UpdateField", "CreateEntry", "CreateContent", "Transition", "Conditional", "Request", "BuildHook", "Publish", "ThrowingRunner", "CredentialEcho", "DeletedEcho", "CountingRunner", "HookedRunner", "SlowRunner", "MeteredRunner", "OutputRunner", "RecordingRunner", "FileRunner", "UndeclaredFileRunner", "ManyFilesRunner", "SavedFileRunner", "NullFilesRunner", "AttemptHistoryRunner", "CreatingRunner"],
+            ["Email", "SMS", "Webhook", "CreateTask", "UpdateField", "CreateEntry", "CreateContent", "Transition", "Conditional", "Request", "BuildHook", "Publish", "ThrowingRunner", "CredentialEcho", "SelfResolving", "DeletedEcho", "CountingRunner", "HookedRunner", "SlowRunner", "MeteredRunner", "OutputRunner", "RecordingRunner", "FileRunner", "UndeclaredFileRunner", "ManyFilesRunner", "SavedFileRunner", "NullFilesRunner", "AttemptHistoryRunner", "CreatingRunner"],
             "every registered action is offered to the workflow builder, and adding one is a line here");
     }
 
@@ -98,7 +98,7 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         var actions = await response.Content.ReadFromJsonAsync<List<WorkflowActionMetadata>>(TestContext.Current.CancellationToken);
         actions.Should().NotBeNull();
         var byType = actions!.ToDictionary(a => a.Type);
-        byType.Should().HaveCount(28);
+        byType.Should().HaveCount(29);
 
         byType["Webhook"].RequiredParameters.Should().Equal("Url");
         byType["Webhook"].OptionalParameters.Should().Equal("Secret");
@@ -137,7 +137,7 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         var byType = doc.RootElement.EnumerateArray().ToDictionary(
             a => a.GetProperty("type").GetString()!,
             a => a.TryGetProperty("group", out var g) ? g : default);
-        byType.Should().HaveCount(28);
+        byType.Should().HaveCount(29);
 
         var expected = new Dictionary<string, string>
         {
@@ -552,6 +552,54 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         actions.Should().HaveCount(2);
         PreviewedParameter(actions[0], "Condition").Should().Be("{{status}} == Published");
         PreviewedParameter(actions[1], "Subject").Should().Be("Now Published");
+    }
+
+    /// <summary>A parameter the action declares as self-resolved is previewed as written.</summary>
+    [Fact]
+    public async Task A_dry_run_shows_a_self_resolved_parameter_as_written()
+    {
+        var dryRunRequest = new
+        {
+            workflow = new
+            {
+                id = Guid.NewGuid(),
+                name = "Self resolved preview",
+                triggerContentType = "PurchaseOrder",
+                triggerEvent = "Created",
+                conditions = new Dictionary<string, string>(),
+                actions = new[]
+                {
+                    new
+                    {
+                        type = "SelfResolving",
+                        parameters = new Dictionary<string, string>
+                        {
+                            { "Raw", "Order {{data.OrderNumber}}" },
+                            { "Plain", "Order {{data.OrderNumber}}" }
+                        }
+                    }
+                }
+            },
+            sampleContent = new
+            {
+                id = Guid.NewGuid(),
+                contentType = "PurchaseOrder",
+                status = 1,
+                data = new Dictionary<string, object> { { "OrderNumber", "PO-1" } },
+                createdAt = DateTime.UtcNow,
+                updatedAt = DateTime.UtcNow
+            }
+        };
+
+        var response = await _client.PostAsJsonAsync(
+            "/api/workflows/dry-run", dryRunRequest, TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        var action = doc.RootElement.GetProperty("actions").EnumerateArray().Single();
+
+        PreviewedParameter(action, "Raw").Should().Be("Order {{data.OrderNumber}}");
+        PreviewedParameter(action, "Plain").Should().Be("Order PO-1");
     }
 
     /// <summary>Looked up without regard to case, so the test does not depend on how dictionary keys are cased.</summary>
