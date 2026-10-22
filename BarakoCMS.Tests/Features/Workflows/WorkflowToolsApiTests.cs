@@ -59,7 +59,7 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         // fixture it genuinely is registered, and naming it keeps the assertion exact: removing a
         // real action still fails this test.
         actions!.Select(a => a.Type).Should().BeEquivalentTo(
-            ["Email", "SMS", "Webhook", "CreateTask", "UpdateField", "CreateEntry", "CreateContent", "Transition", "Conditional", "Request", "BuildHook", "Publish", "ThrowingRunner", "CredentialEcho", "SelfResolving", "DeletedEcho", "CountingRunner", "HookedRunner", "SlowRunner", "MeteredRunner", "OutputRunner", "RecordingRunner", "FileRunner", "UndeclaredFileRunner", "ManyFilesRunner", "SavedFileRunner", "NullFilesRunner", "AttemptHistoryRunner", "CreatingRunner"],
+            ["Email", "SMS", "Webhook", "CreateTask", "UpdateField", "CreateEntry", "CreateContent", "Transition", "Conditional", "Request", "BuildHook", "Publish", "ThrowingRunner", "CredentialEcho", "SelfResolving", "DeletedEcho", "CountingRunner", "HookedRunner", "SlowRunner", "MeteredRunner", "OutputRunner", "RecordingRunner", "FileRunner", "UndeclaredFileRunner", "ManyFilesRunner", "SavedFileRunner", "NullFilesRunner", "AttemptHistoryRunner", "CreatingRunner", "Accounting.PostJournal", "Accounting.Reverse"],
             "every registered action is offered to the workflow builder, and adding one is a line here");
     }
 
@@ -98,7 +98,7 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         var actions = await response.Content.ReadFromJsonAsync<List<WorkflowActionMetadata>>(TestContext.Current.CancellationToken);
         actions.Should().NotBeNull();
         var byType = actions!.ToDictionary(a => a.Type);
-        byType.Should().HaveCount(29);
+        byType.Should().HaveCount(31);
 
         byType["Webhook"].RequiredParameters.Should().Equal("Url");
         byType["Webhook"].OptionalParameters.Should().Equal("Secret");
@@ -137,7 +137,7 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         var byType = doc.RootElement.EnumerateArray().ToDictionary(
             a => a.GetProperty("type").GetString()!,
             a => a.TryGetProperty("group", out var g) ? g : default);
-        byType.Should().HaveCount(29);
+        byType.Should().HaveCount(31);
 
         var expected = new Dictionary<string, string>
         {
@@ -152,6 +152,8 @@ public class WorkflowToolsApiTests : IAsyncLifetime
             ["CreateEntry"] = "Content",
             ["CreateContent"] = "Content",
             ["Transition"] = "Content",
+            ["Accounting.PostJournal"] = "Content",
+            ["Accounting.Reverse"] = "Content",
             ["Conditional"] = "Flow",
         };
         foreach (var (type, group) in expected)

@@ -57,7 +57,7 @@ public class PostingActionRightsTests(IntegrationTestFixture fixture)
         var conditional = new
         {
             type = "Conditional",
-            parameters = new Dictionary<string, string> { ["Field"] = "Data.Name", ["Operator"] = "Equals", ["Value"] = "x", ["ThenActions"] = branch },
+            parameters = new Dictionary<string, string> { ["Condition"] = "{{data.Name}} == \"x\"", ["ThenActions"] = branch },
         };
 
         var response = await client.PostAsJsonAsync("/api/workflows", Body(AccountingContentTypes.JournalEntry, conditional), Ct);
