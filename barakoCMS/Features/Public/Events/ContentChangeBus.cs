@@ -145,13 +145,7 @@ internal sealed class ContentChangeBus(
         {
             while (true)
             {
-                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                timeout.CancelAfter(KeepAlive);
-                try
-                {
-                    await connection.WaitAsync(timeout.Token);
-                }
-                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                if (!await connection.WaitAsync(KeepAlive, ct))
                 {
                     // Quiet for a while: a dead connection throws here and the caller reconnects.
                     await using var ping = connection.CreateCommand();
@@ -205,7 +199,7 @@ internal sealed class ContentChangeBus(
         var definitions = new Dictionary<string, ContentTypeDefinition?>(StringComparer.Ordinal);
         var ready = new List<(string Name, ContentChange? Change, ContentDoc? Content, ContentTypeDefinition? Definition)>();
 
-        foreach (var change in notice.Changes.Take(ChangesPerNotice))
+        foreach (var change in notice.Changes.Where(c => c is not null).Take(ChangesPerNotice))
         {
             var content = await session.LoadAsync<ContentDoc>(change.Id, ct);
             if (content is null)
