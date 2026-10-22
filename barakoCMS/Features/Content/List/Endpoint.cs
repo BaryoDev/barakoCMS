@@ -80,21 +80,6 @@ internal class Endpoint(
         Get("/api/contents");
     }
 
-    /// <summary>
-    /// Entries of a type, found ignoring case without losing the ContentType indexes. Ignoring case
-    /// on the entry column would be lower(...). The few type definitions are matched instead, then
-    /// the entries by exact value, under the type's own spelling and the one asked with.
-    /// </summary>
-    private async Task<IQueryable<barakoCMS.Models.Content>> ByContentTypeAsync(
-        IQueryable<barakoCMS.Models.Content> query, string asked, CancellationToken ct)
-    {
-        var canonical = (await session.Query<ContentTypeDefinition>()
-            .Where(d => d.Name.Equals(asked, StringComparison.OrdinalIgnoreCase))
-            .Select(d => d.Name)
-            .FirstOrDefaultAsync(ct)) ?? asked;
-        return query.Where(c => c.ContentType == canonical || c.ContentType == asked);
-    }
-
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         // 1. Authenticate
@@ -120,7 +105,7 @@ internal class Endpoint(
 
         if (!string.IsNullOrEmpty(req.ContentType))
         {
-            query = await ByContentTypeAsync(query, req.ContentType, ct);
+            query = query.Where(c => c.ContentType.Equals(req.ContentType, StringComparison.OrdinalIgnoreCase));
         }
 
         // Status and search are pushed into the query, and that is safe in a way a permission filter
