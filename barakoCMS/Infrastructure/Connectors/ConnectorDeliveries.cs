@@ -12,6 +12,9 @@ namespace barakoCMS.Infrastructure.Connectors;
 internal sealed record ConnectorDeliveryContext(
     string RequestSlug, Guid WorkflowId, Guid? RunId, string Event, int Attempt)
 {
+    /// <summary>The outputs the request keeps from the response, or null when it keeps none.</summary>
+    public ResponseCapture? Capture { get; init; }
+
     /// <summary>
     /// Read from the parameters the runner puts on every action, the same ones
     /// <c>WebhookAction</c> reads. An action invoked some other way leaves them out, and the row is

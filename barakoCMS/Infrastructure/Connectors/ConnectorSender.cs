@@ -18,6 +18,18 @@ namespace barakoCMS.Infrastructure.Connectors;
 /// </remarks>
 public sealed record ConnectorCallResult(bool Succeeded, int? StatusCode, long ElapsedMs, string? Error)
 {
+    /// <summary>
+    /// The values a Request step asked to keep from the response, by name. Only what the request
+    /// definition named, never the body.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? Outputs { get; init; }
+
+    /// <summary>
+    /// The call went through but the outputs could not be read from the answer. Sending again would
+    /// ask the provider for the same shape of answer.
+    /// </summary>
+    public bool OutputsFailed { get; init; }
+
     public string Describe() => StatusCode is { } code
         ? $"HTTP {code} in {ElapsedMs} ms"
         : $"{Error ?? "failed"} after {ElapsedMs} ms";
@@ -108,9 +120,6 @@ internal sealed class ConnectorSender(
     /// <summary>The longest the body of an answer may take to arrive after its headers.</summary>
     internal TimeSpan BodyTimeout { get; init; } = barakoCMS.Infrastructure.Http.OutboundResilienceOptions.ResponseBodyAllowance;
 
-    /// <summary>The most of a body the success rule reads. Past it the rest is not looked at.</summary>
-    private const int RuleBodyLimit = 1024 * 1024;
-
     /// <summary>The longest the write of one delivery row may hold up the caller.</summary>
     /// <remarks>
     /// The send has already happened by then, and the workflow runner is one loop. A database that
@@ -188,7 +197,7 @@ internal sealed class ConnectorSender(
 
     public Task<ConnectorCallResult> SendAsync(
         Connector connector, ComposedRequest composed, SuccessRule rule, string? successJsonPath, CancellationToken ct) =>
-        SendCoreAsync(connector, composed, rule, successJsonPath, null, ct);
+        SendCoreAsync(connector, composed, rule, successJsonPath, null, null, ct);
 
     /// <remarks>
     /// One row for the call, not one for each HTTP request it took. A webhook row is one attempt at
@@ -205,7 +214,7 @@ internal sealed class ConnectorSender(
 
         try
         {
-            result = await SendCoreAsync(connector, composed, rule, successJsonPath, draft, ct);
+            result = await SendCoreAsync(connector, composed, rule, successJsonPath, draft, delivery.Capture, ct);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -258,7 +267,7 @@ internal sealed class ConnectorSender(
 
     private async Task<ConnectorCallResult> SendCoreAsync(
         Connector connector, ComposedRequest composed, SuccessRule rule, string? successJsonPath,
-        ConnectorDeliveryDraft? draft, CancellationToken ct)
+        ConnectorDeliveryDraft? draft, ResponseCapture? capture, CancellationToken ct)
     {
         if (!composed.Ok)
         {
@@ -289,6 +298,11 @@ internal sealed class ConnectorSender(
 
         var timer = Stopwatch.StartNew();
 
+        // Headers come back first and the body is read off the stream up to a cap, so a provider
+        // cannot make this process hold whatever it chose to send before a size check ran.
+        var ruleReadsBody = rule == SuccessRule.TwoHundredAndJsonPathAbsent && !string.IsNullOrWhiteSpace(successJsonPath);
+        var bounded = ruleReadsBody || (capture is not null && draft is not null);
+
         try
         {
             using var first = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
@@ -296,15 +310,10 @@ internal sealed class ConnectorSender(
                 () => BuildRequest(composed, target), HttpCompletionOption.ResponseHeadersRead, ct, draft);
             var response = again ?? first;
 
-            var body = await ReadAnswerAsync(response, rule, successJsonPath, draft, ct);
+            var answer = await ReadAnswerAsync(response, bounded, draft, ct);
             timer.Stop();
 
-            var status = (int)response.StatusCode;
-            var ok = SuccessEvaluator.Succeeded(rule, status, body, successJsonPath);
-
-            return new ConnectorCallResult(
-                ok, status, timer.ElapsedMilliseconds,
-                ok ? null : $"The provider answered {status} and the success rule was not met.");
+            return Judge(response, rule, successJsonPath, ruleReadsBody, answer, draft, capture, timer.ElapsedMilliseconds);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -318,56 +327,103 @@ internal sealed class ConnectorSender(
         }
     }
 
+    private static ConnectorCallResult Judge(
+        HttpResponseMessage response, SuccessRule rule, string? successJsonPath, bool ruleReadsBody,
+        HeldAnswer answer, ConnectorDeliveryDraft? draft, ResponseCapture? capture, long elapsedMs)
+    {
+        var status = (int)response.StatusCode;
+
+        // The body is read only when a rule needs it, and it is never returned or logged. A 401
+        // from an OAuth provider frequently contains the credential that was sent.
+        string? body = null;
+        if (ruleReadsBody)
+        {
+            if (answer.OverCap)
+            {
+                return new ConnectorCallResult(
+                    false, status, elapsedMs,
+                    $"The response was longer than {ResponseOutputs.MaxBodyBytes} bytes, so the success rule could not be checked.");
+            }
+
+            body = Encoding.UTF8.GetString(answer.Bytes!);
+        }
+
+        var ok = SuccessEvaluator.Succeeded(rule, status, body, successJsonPath);
+
+        if (ok && capture is not null && draft is not null)
+        {
+            return CaptureOutputs(status, elapsedMs, capture, draft, answer.Bytes, answer.OverCap);
+        }
+
+        return new ConnectorCallResult(
+            ok, status, elapsedMs,
+            ok ? null : $"The provider answered {status} and the success rule was not met.");
+    }
+
     /// <summary>
-    /// Reads the answer's body once, for the success rule and the delivery row together, and returns
-    /// the text the rule needs, or null when it needs none.
+    /// Reads the declared outputs from an answer that met the success rule. The headers are never
+    /// read, and the body only up to <see cref="ResponseOutputs.MaxBodyBytes"/>.
+    /// </summary>
+    private static ConnectorCallResult CaptureOutputs(
+        int status, long elapsedMs, ResponseCapture capture,
+        ConnectorDeliveryDraft draft, byte[]? held, bool overCap)
+    {
+        Dictionary<string, string>? outputs = null;
+        string? problem = null;
+
+        if (overCap || held is null)
+        {
+            problem = $"The response was longer than {ResponseOutputs.MaxBodyBytes} bytes, so the request's outputs were not read.";
+        }
+        else
+        {
+            (outputs, problem) = ResponseOutputs.Extract(Encoding.UTF8.GetString(held), capture, draft.Secrets);
+        }
+
+        return problem is null
+            ? new ConnectorCallResult(true, status, elapsedMs, null) { Outputs = outputs }
+            : new ConnectorCallResult(false, status, elapsedMs, problem) { OutputsFailed = true };
+    }
+
+    /// <summary>The bytes held from one answer, or none when they went over the cap or were not wanted.</summary>
+    private readonly record struct HeldAnswer(byte[]? Bytes, bool OverCap);
+
+    /// <summary>
+    /// Reads the answer's body once, for the success rule, the delivery row and the outputs
+    /// together. When one of them needs the body it is held up to
+    /// <see cref="ResponseOutputs.MaxBodyBytes"/> and the row reads the held copy. Otherwise only
+    /// the row reads, off the stream.
     /// </summary>
     /// <remarks>
-    /// The body is read only when a rule or the row needs it, and it is never returned or logged. A
-    /// 401 from an OAuth provider frequently contains the credential that was sent. The client's own
-    /// timeouts end at the headers, so <see cref="BodyTimeout"/> bounds the read here. When it runs
-    /// out the row keeps no body, and a rule that needed one fails the send.
+    /// The body is never returned or logged. The client's own timeouts end at the headers, so
+    /// <see cref="BodyTimeout"/> bounds the read here. When it runs out the row keeps no body, and
+    /// a caller that needed one fails the send.
     /// </remarks>
-    private async Task<string?> ReadAnswerAsync(
-        HttpResponseMessage response, SuccessRule rule, string? successJsonPath,
-        ConnectorDeliveryDraft? draft, CancellationToken ct)
+    private async Task<HeldAnswer> ReadAnswerAsync(
+        HttpResponseMessage response, bool bounded, ConnectorDeliveryDraft? draft, CancellationToken ct)
     {
-        var needsBody = rule == SuccessRule.TwoHundredAndJsonPathAbsent && !string.IsNullOrWhiteSpace(successJsonPath);
-        if (!needsBody && draft is null) return null;
+        if (!bounded && draft is null) return default;
 
         using var allowance = CancellationTokenSource.CreateLinkedTokenSource(ct);
         allowance.CancelAfter(BodyTimeout);
 
         try
         {
-            if (!needsBody)
+            if (!bounded)
             {
                 await draft!.ReadResponseAsync(response, allowance.Token);
-                return null;
+                return default;
             }
 
-            await using var stream = await response.Content.ReadAsStreamAsync(allowance.Token);
-            var buffer = new byte[RuleBodyLimit];
-            var total = 0;
+            var (held, overCap) = await HoldBodyAsync(response, ResponseOutputs.MaxBodyBytes, allowance.Token);
+            if (draft is not null) await draft.ReadResponseAsync(response, ct);
 
-            while (total < buffer.Length)
-            {
-                var read = await stream.ReadAsync(buffer.AsMemory(total), allowance.Token);
-                if (read == 0) break;
-                total += read;
-            }
-
-            if (draft is not null)
-            {
-                await draft.ReadResponseAsync(new MemoryStream(buffer, 0, total, writable: false), allowance.Token);
-            }
-
-            return Encoding.UTF8.GetString(buffer, 0, total);
+            return new HeldAnswer(held, overCap);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            if (needsBody) throw new TimeoutException("The response body did not arrive in time.");
-            return null;
+            if (bounded) throw new TimeoutException("The response body did not arrive in time.");
+            return default;
         }
     }
 
@@ -463,6 +519,31 @@ internal sealed class ConnectorSender(
         }
     }
 
+    /// <summary>
+    /// Reads the body up to <paramref name="maxBytes"/> and puts a buffered copy back as the
+    /// response's content, so the delivery row can still read it. A declared length over the cap is
+    /// refused without reading a byte.
+    /// </summary>
+    private static async Task<(byte[]? Held, bool OverCap)> HoldBodyAsync(
+        HttpResponseMessage response, int maxBytes, CancellationToken ct)
+    {
+        var original = response.Content;
+
+        byte[]? held = null;
+        var overCap = original.Headers.ContentLength is { } declared && declared > maxBytes;
+
+        if (!overCap)
+        {
+            held = await ReadCappedBytesAsync(original, maxBytes, ct);
+            overCap = held is null;
+        }
+
+        response.Content = new ByteArrayContent(held ?? []);
+        original.Dispose();
+
+        return (held, overCap);
+    }
+
     /// <summary>The body, or null when it is longer than <paramref name="maxBytes"/>.</summary>
     /// <remarks>
     /// Read off the stream rather than through <c>ReadAsStringAsync</c>, because the cap has to hold
@@ -471,7 +552,13 @@ internal sealed class ConnectorSender(
     /// </remarks>
     internal static async Task<string?> ReadCappedAsync(HttpResponseMessage response, int maxBytes, CancellationToken ct)
     {
-        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        var bytes = await ReadCappedBytesAsync(response.Content, maxBytes, ct);
+        return bytes is null ? null : Encoding.UTF8.GetString(bytes);
+    }
+
+    private static async Task<byte[]?> ReadCappedBytesAsync(HttpContent content, int maxBytes, CancellationToken ct)
+    {
+        await using var stream = await content.ReadAsStreamAsync(ct);
 
         var buffer = new byte[8192];
         using var collected = new MemoryStream();
@@ -486,7 +573,7 @@ internal sealed class ConnectorSender(
             collected.Write(buffer, 0, read);
         }
 
-        return Encoding.UTF8.GetString(collected.GetBuffer(), 0, (int)collected.Length);
+        return collected.ToArray();
     }
 
     /// <summary>Returns null when the credentials went on, or the reason they did not.</summary>

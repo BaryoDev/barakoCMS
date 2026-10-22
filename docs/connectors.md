@@ -110,6 +110,43 @@ a refresh token or a user's consent is not covered. Each API instance holds its 
 instances make N token requests per lifetime. Two calls arriving together with no token cached each
 ask for one.
 
+## Keeping values from the response
+
+A request definition can keep named values from the provider's answer as step outputs, so a later
+step can use them, for example saving a model's reply as a draft entry with `CreateEntry`.
+
+```json
+{
+  "outputs": { "plan": "$.choices[0].message.content" },
+  "missingOutput": "Fail",
+  "maxOutputLength": 2000
+}
+```
+
+The workflow lists the names it wants kept in the step's `capture`, and a later step reads one as
+`{{actions.N.plan}}`. A name the workflow does not capture is dropped before the run is stored.
+
+- A path is property names and array positions only (`$.a.b[0].c`). No wildcard, recursive descent,
+  slice or filter. At most 20 outputs per request.
+- Only the named paths are read. Headers are never read and the body is never stored whole. The body
+  is read up to 256 KiB.
+- `missingOutput` is `Fail` by default: a path that finds nothing (or null) fails the step and names
+  the output. `Empty` keeps an empty string instead. A response that is not JSON fails under both.
+- A value longer than `maxOutputLength` (1 to 2000, default 2000) fails the step with the cap named.
+  It is never cut.
+- A 200 whose body is not JSON fails the step permanently, since the same call would answer the same
+  way. So does a body over the read cap, which is refused from its declared length or cut off while
+  streaming, before the rest is read.
+- A value that repeats a credential the request sent fails the step and is not quoted. It compares
+  decoded strings, including every string inside an object or array output, and catches exact copies
+  only: a credential the provider changed in case or encoding is not caught. A credential shorter
+  than 6 characters is not looked for, since it would match almost any value.
+- Saving a request without `outputs`, `missingOutput` or `maxOutputLength` keeps the stored ones. An
+  empty `outputs` object clears them.
+- These failures are not retried: the same call would answer the same way.
+- A value that holds `{{createdBy.email}}` or `{{actions.0.token}}` is kept and passed on as that
+  text. It is never run as a template.
+
 ## The delivery log
 
 Every send a workflow's `Request` action makes through a connector leaves one row, the way a

@@ -55,6 +55,29 @@ public class RequestDefinition
     /// </summary>
     public string? SuccessJsonPath { get; set; }
 
+    /// <summary>
+    /// Values to keep from the response as step outputs: the output's name, and a plain path into
+    /// the JSON body such as <c>$.choices[0].message.content</c>.
+    /// </summary>
+    /// <remarks>
+    /// Only these paths are read, never the whole body. A later step reads one the workflow
+    /// captures as <c>{{actions.N.name}}</c>, and what it holds is data and is never run as a
+    /// template.
+    /// </remarks>
+    public Dictionary<string, string> Outputs { get; set; } = new();
+
+    /// <summary>What happens when an output's path finds nothing in the response.</summary>
+    public MissingOutputRule MissingOutput { get; set; } = MissingOutputRule.Fail;
+
+    /// <summary>
+    /// The longest an output may be, in characters. A longer one fails the step rather than being
+    /// cut.
+    /// </summary>
+    public int MaxOutputLength { get; set; } = DefaultMaxOutputLength;
+
+    /// <summary>The cap when a definition does not set one, and the most a workflow run keeps.</summary>
+    public const int DefaultMaxOutputLength = 2000;
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }
@@ -75,4 +98,14 @@ public enum SuccessRule
 
     /// <summary>Any response at all, for a provider whose status codes mean nothing useful.</summary>
     AnyResponse,
+}
+
+/// <summary>What a Request step does when an output's path finds nothing in the response.</summary>
+public enum MissingOutputRule
+{
+    /// <summary>The step fails, naming the output and its path. Nothing is stored.</summary>
+    Fail,
+
+    /// <summary>The output is kept as an empty string.</summary>
+    Empty,
 }
