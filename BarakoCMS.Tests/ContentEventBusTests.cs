@@ -210,7 +210,7 @@ public class ContentEventBusTests
     }
 
     [Fact]
-    public async Task A_notice_sent_before_a_tightening_does_not_unmask_after_it()
+    public async Task A_notice_built_before_a_tightening_is_masked_by_the_tightened_definition()
     {
         var (_, reader) = await TwoInstancesAsync();
         var tenant = Unique("bust");
@@ -243,5 +243,26 @@ public class ContentEventBusTests
         var json = System.Text.Json.JsonSerializer.Serialize(change.Payload);
         json.Should().Contain("Bus ");
         json.Should().NotContain("topsecret", "the type was tightened after the notice was sent");
+    }
+
+    [Fact]
+    public async Task A_notice_in_one_tenant_naming_another_tenants_entry_delivers_nothing_for_it()
+    {
+        var (writer, reader) = await TwoInstancesAsync();
+        var tenantA = Unique("busfa");
+        var tenantB = Unique("busfb");
+        var type = Unique("bus_");
+        await SeedTypeAsync(writer, type, tenantA);
+        await SeedTypeAsync(writer, type, tenantB);
+        var inA = await StoreEntryAsync(reader, tenantA, type, Unique("s-"));
+        using var subscription = Subscribe(reader, tenantB);
+
+        var bus = reader.Services.GetRequiredService<ContentChangeBus>();
+        await bus.ReceiveAsync(NoticeClaiming(tenantB, inA.Id, SensitivityLevel.Sensitive), default);
+        var control = await PublishNewAsync(writer, tenantB, type, Unique("s-"));
+
+        var change = await NextAsync(subscription);
+        change.Id.Should().Be(control.Id, "the first change is tenant B's own entry, so tenant A's never arrived");
+        change.Id.Should().NotBe(inA.Id);
     }
 }

@@ -587,6 +587,10 @@ the REST reads, using the type definition as it stands when the notice is read. 
 loosen masking, whatever it claims. It needs no setting and no new service, only the
 database the instances already share, and it runs whenever `Delivery:Events:Enabled` is on.
 
+Raising a field's sensitivity commits the entry events before the type definition is stored, so an
+instance that reads in that window masks by the old level. A REST read serves the same value in
+that window, so the stream is no looser than REST.
+
 Delivery is still best effort, and no order is promised across instances. A notice sent while an
 instance is reconnecting to the database is not replayed. The connection caps stay per instance.
 

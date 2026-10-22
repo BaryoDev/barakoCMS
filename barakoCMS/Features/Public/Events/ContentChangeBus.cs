@@ -20,7 +20,10 @@ namespace barakoCMS.Features.Public.Events;
 /// tenant's partition and projects it through <see cref="PublicDelivery.ToPublic"/>, so masking is
 /// derived from the definition as it stands now, in the one place the REST reads use it. Anything
 /// that can NOTIFY on the channel can say what it likes, and a notice can be old by the time it is
-/// read, so nothing in it is allowed to loosen a level.
+/// read, so nothing in it is allowed to loosen a level. The one thing a forged notice can still do is
+/// name an unpublish for a tenant entry that was never public, which hands out its id and slug to that
+/// tenant's own subscribers; nothing stored says an entry was ever public short of replaying its
+/// events, so this is a consequence of trusting the channel.
 ///
 /// Best effort, as the stream always was. NOTIFY is not queued for a listener that is down or
 /// reconnecting, nothing orders notices across instances, and a notice that cannot be read again is
@@ -41,9 +44,13 @@ internal sealed class ContentChangeBus(
 
     // Postgres refuses a payload of 8000 bytes or more. A change is about 100 bytes,
     // so twenty to a notice stays well inside the limit.
-    private const int ChangesPerNotice = 20;
+    internal const int ChangesPerNotice = 20;
 
     private static readonly TimeSpan Retry = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan KeepAlive = TimeSpan.FromSeconds(30);
+    private const int InboxCapacity = 1000;
+
+    private int _dropWarned;
 
     private readonly Guid _node = Guid.NewGuid();
     private readonly TaskCompletionSource _listening = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -110,7 +117,19 @@ internal sealed class ContentChangeBus(
         await using var connection = store.Storage.Database.CreateConnection();
         await connection.OpenAsync(ct);
 
-        var inbox = System.Threading.Channels.Channel.CreateUnbounded<string>();
+        var inbox = System.Threading.Channels.Channel.CreateBounded<string>(
+            new System.Threading.Channels.BoundedChannelOptions(InboxCapacity)
+            {
+                FullMode = System.Threading.Channels.BoundedChannelFullMode.DropOldest,
+                SingleReader = true,
+            },
+            _ =>
+            {
+                if (Interlocked.Exchange(ref _dropWarned, 1) == 0)
+                {
+                    logger.LogWarning("Content event bus inbox is full; the oldest notices are dropped (logged once)");
+                }
+            });
         connection.Notification += (_, e) => inbox.Writer.TryWrite(e.Payload);
 
         await using (var listen = connection.CreateCommand())
@@ -126,7 +145,19 @@ internal sealed class ContentChangeBus(
         {
             while (true)
             {
-                await connection.WaitAsync(ct);
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeout.CancelAfter(KeepAlive);
+                try
+                {
+                    await connection.WaitAsync(timeout.Token);
+                }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    // Quiet for a while: a dead connection throws here and the caller reconnects.
+                    await using var ping = connection.CreateCommand();
+                    ping.CommandText = "select 1";
+                    await ping.ExecuteNonQueryAsync(ct);
+                }
             }
         }
         finally
@@ -162,6 +193,7 @@ internal sealed class ContentChangeBus(
     {
         var notice = JsonSerializer.Deserialize<Notice>(payload);
         if (notice is null || notice.Node == _node || string.IsNullOrEmpty(notice.Tenant)
+            || notice.Changes is not { Count: > 0 }
             || !broadcaster.HasSubscribers(notice.Tenant))
         {
             return;
@@ -173,7 +205,7 @@ internal sealed class ContentChangeBus(
         var definitions = new Dictionary<string, ContentTypeDefinition?>(StringComparer.Ordinal);
         var ready = new List<(string Name, ContentChange? Change, ContentDoc? Content, ContentTypeDefinition? Definition)>();
 
-        foreach (var change in notice.Changes)
+        foreach (var change in notice.Changes.Take(ChangesPerNotice))
         {
             var content = await session.LoadAsync<ContentDoc>(change.Id, ct);
             if (content is null)
