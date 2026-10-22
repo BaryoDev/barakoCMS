@@ -35,6 +35,6 @@ public class ScheduledEntry
     /// <summary>Why the entry is Failed.</summary>
     public string? Error { get; set; }
 
-    /// <summary>Marten revision. The claim is a save of the loaded revision, so a second instance loses.</summary>
+    /// <summary>Marten revision. The claim is a conditional UPDATE, so a second instance changes no row and loses.</summary>
     public int Version { get; set; }
 }

@@ -8,8 +8,8 @@ namespace BarakoCMS.Scheduling;
 /// Hands due entries to their handlers. Runs on every instance; the claim decides who fires.
 /// </summary>
 /// <remarks>
-/// The claim flips Pending to Firing by saving the loaded revision. An instance that loaded the same
-/// revision loses with a concurrency exception and skips the entry. Only Pending entries are
+/// The claim flips Pending to Firing with one conditional UPDATE that wins only when exactly one row
+/// changes. An instance that loses it changes no row and skips the entry. Only Pending entries are
 /// claimed, so an entry fires at most once: a handler that crashes leaves it Failed, and an instance
 /// that dies mid-handler leaves it Firing, neither is picked up again.
 /// </remarks>
