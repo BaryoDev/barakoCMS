@@ -52,7 +52,13 @@ internal sealed class Endpoint(
         }
 
         var comment = await session.LoadAsync<Comment>(req.Id, ct);
-        if (comment is null || !await MayProceedAsync(comment, canManage, ct))
+        if (comment is null)
+        {
+            await Send.NotFoundAsync(ct);
+            return;
+        }
+
+        if (!await MayProceedAsync(comment, canManage, ct))
         {
             return;
         }
