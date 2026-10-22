@@ -26,4 +26,7 @@ public interface IContentHookContext
 
     /// <summary>Reads other entries, across the whole database the write session points at (no tenant filter).</summary>
     IContentReader Reader { get; }
+
+    /// <summary>The lifecycle transition this write is; null for a plain save.</summary>
+    ContentTransition? Transition => null;
 }
