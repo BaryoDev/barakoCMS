@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using BarakoCMS.Contacts;
+using FluentAssertions;
 using barakoCMS.Models;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
