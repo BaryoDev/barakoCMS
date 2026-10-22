@@ -99,13 +99,13 @@ public class OpenSlotsTests
     [Fact]
     public void Wall_clock_hours_keep_their_local_time_across_a_clock_change()
     {
-        var r = Resource("America/New_York", 60, ("Sunday", "09:00", "10:00"), ("Monday", "09:00", "10:00"));
-        var before = new DateTimeOffset(2031, 3, 9, 0, 0, 0, TimeSpan.FromHours(-5));
+        var r = Resource("America/New_York", 60, ("Saturday", "09:00", "10:00"), ("Sunday", "09:00", "10:00"));
+        var before = new DateTimeOffset(2031, 3, 8, 0, 0, 0, TimeSpan.FromHours(-5));
         var (free, _) = Free(r, before, before.AddDays(2));
 
         free.Should().HaveCount(2);
-        free[0].Start.Should().Be(new DateTimeOffset(2031, 3, 9, 14, 0, 0, TimeSpan.Zero), "09:00 EST");
-        free[1].Start.Should().Be(new DateTimeOffset(2031, 3, 10, 13, 0, 0, TimeSpan.Zero), "09:00 EDT");
+        free[0].Start.Should().Be(new DateTimeOffset(2031, 3, 8, 14, 0, 0, TimeSpan.Zero), "09:00 EST");
+        free[1].Start.Should().Be(new DateTimeOffset(2031, 3, 9, 13, 0, 0, TimeSpan.Zero), "09:00 EDT");
     }
 
     [Fact]
@@ -127,7 +127,7 @@ public class OpenSlotsTests
         var day = new DateTimeOffset(2031, 3, 3, 0, 0, 0, TimeSpan.Zero);
         OpenSlots.TryTimeZone("UTC", out var zone);
 
-        var (free, _) = OpenSlots.Free(r, zone, [], day, day.AddDays(1), day.AddHours(10), 1000);
+        var (free, _) = OpenSlots.Free(r, zone, [], day, day.AddDays(1), day.AddHours(10).AddMinutes(1), 1000);
 
         free.Should().ContainSingle();
         free[0].Start.Should().Be(day.AddHours(11));
