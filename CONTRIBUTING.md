@@ -249,6 +249,21 @@ on a pattern being existing not making it correct.
 **Fix the whole class, not the instance.** If a bug came from a missing rule, the rule belongs in
 `CLAUDE.md` alongside the fix.
 
+## Refreshing the shard timings
+
+The backend tests run as four shards, split by how long each class took last time
+(`scripts/test-class-durations.json`). A class missing from the file still runs, in the shard its
+name hashes to, so a stale file makes the shards uneven and never drops a test. To refresh it after
+the suite changes a lot, download the `backend-trx-*` artifacts of a recent green CI run and record
+them:
+
+```bash
+for i in 1 2 3 4; do gh run download RUN_ID -n backend-trx-$i -D trx/$i; done
+python3 scripts/record-class-durations.py trx --out scripts/test-class-durations.json
+```
+
+Commit the file. `bash scripts/test-test-shards.sh` proves every class still lands in one shard.
+
 ## Avoiding breaking changes
 
 BarakoCMS ships as NuGet packages, so other people compile against this code. Within a major
