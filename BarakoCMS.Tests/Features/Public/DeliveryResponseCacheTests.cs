@@ -4,6 +4,8 @@ using barakoCMS.Models;
 using BarakoCMS.Tests.Features.Site;
 using FluentAssertions;
 using Marten;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -49,6 +51,14 @@ public class DeliveryResponseCacheTests(IntegrationTestFixture fixture)
         var client = host.Factory.CreateClient();
         if (tenant is not null)
             client.DefaultRequestHeaders.Add("X-Tenant", tenant);
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, ShareLinkTestHost.NextIp());
+        return client;
+    }
+
+    private static HttpClient ByHost(Host host, string tenant)
+    {
+        var client = host.Factory.CreateClient();
+        client.BaseAddress = new Uri($"http://{tenant}.example.com");
         client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, ShareLinkTestHost.NextIp());
         return client;
     }
@@ -171,8 +181,8 @@ public class DeliveryResponseCacheTests(IntegrationTestFixture fixture)
         await DefineAsync(host, b, type);
         await EntryAsync(host, a, type, "same-slug", markerA);
         await EntryAsync(host, b, type, "same-slug", markerB);
-        using var clientA = In(host, a);
-        using var clientB = In(host, b);
+        using var clientA = ByHost(host, a);
+        using var clientB = ByHost(host, b);
 
         var url = $"/api/public/{type}/same-slug";
         (await BodyAsync(clientA, url)).Should().Contain(markerA);
@@ -185,6 +195,145 @@ public class DeliveryResponseCacheTests(IntegrationTestFixture fixture)
         var list = await BodyAsync(clientB, $"/api/public/{type}");
         list.Should().Contain(markerB);
         list.Should().NotContain(markerA);
+    }
+
+    private sealed class SetsCookieWhenAsked : IStartupFilter
+    {
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+        {
+            app.Use(async (context, pipeline) =>
+            {
+                if (context.Request.Query.ContainsKey("withcookie"))
+                    context.Response.Headers.SetCookie = "probe=1; path=/";
+                await pipeline();
+            });
+            next(app);
+        };
+    }
+
+    private async Task<(Host Host, string Tenant, string Type)> SeededAsync(params (string Key, string Value)[] more)
+    {
+        var host = Cached(more);
+        var tenant = await TenantAsync();
+        var type = $"rsp{Guid.NewGuid():n}"[..12];
+        await DefineAsync(host, tenant, type);
+        return (host, tenant, type);
+    }
+
+    [Fact]
+    public async Task Page_one_and_page_two_of_a_list_do_not_share_an_entry()
+    {
+        var (host, tenant, type) = await SeededAsync();
+        var first = $"FIRST{Guid.NewGuid():N}";
+        var second = $"SECOND{Guid.NewGuid():N}";
+        await EntryAsync(host, tenant, type, "one", first);
+        await EntryAsync(host, tenant, type, "two", second);
+        using var client = In(host, tenant);
+        var pageOne = $"/api/public/{type}?pageSize=1&page=1";
+        var pageTwo = $"/api/public/{type}?pageSize=1&page=2";
+
+        var one = await BodyAsync(client, pageOne);
+        (await BodyAsync(client, pageOne)).Should().Be(one);
+        var two = await BodyAsync(client, pageTwo);
+
+        two.Should().NotBe(one, "the query string is part of the key");
+        var both = one + two;
+        both.Should().Contain(first);
+        both.Should().Contain(second);
+    }
+
+    [Fact]
+    public async Task Two_paths_differing_only_in_case_do_not_share_an_entry()
+    {
+        var (host, tenant, type) = await SeededAsync();
+        await EntryAsync(host, tenant, type, "the-entry", "marker");
+        using var client = In(host, tenant);
+
+        await BodyAsync(client, $"/api/public/{type}/the-entry");
+        host.Logger.Commands.Clear();
+        await BodyAsync(client, $"/api/public/{type}/the-entry");
+        Reads(host, type).Should().Be(0, "the control: the same path again is cached");
+
+        host.Logger.Commands.Clear();
+        await BodyAsync(client, $"/api/public/{type}/THE-ENTRY");
+
+        Reads(host, type).Should().BePositive("a path in another case is its own entry");
+    }
+
+    [Fact]
+    public async Task A_response_that_sets_a_cookie_is_not_cached()
+    {
+        var cached = Cached();
+        var shaped = cached with
+        {
+            Factory = cached.Factory.WithWebHostBuilder(b =>
+                b.ConfigureServices(s => s.AddTransient<IStartupFilter, SetsCookieWhenAsked>())),
+        };
+        var tenant = await TenantAsync();
+        var type = $"rsp{Guid.NewGuid():n}"[..12];
+        await DefineAsync(shaped, tenant, type);
+        await EntryAsync(shaped, tenant, type, "the-entry", "marker");
+        using var client = In(shaped, tenant);
+        var plain = $"/api/public/{type}/the-entry";
+        var cookie = plain + "?withcookie=1";
+
+        var response = await client.GetAsync(cookie, Ct);
+        response.Headers.TryGetValues("Set-Cookie", out var cookies).Should().BeTrue("the probe has to set the cookie");
+        cookies.Should().NotBeEmpty();
+        shaped.Logger.Commands.Clear();
+        await client.GetAsync(cookie, Ct);
+        Reads(shaped, type).Should().BePositive("a response with Set-Cookie is never stored");
+
+        await BodyAsync(client, plain);
+        shaped.Logger.Commands.Clear();
+        await BodyAsync(client, plain);
+        Reads(shaped, type).Should().Be(0, "the control: the same read without the cookie is cached");
+    }
+
+    [Fact]
+    public async Task A_head_request_gets_no_body_and_a_later_get_still_does()
+    {
+        var (host, tenant, type) = await SeededAsync();
+        var marker = $"HEAD{Guid.NewGuid():N}";
+        await EntryAsync(host, tenant, type, "cold", marker);
+        await EntryAsync(host, tenant, type, "warm", marker);
+        using var client = In(host, tenant);
+
+        using var coldHead = await client.SendAsync(new HttpRequestMessage(HttpMethod.Head, $"/api/public/{type}/cold"), Ct);
+        coldHead.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await BodyAsync(client, $"/api/public/{type}/cold")).Should().Contain(marker, "a HEAD must not leave an empty entry for GET");
+
+        (await BodyAsync(client, $"/api/public/{type}/warm")).Should().Contain(marker);
+        (await BodyAsync(client, $"/api/public/{type}/warm")).Should().Contain(marker);
+        using var warmHead = await client.SendAsync(new HttpRequestMessage(HttpMethod.Head, $"/api/public/{type}/warm"), Ct);
+        warmHead.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await warmHead.Content.ReadAsStringAsync(Ct)).Should().BeEmpty("a HEAD is not sent the cached GET body");
+    }
+
+    [Theory]
+    [InlineData("feed")]
+    [InlineData("sitemap")]
+    [InlineData("description")]
+    public async Task The_feed_the_sitemap_and_the_type_description_are_served_from_the_cache(string route)
+    {
+        var (host, tenant, type) = await SeededAsync(("Feeds:SiteUrl", "https://example.com"));
+        await EntryAsync(host, tenant, type, "the-entry", "marker");
+        using var client = In(host, tenant);
+        var url = route switch
+        {
+            "feed" => $"/api/public/{type}/feed.xml",
+            "sitemap" => "/api/public/sitemap.xml",
+            _ => $"/api/public/types/{type}/description",
+        };
+
+        var first = await BodyAsync(client, url);
+        first.Should().NotBeEmpty();
+        host.Logger.Commands.Should().NotBeEmpty("the first read has to ask Postgres, or the check below proves nothing");
+        host.Logger.Commands.Clear();
+        var second = await BodyAsync(client, url);
+
+        second.Should().Be(first);
+        host.Logger.Commands.Should().BeEmpty($"a repeat of the {route} route is answered from the cache");
     }
 
     [Fact]

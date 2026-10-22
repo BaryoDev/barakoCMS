@@ -716,6 +716,9 @@ tag starts with the tenant, so a purge by tag cannot cross tenants:
 | `t:<tenant>:sitemap`         | the sitemap |
 | `t:<tenant>:redirects`       | a redirect lookup |
 
+Nothing evicts `t:<tenant>:redirects` yet, so a changed redirect rule is served from the output
+cache until it expires.
+
 Only values the response already shows go in a tag: a type name, a published entry's id, a public
 file's id. Anything outside letters, digits and `-_.~` is percent-encoded, so a type name cannot
 pose as another tag. A `no-store` read carries no tag and no ETag.
