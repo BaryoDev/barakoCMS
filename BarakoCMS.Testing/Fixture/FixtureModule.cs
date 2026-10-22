@@ -1,4 +1,5 @@
 using barakoCMS.Core.Interfaces;
+using barakoCMS.Models;
 using barakoCMS.Modules;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -16,12 +17,26 @@ public sealed class FixtureModule : IBarakoModule
 
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration) =>
         services.AddScoped<IContentLifecycleHook, FixtureAmountHook>();
+
+    public Task SeedAsync(IModuleSeedContext context, CancellationToken ct) =>
+        FixtureCapabilities.Defaults.GrantAsync(context, ct);
+
+    [Obsolete("Override SeedAsync(IModuleSeedContext, CancellationToken), which names no Marten type. "
+              + "Removal planned for barakoCMS 6.0.0.")]
+    public Task SeedAsync(Marten.IDocumentSession session, IServiceProvider services, CancellationToken ct)
+    {
+#pragma warning disable CS0618
+        return SeedAsync(ModuleSeedContexts.Over(session, services), ct);
+#pragma warning restore CS0618
+    }
 }
 
 /// <summary>The one capability <see cref="FixtureModule"/>'s endpoint asks for.</summary>
 public static class FixtureCapabilities
 {
     public const string ViewFixture = "view_fixture";
+
+    internal static readonly CapabilityDefaults Defaults = CapabilityDefaults.For(ViewFixture).GrantedTo(SystemRoles.Admin);
 }
 
 /// <summary>
