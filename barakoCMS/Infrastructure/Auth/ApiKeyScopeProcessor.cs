@@ -32,21 +32,21 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
         var contentTypes = user.FindAll(ApiKeyAuthenticationHandler.ContentTypeClaim).Select(c => c.Value).ToList();
         if (contentTypes.Count > 0 && !IsPushTo(path, contentTypes))
         {
-            await Deny(http, "This API key is limited to pushing to the content types it names.", ct);
+            await Deny(http, ApiKeyRefusalReason.ContentType, "This API key is limited to pushing to the content types it names.", ct);
             return;
         }
 
         var required = RequiredScopes(path, isWrite);
         if (required is null)
         {
-            await Deny(http, "API keys are limited to the content API.", ct);
+            await Deny(http, ApiKeyRefusalReason.Scope, "API keys are limited to the content API.", ct);
             return;
         }
 
         var scopes = user.FindAll("scope").Select(c => c.Value);
         var granted = scopes.ToList();
         if (!required.Any(r => ApiKeyScopes.Satisfies(granted, r)))
-            await Deny(http, $"This API key is missing the '{string.Join("' or '", required)}' scope.", ct);
+            await Deny(http, ApiKeyRefusalReason.Scope, $"This API key is missing the '{string.Join("' or '", required)}' scope.", ct);
     }
 
     // The scopes a request needs (any one of them), or null if API keys may not touch this path at all.
@@ -150,8 +150,41 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
         path.Equals(prefix, StringComparison.OrdinalIgnoreCase)
         || path.StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase);
 
-    private static async Task Deny(HttpContext http, string message, CancellationToken ct)
+    // The type in the path is the caller's text, and the admin reads it back. Keep it only when the key
+    // names it or, for a content type refusal, the type exists; anything else is counted as "other".
+    // A failed lookup must not turn the 403 into a 500.
+    private static async Task<string?> KnownTypeAsync(
+        HttpContext http, ApiKeyRefusalReason reason, string? type, CancellationToken ct)
     {
+        if (type is null)
+            return null;
+        if (http.User.FindAll(ApiKeyAuthenticationHandler.ContentTypeClaim)
+            .Any(c => c.Value.Equals(type, StringComparison.OrdinalIgnoreCase)))
+            return type;
+        if (reason != ApiKeyRefusalReason.ContentType)
+            return "other";
+        try
+        {
+            var session = http.RequestServices.GetService<Marten.IQuerySession>();
+            var lowered = type.ToLowerInvariant();
+            return session is not null && await Marten.QueryableExtensions.AnyAsync(
+                session.Query<ContentTypeDefinition>().Where(d => d.Name.ToLower() == lowered), ct)
+                ? type
+                : "other";
+        }
+        catch (Exception) when (!ct.IsCancellationRequested)
+        {
+            return "other";
+        }
+    }
+
+    private static async Task Deny(HttpContext http, ApiKeyRefusalReason reason, string message, CancellationToken ct)
+    {
+        if (Guid.TryParse(http.User.FindFirst("apikey_id")?.Value, out var keyId))
+        {
+            var type = await KnownTypeAsync(http, reason, PushedType(http.Request.Path.Value ?? string.Empty), ct);
+            http.RequestServices.GetService<ApiKeyRefusals>()?.Record(keyId, reason, type);
+        }
         http.Response.StatusCode = 403;
         // Writing the body short-circuits the endpoint (setting the status alone would not).
         await http.Response.WriteAsync(message, ct);

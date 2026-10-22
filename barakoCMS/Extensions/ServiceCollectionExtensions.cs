@@ -469,7 +469,7 @@ public static class ServiceCollectionExtensions
                         : Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme;
                 };
             });
-        services.AddSingleton<barakoCMS.Infrastructure.Auth.ApiKeyService>();
+        barakoCMS.Infrastructure.Auth.ApiKeyServiceRegistration.AddApiKeyServices(services);
 
         services.AddAuthorization();
     }

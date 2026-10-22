@@ -31,3 +31,7 @@ change.
 - A migration to move existing keys to a principal, per tenant, opt in.
 - Scopes for roles, workflows, connectors, module endpoints, the pages tree and export. The files
   scopes are the pattern: one scope per capability, mapped in `ApiKeyScopeProcessor`.
+
+## Usage
+
+`GET /api/api-keys/{id}/usage` (tenant admin) returns when the key was last used, its refusals in the last 24 hours by reason (scope, content type, expired, revoked) and by content type, and the content types it names that no longer exist. The refusals are counted in memory, so each replica has its own and a restart clears them. A refused request for a type the key does not name and the tenant does not have is counted as `other`. `barakocms_api_key_refusals_total` counts the same refusals by reason only, since `/metrics` is anonymous.

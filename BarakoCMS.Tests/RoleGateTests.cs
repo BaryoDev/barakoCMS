@@ -199,6 +199,7 @@ public class RoleGateTests
         new("GET", "/api/user-groups/deleted", "/api/user-groups/deleted"),
         new("GET", "/api/tenant-settings/email", "/api/tenant-settings/email"),
         new("PUT", "/api/tenant-settings/email", "/api/tenant-settings/email"),
+        new("GET", "/api/api-keys/{id}/usage", $"/api/api-keys/{NotAGuid}/usage"),
         new("POST", "/api/api-keys/{id}/rotate", $"/api/api-keys/{NotAGuid}/rotate"),
         new("POST", "/api/viewer-tokens", "/api/viewer-tokens"),
     ];

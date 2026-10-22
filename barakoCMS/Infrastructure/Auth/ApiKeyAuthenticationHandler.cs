@@ -58,10 +58,10 @@ public sealed class ApiKeyAuthenticationHandler : AuthenticationHandler<ApiKeyAu
 
         // One generic message for every rejection — don't tell a prober whether a key exists, is
         // revoked, or is expired.
-        if (key is null || key.Revoked)
+        if (key is null)
             return Fail();
-        if (key.ExpiresAt is { } exp && exp < DateTime.UtcNow)
-            return Fail();
+        if (RefusalOf(key) is { } why)
+            return Refused(key, why);
 
         var user = await lookup.LoadAsync<User>(key.UserId, ct);
         if (user is null)
@@ -111,6 +111,20 @@ public sealed class ApiKeyAuthenticationHandler : AuthenticationHandler<ApiKeyAu
         var identity = new ClaimsIdentity(claims, SchemeName, "Username", ClaimTypes.Role);
         var ticket = new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName);
         return AuthenticateResult.Success(ticket);
+    }
+
+    private static ApiKeyRefusalReason? RefusalOf(ApiKey key)
+    {
+        if (key.Revoked)
+            return ApiKeyRefusalReason.Revoked;
+        return key.ExpiresAt is { } exp && exp < DateTime.UtcNow ? ApiKeyRefusalReason.Expired : null;
+    }
+
+    // The caller still gets the one generic answer; only the admin's usage view learns the reason.
+    private AuthenticateResult Refused(ApiKey key, ApiKeyRefusalReason reason)
+    {
+        Context.RequestServices.GetService<ApiKeyRefusals>()?.Record(key.Id, reason);
+        return Fail();
     }
 
     private static AuthenticateResult Fail() => AuthenticateResult.Fail("Invalid API key");
