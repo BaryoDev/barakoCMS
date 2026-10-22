@@ -28,6 +28,51 @@ internal sealed class FileRunnerAction : IWorkflowAction
         new(System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(idempotencyKey)));
 }
 
+/// <summary>Declares more files than a step may keep, so the runner has to drop some and say so.</summary>
+internal sealed class ManyFilesRunnerAction : IWorkflowAction
+{
+    public static readonly int Declared = WorkflowActionResult.MaxProducedFiles + 5;
+
+    public string Type => "ManyFilesRunner";
+
+    public Task ExecuteAsync(Dictionary<string, string> parameters, Content content, CancellationToken ct) =>
+        throw new NotSupportedException("The runner calls RunAsync(WorkflowContext).");
+
+    public Task<WorkflowActionResult> RunAsync(WorkflowContext context, CancellationToken ct) =>
+        Task.FromResult(WorkflowActionResult.Success() with
+        {
+            ProducedFiles = [.. Enumerable.Range(0, Declared).Select(_ => Guid.NewGuid())],
+        });
+}
+
+/// <summary>
+/// Stores a real private file through the host's file store and declares it, the way a document
+/// step would, so a later Email can attach it end to end.
+/// </summary>
+internal sealed class SavedFileRunnerAction(barakoCMS.Core.Interfaces.IFileStore files) : IWorkflowAction
+{
+    public string Type => "SavedFileRunner";
+
+    public Task ExecuteAsync(Dictionary<string, string> parameters, Content content, CancellationToken ct) =>
+        throw new NotSupportedException("The runner calls RunAsync(WorkflowContext).");
+
+    public async Task<WorkflowActionResult> RunAsync(WorkflowContext context, CancellationToken ct)
+    {
+        using var bytes = new MemoryStream(FileSamples.Png(1, 2, 3, 4));
+        var saved = await files.SaveAsync(
+            new barakoCMS.Core.Interfaces.FileToStore
+            {
+                Content = bytes,
+                FileName = "po-1042.png",
+                ContentType = "image/png",
+            }, ct);
+
+        var file = saved.File ?? throw new InvalidOperationException(saved.Refused);
+        return WorkflowActionResult.Success(new Dictionary<string, string> { ["FileId"] = file.Id.ToString() })
+            with { ProducedFiles = [file.Id] };
+    }
+}
+
 /// <summary>Returns a file id as an output and does not declare it as a file the step produced.</summary>
 internal sealed class UndeclaredFileRunnerAction : IWorkflowAction
 {

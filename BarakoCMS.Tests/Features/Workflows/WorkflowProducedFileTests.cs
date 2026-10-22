@@ -15,9 +15,11 @@ namespace BarakoCMS.Tests.Features.Workflows;
 public class WorkflowProducedFileTests
 {
     private readonly WorkflowStopHarness _harness;
+    private readonly IntegrationTestFixture _factory;
 
     public WorkflowProducedFileTests(IntegrationTestFixture factory)
     {
+        _factory = factory;
         _harness = new WorkflowStopHarness(factory);
     }
 
@@ -72,8 +74,43 @@ public class WorkflowProducedFileTests
         run.Actions[0].ProducedFiles.Should().BeNull();
 
         var seen = RecordingRunnerAction.Seen[run.Actions[1].IdempotencyKey];
-        seen.ProducedFiles.Should().BeEmpty();
         seen.Outputs.Should().ContainKey(0, "the output is readable, it just does not make the file attachable");
+        seen.ProducedFiles.Should().NotContainKey(0, "the step never declared the file");
+    }
+
+    [Fact]
+    public async Task Files_past_the_limit_are_dropped_and_the_attempt_says_so()
+    {
+        var run = await DrainAsync(Step("ManyFilesRunner"));
+
+        run.Actions[0].Status.Should().Be(AttemptStatus.Succeeded);
+        run.Actions[0].ProducedFiles.Should().HaveCount(WorkflowActionResult.MaxProducedFiles);
+        run.Actions[0].Error.Should().Contain(ManyFilesRunnerAction.Declared.ToString())
+            .And.Contain(WorkflowActionResult.MaxProducedFiles.ToString());
+    }
+
+    [Fact]
+    public async Task A_file_a_step_stored_is_attached_by_the_email_step_that_follows_it()
+    {
+        var to = $"supplier-{Guid.NewGuid():N}@example.com";
+        var email = Step("Email");
+        email.Parameters = new Dictionary<string, string>
+        {
+            ["To"] = to,
+            ["Subject"] = "Purchase order",
+            ["Body"] = "Attached.",
+            ["Attachments"] = "{{actions.0.FileId}}",
+        };
+
+        var run = await DrainAsync(Step("SavedFileRunner", "FileId"), email);
+
+        run.Actions.Select(a => a.Status).Should().Equal(
+            [AttemptStatus.Succeeded, AttemptStatus.Succeeded], run.Actions[1].Error);
+        var sent = _factory.Email.Messages.Where(m => m.To == to).ToList();
+        sent.Should().ContainSingle();
+        sent[0].Attachments.Should().HaveCount(1);
+        sent[0].Attachments[0].FileName.Should().Be("po-1042.png");
+        sent[0].Attachments[0].Content.Take(8).Should().Equal(FileSamples.Png().Take(8));
     }
 
     [Fact]
