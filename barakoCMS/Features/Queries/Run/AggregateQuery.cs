@@ -539,16 +539,14 @@ internal sealed partial class AggregateQuery(
 
         var text = new StringBuilder($"SELECT {string.Join(", ", select)} FROM ({header}) AS d{joins}");
 
-        if (plan.RangeField is not null && (plan.RangeFrom is not null || plan.RangeTo is not null))
+        var conditions = RangeConditions(plan, sql);
+        if (grouped)
         {
-            var date = DateValue(plan.RangeField, "d", sql.Add(plan.ZoneId, NpgsqlDbType.Text));
-            var conditions = new List<string>();
-            if (plan.RangeFrom is { } from)
-                conditions.Add($"{date} >= {sql.Add(DateTime.SpecifyKind(from, DateTimeKind.Utc), NpgsqlDbType.TimestampTz)}");
-            if (plan.RangeTo is { } to)
-                conditions.Add($"{date} < {sql.Add(DateTime.SpecifyKind(to, DateTimeKind.Utc), NpgsqlDbType.TimestampTz)}");
-            text.Append(" WHERE ").Append(string.Join(" AND ", conditions));
+            foreach (var group in plan.Groups.Where(g => g.Bucket is not null))
+                conditions.Add($"{GroupExpression(group, sql, plan.ZoneId)} IS NOT NULL");
         }
+
+        if (conditions.Count > 0) text.Append(" WHERE ").Append(string.Join(" AND ", conditions));
 
         if (grouped)
         {
@@ -558,6 +556,19 @@ internal sealed partial class AggregateQuery(
 
         sql.Command.CommandText = text.ToString();
         return sql.Command;
+    }
+
+    private static List<string> RangeConditions(Plan plan, SqlBuilder sql)
+    {
+        var conditions = new List<string>();
+        if (plan.RangeField is null || (plan.RangeFrom is null && plan.RangeTo is null)) return conditions;
+
+        var date = DateValue(plan.RangeField, "d", sql.Add(plan.ZoneId, NpgsqlDbType.Text));
+        if (plan.RangeFrom is { } from)
+            conditions.Add($"{date} >= {sql.Add(DateTime.SpecifyKind(from, DateTimeKind.Utc), NpgsqlDbType.TimestampTz)}");
+        if (plan.RangeTo is { } to)
+            conditions.Add($"{date} < {sql.Add(DateTime.SpecifyKind(to, DateTimeKind.Utc), NpgsqlDbType.TimestampTz)}");
+        return conditions;
     }
 
     private static string GroupExpression(GroupPlan group, SqlBuilder sql, string zoneId)
