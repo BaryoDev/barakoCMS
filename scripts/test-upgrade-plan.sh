@@ -77,7 +77,6 @@ core migrations/4.7.0/membership-unique-user-tenant.sql
 core migrations/4.7.0/tenant-policy-restore.sql
 module migrations/4.2.0/stored-files-parent-index.sql
 module migrations/4.2.0/forms-public-forms.sql
-module migrations/4.5.0/email-sent-emails.sql
 module migrations/4.6.0/external-auth-identities.sql
 module migrations/4.6.0/forms-email-verification.sql
 rollback migrations/4.7.0/rollback-tenant-policy-restore.sql
@@ -87,7 +86,6 @@ rollback migrations/4.6.0/rollback-external-auth-identities.sql
 rollback migrations/4.6.0/rollback-sensitivity-by-capability.sql
 rollback migrations/4.6.0/rollback-tenant-profile-to-site.sql
 rollback migrations/4.6.0/rollback-event-correlation-metadata.sql
-rollback migrations/4.5.0/rollback-email-sent-emails.sql
 rollback migrations/4.5.0/rollback-refresh-token-hash-index.sql
 rollback migrations/4.4.0/rollback-marten-9-38-quick-append-events.sql
 rollback migrations/4.3.0/rollback-collection-syncs.sql

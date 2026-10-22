@@ -31,7 +31,7 @@ the `api` service when the step says so, then `docker compose up -d api`.
 
 | Key | Why |
 | --- | --- |
-| `Auth__RequireEmailVerification: "false"` and `Auth__AcknowledgeUnverifiedRegistration: "true"` | Step 4 registers two users. Registration emails a confirmation link. With no `RESEND_API_KEY` the suite image's send fails and is logged, and the core-only image's mock logs the recipient and subject only, so either way the link never reaches anyone. The first key turns verification off and the API refuses to start unless the second one says you meant it (`EmailVerificationOptions.Validate`). Remove both once the users exist. |
+| `Auth__RequireEmailVerification: "false"` and `Auth__AcknowledgeUnverifiedRegistration: "true"` | Step 4 registers two users. Registration emails a confirmation link. With no SMTP host set the suite image's mock logs the recipient and subject only, so either way the link never reaches anyone. The first key turns verification off and the API refuses to start unless the second one says you meant it (`EmailVerificationOptions.Validate`). Remove both once the users exist. |
 | `Lifecycle__AllowSelfTransition__Submit: "true"` | Step 6. Whoever raised an entry may not move it on, by default. This lets the clerk submit their own invoice. |
 
 The examples use `jq` to pull ids out of responses. Read them off the JSON by eye if you do not have

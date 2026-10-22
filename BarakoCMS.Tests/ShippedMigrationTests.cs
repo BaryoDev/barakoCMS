@@ -18,7 +18,6 @@ public class ShippedMigrationTests
     [
         "4.2.0/stored-files-parent-index",
         "4.2.0/forms-public-forms",
-        "4.5.0/email-sent-emails",
         "4.6.0/external-auth-identities",
         "4.6.0/forms-email-verification",
         "4.7.0/forms-tenant-policy-restore",

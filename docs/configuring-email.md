@@ -215,6 +215,14 @@ A workflow stored before this release that already had an `Attachments` paramete
 action was sending without it. After the upgrade that action attaches the files or fails with a
 reason on the run.
 
+## Upgrading from the Resend module
+
+The Resend module is no longer built from this repository, and the core no longer reads `Resend:ApiKey`, `Resend:From` or `RESEND_API_KEY`. A host that set any of them has to do one of these:
+
+- Rename them to `Email:ApiKey`, `Email:From` or `EMAIL_API_KEY`.
+- Install the private Resend module from the BarakoCMS.Pro feed, which reads its own keys.
+- Switch to `BarakoCMS.Email.Smtp` and set `Modules:Email.Smtp:Host`.
+
 ## Auditing
 
 Changing email settings is recorded as `settings.email.changed` in the audit trail, with which
