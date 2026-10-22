@@ -189,6 +189,20 @@ retention sweep over these rows (after a rollback, or beside this release during
 deploy), clearing a response body stores the row again without them, and the row then reads as a
 webhook delivery in `GET /api/webhook-deliveries`.
 
+## Aggregate queries
+
+A query with `measures` returns figures, not rows. `POST /api/queries/{slug}/run` computes them
+under the caller's own field and row rules.
+
+- An aggregate counts entries in every status, drafts and archived included, the same as the admin
+  list.
+- Saving checks the query under the saver's read rules, so a field the saver cannot read is refused
+  by name even if the people who run it could read it.
+- `range` and `groupBy` are refused on a query with no measures. `fields`, `sortField` and `limit`
+  are refused on one with measures.
+- A stored date with no zone, such as `2026-03-05`, is read in the site's time zone. A value that
+  is not a real date is left out of buckets and ranges.
+
 ## Deleting a saved query
 
 `DELETE /api/queries/{slug}` marks the query deleted. It disappears from the list, from `GET` and
