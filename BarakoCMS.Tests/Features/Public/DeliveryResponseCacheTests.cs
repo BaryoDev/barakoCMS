@@ -91,17 +91,14 @@ public class DeliveryResponseCacheTests(IntegrationTestFixture fixture)
     {
         var entry = id ?? Guid.NewGuid();
         await using var session = host.Store.LightweightSession(tenant);
-        session.Store(new Content
-        {
-            Id = entry,
-            ContentType = type,
-            Status = status,
-            Sensitivity = sensitivity,
-            Data = new Dictionary<string, object> { ["Title"] = marker, ["Slug"] = slug, ["Body"] = marker },
-            SearchText = marker,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
-        });
+        var content = await session.LoadAsync<Content>(entry, Ct) ?? new Content { Id = entry, CreatedAt = DateTime.UtcNow };
+        content.ContentType = type;
+        content.Status = status;
+        content.Sensitivity = sensitivity;
+        content.Data = new Dictionary<string, object> { ["Title"] = marker, ["Slug"] = slug, ["Body"] = marker };
+        content.SearchText = marker;
+        content.UpdatedAt = DateTime.UtcNow;
+        session.Store(content);
         await session.SaveChangesAsync(Ct);
         return entry;
     }
