@@ -113,10 +113,11 @@ services:
       ForwardedHeaders__KnownProxies__0: ${TRUSTED_PROXY_ADDRESS:-}
       ForwardedHeaders__KnownNetworks__0: ${TRUSTED_PROXY_NETWORK:-}
 
-      # ── Email (Resend module) — optional. Blank = built-in mock (logs instead of sending). ──
-      Resend__ApiKey: ${RESEND_API_KEY:-}
-      Resend__From: ${RESEND_FROM:-}
-      Resend__WebhookSecret: ${RESEND_WEBHOOK_SECRET:-}
+      # Email (SMTP module), optional. Blank host = built-in mock (logs instead of sending).
+      Modules__Email.Smtp__Host: ${SMTP_HOST:-}
+      Modules__Email.Smtp__User: ${SMTP_USER:-}
+      Modules__Email.Smtp__Password: ${SMTP_PASSWORD:-}
+      Modules__Email.Smtp__From: ${SMTP_FROM:-}
 
       # ── Analytics (Umami module) — optional. Set UMAMI_ENABLED=true to turn on. ──
       Umami__Enabled: ${UMAMI_ENABLED:-false}

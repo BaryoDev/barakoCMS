@@ -1,5 +1,7 @@
 using barakoCMS.Features.Workflows;
 using barakoCMS.Modules;
+using Marten.Schema;
+using Marten.Schema.Indexing.Unique;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -24,7 +26,7 @@ public sealed class DocumentsModule : IBarakoModule
 
     public void ConfigureSchema(IModuleSchema schema)
     {
-        schema.For<DocumentTemplate>().DocumentAlias("document_templates").Index(x => x.Slug);
+        schema.For<DocumentTemplate>().DocumentAlias("document_templates").UniqueIndex(UniqueIndexType.Computed, "document_templates_slug", TenancyScope.PerTenant, x => x.Slug);
         schema.For<DocumentRender>().DocumentAlias("document_renders");
     }
 }

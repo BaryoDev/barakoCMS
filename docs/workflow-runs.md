@@ -135,15 +135,13 @@ safe, so every other failure is sent once and left to the durable queue, and ema
 `Retries` sets how many more tries a send that was not taken gets, cut to fit the lease: each
 provider says how long a not-sent try can take (`MaxNotSentDuration`), and every try running that
 long, plus the waits between them, must stay within 80% of the shorter of the runner's 5 minute
-lease and `Jobs:LeaseSeconds`. SMTP's bound is three `TimeoutSeconds` (90 s by default), and
-Resend's is its client timeout (100 s), so with the defaults each gets one more try. A provider that
+lease and `Jobs:LeaseSeconds`. SMTP's bound is three `TimeoutSeconds` (90 s by default), so with the defaults it gets one more try. A provider that
 gives no bound is sent once. With `EmailSendTimeoutSeconds` set, that limit covers every try and all
 of `Retries` is used.
 
 | Provider | Not sent, so tried again | Everything else, sent once |
 | --- | --- | --- |
 | SMTP | Any failure to connect or log in: DNS, a refused connection, the TLS handshake, no STARTTLS, a refused login. A 4xx or 5xx answer to MAIL FROM or RCPT TO. | A refused DATA (MailKit reports it the same way as a refusal after the whole message), a dropped connection or a timeout during the send |
-| Resend | A name not resolved, a connection not opened, a failed TLS handshake. A 429 or 503. | Any other status, a connection lost after the request went, a timeout |
 
 The SMTP failure still leaves the relay's own exception out, because it can carry the relay
 password. `EmailSendTimeoutSeconds` is off by default, so a large attachment over a slow relay still

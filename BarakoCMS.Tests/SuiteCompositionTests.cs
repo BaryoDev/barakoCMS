@@ -7,6 +7,8 @@ using BarakoCMS.AI;
 using BarakoCMS.Email.Smtp;
 using BarakoCMS.Files;
 using BarakoCMS.Files.S3;
+using System.Reflection;
+using System.Text.RegularExpressions;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -45,7 +47,7 @@ public class SuiteCompositionTests
 
     /// <summary>
     /// The thirteen the hand-written list named, plus Email.Smtp, which the Suite project referenced
-    /// all along and the list never added, plus Pages and Forms, plus this project's own probe. A module project added to
+    /// all along and the list never added, plus Pages, Forms and Documents, plus this project's own probe. A module project added to
     /// the Suite without being added here fails this test, which is the point: the set is pinned.
     /// </summary>
     [Fact]
@@ -60,9 +62,10 @@ public class SuiteCompositionTests
             "Accounting",
             "AI",
             "Analytics.Umami",
+            "Comments",
             "DeviceTrust",
             "Diagnostics",
-            "Email.Resend",
+            "Documents",
             "Email.Smtp",
             "ExternalAuth",
             "FeatureFlags",
@@ -70,6 +73,7 @@ public class SuiteCompositionTests
             "Files.S3",
             "Forms",
             "Import",
+            "Notifications",
             "Pages",
             "Portability",
             "Pwa",
@@ -139,17 +143,16 @@ public class SuiteCompositionTests
     }
 
     /// <summary>
-    /// Email.Smtp joined the set by being referenced, so this pins that it changes nothing until
-    /// asked: Resend is the provider, exactly as the hand-written list left it.
+    /// Email.Smtp is the Suite's email provider. It changes nothing until a host is configured, so
+    /// a Suite with no email settings keeps core's mock rather than a provider with nowhere to send.
     /// </summary>
     [Fact]
-    public void Email_goes_through_Resend_until_an_smtp_host_is_configured()
+    public void Email_goes_through_the_mock_until_an_smtp_host_is_configured()
     {
         var email = Registrations<IEmailService>(Build());
 
-        email.Should().ContainSingle("Smtp registers nothing without a host, and core's mock yields to Resend");
-        email[0].ImplementationType.Should().NotBe<MockEmailService>();
-        email[0].ImplementationType.Should().NotBe<SmtpEmailService>();
+        email.Should().ContainSingle("Smtp registers nothing without a host");
+        email[0].ImplementationType.Should().Be<MockEmailService>();
     }
 
     [Fact]
@@ -157,9 +160,58 @@ public class SuiteCompositionTests
     {
         var email = Registrations<IEmailService>(Build(("Modules:Email.Smtp:Host", "smtp.example.com")));
 
-        // Smtp configures after Resend (sorted by type name), so its registration is the last one
-        // and the one the container resolves.
-        email.Should().HaveCount(2);
-        email[^1].ImplementationType.Should().Be<SmtpEmailService>();
+        // Modules register before core's TryAdd, so the mock is never added once Smtp is in.
+        email.Should().HaveCount(1);
+        email[0].ImplementationType.Should().Be<SmtpEmailService>();
+    }
+
+    /// <summary>
+    /// The core and the Suite do not depend on Resend, a paid outside service (#1216). Hosts that
+    /// still use it add the module from the private feed. The English verb in "Resend with force set
+    /// to true" is allowed; a provider name in a type, a config key, an environment variable, a
+    /// reference, a comment or a document is not. The one exception is the startup warning for a host that still sets the old key.
+    /// </summary>
+    [Fact]
+    public void The_core_and_the_suite_name_no_Resend_provider()
+    {
+        var root = new DirectoryInfo(AppContext.BaseDirectory);
+        while (root is not null && !File.Exists(Path.Combine(root.FullName, "Directory.Build.props")))
+            root = root.Parent;
+        root.Should().NotBeNull();
+
+        var providerName = new Regex(@"Resend(?! with )|RESEND|resend\.com|resend:", RegexOptions.None);
+        string[] extensions = [".cs", ".csproj", ".json", ".md", ".yml", ".yaml", ".props", ".sh"];
+        var sep = Path.DirectorySeparatorChar;
+
+        var files = new[] { "barakoCMS", "BarakoCMS.Suite" }
+            .SelectMany(d => Directory.EnumerateFiles(Path.Combine(root!.FullName, d), "*", SearchOption.AllDirectories))
+            .Where(f => extensions.Contains(Path.GetExtension(f)))
+            .Where(f => !f.Contains($"{sep}bin{sep}") && !f.Contains($"{sep}obj{sep}"))
+            .Where(f => !f.EndsWith("LegacyEmailKeyCheck.cs"))
+            .ToList();
+        files.Should().NotBeEmpty("an empty scan proves nothing");
+        files.Should().Contain(f => f.EndsWith("EmailSettingsProvider.cs"), "the scan reaches the email settings provider");
+
+        var hits = files
+            .SelectMany(f => File.ReadLines(f).Select((line, i) => (f, line, n: i + 1)))
+            .Where(x => providerName.IsMatch(x.line))
+            .Select(x => $"{Path.GetRelativePath(root!.FullName, x.f)}:{x.n}: {x.line.Trim()}")
+            .ToList();
+        hits.Should().BeEmpty("the core and the Suite must not name Resend as a provider");
+    }
+
+    [Fact]
+    public void No_core_type_member_or_referenced_assembly_is_named_for_Resend()
+    {
+        var core = typeof(barakoCMS.Data.DataSeeder).Assembly;
+        var names = core.GetTypes().Select(t => t.FullName ?? t.Name)
+            .Concat(core.GetTypes().SelectMany(t => t.GetMembers(
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly)
+                .Select(m => m.Name)))
+            .Concat(core.GetReferencedAssemblies().Select(a => a.Name ?? ""))
+            .ToList();
+
+        names.Should().NotBeEmpty();
+        names.Should().NotContain(n => n.Contains("Resend", StringComparison.OrdinalIgnoreCase));
     }
 }

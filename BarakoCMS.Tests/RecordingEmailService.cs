@@ -8,8 +8,8 @@ namespace BarakoCMS.Tests;
 /// The test host's email transport. It delivers nothing and records what it was asked to send.
 /// </summary>
 /// <remarks>
-/// Registered by <see cref="IntegrationTestFixture"/> in place of the Resend provider, which throws
-/// on every call because no API key is configured. Nothing is asserted about mail having been sent:
+/// Registered by <see cref="IntegrationTestFixture"/> in place of the mock core registers, which
+/// delivers nothing and keeps nothing. Nothing is asserted about mail having been sent:
 /// this exists so a test can read a token that only ever exists in an email, which is the only way
 /// to drive registration the way a person does.
 /// </remarks>

@@ -27,7 +27,10 @@ public sealed class DocumentRender
     /// <summary>The template id and the run's idempotency key, see <see cref="KeyFor"/>.</summary>
     public string Id { get; set; } = string.Empty;
 
+    /// <summary>Empty while the run holds the claim and has not stored its file yet.</summary>
     public Guid FileId { get; set; }
+
+    public DateTimeOffset ClaimedAt { get; set; } = DateTimeOffset.UtcNow;
 
     public static string KeyFor(Guid templateId, string idempotencyKey) => $"{templateId:N}:{idempotencyKey}";
 }

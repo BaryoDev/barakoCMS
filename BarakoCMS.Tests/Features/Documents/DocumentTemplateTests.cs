@@ -1,6 +1,7 @@
 using barakoCMS.Models;
 using BarakoCMS.Documents;
 using FluentAssertions;
+using SkiaSharp;
 using Xunit;
 
 namespace BarakoCMS.Tests.Features.Documents;
@@ -172,5 +173,28 @@ public class DocumentTemplateTests
         var act = () => PdfRenderer.Render(parsed, new Content { ContentType = "invoice" });
 
         act.Should().Throw<DocumentTooLongException>().WithMessage("*lines*");
+    }
+
+    [Fact]
+    public void A_word_wider_than_the_line_is_split_so_every_line_fits()
+    {
+        const float usable = 495;
+        var lines = PdfRenderer.PageWriter.WrapLines(new string('W', 200), SKTypeface.Default, 11, usable);
+
+        lines.Count.Should().BeGreaterThan(1);
+        using var font = new SKFont(SKTypeface.Default, 11);
+        lines.Should().OnlyContain(l => font.MeasureText(l) <= usable);
+        string.Concat(lines).Should().Be(new string('W', 200), "splitting loses no characters");
+    }
+
+    [Fact]
+    public void A_long_token_in_a_four_column_row_wraps_inside_its_column()
+    {
+        const float column = 495f / 4 - 8;
+        var lines = PdfRenderer.PageWriter.WrapLines(new string('M', 40), SKTypeface.Default, 11, column);
+
+        lines.Count.Should().BeGreaterThan(1);
+        using var font = new SKFont(SKTypeface.Default, 11);
+        lines.Should().OnlyContain(l => font.MeasureText(l) <= column);
     }
 }

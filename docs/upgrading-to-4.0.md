@@ -130,7 +130,7 @@ stopped the table takes moments, and an invalid index left by an earlier `CONCUR
 dropped and built again. The Forms file creates one empty table, and the 4.6.0 Forms file creates
 the two empty tables a form uses to verify an email field. All of them are safe to run twice.
 
-The Email file creates the empty table Email.Resend uses to record which tenant sent each email,
+The Email file (since moved to the private Resend module, which is no longer built from this repository) creates the empty table Email.Resend uses to record which tenant sent each email,
 so a later bounce can be put back on that tenant. It is safe to run twice.
 
 The ExternalAuth file creates the empty table that ties an OpenID Connect provider account, by
@@ -403,7 +403,7 @@ registered, so a client that read the old "Username or Email already exists" err
 read. A request that fails validation, a password below the minimum length for instance, still
 answers 400 as it did. And registration needs a working email provider: with the mock provider
 the token is logged and never delivered, so nobody can finish registering. Configure
-`BarakoCMS.Email.Resend` (or your own `IEmailService`) before you turn a public registration form
+`BarakoCMS.Email.Smtp` (or your own `IEmailService`; `BarakoCMS.Email.Resend` moved to the BarakoCMS.Pro feed in 5.2.0) before you turn a public registration form
 on, and set `App:BaseUrl` so the email carries a link rather than a bare token.
 
 To keep the old behaviour, set both of these. It will not start with only the first:

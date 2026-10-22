@@ -22,7 +22,7 @@ public static class PdfRenderer
 
         using (var document = SKDocument.CreatePdf(output, metadata))
         {
-            var pages = new PageWriter(document, width, height);
+            using var pages = new PageWriter(document, width, height);
 
             foreach (var block in template.Blocks)
             {
@@ -35,7 +35,7 @@ public static class PdfRenderer
         return output.ToArray();
     }
 
-    private sealed class PageWriter(SKDocument document, float width, float height)
+    internal sealed class PageWriter(SKDocument document, float width, float height) : IDisposable
     {
         private readonly SKTypeface _regular = SKTypeface.Default;
         private readonly SKTypeface _bold = SKTypeface.FromFamilyName(null, SKFontStyle.Bold) ?? SKTypeface.Default;
@@ -74,7 +74,12 @@ public static class PdfRenderer
         {
             if (_canvas is not null) document.EndPage();
             _canvas = null;
+        }
+
+        public void Dispose()
+        {
             _ink.Dispose();
+            if (!ReferenceEquals(_bold, _regular)) _bold.Dispose();
         }
 
         private float Usable => width - 2 * Margin;
@@ -130,6 +135,18 @@ public static class PdfRenderer
 
         private List<string> Wrap(string text, SKTypeface face, float size, float usable)
         {
+            var lines = WrapLines(text, face, size, usable);
+
+            if ((_lines += lines.Count) > MaxLines)
+            {
+                throw new DocumentTooLongException($"The document is longer than {MaxLines} lines.");
+            }
+
+            return lines;
+        }
+
+        internal static List<string> WrapLines(string text, SKTypeface face, float size, float usable)
+        {
             using var font = new SKFont(face, size);
             var lines = new List<string>();
 
@@ -138,6 +155,15 @@ public static class PdfRenderer
                 var line = string.Empty;
                 foreach (var word in paragraph.Split(' ', StringSplitOptions.RemoveEmptyEntries))
                 {
+                    if (font.MeasureText(word) > usable)
+                    {
+                        // A word wider than the line is cut where it runs out, so it cannot run
+                        // off the page or into the next column.
+                        if (line.Length > 0) lines.Add(line);
+                        line = SplitWord(font, word, usable, lines);
+                        continue;
+                    }
+
                     var next = line.Length == 0 ? word : line + " " + word;
                     if (line.Length > 0 && font.MeasureText(next) > usable)
                     {
@@ -153,12 +179,26 @@ public static class PdfRenderer
                 lines.Add(line);
             }
 
-            if ((_lines += lines.Count) > MaxLines)
+            return lines;
+        }
+
+        private static string SplitWord(SKFont font, string word, float usable, List<string> lines)
+        {
+            var start = 0;
+            while (start < word.Length)
             {
-                throw new DocumentTooLongException($"The document is longer than {MaxLines} lines.");
+                var length = 1;
+                while (start + length < word.Length && font.MeasureText(word.AsSpan(start, length + 1)) <= usable)
+                {
+                    length++;
+                }
+
+                if (start + length >= word.Length) return word[start..];
+                lines.Add(word.Substring(start, length));
+                start += length;
             }
 
-            return lines;
+            return string.Empty;
         }
 
         private void Advance(float amount)
