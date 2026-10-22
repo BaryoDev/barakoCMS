@@ -110,14 +110,7 @@ internal class Endpoint(
         // 2. Build Query
         var query = session.Query<barakoCMS.Models.Content>().AsQueryable();
 
-        query = await FilterByTypeAsync(query, req, ct);
-
-        // Entries of a branch scoped type that the caller's branches do not include are not rows
-        // for this caller, so the page and the total are taken from what is left.
-        if (await Resolve<barakoCMS.Infrastructure.Services.IBranchScopeGuard>().FilterAsync(User, ct) is { } branchScope)
-        {
-            query = query.Where(c => c.MatchesSql(branchScope.Sql, branchScope.Parameters));
-        }
+        query = await FilterByBranchAsync(await FilterByTypeAsync(query, req, ct), ct);
 
         // Status and search are pushed into the query, and that is safe in a way a permission filter
         // would not be. Both can only remove rows. A caller asking for Drafts is asking for a subset
@@ -377,6 +370,18 @@ internal class Endpoint(
     /// <summary><see cref="SearchSql"/> over the values of the keys named, lower cased, only.</summary>
     private const string SearchShownSql =
         "EXISTS (SELECT 1 FROM jsonb_each_text(d.data -> 'Data') kv WHERE lower(kv.key) = ANY(?) AND kv.value ILIKE '%' || ? || '%')";
+
+    /// <summary>
+    /// Leaves out entries of a branch scoped type that the caller's branches do not include. They
+    /// are not rows for this caller, so the page and the total are taken from what is left.
+    /// </summary>
+    private async Task<IQueryable<barakoCMS.Models.Content>> FilterByBranchAsync(
+        IQueryable<barakoCMS.Models.Content> query, CancellationToken ct)
+    {
+        return await Resolve<barakoCMS.Infrastructure.Services.IBranchScopeGuard>().FilterAsync(User, ct) is { } branchScope
+            ? query.Where(c => c.MatchesSql(branchScope.Sql, branchScope.Parameters))
+            : query;
+    }
 
     /// <summary>Narrows the rows to the requested type, if one is named.</summary>
     private async Task<IQueryable<barakoCMS.Models.Content>> FilterByTypeAsync(
