@@ -1096,7 +1096,7 @@ to that tenant's data. `/api/modules` reports presence per tenant publicly and d
 manifest is a descriptor, never a bundle of code for another product (#635). This moves the module
 contract version.
 
-**Why.** barakoBrew screens, barista commands, MCP tools and barakoPress blocks all need the same
+**Why.** barakoBrew screens, barako commands, MCP tools and barakoPress blocks all need the same
 declaration, and today a tenant created after startup never receives a module's roles or types.
 
 ## D29. The API is the only home of schema, rules and dry run
@@ -1106,7 +1106,7 @@ declaration, and today a tenant created after startup never receives a module's 
 Field types, validation rules, capabilities and workflow actions are described by the API (#931).
 Every write accepts a dry run (#892). The OpenAPI document is committed and a change to it is checked
 in CI (#631). One export, plan and apply engine replaces Portability's partial bundle (#921). API keys
-are scoped by capability (#906). barakoBrew, barista, MCP and the VS Code extension are clients of
+are scoped by capability (#906). barakoBrew, barako (the CLI), MCP and the VS Code extension are clients of
 these and keep no copy of a rule.
 
 **Why.** Each surface building its own validation and preview is the same mistake as a console-only
@@ -1180,7 +1180,7 @@ slug vary; price, capacity, dates, images and references are stored once.
 - **A tenant sets its languages and a fallback chain,** for example `fil` falls back to `en`.
 - **Delivery takes `?locale=`** and falls back through the chain, and the response says which language
   each field came from.
-- **barakoBrew shows missing translations;** barista exports and imports strings for a translator.
+- **barakoBrew shows missing translations;** barako exports and imports strings for a translator.
 - **The site entry follows the same rule,** so a site's name and footer text can vary by language.
 - **Changing whether a field varies** is a schema change under D30, applied to existing entries by a job.
 
