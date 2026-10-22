@@ -784,6 +784,401 @@
         },
         "type": "object"
       },
+      "BarakoCMSCommentsFeaturesDeleteRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSCommentsFeaturesListItem": {
+        "additionalProperties": false,
+        "properties": {
+          "authorId": {
+            "format": "guid",
+            "type": "string"
+          },
+          "authorName": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "guid",
+            "type": "string"
+          },
+          "parentId": {
+            "format": "guid",
+            "nullable": true,
+            "type": "string"
+          },
+          "targetId": {
+            "format": "guid",
+            "type": "string"
+          },
+          "targetType": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSCommentsFeaturesListRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BarakoCMSModelsPaginatedRequest"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The record whose thread to read, and a page of it. The page size is capped by core.",
+            "type": "object"
+          }
+        ]
+      },
+      "BarakoCMSCommentsFeaturesPostRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "maxLength": 5000,
+            "minLength": 0,
+            "type": "string"
+          },
+          "parentId": {
+            "description": "The comment being replied to. It must be on the same record.",
+            "format": "guid",
+            "nullable": true,
+            "type": "string"
+          },
+          "targetId": {
+            "format": "guid",
+            "minLength": 1,
+            "nullable": false,
+            "type": "string"
+          },
+          "targetType": {
+            "maxLength": 64,
+            "minLength": 0,
+            "nullable": false,
+            "type": "string"
+          }
+        },
+        "required": [
+          "targetType",
+          "targetId"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSCommentsFeaturesPostResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "authorId": {
+            "format": "guid",
+            "type": "string"
+          },
+          "authorName": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "guid",
+            "type": "string"
+          },
+          "parentId": {
+            "format": "guid",
+            "nullable": true,
+            "type": "string"
+          },
+          "targetId": {
+            "format": "guid",
+            "type": "string"
+          },
+          "targetType": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSContactsContactLinkResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "organizationId": {
+            "format": "guid",
+            "type": "string"
+          },
+          "personId": {
+            "format": "guid",
+            "type": "string"
+          },
+          "role": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSContactsContactResponse": {
+        "additionalProperties": false,
+        "description": "A contact as an authorised caller reads it. Includes the personal fields.",
+        "properties": {
+          "address": {
+            "nullable": true,
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "email": {
+            "nullable": true,
+            "type": "string"
+          },
+          "familyName": {
+            "nullable": true,
+            "type": "string"
+          },
+          "fields": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "givenName": {
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "guid",
+            "type": "string"
+          },
+          "isPublished": {
+            "type": "boolean"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "mergedInto": {
+            "format": "guid",
+            "nullable": true,
+            "type": "string"
+          },
+          "phone": {
+            "nullable": true,
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "website": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSContactsFeaturesContactsCreateCreateContactRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "address": {
+            "maxLength": 1000,
+            "minLength": 0,
+            "nullable": true,
+            "type": "string"
+          },
+          "displayName": {
+            "maxLength": 200,
+            "minLength": 0,
+            "nullable": false,
+            "type": "string"
+          },
+          "email": {
+            "format": "email",
+            "maxLength": 254,
+            "minLength": 0,
+            "nullable": true,
+            "pattern": "^[^@]+@[^@]+$",
+            "type": "string"
+          },
+          "familyName": {
+            "maxLength": 200,
+            "minLength": 0,
+            "nullable": true,
+            "type": "string"
+          },
+          "fields": {
+            "additionalProperties": {},
+            "description": "Custom fields declared on the contact-record content type.",
+            "nullable": true,
+            "type": "object"
+          },
+          "givenName": {
+            "maxLength": 200,
+            "minLength": 0,
+            "nullable": true,
+            "type": "string"
+          },
+          "kind": {
+            "description": "Person or Organization.",
+            "nullable": true,
+            "type": "string"
+          },
+          "phone": {
+            "maxLength": 64,
+            "minLength": 0,
+            "nullable": true,
+            "type": "string"
+          },
+          "website": {
+            "maxLength": 2048,
+            "minLength": 0,
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "displayName"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSContactsFeaturesContactsListListContactsRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BarakoCMSModelsPaginatedRequest"
+          },
+          {
+            "additionalProperties": false,
+            "type": "object"
+          }
+        ]
+      },
+      "BarakoCMSContactsFeaturesContactsMergeMergeContactRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "intoId": {
+            "description": "The contact that stays and takes what the duplicate had that it lacked.",
+            "format": "guid",
+            "minLength": 1,
+            "nullable": false,
+            "type": "string"
+          }
+        },
+        "required": [
+          "intoId"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSContactsFeaturesContactsUpdateUpdateContactRequest": {
+        "additionalProperties": false,
+        "description": "The whole contact, replacing what is stored. A field left out is cleared, and so is an email\nleft out, which frees the address for another contact.",
+        "properties": {
+          "address": {
+            "maxLength": 1000,
+            "minLength": 0,
+            "nullable": true,
+            "type": "string"
+          },
+          "displayName": {
+            "maxLength": 200,
+            "minLength": 0,
+            "nullable": false,
+            "type": "string"
+          },
+          "email": {
+            "format": "email",
+            "maxLength": 254,
+            "minLength": 0,
+            "nullable": true,
+            "pattern": "^[^@]+@[^@]+$",
+            "type": "string"
+          },
+          "familyName": {
+            "maxLength": 200,
+            "minLength": 0,
+            "nullable": true,
+            "type": "string"
+          },
+          "fields": {
+            "additionalProperties": {},
+            "nullable": true,
+            "type": "object"
+          },
+          "givenName": {
+            "maxLength": 200,
+            "minLength": 0,
+            "nullable": true,
+            "type": "string"
+          },
+          "isPublished": {
+            "description": "Whether anonymous delivery may serve this contact's Public fields. Off unless sent.",
+            "type": "boolean"
+          },
+          "kind": {
+            "nullable": true,
+            "type": "string"
+          },
+          "phone": {
+            "maxLength": 64,
+            "minLength": 0,
+            "nullable": true,
+            "type": "string"
+          },
+          "website": {
+            "maxLength": 2048,
+            "minLength": 0,
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "displayName"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSContactsFeaturesLinksAddAddLinkRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "organizationId": {
+            "format": "guid",
+            "minLength": 1,
+            "nullable": false,
+            "type": "string"
+          },
+          "role": {
+            "description": "What the person is to the organization, in the tenant's own words.",
+            "maxLength": 200,
+            "minLength": 0,
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "organizationId"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSContactsFeaturesLinksListListLinksRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BarakoCMSModelsPaginatedRequest"
+          },
+          {
+            "additionalProperties": false,
+            "type": "object"
+          }
+        ]
+      },
       "BarakoCMSCoreInterfacesNumberGapReport": {
         "additionalProperties": false,
         "properties": {
@@ -1515,6 +1910,147 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesAccountsAccountResponse": {
+        "additionalProperties": false,
+        "description": "An account as the API describes it, including the console branding it carries.",
+        "properties": {
+          "colours": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "guid",
+            "type": "string"
+          },
+          "logoUrl": {
+            "nullable": true,
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesAccountsAccountWriteRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "colours": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Console colours by name. Null leaves them as they are on an update.",
+            "nullable": true,
+            "type": "object"
+          },
+          "logoUrl": {
+            "description": "Absolute http or https URL. Null or empty clears it.",
+            "nullable": true,
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 0,
+            "nullable": false,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSFeaturesAccountsBrandingResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "accountId": {
+            "format": "guid",
+            "type": "string"
+          },
+          "accountSlug": {
+            "type": "string"
+          },
+          "colours": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "logoUrl": {
+            "nullable": true,
+            "type": "string"
+          },
+          "name": {
+            "description": "The account's name, or null when none has been set and the console keeps its own.",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesAccountsListRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BarakoCMSModelsPaginatedRequest"
+          },
+          {
+            "additionalProperties": false,
+            "type": "object"
+          }
+        ]
+      },
+      "BarakoCMSFeaturesAccountsManagersGrantRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "userId": {
+            "format": "guid",
+            "minLength": 1,
+            "nullable": false,
+            "type": "string"
+          }
+        },
+        "required": [
+          "userId"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSFeaturesAccountsManagersManagerResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "grantedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "userId": {
+            "format": "guid",
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesAccountsManagersRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BarakoCMSModelsPaginatedRequest"
+          },
+          {
+            "additionalProperties": false,
+            "type": "object"
+          }
+        ]
+      },
       "BarakoCMSFeaturesApiKeysApiKeyListItem": {
         "additionalProperties": false,
         "properties": {
@@ -1647,6 +2183,79 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesApiKeysUsageRefusalItem": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "contentType": {
+            "nullable": true,
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesApiKeysUsageUsageRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSFeaturesApiKeysUsageUsageResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "guid",
+            "type": "string"
+          },
+          "lastUsedAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "missingContentTypes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "recentRefusals": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesApiKeysUsageRefusalItem"
+            },
+            "type": "array"
+          },
+          "refusalsByContentType": {
+            "additionalProperties": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "refusalsByReason": {
+            "additionalProperties": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "totalRefusals": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "windowHours": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesAuditListAuditEventDto": {
         "additionalProperties": false,
         "properties": {
@@ -1689,6 +2298,53 @@
           },
           "tenantSlug": {
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesAuditListAuditListResponse": {
+        "additionalProperties": false,
+        "description": "A page of audit entries.",
+        "properties": {
+          "cursor": {
+            "description": "Pass back as since to read what follows this response. Present only when since\nwas given.",
+            "nullable": true,
+            "type": "string"
+          },
+          "hasNextPage": {
+            "description": "Whether there is a next page",
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "description": "Whether there is a previous page",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Items for the current page",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesAuditListAuditEventDto"
+            },
+            "type": "array"
+          },
+          "page": {
+            "description": "Current page number (1-indexed)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "pageSize": {
+            "description": "Number of items per page",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalItems": {
+            "description": "Total number of items across all pages",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalPages": {
+            "description": "Total number of pages",
+            "format": "int32",
+            "type": "integer"
           }
         },
         "type": "object"
@@ -3050,6 +3706,98 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesContentBatchBatchRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesContentBatchBatchStep"
+            },
+            "minLength": 1,
+            "nullable": false,
+            "type": "array"
+          }
+        },
+        "required": [
+          "steps"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentBatchBatchResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesContentBatchBatchStepResult"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentBatchBatchStep": {
+        "additionalProperties": false,
+        "description": "One write of a batch: a create, or a lifecycle transition.",
+        "properties": {
+          "contentType": {
+            "description": "Create only: the type of the new entry.",
+            "type": "string"
+          },
+          "data": {
+            "additionalProperties": {},
+            "description": "Create: the field values. Transition: the values the transition declares.",
+            "nullable": true,
+            "type": "object"
+          },
+          "id": {
+            "description": "The id of the new entry, made by the client, or the id of the entry to move.",
+            "format": "guid",
+            "type": "string"
+          },
+          "op": {
+            "description": "create or transition.",
+            "type": "string"
+          },
+          "sensitivity": {
+            "description": "Create only, optional: a SensitivityLevel name. Public when left out.",
+            "nullable": true,
+            "type": "string"
+          },
+          "status": {
+            "description": "Create only, optional: a ContentStatus name. Draft when left out.",
+            "nullable": true,
+            "type": "string"
+          },
+          "transition": {
+            "description": "Transition only: the name of the transition to make.",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentBatchBatchStepResult": {
+        "additionalProperties": false,
+        "description": "What one step did. State is the lifecycle state after it, or null for a type with none.",
+        "properties": {
+          "id": {
+            "format": "guid",
+            "type": "string"
+          },
+          "index": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "op": {
+            "type": "string"
+          },
+          "state": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesContentChangeStatusRequest": {
         "additionalProperties": false,
         "properties": {
@@ -3225,6 +3973,11 @@
           },
           "lastModifiedBy": {
             "format": "guid",
+            "type": "string"
+          },
+          "lifecycleState": {
+            "description": "The lifecycle state: the stored state, or the type's initial state for an entry not yet\nmoved. Null for a type with no lifecycle and for a hidden entry.",
+            "nullable": true,
             "type": "string"
           },
           "scheduledPublishAt": {
@@ -3422,6 +4175,11 @@
             "format": "guid",
             "type": "string"
           },
+          "lifecycleState": {
+            "description": "The lifecycle state, the same value the single-item GET returns: the stored state, or the\ntype's initial state for an entry not yet moved. Null for a type with no lifecycle and for a\nrow shown as hidden.",
+            "nullable": true,
+            "type": "string"
+          },
           "sensitivity": {
             "$ref": "#/components/schemas/BarakoCMSModelsSensitivityLevel"
           },
@@ -3450,6 +4208,91 @@
             "type": "object"
           }
         ]
+      },
+      "BarakoCMSFeaturesContentRunsRunActionSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "actionType": {
+            "description": "The action's type name.",
+            "type": "string"
+          },
+          "created": {
+            "description": "The entries the action created, or null when it created none.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSModelsCreatedRef"
+            },
+            "nullable": true,
+            "type": "array"
+          },
+          "error": {
+            "description": "Why the attempt failed, or null.",
+            "nullable": true,
+            "type": "string"
+          },
+          "ordinal": {
+            "description": "Where the action sits in its run, from 0.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "status": {
+            "description": "The name of an AttemptStatus.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentRunsRunSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "actions": {
+            "description": "Its actions in order.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesContentRunsRunActionSummary"
+            },
+            "type": "array"
+          },
+          "completedAt": {
+            "description": "When it finished, or null while it has not.",
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "createdAt": {
+            "description": "When the run was queued, in UTC.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "description": "The run's id.",
+            "format": "guid",
+            "type": "string"
+          },
+          "status": {
+            "description": "The name of a RunStatus.",
+            "type": "string"
+          },
+          "triggerEvent": {
+            "description": "The event that fired it.",
+            "type": "string"
+          },
+          "workflowName": {
+            "description": "The workflow's name when it fired.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentRunsRunsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesContentRunsRunSummary"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
       },
       "BarakoCMSFeaturesContentScheduleRequest": {
         "additionalProperties": false,
@@ -3914,6 +4757,10 @@
         "additionalProperties": false,
         "description": "A content type as the API describes it, rather than as it is stored.",
         "properties": {
+          "branchScoped": {
+            "description": "Whether every entry belongs to one branch.",
+            "type": "boolean"
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
@@ -3963,6 +4810,15 @@
               }
             ]
           },
+          "mergeClass": {
+            "description": "How edits made on two stations are merged, or null when the host decides.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsMergeClass"
+              }
+            ]
+          },
           "name": {
             "type": "string"
           },
@@ -3975,10 +4831,23 @@
               }
             ]
           },
+          "realtimeTopic": {
+            "description": "The realtime topic clients subscribe to for this type, or null when it has none.",
+            "nullable": true,
+            "type": "string"
+          },
           "routeTemplate": {
             "description": "Where an entry of this type lives on the site, such as /blog/{slug}, or null when the\ntype declares none.",
             "nullable": true,
             "type": "string"
+          },
+          "rules": {
+            "description": "The server checks the type runs on save and on transitions, or null for none.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSModelsRuleDefinition"
+            },
+            "nullable": true,
+            "type": "array"
           },
           "structuredDataType": {
             "description": "The schema.org type a delivered entry is described as, or null when the type declares none.",
@@ -4382,6 +5251,10 @@
       "BarakoCMSFeaturesContentTypeSetNumberingRequest": {
         "additionalProperties": false,
         "properties": {
+          "clientAllocated": {
+            "description": "True when a client may take numbers of this series from the next-number route.",
+            "type": "boolean"
+          },
           "field": {
             "description": "The text field that holds the number. Null or empty takes the rule off the type.",
             "nullable": true,
@@ -4396,6 +5269,11 @@
           },
           "reset": {
             "$ref": "#/components/schemas/BarakoCMSCoreInterfacesNumberReset"
+          },
+          "seriesTemplate": {
+            "description": "Series name with {branch} and {type} tokens. Null keeps the type's own series.",
+            "nullable": true,
+            "type": "string"
           },
           "strategy": {
             "$ref": "#/components/schemas/BarakoCMSCoreInterfacesNumberStrategy"
@@ -5350,6 +6228,39 @@
         "additionalProperties": false,
         "type": "object"
       },
+      "BarakoCMSFeaturesNumberingNextNextNumberRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "contentType": {
+            "minLength": 1,
+            "nullable": false,
+            "type": "string"
+          }
+        },
+        "required": [
+          "contentType"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSFeaturesNumberingNextNextNumberResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "number": {
+            "description": "The formatted number, to send as the numbering field of the new entry.",
+            "type": "string"
+          },
+          "series": {
+            "description": "The series the number is from.",
+            "type": "string"
+          },
+          "value": {
+            "description": "The number without prefix or padding.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesPreviewCreatePreviewTokenRequest": {
         "additionalProperties": false,
         "properties": {
@@ -5575,6 +6486,12 @@
               "type": "object"
             },
             "type": "array"
+          },
+          "totals": {
+            "additionalProperties": {},
+            "description": "Every measure over the whole set, for an aggregate query. Left out otherwise.",
+            "nullable": true,
+            "type": "object"
           }
         },
         "type": "object"
@@ -5604,6 +6521,13 @@
             },
             "type": "array"
           },
+          "groupBy": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSModelsQueryGroup"
+            },
+            "nullable": true,
+            "type": "array"
+          },
           "id": {
             "format": "guid",
             "type": "string"
@@ -5612,8 +6536,23 @@
             "format": "int32",
             "type": "integer"
           },
+          "measures": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSModelsQueryMeasure"
+            },
+            "nullable": true,
+            "type": "array"
+          },
           "name": {
             "type": "string"
+          },
+          "range": {
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsQueryRange"
+              }
+            ]
           },
           "slug": {
             "type": "string"
@@ -5625,6 +6564,52 @@
           "updatedAt": {
             "format": "date-time",
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesQueriesRunRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "description": "First day of the range, yyyy-MM-dd. Replaces the saved range's start.",
+            "nullable": true,
+            "type": "string"
+          },
+          "to": {
+            "description": "Last day of the range, yyyy-MM-dd. Replaces the saved range's end.",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesQueriesRunResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "description": "The number of groups.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "refusal": {
+            "nullable": true,
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "totals": {
+            "additionalProperties": {},
+            "description": "Every measure over the whole set, ignoring the grouping.",
+            "type": "object"
           }
         },
         "type": "object"
@@ -5650,12 +6635,34 @@
             },
             "type": "array"
           },
+          "groupBy": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSModelsQueryGroup"
+            },
+            "nullable": true,
+            "type": "array"
+          },
           "limit": {
             "format": "int32",
             "type": "integer"
           },
+          "measures": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSModelsQueryMeasure"
+            },
+            "nullable": true,
+            "type": "array"
+          },
           "name": {
             "type": "string"
+          },
+          "range": {
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsQueryRange"
+              }
+            ]
           },
           "slug": {
             "type": "string"
@@ -5902,6 +6909,7 @@
             "type": "object"
           },
           "maxOutputLength": {
+            "description": "The longest an output may be, in characters. A longer one fails the step.",
             "format": "int32",
             "nullable": true,
             "type": "integer"
@@ -5910,6 +6918,7 @@
             "type": "string"
           },
           "missingOutput": {
+            "description": "Fail (the default) or Empty: what a path that finds nothing does.",
             "nullable": true,
             "type": "string"
           },
@@ -5920,6 +6929,7 @@
             "additionalProperties": {
               "type": "string"
             },
+            "description": "Values to keep from the response as step outputs: name, and a plain JSON path such as $.choices[0].message.content.",
             "nullable": true,
             "type": "object"
           },
@@ -6665,6 +7675,53 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesTenantsExportRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSFeaturesTenantsImportRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "bundle": {
+            "description": "A bundle, as GET /api/tenants/{handle}/export returns one."
+          },
+          "handle": {
+            "description": "The handle of the new tenant. It must not exist.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The new tenant's name. Left out, the bundle's is used.",
+            "maxLength": 200,
+            "minLength": 0,
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesTenantsImportResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "config": {
+            "description": "What was applied to the new tenant, section by section.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesConfigConfigPlanResponse"
+              }
+            ]
+          },
+          "tenant": {
+            "description": "The new tenant, or null when the import was refused and none was made.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesTenantsTenantResponse"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesTenantsMembersAddMemberRequest": {
         "additionalProperties": false,
         "properties": {
@@ -6833,6 +7890,11 @@
         "additionalProperties": false,
         "description": "A tenant as the API describes it, rather than as it is stored.",
         "properties": {
+          "accountId": {
+            "description": "The account that owns the tenant. The default account's id when none was assigned.",
+            "format": "guid",
+            "type": "string"
+          },
           "branding": {
             "additionalProperties": {
               "type": "string"
@@ -6914,6 +7976,12 @@
         "additionalProperties": false,
         "properties": {
           "about": {
+            "nullable": true,
+            "type": "string"
+          },
+          "accountId": {
+            "description": "The account that owns the tenant. Null on create puts it in the default account (or, for a\ncaller who manages exactly one account, that account), and null on an update leaves it.\nMoving a tenant to another account is for a platform manager.",
+            "format": "guid",
             "nullable": true,
             "type": "string"
           },
@@ -7295,6 +8363,30 @@
         "type": "object"
       },
       "BarakoCMSFeaturesUsersRemoveRoleResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesUsersResetMfaRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 0,
+            "nullable": false,
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSFeaturesUsersResetMfaResponse": {
         "additionalProperties": false,
         "properties": {
           "message": {
@@ -7870,6 +8962,10 @@
           "name": {
             "type": "string"
           },
+          "notifyRoleOnFailure": {
+            "nullable": true,
+            "type": "string"
+          },
           "schedule": {
             "nullable": true,
             "type": "string"
@@ -8150,6 +9246,10 @@
           "name": {
             "type": "string"
           },
+          "notifyRoleOnFailure": {
+            "nullable": true,
+            "type": "string"
+          },
           "schedule": {
             "nullable": true,
             "type": "string"
@@ -8292,6 +9392,11 @@
             },
             "nullable": true,
             "type": "array"
+          },
+          "notifyRoleOnFailure": {
+            "description": "The role told when a run fails. Null for nobody.",
+            "nullable": true,
+            "type": "string"
           },
           "schedule": {
             "description": "The cron expression of a scheduled workflow. Left out otherwise.",
@@ -9444,6 +10549,12 @@
       "BarakoCMSModelsContent": {
         "additionalProperties": false,
         "properties": {
+          "branchId": {
+            "description": "The branch this entry belongs to, from the branch-id header of its first event. Null when unscoped.",
+            "format": "guid",
+            "nullable": true,
+            "type": "string"
+          },
           "contentType": {
             "type": "string"
           },
@@ -9503,6 +10614,12 @@
           "sensitivity": {
             "$ref": "#/components/schemas/BarakoCMSModelsSensitivityLevel"
           },
+          "sourceRunId": {
+            "description": "The workflow run that created this entry, or null for an entry a person or an import made.",
+            "format": "guid",
+            "nullable": true,
+            "type": "string"
+          },
           "status": {
             "$ref": "#/components/schemas/BarakoCMSModelsContentStatus"
           },
@@ -9532,6 +10649,10 @@
       "BarakoCMSModelsContentTypeDefinition": {
         "additionalProperties": false,
         "properties": {
+          "branchScoped": {
+            "description": "Whether every entry of this type belongs to one branch. A write then needs a branch\n(X-Branch-Id), and access rules can narrow rows with $branch.",
+            "type": "boolean"
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
@@ -9578,6 +10699,15 @@
               }
             ]
           },
+          "mergeClass": {
+            "description": "How edits made on two stations are merged when they sync. Null means the host decides.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsMergeClass"
+              }
+            ]
+          },
           "name": {
             "type": "string"
           },
@@ -9590,10 +10720,23 @@
               }
             ]
           },
+          "realtimeTopic": {
+            "description": "Realtime topic for this type. Null means none. Lower case words joined by dots or dashes.",
+            "nullable": true,
+            "type": "string"
+          },
           "routeTemplate": {
             "description": "Where an entry of this type lives on the site, as a path holding {slug}, for example\n/blog/{slug}.",
             "nullable": true,
             "type": "string"
+          },
+          "rules": {
+            "description": "Server checks run on save and on transitions, or null for none. See RuleDefinition.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSModelsRuleDefinition"
+            },
+            "nullable": true,
+            "type": "array"
           },
           "structuredDataType": {
             "description": "The schema.org type a delivered entry of this type is described as, for example\nArticle, or null for none.",
@@ -9661,6 +10804,27 @@
                 "$ref": "#/components/schemas/BarakoCMSModelsPermissionRule"
               }
             ]
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSModelsCreatedRef": {
+        "additionalProperties": false,
+        "description": "An entry a workflow action created, kept on the attempt so a run shows what it made.",
+        "properties": {
+          "contentType": {
+            "description": "The created entry's type.",
+            "type": "string"
+          },
+          "id": {
+            "description": "The created entry's id.",
+            "format": "guid",
+            "type": "string"
+          },
+          "number": {
+            "description": "The number the entry was given, or null when its type has no number series.",
+            "nullable": true,
+            "type": "string"
           }
         },
         "type": "object"
@@ -9932,10 +11096,28 @@
           "Removed"
         ]
       },
+      "BarakoCMSModelsMergeClass": {
+        "description": "How edits made on two stations are merged when they sync.",
+        "enum": [
+          "Append",
+          "FieldLww",
+          "OwnedRequest"
+        ],
+        "type": "string",
+        "x-enumNames": [
+          "Append",
+          "FieldLww",
+          "OwnedRequest"
+        ]
+      },
       "BarakoCMSModelsNumberingRule": {
         "additionalProperties": false,
         "description": "How a content type numbers its entries, for example INV-2026-00042.",
         "properties": {
+          "clientAllocated": {
+            "description": "True when a client may reserve numbers of this series through the next-number route.",
+            "type": "boolean"
+          },
           "field": {
             "description": "A text field of the type, not required, that holds the number.",
             "type": "string"
@@ -9956,6 +11138,11 @@
                 "$ref": "#/components/schemas/BarakoCMSCoreInterfacesNumberReset"
               }
             ]
+          },
+          "seriesTemplate": {
+            "description": "Series name with the tokens {branch} (the lower-case branch code) and {type}.\nNull keeps type.{name}.",
+            "nullable": true,
+            "type": "string"
           },
           "strategy": {
             "description": "How numbers are handed out. Gapless unless set.",
@@ -9994,6 +11181,48 @@
             "description": "Items for the current page",
             "items": {
               "$ref": "#/components/schemas/BarakoCMSAccountingDomainAccount"
+            },
+            "type": "array"
+          },
+          "page": {
+            "description": "Current page number (1-indexed)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "pageSize": {
+            "description": "Number of items per page",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalItems": {
+            "description": "Total number of items across all pages",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalPages": {
+            "description": "Total number of pages",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSModelsPaginatedResponseOfAccountResponse": {
+        "additionalProperties": false,
+        "description": "Generic paginated response with metadata.",
+        "properties": {
+          "hasNextPage": {
+            "description": "Whether there is a next page",
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "description": "Whether there is a previous page",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Items for the current page",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesAccountsAccountResponse"
             },
             "type": "array"
           },
@@ -10078,48 +11307,6 @@
             "description": "Items for the current page",
             "items": {
               "$ref": "#/components/schemas/BarakoCMSFeaturesTenantsMembersAssignableRoleResponse"
-            },
-            "type": "array"
-          },
-          "page": {
-            "description": "Current page number (1-indexed)",
-            "format": "int32",
-            "type": "integer"
-          },
-          "pageSize": {
-            "description": "Number of items per page",
-            "format": "int32",
-            "type": "integer"
-          },
-          "totalItems": {
-            "description": "Total number of items across all pages",
-            "format": "int32",
-            "type": "integer"
-          },
-          "totalPages": {
-            "description": "Total number of pages",
-            "format": "int32",
-            "type": "integer"
-          }
-        },
-        "type": "object"
-      },
-      "BarakoCMSModelsPaginatedResponseOfAuditEventDto": {
-        "additionalProperties": false,
-        "description": "Generic paginated response with metadata.",
-        "properties": {
-          "hasNextPage": {
-            "description": "Whether there is a next page",
-            "type": "boolean"
-          },
-          "hasPreviousPage": {
-            "description": "Whether there is a previous page",
-            "type": "boolean"
-          },
-          "items": {
-            "description": "Items for the current page",
-            "items": {
-              "$ref": "#/components/schemas/BarakoCMSFeaturesAuditListAuditEventDto"
             },
             "type": "array"
           },
@@ -10330,6 +11517,90 @@
             "description": "Items for the current page",
             "items": {
               "$ref": "#/components/schemas/BarakoCMSFeaturesConnectorsConnectorResponse"
+            },
+            "type": "array"
+          },
+          "page": {
+            "description": "Current page number (1-indexed)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "pageSize": {
+            "description": "Number of items per page",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalItems": {
+            "description": "Total number of items across all pages",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalPages": {
+            "description": "Total number of pages",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSModelsPaginatedResponseOfContactLinkResponse": {
+        "additionalProperties": false,
+        "description": "Generic paginated response with metadata.",
+        "properties": {
+          "hasNextPage": {
+            "description": "Whether there is a next page",
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "description": "Whether there is a previous page",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Items for the current page",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSContactsContactLinkResponse"
+            },
+            "type": "array"
+          },
+          "page": {
+            "description": "Current page number (1-indexed)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "pageSize": {
+            "description": "Number of items per page",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalItems": {
+            "description": "Total number of items across all pages",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalPages": {
+            "description": "Total number of pages",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSModelsPaginatedResponseOfContactResponse": {
+        "additionalProperties": false,
+        "description": "Generic paginated response with metadata.",
+        "properties": {
+          "hasNextPage": {
+            "description": "Whether there is a next page",
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "description": "Whether there is a previous page",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Items for the current page",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSContactsContactResponse"
             },
             "type": "array"
           },
@@ -10776,6 +12047,48 @@
         },
         "type": "object"
       },
+      "BarakoCMSModelsPaginatedResponseOfItem": {
+        "additionalProperties": false,
+        "description": "Generic paginated response with metadata.",
+        "properties": {
+          "hasNextPage": {
+            "description": "Whether there is a next page",
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "description": "Whether there is a previous page",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Items for the current page",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSCommentsFeaturesListItem"
+            },
+            "type": "array"
+          },
+          "page": {
+            "description": "Current page number (1-indexed)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "pageSize": {
+            "description": "Number of items per page",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalItems": {
+            "description": "Total number of items across all pages",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalPages": {
+            "description": "Total number of pages",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSModelsPaginatedResponseOfJobResponse": {
         "additionalProperties": false,
         "description": "Generic paginated response with metadata.",
@@ -10834,6 +12147,48 @@
             "description": "Items for the current page",
             "items": {
               "$ref": "#/components/schemas/BarakoCMSInfrastructureAuthKnownCapability"
+            },
+            "type": "array"
+          },
+          "page": {
+            "description": "Current page number (1-indexed)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "pageSize": {
+            "description": "Number of items per page",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalItems": {
+            "description": "Total number of items across all pages",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalPages": {
+            "description": "Total number of pages",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSModelsPaginatedResponseOfManagerResponse": {
+        "additionalProperties": false,
+        "description": "Generic paginated response with metadata.",
+        "properties": {
+          "hasNextPage": {
+            "description": "Whether there is a next page",
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "description": "Whether there is a previous page",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Items for the current page",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesAccountsManagersManagerResponse"
             },
             "type": "array"
           },
@@ -10944,6 +12299,48 @@
         },
         "type": "object"
       },
+      "BarakoCMSModelsPaginatedResponseOfNotificationResponse": {
+        "additionalProperties": false,
+        "description": "Generic paginated response with metadata.",
+        "properties": {
+          "hasNextPage": {
+            "description": "Whether there is a next page",
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "description": "Whether there is a previous page",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Items for the current page",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSNotificationsFeaturesListNotificationResponse"
+            },
+            "type": "array"
+          },
+          "page": {
+            "description": "Current page number (1-indexed)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "pageSize": {
+            "description": "Number of items per page",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalItems": {
+            "description": "Total number of items across all pages",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalPages": {
+            "description": "Total number of pages",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSModelsPaginatedResponseOfPresetResponse": {
         "additionalProperties": false,
         "description": "Generic paginated response with metadata.",
@@ -10960,6 +12357,48 @@
             "description": "Items for the current page",
             "items": {
               "$ref": "#/components/schemas/BarakoCMSFeaturesBlocksPresetsPresetResponse"
+            },
+            "type": "array"
+          },
+          "page": {
+            "description": "Current page number (1-indexed)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "pageSize": {
+            "description": "Number of items per page",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalItems": {
+            "description": "Total number of items across all pages",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalPages": {
+            "description": "Total number of pages",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSModelsPaginatedResponseOfPublicContentProjection": {
+        "additionalProperties": false,
+        "description": "Generic paginated response with metadata.",
+        "properties": {
+          "hasNextPage": {
+            "description": "Whether there is a next page",
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "description": "Whether there is a previous page",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Items for the current page",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSCoreInterfacesPublicContentProjection"
             },
             "type": "array"
           },
@@ -11762,6 +13201,260 @@
         },
         "type": "object"
       },
+      "BarakoCMSModelsQueryGroup": {
+        "additionalProperties": false,
+        "description": "One grouping column. A bucket turns a date field into day, month or year.",
+        "properties": {
+          "bucket": {
+            "nullable": true,
+            "type": "string"
+          },
+          "field": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSModelsQueryMeasure": {
+        "additionalProperties": false,
+        "description": "One figure per group: sum, count, avg, min or max of a field, or of a field one reference away.",
+        "properties": {
+          "as": {
+            "description": "The name the figure carries in a row.",
+            "type": "string"
+          },
+          "field": {
+            "description": "Null for a plain count of entries.",
+            "nullable": true,
+            "type": "string"
+          },
+          "fn": {
+            "type": "string"
+          },
+          "via": {
+            "description": "A reference field on the queried type. The measure is taken over the entries it names.",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSModelsQueryRange": {
+        "additionalProperties": false,
+        "description": "A date field and the window it must fall in. A relative window or fixed bounds, not both.",
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "from": {
+            "description": "First day, as yyyy-MM-dd, in the tenant's time zone.",
+            "nullable": true,
+            "type": "string"
+          },
+          "relative": {
+            "description": "today, last7Days, last30Days, thisMonth, lastMonth or thisYear.",
+            "nullable": true,
+            "type": "string"
+          },
+          "to": {
+            "description": "Last day, as yyyy-MM-dd, in the tenant's time zone.",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSModelsRuleCondition": {
+        "additionalProperties": false,
+        "description": "One condition of a rule.",
+        "properties": {
+          "also": {
+            "description": "For member: extra allowed values; for covers: extra required values. Comma separated.",
+            "nullable": true,
+            "type": "string"
+          },
+          "args": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "The arguments passed to the lookup, which may hold templates.",
+            "nullable": true,
+            "type": "object"
+          },
+          "as": {
+            "description": "For a let: the name it is read by, as {{let.<as>}} or the path let.<as>.",
+            "nullable": true,
+            "type": "string"
+          },
+          "contentType": {
+            "description": "The other content type a related, sum, count or unique condition reads.",
+            "nullable": true,
+            "type": "string"
+          },
+          "each": {
+            "description": "For kind each: conditions run against every item of the array field named by Field.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSModelsRuleCondition"
+            },
+            "nullable": true,
+            "type": "array"
+          },
+          "field": {
+            "description": "The field the condition reads.",
+            "nullable": true,
+            "type": "string"
+          },
+          "if": {
+            "description": "Guards: the condition is checked only when all of them hold, and counts as met otherwise.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSModelsRuleCondition"
+            },
+            "nullable": true,
+            "type": "array"
+          },
+          "kind": {
+            "description": "field, length, pattern, each, itemCount, state, changed, unique, related, sum, count, lookup, stored, member, covers, distinct or notRequester.",
+            "type": "string"
+          },
+          "lookup": {
+            "description": "The name of the lookup a lookup condition calls.",
+            "nullable": true,
+            "type": "string"
+          },
+          "message": {
+            "description": "A template that replaces the rule's message when this condition is the one that fails.",
+            "nullable": true,
+            "type": "string"
+          },
+          "negate": {
+            "description": "Whether the condition's result is inverted.",
+            "type": "boolean"
+          },
+          "normalise": {
+            "description": "How values are normalised before comparing: trim, lower, digits.",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true,
+            "type": "array"
+          },
+          "of": {
+            "description": "For member and covers: a path, or a template per row such as lab:{{TestCode}}, giving the values.",
+            "nullable": true,
+            "type": "string"
+          },
+          "op": {
+            "description": "eq, ne, gt, gte, lt, lte, in, empty or notEmpty.",
+            "type": "string"
+          },
+          "ref": {
+            "description": "A template giving one entry id; field, state, related, sum, member and a field let then read that entry.",
+            "nullable": true,
+            "type": "string"
+          },
+          "state": {
+            "description": "The lifecycle states, as a comma list, a related, sum, count or member condition reads.",
+            "nullable": true,
+            "type": "string"
+          },
+          "sum": {
+            "description": "The path a sum condition adds up, such as Lines.Amount.",
+            "nullable": true,
+            "type": "string"
+          },
+          "value": {
+            "description": "The value compared against, which may hold templates.",
+            "nullable": true,
+            "type": "string"
+          },
+          "where": {
+            "description": "A filter on the other type's entries, as Field=value;Field2={{x}}.",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSModelsRuleDefinition": {
+        "additionalProperties": false,
+        "description": "A server check a content type declares: conditions that must hold, and fields it sets.",
+        "properties": {
+          "all": {
+            "description": "Conditions that must all hold, or the write is refused with Message.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSModelsRuleCondition"
+            },
+            "type": "array"
+          },
+          "if": {
+            "description": "Conditions that must all hold for the rule to run. Otherwise the rule is skipped.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSModelsRuleCondition"
+            },
+            "nullable": true,
+            "type": "array"
+          },
+          "inState": {
+            "description": "The state the entry must be in for the rule to run, or null for any state.",
+            "nullable": true,
+            "type": "string"
+          },
+          "let": {
+            "description": "Named values worked out in order after If and before All, read as let.<as>.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSModelsRuleCondition"
+            },
+            "nullable": true,
+            "type": "array"
+          },
+          "message": {
+            "description": "The text a refusal carries.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The rule's name, reported with a refusal.",
+            "type": "string"
+          },
+          "set": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Fields written into the entry when the rule passes, by template.",
+            "type": "object"
+          },
+          "timeZone": {
+            "description": "The IANA zone for $NOW and $TODAY. Null uses the site's TimeZone, else UTC.",
+            "nullable": true,
+            "type": "string"
+          },
+          "transition": {
+            "description": "The transition the rule runs on, or null for every transition.",
+            "nullable": true,
+            "type": "string"
+          },
+          "when": {
+            "description": "When the rule runs.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsRuleWhen"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSModelsRuleWhen": {
+        "description": "When a content type rule runs.",
+        "enum": [
+          "Save",
+          "Transition"
+        ],
+        "type": "string",
+        "x-enumNames": [
+          "Save",
+          "Transition"
+        ]
+      },
       "BarakoCMSModelsRunCompensation": {
         "description": "Where the undoing of a rolled back run stands.",
         "enum": [
@@ -12270,6 +13963,141 @@
               "$ref": "#/components/schemas/BarakoCMSModelsValidationError"
             },
             "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSNotificationsFeaturesAdminAdminListRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BarakoCMSModelsPaginatedRequest"
+          },
+          {
+            "additionalProperties": false,
+            "type": "object"
+          }
+        ]
+      },
+      "BarakoCMSNotificationsFeaturesListListNotificationsRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BarakoCMSModelsPaginatedRequest"
+          },
+          {
+            "additionalProperties": false,
+            "type": "object"
+          }
+        ]
+      },
+      "BarakoCMSNotificationsFeaturesListNotificationResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "nullable": true,
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "guid",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": {},
+            "nullable": true,
+            "type": "object"
+          },
+          "readAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "recipientUserId": {
+            "format": "guid",
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSNotificationsFeaturesMarkReadMarkAllReadResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "updated": {
+            "description": "How many were marked by this call. At the batch size, call again.",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSNotificationsFeaturesMarkReadMarkReadRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSNotificationsFeaturesRaiseRaiseRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "maxLength": 4000,
+            "minLength": 0,
+            "nullable": true,
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": {},
+            "nullable": true,
+            "type": "object"
+          },
+          "recipientUserId": {
+            "format": "guid",
+            "minLength": 1,
+            "nullable": false,
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 0,
+            "nullable": false,
+            "type": "string"
+          },
+          "type": {
+            "maxLength": 100,
+            "minLength": 0,
+            "nullable": false,
+            "type": "string"
+          }
+        },
+        "required": [
+          "recipientUserId",
+          "type",
+          "title"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSNotificationsFeaturesRaiseRaiseResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "guid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSNotificationsFeaturesUnreadCountUnreadCountResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "format": "int32",
+            "type": "integer"
           }
         },
         "type": "object"
@@ -13313,6 +15141,411 @@
         ]
       }
     },
+    "/api/accounts": {
+      "get": {
+        "description": "The implicit default account is listed first, so a deployment with no accounts still sees the\none that holds its tenants. Then the stored accounts by name.",
+        "operationId": "barakoCMSFeaturesAccountsListEndpoint",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfAccountResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/accounts: every account for a platform manager, or the accounts a scoped manager has been made manager of.",
+        "tags": [
+          "Accounts"
+        ]
+      },
+      "post": {
+        "operationId": "barakoCMSFeaturesAccountsCreateEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesAccountsAccountWriteRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "AccountWriteRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesAccountsAccountResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/accounts: create an account (platform manager only).",
+        "tags": [
+          "Accounts"
+        ]
+      }
+    },
+    "/api/accounts/branding": {
+      "get": {
+        "description": "Open to any signed-in caller, since the console reads it for whoever is using it. An account\nwith no colours set answers the tenant's own Branding dictionary, which is what a console\nread before accounts existed. A deployment with no accounts answers no name and no logo.",
+        "operationId": "barakoCMSFeaturesAccountsBrandingEndpoint",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesAccountsBrandingResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/accounts/branding: the console branding of the account that owns the caller's current tenant.",
+        "tags": [
+          "Accounts"
+        ]
+      }
+    },
+    "/api/accounts/{slug}": {
+      "get": {
+        "operationId": "barakoCMSFeaturesAccountsGetEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesAccountsAccountResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/accounts/{slug}: one account. An account the caller does not manage answers 404.",
+        "tags": [
+          "Accounts"
+        ]
+      },
+      "put": {
+        "description": "The implicit default account is stored the first time it is updated. Colours left out of the\nrequest stay as they are, and an empty logoUrl clears the logo.",
+        "operationId": "barakoCMSFeaturesAccountsUpdateEndpoint",
+        "parameters": [
+          {
+            "description": "The account's identifier. Read on create, ignored on update, where the route names it.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesAccountsAccountWriteRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "AccountWriteRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesAccountsAccountResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "PUT /api/accounts/{slug}: change an account's name and console branding (platform manager only).",
+        "tags": [
+          "Accounts"
+        ]
+      }
+    },
+    "/api/accounts/{slug}/managers": {
+      "get": {
+        "operationId": "barakoCMSFeaturesAccountsManagersListEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfManagerResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/accounts/{slug}/managers: who may manage the tenants of the account (platform manager only).",
+        "tags": [
+          "Accounts"
+        ]
+      },
+      "post": {
+        "description": "Granting twice is not an error and changes nothing.",
+        "operationId": "barakoCMSFeaturesAccountsManagersGrantEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesAccountsManagersGrantRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "GrantRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesAccountsManagersManagerResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/accounts/{slug}/managers: let a user manage the account's tenants (platform manager only).",
+        "tags": [
+          "Accounts"
+        ]
+      }
+    },
+    "/api/accounts/{slug}/managers/{userId}": {
+      "delete": {
+        "operationId": "barakoCMSFeaturesAccountsManagersRevokeEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "DELETE /api/accounts/{slug}/managers/{userId}: take the grant away (platform manager only).",
+        "tags": [
+          "Accounts"
+        ]
+      }
+    },
     "/api/ai/index/{type}": {
       "post": {
         "operationId": "BarakoCMSAIFeaturesIndexEndpoint",
@@ -13974,6 +16207,56 @@
         ]
       }
     },
+    "/api/api-keys/{id}/usage": {
+      "get": {
+        "operationId": "barakoCMSFeaturesApiKeysUsageKeyUsageEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesApiKeysUsageUsageResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/api-keys/{id}/usage. When the key was last used, why it was refused in the last day\n(counted in memory, so a restart empties it), and the content types it names that no longer\nexist. A key of another tenant answers 404, as revoke does.",
+        "tags": [
+          "ApiKeys"
+        ]
+      }
+    },
     "/api/audit": {
       "get": {
         "operationId": "barakoCMSFeaturesAuditListEndpoint",
@@ -14027,6 +16310,15 @@
             }
           },
           {
+            "description": "A cursor from an earlier response, or a timestamp for the first call. Left out, the list is\nnewest first as before. Given, only entries after it are listed, oldest first, so a client\nresumes exactly where it stopped by passing back the cursor of the last response.",
+            "in": "query",
+            "name": "since",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
             "in": "query",
             "name": "page",
             "required": true,
@@ -14058,7 +16350,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfAuditEventDto"
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesAuditListAuditListResponse"
                 }
               }
             },
@@ -16237,6 +18529,173 @@
         ]
       }
     },
+    "/api/comments": {
+      "get": {
+        "operationId": "BarakoCMSCommentsFeaturesListEndpoint",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "targetType",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "targetId",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfItem"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/comments?targetType=&targetId=: the thread on one record, oldest first, one page at a\ntime. Replies carry their parentId, so the client draws the nesting.",
+        "tags": [
+          "Comments"
+        ]
+      },
+      "post": {
+        "operationId": "BarakoCMSCommentsFeaturesPostEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSCommentsFeaturesPostRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "Request",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSCommentsFeaturesPostResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/comments: a comment, or a reply, on a record the caller can read.",
+        "tags": [
+          "Comments"
+        ]
+      }
+    },
+    "/api/comments/{id}": {
+      "delete": {
+        "operationId": "BarakoCMSCommentsFeaturesDeleteEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "DELETE /api/comments/{id}: removes a comment and every reply under it. Either capability gets a\ncaller to the handler. The author may delete a subtree that is all their own, and a caller holding\nmanage_comments may delete any, and both only while they can still read the record. A moderator\ncan also remove a comment whose record is gone or whose type is no longer registered, since\nnobody else can reach it. A holder of the legacy role names counts as holding both capabilities\nwhile Auth:LegacyRoleFallback is on, the same as on Post.",
+        "tags": [
+          "Comments"
+        ]
+      }
+    },
     "/api/config/apply": {
       "post": {
         "description": "Answers with the plan it ran. 400 when a section cannot be applied as written, 403 when the\ncaller may not make a change it asks for, and 409 when stored state stops a change the way its\nown route would refuse it (a field change running on a type it changes, or a field it leaves\nout that a block binding names), or when it holds a destructive change and\nallowDestructive was not sent. In each of those nothing is written.",
@@ -16761,6 +19220,506 @@
         ],
         "tags": [
           "Connectors"
+        ]
+      }
+    },
+    "/api/contacts": {
+      "get": {
+        "operationId": "BarakoCMSContactsFeaturesContactsListListContactsEndpoint",
+        "parameters": [
+          {
+            "description": "Only Person or only Organization.",
+            "in": "query",
+            "name": "kind",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Contacts whose display name contains this text.",
+            "in": "query",
+            "name": "name",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "The contact holding exactly this email, if any.",
+            "in": "query",
+            "name": "email",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfContactResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/contacts. The tenant's contacts, paged, merged ones left out.",
+        "tags": [
+          "Contacts"
+        ]
+      },
+      "post": {
+        "description": "An address already held by another contact in the tenant answers 409 and names that contact, so\nthe caller can update it or merge into it. The read is a courtesy. What makes the rule hold is\nthe unique index on the address key: two creates of one address that race both pass the read, and\nthe second save loses on the index and is answered 409 too, never 500.",
+        "operationId": "BarakoCMSContactsFeaturesContactsCreateCreateContactEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSContactsFeaturesContactsCreateCreateContactRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "CreateContactRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSContactsContactResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/contacts. Creates a person or an organization.",
+        "tags": [
+          "Contacts"
+        ]
+      }
+    },
+    "/api/contacts/{id}": {
+      "delete": {
+        "operationId": "BarakoCMSContactsFeaturesContactsDeleteDeleteContactEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "DELETE /api/contacts/{id}. Removes a contact and every link it is part of.",
+        "tags": [
+          "Contacts"
+        ]
+      },
+      "get": {
+        "operationId": "BarakoCMSContactsFeaturesContactsGetGetContactEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSContactsContactResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/contacts/{id}. One contact, personal fields included. A merged contact answers 404.",
+        "tags": [
+          "Contacts"
+        ]
+      },
+      "put": {
+        "operationId": "BarakoCMSContactsFeaturesContactsUpdateUpdateContactEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSContactsFeaturesContactsUpdateUpdateContactRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "UpdateContactRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSContactsContactResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "PUT /api/contacts/{id}. Replaces a contact. A merged contact is gone and answers 404. A contact with links keeps its kind.",
+        "tags": [
+          "Contacts"
+        ]
+      }
+    },
+    "/api/contacts/{id}/links": {
+      "get": {
+        "operationId": "BarakoCMSContactsFeaturesLinksListListLinksEndpoint",
+        "parameters": [
+          {
+            "description": "The contact, as the person or as the organization.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfContactLinkResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/contacts/{id}/links. A person's organizations, or an organization's people, paged.",
+        "tags": [
+          "Contacts"
+        ]
+      },
+      "post": {
+        "description": "Linking the same pair again changes the role and answers 200, so a retry is safe. A link joins a\nperson to an organization and nothing else, and both must be contacts of the caller's tenant: an\nid from another tenant is simply not found. Both contacts are saved with the link, so a merge\nthat ran in between fails the save and answers 409 instead of linking to a tombstone.",
+        "operationId": "BarakoCMSContactsFeaturesLinksAddAddLinkEndpoint",
+        "parameters": [
+          {
+            "description": "The person.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSContactsFeaturesLinksAddAddLinkRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "AddLinkRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSContactsContactLinkResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/contacts/{id}/links. Links a person to an organization.",
+        "tags": [
+          "Contacts"
+        ]
+      }
+    },
+    "/api/contacts/{id}/links/{organizationId}": {
+      "delete": {
+        "operationId": "BarakoCMSContactsFeaturesLinksRemoveRemoveLinkEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "organizationId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "DELETE /api/contacts/{id}/links/{organizationId}. Unlinks a person from an organization.",
+        "tags": [
+          "Contacts"
+        ]
+      }
+    },
+    "/api/contacts/{id}/merge": {
+      "post": {
+        "description": "This is the documented way out of the 409 a duplicate email answers. The survivor keeps every\nvalue it has and takes the duplicate's where it has none, including custom fields. The\nduplicate's links move to the survivor, and a link the survivor already has is not doubled. The\nduplicate stays as a tombstone naming the survivor, with its personal fields cleared, so a\nreference to its id can still be followed.\n            \nOne save, so a failure leaves both contacts as they were and the merge can be retried. Marten\napplies the writes in the order they are queued, so the duplicate gives up its email key before\nthe survivor takes the address. Both contacts must be the same kind. Contacts are versioned: a\ncontact changed by someone else since it was read fails the save and answers 409, which is also\nwhat stops A merged into B and B merged into A from both succeeding.",
+        "operationId": "BarakoCMSContactsFeaturesContactsMergeMergeContactEndpoint",
+        "parameters": [
+          {
+            "description": "The duplicate, which stops being a contact.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSContactsFeaturesContactsMergeMergeContactRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "MergeContactRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSContactsContactResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/contacts/{id}/merge. Folds a duplicate into the contact that stays.",
+        "tags": [
+          "Contacts"
         ]
       }
     },
@@ -18008,6 +20967,62 @@
         ]
       }
     },
+    "/api/contents/batch": {
+      "post": {
+        "description": "Every step is held to the checks of the single create and the status change (see\nBatchSteps), and the first refusal rolls back the whole batch, so a client never\nholds half of one. An Idempotency-Key applies as on any other write: a retry of a\nbatch that was answered 200 gets the stored answer and runs nothing.",
+        "operationId": "barakoCMSFeaturesContentBatchEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesContentBatchBatchRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "BatchRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesContentBatchBatchResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "Create entries and run transitions in one transaction.",
+        "tags": [
+          "Content"
+        ]
+      }
+    },
     "/api/contents/by-slug/{type}/{slug}": {
       "get": {
         "description": "For a signed-in viewer on a public site. GET /api/public/{type}/{slug} is anonymous and\nserves only published, publicly deliverable entries, so a page gated by a role had no way to be\nfetched by the slug in its URL. This applies the permission check GET /api/contents/{id}\napplies, to any status, and returns the same response built by EntryResponse, masking\nincluded.\n            \nAn entry the caller may not read answers 404, not the 403 the id route gives. A slug is readable\ntext a caller can guess, and any signed-in account, a self-registered one with no content\npermission included, reaches this route, so a 403 would confirm that a draft or another user's\nentry exists under that slug. An id is not guessable, which is why the id route can say 403.\n            \nNot gated on IsPubliclyDeliverable. That flag decides what anonymous callers get; here the\nread permission decides.",
@@ -18356,6 +21371,52 @@
             "JWTBearerAuth": []
           }
         ],
+        "tags": [
+          "Content"
+        ]
+      }
+    },
+    "/api/contents/{id}/runs": {
+      "get": {
+        "description": "With includeCreated=true it also lists the runs whose actions created the entry, so a\nscreen on a created entry can say which run made it.\nAn id that is not a Guid is a 400. A caller who cannot read the entry gets the 404 an unknown id gets. A 403 here would tell them\nthe entry exists. The read check is the one the entry endpoint makes, so it covers branch rules\ntoo. The capability gate runs first, so a caller without\nViewWorkflowRuns gets 403 whatever the id.",
+        "operationId": "barakoCMSFeaturesContentRunsEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesContentRunsRunsResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/contents/{id}/runs, the workflow runs that fired for an entry, newest first.",
         "tags": [
           "Content"
         ]
@@ -20259,6 +23320,281 @@
         ]
       }
     },
+    "/api/notifications": {
+      "get": {
+        "operationId": "BarakoCMSNotificationsFeaturesListEndpoint",
+        "parameters": [
+          {
+            "description": "When true, only notifications not yet read.",
+            "in": "query",
+            "name": "unreadOnly",
+            "required": true,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfNotificationResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/notifications. The caller's own notifications, newest first, paged.",
+        "tags": [
+          "Notifications"
+        ]
+      },
+      "post": {
+        "operationId": "BarakoCMSNotificationsFeaturesRaiseEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSNotificationsFeaturesRaiseRaiseRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "RaiseRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSNotificationsFeaturesRaiseRaiseResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/notifications. Raises a notification for a user of the current tenant.",
+        "tags": [
+          "Notifications"
+        ]
+      }
+    },
+    "/api/notifications/admin": {
+      "get": {
+        "operationId": "BarakoCMSNotificationsFeaturesAdminEndpoint",
+        "parameters": [
+          {
+            "description": "Only this user's notifications.",
+            "in": "query",
+            "name": "recipientUserId",
+            "schema": {
+              "format": "guid",
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfNotificationResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/notifications/admin. Every user's notifications in the current tenant, paged.",
+        "tags": [
+          "Notifications"
+        ]
+      }
+    },
+    "/api/notifications/read-all": {
+      "post": {
+        "operationId": "BarakoCMSNotificationsFeaturesMarkReadMarkAllReadEndpoint",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSNotificationsFeaturesMarkReadMarkAllReadResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/notifications/read-all. Marks up to 500 of the caller's unread notifications read.",
+        "tags": [
+          "Notifications"
+        ]
+      }
+    },
+    "/api/notifications/unread-count": {
+      "get": {
+        "operationId": "BarakoCMSNotificationsFeaturesUnreadCountEndpoint",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSNotificationsFeaturesUnreadCountUnreadCountResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/notifications/unread-count. How many of the caller's notifications are unread.",
+        "tags": [
+          "Notifications"
+        ]
+      }
+    },
+    "/api/notifications/{id}/read": {
+      "post": {
+        "description": "Someone else's notification answers 404, the same as one that does not exist, so the id of\nanother user's notification is not confirmed. Reading it twice keeps the first read time.",
+        "operationId": "BarakoCMSNotificationsFeaturesMarkReadMarkReadEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/notifications/{id}/read. Marks one of the caller's notifications read.",
+        "tags": [
+          "Notifications"
+        ]
+      }
+    },
     "/api/numbering/external/{series}/gaps": {
       "get": {
         "operationId": "barakoCMSFeaturesNumberingGapsEndpoint",
@@ -20311,6 +23647,62 @@
           }
         ],
         "summary": "Numbers in a range of an external series that were never recorded.",
+        "tags": [
+          "Numbering"
+        ]
+      }
+    },
+    "/api/numbering/next": {
+      "post": {
+        "description": "For a client that has to put a number on a paper form before it can reach the server. The number\nis committed here, so it is never handed out twice; the client sends it back as the numbering\nfield of the entry it creates. Only a caller who may create the type can take one, and only from\na series the type's rule marks ClientAllocated; every other series is numbered by the server.",
+        "operationId": "barakoCMSFeaturesNumberingNextNextNumberEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesNumberingNextNextNumberRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "NextNumberRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesNumberingNextNextNumberResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "The next number of a client-allocated series.",
         "tags": [
           "Numbering"
         ]
@@ -20770,6 +24162,88 @@
         ]
       }
     },
+    "/api/public/contacts": {
+      "get": {
+        "description": "Answers an empty page, not an error, when the type is not deliverable.",
+        "operationId": "BarakoCMSContactsFeaturesPublicListPublicListContactsEndpoint",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfPublicContentProjection"
+                }
+              }
+            },
+            "description": "Success"
+          }
+        },
+        "summary": "GET /api/public/contacts. Published contacts, Public fields only, paged.",
+        "tags": [
+          "Contacts"
+        ]
+      }
+    },
+    "/api/public/contacts/{id}": {
+      "get": {
+        "description": "Answers 404 for everything it will not serve, so the status says nothing about which contacts\nexist: unknown, merged, not published, or a tenant whose contact-record type is not deliverable.\nEmail, phone and address are never handed to the projector, whatever the type says.",
+        "operationId": "BarakoCMSContactsFeaturesPublicGetPublicGetContactEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSCoreInterfacesPublicContentProjection"
+                }
+              }
+            },
+            "description": "Success"
+          }
+        },
+        "summary": "GET /api/public/contacts/{id}. One published contact, Public fields only.",
+        "tags": [
+          "Contacts"
+        ]
+      }
+    },
     "/api/public/events": {
       "get": {
         "description": "Off unless Delivery:Events:Enabled is true, and 404 while it is off, the same answer\nan OAuth provider gives when it is not configured. The literal events segment wins over\n/api/public/{type}, so a content type named \"events\" is not reachable by that route.\n            \n?type= repeats to filter by content type. A type that is not deliverable simply never\nmatches, which says nothing about whether it exists.",
@@ -21015,7 +24489,7 @@
     },
     "/api/public/pages/resolve": {
       "get": {
-        "description": "The core slug route cannot tell /about/team from /careers/team. This looks up the pages holding the\nlast segment's slug, walks each one's parents, and answers with the one whose whole path matches.\nEvery page on the walk has to be published and Public, so a published page under a draft does not\nresolve. The walk reads at most MaxDepth ancestors per candidate.",
+        "description": "The core slug route cannot tell /about/team from /careers/team. This looks up the pages holding the\nlast segment's slug, walks each one's parents, and answers with the one whose whole path matches.\nEvery page on the walk has to be published and Public, so a published page under a draft does not\nresolve. The walk reads at most MaxDepth ancestors per candidate.\nA request carrying a valid X-Viewer-Token for the tenant also resolves Members pages, and the\nanswer is then private and not stored. A token that does not verify answers 401, as on the core routes.",
         "operationId": "BarakoCMSPagesFeaturesResolveEndpoint",
         "responses": {
           "200": {
@@ -21897,6 +25371,69 @@
             "JWTBearerAuth": []
           }
         ],
+        "tags": [
+          "Queries"
+        ]
+      }
+    },
+    "/api/queries/{slug}/run": {
+      "post": {
+        "description": "The figures are computed in the database under the caller's own field and row rules, so two\ncallers running the same saved query can get different numbers. A field the caller may not read\nrefuses the run by name, rather than returning a total with the field quietly left out.",
+        "operationId": "barakoCMSFeaturesQueriesRunEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesQueriesRunRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "Request",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesQueriesRunResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "Runs a saved aggregate query for the caller and returns its groups and totals.",
         "tags": [
           "Queries"
         ]
@@ -23636,7 +27173,7 @@
             "JWTBearerAuth": []
           }
         ],
-        "summary": "GET /api/tenants: list all tenants (platform admin).",
+        "summary": "GET /api/tenants: list all tenants (platform admin), or the tenants of the accounts the caller manages.",
         "tags": [
           "Tenants"
         ]
@@ -23820,6 +27357,62 @@
         "summary": "PUT /api/tenants/external-role-map: sets the caller's tenant's map, replacing any.",
         "tags": [
           "ExternalAuth"
+        ]
+      }
+    },
+    "/api/tenants/import": {
+      "post": {
+        "description": "Always a new tenant: a handle that exists answers 409 and nothing is written, so an import can\nnever overwrite or merge into a tenant that is serving. The tenant is created Active with the\ncaller as its administrator, as POST /api/tenants does, and the bundle's configuration\nand entries are applied to it through the config engine as one transaction. The handle is claimed first\nas a Suspended tenant, which nothing serves, so two imports of one handle cannot both proceed. It\nbecomes Active, with its administrator, only after the apply committed. A refused import returns\nthe plan that explains it and no tenant, and leaves no tenant or membership.\nThe caller needs the capability each section asks for in the new tenant, exactly as for\nPOST /api/config/apply, so an import cannot write what the caller could not write there.\nDomains, sign-up and sign-in rules are not in a bundle: set them on the new tenant afterwards.",
+        "operationId": "barakoCMSFeaturesTenantsImportEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesTenantsImportRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "Request",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesTenantsImportResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/tenants/import: creates a new tenant from a bundle (platform admin).",
+        "tags": [
+          "Tenants"
         ]
       }
     },
@@ -24168,6 +27761,53 @@
           }
         ],
         "summary": "PUT /api/tenants/{handle}: update a tenant's name, domains and status (platform admin).",
+        "tags": [
+          "Tenants"
+        ]
+      }
+    },
+    "/api/tenants/{handle}/export": {
+      "get": {
+        "description": "The configuration comes from the config engine, in the tenant named by the route, for the\ncaller. A section the caller does not hold the read capability for is named under\nconfig.withheld and complete is false, so a bundle cut short says so. The entries\nare read a page at a time and written to the response as they are read, so the size of a tenant\nis not held in memory by the request.\nNot in the bundle: members and their accounts (password hashes included), API keys, mail\nsettings, stored files, redirects and the audit log. See TenantBundle.",
+        "operationId": "barakoCMSFeaturesTenantsExportEndpoint",
+        "parameters": [
+          {
+            "description": "The handle of the tenant to export.",
+            "in": "path",
+            "name": "handle",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/tenants/{handle}/export: one tenant's configuration and entries as a single bundle\n(platform admin).",
         "tags": [
           "Tenants"
         ]
@@ -24941,6 +28581,70 @@
             "JWTBearerAuth": []
           }
         ],
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/api/users/{userId}/mfa/reset": {
+      "post": {
+        "operationId": "barakoCMSFeaturesUsersResetMfaEndpoint",
+        "parameters": [
+          {
+            "description": "Bound from the {userId} route segment.",
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesUsersResetMfaRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "Request",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesUsersResetMfaResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/users/{userId}/mfa/reset: an administrator holding manage_users removes another user's\ntwo-factor enrollment (secret, recovery codes and any pending setup), so someone who lost both\ntheir authenticator and their recovery codes can sign in and enroll again. Refresh tokens are\nrevoked, and the reason is audited. Your own MFA is turned off with /api/auth/mfa/disable.",
         "tags": [
           "Users"
         ]
