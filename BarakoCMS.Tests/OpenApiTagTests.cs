@@ -144,6 +144,7 @@ public class OpenApiTagTests
             "Requests",
             "Roles",
             "Seo",
+            "Services",
             "Settings",
             "Site",
             "Stations",

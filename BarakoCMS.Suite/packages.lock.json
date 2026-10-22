@@ -941,6 +941,15 @@
           "Google.Cloud.SecretManager.V1": "[2.8.0, )"
         }
       },
+      "barakocms.services": {
+        "type": "Project",
+        "dependencies": {
+          "BarakoCMS": "[5.0.0, )",
+          "BarakoCMS.Abstractions": "[5.0.1, )",
+          "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
+          "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
+        }
+      },
       "AspNetCore.HealthChecks.NpgSql": {
         "type": "CentralTransitive",
         "requested": "[9.0.0, )",
