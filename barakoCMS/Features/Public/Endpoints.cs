@@ -542,7 +542,7 @@ internal class ListPublishedEndpoint(
         AllowAnonymous();
         Options(x => x
             .RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy)
-            .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators));
+            .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators, barakoCMS.Infrastructure.Caching.DeliveryResponseCachePolicy.Instance));
     }
 
     public override async Task HandleAsync(PublicListRequest req, CancellationToken ct)
@@ -716,7 +716,7 @@ internal class PublicSearchEndpoint(IQuerySession session, IConfiguration config
         AllowAnonymous();
         Options(x => x
             .RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy)
-            .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators));
+            .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators, barakoCMS.Infrastructure.Caching.DeliveryResponseCachePolicy.Instance));
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -823,7 +823,7 @@ internal class GetBySlugEndpoint(
         AllowAnonymous();
         Options(x => x
             .RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy)
-            .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators));
+            .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators, barakoCMS.Infrastructure.Caching.DeliveryResponseCachePolicy.Instance));
     }
 
     public override async Task HandleAsync(CancellationToken ct)

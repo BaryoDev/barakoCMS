@@ -734,6 +734,29 @@ types. It carries no entry tags, since it holds up to 50,000 entries.
 
 These headers are exposed to browsers through CORS. Nothing purges a CDN yet; that is #561.
 
+### Response cache
+
+Off by default. Set `Delivery:ResponseCache:Enabled` to `true` and the `short` class reads (the list,
+search, slug, feed, sitemap and type description routes) are kept in the API's memory, so a repeat
+does not reach Postgres.
+
+An entry is keyed on the tenant, the host, the path, every query key, the `X-Tenant` header and
+`Origin`. Only an anonymous 200 is stored. A request carrying `Authorization`, a cookie,
+`X-Viewer-Token`, `X-Share-Key` or a `preview` token is answered by the endpoint as it is with the
+cache off, and its response is never stored.
+
+A commit evicts by the tags in the table above: the entry, its type and the sitemap, plus the whole
+tenant when a deletion names no document. A publish or an unpublish shows on the next read from the
+instance that handled the write. The store is per instance, so the others expire the entry after
+`ExpireSeconds`.
+
+| Setting | Default | |
+|---|---|---|
+| `Delivery:ResponseCache:ExpireSeconds` | 60 | longest an entry is kept |
+| `Delivery:ResponseCache:SizeLimitMegabytes` | 64 | total the cache may hold |
+| `Delivery:ResponseCache:MaxBodyKilobytes` | 512 | a larger body is served, not kept |
+| `Delivery:ResponseCache:MaxQueryLength` | 512 | a longer query string is never cached |
+
 ## Stability and deprecation
 
 There is no version segment in the URL and none is planned. The delivery API, meaning every route
