@@ -33,8 +33,8 @@
     <!-- Durable work behind IDurableOutbox (#965). Used only from barakoCMS/Infrastructure/Jobs/,
          and only switched on by Jobs:Wolverine:Enabled. Brings its Postgres envelope storage. -->
     <PackageVersion Include="WolverineFx.Marten" Version="6.51.1" />
-    <!-- Wolverine generates its handler code at runtime; this is the compiler it uses for that. -->
-    <PackageVersion Include="JasperFx.RuntimeCompiler" Version="5.0.0" />
+    <!-- Wolverine generates its handler code at runtime; since 6.x the compiler is this separate package. -->
+    <PackageVersion Include="WolverineFx.RuntimeCompilation" Version="6.51.1" />
     <!-- Was floating (3.7.*) before central management, so two builds of the same commit could
          resolve different versions. Pinned to what it last resolved to. -->
     <PackageVersion Include="AWSSDK.S3" Version="3.7.511.8" />

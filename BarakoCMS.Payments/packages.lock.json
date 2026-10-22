@@ -67,6 +67,17 @@
           "JasperFx": "2.90.2"
         }
       },
+      "JasperFx.RuntimeCompiler": {
+        "type": "Transitive",
+        "resolved": "5.0.0",
+        "contentHash": "FKP0HSPN3p8YgJHWaTTqk/wZhLpOrShjrZ9rT3dAuKfj7EvC/NepRxeJ5Nq55tIcLAwR/pLVedxhxL9/kizwFg==",
+        "dependencies": {
+          "JasperFx": "2.0.0",
+          "Microsoft.CodeAnalysis": "5.0.0",
+          "Microsoft.CodeAnalysis.CSharp": "5.0.0",
+          "Microsoft.CodeAnalysis.Scripting": "5.0.0"
+        }
+      },
       "JasperFx.SourceGenerator": {
         "type": "Transitive",
         "resolved": "2.90.2",
@@ -624,7 +635,7 @@
           "AspNetCore.HealthChecks.Npgsql": "[9.0.0, )",
           "AspNetCore.HealthChecks.System": "[9.0.0, )",
           "BCrypt.Net-Next": "[4.2.0, )",
-          "BarakoCMS.Abstractions": "[5.1.0, )",
+          "BarakoCMS.Abstractions": "[5.2.0, )",
           "Carom": "[2.0.1, )",
           "Carom.Extensions": "[2.0.1, )",
           "Cronos": "[0.11.1, )",
@@ -633,7 +644,6 @@
           "FastEndpoints.Swagger": "[8.3.0, )",
           "IdentityModel": "[7.0.0, )",
           "JasperFx": "[2.90.2, )",
-          "JasperFx.RuntimeCompiler": "[5.0.0, )",
           "KubernetesClient": "[18.0.13, )",
           "Markdig": "[1.4.1, )",
           "Marten": "[9.50.3, )",
@@ -649,6 +659,7 @@
           "Serilog.Sinks.File": "[7.0.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )",
           "WolverineFx.Marten": "[6.51.1, )",
+          "WolverineFx.RuntimeCompilation": "[6.51.1, )",
           "prometheus-net.AspNetCore": "[8.2.1, )"
         }
       },
@@ -756,18 +767,6 @@
           "Polly.Core": "8.6.5",
           "Spectre.Console": "0.55.0",
           "System.Linq.Dynamic.Core": "1.7.4"
-        }
-      },
-      "JasperFx.RuntimeCompiler": {
-        "type": "CentralTransitive",
-        "requested": "[5.0.0, )",
-        "resolved": "5.0.0",
-        "contentHash": "FKP0HSPN3p8YgJHWaTTqk/wZhLpOrShjrZ9rT3dAuKfj7EvC/NepRxeJ5Nq55tIcLAwR/pLVedxhxL9/kizwFg==",
-        "dependencies": {
-          "JasperFx": "2.0.0",
-          "Microsoft.CodeAnalysis": "5.0.0",
-          "Microsoft.CodeAnalysis.CSharp": "5.0.0",
-          "Microsoft.CodeAnalysis.Scripting": "5.0.0"
         }
       },
       "KubernetesClient": {
@@ -917,6 +916,16 @@
           "Marten": "9.50.3",
           "Weasel.Storage": "9.45.1",
           "WolverineFx.Postgresql": "6.51.1"
+        }
+      },
+      "WolverineFx.RuntimeCompilation": {
+        "type": "CentralTransitive",
+        "requested": "[6.51.1, )",
+        "resolved": "6.51.1",
+        "contentHash": "IAHNuaWFL+YnVvFRXjFx0czB6ShH9HvcLb/LWQT88Cy/Zym/wjozdTJjqEs4QDTOx2qXWSAmXs2hMvhL0GsJXA==",
+        "dependencies": {
+          "JasperFx.RuntimeCompiler": "5.0.0",
+          "WolverineFx": "6.51.1"
         }
       }
     }

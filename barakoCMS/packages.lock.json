@@ -99,18 +99,6 @@
           "System.Linq.Dynamic.Core": "1.7.4"
         }
       },
-      "JasperFx.RuntimeCompiler": {
-        "type": "Direct",
-        "requested": "[5.0.0, )",
-        "resolved": "5.0.0",
-        "contentHash": "FKP0HSPN3p8YgJHWaTTqk/wZhLpOrShjrZ9rT3dAuKfj7EvC/NepRxeJ5Nq55tIcLAwR/pLVedxhxL9/kizwFg==",
-        "dependencies": {
-          "JasperFx": "2.0.0",
-          "Microsoft.CodeAnalysis": "5.0.0",
-          "Microsoft.CodeAnalysis.CSharp": "5.0.0",
-          "Microsoft.CodeAnalysis.Scripting": "5.0.0"
-        }
-      },
       "KubernetesClient": {
         "type": "Direct",
         "requested": "[18.0.13, )",
@@ -260,6 +248,16 @@
           "WolverineFx.Postgresql": "6.51.1"
         }
       },
+      "WolverineFx.RuntimeCompilation": {
+        "type": "Direct",
+        "requested": "[6.51.1, )",
+        "resolved": "6.51.1",
+        "contentHash": "IAHNuaWFL+YnVvFRXjFx0czB6ShH9HvcLb/LWQT88Cy/Zym/wjozdTJjqEs4QDTOx2qXWSAmXs2hMvhL0GsJXA==",
+        "dependencies": {
+          "JasperFx.RuntimeCompiler": "5.0.0",
+          "WolverineFx": "6.51.1"
+        }
+      },
       "FastEndpoints.Attributes": {
         "type": "Transitive",
         "resolved": "8.3.0",
@@ -323,6 +321,17 @@
         "contentHash": "bLs5NFj+6zByHKv0GAXw7UGkkrowXWh7ONegGeovJtdHLhQAcGH0EIgYsSFyYlishat+wDfTWPd9JEg0ucJn3Q==",
         "dependencies": {
           "JasperFx": "2.90.2"
+        }
+      },
+      "JasperFx.RuntimeCompiler": {
+        "type": "Transitive",
+        "resolved": "5.0.0",
+        "contentHash": "FKP0HSPN3p8YgJHWaTTqk/wZhLpOrShjrZ9rT3dAuKfj7EvC/NepRxeJ5Nq55tIcLAwR/pLVedxhxL9/kizwFg==",
+        "dependencies": {
+          "JasperFx": "2.0.0",
+          "Microsoft.CodeAnalysis": "5.0.0",
+          "Microsoft.CodeAnalysis.CSharp": "5.0.0",
+          "Microsoft.CodeAnalysis.Scripting": "5.0.0"
         }
       },
       "JasperFx.SourceGenerator": {
