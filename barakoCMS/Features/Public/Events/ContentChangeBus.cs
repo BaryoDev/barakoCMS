@@ -15,12 +15,12 @@ namespace barakoCMS.Features.Public.Events;
 /// every other instance, over Postgres LISTEN / NOTIFY (#566).
 /// </summary>
 /// <remarks>
-/// The notice holds the tenant, the content id, the event name and, when the commit changed a
-/// field's sensitivity, which field went to which level. It never holds a field value. A receiving
-/// instance reads the entry again in the tenant's partition and projects it through
-/// <see cref="PublicDelivery.ToPublic"/>, so masking stays in the one place the REST reads use it.
-/// The sensitivity map is the one thing the re-read cannot know: the field change is appended before
-/// the type's own write lands, so the definition read here may still say Public.
+/// The notice holds the tenant, the content id and the event name. It never holds a field value or
+/// a masking level. A receiving instance reads the entry and the type definition again in the
+/// tenant's partition and projects it through <see cref="PublicDelivery.ToPublic"/>, so masking is
+/// derived from the definition as it stands now, in the one place the REST reads use it. Anything
+/// that can NOTIFY on the channel can say what it likes, and a notice can be old by the time it is
+/// read, so nothing in it is allowed to loosen a level.
 ///
 /// Best effort, as the stream always was. NOTIFY is not queued for a listener that is down or
 /// reconnecting, nothing orders notices across instances, and a notice that cannot be read again is
@@ -39,8 +39,8 @@ internal sealed class ContentChangeBus(
 {
     public const string Channel = "barako_content_events";
 
-    // Postgres refuses a payload of 8000 bytes or more. A change is about 100 bytes before any
-    // sensitivity map, so twenty to a notice stays well inside the limit.
+    // Postgres refuses a payload of 8000 bytes or more. A change is about 100 bytes,
+    // so twenty to a notice stays well inside the limit.
     private const int ChangesPerNotice = 20;
 
     private static readonly TimeSpan Retry = TimeSpan.FromSeconds(5);
@@ -193,18 +193,17 @@ internal sealed class ContentChangeBus(
                 continue;
             }
 
-            var effective = ContentChangeListener.WithSensitivity(def!, change.ToDeclared());
             if (change.Name == ContentChangeEvents.Unpublished)
             {
-                ready.Add((change.Name, ContentChangeListener.Unpublish(content, PublicDelivery.SlugField(effective)), null, null));
+                ready.Add((change.Name, ContentChangeListener.Unpublish(content, PublicDelivery.SlugField(def!)), null, null));
                 continue;
             }
 
             // Public now or not at all: an entry that has since left public is covered by the
             // unpublish its own commit sent.
-            if (ContentChangeListener.Project(content, effective) is not null)
+            if (ContentChangeListener.Project(content, def!) is not null)
             {
-                ready.Add((change.Name, null, content, effective));
+                ready.Add((change.Name, null, content, def));
             }
         }
 
@@ -240,10 +239,5 @@ internal sealed class ContentChangeBus(
     private sealed record Notice(Guid Node, string Tenant, List<BusChange> Changes);
 }
 
-/// <summary>One change in a notice: which entry, what happened, and any field sensitivity the commit declared.</summary>
-internal sealed record BusChange(Guid Id, string Name, Dictionary<string, SensitivityLevel>? Sensitivity)
-{
-    internal Dictionary<string, SensitivityLevel>? ToDeclared() => Sensitivity is null
-        ? null
-        : new Dictionary<string, SensitivityLevel>(Sensitivity, StringComparer.OrdinalIgnoreCase);
-}
+/// <summary>One change in a notice: which entry and what happened. Nothing that decides masking.</summary>
+internal sealed record BusChange(Guid Id, string Name);

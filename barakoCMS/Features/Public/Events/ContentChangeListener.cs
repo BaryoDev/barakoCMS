@@ -74,7 +74,7 @@ internal sealed class ContentChangeListener(
         {
             await bus!.PublishAsync(
                 tenant,
-                outgoing.Select(o => new BusChange(o.Id, o.Name, o.Declared)).ToList(),
+                outgoing.Select(o => new BusChange(o.Id, o.Name)).ToList(),
                 token);
         }
     }

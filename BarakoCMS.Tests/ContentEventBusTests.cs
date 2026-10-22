@@ -168,4 +168,80 @@ public class ContentEventBusTests
         (await NextAsync(subscription)).Id.Should().Be(first.Id);
         (await NextAsync(subscription)).Id.Should().Be(second.Id, "the instance ignores its own notice, so the next change is the next write");
     }
+
+    private static async Task<Content> StoreEntryAsync(WebApplicationFactory<Program> host, string tenant, string type, string slug)
+    {
+        using var scope = host.Services.CreateScopeForTenant(tenant);
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var content = new Content
+        {
+            Id = Guid.NewGuid(),
+            ContentType = type,
+            Status = ContentStatus.Published,
+            Data = new Dictionary<string, object> { ["Title"] = "Bus " + slug, ["Slug"] = slug, ["Secret"] = "topsecret" },
+        };
+        session.Store(content);
+        await session.SaveChangesAsync();
+        return content;
+    }
+
+    private static string NoticeClaiming(string tenant, Guid id, SensitivityLevel level) =>
+        "{\"Node\":\"" + Guid.NewGuid() + "\",\"Tenant\":\"" + tenant + "\",\"Changes\":[{\"Id\":\"" + id
+        + "\",\"Name\":\"" + ContentChangeEvents.Updated + "\",\"Sensitivity\":{\"Secret\":" + (int)level + "}}]}";
+
+    [Fact]
+    public async Task A_notice_claiming_a_looser_level_does_not_unmask_a_field()
+    {
+        var (_, reader) = await TwoInstancesAsync();
+        var tenant = Unique("busl");
+        var type = Unique("bus_");
+        await SeedTypeAsync(reader, type, tenant);
+        var entry = await StoreEntryAsync(reader, tenant, type, Unique("s-"));
+        using var subscription = Subscribe(reader, tenant);
+
+        await reader.Services.GetRequiredService<ContentChangeBus>()
+            .ReceiveAsync(NoticeClaiming(tenant, entry.Id, SensitivityLevel.Public), default);
+
+        var change = await NextAsync(subscription);
+        change.Id.Should().Be(entry.Id);
+        var json = System.Text.Json.JsonSerializer.Serialize(change.Payload);
+        json.Should().Contain("Bus ", "the entry was delivered, so the masking assertion has something to run on");
+        json.Should().NotContain("topsecret", "the definition says Sensitive and a notice cannot loosen it");
+    }
+
+    [Fact]
+    public async Task A_notice_sent_before_a_tightening_does_not_unmask_after_it()
+    {
+        var (_, reader) = await TwoInstancesAsync();
+        var tenant = Unique("bust");
+        var type = Unique("bus_");
+        using (var scope = reader.Services.CreateScopeForTenant(tenant))
+        {
+            var seed = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            seed.Store(new ContentTypeBuilder()
+                .Named(type).PubliclyDeliverable().WithTitleAndSlug().WithField("Secret").Build());
+            await seed.SaveChangesAsync();
+        }
+
+        var entry = await StoreEntryAsync(reader, tenant, type, Unique("s-"));
+        var stale = NoticeClaiming(tenant, entry.Id, SensitivityLevel.Public);
+
+        using (var scope = reader.Services.CreateScopeForTenant(tenant))
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var definition = await session.Query<ContentTypeDefinition>().FirstAsync(d => d.Name == type);
+            definition.Fields.Single(f => f.Name == "Secret").Sensitivity = SensitivityLevel.Sensitive;
+            session.Store(definition);
+            await session.SaveChangesAsync();
+        }
+
+        using var subscription = Subscribe(reader, tenant);
+        await reader.Services.GetRequiredService<ContentChangeBus>().ReceiveAsync(stale, default);
+
+        var change = await NextAsync(subscription);
+        change.Id.Should().Be(entry.Id);
+        var json = System.Text.Json.JsonSerializer.Serialize(change.Payload);
+        json.Should().Contain("Bus ");
+        json.Should().NotContain("topsecret", "the type was tightened after the notice was sent");
+    }
 }

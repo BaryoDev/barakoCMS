@@ -583,7 +583,8 @@ A change committed on any instance reaches the subscribers on every instance. Th
 streams to its own subscribers directly and sends a Postgres `NOTIFY` on the channel
 `barako_content_events` carrying the tenant, the entry id and the event name, never a field value.
 Each other instance reads the entry again in that tenant and projects it through the same masking as
-the REST reads, so a masked field stays masked. It needs no setting and no new service, only the
+the REST reads, using the type definition as it stands when the notice is read. A notice cannot
+loosen masking, whatever it claims. It needs no setting and no new service, only the
 database the instances already share, and it runs whenever `Delivery:Events:Enabled` is on.
 
 Delivery is still best effort, and no order is promised across instances. A notice sent while an
