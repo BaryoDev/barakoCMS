@@ -17,11 +17,18 @@ public interface INotificationService
 {
     /// <summary>Stores the notification unread and returns its id.</summary>
     /// <remarks>
+    /// Throws <see cref="RecipientNotInTenantException"/> when the recipient has no active membership
+    /// in the current tenant (any existing user counts in the default tenant), and
+    /// <see cref="ArgumentException"/> for a control character in the type or title or a payload over 8 KB.
     /// A sink that throws is logged and skipped. The in-app copy is already saved by then, so a down
     /// channel never loses the notification or fails the module that raised it.
     /// </remarks>
     Task<Guid> RaiseAsync(RaiseNotification notification, CancellationToken ct = default);
 }
+
+/// <summary>The recipient is not a member of the current tenant, so nothing was stored or sent.</summary>
+public sealed class RecipientNotInTenantException(Guid recipientUserId)
+    : InvalidOperationException($"User {recipientUserId} is not a member of the current tenant.");
 
 /// <summary>
 /// A channel a notification is also delivered through, beside the in-app store, which is always on.

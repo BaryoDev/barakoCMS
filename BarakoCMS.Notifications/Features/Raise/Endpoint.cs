@@ -25,11 +25,15 @@ internal sealed class RaiseValidator : Validator<RaiseRequest>
     public RaiseValidator()
     {
         RuleFor(x => x.RecipientUserId).NotEmpty();
-        RuleFor(x => x.Type).NotEmpty().MaximumLength(100);
-        RuleFor(x => x.Title).NotEmpty().MaximumLength(200);
+        RuleFor(x => x.Type).NotEmpty().MaximumLength(100)
+            .Must(t => !NotificationRules.HasControlCharacter(t)).WithMessage("Type cannot hold control characters.");
+        RuleFor(x => x.Title).NotEmpty().MaximumLength(200)
+            .Must(t => !NotificationRules.HasControlCharacter(t)).WithMessage("Title cannot hold control characters.");
         RuleFor(x => x.Body).MaximumLength(4000);
         RuleFor(x => x.Payload).Must(p => p is null || p.Count <= MaxPayloadKeys)
             .WithMessage($"Payload holds at most {MaxPayloadKeys} keys.");
+        RuleFor(x => x.Payload).Must(p => !NotificationRules.PayloadTooLarge(p))
+            .WithMessage($"Payload is at most {NotificationRules.MaxPayloadBytes} bytes once serialized.");
     }
 }
 
@@ -45,8 +49,17 @@ internal sealed class Endpoint(INotificationService notifications) : Endpoint<Ra
 
     public override async Task HandleAsync(RaiseRequest req, CancellationToken ct)
     {
-        var id = await notifications.RaiseAsync(
-            new RaiseNotification(req.RecipientUserId, req.Type, req.Title) { Body = req.Body, Payload = req.Payload }, ct);
+        Guid id;
+        try
+        {
+            id = await notifications.RaiseAsync(
+                new RaiseNotification(req.RecipientUserId, req.Type, req.Title) { Body = req.Body, Payload = req.Payload }, ct);
+        }
+        catch (RecipientNotInTenantException)
+        {
+            await Send.NotFoundAsync(ct);
+            return;
+        }
 
         await Send.ResponseAsync(new RaiseResponse { Id = id }, 201, ct);
     }

@@ -4,6 +4,9 @@ namespace BarakoCMS.Notifications;
 public sealed class NotificationsOptions
 {
     public EmailDeliveryOptions EmailDelivery { get; set; } = new();
+
+    /// <summary>How long one sink may take before it is cut off and logged. A slow channel never holds the caller longer.</summary>
+    public int SinkTimeoutSeconds { get; set; } = 10;
 }
 
 /// <summary>

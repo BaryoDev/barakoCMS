@@ -40,7 +40,12 @@ public sealed class EntryApprovals(INotificationService notifications)
 ```
 
 The notification is saved in the current tenant, then handed to every `INotificationSink`. A sink
-that throws is logged and skipped, so a down channel never loses the in-app copy.
+that throws is logged and skipped, and one that takes longer than `Modules:Notifications:SinkTimeoutSeconds`
+(default 10) is cut off, so a down channel never loses the in-app copy or holds the caller.
+
+The recipient must be a member of the current tenant, or `RaiseAsync` throws `RecipientNotInTenantException`
+(the HTTP route answers 404). A type or title cannot hold control characters, and a serialized payload is
+at most 8 KB; both throw `ArgumentException` (the route answers 400).
 
 Name types after the module that owns them (`entry.needs-approval`, `ticket.assigned`), so a client
 can pick an icon or a link from the type and the payload.
