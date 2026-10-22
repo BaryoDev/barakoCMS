@@ -1327,6 +1327,147 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesAccountsAccountResponse": {
+        "additionalProperties": false,
+        "description": "An account as the API describes it, including the console branding it carries.",
+        "properties": {
+          "colours": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "guid",
+            "type": "string"
+          },
+          "logoUrl": {
+            "nullable": true,
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesAccountsAccountWriteRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "colours": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Console colours by name. Null leaves them as they are on an update.",
+            "nullable": true,
+            "type": "object"
+          },
+          "logoUrl": {
+            "description": "Absolute http or https URL. Null or empty clears it.",
+            "nullable": true,
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 0,
+            "nullable": false,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSFeaturesAccountsBrandingResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "accountId": {
+            "format": "guid",
+            "type": "string"
+          },
+          "accountSlug": {
+            "type": "string"
+          },
+          "colours": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "logoUrl": {
+            "nullable": true,
+            "type": "string"
+          },
+          "name": {
+            "description": "The account's name, or null when none has been set and the console keeps its own.",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesAccountsListRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BarakoCMSModelsPaginatedRequest"
+          },
+          {
+            "additionalProperties": false,
+            "type": "object"
+          }
+        ]
+      },
+      "BarakoCMSFeaturesAccountsManagersGrantRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "userId": {
+            "format": "guid",
+            "minLength": 1,
+            "nullable": false,
+            "type": "string"
+          }
+        },
+        "required": [
+          "userId"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSFeaturesAccountsManagersManagerResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "grantedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "userId": {
+            "format": "guid",
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesAccountsManagersRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BarakoCMSModelsPaginatedRequest"
+          },
+          {
+            "additionalProperties": false,
+            "type": "object"
+          }
+        ]
+      },
       "BarakoCMSFeaturesApiKeysApiKeyListItem": {
         "additionalProperties": false,
         "properties": {
@@ -6480,6 +6621,11 @@
         "additionalProperties": false,
         "description": "A tenant as the API describes it, rather than as it is stored.",
         "properties": {
+          "accountId": {
+            "description": "The account that owns the tenant. The default account's id when none was assigned.",
+            "format": "guid",
+            "type": "string"
+          },
           "branding": {
             "additionalProperties": {
               "type": "string"
@@ -6561,6 +6707,12 @@
         "additionalProperties": false,
         "properties": {
           "about": {
+            "nullable": true,
+            "type": "string"
+          },
+          "accountId": {
+            "description": "The account that owns the tenant. Null on create puts it in the default account (or, for a\ncaller who manages exactly one account, that account), and null on an update leaves it.\nMoving a tenant to another account is for a platform manager.",
+            "format": "guid",
             "nullable": true,
             "type": "string"
           },
@@ -6942,6 +7094,30 @@
         "type": "object"
       },
       "BarakoCMSFeaturesUsersRemoveRoleResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesUsersResetMfaRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 0,
+            "nullable": false,
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSFeaturesUsersResetMfaResponse": {
         "additionalProperties": false,
         "properties": {
           "message": {
@@ -9418,6 +9594,48 @@
         },
         "type": "object"
       },
+      "BarakoCMSModelsPaginatedResponseOfAccountResponse": {
+        "additionalProperties": false,
+        "description": "Generic paginated response with metadata.",
+        "properties": {
+          "hasNextPage": {
+            "description": "Whether there is a next page",
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "description": "Whether there is a previous page",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Items for the current page",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesAccountsAccountResponse"
+            },
+            "type": "array"
+          },
+          "page": {
+            "description": "Current page number (1-indexed)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "pageSize": {
+            "description": "Number of items per page",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalItems": {
+            "description": "Total number of items across all pages",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalPages": {
+            "description": "Total number of pages",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSModelsPaginatedResponseOfApiKeyListItem": {
         "additionalProperties": false,
         "description": "Generic paginated response with metadata.",
@@ -10232,6 +10450,48 @@
             "description": "Items for the current page",
             "items": {
               "$ref": "#/components/schemas/BarakoCMSInfrastructureAuthKnownCapability"
+            },
+            "type": "array"
+          },
+          "page": {
+            "description": "Current page number (1-indexed)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "pageSize": {
+            "description": "Number of items per page",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalItems": {
+            "description": "Total number of items across all pages",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalPages": {
+            "description": "Total number of pages",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSModelsPaginatedResponseOfManagerResponse": {
+        "additionalProperties": false,
+        "description": "Generic paginated response with metadata.",
+        "properties": {
+          "hasNextPage": {
+            "description": "Whether there is a next page",
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "description": "Whether there is a previous page",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Items for the current page",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesAccountsManagersManagerResponse"
             },
             "type": "array"
           },
@@ -12382,6 +12642,411 @@
         "summary": "POST /api/accounting/journal-entries \u2014 post one balanced journal entry.",
         "tags": [
           "Accounting"
+        ]
+      }
+    },
+    "/api/accounts": {
+      "get": {
+        "description": "The implicit default account is listed first, so a deployment with no accounts still sees the\none that holds its tenants. Then the stored accounts by name.",
+        "operationId": "barakoCMSFeaturesAccountsListEndpoint",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfAccountResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/accounts: every account for a platform manager, or the accounts a scoped manager has been made manager of.",
+        "tags": [
+          "Accounts"
+        ]
+      },
+      "post": {
+        "operationId": "barakoCMSFeaturesAccountsCreateEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesAccountsAccountWriteRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "AccountWriteRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesAccountsAccountResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/accounts: create an account (platform manager only).",
+        "tags": [
+          "Accounts"
+        ]
+      }
+    },
+    "/api/accounts/branding": {
+      "get": {
+        "description": "Open to any signed-in caller, since the console reads it for whoever is using it. An account\nwith no colours set answers the tenant's own Branding dictionary, which is what a console\nread before accounts existed. A deployment with no accounts answers no name and no logo.",
+        "operationId": "barakoCMSFeaturesAccountsBrandingEndpoint",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesAccountsBrandingResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/accounts/branding: the console branding of the account that owns the caller's current tenant.",
+        "tags": [
+          "Accounts"
+        ]
+      }
+    },
+    "/api/accounts/{slug}": {
+      "get": {
+        "operationId": "barakoCMSFeaturesAccountsGetEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesAccountsAccountResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/accounts/{slug}: one account. An account the caller does not manage answers 404.",
+        "tags": [
+          "Accounts"
+        ]
+      },
+      "put": {
+        "description": "The implicit default account is stored the first time it is updated. Colours left out of the\nrequest stay as they are, and an empty logoUrl clears the logo.",
+        "operationId": "barakoCMSFeaturesAccountsUpdateEndpoint",
+        "parameters": [
+          {
+            "description": "The account's identifier. Read on create, ignored on update, where the route names it.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesAccountsAccountWriteRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "AccountWriteRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesAccountsAccountResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "PUT /api/accounts/{slug}: change an account's name and console branding (platform manager only).",
+        "tags": [
+          "Accounts"
+        ]
+      }
+    },
+    "/api/accounts/{slug}/managers": {
+      "get": {
+        "operationId": "barakoCMSFeaturesAccountsManagersListEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfManagerResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/accounts/{slug}/managers: who may manage the tenants of the account (platform manager only).",
+        "tags": [
+          "Accounts"
+        ]
+      },
+      "post": {
+        "description": "Granting twice is not an error and changes nothing.",
+        "operationId": "barakoCMSFeaturesAccountsManagersGrantEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesAccountsManagersGrantRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "GrantRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesAccountsManagersManagerResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/accounts/{slug}/managers: let a user manage the account's tenants (platform manager only).",
+        "tags": [
+          "Accounts"
+        ]
+      }
+    },
+    "/api/accounts/{slug}/managers/{userId}": {
+      "delete": {
+        "operationId": "barakoCMSFeaturesAccountsManagersRevokeEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "DELETE /api/accounts/{slug}/managers/{userId}: take the grant away (platform manager only).",
+        "tags": [
+          "Accounts"
         ]
       }
     },
@@ -21819,7 +22484,7 @@
             "JWTBearerAuth": []
           }
         ],
-        "summary": "GET /api/tenants: list all tenants (platform admin).",
+        "summary": "GET /api/tenants: list all tenants (platform admin), or the tenants of the accounts the caller manages.",
         "tags": [
           "Tenants"
         ]
@@ -23124,6 +23789,70 @@
             "JWTBearerAuth": []
           }
         ],
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/api/users/{userId}/mfa/reset": {
+      "post": {
+        "operationId": "barakoCMSFeaturesUsersResetMfaEndpoint",
+        "parameters": [
+          {
+            "description": "Bound from the {userId} route segment.",
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesUsersResetMfaRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "Request",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesUsersResetMfaResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/users/{userId}/mfa/reset: an administrator holding manage_users removes another user's\ntwo-factor enrollment (secret, recovery codes and any pending setup), so someone who lost both\ntheir authenticator and their recovery codes can sign in and enroll again. Refresh tokens are\nrevoked, and the reason is audited. Your own MFA is turned off with /api/auth/mfa/disable.",
         "tags": [
           "Users"
         ]

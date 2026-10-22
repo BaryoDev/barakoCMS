@@ -68,6 +68,13 @@ public sealed class CapabilityGateProcessor : IGlobalPreProcessor
 
         if (await HoldsAsync(http, required, ct)) return;
 
+        // An endpoint that also serves a manager of some account lets that caller through the gate,
+        // and checks what they reach itself. Anyone else is refused here, before validation runs.
+        if (http.GetEndpoint()?.Metadata.GetMetadata<AccountScopedManagement>() is not null
+            && await barakoCMS.Features.Accounts.AccountReach.ForAsync(
+                http, http.RequestServices.GetRequiredService<Marten.IQuerySession>(), ct) is not null)
+            return;
+
         await Deny(http, required.Capability, ct);
     }
 
@@ -92,3 +99,9 @@ public sealed class CapabilityGateProcessor : IGlobalPreProcessor
         await http.Response.WriteAsync($"This caller is missing the '{capability}' capability.", ct);
     }
 }
+
+/// <summary>
+/// Marks an endpoint that a manager of at least one account may also reach, on top of the
+/// capability it requires. The handler narrows what they see to their accounts.
+/// </summary>
+internal sealed record AccountScopedManagement;

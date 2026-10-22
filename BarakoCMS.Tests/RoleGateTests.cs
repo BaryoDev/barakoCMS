@@ -202,6 +202,13 @@ public class RoleGateTests
         new("GET", "/api/api-keys/{id}/usage", $"/api/api-keys/{NotAGuid}/usage"),
         new("POST", "/api/api-keys/{id}/rotate", $"/api/api-keys/{NotAGuid}/rotate"),
         new("POST", "/api/viewer-tokens", "/api/viewer-tokens"),
+        new("GET", "/api/accounts", "/api/accounts"),
+        new("POST", "/api/accounts", "/api/accounts"),
+        new("GET", "/api/accounts/{slug}", "/api/accounts/default"),
+        new("PUT", "/api/accounts/{slug}", "/api/accounts/default"),
+        new("GET", "/api/accounts/{slug}/managers", "/api/accounts/default/managers"),
+        new("POST", "/api/accounts/{slug}/managers", "/api/accounts/default/managers"),
+        new("DELETE", "/api/accounts/{slug}/managers/{userId}", $"/api/accounts/default/managers/{NotAGuid}"),
     ];
 
     public static TheoryData<GatedRoute> AllGatedRoutes()

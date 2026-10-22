@@ -28,6 +28,9 @@ internal sealed class TenantResponse
     public TenantSignInBody SignIn { get; init; } = new();
     public DateTimeOffset CreatedAt { get; init; }
 
+    /// <summary>The account that owns the tenant. The default account's id when none was assigned.</summary>
+    public Guid AccountId { get; init; }
+
     public static TenantResponse From(Tenant t) => new()
     {
         Id = t.Id,
@@ -41,6 +44,7 @@ internal sealed class TenantResponse
         IsActive = t.Status == TenantStatus.Active,
         SignUp = t.SignUp,
         SignUpRoleId = t.SignUpRoleId,
+        AccountId = t.AccountId ?? TenantAccount.DefaultId,
         SignIn = TenantSignInBody.From(t.SignIn ?? new TenantSignInPolicy()),
         // Stored as DateTime, emitted with a zone, like every other timestamp this API returns.
         CreatedAt = new DateTimeOffset(DateTime.SpecifyKind(t.CreatedAt, DateTimeKind.Utc)),

@@ -862,7 +862,7 @@ public static class ServiceCollectionExtensions
             // requests with the same code can't both read the old LastUsedTimeStep and both win.
             .UseOptimisticConcurrency(true);
 
-        MapApiKeys(options);
+        MapApiKeysAndAccounts(options);
 
         options.Schema.For<Station>()
             .SingleTenanted() // credentials are global, like API keys; the tenant is kept as data
@@ -905,7 +905,30 @@ public static class ServiceCollectionExtensions
             });
     }
 
-    private static void MapApiKeys(StoreOptions options) =>
+    private static void MapAccounts(StoreOptions options)
+    {
+        options.Schema.For<Models.TenantAccount>()
+            .SingleTenanted() // accounts sit above tenants, so they are global
+            .DocumentAlias("accounts")
+            .Index(x => x.Slug, idx => idx.IsUnique = true);
+        options.Schema.For<Models.TenantAccountManager>()
+            .SingleTenanted()
+            .DocumentAlias("account_managers")
+            .Index(x => x.UserId)
+            .Index(x => new { x.AccountId, x.UserId }, idx =>
+            {
+                idx.IsUnique = true;
+                idx.Name = AccountManagerUniqueIndex;
+            });
+    }
+
+    private static void MapApiKeysAndAccounts(StoreOptions options)
+    {
+        MapAccounts(options);
+        MapApiKeyDocument(options);
+    }
+
+    private static void MapApiKeyDocument(StoreOptions options) =>
         options.Schema.For<ApiKey>()
             .SingleTenanted() // credentials are global, like users and tokens
             .DocumentAlias("api_keys")
@@ -2339,6 +2362,9 @@ public static class ServiceCollectionExtensions
 
     /// <summary>Root key under which every module's own settings live.</summary>
     internal const string ModulesConfigurationSection = "Modules";
+
+    /// <summary>The unique index on an account manager's account and user, named as migrations/5.2.0/898-accounts.sql creates it.</summary>
+    internal const string AccountManagerUniqueIndex = "mt_doc_account_managers_uidx_account_iduser_id";
 
     /// <summary>The unique index on a membership's user and tenant, named as the 4.7.0 migration creates it.</summary>
     internal const string MembershipUniqueIndex = "mt_doc_memberships_uidx_user_id_tenant_slug";
