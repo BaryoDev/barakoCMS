@@ -8,7 +8,7 @@ namespace BarakoCMS.Pages;
 
 /// <summary>Loading pages for the anonymous endpoints. Everything returned has been through the projector.</summary>
 /// <remarks>
-/// The query narrows to Published and document-Public so the database does the bulk of the work, and
+/// The query narrows to Published and document-Public (and Members, for a verified viewer) so the database does the bulk of the work, and
 /// the projector is still applied to every row: it holds the four delivery checks and the field
 /// allowlist, and this module holds none of them. Tree fields (parent, navigation flag, order, title)
 /// are read from the projected data, so a field the type marks non-Public shapes nothing here.
@@ -49,7 +49,7 @@ internal static class PublishedPages
             .Take(options.MaxPages + 1)
             .ToListAsync(ct);
 
-        return (Project(docs.Take(options.MaxPages), projector, definition, options), docs.Count > options.MaxPages);
+        return (Project(docs.Take(options.MaxPages), projector, definition, options, member: false), docs.Count > options.MaxPages);
     }
 
     /// <summary>Published pages holding <paramref name="slug"/>, oldest first, at most a handful.</summary>
@@ -59,6 +59,7 @@ internal static class PublishedPages
         ContentTypeDefinition definition,
         PagesOptions options,
         string slug,
+        bool member,
         CancellationToken ct)
     {
         if (projector.SlugField(definition) is not { } slugField)
@@ -70,14 +71,14 @@ internal static class PublishedPages
         var docs = await session.Query<Content>()
             .Where(c => c.ContentType == name
                         && c.Status == ContentStatus.Published
-                        && c.Sensitivity == SensitivityLevel.Public
+                        && (c.Sensitivity == SensitivityLevel.Public || (member && c.Sensitivity == SensitivityLevel.Members))
                         && c.MatchesSql(FieldEqualsIgnoreCaseSql, slugField, slug))
             .OrderBy(c => c.CreatedAt)
             .ThenBy(c => c.Id)
             .Take(10)
             .ToListAsync(ct);
 
-        return Project(docs, projector, definition, options);
+        return Project(docs, projector, definition, options, member);
     }
 
     /// <summary>A published page by id, or null when it may not be served.</summary>
@@ -87,6 +88,7 @@ internal static class PublishedPages
         ContentTypeDefinition definition,
         PagesOptions options,
         Guid id,
+        bool member,
         CancellationToken ct)
     {
         var doc = await session.LoadAsync<Content>(id, ct);
@@ -95,26 +97,33 @@ internal static class PublishedPages
             return null;
         }
 
-        var projected = Project([doc], projector, definition, options);
+        var projected = Project([doc], projector, definition, options, member);
         return projected.Count == 1 ? projected[0] : null;
     }
 
-    public static void SetCache(HttpContext http)
+    public static void SetCache(HttpContext http, bool varyOnViewer = false)
     {
         http.Response.Headers.CacheControl = "public, max-age=60";
-        http.Response.Headers.Vary = barakoCMS.Infrastructure.Multitenancy.TenantResolutionMiddleware.TenantHeader;
+        http.Response.Headers.Vary = varyOnViewer
+            ? new[]
+            {
+                barakoCMS.Infrastructure.Multitenancy.TenantResolutionMiddleware.TenantHeader,
+                barakoCMS.Infrastructure.Viewers.ViewerAudience.Header,
+            }
+            : barakoCMS.Infrastructure.Multitenancy.TenantResolutionMiddleware.TenantHeader;
     }
 
     private static List<(PageNode, PublicContentProjection)> Project(
         IEnumerable<Content> docs,
         IPublicContentProjector projector,
         ContentTypeDefinition definition,
-        PagesOptions options)
+        PagesOptions options,
+        bool member)
     {
         var result = new List<(PageNode, PublicContentProjection)>();
         foreach (var doc in docs)
         {
-            if (projector.Project(doc, definition) is not { } entry)
+            if (projector.Project(doc, definition, member) is not { } entry)
             {
                 continue;
             }

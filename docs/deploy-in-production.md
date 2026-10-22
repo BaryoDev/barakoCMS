@@ -357,7 +357,8 @@ changes nothing until you set one. Each has `PermitLimit` (requests), `WindowSec
 | Section | Default | Applies to |
 | --- | --- | --- |
 | `RateLimiting:Global` | 100 in 60 seconds, queue 10 | every request, per client IP |
-| `RateLimiting:Auth` | 5 in 900 seconds, queue 0 | login, refresh, OTP and MFA, per client IP |
+| `RateLimiting:Auth` | 5 in 900 seconds, queue 0 | login, OTP and MFA, per client IP |
+| `RateLimiting:Refresh` | 60 in 900 seconds, queue 0 | token refresh, per client IP |
 | `RateLimiting:Batch` | 20 in 60 seconds, queue 0 | anonymous telemetry batches, per client IP |
 | `RateLimiting:Registration` | 5 in 3600 seconds, queue 0 | registration and its verification, per client IP |
 | `RateLimiting:SiteShare` | 10 in 60 seconds, queue 0 | anonymous share link redemption, per tenant and visitor |

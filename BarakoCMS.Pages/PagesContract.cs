@@ -11,5 +11,5 @@ namespace BarakoCMS.Pages;
 /// </remarks>
 public static class PagesContract
 {
-    public const int Version = 2;
+    public const int Version = 3;
 }

@@ -39,6 +39,15 @@ public partial class PermissionResolver(
     /// </remarks>
     private IReadOnlyDictionary<string, string>? _profile;
 
+    /// <summary>
+    /// The permission a role holds for a content type. The exact spelling wins; only when the role
+    /// holds no such spelling does a different case match, and two different-case spellings with
+    /// none exact match nothing. A role holding both <c>Article</c> and
+    /// <c>article</c> then resolves each to its own, whatever order they are listed in.
+    /// </summary>
+    internal static Models.ContentTypePermission? PermissionFor(IEnumerable<Models.ContentTypePermission>? permissions, string? slug) =>
+        permissions is null ? null : barakoCMS.Core.ContentTypeName.PickByName(permissions.Where(p => p is not null), p => p.ContentTypeSlug, slug);
+
     private async Task<IReadOnlyList<Models.Role>> RolesForAsync(Models.User user, CancellationToken cancellationToken)
     {
         if (_roles is not null && _rolesFor == user.Id)
@@ -92,7 +101,7 @@ public partial class PermissionResolver(
         var rules = new List<Models.PermissionRule>();
         foreach (var role in roles)
         {
-            var permission = barakoCMS.Core.ContentTypeName.PickByName(role.Permissions, p => p.ContentTypeSlug, contentTypeSlug);
+            var permission = PermissionFor(role.Permissions, contentTypeSlug);
 
             if (permission != null)
             {
@@ -151,7 +160,7 @@ public partial class PermissionResolver(
         var rules = new List<Models.PermissionRule>();
         foreach (var role in roles)
         {
-            var permission = barakoCMS.Core.ContentTypeName.PickByName(role.Permissions, p => p.ContentTypeSlug, contentTypeSlug);
+            var permission = PermissionFor(role.Permissions, contentTypeSlug);
             if (permission is null) continue;
 
             var rule = GetRuleForAction(permission, "read");
@@ -180,7 +189,7 @@ public partial class PermissionResolver(
         var rules = new List<Models.PermissionRule>();
         foreach (var role in roles)
         {
-            var permission = barakoCMS.Core.ContentTypeName.PickByName(role.Permissions, p => p.ContentTypeSlug, contentTypeSlug);
+            var permission = PermissionFor(role.Permissions, contentTypeSlug);
             if (permission is not null && GetRuleForAction(permission, action) is { Enabled: true } rule)
                 rules.Add(rule);
         }

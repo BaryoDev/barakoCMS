@@ -2,6 +2,7 @@ using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
+using Marten.Linq.MatchesSql;
 
 namespace barakoCMS.Features.Audit.List;
 
@@ -21,6 +22,46 @@ internal class ListRequest : PaginatedRequest
 
     /// <summary>Filter to one tenant slug. Null = every tenant.</summary>
     public string? Tenant { get; set; }
+
+    /// <summary>
+    /// A cursor from an earlier response, or a timestamp for the first call. Left out, the list is
+    /// newest first as before. Given, only entries after it are listed, oldest first, so a client
+    /// resumes exactly where it stopped by passing back the <c>cursor</c> of the last response.
+    /// </summary>
+    public string? Since { get; set; }
+}
+
+// The page fields are declared here and not inherited from PaginatedResponse, because a derived
+// type is published as an allOf, which a contract diff reads as every page field removed.
+/// <summary>A page of audit entries.</summary>
+internal sealed class AuditListResponse
+{
+    /// <summary>Items for the current page</summary>
+    public IReadOnlyList<AuditEventDto> Items { get; set; } = Array.Empty<AuditEventDto>();
+
+    /// <summary>Current page number (1-indexed)</summary>
+    public int Page { get; set; }
+
+    /// <summary>Number of items per page</summary>
+    public int PageSize { get; set; }
+
+    /// <summary>Total number of items across all pages</summary>
+    public int TotalItems { get; set; }
+
+    /// <summary>Total number of pages</summary>
+    public int TotalPages => PageSize > 0 ? (int)Math.Ceiling(TotalItems / (double)PageSize) : 0;
+
+    /// <summary>Whether there is a next page</summary>
+    public bool HasNextPage => Page < TotalPages;
+
+    /// <summary>Whether there is a previous page</summary>
+    public bool HasPreviousPage => Page > 1;
+
+    /// <summary>
+    /// Pass back as <c>since</c> to read what follows this response. Present only when <c>since</c>
+    /// was given.
+    /// </summary>
+    public string? Cursor { get; set; }
 }
 
 internal class AuditEventDto
@@ -87,7 +128,7 @@ internal class AuditEventDto
 /// <summary>GET /api/audit — browse the audit trail, newest first.</summary>
 internal class Endpoint(
     IQuerySession session,
-    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<ListRequest, PaginatedResponse<AuditEventDto>>
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<ListRequest, AuditListResponse>
 {
     public override void Configure()
     {
@@ -97,6 +138,14 @@ internal class Endpoint(
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
+        if (req.Since is not null && !AuditCursor.TryParse(req.Since, out _))
+        {
+            ThrowError("Since must be a cursor from an earlier response or a timestamp.", 400);
+            return;
+        }
+
+        AuditCursor? since = req.Since is not null && AuditCursor.TryParse(req.Since, out var parsed) ? parsed : null;
+        var now = DateTimeOffset.UtcNow;
         var query = session.Query<AuditEvent>().AsQueryable();
 
         // AuditEvent is SingleTenanted (one global table), so the conjoined session provides no
@@ -124,11 +173,7 @@ internal class Endpoint(
         if (req.From is { } from) { var bound = AsUtc(from); query = query.Where(e => e.CreatedAt >= bound); }
         if (req.To is { } to) { var bound = AsUtc(to); query = query.Where(e => e.CreatedAt <= bound); }
 
-        var total = await query.CountAsync(ct);
-        var items = await query
-            .OrderByDescending(e => e.CreatedAt)
-            .Skip(req.Skip).Take(req.Take)
-            .ToListAsync(ct);
+        var (items, total) = await ReadPageAsync(query, since, req, ct);
 
         // The gates are the ones GET /api/roles and GET /api/api-keys declare, asked by the rule
         // the gate itself uses, and only when the page holds a row the answer changes.
@@ -137,13 +182,39 @@ internal class Endpoint(
         var mayListKeys = items.Any(e => e.Action.StartsWith("apikey.", StringComparison.Ordinal))
             && await CapabilityGateProcessor.HoldsAsync(HttpContext, barakoCMS.Features.ApiKeys.ListApiKeysEndpoint.Gate, ct);
 
-        await Send.ResponseAsync(new PaginatedResponse<AuditEventDto>
+        await Send.ResponseAsync(new AuditListResponse
         {
             Items = items.Select(e => AuditEventDto.VisibleTo(e, mayListRoles, mayListKeys)).ToList(),
             Page = req.Page,
             PageSize = req.PageSize,
             TotalItems = total,
+            Cursor = since is { } input
+                ? AuditCursor.Next(input, items, req.Skip + items.Count < total, now).ToString()
+                : null,
         }, cancellation: ct);
+    }
+
+    /// <summary>
+    /// A poll reads forward from the cursor. The id is the tie break and Postgres compares it, so the
+    /// filter and the order agree on where a cursor sits.
+    /// </summary>
+    private static async Task<(List<AuditEvent> Items, int Total)> ReadPageAsync(
+        IQueryable<AuditEvent> query, AuditCursor? since, ListRequest req, CancellationToken ct)
+    {
+        IOrderedQueryable<AuditEvent> ordered;
+        if (since is { } after)
+        {
+            query = query.Where(e => e.MatchesSql(AuditCursor.AfterSql, after.At.UtcDateTime, after.At.UtcDateTime, after.Id));
+            ordered = query.OrderBy(e => e.CreatedAt).ThenBy(e => e.Id);
+        }
+        else
+        {
+            ordered = query.OrderByDescending(e => e.CreatedAt);
+        }
+
+        var total = await query.CountAsync(ct);
+        var items = await ordered.Skip(req.Skip).Take(req.Take).ToListAsync(ct);
+        return (items.ToList(), total);
     }
 
     /// <summary>

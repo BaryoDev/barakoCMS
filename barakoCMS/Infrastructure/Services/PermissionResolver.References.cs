@@ -494,7 +494,7 @@ public partial class PermissionResolver
 
         foreach (var role in roles)
         {
-            var permission = barakoCMS.Core.ContentTypeName.PickByName(role.Permissions, p => p.ContentTypeSlug, contentTypeSlug);
+            var permission = PermissionFor(role.Permissions, contentTypeSlug);
             if (permission is null)
                 continue;
 

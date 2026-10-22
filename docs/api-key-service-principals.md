@@ -6,7 +6,7 @@ Build it in three steps. Each keeps today's behaviour as the default.
 
 1. Capability scopes. A scope names a capability, and the scope processor maps more routes to scopes
    instead of denying them. Done so far: `files:read` and `files:write` for `/api/files`, and `monitor:read` for
-   `GET /api/contents/counts` and `GET /api/analytics/**`.
+   `GET /api/contents/counts`, `GET /api/analytics/**` and `GET /api/monitoring/health`.
 2. Rotation with an overlap window. Done: `POST /api/api-keys/{id}/rotate`.
 3. A service principal per tenant that owns keys and holds its own roles. Not built yet.
 
