@@ -107,6 +107,10 @@ public class ShippedMigrationTests
             new BarakoCMS.Pages.PagesModule(),
             new BarakoCMS.Comments.CommentsModule(),
             new BarakoCMS.Notifications.NotificationsModule(),
+            new BarakoCMS.Booking.BookingModule(),
+            new BarakoCMS.Payments.PaymentsModule(),
+            new BarakoCMS.Reports.ReportsModule(),
+            new BarakoCMS.Scheduling.SchedulingModule(),
         ]);
 
     private sealed class SecondOwnerOfTheFilesAssembly : IBarakoModule
