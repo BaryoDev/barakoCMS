@@ -37,6 +37,7 @@ public class ShippedMigrationTests
         "5.2.0/contacts",
         "5.2.0/notifications",
         "5.2.0/accounting-journal-lifecycle",
+        "5.2.0/accounting-mappings",
     ];
 
     /// <summary>
@@ -186,6 +187,7 @@ public class ShippedMigrationTests
         owned.Should().Equal(
             "Accounting/5.0.0/accounting-number-sequences",
             "Accounting/5.2.0/accounting-journal-lifecycle",
+            "Accounting/5.2.0/accounting-mappings",
             "Booking/5.2.0/booking-resources",
             "Comments/5.2.0/253-comments",
             "Contacts/5.2.0/contacts",
