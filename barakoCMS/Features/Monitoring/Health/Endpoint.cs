@@ -6,7 +6,8 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 namespace barakoCMS.Features.Monitoring.Health;
 
 // Per-check health detail for the admin dashboard. The anonymous /health probe returns only the
-// overall status; this admin-only endpoint exposes each check's name, status, and timing.
+// overall status; this endpoint exposes each check's name, status, and timing. Admin JWT callers also
+// get the description, data and tags; a monitor:read API key does not.
 internal class DetailedHealthStatus
 {
     public string Status { get; set; } = "";
@@ -39,6 +40,8 @@ internal class Endpoint(HealthCheckService healthCheckService) : EndpointWithout
     public override async Task HandleAsync(CancellationToken ct)
     {
         var report = await healthCheckService.CheckHealthAsync(ct);
+        // A key gets name, status and duration only. A failing check's description can carry exception text.
+        var isKey = User.HasClaim("auth_method", "apikey");
         var response = new DetailedHealthStatus
         {
             Status = report.Status.ToString(),
@@ -49,9 +52,9 @@ internal class Endpoint(HealthCheckService healthCheckService) : EndpointWithout
                 {
                     Status = e.Value.Status.ToString(),
                     Duration = e.Value.Duration.ToString(),
-                    Description = e.Value.Description,
-                    Data = e.Value.Data,
-                    Tags = e.Value.Tags,
+                    Description = isKey ? null : e.Value.Description,
+                    Data = isKey ? null : e.Value.Data,
+                    Tags = isKey ? null : e.Value.Tags,
                 }),
         };
         await Send.OkAsync(response, ct);
