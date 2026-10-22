@@ -50,7 +50,7 @@ public class AuditPollTests
         {
             TenantSlug = tenant,
             Action = $"test.poll.{i}",
-            CreatedAt = sameInstant ? first : first.AddMinutes(i),
+            CreatedAt = sameInstant ? first : AuditCursor.TruncateToMicroseconds(first.AddMinutes(i)),
         }).ToList();
 
     [Fact]
@@ -134,7 +134,7 @@ public class AuditPollTests
         var drained = await PageAsync("SuperAdmin", $"?tenant={tenant}&pageSize=100&since={Uri.EscapeDataString(start)}");
         drained.Items.Should().HaveCount(3);
 
-        var later = new AuditEvent { TenantSlug = tenant, Action = "test.poll.later", CreatedAt = DateTime.UtcNow.AddHours(-2) };
+        var later = new AuditEvent { TenantSlug = tenant, Action = "test.poll.later", CreatedAt = AuditCursor.TruncateToMicroseconds(DateTime.UtcNow.AddHours(-2)) };
         await SeedAsync(later);
 
         var resumed = await PageAsync("SuperAdmin", $"?tenant={tenant}&since={Uri.EscapeDataString(drained.Cursor!)}");
