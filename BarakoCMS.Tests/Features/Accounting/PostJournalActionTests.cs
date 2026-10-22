@@ -314,6 +314,16 @@ public class PostJournalActionTests(IntegrationTestFixture fixture)
         fromOutput.Error.Should().Contain("earlier action's output");
         (await EntriesForAsync(outputSubject)).Should().BeEmpty();
 
+        foreach (var memo in new[] { "order {{data.Ref.Name}}", "{{#each data.Refs}}{{data.Name}}{{/each}}" })
+        {
+            var refSubject = Restricted();
+            var fromReference = await RunAsync(refSubject, setup.Mapping, "receipt", memo: memo);
+            fromReference.Succeeded.Should().BeFalse();
+            fromReference.Retryable.Should().BeFalse();
+            fromReference.Error.Should().Contain("referenced entry");
+            (await EntriesForAsync(refSubject)).Should().BeEmpty();
+        }
+
         var amountFromSensitive = await SetupAsync(true, ("debit", "{{Data.Remark}}"), ("credit", "{{Data.Remark}}"));
         (await RunAsync(Restricted(), amountFromSensitive.Mapping, "receipt")).Succeeded.Should().BeFalse();
     }

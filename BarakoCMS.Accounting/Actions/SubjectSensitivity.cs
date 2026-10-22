@@ -30,6 +30,10 @@ internal static partial class SubjectSensitivity
     [GeneratedRegex(@"\{\{[^{}]*\bactions\.", RegexOptions.IgnoreCase, 2000)]
     private static partial Regex OutputReference();
 
+    /// <summary>A loop marker in a hole, which walks the entries a reference field points at.</summary>
+    [GeneratedRegex(@"[#/]\s*each\b", RegexOptions.IgnoreCase, 2000)]
+    private static partial Regex Loop();
+
     /// <summary>The fields of the subject's type that are not Public, which an entry accounting users read must not carry.</summary>
     public static async Task<HashSet<string>> FieldsAsync(IQuerySession session, Content subject, CancellationToken ct)
     {
@@ -66,6 +70,60 @@ internal static partial class SubjectSensitivity
     }
 
     /// <summary>
+    /// Whether a template reads past the entry's own fields: a loop, or a <c>data.</c> path of more
+    /// than one segment, which follows a reference to another entry.
+    /// </summary>
+    public static bool ReadsReferencedEntry(string template)
+    {
+        foreach (Match hole in Hole().Matches(template))
+        {
+            var text = hole.Groups[1].Value;
+            if (Loop().IsMatch(text))
+                return true;
+
+            foreach (Match read in DataName().Matches(text))
+            {
+                if (read.Groups["name"].Value.Contains('.'))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>A copy of the subject whose data has the sensitive keys removed, under the same id.</summary>
+    public static Content Without(Content subject, HashSet<string> sensitive)
+    {
+        var data = new Dictionary<string, object>(StringComparer.Ordinal);
+        foreach (var (key, value) in subject.Data)
+        {
+            if (!sensitive.Contains(key))
+                data[key] = value;
+        }
+
+        return new Content
+        {
+            Id = subject.Id,
+            ContentType = subject.ContentType,
+            Data = data,
+            Status = subject.Status,
+            Sensitivity = subject.Sensitivity,
+            CreatedAt = subject.CreatedAt,
+            UpdatedAt = subject.UpdatedAt,
+            ScheduledPublishAt = subject.ScheduledPublishAt,
+            ScheduledUnpublishAt = subject.ScheduledUnpublishAt,
+            ScheduledSensitivity = subject.ScheduledSensitivity,
+            ScheduledSensitivityAt = subject.ScheduledSensitivityAt,
+            LastModifiedBy = subject.LastModifiedBy,
+            LifecycleState = subject.LifecycleState,
+            SourceRunId = subject.SourceRunId,
+            CreatedBy = subject.CreatedBy,
+            BranchId = subject.BranchId,
+            SearchText = subject.SearchText,
+        };
+    }
+
+    /// <summary>
     /// Checks each declared parameter by name, then fills it in the way the runner fills any other:
     /// the extractor the run prepared and no encoding. A reference to an earlier action's output is
     /// refused, since its value could be a sensitive field that no name check here can see.
@@ -77,6 +135,7 @@ internal static partial class SubjectSensitivity
     {
         problem = null;
         var filled = new Dictionary<string, string>(parameters);
+        var visible = Without(subject, sensitive);
 
         foreach (var key in parameters.Keys.Where(k => declared.Contains(k, StringComparer.OrdinalIgnoreCase)))
         {
@@ -97,9 +156,16 @@ internal static partial class SubjectSensitivity
                 return null;
             }
 
+            if (ReadsReferencedEntry(raw))
+            {
+                problem = $"Parameter '{key}' reads a referenced entry, and an accounting entry takes only the entry's own fields.";
+                return null;
+            }
+
+            // Resolved against a copy without the sensitive keys, so no template syntax can fill one.
             var text = extractor is null
-                ? TemplateVariableExtractor.Resolve(raw, subject, TemplateValueEncoding.None)
-                : extractor.ResolveVariables(raw, subject, TemplateValueEncoding.None);
+                ? TemplateVariableExtractor.Resolve(raw, visible, TemplateValueEncoding.None)
+                : extractor.ResolveVariables(raw, visible, TemplateValueEncoding.None);
 
             filled[key] = text;
         }
