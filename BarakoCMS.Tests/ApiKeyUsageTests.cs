@@ -82,7 +82,7 @@ public class ApiKeyUsageTests(IntegrationTestFixture factory)
     }
 
     [Fact]
-    public async Task A_push_key_sent_to_another_content_type_is_counted_by_reason_and_type()
+    public async Task A_push_key_sent_to_an_unknown_content_type_is_counted_under_other()
     {
         var (id, secret) = await StoreKeyAsync(["content:write"], contentTypes: ["site-pages"]);
 
@@ -90,7 +90,7 @@ public class ApiKeyUsageTests(IntegrationTestFixture factory)
 
         var usage = await UsageBodyAsync(id);
         usage.GetProperty("refusalsByReason").GetProperty("content_type").GetInt32().Should().Be(1);
-        usage.GetProperty("refusalsByContentType").GetProperty("other-type").GetInt32().Should().Be(1);
+        usage.GetProperty("refusalsByContentType").GetProperty("other").GetInt32().Should().Be(1);
     }
 
     [Fact]
