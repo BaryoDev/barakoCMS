@@ -80,6 +80,13 @@ public class Content
     /// </remarks>
     public string? LifecycleState { get; set; }
 
+    /// <summary>The workflow run that created this entry, or null for an entry a person or an import made.</summary>
+    /// <remarks>
+    /// Kept on the document only, like <see cref="LifecycleState"/>, so a projection rebuild loses it.
+    /// The run's own list of what it created is the record; this is the pointer back.
+    /// </remarks>
+    public Guid? SourceRunId { get; set; }
+
     /// <summary>Who created this. Set once, from the event, and never from a request body.</summary>
     /// <remarks>
     /// Distinct from <see cref="LastModifiedBy"/>, which moves on every edit. Ownership has to
@@ -93,6 +100,9 @@ public class Content
     /// an ownership condition denies it rather than granting it, which is the safe direction.
     /// </remarks>
     public Guid CreatedBy { get; set; }
+
+    /// <summary>The branch this entry belongs to, from the <c>branch-id</c> header of its first event. Null when unscoped.</summary>
+    public Guid? BranchId { get; set; }
 
     // Derived public search text used for full-text search.
     public string? SearchText { get; set; }

@@ -2,9 +2,9 @@ using barakoCMS.Models;
 using BarakoCMS.Testing;
 using Marten;
 
-namespace BarakoCMS.Tests.Clinic;
+namespace BarakoCMS.Tests.SampleProbe;
 
-public sealed class ClinicProbeHost : BarakoTestHost, IAsyncLifetime
+public sealed class SampleProbeHost : BarakoTestHost, IAsyncLifetime
 {
     // Taken before this host starts and replaces FastEndpoints' process-wide resolver, and put back
     // once it is disposed, so core code run outside a request afterwards does not reach a disposed
@@ -16,10 +16,12 @@ public sealed class ClinicProbeHost : BarakoTestHost, IAsyncLifetime
     /// last host to start overwrites, so a random key here turns every IntegrationTestFixture token
     /// into a 401 for the rest of the run.
     /// </summary>
-    public ClinicProbeHost() : base(o =>
+    public SampleProbeHost() : base(o =>
     {
-        o.Modules.Add(new ClinicProbeModule());
+        o.Modules.Add(new SampleProbeModule());
         o.Settings["JWT:Key"] = IntegrationTestFixture.JwtKey;
+        // The change feed tests create an entry and call it as the same writer.
+        o.Settings["Lifecycle:AllowSelfTransition:Call"] = "true";
     })
     {
     }

@@ -74,6 +74,7 @@ public class ShippedMigrationTests
         ["core/5.1.0/seed-markers"] = "0635c09690d8d33fe92ef8189277aff93383d708ff9a28df5a75f4dbd65d421e",
         ["core/5.1.0/workflow-run-updated-at-index"] = "096c752f26b5372a0fc3b8858620742a80482d241f0242a0a5e1090f9c6dab0a",
         ["core/5.1.0/workflow-run-workflow-index"] = "588062405fa26596a8472b717f804c18d29e6495c2a7d570b9533a825f2e7024",
+        ["core/5.1.0/event-headers"] = "68c7dc43fcbeb9a2c3c02612cf1996a75be8bf0f0a80bd6537d03c9f98c3c05a",
     };
 
     private static IReadOnlyList<ShippedMigration> FirstParty() =>

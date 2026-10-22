@@ -10,14 +10,14 @@ using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace BarakoCMS.Tests.Clinic;
+namespace BarakoCMS.Tests.SampleProbe;
 
 /// <summary>
 /// A trigger a module registered: a workflow can be saved on it, the module fires it, and a run
 /// starts. Firing stays inside the scope's tenant, and a module cannot fire core's own triggers.
 /// </summary>
 [Collection("Sequential")]
-public class ModuleWorkflowTriggerTests(ClinicProbeHost host) : IClassFixture<ClinicProbeHost>
+public class ModuleWorkflowTriggerTests(SampleProbeHost host) : IClassFixture<SampleProbeHost>
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -27,17 +27,17 @@ public class ModuleWorkflowTriggerTests(ClinicProbeHost host) : IClassFixture<Cl
         var client = await host.ClientHoldingAsync([SystemCapabilities.ManageWorkflows]);
         var contentType = $"ticket{Guid.NewGuid():N}"[..20];
 
-        var saved = await SaveAsync(client, contentType, ClinicProbeModule.TicketCalledTrigger);
+        var saved = await SaveAsync(client, contentType, SampleProbeModule.TicketCalledTrigger);
         saved.StatusCode.Should().Be(HttpStatusCode.OK, await saved.Content.ReadAsStringAsync(Ct));
         var workflowId = await IdOfAsync(saved);
 
         var entry = await StoreEntryAsync(contentType, tenant: null);
 
-        (await FireAsync(null, ClinicProbeModule.TicketCalledTrigger, entry)).Should().Be(1);
+        (await FireAsync(null, SampleProbeModule.TicketCalledTrigger, entry)).Should().Be(1);
 
         var runs = await RunsOfAsync(workflowId, tenant: null);
         runs.Should().ContainSingle();
-        runs[0].TriggerEvent.Should().Be(ClinicProbeModule.TicketCalledTrigger);
+        runs[0].TriggerEvent.Should().Be(SampleProbeModule.TicketCalledTrigger);
         runs[0].ContentId.Should().Be(entry.Id);
         runs[0].Actions.Should().HaveCount(1);
     }
@@ -48,12 +48,12 @@ public class ModuleWorkflowTriggerTests(ClinicProbeHost host) : IClassFixture<Cl
         var client = await host.ClientHoldingAsync([SystemCapabilities.ManageWorkflows]);
         var contentType = $"ticket{Guid.NewGuid():N}"[..20];
 
-        var positive = await SaveAsync(client, contentType, ClinicProbeModule.TicketCalledTrigger);
+        var positive = await SaveAsync(client, contentType, SampleProbeModule.TicketCalledTrigger);
         positive.StatusCode.Should().Be(HttpStatusCode.OK, "the same request on a registered trigger saves");
 
         var refused = await SaveAsync(client, contentType, "probe.nothing");
         refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain(ClinicProbeModule.TicketCalledTrigger);
+        (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain(SampleProbeModule.TicketCalledTrigger);
     }
 
     [Fact]
@@ -63,9 +63,9 @@ public class ModuleWorkflowTriggerTests(ClinicProbeHost host) : IClassFixture<Cl
         var other = await host.ClientHoldingAsync(["read_probe_tickets"]);
         var contentType = $"ticket{Guid.NewGuid():N}"[..20];
 
-        (await SaveAsync(holder, contentType, ClinicProbeModule.TicketCalledTrigger)).StatusCode
+        (await SaveAsync(holder, contentType, SampleProbeModule.TicketCalledTrigger)).StatusCode
             .Should().Be(HttpStatusCode.OK);
-        (await SaveAsync(other, contentType, ClinicProbeModule.TicketCalledTrigger)).StatusCode
+        (await SaveAsync(other, contentType, SampleProbeModule.TicketCalledTrigger)).StatusCode
             .Should().Be(HttpStatusCode.Forbidden);
     }
 
@@ -79,7 +79,7 @@ public class ModuleWorkflowTriggerTests(ClinicProbeHost host) : IClassFixture<Cl
         var there = await StoreWorkflowAsync(contentType, tenant);
         var entry = await StoreEntryAsync(contentType, tenant: null);
 
-        (await FireAsync(null, ClinicProbeModule.TicketCalledTrigger, entry)).Should().Be(1);
+        (await FireAsync(null, SampleProbeModule.TicketCalledTrigger, entry)).Should().Be(1);
 
         (await RunsOfAsync(here, tenant: null)).Should().ContainSingle("the positive control");
         (await RunsOfAsync(there, tenant)).Should().BeEmpty("the other tenant's workflow is not reached");
@@ -126,7 +126,7 @@ public class ModuleWorkflowTriggerTests(ClinicProbeHost host) : IClassFixture<Cl
         return doc.RootElement.GetProperty("id").GetGuid();
     }
 
-    private async Task<Guid> StoreWorkflowAsync(string contentType, string? tenant, string trigger = ClinicProbeModule.TicketCalledTrigger)
+    private async Task<Guid> StoreWorkflowAsync(string contentType, string? tenant, string trigger = SampleProbeModule.TicketCalledTrigger)
     {
         var workflow = new WorkflowDefinition
         {

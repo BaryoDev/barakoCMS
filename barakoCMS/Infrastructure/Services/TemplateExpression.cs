@@ -109,7 +109,7 @@ internal static class TemplateExpression
 
     public const string DefaultDateFormat = "yyyy-MM-dd HH:mm";
 
-    public static readonly IReadOnlyList<string> Formats = ["date", "money", "upper", "lower"];
+    public static readonly IReadOnlyList<string> Formats = ["date", "money", "upper", "lower", "json"];
 
     /// <summary>The most entries one loop renders. Past it the loop stops and the run says so.</summary>
     public const int MaxLoopItems = 50;
@@ -220,6 +220,7 @@ internal static class TemplateExpression
                     "money" => Money(value, hole.Arguments, context),
                     "upper" => Text(value).ToUpperInvariant(),
                     "lower" => Text(value).ToLowerInvariant(),
+                    "json" => Json(value),
                     _ => null,
                 };
         }
@@ -574,7 +575,7 @@ internal static class TemplateExpression
                     ? "has a currency code that is not three letters"
                     : null;
 
-            case "upper" or "lower":
+            case "upper" or "lower" or "json":
                 return arguments.Count == 0 ? null : $"gives '{format}' an argument, and it takes none";
 
             default:
@@ -696,8 +697,46 @@ internal static class TemplateExpression
     {
         null => string.Empty,
         Moment moment => moment.Value.ToString("o"),
+        // A whole list or object is its JSON, so a json field can be filled from it. Its type name is of no use to anyone.
+        System.Collections.IDictionary or System.Collections.Generic.IEnumerable<object> => Json(value),
         _ => value.ToString() ?? string.Empty,
     };
+
+    private static readonly System.Text.Json.JsonSerializerOptions JsonOut = new()
+    {
+        Converters = { new barakoCMS.Infrastructure.Serialization.ObjectJsonConverter() },
+        // Quotes are escaped as JSON says; nothing else is, since the encoding for the target is applied after.
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
+    /// <summary>
+    /// The value as compact JSON, the way a parameter that holds JSON text is read: a list or object as
+    /// JSON, a string quoted, a number exactly as stored. Text that is itself a JSON array or object is
+    /// written as that array or object and not quoted again, so a field that already holds JSON text
+    /// parses back to what it holds. An empty value is empty.
+    /// </summary>
+    private static string Json(object? value)
+    {
+        switch (value)
+        {
+            case null or "":
+                return string.Empty;
+            case Moment moment:
+                return System.Text.Json.JsonSerializer.Serialize(moment.Value.ToString("o"), JsonOut);
+            case string text when text.TrimStart() is ['[' or '{', ..]:
+                try
+                {
+                    using var parsed = System.Text.Json.JsonDocument.Parse(text);
+                    return System.Text.Json.JsonSerializer.Serialize(parsed.RootElement, JsonOut);
+                }
+                catch (System.Text.Json.JsonException)
+                {
+                    break;
+                }
+        }
+
+        return System.Text.Json.JsonSerializer.Serialize(value, value.GetType(), JsonOut);
+    }
 
     private static bool IsEmpty(object? value) => value is null or "";
 

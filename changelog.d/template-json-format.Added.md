@@ -1,0 +1,1 @@
+- **A `json` template format.** `{{data.Lines | json}}` writes a list, object, string or number as compact JSON, so a workflow can pass a list field to an action parameter that reads JSON text. Text that already holds a JSON array or object is not encoded a second time. See `docs/approval-by-configuration.md`.

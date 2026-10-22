@@ -101,19 +101,24 @@ internal sealed class Endpoint(IQuerySession session, IPermissionResolver permis
             }
         }
 
+        // Counts what the caller may reach: a branch scoped type counts only the caller's branches.
+        var branchScope = await Resolve<barakoCMS.Infrastructure.Services.IBranchScopeGuard>().FilterAsync(User, ct);
+        IQueryable<barakoCMS.Models.Content> Reachable(IQueryable<barakoCMS.Models.Content> rows) =>
+            branchScope is null ? rows : rows.Where(c => c.MatchesSql(branchScope.Sql, branchScope.Parameters));
+
         var tally = new Tally();
         if (unconditional.Count > 0)
         {
             await tally.AddAsync(
-                session.Query<barakoCMS.Models.Content>().Where(c => c.ContentType.IsOneOf(unconditional)), ct);
+                Reachable(session.Query<barakoCMS.Models.Content>().Where(c => c.ContentType.IsOneOf(unconditional))), ct);
         }
 
         foreach (var (type, predicate) in conditional)
         {
             await tally.AddAsync(
-                session.Query<barakoCMS.Models.Content>()
+                Reachable(session.Query<barakoCMS.Models.Content>()
                     .Where(c => c.ContentType == type)
-                    .Where(c => c.MatchesSql(predicate.Sql!, predicate.Parameters)), ct);
+                    .Where(c => c.MatchesSql(predicate.Sql!, predicate.Parameters))), ct);
         }
 
         await Send.OkAsync(new Response(

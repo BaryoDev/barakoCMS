@@ -1,0 +1,1 @@
+- **`BarakoTestHost` pools its database connections.** Its connection string had `Pooling=false`, so every query opened a socket, and a run of about 35 hosts left near 13,000 in TIME_WAIT and failed with "Can't assign requested address". It now pools with `Maximum Pool Size=20`, and clears the pool when the host is disposed, before its database is removed.

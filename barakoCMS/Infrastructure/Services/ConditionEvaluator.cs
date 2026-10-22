@@ -132,6 +132,11 @@ public class ConditionEvaluator : IConditionEvaluator
             case "lastmodifiedby":
                 value = content.LastModifiedBy.ToString();
                 return true;
+            case "branch":
+                // Resolved even when the row has none: a null compares as different from every
+                // branch, which is what the compiled predicate gives too.
+                value = content.BranchId?.ToString();
+                return true;
             case "status":
                 value = content.Status.ToString();
                 return true;

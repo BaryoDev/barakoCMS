@@ -1,0 +1,1 @@
+- **Entries are numbered per branch when the rule has a series template.** A request with `X-Branch-Id` now carries the branch code, read from the `Code` of the `Branch` entry. A create on a type whose template needs a branch is refused with 400 when the branch has no code.

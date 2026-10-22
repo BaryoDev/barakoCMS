@@ -48,6 +48,46 @@ public class WorkflowDefinition
     /// is refused. Copied onto a run when it is queued.
     /// </remarks>
     public string? Executor { get; set; }
+
+    /// <summary>
+    /// The module that seeded this workflow, or null for a workflow a person or a document made.
+    /// </summary>
+    /// <remarks>
+    /// Set by <c>ModuleWorkflows.SeedAsync</c>. A module-owned workflow belongs to the module's
+    /// code, so config apply never plans to delete it and refuses a document that names it with
+    /// other content, and config export leaves it out. A definition stored before this existed has
+    /// no owner and reads as not module-owned until its module's next seed marks it.
+    /// </remarks>
+    public string? OwnerModule { get; set; }
+
+    /// <summary>The role told when a run of this workflow fails, or null for nobody.</summary>
+    public string? NotifyRoleOnFailure { get; set; }
+
+    /// <summary>Fires the workflow relative to a date field of an entry, instead of on an event. Null for an event workflow.</summary>
+    /// <remarks>
+    /// A schedule workflow ignores <see cref="TriggerEvents"/>: its stored <see cref="TriggerEvent"/>
+    /// is <c>schedule:</c> plus its name, which no event carries, so nothing else can fire it.
+    /// </remarks>
+    public ScheduleTrigger? Schedule { get; set; }
+}
+
+/// <summary>When a schedule workflow fires: an offset from a date field, for the entries of one type.</summary>
+public sealed class ScheduleTrigger
+{
+    /// <summary>The content type whose entries are swept.</summary>
+    public string ContentType { get; set; } = string.Empty;
+
+    /// <summary>The field of the entry's data that holds the date, as ISO text.</summary>
+    public string DateField { get; set; } = string.Empty;
+
+    /// <summary>Signed number plus m, h or d, for example <c>-24h</c>. Negative fires before the date.</summary>
+    public string Offset { get; set; } = "0m";
+
+    /// <summary>Only entries in this lifecycle state fire. Null for any state.</summary>
+    public string? InState { get; set; }
+
+    /// <summary>Data fields that must hold these values, compared as text, like a workflow's conditions.</summary>
+    public Dictionary<string, string> Where { get; set; } = new();
 }
 
 public class WorkflowAction

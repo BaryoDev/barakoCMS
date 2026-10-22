@@ -134,8 +134,14 @@ public class BarakoTestHost : IAsyncLifetime
     public string JwtKey => _jwtKey;
 
     /// <summary>The connection string the host is running on, for a test that reads the database directly.</summary>
+    /// <remarks>
+    /// Pooled, with a small cap. Without a pool every query opens a socket, and a run of dozens of
+    /// hosts leaves thousands in TIME_WAIT until the machine cannot assign a local port. The pool is
+    /// cleared when the host is disposed, before its database goes away.
+    /// </remarks>
     public string ConnectionString =>
-        _postgres.GetConnectionString().Replace("localhost", "127.0.0.1").Replace("Host=", "Server=") + ";Pooling=false";
+        _postgres.GetConnectionString().Replace("localhost", "127.0.0.1").Replace("Host=", "Server=")
+        + ";Pooling=true;Maximum Pool Size=20";
 
     private WebApplication App => _app ?? throw new InvalidOperationException(
         "The host has not started. Use BarakoTestHost as an xunit class fixture (IClassFixture<...>), "
@@ -222,6 +228,10 @@ public class BarakoTestHost : IAsyncLifetime
             await _app.StopAsync();
             await _app.DisposeAsync();
         }
+
+        // Idle connections to the database about to be removed would otherwise stay in the pool.
+        using (var pooled = new Npgsql.NpgsqlConnection(ConnectionString))
+            Npgsql.NpgsqlConnection.ClearPool(pooled);
 
         await _postgres.DisposeAsync();
         GC.SuppressFinalize(this);

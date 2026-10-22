@@ -186,7 +186,14 @@ internal sealed class SiteSettingsConfigProvider(
 
         if (errors.Count == 0)
         {
-            await creator.StageAsync(request, user.Id, batch: null, ct);
+            try
+            {
+                await creator.StageAsync(request, user.Id, batch: null, ct);
+            }
+            catch (ContentCreateRefusedException refused)
+            {
+                errors.Add(refused.Message);
+            }
         }
     }
 

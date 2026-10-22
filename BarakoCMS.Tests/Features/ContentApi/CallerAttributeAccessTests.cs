@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests.Features.ContentApi;
 /// </summary>
 /// <remarks>
 /// A branch manager reads their branch's orders, and nobody created those orders for them, so
-/// <c>$createdBy</c> cannot express it. The rule is <c>Branch eq $CURRENT_USER.branch</c>.
+/// <c>$createdBy</c> cannot express it. The rule is <c>Branch eq $CURRENT_USER.region</c>.
 ///
 /// The cases that matter are the ones where the caller has no value: no membership, no attribute,
 /// a profile in some other tenant, a suspended membership. Most of them use <c>_ne</c>, because a
@@ -34,7 +34,7 @@ public class CallerAttributeAccessTests
     {
         var conditions = new Dictionary<string, object>
         {
-            ["Branch"] = new Dictionary<string, object> { [op] = "$CURRENT_USER.branch" },
+            ["Branch"] = new Dictionary<string, object> { [op] = "$CURRENT_USER.region" },
         };
 
         foreach (var (field, extraOp, expected) in also)
@@ -102,7 +102,7 @@ public class CallerAttributeAccessTests
         await session.SaveChangesAsync();
     }
 
-    private static Dictionary<string, string> Branch(string value) => new() { ["branch"] = value };
+    private static Dictionary<string, string> Branch(string value) => new() { ["region"] = value };
 
     private async Task<HttpClient> SuperAdminAsync()
     {
@@ -251,7 +251,7 @@ public class CallerAttributeAccessTests
                      new Dictionary<string, string>(),
                      new Dictionary<string, string> { ["ward"] = "north" },
                      new Dictionary<string, string> { ["Branch"] = "south" },
-                     new Dictionary<string, string> { ["branch"] = "" },
+                     new Dictionary<string, string> { ["region"] = "" },
                      null,
                  })
         {

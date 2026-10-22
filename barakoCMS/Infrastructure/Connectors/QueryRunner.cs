@@ -42,7 +42,7 @@ internal sealed class QueryRunner(IQuerySession session) : IQueryRunner
     public async Task<string?> ValidateAsync(QueryDefinition definition, CancellationToken ct)
     {
         var schema = await session.Query<ContentTypeDefinition>()
-            .FirstOrDefaultAsync(d => d.Name == definition.ContentType, ct);
+            .FirstNamedAsync(definition.ContentType, ct);
 
         if (schema is null)
         {
@@ -130,15 +130,22 @@ internal sealed class QueryRunner(IQuerySession session) : IQueryRunner
         var refusal = await ValidateAsync(definition, ct);
         if (refusal is not null) return QueryResult.Refused(refusal);
 
-        var schema = (await session.Query<ContentTypeDefinition>()
-            .FirstOrDefaultAsync(d => d.Name == definition.ContentType, ct))!;
+        var named = await session.Query<ContentTypeDefinition>()
+            .Where(barakoCMS.Core.ContentTypeName.Named(definition.ContentType)).ToListAsync(ct);
+        var schema = barakoCMS.Core.ContentTypeName.Pick(named, definition.ContentType)!;
 
         var typeOf = schema.Fields.ToDictionary(f => f.Name, f => f.Type ?? string.Empty, StringComparer.OrdinalIgnoreCase);
         var canonical = schema.Fields.ToDictionary(f => f.Name, f => f.Name, StringComparer.OrdinalIgnoreCase);
         var lists = DeliveryQuery.ListFields(schema);
 
-        var query = session.Query<Content>()
-            .Where(c => c.ContentType == definition.ContentType);
+        // The schema's own spelling. Rows are stored as their creator spelled the type, so with one
+        // stored type the match ignores case. With a sibling that differs only by case, the match is
+        // exact, or a query for one type would return the rows of the other.
+        var exactName = schema.Name;
+        var typeName = exactName.ToLower();
+        var query = named.Count > 1
+            ? session.Query<Content>().Where(c => c.ContentType == exactName)
+            : session.Query<Content>().Where(c => c.ContentType.ToLower() == typeName);
 
         foreach (var filter in definition.Filters)
         {

@@ -130,4 +130,45 @@ public class ObjectJsonConverterTests
         Read("""{"Max":79228162514264337593543950335}""")["Max"]
             .Should().BeOfType<decimal>("decimal.MaxValue must survive");
     }
+
+    private static string Write(Dictionary<string, object> bag) =>
+        JsonSerializer.Serialize(bag, Options);
+
+    [Fact]
+    public void Typed_decimal_dictionary_is_written_as_an_object_and_stays_exact()
+    {
+        var json = Write(new() { ["Expected"] = new Dictionary<string, decimal> { ["A"] = 1234.56m, ["B"] = 0.1m } });
+
+        json.Should().Be("""{"Expected":{"A":1234.56,"B":0.1}}""");
+        var back = (Dictionary<string, object>)Read(json)["Expected"];
+        back["A"].Should().Be(1234.56m);
+        back["B"].Should().Be(0.1m);
+    }
+
+    [Fact]
+    public void Typed_string_dictionary_is_written_as_an_object()
+    {
+        Write(new() { ["Tags"] = new Dictionary<string, string> { ["k"] = "v" } })
+            .Should().Be("""{"Tags":{"k":"v"}}""");
+    }
+
+    [Fact]
+    public void Read_only_dictionary_is_written_as_an_object()
+    {
+        IReadOnlyDictionary<string, decimal> ro = new Dictionary<string, decimal> { ["X"] = 2.50m };
+
+        Write(new() { ["Ro"] = ro }).Should().Be("""{"Ro":{"X":2.50}}""");
+    }
+
+    [Fact]
+    public void Nested_typed_dictionaries_are_written_as_objects()
+    {
+        var nested = new Dictionary<string, Dictionary<string, decimal>>
+        {
+            ["Outer"] = new() { ["Inner"] = 9.99m },
+        };
+        var json = Write(new() { ["N"] = nested, ["L"] = new List<Dictionary<string, string>> { new() { ["a"] = "b" } } });
+
+        json.Should().Be("""{"N":{"Outer":{"Inner":9.99}},"L":[{"a":"b"}]}""");
+    }
 }

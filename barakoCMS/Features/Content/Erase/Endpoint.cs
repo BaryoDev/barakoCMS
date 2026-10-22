@@ -44,7 +44,14 @@ internal class Endpoint(
 
         // Read for the content type alone. The Deleted workflows are told which entry went and what
         // type it was, never what it held.
-        var contentType = (await session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct))?.ContentType;
+        var entry = await session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
+        if (entry is not null && !await Resolve<barakoCMS.Infrastructure.Services.IBranchScopeGuard>().MayAccessAsync(User, entry, ct))
+        {
+            await Send.NotFoundAsync(ct);
+            return;
+        }
+
+        var contentType = entry?.ContentType;
 
         var found = await eraser.QueueEraseAsync(req.Id, ct);
         if (!found)

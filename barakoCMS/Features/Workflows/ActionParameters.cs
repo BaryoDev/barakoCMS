@@ -69,7 +69,7 @@ internal static class ActionParameters
 
     public static Dictionary<string, string> Resolve(
         ITemplateVariableExtractor extractor, string actionType, IReadOnlyDictionary<string, string> parameters, Models.Content content) =>
-        Resolve(actionType, parameters, (template, encoding) => extractor.ResolveVariables(template, content, encoding));
+        Resolve(actionType, parameters, content, (template, encoding) => extractor.ResolveVariables(template, content, encoding));
 
     /// <summary>
     /// The same, after reading what the parameters name beyond the entry: the site's time zone, the
@@ -90,15 +90,63 @@ internal static class ActionParameters
     /// <summary>The same, without an extractor, for a caller that is not handed one.</summary>
     public static Dictionary<string, string> Resolve(
         string actionType, IReadOnlyDictionary<string, string> parameters, Models.Content content) =>
-        Resolve(actionType, parameters, (template, encoding) => TemplateVariableExtractor.Resolve(template, content, encoding));
+        Resolve(actionType, parameters, content, (template, encoding) => TemplateVariableExtractor.Resolve(template, content, encoding));
+
+    /// <summary>
+    /// The reserved parameter that names, one per line, the parameters whose template was one whole
+    /// placeholder for a list or an object. Resolving sets it and drops any the workflow declared.
+    /// </summary>
+    public const string StructuredParameter = "StructuredParameters";
+
+    private static readonly System.Text.RegularExpressions.Regex WholePlaceholder = new(
+        @"\A\s*\{\{\s*data\.([A-Za-z0-9_]+)\s*(?:\|\s*json\s*)?\}\}\s*\z",
+        System.Text.RegularExpressions.RegexOptions.Compiled, TimeSpan.FromSeconds(2));
+
+    /// <summary>Whether resolving marked <paramref name="parameter"/> as the JSON of a list or an object.</summary>
+    public static bool IsStructured(IReadOnlyDictionary<string, string> parameters, string parameter) =>
+        parameters.TryGetValue(StructuredParameter, out var marked)
+        && marked.Split('\n').Contains(parameter, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Text is JSON for a list or an object only when the template was one whole placeholder and the
+    /// field it names held a list or an object. A template that mixes JSON with a placeholder, or a
+    /// text field that happens to hold JSON, is text: a value there could add keys.
+    /// </summary>
+    private static bool IsWholeStructure(string template, Models.Content content) =>
+        WholePlaceholder.Match(template) is { Success: true } match
+        && content.Data.TryGetValue(match.Groups[1].Value, out var value)
+        && value switch
+        {
+            System.Text.Json.JsonElement element => element.ValueKind is System.Text.Json.JsonValueKind.Array or System.Text.Json.JsonValueKind.Object,
+            string => false,
+            System.Collections.IDictionary => true,
+            System.Collections.IEnumerable => true,
+            _ => false,
+        };
 
     private static Dictionary<string, string> Resolve(
-        string actionType, IReadOnlyDictionary<string, string> parameters, Func<string, TemplateValueEncoding, string> resolve)
+        string actionType, IReadOnlyDictionary<string, string> parameters, Models.Content content,
+        Func<string, TemplateValueEncoding, string> resolve)
     {
         var resolved = new Dictionary<string, string>(parameters.Count);
+        var structured = new List<string>();
         foreach (var (key, value) in parameters)
         {
+            if (key.Equals(StructuredParameter, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
             resolved[key] = IsResolvedByTheAction(actionType, key) ? value : resolve(value, EncodingFor(actionType, key));
+            if (!IsResolvedByTheAction(actionType, key) && IsWholeStructure(value, content))
+            {
+                structured.Add(key);
+            }
+        }
+
+        if (structured.Count > 0)
+        {
+            resolved[StructuredParameter] = string.Join('\n', structured);
         }
 
         return resolved;

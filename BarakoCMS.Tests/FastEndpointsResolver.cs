@@ -45,6 +45,42 @@ internal static class FastEndpointsResolver
 
     private static readonly List<Func<IEnumerable<IServiceProvider>>> Fallbacks = [];
 
+    private static readonly System.Collections.IDictionary JobQueues =
+        (System.Collections.IDictionary?)typeof(JobQueueExtensions).Assembly.GetType("FastEndpoints.JobQueueBase")?
+            .GetField("JobQueues", AnyStatic)?.GetValue(null)
+        ?? throw Moved("JobQueueBase.JobQueues");
+
+    private static readonly Type CommandHandlerRegistry =
+        typeof(CommandExtensions).Assembly.GetType("FastEndpoints.CommandHandlerRegistry")
+        ?? throw Moved("the type FastEndpoints.CommandHandlerRegistry");
+
+    /// <summary>
+    /// Points <c>QueueJobAsync</c> and <c>TriggerJobExecution</c> at <paramref name="host"/>'s own job
+    /// queues, for every command type that host handles.
+    /// </summary>
+    /// <remarks>
+    /// FastEndpoints keeps one queue per command type in a static, and every host that starts job
+    /// workers overwrites it with its own. A host disposed since leaves a queue whose worker has
+    /// stopped, and a <c>BarakoTestHost</c> leaves one polling its own database, so a job the
+    /// fixture queues is stored but its wake reaches no worker on the fixture's database. The job
+    /// then waits for the next storage probe, a minute apart. A test that needs the worker to run
+    /// its jobs on time takes the queues back first.
+    /// </remarks>
+    public static void ClaimJobQueues(IServiceProvider host)
+    {
+        var handled = (System.Collections.IDictionary)host.GetRequiredService(CommandHandlerRegistry);
+        lock (Gate)
+        {
+            foreach (var command in JobQueues.Keys.Cast<object>().ToList())
+            {
+                if (handled.Contains(command) && JobQueues[command] is { } queue)
+                {
+                    JobQueues[command] = host.GetRequiredService(queue.GetType());
+                }
+            }
+        }
+    }
+
     /// <summary>Takes the resolver the process has now, and puts it back when the result is disposed.</summary>
     public static IDisposable Keep()
     {

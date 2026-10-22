@@ -202,7 +202,7 @@ public partial class PermissionResolver
         // session is this scope's, and it reads this tenant only.
         var target = await ReferencedAsync(targetId, cancellationToken);
         if (target is null
-            || !string.Equals(target.ContentType, path.Target.Name, StringComparison.Ordinal)
+            || !string.Equals(target.ContentType, path.Target.Name, StringComparison.OrdinalIgnoreCase)
             || target.Sensitivity != Models.SensitivityLevel.Public)
             return false;
 

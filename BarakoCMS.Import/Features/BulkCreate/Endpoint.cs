@@ -183,11 +183,10 @@ public class Endpoint(
                     await batchSession.SaveChangesAsync(token);
                     written++;
                 }
-                catch (ContentUniquenessException ex)
+                catch (Exception ex) when (ex is ContentUniquenessException or ContentCreateRefusedException)
                 {
-                    // Another entry, stored or an earlier row, holds this row's values under a
-                    // uniqueness rule of the type. A row error like any other, so continueOnError
-                    // still writes the rows that pass.
+                    // A uniqueness rule or the type's numbering refused the row. A row error like
+                    // any other, so continueOnError still writes the rows that pass.
                     rowErrors.Add(new Response.RowError { Row = i, Messages = [ex.Message] });
                     batchSession.EjectAllPendingChanges();
                 }

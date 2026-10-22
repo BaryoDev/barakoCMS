@@ -23,8 +23,16 @@ internal static class CallerAttributes
 
     public const int MaxValueLength = 256;
 
+    /// <summary>The longest <c>branches</c> value: 32 ids and the commas between them, with room for spaces.</summary>
+    public const int MaxBranchesValueLength = 1200;
+
+    /// <summary>The request's branch, read from the reserved profile attribute <c>branch</c>.</summary>
+    public const string CurrentBranch = "$CURRENT_BRANCH";
+
     public static bool IsReference(object? expected) =>
-        expected is string text && text.StartsWith(Prefix, StringComparison.Ordinal);
+        expected is string text
+        && (text.StartsWith(Prefix, StringComparison.Ordinal)
+            || text.Equals(CurrentBranch, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// The caller's value for the attribute a variable names. False for a name the profile does not
@@ -36,10 +44,18 @@ internal static class CallerAttributes
     {
         value = string.Empty;
 
-        if (profile is null || !reference.StartsWith(Prefix, StringComparison.Ordinal))
+        if (profile is null)
             return false;
 
-        if (!profile.TryGetValue(reference[Prefix.Length..], out var found) || string.IsNullOrWhiteSpace(found))
+        string name;
+        if (reference.Equals(CurrentBranch, StringComparison.OrdinalIgnoreCase))
+            name = CallerBranches.BranchAttribute;
+        else if (reference.StartsWith(Prefix, StringComparison.Ordinal))
+            name = reference[Prefix.Length..];
+        else
+            return false;
+
+        if (!profile.TryGetValue(name, out var found) || string.IsNullOrWhiteSpace(found))
             return false;
 
         value = found;
@@ -116,14 +132,33 @@ internal static class CallerAttributes
             if (string.IsNullOrWhiteSpace(value))
                 return "A profile attribute needs a value. Leave the attribute out to remove it.";
 
-            if (value.Length > MaxValueLength)
-                return $"A profile attribute value holds at most {MaxValueLength} characters.";
+            if (BranchError(name, value) is { } branchError)
+                return branchError;
+
+            var limit = name == CallerBranches.BranchesAttribute ? MaxBranchesValueLength : MaxValueLength;
+            if (value.Length > limit)
+                return $"A profile attribute value holds at most {limit} characters.";
 
             // The name passed IsName above, so it is safe to say which one. A NUL is the case that
             // matters: jsonb refuses it, and the save would fail after the request was accepted.
             if (value.Any(char.IsControl))
                 return $"The profile attribute '{name}' holds a control character, such as a line break or a NUL.";
         }
+
+        return null;
+    }
+
+    /// <summary>
+    /// <c>branch</c> is the request's and never stored; <c>branches</c> has to read back whole.
+    /// </summary>
+    private static string? BranchError(string name, string value)
+    {
+        if (name == CallerBranches.BranchAttribute)
+            return "The profile attribute 'branch' is set by the request and cannot be stored.";
+
+        if (name == CallerBranches.BranchesAttribute
+            && CallerBranches.Parse(value).Count != value.Split(',').Length)
+            return "The profile attribute 'branches' must be up to 32 branch ids separated by commas.";
 
         return null;
     }

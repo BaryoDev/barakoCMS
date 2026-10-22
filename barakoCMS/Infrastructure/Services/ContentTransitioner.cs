@@ -4,6 +4,7 @@ using barakoCMS.Core.Validation;
 using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Logging;
 using barakoCMS.Infrastructure.Multitenancy;
+using barakoCMS.Infrastructure.Rules;
 using barakoCMS.Models;
 using Marten;
 
@@ -47,6 +48,7 @@ internal sealed class ContentTransitioner(
     IConfiguration configuration,
     IHttpContextAccessor httpContextAccessor,
     IServiceProvider services,
+    IRuleEngine rules,
     ILogger<ContentTransitioner> logger) : IContentTransitioner
 {
     internal const string ChangedByAnotherWriter =
@@ -97,7 +99,7 @@ internal sealed class ContentTransitioner(
         }
 
         var definition = await session.Query<ContentTypeDefinition>()
-            .FirstOrDefaultAsync(d => d.Name == content.ContentType, ct);
+            .FirstNamedAsync(content.ContentType, ct);
 
         // Nothing below this line may be reached by an actor with no rights on the type. The
         // refusals further down name the type's declared transitions and the entry's current
@@ -307,6 +309,25 @@ internal sealed class ContentTransitioner(
             return ContentTransitionResult.Invalid(errors);
         }
 
+        // After the version check, so a stale move answers Conflict and not a rule's refusal.
+        var ruled = await TransitionRules.CheckAsync(
+            rules, session, current, declared.Name, currentState, declared.To, actor.RecordedId, data, ct);
+        if (ruled.Failure is not null)
+        {
+            return ruled.Failure;
+        }
+
+        data = ruled.Over(data, current.Data);
+
+        // Fields a rule wrote change the entry the move leaves behind, so the transition rule is
+        // asked again of that entry, as it is above for values the actor sent.
+        if (ruled.Derived.Count > 0 && !skipPermissionChecks
+            && !await permissionResolver.AllowsWrittenEntryAsync(
+                user!, current, PermissionResolver.TransitionActionPrefix + declared.Name, data!, ct))
+        {
+            return ContentTransitionResult.Forbidden("The actor does not hold the permission for this transition.");
+        }
+
         var recordedBy = actor.RecordedId;
         var events = new List<object>();
 
@@ -327,25 +348,15 @@ internal sealed class ContentTransitioner(
             }
 
             var hookErrors = await services.GetRequiredService<IContentLifecycleRunner>()
-                .RunBeforeSaveAsync(content.ContentType, content.Id, data, stored, recordedBy, ct);
+                .RunBeforeSaveAsync(
+                    content.ContentType, content.Id, data, stored, recordedBy,
+                    new ContentTransition(declared.Name, currentState, declared.To), ct);
             if (hookErrors.Count > 0)
             {
                 return ContentTransitionResult.Invalid(hookErrors);
             }
 
-            var publicFields = definition.Fields
-                .Where(f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.InlineImageFields.Is(f.Type))
-                .Select(f => f.Name)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            var searchText = string.Join(
-                ' ',
-                data
-                    .Where(kv => publicFields.Contains(kv.Key))
-                    .Select(kv => kv.Value?.ToString())
-                    .Where(v => !string.IsNullOrWhiteSpace(v)));
-
-            events.Add(new Events.ContentUpdated(content.Id, data, recordedBy, searchText, DateTime.UtcNow));
+            events.Add(new Events.ContentUpdated(content.Id, data, recordedBy, SearchTextFor(definition, data), DateTime.UtcNow));
         }
 
         events.Add(new Events.ContentTransitioned(
@@ -353,21 +364,7 @@ internal sealed class ContentTransitioner(
 
         // The row names a user only when a user made the move. A system actor has no user id and no
         // username, so both stay empty and the name it gave goes in the metadata.
-        var metadata = new Dictionary<string, object>
-        {
-            ["transition"] = declared.Name,
-            ["from"] = currentState,
-            ["to"] = declared.To,
-        };
-        if (actor.SystemName is { } systemName)
-        {
-            metadata["actor"] = $"system:{systemName}";
-        }
-
-        if (skipPermissionChecks)
-        {
-            metadata["permissionChecks"] = "skipped";
-        }
+        var metadata = AuditMetadata(declared, currentState, actor, skipPermissionChecks);
 
         try
         {
@@ -492,5 +489,42 @@ internal sealed class ContentTransitioner(
     {
         var identity = new ClaimsIdentity(new[] { new Claim("UserId", user.Id.ToString()) }, nameof(ContentTransitioner));
         return new DefaultHttpContext { User = new ClaimsPrincipal(identity), RequestServices = services };
+    }
+
+    private static Dictionary<string, object> AuditMetadata(
+        StateTransition declared, string currentState, ContentTransitionActor actor, bool skipPermissionChecks)
+    {
+        var metadata = new Dictionary<string, object>
+        {
+            ["transition"] = declared.Name,
+            ["from"] = currentState,
+            ["to"] = declared.To,
+        };
+        if (actor.SystemName is { } systemName)
+        {
+            metadata["actor"] = $"system:{systemName}";
+        }
+
+        if (skipPermissionChecks)
+        {
+            metadata["permissionChecks"] = "skipped";
+        }
+
+        return metadata;
+    }
+
+    private static string SearchTextFor(ContentTypeDefinition definition, IDictionary<string, object> data)
+    {
+        var publicFields = definition.Fields
+            .Where(f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.InlineImageFields.Is(f.Type))
+            .Select(f => f.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        return string.Join(
+            ' ',
+            data
+                .Where(kv => publicFields.Contains(kv.Key))
+                .Select(kv => kv.Value?.ToString())
+                .Where(v => !string.IsNullOrWhiteSpace(v)));
     }
 }

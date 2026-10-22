@@ -2,10 +2,10 @@ using FluentAssertions;
 using Marten;
 using Xunit;
 
-namespace BarakoCMS.Tests.Clinic;
+namespace BarakoCMS.Tests.SampleProbe;
 
 [Collection("Sequential")]
-public class ModuleEventsHostTests(ClinicProbeHost host) : IClassFixture<ClinicProbeHost>
+public class ModuleEventsHostTests(SampleProbeHost host) : IClassFixture<SampleProbeHost>
 {
     [Fact]
     public async Task ModuleProjection_InlineEvent_WritesDocumentInSameTransaction()
@@ -30,7 +30,7 @@ public class ModuleEventsHostTests(ClinicProbeHost host) : IClassFixture<ClinicP
 
         await using var session = host.OpenSession();
         var events = await session.Events.FetchStreamAsync(id);
-        events.Single().EventTypeName.Should().Be("clinic-probe.probe_ticket_issued");
+        events.Single().EventTypeName.Should().Be("sample-probe.probe_ticket_issued");
     }
 
     [Fact]

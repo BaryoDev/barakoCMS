@@ -29,27 +29,34 @@ internal static class WorkflowTriggers
     internal static List<string> Events(WorkflowDefinition workflow) =>
         Merge(workflow.TriggerEvent, workflow.TriggerEvents);
 
-    /// <summary>The workflows an event on <paramref name="contentType"/> fires.</summary>
+    /// <summary>The workflows that listen for <paramref name="eventType"/>, whatever the content type.</summary>
     /// <remarks>
-    /// Checks the single fields as well as the lists, because a stored document written before a
+    /// Checks the single field as well as the list, because a stored document written before a
     /// list existed has no list, and a document stored straight through a session need not fill it.
     ///
-    /// A filter, not a join, so a workflow comes back once however many of its list entries the
-    /// event matches.
+    /// The content type is not in the filter: a stored trigger and the type an event carries can
+    /// differ in case ("Order" and "order"), and a case-insensitive match on a list inside the
+    /// document does not translate to SQL. <see cref="SwitchedOn"/> finishes the match.
     /// </remarks>
-    internal static Expression<Func<WorkflowDefinition, bool>> FiredBy(string contentType, string eventType) =>
-        w => (w.TriggerContentType == contentType || w.TriggerContentTypes.Contains(contentType))
-             && (w.TriggerEvent == eventType || w.TriggerEvents.Contains(eventType));
+    internal static Expression<Func<WorkflowDefinition, bool>> FiredBy(string eventType) =>
+        w => w.TriggerEvent == eventType || w.TriggerEvents.Contains(eventType);
 
-    /// <summary>The workflows among <paramref name="fired"/> that are switched on.</summary>
+    /// <summary>
+    /// The workflows among <paramref name="fired"/> that are switched on and list
+    /// <paramref name="contentType"/>, ignoring case.
+    /// </summary>
     /// <remarks>
     /// Applied to what the query returned and not written into <see cref="FiredBy"/>. A definition
     /// stored before the flag existed has no such field, and in SQL a comparison with a missing
     /// field is null, which a filter reads the same as off. Read into the class, a missing field
     /// keeps the default, which is on.
+    ///
+    /// A workflow comes back once however many of its types match. A blank type matches nothing.
     /// </remarks>
-    internal static List<WorkflowDefinition> SwitchedOn(IEnumerable<WorkflowDefinition> fired) =>
-        fired.Where(workflow => workflow.Enabled).ToList();
+    internal static List<WorkflowDefinition> SwitchedOn(IEnumerable<WorkflowDefinition> fired, string contentType) =>
+        fired.Where(workflow => workflow.Enabled
+                && ContentTypes(workflow).Any(type => barakoCMS.Core.ContentTypeName.Same(type, contentType)))
+            .ToList();
 
     /// <summary>
     /// Stores the trigger in the shape every reader understands: each list holds every value, and

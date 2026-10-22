@@ -35,7 +35,7 @@ internal class Endpoint(
         var user = await session.LoadAsync<barakoCMS.Models.User>(userId, ct);
 
         var content = await session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
-        if (content == null)
+        if (content == null || !await Resolve<barakoCMS.Infrastructure.Services.IBranchScopeGuard>().MayAccessAsync(User, content, ct))
         {
             await Send.NotFoundAsync(ct);
             return;
@@ -51,7 +51,7 @@ internal class Endpoint(
         // validator cannot see. A type with a lifecycle takes a named transition; every type that
         // exists today has none and takes a status.
         var definition = await session.Query<barakoCMS.Models.ContentTypeDefinition>()
-            .FirstOrDefaultAsync(d => d.Name == content.ContentType, ct);
+            .FirstNamedAsync(content.ContentType, ct);
         var lifecycle = definition?.Lifecycle;
 
         // The permission check is deliberately not shared between the two paths.
@@ -190,6 +190,11 @@ internal class Endpoint(
                 }
 
                 ThrowIfAnyErrors();
+                break;
+
+            case ContentTransitionOutcome.RuleFailed:
+                AddError(new FluentValidation.Results.ValidationFailure("rules", result.Errors[0]));
+                ThrowIfAnyErrors(422);
                 break;
         }
 

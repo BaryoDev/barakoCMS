@@ -3,10 +3,10 @@ using barakoCMS.Modules;
 using JasperFx.Events.Projections;
 using Marten.Events.Aggregation;
 
-namespace BarakoCMS.Tests.Clinic;
+namespace BarakoCMS.Tests.SampleProbe;
 
-// A stand-in for a private clinic module: owns its events, document and projection, and nothing
-// else. Generic on purpose; barakoCMS never learns what a clinic is.
+// A stand-in for a private shop module: owns its events, document and projection, and nothing
+// else. Generic on purpose; barakoCMS never learns what a shop is.
 public sealed record ProbeTicketIssued(Guid TicketId, string Label);
 
 public sealed record ProbeTicketCalled(Guid TicketId, string Counter);
@@ -44,9 +44,9 @@ public sealed class ProbeTicketProjection : SingleStreamProjection<ProbeTicket, 
     public void Apply(ProbeTicketCalled e, ProbeTicket ticket) => ticket.Counter = e.Counter;
 }
 
-internal sealed class ClinicProbeModule : IBarakoModule
+internal sealed class SampleProbeModule : IBarakoModule
 {
-    public string Name => "ClinicProbe";
+    public string Name => "SampleProbe";
 
     // No endpoints: the probe is exercised through core's surfaces only.
     public IEnumerable<Assembly> EndpointAssemblies => [];
@@ -73,4 +73,29 @@ internal sealed class ClinicProbeModule : IBarakoModule
 
     public void ConfigureWorkflowTriggers(IModuleWorkflowTriggers triggers) =>
         triggers.Add(TicketCalledTrigger, "A ticket was called to a counter.");
+
+    public const string EchoAction = "SampleProbe.Echo";
+
+    public void ConfigureWorkflowActions(IModuleWorkflowActions actions) => actions.Add<ProbeEchoAction>(EchoAction);
+}
+
+/// <summary>A module's own workflow action, which does nothing and succeeds.</summary>
+[barakoCMS.Infrastructure.Attributes.WorkflowActionMetadata(
+    Description = "Echo, from the sample probe",
+    Group = barakoCMS.Infrastructure.Attributes.WorkflowActionGroup.Content,
+    RequiredParameters = new string[0],
+    OptionalParameters = new string[0],
+    ExampleJson = @"{""Type"":""SampleProbe.Echo"",""Parameters"":{}}"
+)]
+internal sealed class ProbeEchoAction : barakoCMS.Features.Workflows.IWorkflowAction
+{
+    public string Type => SampleProbeModule.EchoAction;
+
+    [Obsolete("Use RunAsync.")]
+    public Task ExecuteAsync(Dictionary<string, string> parameters, barakoCMS.Models.Content content, CancellationToken ct) =>
+        Task.CompletedTask;
+
+    public Task<barakoCMS.Features.Workflows.WorkflowActionResult> RunAsync(
+        Dictionary<string, string> parameters, barakoCMS.Models.Content content, CancellationToken ct) =>
+        Task.FromResult(barakoCMS.Features.Workflows.WorkflowActionResult.Success());
 }

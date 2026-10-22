@@ -1,0 +1,1 @@
+- **A batch create now sends the realtime notice.** The notice looks the entry up after the commit, but a batch commits once at the end, so the lookup ran before the entry was visible and nothing was sent. The notices of a batch now go out after its transaction commits, and none go out for a batch that rolls back.

@@ -199,7 +199,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
 
             foreach (var error in await ContentTypeUpsert.ErrorsAsync(
                          Resolve<IContentTypeValidatorService>(), Resolve<IContentSourcingPolicy>(), _session,
-                         type, match, maxFields, ContentTypeUpsert.Wording.Import, ct))
+                         Resolve<barakoCMS.Infrastructure.Realtime.TopicRegistry>(), type, match, maxFields, ContentTypeUpsert.Wording.Import, ct))
             {
                 AddError(new ValidationFailure($"contentTypes[{i}]", $"Content type '{Shorten(type.Name)}': {error}"));
             }

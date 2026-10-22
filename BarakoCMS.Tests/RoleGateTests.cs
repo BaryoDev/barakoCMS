@@ -65,6 +65,7 @@ public class RoleGateTests
         new("GET", "/api/jobs", "/api/jobs"),
         new("DELETE", "/api/contents/{id}/erase", $"/api/contents/{NotAGuid}/erase"),
         new("POST", "/api/contents/{id}/rollback/{versionId}", $"/api/contents/{NotAGuid}/rollback/{NotAGuid}"),
+        new("GET", "/api/contents/{id}/runs", $"/api/contents/{NotAGuid}/runs"),
         new("POST", "/api/content-types", "/api/content-types"),
         new("GET", "/api/content-types", "/api/content-types"),
         new("GET", "/api/schemas", "/api/schemas"),

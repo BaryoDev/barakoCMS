@@ -90,11 +90,11 @@ those.
 ### Something about the caller other than their id
 
 `$CURRENT_USER` is the caller's user id. `$CURRENT_USER.<name>` is a value from the caller's member
-profile in the current tenant, so a branch manager reads their branch's orders without having
+profile in the current tenant, so a regional manager reads their region's orders without having
 created them:
 
 ```json
-{ "Read": { "Enabled": true, "Conditions": { "Branch": { "_eq": "$CURRENT_USER.branch" } } } }
+{ "Read": { "Enabled": true, "Conditions": { "Region": { "_eq": "$CURRENT_USER.region" } } } }
 ```
 
 The profile is `Membership.Profile`, a map of text values. It is written with the member, by
@@ -112,7 +112,7 @@ What a rule author needs to know:
 
 - The variable is the whole of the value of `_eq` or `_ne`. Under `_in` or `_nin` the rule denies,
   and inside a list it is plain text, as `$CURRENT_USER` is.
-- Names are case sensitive. `$CURRENT_USER.branch` does not read `Branch`.
+- Names are case sensitive. `$CURRENT_USER.region` does not read `Region`.
 - A caller with no value matches nothing, whatever the operator: no active membership in this
   tenant, no attribute of that name, or an empty value. `_ne` does not grant in that case.
 - The value is compared as text, the way a value written into the rule is, so a profile value of
@@ -121,6 +121,25 @@ What a rule author needs to know:
   member's next request.
 - A user whose roles come only from `User.RoleIds`, with no membership row in the tenant, has no
   profile. Add them as a member of the tenant to give them one.
+
+### The request's branch
+
+An entry of a branch scoped type carries the branch it was written in (`Content.BranchId`). A rule
+reads it as the field `$branch`, and compares it with `$CURRENT_BRANCH`, the request's `X-Branch-Id`:
+
+```json
+{ "Read": { "Enabled": true, "Conditions": { "$branch": { "_eq": "$CURRENT_BRANCH" } } } }
+```
+
+- `$CURRENT_BRANCH` is set only when the header names one of the branches in the member's
+  `branches` profile attribute (comma separated ids). A branch not in that list is refused with
+  403 before any rule runs. With no header the variable has no value, and the rule matches nothing,
+  `_ne` included, as for any `$CURRENT_USER.<name>` without a value.
+- The variable is read from the reserved profile name `branch`, which the request sets and a member
+  write refuses to store. `$CURRENT_USER.branch` reads the same value.
+- An entry with no branch is null in `$branch`: `_eq` does not match it and `_ne` does.
+- Both evaluators, the per entry one and the compiled list predicate, read `$branch` and
+  `$CURRENT_BRANCH` the same way, which `PermissionPredicateAgreementTests` checks.
 
 ### Something about the entry a row points at
 
@@ -393,7 +412,7 @@ Still no admin UI for it: the endpoint is called directly.
 
 Until 4.6.0 two role names decided it, read back from the token: `HR` saw a
 Sensitive field that listed no roles of its own, `SuperAdmin` saw everything,
-and a field's `visibleToRoles` held role names. A clinic's Nurse role could be
+and a field's `visibleToRoles` held role names. A shop's Clerk role could be
 granted nothing that opened a Sensitive field, and renaming a role changed who
 could read the fields that listed it (#883).
 
@@ -418,8 +437,8 @@ the same reading for the caller, so a console can decide the way the API does:
 {
   "userId": "8c1e...",
   "username": "ana",
-  "tenant": "clinic",
-  "roles": [ { "id": "4f2a...", "name": "Nurse" } ],
+  "tenant": "shop",
+  "roles": [ { "id": "4f2a...", "name": "Clerk" } ],
   "capabilities": ["view_sensitive"],
   "legacyRoleFallback": false
 }

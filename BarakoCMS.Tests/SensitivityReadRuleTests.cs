@@ -108,17 +108,17 @@ public sealed class SensitivityReadRuleTests : IDisposable
     public async Task A_field_that_names_its_roles_is_readable_by_those_and_not_by_the_level_default()
     {
         var (finance, financeRole) = await CallerAsync("Finance");
-        var (nurse, _) = await CallerAsync(SystemCapabilities.ViewSensitive);
+        var (clerk, _) = await CallerAsync(SystemCapabilities.ViewSensitive);
 
         var byId = Field(SensitivityLevel.Sensitive, financeRole.Id.ToString());
         (await Service().MaySeeFieldAsync(byId, finance, Ct)).Should().BeTrue();
-        (await Service().MaySeeFieldAsync(byId, nurse, Ct)).Should().BeFalse(
+        (await Service().MaySeeFieldAsync(byId, clerk, Ct)).Should().BeFalse(
             "view_sensitive is the default for Sensitive, and a field that lists its own roles replaces the default");
 
         var byName = Field(SensitivityLevel.Sensitive, financeRole.Name);
         (await Service().MaySeeFieldAsync(byName, finance, Ct)).Should().BeTrue(
             "an entry that is not an id is a role name, matched against the caller's stored roles");
-        (await Service().MaySeeFieldAsync(byName, nurse, Ct)).Should().BeFalse();
+        (await Service().MaySeeFieldAsync(byName, clerk, Ct)).Should().BeFalse();
     }
 
     [Theory]

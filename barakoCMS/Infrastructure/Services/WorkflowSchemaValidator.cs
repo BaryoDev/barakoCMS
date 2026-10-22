@@ -532,7 +532,7 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
         foreach (var contentType in WorkflowTriggers.ContentTypes(workflow))
         {
             var definition = await _session.Query<ContentTypeDefinition>()
-                .FirstOrDefaultAsync(d => d.Name == contentType, ct);
+                .FirstNamedAsync(contentType, ct);
 
             // A missing type is refused rather than passed over. Skipping the check when the thing to
             // check against is absent is how a validation quietly stops validating, and here it would

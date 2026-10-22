@@ -133,30 +133,30 @@ public class ValidationRuleEnforcementTests
     [Fact]
     public async Task A_value_that_does_not_match_the_pattern_is_refused()
     {
-        var field = Field("PatientNumber", "string", ("pattern", "^PT-[0-9]{6}$"));
+        var field = Field("CustomerNumber", "string", ("pattern", "^PT-[0-9]{6}$"));
 
-        var (isValid, errors) = await WriteAsync(new() { ["PatientNumber"] = "PT-12" }, field);
+        var (isValid, errors) = await WriteAsync(new() { ["CustomerNumber"] = "PT-12" }, field);
 
         isValid.Should().BeFalse();
         errors.Should().HaveCount(1);
-        errors[0].Should().Contain("PatientNumber").And.Contain("'pattern'");
+        errors[0].Should().Contain("CustomerNumber").And.Contain("'pattern'");
         errors[0].Should().NotContain("[0-9]", "the pattern is a business rule and is not echoed to the writer");
 
-        (await WriteAsync(new() { ["PatientNumber"] = "PT-123456" }, field)).IsValid.Should().BeTrue();
+        (await WriteAsync(new() { ["CustomerNumber"] = "PT-123456" }, field)).IsValid.Should().BeTrue();
     }
 
     [Fact]
     public async Task A_rule_named_regex_is_enforced_as_a_pattern()
     {
-        var field = Field("PatientNumber", "string", ("regex", "^PT-[0-9]{6}$"));
+        var field = Field("CustomerNumber", "string", ("regex", "^PT-[0-9]{6}$"));
 
-        var (isValid, errors) = await WriteAsync(new() { ["PatientNumber"] = "PT-12" }, field);
+        var (isValid, errors) = await WriteAsync(new() { ["CustomerNumber"] = "PT-12" }, field);
 
         isValid.Should().BeFalse();
         errors.Should().HaveCount(1);
-        errors[0].Should().Contain("PatientNumber").And.Contain("'pattern'");
+        errors[0].Should().Contain("CustomerNumber").And.Contain("'pattern'");
 
-        (await WriteAsync(new() { ["PatientNumber"] = "PT-123456" }, field)).IsValid.Should().BeTrue();
+        (await WriteAsync(new() { ["CustomerNumber"] = "PT-123456" }, field)).IsValid.Should().BeTrue();
     }
 
     [Fact]

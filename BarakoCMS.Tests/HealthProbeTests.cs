@@ -166,10 +166,11 @@ public class HealthProbeTests
     public async Task The_memory_check_fails_a_process_over_its_ceiling_and_is_on_both_probes(
         string ceilingMegabytes, HealthStatus expected)
     {
-        if (expected == HealthStatus.Unhealthy && OperatingSystem.IsMacOS())
-        {
-            Assert.Skip("macOS reports a private memory size of 0, so no ceiling is ever passed there");
-        }
+        // macOS reports a private memory size of 0 for every process, so no ceiling can be crossed
+        // there. The check itself is unchanged and runs on Linux, where the container does.
+        Assert.SkipWhen(
+            expected == HealthStatus.Unhealthy && System.Diagnostics.Process.GetCurrentProcess().PrivateMemorySize64 == 0,
+            "this platform reports 0 bytes of private memory, so the ceiling cannot be crossed");
 
         // The ceiling is read while AddBarakoCMS registers the check, so it is given here the way a
         // deployment gives it, and the registered check is run on its own.

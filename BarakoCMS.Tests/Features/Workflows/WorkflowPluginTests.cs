@@ -356,6 +356,9 @@ public class WorkflowPluginTests
     {
         var actionTypes = typeof(WorkflowEngine).Assembly.GetTypes()
             .Where(t => typeof(IWorkflowAction).IsAssignableFrom(t) && t is { IsAbstract: false, IsInterface: false })
+            // A module's action is wrapped with the type its module registered, which the module
+            // action registry checks, so the wrapper has no type of its own to read here.
+            .Where(t => t != typeof(barakoCMS.Features.Workflows.ModuleWorkflowAction))
             .ToArray();
 
         actionTypes.Should().HaveCountGreaterThan(3,

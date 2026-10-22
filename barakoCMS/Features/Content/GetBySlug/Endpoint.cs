@@ -53,7 +53,8 @@ internal class Endpoint(
         {
             foreach (var candidate in await FindAsync(req.Type, req.Slug, ct))
             {
-                if (await permissionResolver.CanPerformActionAsync(user, candidate.ContentType, "read", candidate, ct))
+                if (await Resolve<barakoCMS.Infrastructure.Services.IBranchScopeGuard>().MayAccessAsync(User, candidate, ct)
+                    && await permissionResolver.CanPerformActionAsync(user, candidate.ContentType, "read", candidate, ct))
                 {
                     content = candidate;
                     break;
@@ -84,7 +85,7 @@ internal class Endpoint(
     /// </remarks>
     private async Task<IReadOnlyList<barakoCMS.Models.Content>> FindAsync(string type, string slug, CancellationToken ct)
     {
-        var def = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
+        var def = await session.Query<ContentTypeDefinition>().FirstNamedAsync(type, ct);
         if (def is null) return [];
 
         var slugField = PublicDelivery.SlugFieldForAuthoring(def);

@@ -1,0 +1,1 @@
+- **A typed dictionary in a content data bag read back as an array.** A hook that stored a `Dictionary<string, decimal>` (or any string-keyed dictionary other than `Dictionary<string, object>`) got a list of key and value pairs back. Every string-keyed dictionary is now written as a JSON object, and decimals stay exact.

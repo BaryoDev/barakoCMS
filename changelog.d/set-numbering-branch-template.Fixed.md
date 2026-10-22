@@ -1,0 +1,1 @@
+- **Setting a numbering rule with a `{branch}` template answered 500 after saving.** The example number is now built with a placeholder branch.

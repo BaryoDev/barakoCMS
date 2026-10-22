@@ -57,6 +57,9 @@ public sealed record WorkflowActionResult
     /// </remarks>
     public IReadOnlyDictionary<string, string> Outputs { get; }
 
+    /// <summary>The entries the action created, or null when it reported none.</summary>
+    public IReadOnlyList<barakoCMS.Models.CreatedRef>? Created { get; private init; }
+
     /// <summary>The action completed.</summary>
     public static WorkflowActionResult Success() => new(true, null, retryable: false);
 
@@ -67,6 +70,13 @@ public sealed record WorkflowActionResult
     /// </param>
     public static WorkflowActionResult Success(IReadOnlyDictionary<string, string> outputs) =>
         new(true, null, retryable: false, new Dictionary<string, string>(outputs ?? NoOutputs, StringComparer.Ordinal));
+
+    /// <summary>The action completed, produced these values and created these entries.</summary>
+    /// <param name="outputs">Values by name, as for <see cref="Success(IReadOnlyDictionary{string, string})"/>, or null for none.</param>
+    /// <param name="created">The entries the action created, kept on the attempt once it succeeds.</param>
+    public static WorkflowActionResult Success(IReadOnlyDictionary<string, string>? outputs, IReadOnlyList<barakoCMS.Models.CreatedRef> created) =>
+        new WorkflowActionResult(true, null, retryable: false,
+            outputs is null ? null : new Dictionary<string, string>(outputs, StringComparer.Ordinal)) { Created = [.. created] };
 
     /// <summary>The action did not complete, for the stated reason.</summary>
     /// <param name="error">

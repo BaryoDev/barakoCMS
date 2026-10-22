@@ -3,7 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using barakoCMS.Features.Changes;
 using barakoCMS.Infrastructure.Realtime;
-using BarakoCMS.Tests.Clinic;
+using BarakoCMS.Tests.SampleProbe;
 using FluentAssertions;
 using Marten;
 using Marten.Services;
@@ -14,7 +14,7 @@ using Xunit;
 namespace BarakoCMS.Tests.Realtime;
 
 [Collection("Sequential")]
-public class ChangeFeedTests(ClinicProbeHost host) : IClassFixture<ClinicProbeHost>
+public class ChangeFeedTests(SampleProbeHost host) : IClassFixture<SampleProbeHost>
 {
     private static readonly string[] Tickets = ["read_probe_tickets"];
 
@@ -52,7 +52,7 @@ public class ChangeFeedTests(ClinicProbeHost host) : IClassFixture<ClinicProbeHo
 
         var page = await ReadAsync(client, start);
 
-        page.Items.Select(i => i.Type).Should().Equal("clinic-probe.probe_ticket_issued", "clinic-probe.probe_ticket_called");
+        page.Items.Select(i => i.Type).Should().Equal("sample-probe.probe_ticket_issued", "sample-probe.probe_ticket_called");
         page.Items.Should().OnlyContain(i => i.StreamId == id && i.Topics.SequenceEqual(new[] { "probe.tickets" }));
         ((JsonElement)page.Items[0].Data).GetProperty("label").GetString().Should().Be("A-100");
         page.Next.Should().BeGreaterThanOrEqualTo(last);

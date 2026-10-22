@@ -202,7 +202,7 @@ public class ConfigEngineTests
     [Fact]
     public async Task A_role_is_created_and_a_second_plan_against_it_is_empty()
     {
-        var name = Unique("Clinic Nurse ");
+        var name = Unique("Shop Clerk ");
         var document = new
         {
             version = 1,

@@ -54,7 +54,7 @@ internal class RollbackEndpoint(
         // content answers 404, which is what an unknown id already produced from the event check
         // below, so nothing observable changes for a caller who is allowed to be here.
         var content = await session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
-        if (content == null)
+        if (content == null || !await Resolve<barakoCMS.Infrastructure.Services.IBranchScopeGuard>().MayAccessAsync(User, content, ct))
         {
             await Send.NotFoundAsync(ct);
             return;
@@ -162,7 +162,7 @@ internal class RollbackEndpoint(
         // Rebuild SearchText using the current field-sensitivity definition so a rollback
         // cannot reintroduce values that are no longer Public into the searchable text.
         var definition = await session.Query<ContentTypeDefinition>()
-            .FirstOrDefaultAsync(d => d.Name == content.ContentType, ct);
+            .FirstNamedAsync(content.ContentType, ct);
 
         var publicFields = definition?.Fields
             .Where(f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.InlineImageFields.Is(f.Type))

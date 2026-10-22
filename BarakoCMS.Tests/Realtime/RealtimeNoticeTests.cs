@@ -5,7 +5,7 @@ using barakoCMS.Features.Changes;
 using barakoCMS.Infrastructure.Realtime;
 using Microsoft.Extensions.DependencyInjection;
 using System.Threading.Channels;
-using BarakoCMS.Tests.Clinic;
+using BarakoCMS.Tests.SampleProbe;
 using FluentAssertions;
 using Microsoft.AspNetCore.SignalR.Client;
 using Xunit;
@@ -13,7 +13,7 @@ using Xunit;
 namespace BarakoCMS.Tests.Realtime;
 
 [Collection("Sequential")]
-public class RealtimeNoticeTests(ClinicProbeHost host) : IClassFixture<ClinicProbeHost>
+public class RealtimeNoticeTests(SampleProbeHost host) : IClassFixture<SampleProbeHost>
 {
     private static readonly string[] Tickets = ["read_probe_tickets"];
 
@@ -23,7 +23,7 @@ public class RealtimeNoticeTests(ClinicProbeHost host) : IClassFixture<ClinicPro
 
         public HubConnection Connection => connection;
 
-        public static async Task<Listening> StartAsync(ClinicProbeHost host, string token, string topic, string? tenant = null)
+        public static async Task<Listening> StartAsync(SampleProbeHost host, string token, string topic, string? tenant = null)
         {
             var connection = await RealtimeHubTests.ConnectAsync(host, token, tenant);
             var listening = new Listening(connection);
@@ -60,7 +60,7 @@ public class RealtimeNoticeTests(ClinicProbeHost host) : IClassFixture<ClinicPro
         var notice = (await listening.UntilStreamAsync(id)).Last();
         notice.GetProperty("topic").GetString().Should().Be("probe.tickets");
         notice.GetProperty("sequence").GetInt64().Should().Be(sequence);
-        notice.GetProperty("type").GetString().Should().Be("clinic-probe.probe_ticket_issued");
+        notice.GetProperty("type").GetString().Should().Be("sample-probe.probe_ticket_issued");
     }
 
     [Fact]

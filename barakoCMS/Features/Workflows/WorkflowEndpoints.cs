@@ -5,6 +5,7 @@ using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Infrastructure.Security;
+using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using Marten;
 
@@ -13,7 +14,8 @@ namespace barakoCMS.Features.Workflows;
 internal class CreateWorkflowEndpoint(
     IDocumentSession session,
     barakoCMS.Infrastructure.Services.IWorkflowSchemaValidator validator,
-    ISecretProtector protector) : Endpoint<CreateWorkflowRequest, barakoCMS.Features.Workflows.WorkflowResponse>
+    ISecretProtector protector,
+    IPermissionResolver permissions) : Endpoint<CreateWorkflowRequest, barakoCMS.Features.Workflows.WorkflowResponse>
 {
     public override void Configure()
     {
@@ -35,6 +37,14 @@ internal class CreateWorkflowEndpoint(
                 AddError($"{error.Field}: {error.Message}");
             }
             await Send.ErrorsAsync(cancellation: ct);
+            return;
+        }
+
+        var missing = await WorkflowSaveRights.MissingAsync(session, permissions, User, workflow, ct);
+        if (missing.Count > 0)
+        {
+            foreach (var line in missing) AddError(line);
+            await Send.ErrorsAsync(403, ct);
             return;
         }
 
@@ -181,6 +191,14 @@ internal sealed class SetWorkflowEnabledEndpoint(
 
         var enabled = req.Enabled ?? workflow.Enabled;
 
+        // Config apply refuses a document that switches a module-owned workflow, so this does too.
+        // A request that leaves it as it is changes nothing and is let through, as there.
+        if (workflow.OwnerModule is { } owner && workflow.Enabled != enabled)
+        {
+            ThrowError(WorkflowOwnership.Refusal(owner, "switched"), 409);
+            return;
+        }
+
         // Nothing is written or recorded when nothing changed, so the audit trail holds switches
         // and not repeated requests.
         if (workflow.Enabled != enabled)
@@ -256,6 +274,12 @@ internal sealed class DeleteWorkflowEndpoint(
             return;
         }
 
+        if (workflow.OwnerModule is { } owner)
+        {
+            ThrowError(WorkflowOwnership.Refusal(owner, "deleted"), 409);
+            return;
+        }
+
         var workflowId = workflow.Id;
 
         var queued = await session.Query<WorkflowRun>()
@@ -313,6 +337,13 @@ internal sealed class DeleteWorkflowEndpoint(
     }
 }
 
+/// <summary>What is said when a change reaches a workflow a module owns.</summary>
+internal static class WorkflowOwnership
+{
+    public static string Refusal(string owner, string verb) =>
+        $"This workflow belongs to the {owner} module and is set by the module, so it cannot be {verb} here.";
+}
+
 internal sealed class UpdateWorkflowRequest : CreateWorkflowRequest
 {
     public Guid Id { get; set; }
@@ -342,7 +373,8 @@ internal sealed class UpdateWorkflowEndpoint(
     IDocumentSession session,
     barakoCMS.Infrastructure.Services.IWorkflowSchemaValidator validator,
     ISecretProtector protector,
-    TenantContext tenant) : Endpoint<UpdateWorkflowRequest, WorkflowResponse>
+    TenantContext tenant,
+    IPermissionResolver permissions) : Endpoint<UpdateWorkflowRequest, WorkflowResponse>
 {
     public override void Configure()
     {
@@ -359,6 +391,12 @@ internal sealed class UpdateWorkflowEndpoint(
             return;
         }
 
+        if (stored.OwnerModule is { } owner)
+        {
+            ThrowError(WorkflowOwnership.Refusal(owner, "changed"), 409);
+            return;
+        }
+
         var workflow = req.ToDefinition();
 
         var validation = await validator.ValidateAsync(workflow, ct);
@@ -369,6 +407,14 @@ internal sealed class UpdateWorkflowEndpoint(
                 AddError($"{error.Field}: {error.Message}");
             }
             await Send.ErrorsAsync(cancellation: ct);
+            return;
+        }
+
+        var missing = await WorkflowSaveRights.MissingAsync(session, permissions, User, workflow, ct);
+        if (missing.Count > 0)
+        {
+            foreach (var line in missing) AddError(line);
+            await Send.ErrorsAsync(403, ct);
             return;
         }
 

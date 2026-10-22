@@ -46,6 +46,7 @@ public sealed class ContentBatchRunner(
         scope.ServiceProvider.GetRequiredService<TenantContext>().Slug = tenant.Slug;
         var batch = scope.ServiceProvider.GetRequiredService<BatchTransaction>();
         batch.Transaction = transaction;
+        using var running = batch.Running();
 
         var outcome = await work(scope.ServiceProvider, ct);
 
@@ -58,6 +59,7 @@ public sealed class ContentBatchRunner(
             batch.StartDeferredStreams(session);
             await session.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
+            await batch.RunAfterCommitAsync(ct);
         }
         else
         {

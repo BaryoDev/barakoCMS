@@ -38,6 +38,12 @@ internal static class ContentProjection
             Apply(content, e.Data, OccurredAt(e));
         }
 
+        // The branch is on the envelope of the first event, not in its data, so a rebuild keeps it.
+        content.BranchId = Guid.TryParse(
+            events[0].GetHeader(barakoCMS.Core.Interfaces.EnvelopeHeaders.BranchId)?.ToString(), out var branch)
+            ? branch
+            : null;
+
         return content;
     }
 
