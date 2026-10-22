@@ -67,65 +67,65 @@ internal static class SchemaApplyLock
     /// sequence, never while a command is running on it.
     /// </remarks>
     public static Task RunAsync(IDocumentStore store, Func<Task> apply, CancellationToken ct = default) =>
-        RunAsync(store, apply, DefaultTimeout, DefaultPollInterval, ct);
+        RunAsync(store, apply, DefaultTimeout, DefaultPollInterval, null, ct);
+
+    /// <inheritdoc cref="RunAsync(IDocumentStore, Func{Task}, CancellationToken)"/>
+    /// <param name="configuration">Read for the schema lock timeout and <c>Leadership:RefuseBehindPooler</c>.</param>
+    public static Task RunAsync(IDocumentStore store, Func<Task> apply, IConfiguration? configuration, CancellationToken ct = default) =>
+        RunAsync(store, apply, TimeoutFrom(configuration), DefaultPollInterval, configuration, ct);
 
     /// <inheritdoc cref="RunAsync(IDocumentStore, Func{Task}, CancellationToken)"/>
     public static Task RunAsync(IDocumentStore store, Func<Task> apply, TimeSpan timeout, CancellationToken ct = default) =>
-        RunAsync(store, apply, timeout, DefaultPollInterval, ct);
+        RunAsync(store, apply, timeout, DefaultPollInterval, null, ct);
 
     internal static async Task RunAsync(
-        IDocumentStore store, Func<Task> apply, TimeSpan timeout, TimeSpan pollInterval, CancellationToken ct)
+        IDocumentStore store, Func<Task> apply, TimeSpan timeout, TimeSpan pollInterval,
+        IConfiguration? configuration, CancellationToken ct)
     {
         // The connection object, not a new one built from its ConnectionString: Npgsql redacts the
         // password out of ConnectionString unless Persist Security Info is set, so rebuilding from
         // it fails authentication.
-        await using var connection = store.Storage.Database.CreateConnection();
+        var connection = store.Storage.Database.CreateConnection();
         await connection.OpenAsync(ct);
 
-        var started = System.Diagnostics.Stopwatch.StartNew();
-        while (!await TryAcquireAsync(connection, ct))
-        {
-            if (started.Elapsed >= timeout)
-            {
-                var holder = await HolderPidAsync(connection, ct);
-                throw new TimeoutException(
-                    $"Timed out after {timeout.TotalSeconds:0}s waiting for the schema apply lock "
-                    + $"(advisory lock key {Key}), held by Postgres backend pid "
-                    + $"{(holder is { } pid ? pid.ToString() : "unknown")}. Another host is applying the schema, "
-                    + "or a connection that held it was never closed. A pooler in transaction mode can leave "
-                    + $"it held: connect directly or use session pooling. Raise {TimeoutSecondsKey} to wait longer.");
-            }
-
-            await Task.Delay(pollInterval, ct);
-        }
-
+        AdvisoryLease? lease = null;
         try
         {
+            var started = System.Diagnostics.Stopwatch.StartNew();
+            while ((lease = await AdvisoryLease.TryAcquireAsync(connection, Key, ct)) is null)
+            {
+                if (started.Elapsed >= timeout)
+                {
+                    var holder = await HolderPidAsync(connection, ct);
+                    throw new TimeoutException(
+                        $"Timed out after {timeout.TotalSeconds:0}s waiting for the schema apply lock "
+                        + $"(advisory lock key {Key}), held by Postgres backend pid "
+                        + $"{(holder is { } pid ? pid.ToString() : "unknown")}. Another host is applying the schema, "
+                        + "or a connection that held it was never closed. A pooler in transaction mode can leave "
+                        + $"it held: connect directly or use session pooling. Raise {TimeoutSecondsKey} to wait longer.");
+                }
+
+                await Task.Delay(pollInterval, ct);
+            }
+
+            if (lease.PoolerSuspected && AdvisoryLease.RefuseBehindPooler(configuration))
+            {
+                throw new InvalidOperationException(AdvisoryLease.PoolerMessage(Key));
+            }
+
             await apply();
         }
         finally
         {
-            try
+            if (lease is not null)
             {
-                await using var release = connection.CreateCommand();
-                release.CommandText = "select pg_advisory_unlock(@key)";
-                release.Parameters.AddWithValue("key", Key);
-                await release.ExecuteScalarAsync(CancellationToken.None);
+                await lease.DisposeAsync();
             }
-            catch (Exception ex) when (ex is Npgsql.NpgsqlException or InvalidOperationException or ObjectDisposedException)
+            else
             {
-                // The connection is gone, which already freed the lock. Not worth replacing the
-                // apply's own result with.
+                await connection.DisposeAsync();
             }
         }
-    }
-
-    private static async Task<bool> TryAcquireAsync(Npgsql.NpgsqlConnection connection, CancellationToken ct)
-    {
-        await using var acquire = connection.CreateCommand();
-        acquire.CommandText = "select pg_try_advisory_lock(@key)";
-        acquire.Parameters.AddWithValue("key", Key);
-        return (bool?)await acquire.ExecuteScalarAsync(ct) ?? false;
     }
 
     private static async Task<int?> HolderPidAsync(Npgsql.NpgsqlConnection connection, CancellationToken ct)

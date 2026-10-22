@@ -294,7 +294,14 @@ The schema lock does not wait forever. A host that cannot get it within five min
 error naming the lock key (`8242026003`) and the Postgres pid holding it. Set
 `Schema__ApplyLockTimeoutSeconds` to change the wait. The two sweeps skip a tick when they cannot
 get their lock, and their writes check state again before they act, so a second instance taking over
-mid-sweep does not repeat a transition.
+mid-sweep does not repeat a transition. Each sweep also asks Postgres whether it still owns its
+lock before every tenant, and stops if it does not.
+
+barakoCMS detects a transaction-mode pooler by running two statements on the lock connection and
+comparing the Postgres backend pid. If they differ it logs an error naming the lock key. Nothing
+else changes by default. Set `Leadership__RefuseBehindPooler=true` to make the two sweeps skip their
+ticks and the schema lock fail startup with the same message, instead of running with a lock that
+cannot hold.
 
 See [migrations.md](migrations.md) and [deploy-on-a-managed-platform.md](deploy-on-a-managed-platform.md).
 

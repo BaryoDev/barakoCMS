@@ -114,50 +114,34 @@ public class ScheduledContentService : BackgroundService
         // password out of ConnectionString unless Persist Security Info is set, so rebuilding from it
         // fails authentication.
         using var span = Tracing.BarakoTracing.StartSweep(Tracing.BarakoTracing.ScheduledSweepSpan);
-        await using var lockConnection = _store.Storage.Database.CreateConnection();
+        var lockConnection = _store.Storage.Database.CreateConnection();
         await lockConnection.OpenAsync(ct);
-
-        await using (var acquire = lockConnection.CreateCommand())
+        await using var lease = await AdvisoryLease.TryAcquireAsync(lockConnection, SweepLockKey, ct);
+        span?.SetTag(Tracing.BarakoTracing.SweepHeldTag, lease is not null);
+        if (lease is null)
         {
-            acquire.CommandText = "select pg_try_advisory_lock(@key)";
-            acquire.Parameters.AddWithValue("key", SweepLockKey);
-            var acquired = (bool?)await acquire.ExecuteScalarAsync(ct) ?? false;
-            span?.SetTag(Tracing.BarakoTracing.SweepHeldTag, acquired);
-            if (!acquired)
+            await lockConnection.DisposeAsync();
+            _logger.LogDebug("Another instance is sweeping scheduled content; skipping this tick.");
+            return false;
+        }
+
+        if (lease.PoolerSuspected)
+        {
+            _logger.LogError("{Message}", AdvisoryLease.PoolerMessage(SweepLockKey));
+            if (AdvisoryLease.RefuseBehindPooler(_configuration))
             {
-                _logger.LogDebug("Another instance is sweeping scheduled content; skipping this tick.");
                 return false;
             }
         }
 
-        try
-        {
-            await SweepHeldAsync(nowUtc, ct);
-            return true;
-        }
-        finally
-        {
-            try
-            {
-                await using var release = lockConnection.CreateCommand();
-                release.CommandText = "select pg_advisory_unlock(@key)";
-                release.Parameters.AddWithValue("key", SweepLockKey);
-                await release.ExecuteScalarAsync(CancellationToken.None);
-            }
-            catch (Exception ex) when (ex is Npgsql.NpgsqlException or InvalidOperationException or ObjectDisposedException)
-            {
-                // The lock connection died during the sweep, so the lock was already freed and
-                // another instance may have taken over. The sweep's writes are idempotent for that
-                // case; this must not turn a finished sweep into an error.
-                _logger.LogWarning(ex, "The scheduled sweep lock connection was lost before the sweep finished");
-            }
-        }
+        await SweepHeldAsync(nowUtc, lease, ct);
+        return true;
     }
 
     /// <summary>Runs once, after a tenant's due items are loaded and before the first is written. Tests only.</summary>
     internal Func<CancellationToken, Task>? AfterLoad { get; set; }
 
-    private async Task SweepHeldAsync(DateTime nowUtc, CancellationToken ct)
+    private async Task SweepHeldAsync(DateTime nowUtc, AdvisoryLease lease, CancellationToken ct)
     {
         // null slug => the default (no-explicit-tenant) partition, where single-deployment sites like
         // baryo.dev keep their content; named slugs are the path-based tenants. In Multi the default
@@ -176,6 +160,15 @@ public class ScheduledContentService : BackgroundService
 
         foreach (var slug in partitions.Distinct())
         {
+            // Leadership can end between tenants (a dropped connection, a failover). Stop rather
+            // than carry on beside whoever took over; the next tick starts clean.
+            if (!await lease.IsHeldAsync(ct))
+            {
+                _logger.LogWarning("The scheduled sweep lost its advisory lock; stopping before tenant {Tenant}",
+                    slug ?? "(default)");
+                return;
+            }
+
             using var span = Tracing.BarakoTracing.StartTenantWork(Tracing.BarakoTracing.ScheduledTenantSpan, slug);
             await using var session = slug is null ? _store.LightweightSession() : _store.LightweightSession(slug);
             var changed = await SweepTenantAsync(
