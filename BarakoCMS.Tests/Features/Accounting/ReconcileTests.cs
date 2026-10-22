@@ -87,7 +87,7 @@ public class ReconcileTests(IntegrationTestFixture fixture)
         var never = await SubjectAsync(type, 300m, June(5), "R-3");
         var outside = await SubjectAsync(type, 400m, new DateTime(2026, 3, 5, 12, 0, 0, DateTimeKind.Utc), "R-4");
         await PostAsync(good, mapping);
-        await PostAsync(wrong, mapping, amount: 150m);
+        await PostAsync(wrong, await AmountMappingAsync(), amount: 150m);
         var client = await _callers.SuperAdminAsync(null);
 
         var response = await client.GetAsync(Url(type), Ct);
