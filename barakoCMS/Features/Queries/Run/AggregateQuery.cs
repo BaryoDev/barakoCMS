@@ -84,7 +84,24 @@ internal sealed partial class AggregateQuery(
         if (plan.Refusal is not null) return AggregateResult.Refused(plan.Refusal);
         if (!execute) return new AggregateResult([], new Dictionary<string, object?>(), null);
 
-        return await ExecuteAsync(plan, ct);
+        try
+        {
+            return await ExecuteAsync(plan, ct);
+        }
+        catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.InvalidParameterValue)
+        {
+            return AggregateResult.Refused($"The site's time zone '{plan.ZoneId}' is not one the database knows, so days cannot be told apart.");
+        }
+        catch (PostgresException e) when (e.SqlState is PostgresErrorCodes.DatetimeFieldOverflow
+                                          or PostgresErrorCodes.InvalidDatetimeFormat
+                                          or PostgresErrorCodes.NumericValueOutOfRange)
+        {
+            return AggregateResult.Refused("A stored value is outside the range the database can compute with, so this figure cannot be taken.");
+        }
+        catch (OverflowException)
+        {
+            return AggregateResult.Refused("A total is too large to report.");
+        }
     }
 
     // ---- planning ---------------------------------------------------------------------------
@@ -523,7 +540,7 @@ internal sealed partial class AggregateQuery(
 
         if (plan.RangeField is not null && (plan.RangeFrom is not null || plan.RangeTo is not null))
         {
-            var date = DateValue(plan.RangeField, "d");
+            var date = DateValue(plan.RangeField, "d", sql.Add(plan.ZoneId, NpgsqlDbType.Text));
             var conditions = new List<string>();
             if (plan.RangeFrom is { } from)
                 conditions.Add($"{date} >= {sql.Add(DateTime.SpecifyKind(from, DateTimeKind.Utc), NpgsqlDbType.TimestampTz)}");
@@ -547,7 +564,7 @@ internal sealed partial class AggregateQuery(
         if (group.Bucket is null) return Text(group.Field, "d");
 
         var format = group.Bucket switch { "day" => "YYYY-MM-DD", "month" => "YYYY-MM", _ => "YYYY" };
-        return $"to_char({DateValue(group.Field, "d")} AT TIME ZONE {sql.Add(zoneId, NpgsqlDbType.Text)}, '{format}')";
+        return $"to_char({DateValue(group.Field, "d", sql.Add(zoneId, NpgsqlDbType.Text))} AT TIME ZONE {sql.Add(zoneId, NpgsqlDbType.Text)}, '{format}')";
     }
 
     private static string MeasureExpression(MeasurePlan m, int i, Dictionary<string, string> viaAlias)
@@ -586,10 +603,28 @@ internal sealed partial class AggregateQuery(
     private static string Number(string field, string alias) =>
         Find(field, alias, "CASE WHEN jsonb_typeof(e.value) = 'number' THEN (e.value #>> '{}')::numeric END");
 
-    private static string DateValue(string field, string alias) =>
-        Find(field, alias,
-            "CASE WHEN jsonb_typeof(e.value) = 'string' AND (e.value #>> '{}') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}' "
-          + "THEN (e.value #>> '{}')::timestamptz END");
+    private const string Day = @"[1-9][0-9]{3}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])";
+    private const string Clock = @"[T ]([01][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9]([.][0-9]{1,9})?)?";
+    private const string Offset = @"(Z|[+-]([01][0-9]):?[0-5][0-9])";
+
+    /// <summary>
+    /// A stored date as an instant. A value with no zone on it is read in the site's zone, not the
+    /// session's. A value that is not a real calendar date is null, so it is left out of buckets and
+    /// ranges instead of failing the whole run.
+    /// </summary>
+    private static string DateValue(string field, string alias, string zone)
+    {
+        const string s = "(e.value #>> '{}')";
+        const string inMonth =
+            "substr(" + s + ", 9, 2)::int <= extract(day from ((substr(" + s + ", 1, 7) || '-01')::date + interval '1 month' - interval '1 day'))";
+
+        return Find(field, alias,
+            "CASE WHEN jsonb_typeof(e.value) = 'string' THEN CASE "
+          + $"WHEN {s} ~ '^{Day}$' THEN CASE WHEN {inMonth} THEN ({s}::date)::timestamp AT TIME ZONE {zone} END "
+          + $"WHEN {s} ~ '^{Day}{Clock}$' THEN CASE WHEN {inMonth} THEN {s}::timestamp AT TIME ZONE {zone} END "
+          + $"WHEN {s} ~ '^{Day}{Clock}{Offset}$' THEN CASE WHEN {inMonth} THEN {s}::timestamptz END "
+          + "END END");
+    }
 
     /// <summary>The ids a reference field holds, lower case, whether it holds one or a list.</summary>
     private static string References(string field) =>
@@ -599,38 +634,37 @@ internal sealed partial class AggregateQuery(
           + "WHEN 'string' THEN ARRAY[lower(e.value #>> '{}')] END");
 
     /// <summary>
-    /// One command made of Marten's own commands and the parameters added here, with every parameter
-    /// numbered or named so none can collide.
+    /// One command made of Marten's own commands and the parameters added here. Every parameter ends
+    /// up named, so a numbered parameter of one part and a named one of another cannot mix.
     /// </summary>
     private sealed class SqlBuilder
     {
         public NpgsqlCommand Command { get; } = new();
-        private bool? _positional;
 
         public string Add(object value, NpgsqlDbType type)
         {
-            var positional = _positional ?? false;
-            var parameter = positional
-                ? new NpgsqlParameter { NpgsqlDbType = type, Value = value }
-                : new NpgsqlParameter($"agg{Command.Parameters.Count}", type) { Value = value };
+            var parameter = new NpgsqlParameter($"agg{Command.Parameters.Count}", type) { Value = value };
             Command.Parameters.Add(parameter);
 
-            var placeholder = positional ? $"${Command.Parameters.Count}" : $"@{parameter.ParameterName}";
+            var placeholder = "@" + parameter.ParameterName;
             return type == NpgsqlDbType.Text ? $"{placeholder}::text" : placeholder;
         }
 
         public string Embed(NpgsqlCommand part, string prefix)
         {
             var text = part.CommandText;
-            var positional = PositionalParameter().IsMatch(text);
-            _positional ??= positional;
 
-            if (positional)
+            if (PositionalParameter().IsMatch(text))
             {
-                var offset = Command.Parameters.Count;
-                text = PositionalParameter().Replace(text, m => "$" + (int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture) + offset));
+                text = PositionalParameter().Replace(text, m => $"@{prefix}_p{m.Groups[1].Value}");
+                var position = 0;
                 foreach (NpgsqlParameter p in part.Parameters)
-                    Command.Parameters.Add((NpgsqlParameter)p.Clone());
+                {
+                    var copy = (NpgsqlParameter)p.Clone();
+                    copy.ParameterName = $"{prefix}_p{++position}";
+                    Command.Parameters.Add(copy);
+                }
+
                 return text;
             }
 
