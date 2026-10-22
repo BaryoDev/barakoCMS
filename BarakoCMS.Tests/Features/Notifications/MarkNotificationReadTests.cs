@@ -23,9 +23,13 @@ public class MarkNotificationReadTests
         var client = _callers.ClientFor(ana);
 
         var first = await client.PostAsync($"/api/notifications/{id}/read", null, Ct);
-        var readAt = (await ListAsync(client)).GetProperty("items")[0].GetProperty("readAt").GetDateTimeOffset();
+        var firstItems = (await ListAsync(client)).GetProperty("items");
+        firstItems.GetArrayLength().Should().Be(1);
+        var readAt = firstItems[0].GetProperty("readAt").GetDateTimeOffset();
         var again = await client.PostAsync($"/api/notifications/{id}/read", null, Ct);
-        var readAtAgain = (await ListAsync(client)).GetProperty("items")[0].GetProperty("readAt").GetDateTimeOffset();
+        var againItems = (await ListAsync(client)).GetProperty("items");
+        againItems.GetArrayLength().Should().Be(1);
+        var readAtAgain = againItems[0].GetProperty("readAt").GetDateTimeOffset();
 
         first.StatusCode.Should().Be(HttpStatusCode.NoContent);
         again.StatusCode.Should().Be(HttpStatusCode.NoContent, "marking read twice is not an error");
@@ -43,7 +47,9 @@ public class MarkNotificationReadTests
         var response = await _callers.ClientFor(ben).PostAsync($"/api/notifications/{id}/read", null, Ct);
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound, "someone else's notification is not found, not forbidden");
-        var item = (await ListAsync(_callers.ClientFor(ana))).GetProperty("items")[0];
+        var items = (await ListAsync(_callers.ClientFor(ana))).GetProperty("items");
+        items.GetArrayLength().Should().Be(1);
+        var item = items[0];
         item.GetProperty("readAt").ValueKind.Should().Be(JsonValueKind.Null);
     }
 

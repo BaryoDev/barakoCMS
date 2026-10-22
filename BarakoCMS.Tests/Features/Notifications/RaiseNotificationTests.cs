@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
 using BarakoCMS.Notifications;
+using System.Text.Json;
+using barakoCMS.Infrastructure.Multitenancy;
 using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
@@ -47,6 +49,7 @@ public class RaiseNotificationTests
         stored.ReadAt.Should().BeNull("a new notification is unread");
         stored.CreatedAt.Should().BeCloseTo(DateTimeOffset.UtcNow, TimeSpan.FromMinutes(1));
         stored.Payload.Should().ContainKey("entryId");
+        stored.Payload!["entryId"].ToString().Should().Be("JE-1");
     }
 
     [Fact]
@@ -146,6 +149,123 @@ public class RaiseNotificationTests
             new { recipientUserId = Guid.Empty, type = "task.due", title = "Due" }, Ct);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task A_recipient_with_no_membership_in_the_current_tenant_is_refused_and_nothing_is_stored_or_emailed()
+    {
+        var home = await _callers.TenantAsync();
+        var elsewhere = await _callers.TenantAsync();
+        var outsider = await _callers.UserAsync(null, elsewhere);
+        var host = _factory.WithSettings(new Dictionary<string, string?> { ["Modules:Notifications:EmailDelivery:Enabled"] = "true" });
+
+        using (var scope = host.Services.CreateScope())
+        {
+            scope.ServiceProvider.GetRequiredService<TenantContext>().Slug = home;
+            var raise = () => scope.ServiceProvider.GetRequiredService<INotificationService>()
+                .RaiseAsync(new RaiseNotification(outsider, "phish.me", "Click here"), Ct);
+            await raise.Should().ThrowAsync<RecipientNotInTenantException>();
+        }
+
+        await using var read = _factory.Services.GetRequiredService<IDocumentStore>().QuerySession();
+        (await read.Query<Notification>().Where(n => n.AnyTenant() && n.RecipientUserId == outsider).ToListAsync(Ct))
+            .Should().BeEmpty();
+        host.Services.GetRequiredService<RecordingEmailService>().Messages
+            .Should().NotContain(m => m.To == $"ntf-{outsider:n}@example.com");
+    }
+
+    [Fact]
+    public async Task Raising_over_http_for_a_user_of_another_tenant_is_not_found()
+    {
+        var home = await _callers.TenantAsync();
+        var elsewhere = await _callers.TenantAsync();
+        var outsider = await _callers.UserAsync(null, elsewhere);
+        var admin = await _callers.SuperAdminAsync(home);
+
+        var response = await admin.PostAsJsonAsync("/api/notifications",
+            new { recipientUserId = outsider, type = "task.due", title = "Due" }, Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task A_payload_over_8_KB_is_refused_over_http_and_through_the_service()
+    {
+        var recipient = await _callers.UserAsync();
+        var big = new Dictionary<string, object> { ["blob"] = new string('x', 9000) };
+        var admin = await _callers.SuperAdminAsync();
+
+        var response = await admin.PostAsJsonAsync("/api/notifications",
+            new { recipientUserId = recipient, type = "task.due", title = "Due", payload = big }, Ct);
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        using var scope = _factory.Services.CreateScope();
+        var raise = () => scope.ServiceProvider.GetRequiredService<INotificationService>()
+            .RaiseAsync(new RaiseNotification(recipient, "task.due", "Due") { Payload = big }, Ct);
+        await raise.Should().ThrowAsync<ArgumentException>();
+    }
+
+    [Theory]
+    [InlineData("task.due\r\nBcc: x@example.com", "Due")]
+    [InlineData("task.due", "Due\nBcc: x@example.com")]
+    [InlineData("task\tdue", "Due")]
+    [InlineData("task.due", "Du\u0000e")]
+    public async Task A_type_or_title_with_a_control_character_is_refused_over_http_and_through_the_service(string type, string title)
+    {
+        var recipient = await _callers.UserAsync();
+        var admin = await _callers.SuperAdminAsync();
+
+        var response = await admin.PostAsJsonAsync("/api/notifications", new { recipientUserId = recipient, type, title }, Ct);
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        using var scope = _factory.Services.CreateScope();
+        var raise = () => scope.ServiceProvider.GetRequiredService<INotificationService>()
+            .RaiseAsync(new RaiseNotification(recipient, type, title), Ct);
+        await raise.Should().ThrowAsync<ArgumentException>();
+    }
+
+    [Fact]
+    public async Task A_payload_with_a_number_and_a_nested_object_survives_a_raise_then_list_round_trip()
+    {
+        var recipient = await _callers.UserAsync();
+        var admin = await _callers.SuperAdminAsync();
+        var payload = new Dictionary<string, object>
+        {
+            ["amount"] = 125.5,
+            ["entry"] = new Dictionary<string, object> { ["number"] = "JE-7", ["lines"] = 3 },
+        };
+
+        var created = await admin.PostAsJsonAsync("/api/notifications",
+            new { recipientUserId = recipient, type = "entry.posted", title = "Posted", payload }, Ct);
+        created.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var items = (await NotificationCallers.ListAsync(_callers.ClientFor(recipient))).GetProperty("items");
+        items.GetArrayLength().Should().Be(1);
+        var back = items[0].GetProperty("payload");
+        back.GetProperty("amount").GetDouble().Should().Be(125.5);
+        back.GetProperty("entry").GetProperty("number").GetString().Should().Be("JE-7");
+        back.GetProperty("entry").GetProperty("lines").GetInt32().Should().Be(3);
+    }
+
+    [Fact]
+    public async Task A_sink_that_never_returns_is_cut_off_and_the_raise_completes()
+    {
+        var host = _factory.WithSettings(new Dictionary<string, string?> { ["Modules:Notifications:SinkTimeoutSeconds"] = "1" })
+            .WithWebHostBuilder(b => b.ConfigureServices(s => s.AddSingleton<INotificationSink>(new HangingSink())));
+        var recipient = await _callers.UserAsync();
+
+        using var scope = host.Services.CreateScope();
+        var raise = scope.ServiceProvider.GetRequiredService<INotificationService>()
+            .RaiseAsync(new RaiseNotification(recipient, "ticket.assigned", "Ticket 12 is yours"), Ct);
+        var id = await raise.WaitAsync(TimeSpan.FromSeconds(30), Ct);
+
+        await using var read = host.Services.GetRequiredService<IDocumentStore>().QuerySession();
+        (await read.LoadAsync<Notification>(id, Ct)).Should().NotBeNull();
+    }
+
+    private sealed class HangingSink : INotificationSink
+    {
+        public Task DeliverAsync(Notification notification, CancellationToken ct) => Task.Delay(Timeout.Infinite, ct);
     }
 
     private sealed class RecordingSink : INotificationSink
