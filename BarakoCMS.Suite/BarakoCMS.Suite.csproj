@@ -31,6 +31,7 @@
     <ProjectReference Include="..\BarakoCMS.Qr\BarakoCMS.Qr.csproj" />
     <ProjectReference Include="..\BarakoCMS.Reports\BarakoCMS.Reports.csproj" />
     <ProjectReference Include="..\BarakoCMS.Payments\BarakoCMS.Payments.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Comments\BarakoCMS.Comments.csproj" />
     <ProjectReference Include="..\BarakoCMS.Notifications\BarakoCMS.Notifications.csproj" />
     <ProjectReference Include="..\BarakoCMS.Secrets.Aws\BarakoCMS.Secrets.Aws.csproj" />
     <ProjectReference Include="..\BarakoCMS.Secrets.Gcp\BarakoCMS.Secrets.Gcp.csproj" />

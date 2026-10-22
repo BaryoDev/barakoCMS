@@ -47,11 +47,12 @@
     <ProjectReference Include="..\BarakoCMS.Forms\BarakoCMS.Forms.csproj" />
     <ProjectReference Include="..\BarakoCMS.Reports\BarakoCMS.Reports.csproj" />
     <ProjectReference Include="..\BarakoCMS.Payments\BarakoCMS.Payments.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Comments\BarakoCMS.Comments.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Notifications\BarakoCMS.Notifications.csproj" />
     <ProjectReference Include="..\BarakoCMS.Secrets.Aws\BarakoCMS.Secrets.Aws.csproj" />
     <ProjectReference Include="..\BarakoCMS.Secrets.Gcp\BarakoCMS.Secrets.Gcp.csproj" />
     <ProjectReference Include="..\BarakoCMS.FeatureFlags\BarakoCMS.FeatureFlags.csproj" />
     <ProjectReference Include="..\BarakoCMS.Scheduling\BarakoCMS.Scheduling.csproj" />
-    <ProjectReference Include="..\BarakoCMS.Notifications\BarakoCMS.Notifications.csproj" />
     <!-- The SMTP module registers a provider only when a host is configured, and it is the
          only place a mail password is held. Both are claims a test has to be able to reach. -->
     <ProjectReference Include="..\BarakoCMS.Email.Smtp\BarakoCMS.Email.Smtp.csproj" />

@@ -57,7 +57,7 @@ internal sealed class TypeDescriptionEndpoint(IQuerySession session) : EndpointW
         AllowAnonymous();
         Options(x => x
             .RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy)
-            .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators));
+            .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators, barakoCMS.Infrastructure.Caching.DeliveryResponseCachePolicy.Instance));
         Description(b => b
             .Produces<PublicTypeDescription>(200)
             .Produces(404));
