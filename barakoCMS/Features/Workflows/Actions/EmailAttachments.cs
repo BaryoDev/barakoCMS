@@ -180,7 +180,7 @@ internal static class EmailAttachments
     /// The placeholders in the parameter that read an earlier step's output, and the rest of it for
     /// the entry's own rules. A parameter with none comes back whole.
     /// </summary>
-    private static (List<(int Ordinal, string Name)> References, string? Rest) SplitRunReferences(string named)
+    private static (List<(int Ordinal, string Name)> References, string? Remainder) SplitRunReferences(string named)
     {
         var references = new List<(int Ordinal, string Name)>();
         var rest = new List<string>();
