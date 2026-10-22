@@ -166,7 +166,7 @@ public class SuiteCompositionTests
     /// The core and the Suite do not depend on Resend, a paid outside service (#1216). Hosts that
     /// still use it add the module from the private feed. The English verb in "Resend with force set
     /// to true" is allowed; a provider name in a type, a config key, an environment variable, a
-    /// reference, a comment or a document is not.
+    /// reference, a comment or a document is not. The one exception is the startup warning for a host that still sets the old key.
     /// </summary>
     [Fact]
     public void The_core_and_the_suite_name_no_Resend_provider()
@@ -184,6 +184,7 @@ public class SuiteCompositionTests
             .SelectMany(d => Directory.EnumerateFiles(Path.Combine(root!.FullName, d), "*", SearchOption.AllDirectories))
             .Where(f => extensions.Contains(Path.GetExtension(f)))
             .Where(f => !f.Contains($"{sep}bin{sep}") && !f.Contains($"{sep}obj{sep}"))
+            .Where(f => !f.EndsWith("LegacyEmailKeyCheck.cs"))
             .ToList();
         files.Should().NotBeEmpty("an empty scan proves nothing");
         files.Should().Contain(f => f.EndsWith("EmailSettingsProvider.cs"), "the scan reaches the email settings provider");

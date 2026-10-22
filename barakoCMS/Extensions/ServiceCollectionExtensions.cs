@@ -103,6 +103,8 @@ public static class ServiceCollectionExtensions
 
         AddHealthChecksDashboard(services, configuration);
 
+        LegacyEmailKeyCheck.WarnIfIgnored(services, configuration);
+
         return services;
     }
 

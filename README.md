@@ -231,7 +231,7 @@ BarakoCMS is headless, so you build the frontend. These BaryoDev packages help:
               FeatureFlags                  Import                    Analytics.Umami
               Portability                   Email.Smtp                Pwa
               Pages
-              ExternalAuth                  Email.Smtp                Diagnostics
+              ExternalAuth                                            Diagnostics
               Forms                         DeviceTrust
                     |                         |                         |
                     +-------------------------+-------------------------+

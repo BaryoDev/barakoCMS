@@ -220,8 +220,10 @@ reason on the run.
 The Resend module is no longer built from this repository, and the core no longer reads `Resend:ApiKey`, `Resend:From` or `RESEND_API_KEY`. A host that set any of them has to do one of these:
 
 - Rename them to `Email:ApiKey`, `Email:From` or `EMAIL_API_KEY`.
-- Install the private Resend module from the BarakoCMS.Pro feed, which reads its own keys.
+- Install the private Resend module from the BarakoCMS.Pro feed and set `Email:ApiKey` (or the key in the admin email settings) for it. It takes its key from the core settings and does not read `Resend:*`.
 - Switch to `BarakoCMS.Email.Smtp` and set `Modules:Email.Smtp:Host`.
+
+A host that still sets `Resend:ApiKey` or `RESEND_API_KEY` and has no provider registered logs a warning at startup, since email then goes to the mock service. The settings test send no longer returns 400 for a missing API key.
 
 ## Auditing
 
