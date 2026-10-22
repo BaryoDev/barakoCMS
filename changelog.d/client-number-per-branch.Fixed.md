@@ -1,1 +1,0 @@
-- **Two branches can each issue their own client-allocated number.** The "That number is already issued." check looked at every entry of the type, so a second branch with its own `{branch}` series was refused P-0001 once the first had taken it. For a series with `{branch}` the check now looks at the entries of the request branch only.

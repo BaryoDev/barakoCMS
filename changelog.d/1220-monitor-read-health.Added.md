@@ -1,1 +1,0 @@
-- **API keys can read per-check health.** `monitor:read` now also reaches `GET /api/monitoring/health`. A key sees each check's name, status and duration, without description, data or tags. The owner still needs the ViewMonitoring capability, and every other monitoring route stays closed to keys.

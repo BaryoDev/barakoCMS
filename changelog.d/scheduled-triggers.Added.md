@@ -1,1 +1,0 @@
-- **Scheduled triggers.** A workflow can fire relative to a date field, for example 24 hours before an appointment.

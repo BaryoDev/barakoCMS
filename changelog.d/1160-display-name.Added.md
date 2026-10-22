@@ -1,1 +1,0 @@
-- **A user has a display name.** `GET /api/me` returns `displayName`, which is the username until one is set. `PUT /api/me/profile` with `{ "displayName": "..." }` sets it (up to 100 characters, no control characters); null or blank clears it. `User.DisplayName` is a new optional property.

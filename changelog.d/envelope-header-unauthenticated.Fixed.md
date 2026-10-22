@@ -1,3 +1,0 @@
-- **A signed-out request with `X-Branch-Id` was refused with 403.** It is now served, and no branch is stamped on it. No branch is stamped on it.
-- Scheduled workflow runs get an id made from their trigger key, so two sweeps that see one value at once queue one run.
-- `ContentCreator` takes its rule engine as the last, optional argument again, so code that builds it directly with the earlier arguments keeps compiling.

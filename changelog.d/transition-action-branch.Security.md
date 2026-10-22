@@ -1,1 +1,0 @@
-- **The Transition action could move entries of another branch.** It now moves only entries of the trigger entry's own branch. A trigger entry with no branch no longer moves entries that have one.

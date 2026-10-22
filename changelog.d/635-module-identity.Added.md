@@ -1,1 +1,0 @@
-- **A module can say who it is.** `IBarakoModule` gains default members `PackageId`, `PackageVersion`, `Category` (one of Content, Comms, Access, Platform, Insight, Business), `Description` and `Glyph`, all null unless declared, and `GET /api/modules` returns them as optional fields. Every first-party module declares them. Existing modules compile unchanged.

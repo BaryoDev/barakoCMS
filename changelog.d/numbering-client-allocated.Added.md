@@ -1,1 +1,0 @@
-- **A create keeps a number the client took from a ClientAllocated series.** The number must fit the series and not be held by another entry of the type. It is recorded in the external number ledger, so the gaps report counts it. Without the flag the server still replaces any number the client sends.

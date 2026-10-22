@@ -1,1 +1,0 @@
-- **A signed link service.** `ISignedLinkService` issues links that name a subject and expire, signed per purpose with a key derived from the signing secret, so a link for one purpose fails for another. A link can be single use or revoked. Preview tokens are now the `preview` purpose; the older JWT preview token still validates until it expires.

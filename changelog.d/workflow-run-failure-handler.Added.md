@@ -1,1 +1,0 @@
-- **Run failure handler.** A module can implement `IWorkflowRunFailureHandler` to act on a failed or partly failed run. It gets the run and the workflow's `notifyRoleOnFailure` role.

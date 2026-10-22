@@ -83,6 +83,7 @@ public class ShippedMigrationTests
         ["core/5.1.0/workflow-run-updated-at-index"] = "096c752f26b5372a0fc3b8858620742a80482d241f0242a0a5e1090f9c6dab0a",
         ["core/5.1.0/workflow-run-workflow-index"] = "588062405fa26596a8472b717f804c18d29e6495c2a7d570b9533a825f2e7024",
         ["core/5.1.0/event-headers"] = "68c7dc43fcbeb9a2c3c02612cf1996a75be8bf0f0a80bd6537d03c9f98c3c05a",
+        ["core/5.2.0/898-accounts"] = "78b8366a747bbaf8a33128d7a242366886211395d48c4d7c56b88816db6cf42e",
         ["core/5.2.0/580-stock-reservations"] = "9ef9947628be0b15a2d13b58778a42ffb4d400daa2709dd3faede73960eda970",
         ["core/5.2.0/910-inbound-webhook-events"] = "96514e93595f69e06588ee266cb1d0376be8661898910a4bc27aef855225f710",
         ["core/5.2.0/action-link-uses"] = "5cb1eeda12dcc8fc801327f845e531c4c62285eae3ef3dcd6e50f89956341c5d",
