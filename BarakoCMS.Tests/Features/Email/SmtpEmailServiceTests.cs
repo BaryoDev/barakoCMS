@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests.Features.Email;
 public class SmtpEmailServiceTests
 {
     private const string Password = "hunter2-the-relay-password";
-    private const string ApiKey = "re_a_resend_key_that_has_nothing_to_do_with_smtp";
+    private const string ApiKey = "an_api_key_that_has_nothing_to_do_with_smtp";
 
     private sealed class Snapshot(SmtpOptions options) : IOptionsSnapshot<SmtpOptions>
     {
@@ -205,14 +205,14 @@ public class SmtpEmailServiceTests
 
     /// <summary>
     /// And a from address that only the deployment configured does not, because that one arrives
-    /// from <c>Resend:From</c> and this is not Resend.
+    /// from <c>Email:From</c> and this is not that provider.
     /// </summary>
     [Fact]
     public async Task A_configured_from_address_from_another_provider_does_not_win()
     {
         using var relay = new FakeSmtpServer();
 
-        await Service(Options(relay.Port), new Settings("resend-from@example.com", EmailSettingSource.Configuration))
+        await Service(Options(relay.Port), new Settings("configured-from@example.com", EmailSettingSource.Configuration))
             .SendEmailAsync("someone@example.com", "s", "<p>b</p>", TestContext.Current.CancellationToken);
 
         var messages = relay.Messages;

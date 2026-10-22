@@ -51,10 +51,6 @@ ICONS["BarakoCMS.DeviceTrust"] = ("BarakoCMS.DeviceTrust", "#D32F2F", f'''  <pat
 ICONS["BarakoCMS.Diagnostics"] = ("BarakoCMS.Diagnostics", "#455A64", f'''  <rect x="26" y="40" width="76" height="48" rx="12" fill="{WHITE}"/>
   <path d="M36 64 H50 L57 48 L71 80 L78 64 H92" fill="none" stroke="{GOLD}" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>''')
 
-# Email.Resend: envelope, white body + gold flap.
-ICONS["BarakoCMS.Email.Resend"] = ("BarakoCMS.Email.Resend", "#1976D2", f'''  <rect x="30" y="42" width="68" height="44" rx="10" fill="{WHITE}"/>
-  <path d="M34 48 L64 70 L94 48" fill="none" stroke="{GOLD}" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>''')
-
 # Email.Smtp: envelope in flight, white body + gold speed lines.
 ICONS["BarakoCMS.Email.Smtp"] = ("BarakoCMS.Email.Smtp", "#00796B", f'''  <rect x="44" y="42" width="60" height="44" rx="10" fill="{WHITE}"/>
   <path d="M48 48 L74 68 L100 48" fill="none" stroke="{GOLD}" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
