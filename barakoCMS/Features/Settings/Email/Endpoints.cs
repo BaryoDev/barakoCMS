@@ -186,7 +186,6 @@ internal sealed class SendTestEmailResponse
 /// </remarks>
 internal sealed class SendTestEmailEndpoint(
     IEmailService email,
-    IEmailSettingsProvider provider,
     IQuerySession session,
     IConfiguration config,
     ILogger<SendTestEmailEndpoint> logger) : EndpointWithoutRequest<SendTestEmailResponse>
@@ -205,14 +204,7 @@ internal sealed class SendTestEmailEndpoint(
         {
             ThrowError(
                 "No email provider is registered, so nothing would be delivered. Add a provider module, "
-              + "BarakoCMS.Email.Smtp or BarakoCMS.Email.Resend, and restart.", 400);
-            return;
-        }
-
-        var resolved = await provider.GetAsync(ct);
-        if (string.IsNullOrEmpty(resolved.ApiKey))
-        {
-            ThrowError("No API key is set, in the admin or in configuration.", 400);
+              + "BarakoCMS.Email.Smtp, and restart.", 400);
             return;
         }
 

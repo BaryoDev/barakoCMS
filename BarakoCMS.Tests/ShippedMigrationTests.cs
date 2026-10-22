@@ -18,7 +18,6 @@ public class ShippedMigrationTests
     [
         "4.2.0/stored-files-parent-index",
         "4.2.0/forms-public-forms",
-        "4.5.0/email-sent-emails",
         "4.6.0/external-auth-identities",
         "4.6.0/forms-email-verification",
         "4.7.0/forms-tenant-policy-restore",
@@ -46,7 +45,6 @@ public class ShippedMigrationTests
         ["core/4.3.0/collection-syncs"] = "5e6bfbb5045bb318be0febd8722406d5b6aaf2f81319fbd4eabcdf19e0cdab95",
         ["core/4.3.0/marten-9-37-event-store-columns"] = "5d6df1963b0b8a32852f05dc53c9c3efdf6b992bb378fbb35403be51b66a9f24",
         ["core/4.4.0/marten-9-38-quick-append-events"] = "4ad71cedf652c705f6603a0f7de7fb6a7b4d8660b6e55a50d3b5c8156f20dae9",
-        ["Email.Resend/4.5.0/email-sent-emails"] = "c0e606da0fefdde0bc1b9bd644e8e63fb55deba306b547399063946762cdf996",
         ["core/4.5.0/refresh-token-hash-index"] = "3ee5a9d53d0cdc0a85907dcb10a546a467deb3718f48376d07f5aa7040b40c3e",
         ["core/4.6.0/event-correlation-metadata"] = "0a14352be55a4384536624ffcf789daa8044096ffd5de88193b0f884a4e3530e",
         ["core/4.6.0/sensitivity-by-capability"] = "6d3a18f101477fcd92164695340f1e3f243ab6e00a0a8afbd2aa6b275af7b068",
@@ -75,7 +73,6 @@ public class ShippedMigrationTests
         [
             new BarakoCMS.Forms.FormsModule(),
             new BarakoCMS.Files.FilesModule(),
-            new BarakoCMS.Email.Resend.ResendEmailModule(),
             new BarakoCMS.ExternalAuth.ExternalAuthModule(),
             new BarakoCMS.Accounting.AccountingModule(),
             new BarakoCMS.Pages.PagesModule(),
@@ -124,7 +121,6 @@ public class ShippedMigrationTests
         [
             new BarakoCMS.Forms.FormsModule(),
             new BarakoCMS.Files.FilesModule(),
-            new BarakoCMS.Email.Resend.ResendEmailModule(),
             new BarakoCMS.ExternalAuth.ExternalAuthModule(),
             new BarakoCMS.Accounting.AccountingModule(),
             new BarakoCMS.Pages.PagesModule(),
@@ -136,7 +132,6 @@ public class ShippedMigrationTests
         var owned = all.Where(m => m.Owner != ShippedMigrations.CoreOwner).Select(m => m.Key).ToList();
         owned.Should().Equal(
             "Accounting/5.0.0/accounting-number-sequences",
-            "Email.Resend/4.5.0/email-sent-emails",
             "ExternalAuth/4.6.0/external-auth-identities",
             "ExternalAuth/4.8.0/external-auth-used-nonces",
             "ExternalAuth/5.1.0/915-external-auth-role-maps",
@@ -147,7 +142,7 @@ public class ShippedMigrationTests
             "Forms/4.7.0/forms-tenant-policy-restore",
             "Pages/5.0.0/pages-settings");
         coreOnly.Count.Should().BeGreaterThanOrEqualTo(7, "seven core files were released before the ledger");
-        coreOnly.Should().HaveCount(all.Count - 11, "a module that is not enabled contributes nothing");
+        coreOnly.Should().HaveCount(all.Count - 10, "a module that is not enabled contributes nothing");
         coreOnly.Should().OnlyContain(m => m.Owner == ShippedMigrations.CoreOwner);
         coreOnly.Select(m => m.Id).Should().NotIntersectWith(ModuleOwned, "core must not also ship a module's file");
     }
@@ -182,11 +177,11 @@ public class ShippedMigrationTests
     public void Every_file_released_before_the_ledger_says_when_to_skip_it()
     {
         var preLedger = ShippedMigrations
-            .Discover([new BarakoCMS.Forms.FormsModule(), new BarakoCMS.Files.FilesModule(), new BarakoCMS.Email.Resend.ResendEmailModule()])
+            .Discover([new BarakoCMS.Forms.FormsModule(), new BarakoCMS.Files.FilesModule()])
             .Where(m => Version.Parse(m.Version) < new Version(4, 6, 0))
             .ToList();
 
-        preLedger.Should().HaveCount(10);
+        preLedger.Should().HaveCount(9);
         preLedger.Should().OnlyContain(m => m.SkipWhen != null);
         preLedger.Where(m => !m.Transactional).Select(m => m.Key).Should().Equal(
             new[] { "Files/4.2.0/stored-files-parent-index" },

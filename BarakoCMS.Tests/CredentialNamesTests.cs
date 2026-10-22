@@ -51,7 +51,7 @@ public class CredentialNamesTests
     [InlineData("Smtp:Passwd")]
     [InlineData("Db:Pwd")]
     [InlineData("Jwt:private_key")]
-    [InlineData("Resend:ApiKey")]
+    [InlineData("Email:ApiKey")]
     [InlineData("ClientSecret")]
     [InlineData("AccessToken")]
     [InlineData("Credential")]

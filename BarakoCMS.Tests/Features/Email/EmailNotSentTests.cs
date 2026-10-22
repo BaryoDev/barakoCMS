@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
 using barakoCMS.Core.Interfaces;
-using BarakoCMS.Email.Resend;
 using BarakoCMS.Email.Smtp;
 using MailKit.Net.Smtp;
 using FluentAssertions;
@@ -18,7 +17,6 @@ namespace BarakoCMS.Tests.Features.Email;
 public class EmailNotSentTests
 {
     private const string Password = "hunter2-the-relay-password";
-    private const string ApiKey = "re_test_ThisIsNotARealResendKey_0123456789";
 
     [Fact]
     public async Task An_smtp_relay_that_refuses_the_connection_is_not_sent()
@@ -133,82 +131,6 @@ public class EmailNotSentTests
         relay.Messages.Should().ContainSingle();
     }
 
-    [Fact]
-    public async Task A_resend_connection_that_was_never_made_is_not_sent()
-    {
-        var handler = new StepHandler((_, _) =>
-            throw new HttpRequestException(HttpRequestError.ConnectionError, "Connection refused (api.resend.com:443)"));
-
-        var send = () => Resend(handler).SendEmailAsync("someone@example.com", "s", "<p>b</p>", Ct);
-
-        var failure = (await send.Should().ThrowAsync<EmailNotSentException>()).Which;
-        failure.Message.Should().Contain("ConnectionError");
-        failure.ToString().Should().NotContain(ApiKey);
-    }
-
-    [Theory]
-    [InlineData(HttpStatusCode.TooManyRequests)]
-    [InlineData(HttpStatusCode.ServiceUnavailable)]
-    public async Task A_resend_refusal_before_acceptance_is_not_sent(HttpStatusCode status)
-    {
-        var handler = new StepHandler((_, _) => Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent("slow down") }));
-
-        var send = () => Resend(handler).SendEmailAsync("someone@example.com", "s", "<p>b</p>", Ct);
-
-        var failure = (await send.Should().ThrowAsync<EmailNotSentException>()).Which;
-        failure.Message.Should().Contain(((int)status).ToString());
-    }
-
-    [Fact]
-    public async Task A_resend_500_is_not_reported_as_not_sent()
-    {
-        var handler = new StepHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError) { Content = new StringContent("oops") }));
-
-        var send = () => Resend(handler).SendEmailAsync("someone@example.com", "s", "<p>b</p>", Ct);
-
-        var failure = (await send.Should().ThrowAsync<InvalidOperationException>()).Which;
-        failure.Should().NotBeOfType<EmailNotSentException>("a 500 can come after Resend queued the message");
-    }
-
-    [Fact]
-    public async Task A_resend_connection_that_ended_after_the_request_is_not_reported_as_not_sent()
-    {
-        var handler = new StepHandler((_, _) =>
-            throw new HttpRequestException(HttpRequestError.ResponseEnded, "The response ended prematurely."));
-
-        var send = () => Resend(handler).SendEmailAsync("someone@example.com", "s", "<p>b</p>", Ct);
-
-        var failure = (await send.Should().ThrowAsync<HttpRequestException>()).Which;
-        failure.HttpRequestError.Should().Be(HttpRequestError.ResponseEnded);
-    }
-
-    [Fact]
-    public async Task A_resend_send_accepted_and_then_timed_out_does_not_say_not_sent()
-    {
-        var handler = new StepHandler(async (_, token) =>
-        {
-            await Task.Delay(TimeSpan.FromSeconds(30), token);
-            return new HttpResponseMessage(HttpStatusCode.OK);
-        });
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(Ct);
-        timeout.CancelAfter(TimeSpan.FromMilliseconds(200));
-
-        var send = () => Resend(handler).SendEmailAsync("someone@example.com", "s", "<p>b</p>", timeout.Token);
-
-        await send.Should().ThrowAsync<OperationCanceledException>();
-        handler.Calls.Should().Be(1, "the request went out, which is what makes this unknown rather than not sent");
-    }
-
-    [Fact]
-    public void The_resend_bound_on_a_not_sent_send_is_the_client_timeout()
-    {
-        var handler = new StepHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)));
-
-        ((IEmailService)Resend(handler)).MaxNotSentDuration.Should().Be(TimeSpan.FromSeconds(100));
-        new ResendEmailService(new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan }, new Settings(ApiKey))
-            .MaxNotSentDuration.Should().BeNull();
-    }
-
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private static int ClosedPort()
@@ -238,9 +160,6 @@ public class EmailNotSentTests
             throw new IOException("The connection was reset while closing.");
     }
 
-    private static ResendEmailService Resend(HttpMessageHandler handler) =>
-        new(new HttpClient(handler), new Settings(ApiKey));
-
     private sealed class Snapshot(SmtpOptions options) : IOptionsSnapshot<SmtpOptions>
     {
         public SmtpOptions Value => options;
@@ -255,18 +174,5 @@ public class EmailNotSentTests
                 null,
                 apiKey is null ? EmailSettingSource.None : EmailSettingSource.Configuration,
                 EmailSettingSource.None));
-    }
-
-    private sealed class StepHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> step) : HttpMessageHandler
-    {
-        private int _calls;
-
-        public int Calls => _calls;
-
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
-        {
-            Interlocked.Increment(ref _calls);
-            return step(request, ct);
-        }
     }
 }
