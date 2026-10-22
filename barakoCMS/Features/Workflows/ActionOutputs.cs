@@ -109,14 +109,14 @@ internal static partial class ActionOutputs
     /// carries a fresh random part, so an entry cannot write one either.
     /// </remarks>
     internal static (Dictionary<string, string> Masked, OutputSlots Slots) Mask(
-        string actionType, IReadOnlyDictionary<string, string> parameters)
+        string actionType, IReadOnlyDictionary<string, string> parameters, IWorkflowPluginRegistry? registry = null)
     {
         var slots = new OutputSlots(Guid.NewGuid().ToString("N"));
         var masked = new Dictionary<string, string>(parameters.Count);
 
         foreach (var (key, value) in parameters)
         {
-            masked[key] = string.IsNullOrEmpty(value) || ActionParameters.IsResolvedByTheAction(actionType, key)
+            masked[key] = string.IsNullOrEmpty(value) || ActionParameters.IsResolvedByTheAction(actionType, key, registry)
                 ? value
                 : Reference().Replace(value, match => slots.Add(
                     key,

@@ -119,6 +119,7 @@ internal class ConditionalAction : IWorkflowAction
         // actions do. A host that registers none still gets the built-in rules.
         var extractor = _serviceProvider.GetService<ITemplateVariableExtractor>();
         var protector = _serviceProvider.GetService<ISecretProtector>();
+        var registry = _serviceProvider.GetService<IWorkflowPluginRegistry>();
 
         var succeededCount = 0;
         var failedTypes = new List<string>();
@@ -169,8 +170,8 @@ internal class ConditionalAction : IWorkflowAction
             {
                 childResult = await plugin.RunAsync(
                     ActionParameters.WithTriggerOf(parameters, extractor is null
-                        ? ActionParameters.Resolve(childAction.Type, childParameters, content)
-                        : ActionParameters.Resolve(extractor, childAction.Type, childParameters, content)),
+                        ? ActionParameters.Resolve(childAction.Type, childParameters, content, registry)
+                        : ActionParameters.Resolve(extractor, childAction.Type, childParameters, content, registry)),
                     content, ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)

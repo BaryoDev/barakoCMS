@@ -39,6 +39,13 @@ public class WorkflowActionMetadataAttribute : Attribute
     public string RequiredCapability { get; set; } = string.Empty;
 
     /// <summary>
+    /// Parameters the action fills in itself. The workflow resolves every other parameter's
+    /// <c>{{...}}</c> placeholders before the action runs; these arrive as written, so the action
+    /// can see which field a placeholder names. Matched by name, in any casing.
+    /// </summary>
+    public string[] SelfResolvedParameters { get; set; } = Array.Empty<string>();
+
+    /// <summary>
     /// Example JSON configuration for documentation.
     /// </summary>
     public string ExampleJson { get; set; } = string.Empty;

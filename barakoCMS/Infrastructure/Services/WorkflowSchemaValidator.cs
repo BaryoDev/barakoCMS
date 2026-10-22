@@ -196,15 +196,15 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
         }
     }
 
-    private static void AddWarnings(WorkflowDefinition workflow, WorkflowValidationResult result)
+    private void AddWarnings(WorkflowDefinition workflow, WorkflowValidationResult result)
     {
         var onTransition = WorkflowTriggers.Events(workflow).Any(WorkflowEvents.IsTransition);
         for (int i = 0; i < workflow.Actions.Count; i++)
         {
-            AddPlaceholderWarnings(workflow.Actions[i], $"actions[{i}]", onTransition, result, depth: 0);
+            AddPlaceholderWarnings(workflow.Actions[i], $"actions[{i}]", onTransition, result, depth: 0, _pluginRegistry);
         }
 
-        AddOutputWarnings(workflow.Actions, result);
+        AddOutputWarnings(workflow.Actions, result, _pluginRegistry);
     }
 
     /// <summary>
@@ -216,7 +216,7 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
     /// engine sent as written, which saved with a warning, and a workflow that saved then must
     /// still save. At run time an unfilled reference fails the action rather than sending it.
     /// </remarks>
-    private static void AddOutputWarnings(List<WorkflowAction> actions, WorkflowValidationResult result)
+    private static void AddOutputWarnings(List<WorkflowAction> actions, WorkflowValidationResult result, IWorkflowPluginRegistry registry)
     {
         for (var i = 0; i < actions.Count; i++)
         {
@@ -229,7 +229,7 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
             foreach (var (name, template) in action.Parameters)
             {
                 var field = $"actions[{i}].parameters.{name}";
-                var resolvedByTheAction = ActionParameters.IsResolvedByTheAction(action.Type ?? string.Empty, name);
+                var resolvedByTheAction = ActionParameters.IsResolvedByTheAction(action.Type ?? string.Empty, name, registry);
 
                 foreach (var (ordinal, output) in ActionOutputs.References(template))
                 {
@@ -294,7 +294,8 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
     /// the response already names it as unreadable.
     /// </remarks>
     private static void AddPlaceholderWarnings(
-        WorkflowAction action, string field, bool onTransition, WorkflowValidationResult result, int depth)
+        WorkflowAction action, string field, bool onTransition, WorkflowValidationResult result, int depth,
+        IWorkflowPluginRegistry registry)
     {
         if (action.Parameters is null) return;
 
@@ -302,14 +303,14 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
         {
             if (result.Warnings.Count > MaxPlaceholderWarnings) return;
 
-            if (ActionParameters.IsResolvedByTheAction(action.Type ?? string.Empty, name))
+            if (ActionParameters.IsResolvedByTheAction(action.Type ?? string.Empty, name, registry))
             {
                 if (depth < MaxWarningDepth && !name.Equals("Condition", StringComparison.OrdinalIgnoreCase))
                 {
                     var children = ChildActions(template);
                     for (var i = 0; i < children.Count; i++)
                     {
-                        AddPlaceholderWarnings(children[i], $"{field}.parameters.{name}[{i}]", onTransition, result, depth + 1);
+                        AddPlaceholderWarnings(children[i], $"{field}.parameters.{name}[{i}]", onTransition, result, depth + 1, registry);
                     }
                 }
 

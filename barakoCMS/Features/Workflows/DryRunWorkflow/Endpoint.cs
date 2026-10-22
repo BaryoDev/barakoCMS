@@ -48,12 +48,15 @@ internal class Endpoint : Endpoint<Request, Response>
     private readonly IWorkflowDebugger _debugger;
     private readonly ITemplateVariableExtractor _variableExtractor;
     private readonly ILogger<Endpoint> _logger;
+    private readonly IWorkflowPluginRegistry? _registry;
 
     public Endpoint(
         IWorkflowDebugger debugger,
         ITemplateVariableExtractor variableExtractor,
-        ILogger<Endpoint> logger)
+        ILogger<Endpoint> logger,
+        IWorkflowPluginRegistry? registry = null)
     {
+        _registry = registry;
         _debugger = debugger;
         _variableExtractor = variableExtractor;
         _logger = logger;
@@ -102,7 +105,7 @@ internal class Endpoint : Endpoint<Request, Response>
                     await _variableExtractor.PrepareSampleAsync(
                         req.SampleContent, SampleTrigger(req.Workflow), action.Parameters.Values, ct);
 
-                    var resolvedParams = ActionParameters.Resolve(_variableExtractor, action.Type, action.Parameters, req.SampleContent);
+                    var resolvedParams = ActionParameters.Resolve(_variableExtractor, action.Type, action.Parameters, req.SampleContent, _registry);
 
                     var shown = Actions.WebhookSigning.WithoutSecret(action.Type, resolvedParams, out var unreadableBranches);
 
