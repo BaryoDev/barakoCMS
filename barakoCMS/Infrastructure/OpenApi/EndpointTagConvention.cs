@@ -20,8 +20,8 @@ namespace barakoCMS.Infrastructure.OpenApi;
 /// The first namespace segment is the assembly root and is always dropped: it is the same for
 /// every core endpoint and carries no grouping information. What identifies a module is what sits
 /// between that root and <c>Features</c>; what identifies a core slice is what sits after it.
-/// A module whose endpoints are not under a <c>Features</c> namespace (Email.Resend,
-/// ExternalAuth, FeatureFlags, Portability) falls back to everything after the root, which is the
+/// A module whose endpoints are not under a <c>Features</c> namespace (ExternalAuth,
+/// FeatureFlags, Portability) falls back to everything after the root, which is the
 /// module name.
 ///
 /// An endpoint that sets its own tag keeps it. See <c>NamespaceTagProcessor</c>, which only fills

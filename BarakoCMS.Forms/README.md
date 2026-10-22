@@ -258,7 +258,7 @@ Section `Modules:Forms`:
 With Turnstile enabled and no secret set, every submission is refused and an error is logged. An
 `EmailVerification` value below 1 stops the host at startup with an error naming the setting: a
 limit cannot be turned off by setting it to zero. The send deadline works by cancelling the
-provider, so it holds for a provider that honours cancellation, which the Resend and SMTP modules
+provider, so it holds for a provider that honours cancellation, which the SMTP module
 do.
 
 ### A limit for one form

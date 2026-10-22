@@ -1269,15 +1269,6 @@
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
       },
-      "barakocms.email.resend": {
-        "type": "Project",
-        "dependencies": {
-          "BarakoCMS": "[5.2.0, )",
-          "BarakoCMS.Abstractions": "[5.2.0, )",
-          "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
-          "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
-        }
-      },
       "barakocms.email.smtp": {
         "type": "Project",
         "dependencies": {
@@ -1342,6 +1333,15 @@
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )",
           "Talaan": "[0.3.0, )"
+        }
+      },
+      "barakocms.notifications": {
+        "type": "Project",
+        "dependencies": {
+          "BarakoCMS": "[5.2.0, )",
+          "BarakoCMS.Abstractions": "[5.2.0, )",
+          "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
+          "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
       },
       "barakocms.pages": {

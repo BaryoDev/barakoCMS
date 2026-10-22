@@ -103,6 +103,8 @@ public static class ServiceCollectionExtensions
 
         AddHealthChecksDashboard(services, configuration);
 
+        LegacyEmailKeyCheck.WarnIfIgnored(services, configuration);
+
         return services;
     }
 
@@ -1145,14 +1147,14 @@ public static class ServiceCollectionExtensions
                     sp.GetRequiredService<barakoCMS.Infrastructure.Http.OutboundResilience>(),
                     sp.GetService<Microsoft.AspNetCore.Http.IHttpContextAccessor>()))
                 // Above the retry budget, so the client's own timeout never cuts the tries short; it
-                // still bounds a buffered body read after the headers.
+                // bounds a buffered body only; a read made after the headers has to bound itself.
                 .ConfigureHttpClient(client => client.Timeout = outbound.ClientTimeout);
     }
 
     private static void AddContentServices(IServiceCollection services)
     {
         // Defaults registered with TryAdd so an opted-in module or the host can substitute a real
-        // provider (e.g. a Resend email module) without being clobbered by these mocks.
+        // provider (e.g. an email provider module) without being clobbered by these mocks.
         services.TryAddScoped<barakoCMS.Core.Interfaces.IEmailService, barakoCMS.Infrastructure.Services.MockEmailService>();
         services.TryAddScoped<barakoCMS.Core.Interfaces.IInboundWebhookVerifier, barakoCMS.Infrastructure.Services.InboundWebhookVerifier>();
         services.TryAddScoped<barakoCMS.Core.Interfaces.ISmsService, barakoCMS.Infrastructure.Services.MockSmsService>();
@@ -2275,8 +2277,7 @@ public static class ServiceCollectionExtensions
         // model against the live database, so run outside, it can describe a database another host is
         // halfway through changing and refuse to start over a difference that no longer exists by the
         // time it looks.
-        var applyLockTimeout = barakoCMS.Infrastructure.Services.SchemaApplyLock.TimeoutFrom(
-            host.Services.GetRequiredService<IConfiguration>());
+        var applyLockConfiguration = host.Services.GetRequiredService<IConfiguration>();
         await barakoCMS.Infrastructure.Services.SchemaApplyLock.RunAsync(store, async () =>
         {
             // Before the schema exists, so a new database gets its ledger rows first. See
@@ -2291,7 +2292,7 @@ public static class ServiceCollectionExtensions
 
             // Inside the lock, so two hosts starting together do not both rewrite every account.
             await barakoCMS.Infrastructure.Services.UserIdentityBackfill.RunAsync(store);
-        }, applyLockTimeout);
+        }, applyLockConfiguration);
 
         host.Services.GetService<barakoCMS.Infrastructure.Jobs.JobStorageGate>()?.Open();
     }

@@ -28,8 +28,8 @@ internal sealed class EmailSettingsProvider(
 
     private async Task<ResolvedEmailSettings> ResolveAsync(string? tenantSlug, CancellationToken ct)
     {
-        var configuredKey = Trimmed(config["Resend:ApiKey"]) ?? Trimmed(Environment.GetEnvironmentVariable("RESEND_API_KEY"));
-        var configuredFrom = Trimmed(config["Resend:From"]);
+        var configuredKey = Trimmed(config["Email:ApiKey"]) ?? Trimmed(Environment.GetEnvironmentVariable("EMAIL_API_KEY"));
+        var configuredFrom = Trimmed(config["Email:From"]);
 
         var host = await session.LoadAsync<EmailSettings>(EmailSettings.SingletonId, ct);
         var own = tenantSlug is null

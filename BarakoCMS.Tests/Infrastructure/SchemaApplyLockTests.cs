@@ -165,7 +165,7 @@ public class SchemaApplyLockTests
             var ran = false;
             var act = () => SchemaApplyLock.RunAsync(
                 waiting, () => { ran = true; return Task.CompletedTask; },
-                TimeSpan.FromSeconds(2), TimeSpan.FromMilliseconds(100), CancellationToken.None);
+                TimeSpan.FromSeconds(2), TimeSpan.FromMilliseconds(100), null, CancellationToken.None);
 
             var thrown = await act.Should().ThrowAsync<TimeoutException>();
             thrown.Which.Message.Should().Contain(SchemaApplyLock.Key.ToString());

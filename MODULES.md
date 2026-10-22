@@ -920,7 +920,6 @@ template ships a placeholder.
 | [BarakoCMS.Forms](BarakoCMS.Forms) | Public form submissions: a content type marked as a form takes anonymous, rate limited submissions stored Sensitive |
 | [BarakoCMS.Reports](BarakoCMS.Reports) | Saved reports: group, count and sum a content type, computed in the database as the reader, with CSV export |
 | [BarakoCMS.Payments](BarakoCMS.Payments) | Checkout for a payable entry at the amount stored on it, and a signed, idempotent provider webhook that runs the paid transition. Provider adapters implement `IPaymentProvider` |
-| [BarakoCMS.Email.Resend](BarakoCMS.Email.Resend) | Resend email provider (`IEmailService`) |
 | [BarakoCMS.Email.Smtp](BarakoCMS.Email.Smtp) | SMTP email provider (`IEmailService`), inert until a host is configured |
 | [BarakoCMS.Pages](BarakoCMS.Pages) | Page tree over a content type: parent loop, depth and reserved slug rules, public navigation and path resolution, and an authenticated tree |
 | [BarakoCMS.Booking](BarakoCMS.Booking) | Bookable resources with time zones and opening hours, a no-overlap rule inside the booking write, and public availability |
@@ -935,6 +934,7 @@ template ships a placeholder.
 | [BarakoCMS.CdnPurge](BarakoCMS.CdnPurge) | A `CdnPurge` workflow action that purges a published entry's cache tags from Cloudflare |
 | [BarakoCMS.Pwa](BarakoCMS.Pwa) | Records PWA installs and installed-app launches, anonymous or tied to the signed-in user |
 | [BarakoCMS.Qr](BarakoCMS.Qr) | Renders one allowed field of a public entry as a PNG or SVG QR code at `GET /api/public/{type}/{id}/qr/{field}` |
+| [BarakoCMS.Notifications](BarakoCMS.Notifications) | In-app notifications any module can raise for a user, with a per-user inbox and pluggable delivery sinks (email built in) |
 | [BarakoCMS.AI](BarakoCMS.AI) | Semantic search over published, public content with an embedding model run by Ollama by default |
 
 The core also ships passwordless **email OTP sign-in** (`POST /api/auth/otp/request` + `/verify`),

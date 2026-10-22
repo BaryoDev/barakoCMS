@@ -117,6 +117,9 @@ internal sealed class ConnectorSender(
     /// <summary>Also counted in the slowest action the outbound settings are checked against at startup.</summary>
     internal static readonly TimeSpan DefaultGrantTimeout = TimeSpan.FromSeconds(30);
 
+    /// <summary>The longest the body of an answer may take to arrive after its headers.</summary>
+    internal TimeSpan BodyTimeout { get; init; } = barakoCMS.Infrastructure.Http.OutboundResilienceOptions.ResponseBodyAllowance;
+
     /// <summary>The longest the write of one delivery row may hold up the caller.</summary>
     /// <remarks>
     /// The send has already happened by then, and the workflow runner is one loop. A database that
@@ -295,22 +298,22 @@ internal sealed class ConnectorSender(
 
         var timer = Stopwatch.StartNew();
 
-        // When the body is going to be read, the headers come back first and the body is read off
-        // the stream up to a cap. Buffering it first would let a provider make this process hold
-        // whatever it chose to send before any size check ran.
+        // Headers come back first and the body is read off the stream up to a cap, so a provider
+        // cannot make this process hold whatever it chose to send before a size check ran.
         var ruleReadsBody = rule == SuccessRule.TwoHundredAndJsonPathAbsent && !string.IsNullOrWhiteSpace(successJsonPath);
         var bounded = ruleReadsBody || (capture is not null && draft is not null);
-        var completion = bounded ? HttpCompletionOption.ResponseHeadersRead : HttpCompletionOption.ResponseContentRead;
 
         try
         {
-            using var first = await client.SendAsync(request, completion, ct);
+            using var first = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
             using var again = await RetryWithNewTokenAsync(client, connector, request, first,
-                () => BuildRequest(composed, target), completion, ct, draft);
+                () => BuildRequest(composed, target), HttpCompletionOption.ResponseHeadersRead, ct, draft);
             var response = again ?? first;
+
+            var answer = await ReadAnswerAsync(response, bounded, draft, ct);
             timer.Stop();
 
-            return await JudgeAsync(response, rule, successJsonPath, ruleReadsBody, bounded, draft, capture, timer.ElapsedMilliseconds, ct);
+            return Judge(response, rule, successJsonPath, ruleReadsBody, answer, draft, capture, timer.ElapsedMilliseconds);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -324,16 +327,10 @@ internal sealed class ConnectorSender(
         }
     }
 
-    private static async Task<ConnectorCallResult> JudgeAsync(
-        HttpResponseMessage response, SuccessRule rule, string? successJsonPath, bool ruleReadsBody, bool bounded,
-        ConnectorDeliveryDraft? draft, ResponseCapture? capture, long elapsedMs, CancellationToken ct)
+    private static ConnectorCallResult Judge(
+        HttpResponseMessage response, SuccessRule rule, string? successJsonPath, bool ruleReadsBody,
+        HeldAnswer answer, ConnectorDeliveryDraft? draft, ResponseCapture? capture, long elapsedMs)
     {
-        byte[]? held = null;
-        var overCap = false;
-        if (bounded) (held, overCap) = await HoldBodyAsync(response, ResponseOutputs.MaxBodyBytes, ct);
-
-        if (draft is not null) await draft.ReadResponseAsync(response, ct);
-
         var status = (int)response.StatusCode;
 
         // The body is read only when a rule needs it, and it is never returned or logged. A 401
@@ -341,21 +338,21 @@ internal sealed class ConnectorSender(
         string? body = null;
         if (ruleReadsBody)
         {
-            if (overCap)
+            if (answer.OverCap)
             {
                 return new ConnectorCallResult(
                     false, status, elapsedMs,
                     $"The response was longer than {ResponseOutputs.MaxBodyBytes} bytes, so the success rule could not be checked.");
             }
 
-            body = Encoding.UTF8.GetString(held!);
+            body = Encoding.UTF8.GetString(answer.Bytes!);
         }
 
         var ok = SuccessEvaluator.Succeeded(rule, status, body, successJsonPath);
 
         if (ok && capture is not null && draft is not null)
         {
-            return CaptureOutputs(status, elapsedMs, capture, draft, held, overCap);
+            return CaptureOutputs(status, elapsedMs, capture, draft, answer.Bytes, answer.OverCap);
         }
 
         return new ConnectorCallResult(
@@ -386,6 +383,48 @@ internal sealed class ConnectorSender(
         return problem is null
             ? new ConnectorCallResult(true, status, elapsedMs, null) { Outputs = outputs }
             : new ConnectorCallResult(false, status, elapsedMs, problem) { OutputsFailed = true };
+    }
+
+    /// <summary>The bytes held from one answer, or none when they went over the cap or were not wanted.</summary>
+    private readonly record struct HeldAnswer(byte[]? Bytes, bool OverCap);
+
+    /// <summary>
+    /// Reads the answer's body once, for the success rule, the delivery row and the outputs
+    /// together. When one of them needs the body it is held up to
+    /// <see cref="ResponseOutputs.MaxBodyBytes"/> and the row reads the held copy. Otherwise only
+    /// the row reads, off the stream.
+    /// </summary>
+    /// <remarks>
+    /// The body is never returned or logged. The client's own timeouts end at the headers, so
+    /// <see cref="BodyTimeout"/> bounds the read here. When it runs out the row keeps no body, and
+    /// a caller that needed one fails the send.
+    /// </remarks>
+    private async Task<HeldAnswer> ReadAnswerAsync(
+        HttpResponseMessage response, bool bounded, ConnectorDeliveryDraft? draft, CancellationToken ct)
+    {
+        if (!bounded && draft is null) return default;
+
+        using var allowance = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        allowance.CancelAfter(BodyTimeout);
+
+        try
+        {
+            if (!bounded)
+            {
+                await draft!.ReadResponseAsync(response, allowance.Token);
+                return default;
+            }
+
+            var (held, overCap) = await HoldBodyAsync(response, ResponseOutputs.MaxBodyBytes, allowance.Token);
+            if (draft is not null) await draft.ReadResponseAsync(response, ct);
+
+            return new HeldAnswer(held, overCap);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            if (bounded) throw new TimeoutException("The response body did not arrive in time.");
+            return default;
+        }
     }
 
     public async Task<ConnectorFetchResult> FetchAsync(

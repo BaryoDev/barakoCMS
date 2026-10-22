@@ -35,8 +35,9 @@ internal sealed record OutboundResilienceOptions
     public const int MaxRetries = 5;
 
     /// <summary>
-    /// How long a buffered response body may take after the headers. The client's own timeout is
-    /// the retry budget plus this, so it is never the thing that cuts the tries short.
+    /// How long a response body may take after the headers, for a caller that buffers it. The
+    /// client's own timeout is the retry budget plus this, so it is never the thing that cuts the
+    /// tries short. A caller that reads the body after the headers bounds that read itself.
     /// </summary>
     public static readonly TimeSpan ResponseBodyAllowance = TimeSpan.FromSeconds(30);
 
@@ -115,7 +116,7 @@ internal sealed record OutboundResilienceOptions
     public TimeSpan MaxHttpDuration =>
         AttemptTimeout * (Retries + 1) + (MaxDelay + MaxRetryAfter) * Retries;
 
-    /// <summary>The <c>ExternalApi</c> client's own timeout, which also bounds a buffered body.</summary>
+    /// <summary>The <c>ExternalApi</c> client's own timeout, which bounds a buffered body but not a read made after the headers.</summary>
     public TimeSpan ClientTimeout => MaxHttpDuration + ResponseBodyAllowance;
 
     /// <summary>

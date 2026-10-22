@@ -1230,41 +1230,6 @@
         },
         "type": "object"
       },
-      "BarakoCMSEmailResendEmailEvent": {
-        "additionalProperties": false,
-        "description": "A delivery problem Resend reported for an address we emailed (bounce, complaint, delay). Global\n(not tenant-scoped) \u2014 keyed by recipient email, since the webhook carries no tenant context.\nApps match the address to their own records.",
-        "properties": {
-          "at": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "email": {
-            "type": "string"
-          },
-          "emailId": {
-            "type": "string"
-          },
-          "id": {
-            "format": "guid",
-            "type": "string"
-          },
-          "reason": {
-            "type": "string"
-          },
-          "tenant": {
-            "nullable": true,
-            "type": "string"
-          },
-          "type": {
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "BarakoCMSEmailResendEmailEventsEndpoint_Request": {
-        "additionalProperties": false,
-        "type": "object"
-      },
       "BarakoCMSExternalAuthExternalIdentitiesRequest": {
         "allOf": [
           {
@@ -18793,60 +18758,6 @@
         ]
       }
     },
-    "/api/email-events": {
-      "get": {
-        "description": "The EmailEvent store is global. Holding the capability through a global role sees\nevery event; anyone else sees the events for email the current tenant sent, which the event\ncarries from the SentEmail recorded at send time. An event with no tenant is seen\nthrough a global role only.",
-        "operationId": "BarakoCMSEmailResendEmailEventsEndpoint",
-        "parameters": [
-          {
-            "description": "Cap on rows returned (1\u2013500, default 200).",
-            "in": "query",
-            "name": "limit",
-            "required": true,
-            "schema": {
-              "format": "int32",
-              "type": "integer"
-            }
-          },
-          {
-            "description": "Optional filter by event type: bounced | complained | delivery_delayed.",
-            "in": "query",
-            "name": "type",
-            "schema": {
-              "nullable": true,
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/BarakoCMSEmailResendEmailEvent"
-                  },
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Success"
-          },
-          "401": {
-            "description": "Unauthorized"
-          }
-        },
-        "security": [
-          {
-            "JWTBearerAuth": []
-          }
-        ],
-        "summary": "GET /api/email-events \u2014 the delivery problems Resend has reported (bounces, complaints, delays),\nnewest first, for the admin.",
-        "tags": [
-          "Email.Resend"
-        ]
-      }
-    },
     "/api/email-templates/{id}/preview": {
       "post": {
         "description": "For whoever writes workflows, so it asks for manage_workflows. On top of that the caller\nmust be able to read the template and the entry, checked as GET /api/contents/{id} checks\nthem, and the entry is rendered as that read shows it: a Sensitive field the caller may not see\nis empty here, and a reference is followed only to entries the caller may read. A run resolves\nagainst the whole entry, so the preview can show less than the email; it never shows more.\n            \nA template the caller cannot read answers 404, like one that does not exist, since a slug can be\nguessed. An entry the caller cannot read answers 403, as the read by id does.",
@@ -25308,20 +25219,6 @@
         "summary": "The delivery log, newest first.",
         "tags": [
           "WebhookDeliveries"
-        ]
-      }
-    },
-    "/api/webhooks/resend": {
-      "post": {
-        "operationId": "BarakoCMSEmailResendResendWebhookEndpoint",
-        "responses": {
-          "204": {
-            "description": "No Content"
-          }
-        },
-        "summary": "POST /api/webhooks/resend \u2014 receives Resend delivery events and records bounces/complaints as\nEmailEvent documents, so apps can tell a user an address is bad. Verifies the Svix\nsignature when Resend:WebhookSecret (or RESEND_WEBHOOK_SECRET) is set.",
-        "tags": [
-          "Email.Resend"
         ]
       }
     },

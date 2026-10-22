@@ -1,10 +1,11 @@
 using Marten;
+using barakoCMS.Infrastructure.Services;
 using barakoCMS.Infrastructure.Multitenancy;
 
 namespace barakoCMS.Infrastructure.Retention;
 
 /// <summary>What one pass of <see cref="RetentionSweeper"/> did.</summary>
-/// <param name="LockHeld">True when this node ran the pass, false when another node held the lock.</param>
+/// <param name="LockHeld">True when this node ran the whole pass, false when another node held the lock or this one lost it partway.</param>
 /// <param name="Removed">Rows deleted across all declarations and tenants.</param>
 /// <param name="TenantsSwept">Partitions that held something to look at.</param>
 /// <param name="TenantsSkipped">Partitions listed but empty, left unopened beyond one existence check.</param>
@@ -39,67 +40,55 @@ internal static class RetentionSweeper
         CancellationToken ct,
         Func<IDocumentSession, CancellationToken, Task<int>>? beforeDeletes = null)
     {
-        // The connection object rather than one rebuilt from its ConnectionString, because Npgsql
-        // redacts the password out of that string unless Persist Security Info is set.
-        await using var lockConnection = store.Storage.Database.CreateConnection();
-        await lockConnection.OpenAsync(ct);
-
-        await using (var acquire = lockConnection.CreateCommand())
+        await using var lease = await AdvisoryLease.AcquireAsync(store, lockKey, ct);
+        if (lease is null)
         {
-            acquire.CommandText = "select pg_try_advisory_lock(@key)";
-            acquire.Parameters.AddWithValue("key", lockKey);
+            logger.LogDebug("Another instance is sweeping {Label}; skipping this tick.", label);
+            return new RetentionSweepResult(false, 0, 0, 0);
+        }
 
-            if ((bool?)await acquire.ExecuteScalarAsync(ct) is not true)
+        if (lease.PoolerSuspected)
+        {
+            AdvisoryLease.ReportPooler(logger, lockKey);
+            if (AdvisoryLease.RefuseBehindPooler(config))
             {
-                logger.LogDebug("Another instance is sweeping {Label}; skipping this tick.", label);
                 return new RetentionSweepResult(false, 0, 0, 0);
             }
         }
 
-        try
+        var removed = 0;
+        var swept = 0;
+        var skipped = 0;
+        var held = true;
+
+        foreach (var tenantId in await TenantPartitions.ListAsync(store, config, partitionsSql, ct))
         {
-            var removed = 0;
-            var swept = 0;
-            var skipped = 0;
-
-            foreach (var tenantId in await TenantPartitions.ListAsync(store, config, partitionsSql, ct))
+            if (!await lease.IsHeldAsync(ct))
             {
-                await using var session = store.LightweightSession(tenantId);
-
-                if (!await AnyRowsAsync(session, declarations, ct))
-                {
-                    skipped++;
-                    continue;
-                }
-
-                swept++;
-                if (beforeDeletes is not null) removed += await beforeDeletes(session, ct);
-                removed += await SweepSessionAsync(session, tenantId, declarations, nowUtc, ct);
+                logger.LogWarning("The {Label} retention sweep lost its advisory lock; stopping", label);
+                held = false;
+                break;
             }
 
-            if (removed > 0)
+            await using var session = store.LightweightSession(tenantId);
+
+            if (!await AnyRowsAsync(session, declarations, ct))
             {
-                logger.LogInformation("{Label} retention removed {Count} row(s)", label, removed);
+                skipped++;
+                continue;
             }
 
-            return new RetentionSweepResult(true, removed, swept, skipped);
+            swept++;
+            if (beforeDeletes is not null) removed += await beforeDeletes(session, ct);
+            removed += await SweepSessionAsync(session, tenantId, declarations, nowUtc, ct);
         }
-        finally
+
+        if (removed > 0)
         {
-            try
-            {
-                await using var release = lockConnection.CreateCommand();
-                release.CommandText = "select pg_advisory_unlock(@key)";
-                release.Parameters.AddWithValue("key", lockKey);
-                await release.ExecuteScalarAsync(CancellationToken.None);
-            }
-            catch (Exception ex) when (ex is Npgsql.NpgsqlException or InvalidOperationException or ObjectDisposedException)
-            {
-                // The lock connection died mid-sweep, which already freed the lock. A delete that
-                // runs twice is a no-op, so a second instance sweeping meanwhile does no harm.
-                logger.LogWarning(ex, "The {Label} retention lock connection was lost before the sweep finished", label);
-            }
+            logger.LogInformation("{Label} retention removed {Count} row(s)", label, removed);
         }
+
+        return new RetentionSweepResult(held, removed, swept, skipped);
     }
 
     /// <summary>Runs every declaration against one session's partition. No lock, no tenant walk.</summary>

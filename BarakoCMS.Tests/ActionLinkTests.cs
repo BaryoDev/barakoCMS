@@ -6,6 +6,7 @@ using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using FluentAssertions;
 using Marten;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -33,13 +34,27 @@ public class ActionLinkTests
     {
         lock (HostGate)
         {
-            return _enabled ??= _factory.WithWebHostBuilder(builder => builder.ConfigureAppConfiguration((_, config) =>
-                config.AddInMemoryCollection(new Dictionary<string, string?>
-                {
-                    ["Workflows:ActionLinks:Enabled"] = "true",
-                    ["App:BaseUrl"] = "https://cms.example.com",
-                })));
+            return _enabled ??= _factory.WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureServices(s => s.AddSingleton<IStartupFilter, TestRemoteIpFilter>());
+                builder.ConfigureAppConfiguration((_, config) =>
+                    config.AddInMemoryCollection(new Dictionary<string, string?>
+                    {
+                        ["Workflows:ActionLinks:Enabled"] = "true",
+                        ["App:BaseUrl"] = "https://cms.example.com",
+                    }));
+            });
         }
+    }
+
+    private static int _ipCounter;
+
+    private HttpClient EnabledClient()
+    {
+        var n = Interlocked.Increment(ref _ipCounter);
+        var client = Enabled().CreateClient();
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"198.51.{100 + n / 250}.{1 + n % 250}");
+        return client;
     }
 
     private static LifecycleDefinition Review() => new()
@@ -150,7 +165,7 @@ public class ActionLinkTests
     public async Task A_link_approves_the_entry_once_after_it_is_confirmed_with_a_POST()
     {
         var s = await SubmittedEntryAsync();
-        var client = Enabled().CreateClient();
+        var client = EnabledClient();
         var token = Token(s, "Approve");
 
         var confirmed = await client.PostAsJsonAsync(Url(token), new { });
@@ -163,7 +178,7 @@ public class ActionLinkTests
     public async Task A_second_use_of_the_same_link_fails()
     {
         var s = await SubmittedEntryAsync();
-        var client = Enabled().CreateClient();
+        var client = EnabledClient();
         var token = Token(s, "Approve");
 
         (await client.PostAsJsonAsync(Url(token), new { })).StatusCode.Should().Be(HttpStatusCode.OK);
@@ -176,7 +191,7 @@ public class ActionLinkTests
     public async Task A_spent_link_is_refused_even_while_the_entry_is_still_in_the_state()
     {
         var s = await SubmittedEntryAsync();
-        var client = Enabled().CreateClient();
+        var client = EnabledClient();
         var spent = Token(s, "Approve");
         var fresh = Token(s, "Approve");
 
@@ -200,7 +215,7 @@ public class ActionLinkTests
     public async Task An_expired_link_fails()
     {
         var s = await SubmittedEntryAsync();
-        var client = Enabled().CreateClient();
+        var client = EnabledClient();
         var expired = Token(s, "Approve", DateTimeOffset.UtcNow.AddDays(-10));
         var fresh = Token(s, "Approve");
 
@@ -213,7 +228,7 @@ public class ActionLinkTests
     public async Task A_GET_alone_changes_nothing_and_says_what_confirming_would_do()
     {
         var s = await SubmittedEntryAsync();
-        var client = Enabled().CreateClient();
+        var client = EnabledClient();
         var token = Token(s, "Approve");
 
         for (var i = 0; i < 2; i++)
@@ -233,7 +248,7 @@ public class ActionLinkTests
     public async Task A_link_fails_once_the_user_loses_the_role()
     {
         var s = await SubmittedEntryAsync();
-        var client = Enabled().CreateClient();
+        var client = EnabledClient();
         var token = Token(s, "Approve");
         (await client.GetAsync(Url(token))).StatusCode.Should().Be(HttpStatusCode.OK);
 
@@ -254,7 +269,7 @@ public class ActionLinkTests
     public async Task A_link_fails_once_the_entry_has_left_the_state()
     {
         var s = await SubmittedEntryAsync();
-        var client = Enabled().CreateClient();
+        var client = EnabledClient();
         var token = Token(s, "Approve");
         (await client.GetAsync(Url(token))).StatusCode.Should().Be(HttpStatusCode.OK);
 
@@ -280,7 +295,7 @@ public class ActionLinkTests
     public async Task A_transition_that_requires_a_note_refuses_the_confirmation_without_one_and_leaves_the_link_usable()
     {
         var s = await SubmittedEntryAsync();
-        var client = Enabled().CreateClient();
+        var client = EnabledClient();
         var token = Token(s, "Reject");
 
         var preview = await client.GetAsync(Url(token));
@@ -332,7 +347,7 @@ public class ActionLinkTests
         on.Should().StartWith("https://cms.example.com/api/public/action-links/");
 
         var token = on["https://cms.example.com/api/public/action-links/".Length..];
-        var client = Enabled().CreateClient();
+        var client = EnabledClient();
         (await client.GetAsync(Url(token))).StatusCode.Should().Be(HttpStatusCode.OK);
 
         var off = _factory.WithWebHostBuilder(b => b.ConfigureAppConfiguration((_, c) =>

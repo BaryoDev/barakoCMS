@@ -10,7 +10,7 @@ puts `ghcr.io/baryodev/barako-brew` in front of it.
 ## What you get
 
 - **CMS API** (`ghcr.io/baryodev/barako-cms`), core plus every module: Accounting, Analytics
-  (Umami), Email (Resend), Feature flags, Diagnostics, Import, Files, Device trust, External auth,
+  (Umami), Email (SMTP), Feature flags, Diagnostics, Import, Files, Device trust, External auth,
   Portability.
 - **Postgres 16** with a persistent volume.
 - A **nightly backup** container running the same script the production stack uses. The folder
@@ -79,8 +79,8 @@ Turning a module off leaves its data in the database; `GET /api/modules` shows e
 to the API and this is not one of them, so it goes under the `api` service's `environment:` block
 (there is a commented line ready), not in `.env`.
 
-- **Email (Resend)**: set `RESEND_API_KEY` + `RESEND_FROM` to actually send mail (otherwise emails
-  are logged by a mock). `RESEND_WEBHOOK_SECRET` enables bounce/complaint tracking.
+- **Email (SMTP)**: set `SMTP_HOST` (and `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`) to actually send mail
+  (otherwise emails are logged by a mock).
 - **Analytics (Umami)**: point `UMAMI_BASEURL` at your Umami instance, set `UMAMI_ENABLED=true` and
   a read account (`UMAMI_USERNAME` / `UMAMI_PASSWORD`). The analytics endpoints then answer with
   visitors, top pages, referrers, devices and more, and can register new sites.
