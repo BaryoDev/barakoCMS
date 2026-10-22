@@ -94,6 +94,10 @@ ICONS["BarakoCMS.Pwa"] = ("BarakoCMS.Pwa", "#009688", f'''  <rect x="42" y="22" 
   <circle cx="64" cy="96" r="4" fill="#009688"/>
   <path d="M64 44 V70 M53 60 L64 71 L75 60" fill="none" stroke="{GOLD}" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>''')
 
+# Comments: speech bubble.
+ICONS["BarakoCMS.Comments"] = ("BarakoCMS.Comments", "#3F51B5", f'''  <path d="M36 34 H92 a8 8 0 0 1 8 8 V76 a8 8 0 0 1 -8 8 H62 L46 98 V84 H36 a8 8 0 0 1 -8 -8 V42 a8 8 0 0 1 8 -8 Z" fill="{WHITE}"/>
+  <path d="M46 52 H82 M46 66 H70" fill="none" stroke="{GOLD}" stroke-width="7" stroke-linecap="round"/>''')
+
 # Repo root is the parent of the scripts/ directory this file lives in, so the
 # generator works from any checkout location.
 base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

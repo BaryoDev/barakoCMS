@@ -49,6 +49,7 @@ Optional packages, each installable on its own:
 | `BarakoCMS.FeatureFlags` | Flags with targeting |
 | `BarakoCMS.Files` + `.S3` | Uploads stored in Postgres, or in S3-compatible storage with `.S3` |
 | `BarakoCMS.Forms` | Public form submissions into a content type |
+| `BarakoCMS.Comments` | A comment thread on any record |
 | `BarakoCMS.Import` | Bulk import |
 | `BarakoCMS.Pages` | Page tree, navigation and path resolution over a content type |
 | `BarakoCMS.Portability` | Export / import bundles |
