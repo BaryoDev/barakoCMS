@@ -12,8 +12,11 @@ namespace BarakoCMS.Contacts.Features.Contacts.Merge;
 /// duplicate stays as a tombstone naming the survivor, with its personal fields cleared, so a
 /// reference to its id can still be followed.
 ///
-/// Two saves, in this order: the duplicate gives up its email key first, so the survivor can take
-/// the address in the second without meeting its own index. Both contacts must be the same kind.
+/// One save, so a failure leaves both contacts as they were and the merge can be retried. Marten
+/// applies the writes in the order they are queued, so the duplicate gives up its email key before
+/// the survivor takes the address. Both contacts must be the same kind. Contacts are versioned: a
+/// contact changed by someone else since it was read fails the save and answers 409, which is also
+/// what stops A merged into B and B merged into A from both succeeding.
 /// </remarks>
 internal sealed class MergeContactEndpoint(IDocumentSession session) : Endpoint<MergeContactRequest, ContactResponse>
 {
@@ -44,8 +47,6 @@ internal sealed class MergeContactEndpoint(IDocumentSession session) : Endpoint<
         var email = source.Email;
         source.EmailKey = null;
         source.MergedInto = target.Id;
-        session.Update(source);
-        await session.SaveChangesAsync(ct);
 
         Fill(source, target, email, emailKey);
         await MoveLinksAsync(source.Id, target.Id, ct);
@@ -57,9 +58,9 @@ internal sealed class MergeContactEndpoint(IDocumentSession session) : Endpoint<
         {
             await session.SaveChangesAsync(ct);
         }
-        catch (Exception ex) when (ContactSupport.IsUniqueViolation(ex))
+        catch (Exception ex) when (ContactSupport.IsUniqueViolation(ex) || ContactSupport.IsConcurrency(ex))
         {
-            ThrowError("The email was taken by another contact during the merge. Merge again.", 409);
+            ThrowError("A contact changed during the merge, and nothing was merged. Read both contacts and merge again.", 409);
         }
 
         await Send.OkAsync(ContactSupport.ToResponse(target), ct);
@@ -120,6 +121,7 @@ internal sealed class MergeContactEndpoint(IDocumentSession session) : Endpoint<
                     PersonId = person,
                     OrganizationId = organization,
                     Role = link.Role,
+                    CreatedAt = link.CreatedAt,
                 });
             }
         }

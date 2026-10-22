@@ -90,10 +90,24 @@ public class ContactsMergeAndLinkTests(IntegrationTestFixture factory)
         var tenant = await _host.TenantAsync();
         var admin = await _host.AdminAsync(tenant);
         var org = await CreateAsync(admin, "Acme", kind: "Organization");
-        var survivor = await CreateAsync(admin, "Ana Reyes");
+        var survivor = await ContactsTestHost.CreatedIdAsync(await admin.PostAsJsonAsync("/api/contacts", new
+        {
+            kind = "Person",
+            displayName = "Ana Reyes",
+            phone = "+63 111",
+            address = "Survivor Street",
+            fields = new Dictionary<string, object> { ["nickname"] = "Ana" },
+        }));
         var duplicateEmail = ContactsTestHost.UniqueEmail();
-        var duplicate = await ContactsTestHost.CreatedIdAsync(
-            await ContactsTestHost.CreateAsync(admin, "A. Reyes", duplicateEmail));
+        var duplicate = await ContactsTestHost.CreatedIdAsync(await admin.PostAsJsonAsync("/api/contacts", new
+        {
+            kind = "Person",
+            displayName = "A. Reyes",
+            email = duplicateEmail,
+            phone = "+63 222",
+            address = "Duplicate Street",
+            fields = new Dictionary<string, object> { ["nickname"] = "Annie", ["team"] = "Sales" },
+        }));
         await admin.PostAsJsonAsync($"/api/contacts/{duplicate}/links", new { organizationId = org, role = "Buyer" });
 
         var merged = await admin.PostAsJsonAsync($"/api/contacts/{duplicate}/merge", new { intoId = survivor });
@@ -102,7 +116,11 @@ public class ContactsMergeAndLinkTests(IntegrationTestFixture factory)
         var kept = await ContactsTestHost.Json(await admin.GetAsync($"/api/contacts/{survivor}"));
         kept.GetProperty("displayName").GetString().Should().Be("Ana Reyes");
         kept.GetProperty("email").GetString().Should().Be(duplicateEmail);
-        kept.GetProperty("phone").GetString().Should().NotBeNullOrEmpty();
+        kept.GetProperty("phone").GetString().Should().Be("+63 111");
+        kept.GetProperty("address").GetString().Should().Be("Survivor Street");
+        var fields = kept.GetProperty("fields");
+        fields.GetProperty("nickname").GetString().Should().Be("Ana");
+        fields.GetProperty("team").GetString().Should().Be("Sales");
 
         var links = await ContactsTestHost.Json(await admin.GetAsync($"/api/contacts/{survivor}/links"));
         links.GetProperty("items").GetArrayLength().Should().Be(1);
@@ -113,6 +131,38 @@ public class ContactsMergeAndLinkTests(IntegrationTestFixture factory)
         var ids = listed.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("id").GetGuid()).ToList();
         ids.Should().NotBeEmpty();
         ids.Should().Contain(survivor).And.NotContain(duplicate);
+    }
+
+    [Fact]
+    public async Task A_contact_with_links_cannot_change_kind()
+    {
+        var tenant = await _host.TenantAsync();
+        var admin = await _host.AdminAsync(tenant);
+        var person = await CreateAsync(admin, "Ana");
+        var org = await CreateAsync(admin, "Acme", kind: "Organization");
+        var loner = await CreateAsync(admin, "Solo");
+        await admin.PostAsJsonAsync($"/api/contacts/{person}/links", new { organizationId = org });
+
+        (await admin.PutAsJsonAsync($"/api/contacts/{person}", new { kind = "Organization", displayName = "Ana" }))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await admin.PutAsJsonAsync($"/api/contacts/{loner}", new { kind = "Organization", displayName = "Solo" }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        var unchanged = await ContactsTestHost.Json(await admin.GetAsync($"/api/contacts/{person}"));
+        unchanged.GetProperty("kind").GetString().Should().Be("Person");
+    }
+
+    [Fact]
+    public async Task A_merged_contact_cannot_be_deleted()
+    {
+        var tenant = await _host.TenantAsync();
+        var admin = await _host.AdminAsync(tenant);
+        var survivor = await CreateAsync(admin, "Ana");
+        var duplicate = await CreateAsync(admin, "A.");
+        (await admin.PostAsJsonAsync($"/api/contacts/{duplicate}/merge", new { intoId = survivor }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await admin.DeleteAsync($"/api/contacts/{duplicate}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await admin.GetAsync($"/api/contacts/{survivor}")).StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     [Fact]

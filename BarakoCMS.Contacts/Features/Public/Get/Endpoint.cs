@@ -21,6 +21,7 @@ internal sealed class PublicGetContactEndpoint(IQuerySession session, IPublicCon
 
     public override async Task HandleAsync(CancellationToken ct)
     {
+        ContactSupport.SetCache(HttpContext);
         var schema = await ContactRecord.SchemaAsync(session, ct);
         var contact = projector.IsDeliverable(schema) ? await session.LoadAsync<Contact>(Route<Guid>("id"), ct) : null;
         if (contact is not { IsPublished: true, MergedInto: null })

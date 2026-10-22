@@ -18,6 +18,7 @@ internal sealed class PublicListContactsEndpoint(IQuerySession session, IPublicC
 
     public override async Task HandleAsync(PaginatedRequest req, CancellationToken ct)
     {
+        ContactSupport.SetCache(HttpContext);
         var schema = await ContactRecord.SchemaAsync(session, ct);
         if (!projector.IsDeliverable(schema))
         {

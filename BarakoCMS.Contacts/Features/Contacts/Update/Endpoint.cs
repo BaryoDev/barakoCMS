@@ -6,7 +6,7 @@ using Marten;
 
 namespace BarakoCMS.Contacts.Features.Contacts.Update;
 
-/// <summary>PUT /api/contacts/{id}. Replaces a contact. A merged contact is gone and answers 404.</summary>
+/// <summary>PUT /api/contacts/{id}. Replaces a contact. A merged contact is gone and answers 404. A contact with links keeps its kind.</summary>
 internal sealed class UpdateContactEndpoint(IDocumentSession session, IContentValidatorService validator)
     : Endpoint<UpdateContactRequest, ContactResponse>
 {
@@ -25,7 +25,14 @@ internal sealed class UpdateContactEndpoint(IDocumentSession session, IContentVa
             return;
         }
 
+        var kind = contact.Kind;
         ContactSupport.Apply(contact, req);
+        if (contact.Kind != kind
+            && await session.Query<ContactLink>().AnyAsync(l => l.PersonId == contact.Id || l.OrganizationId == contact.Id, ct))
+        {
+            ThrowError("A contact with links cannot change kind. Remove its links first.", 409);
+        }
+
         contact.IsPublished = req.IsPublished;
 
         var errors = await ContactSupport.SchemaErrorsAsync(session, validator, contact, User, ct);
@@ -50,6 +57,10 @@ internal sealed class UpdateContactEndpoint(IDocumentSession session, IContentVa
         catch (Exception ex) when (ContactSupport.IsUniqueViolation(ex))
         {
             ThrowError("Another contact has just taken this email. Merge the two instead.", 409);
+        }
+        catch (Exception ex) when (ContactSupport.IsConcurrency(ex))
+        {
+            ThrowError("The contact changed while you were saving it. Read it again and retry.", 409);
         }
 
         await Send.OkAsync(ContactSupport.ToResponse(contact), ct);

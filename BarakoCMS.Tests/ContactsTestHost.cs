@@ -74,6 +74,20 @@ internal sealed class ContactsTestHost(IntegrationTestFixture factory)
     /// <summary>Someone who is signed in and holds neither contacts capability.</summary>
     public Task<HttpClient> OutsiderAsync(string tenant) => MemberAsync(tenant, "User");
 
+    /// <summary>A member whose only contacts capability is read_contacts.</summary>
+    public async Task<HttpClient> ReaderAsync(string tenant)
+    {
+        var name = $"Contacts Reader {Guid.NewGuid():N}";
+        using (var scope = factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new Role { Id = Guid.NewGuid(), Name = name, SystemCapabilities = [ContactsCapabilities.ReadContacts] });
+            await session.SaveChangesAsync();
+        }
+
+        return await MemberAsync(tenant, name);
+    }
+
     public HttpClient Anonymous(string tenant)
     {
         var client = factory.CreateClient();

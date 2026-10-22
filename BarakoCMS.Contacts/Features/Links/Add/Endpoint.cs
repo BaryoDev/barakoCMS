@@ -8,7 +8,8 @@ namespace BarakoCMS.Contacts.Features.Links.Add;
 /// <remarks>
 /// Linking the same pair again changes the role and answers 200, so a retry is safe. A link joins a
 /// person to an organization and nothing else, and both must be contacts of the caller's tenant: an
-/// id from another tenant is simply not found.
+/// id from another tenant is simply not found. Both contacts are saved with the link, so a merge
+/// that ran in between fails the save and answers 409 instead of linking to a tombstone.
 /// </remarks>
 internal sealed class AddLinkEndpoint(IDocumentSession session) : Endpoint<AddLinkRequest, ContactLinkResponse>
 {
@@ -41,7 +42,16 @@ internal sealed class AddLinkEndpoint(IDocumentSession session) : Endpoint<AddLi
         link.Role = ContactSupport.Clean(req.Role);
 
         session.Store(link);
-        await session.SaveChangesAsync(ct);
+        session.Update(person);
+        session.Update(organization);
+        try
+        {
+            await session.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (ContactSupport.IsConcurrency(ex))
+        {
+            ThrowError("A contact changed while the link was being made. Read both and retry.", 409);
+        }
 
         await Send.ResponseAsync(ContactLinkResponse.From(link), existing is null ? 201 : 200, ct);
     }

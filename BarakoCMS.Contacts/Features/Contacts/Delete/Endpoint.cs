@@ -16,7 +16,7 @@ internal sealed class DeleteContactEndpoint(IDocumentSession session) : Endpoint
     public override async Task HandleAsync(CancellationToken ct)
     {
         var id = Route<Guid>("id");
-        if (await session.LoadAsync<Contact>(id, ct) is null)
+        if (await session.LoadAsync<Contact>(id, ct) is not { MergedInto: null })
         {
             await Send.NotFoundAsync(ct);
             return;

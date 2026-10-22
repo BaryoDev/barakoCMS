@@ -22,6 +22,7 @@ public sealed class ContactsModule : IBarakoModule
     {
         schema.For<Contact>()
             .DocumentAlias("contacts")
+            .UseOptimisticConcurrency(true)
             .Index(x => x.EmailKey, idx =>
             {
                 idx.IsUnique = true;

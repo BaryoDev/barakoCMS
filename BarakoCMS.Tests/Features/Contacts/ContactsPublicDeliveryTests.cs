@@ -51,7 +51,13 @@ public class ContactsPublicDeliveryTests(IntegrationTestFixture factory)
         body.Should().Contain("Ana Reyes");
         body.Should().NotContain(email).And.NotContain("Sample Street").And.NotContain("900 000");
 
-        var list = await ContactsTestHost.Json(await anonymous.GetAsync("/api/public/contacts"));
+        one.Headers.CacheControl!.ToString().Should().Be("public, max-age=60");
+        one.Headers.Vary.Should().Contain("X-Tenant");
+
+        var listed = await anonymous.GetAsync("/api/public/contacts");
+        listed.Headers.CacheControl!.ToString().Should().Be("public, max-age=60");
+        listed.Headers.Vary.Should().Contain("X-Tenant");
+        var list = await ContactsTestHost.Json(listed);
         list.GetProperty("items").GetArrayLength().Should().Be(1);
         list.GetRawText().Should().NotContain(email);
     }

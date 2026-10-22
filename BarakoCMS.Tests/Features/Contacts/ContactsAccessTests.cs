@@ -47,6 +47,42 @@ public class ContactsAccessTests(IntegrationTestFixture factory)
     }
 
     [Fact]
+    public async Task A_reader_can_read_contacts_and_is_refused_every_write()
+    {
+        var tenant = await _host.TenantAsync();
+        var admin = await _host.AdminAsync(tenant);
+        var id = await ContactsTestHost.CreatedIdAsync(await ContactsTestHost.CreateAsync(admin, "Ana", ContactsTestHost.UniqueEmail()));
+        var other = await ContactsTestHost.CreatedIdAsync(await ContactsTestHost.CreateAsync(admin, "Ana B", ContactsTestHost.UniqueEmail()));
+        var org = await ContactsTestHost.CreatedIdAsync(await ContactsTestHost.CreateAsync(admin, "Acme", kind: "Organization"));
+        await admin.PostAsJsonAsync($"/api/contacts/{id}/links", new { organizationId = org });
+        var reader = await _host.ReaderAsync(tenant);
+
+        (await reader.GetAsync("/api/contacts")).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await reader.GetAsync($"/api/contacts/{id}")).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await reader.GetAsync($"/api/contacts/{id}/links")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var writes = new (string Name, Func<Task<HttpResponseMessage>> Call)[]
+        {
+            ("create", () => ContactsTestHost.CreateAsync(reader, "Nope", ContactsTestHost.UniqueEmail())),
+            ("update", () => reader.PutAsJsonAsync($"/api/contacts/{id}", new { kind = "Person", displayName = "Nope" })),
+            ("delete", () => reader.DeleteAsync($"/api/contacts/{id}")),
+            ("merge", () => reader.PostAsJsonAsync($"/api/contacts/{other}/merge", new { intoId = id })),
+            ("link add", () => reader.PostAsJsonAsync($"/api/contacts/{other}/links", new { organizationId = org })),
+            ("link remove", () => reader.DeleteAsync($"/api/contacts/{id}/links/{org}")),
+        };
+
+        foreach (var (name, call) in writes)
+        {
+            (await call()).StatusCode.Should().Be(HttpStatusCode.Forbidden, $"{name} as a reader");
+        }
+
+        (await admin.GetAsync($"/api/contacts/{id}")).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await admin.GetAsync($"/api/contacts/{other}")).StatusCode.Should().Be(HttpStatusCode.OK);
+        var links = await ContactsTestHost.Json(await admin.GetAsync($"/api/contacts/{id}/links"));
+        links.GetProperty("totalItems").GetInt32().Should().Be(1);
+    }
+
+    [Fact]
     public async Task A_contact_of_one_tenant_is_not_found_in_another()
     {
         var tenantA = await _host.TenantAsync();

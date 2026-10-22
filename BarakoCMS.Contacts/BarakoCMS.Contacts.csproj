@@ -31,4 +31,8 @@
     <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
   </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="..\migrations\5.2.0\contacts.sql" LogicalName="barako-migrations/5.2.0/contacts.sql" />
+  </ItemGroup>
 </Project>

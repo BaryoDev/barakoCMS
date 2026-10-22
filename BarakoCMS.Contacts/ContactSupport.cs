@@ -40,6 +40,12 @@ internal sealed class ContactResponse
 
 internal static class ContactSupport
 {
+    public static void SetCache(Microsoft.AspNetCore.Http.HttpContext http)
+    {
+        http.Response.Headers.CacheControl = "public, max-age=60";
+        http.Response.Headers.Vary = barakoCMS.Infrastructure.Multitenancy.TenantResolutionMiddleware.TenantHeader;
+    }
+
     public const int MaxText = 200;
     public const int MaxEmail = 254;
 
@@ -99,6 +105,20 @@ internal static class ContactSupport
         for (var current = ex; current is not null; current = current.InnerException)
         {
             if (current is JasperFx.DocumentAlreadyExistsException or Npgsql.PostgresException { SqlState: "23505" })
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Someone else saved the contact since it was read.</summary>
+    public static bool IsConcurrency(Exception? ex)
+    {
+        for (var current = ex; current is not null; current = current.InnerException)
+        {
+            if (current is JasperFx.ConcurrencyException)
             {
                 return true;
             }
