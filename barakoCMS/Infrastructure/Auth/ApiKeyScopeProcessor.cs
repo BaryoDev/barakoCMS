@@ -7,7 +7,8 @@ namespace barakoCMS.Infrastructure.Auth;
 /// Enforces API-key scope. Runs for every request but only acts when the caller authenticated with an
 /// API key (<c>auth_method=apikey</c>). API keys are confined to the content surface (content,
 /// content types, schemas, collection pushes) and to read vs write by HTTP method, except that
-/// erasing and rolling back an entry need <c>content:destructive</c>. A key that names content types
+/// erasing and rolling back an entry need <c>content:destructive</c>. <c>monitor:read</c> reaches only the
+/// content counts and the analytics reads. A key that names content types
 /// reaches only the push route for those types. Everything else (managing users,
 /// roles, tenants, or keys themselves) stays behind human JWTs, so a leaked key can never escalate
 /// into platform administration. Human JWT callers are untouched: they carry no scope claims and use
@@ -35,7 +36,7 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
             return;
         }
 
-        var required = RequiredScope(path, isWrite);
+        var required = RequiredScopes(path, isWrite);
         if (required is null)
         {
             await Deny(http, "API keys are limited to the content API.", ct);
@@ -43,11 +44,33 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
         }
 
         var scopes = user.FindAll("scope").Select(c => c.Value);
-        if (!ApiKeyScopes.Satisfies(scopes, required))
-            await Deny(http, $"This API key is missing the '{required}' scope.", ct);
+        var granted = scopes.ToList();
+        if (!required.Any(r => ApiKeyScopes.Satisfies(granted, r)))
+            await Deny(http, $"This API key is missing the '{string.Join("' or '", required)}' scope.", ct);
     }
 
-    // The scope a request needs, or null if API keys may not touch this path at all.
+    // The scopes a request needs (any one of them), or null if API keys may not touch this path at all.
+    private static string[]? RequiredScopes(string path, bool isWrite)
+    {
+        // Before the /api/contents prefix rule, or monitor:read would never apply to the counts route.
+        if (!isWrite && IsCounts(path))
+            return [ApiKeyScopes.ContentRead, ApiKeyScopes.MonitorRead];
+        if (Match(path, "/api/analytics"))
+            return isWrite ? null : [ApiKeyScopes.MonitorRead];
+        var one = RequiredScope(path, isWrite);
+        return one is null ? null : [one];
+    }
+
+    // GET /api/contents/counts, the exact two segments after /api. by-slug/counts/x is a content route.
+    private static bool IsCounts(string path)
+    {
+        var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return segments.Length == 3
+               && segments[0].Equals("api", StringComparison.OrdinalIgnoreCase)
+               && segments[1].Equals("contents", StringComparison.OrdinalIgnoreCase)
+               && segments[2].Equals("counts", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string? RequiredScope(string path, bool isWrite)
     {
         if (Match(path, "/api/contents"))

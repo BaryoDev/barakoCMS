@@ -502,6 +502,77 @@ public class ApiKeyIntegrationTests
         (await _client.SendAsync(Get("/api/files", content))).StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
+    [Fact]
+    public async Task A_monitor_read_key_reads_counts_and_analytics()
+    {
+        var (userId, _) = await SuperAdminAsync();
+        var secret = await StoreKeyAsync(userId, new[] { "monitor:read" });
+
+        var counts = await _client.SendAsync(Get("/api/contents/counts", secret));
+        var analytics = await _client.SendAsync(Get("/api/analytics/websites", secret));
+
+        counts.StatusCode.Should().Be(HttpStatusCode.OK, await counts.Content.ReadAsStringAsync());
+        analytics.StatusCode.Should().Be(HttpStatusCode.OK, await analytics.Content.ReadAsStringAsync());
+    }
+
+    [Theory]
+    [InlineData("/api/contents")]
+    [InlineData("/api/contents/00000000-0000-0000-0000-000000000001")]
+    [InlineData("/api/contents/by-slug/counts/x")]
+    [InlineData("/api/content-types")]
+    [InlineData("/api/files")]
+    public async Task A_monitor_read_key_is_refused_every_other_route(string path)
+    {
+        var (userId, _) = await SuperAdminAsync();
+        var secret = await StoreKeyAsync(userId, new[] { "monitor:read" });
+
+        var res = await _client.SendAsync(Get(path, secret));
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Theory]
+    [InlineData("/api/contents/counts")]
+    [InlineData("/api/analytics/websites")]
+    public async Task A_monitor_read_key_cannot_write_to_its_own_routes(string path)
+    {
+        var (userId, _) = await SuperAdminAsync();
+        var secret = await StoreKeyAsync(userId, new[] { "monitor:read" });
+
+        foreach (var method in new[] { HttpMethod.Post, HttpMethod.Put, HttpMethod.Patch, HttpMethod.Delete })
+        {
+            var res = await _client.SendAsync(WithKey(method, path, secret));
+            res.StatusCode.Should().Be(HttpStatusCode.Forbidden, $"{method} {path}");
+        }
+    }
+
+    [Fact]
+    public async Task A_wildcard_key_is_refused_analytics_and_a_content_read_key_still_reads_counts()
+    {
+        var (userId, _) = await SuperAdminAsync();
+        var wildcard = await StoreKeyAsync(userId, new[] { "*" });
+        var reader = await StoreKeyAsync(userId, new[] { "content:read" });
+
+        (await _client.SendAsync(Get("/api/analytics/websites", wildcard))).StatusCode
+            .Should().Be(HttpStatusCode.Forbidden);
+        (await _client.SendAsync(Get("/api/contents/counts", reader))).StatusCode
+            .Should().Be(HttpStatusCode.OK);
+        (await _client.SendAsync(Get("/api/analytics/websites", reader))).StatusCode
+            .Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task Create_accepts_the_monitor_read_scope()
+    {
+        var (_, token) = await SuperAdminAsync();
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var res = await _client.PostAsJsonAsync("/api/api-keys",
+            new { name = "phone", scopes = new[] { "monitor:read" } });
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+    }
+
     private async Task<(Guid Id, string Secret)> RotateAsync(string jwt, Guid keyId, int overlapMinutes)
     {
         var req = WithKey(HttpMethod.Post, $"/api/api-keys/{keyId}/rotate", jwt);
