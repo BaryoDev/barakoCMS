@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using barakoCMS.Infrastructure.Services;
 using Marten;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace BarakoCMS.Comments;
 
@@ -67,10 +68,36 @@ internal sealed class ContentCommentTarget(IQuerySession session, IPermissionRes
 /// <summary>The kinds of record this host registered, looked up by name.</summary>
 internal sealed class CommentTargets(IEnumerable<ICommentTarget> targets)
 {
-    private readonly Dictionary<string, ICommentTarget> _byType = targets
-        .GroupBy(t => t.Type, StringComparer.OrdinalIgnoreCase)
-        .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ICommentTarget> _byType = Index(targets);
 
     public ICommentTarget? Find(string? type) =>
         type is not null && _byType.TryGetValue(type.Trim(), out var target) ? target : null;
+
+    private static Dictionary<string, ICommentTarget> Index(IEnumerable<ICommentTarget> targets)
+    {
+        var byType = new Dictionary<string, ICommentTarget>(StringComparer.OrdinalIgnoreCase);
+        foreach (var target in targets)
+        {
+            if (!byType.TryAdd(target.Type, target))
+            {
+                throw new InvalidOperationException(
+                    $"Two comment targets register the type '{target.Type}' ({byType[target.Type].GetType().Name} and {target.GetType().Name}). A type names one kind of record.");
+            }
+        }
+
+        return byType;
+    }
+}
+
+/// <summary>Builds the target index once at startup, so a duplicate type stops the host and not the first request.</summary>
+internal sealed class CommentTargetsCheck(IServiceProvider services) : Microsoft.Extensions.Hosting.IHostedService
+{
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        using var scope = services.CreateScope();
+        _ = scope.ServiceProvider.GetRequiredService<CommentTargets>();
+        return Task.CompletedTask;
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }

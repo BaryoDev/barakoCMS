@@ -28,7 +28,7 @@ modules run (`BarakoCMS__Modules__Enabled=Comments`). To name it by hand, put
 | --- | --- | --- | --- |
 | POST | `/api/comments` | `post_comments` | add a comment, or a reply with `parentId`; 201 |
 | GET | `/api/comments?targetType=&targetId=` | `read_comments` | the thread on one record, oldest first, paged |
-| DELETE | `/api/comments/{id}` | `post_comments` | delete a comment and its replies; the author, or a caller with `manage_comments` |
+| DELETE | `/api/comments/{id}` | `post_comments` or `manage_comments` | delete a comment and its replies |
 
 Admin holds all three by default. Grant them to other roles the usual way.
 
@@ -37,8 +37,13 @@ tenant, answers 404. A record the caller cannot read answers 403 and nothing is 
 `targetType` answers 400. A comment body is 1 to 5000 characters. A `parentId` must be a comment on
 the same record.
 
-Text is stored as sent and returned as JSON text. The API never renders it as HTML, so escape it
-where you display it.
+Text is stored raw and returned raw. The API does not HTML-encode, strip or sanitise a comment, it
+is JSON, and the consumer must escape it where it renders it as HTML.
+
+Delete: the author may delete their own comment, and the replies under it only when every one of
+them is also theirs. If anyone else replied, deleting that subtree needs `manage_comments`. A
+caller holding `manage_comments` can delete any comment on a record they can read, without
+`post_comments`.
 
 ## Two record types on one surface
 

@@ -11,8 +11,9 @@ internal sealed class Request
 }
 
 /// <summary>
-/// DELETE /api/comments/{id}: removes a comment and every reply under it. The author may, and so
-/// may a caller holding manage_comments, and both only while they can still read the record.
+/// DELETE /api/comments/{id}: removes a comment and every reply under it. Either capability gets a
+/// caller to the handler. The author may delete a subtree that is all their own, and a caller holding
+/// manage_comments may delete any, and both only while they can still read the record.
 /// </summary>
 internal sealed class Endpoint(IDocumentSession session, CommentTargets targets, IPermissionResolver permissions)
     : Endpoint<Request>
@@ -20,13 +21,20 @@ internal sealed class Endpoint(IDocumentSession session, CommentTargets targets,
     public override void Configure()
     {
         Delete("/api/comments/{id}");
-        Definition.RequireCapability(CommentsCapabilities.PostComments, CommentsCapabilities.Defaults.LegacyRoles);
+        Definition.ChecksCapability(CommentsCapabilities.PostComments);
         Definition.ChecksCapability(CommentsCapabilities.ManageComments);
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         if (!Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId))
+        {
+            await Send.ForbiddenAsync(ct);
+            return;
+        }
+
+        var canManage = await permissions.HasCapabilityAsync(userId, CommentsCapabilities.ManageComments, ct);
+        if (!canManage && !await permissions.HasCapabilityAsync(userId, CommentsCapabilities.PostComments, ct))
         {
             await Send.ForbiddenAsync(ct);
             return;
@@ -50,46 +58,52 @@ internal sealed class Endpoint(IDocumentSession session, CommentTargets targets,
                 return;
         }
 
-        if (comment.AuthorId != userId && !await permissions.HasCapabilityAsync(userId, CommentsCapabilities.ManageComments, ct))
-        {
-            await Send.ForbiddenAsync(ct);
-            return;
-        }
-
         var type = comment.TargetType;
         var targetId = comment.TargetId;
         var thread = await session.Query<Comment>()
             .Where(c => c.TargetType == type && c.TargetId == targetId)
             .ToListAsync(ct);
+        var doomed = Subtree(comment, thread);
 
-        foreach (var doomed in Subtree(comment.Id, thread))
+        if (!canManage && doomed.Any(c => c.AuthorId != userId))
         {
-            session.Delete(doomed);
+            await Send.ForbiddenAsync(ct);
+            return;
+        }
+
+        foreach (var c in doomed)
+        {
+            session.Delete(c);
         }
 
         await session.SaveChangesAsync(ct);
         await Send.NoContentAsync(ct);
     }
 
-    private static List<Comment> Subtree(Guid rootId, IReadOnlyList<Comment> thread)
+    private static List<Comment> Subtree(Comment root, IReadOnlyList<Comment> thread)
     {
-        var ids = new HashSet<Guid> { rootId };
+        var children = thread
+            .Where(c => c.ParentId is not null)
+            .ToLookup(c => c.ParentId!.Value);
         var found = new List<Comment>();
-        bool grew;
-        do
+        var seen = new HashSet<Guid>();
+        var pending = new Stack<Comment>();
+        pending.Push(root);
+        while (pending.Count > 0)
         {
-            grew = false;
-            foreach (var c in thread)
+            var next = pending.Pop();
+            if (!seen.Add(next.Id))
             {
-                if ((c.Id == rootId || (c.ParentId is { } p && ids.Contains(p))) && !found.Contains(c))
-                {
-                    found.Add(c);
-                    ids.Add(c.Id);
-                    grew = true;
-                }
+                continue;
+            }
+
+            found.Add(next);
+            foreach (var child in children[next.Id])
+            {
+                pending.Push(child);
             }
         }
-        while (grew);
+
         return found;
     }
 }

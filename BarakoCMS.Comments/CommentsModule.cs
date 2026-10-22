@@ -24,6 +24,7 @@ public sealed class CommentsModule : IBarakoModule
     {
         services.AddScoped<ICommentTarget, ContentCommentTarget>();
         services.AddScoped<CommentTargets>();
+        services.AddHostedService<CommentTargetsCheck>();
     }
 
     public void ConfigureSchema(IModuleSchema schema)
