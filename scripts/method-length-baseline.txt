@@ -72,7 +72,7 @@
 86 barakoCMS/Features/Tenants/Members/Endpoints.cs::AddMemberEndpoint.HandleAsync
 75 barakoCMS/Features/Users/RemoveRole/Endpoint.cs::Endpoint.HandleAsync
 128 barakoCMS/Features/WorkflowRuns/Endpoints.cs::RetryAttemptEndpoint.HandleAsync
-182 barakoCMS/Features/Workflows/Actions/ConditionalAction.cs::ConditionalAction.RunAsync
+180 barakoCMS/Features/Workflows/Actions/ConditionalAction.cs::ConditionalAction.RunAsync
 73 barakoCMS/Features/Workflows/Actions/CreateContentAction.cs::CreateContentAction.RunAsync
 125 barakoCMS/Features/Workflows/Actions/EmailAction.cs::EmailAction.RunAsync
 86 barakoCMS/Features/Workflows/Actions/PublishAction.cs::PublishAction.RunAsync
@@ -109,7 +109,7 @@
 98 barakoCMS/Infrastructure/Services/SensitivityService.cs::SensitivityService.GuardWriteAsync
 114 barakoCMS/Infrastructure/Services/WorkflowSchemaValidator.cs::WorkflowSchemaValidator.Validate
 110 barakoCMS/Infrastructure/Services/WorkflowSchemaValidator.cs::WorkflowSchemaValidator.ValidateAction
-134 barakoCMS/Infrastructure/Sync/CollectionSyncRunner.cs::CollectionSyncRunner.ApplyAsync
+128 barakoCMS/Infrastructure/Sync/CollectionSyncRunner.cs::CollectionSyncRunner.ApplyAsync
 99 barakoCMS/Infrastructure/Sync/CollectionSyncRunner.cs::CollectionSyncRunner.Map
 98 barakoCMS/Infrastructure/Sync/CollectionSyncService.cs::CollectionSyncService.SweepTenantAsync
 96 barakoCMS/Infrastructure/Sync/SyncRules.cs::SyncRules.ShapeProblem

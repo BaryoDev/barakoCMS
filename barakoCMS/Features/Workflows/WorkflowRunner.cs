@@ -1028,7 +1028,6 @@ internal sealed class WorkflowRunner(
         try
         {
             var variables = scope.ServiceProvider.GetRequiredService<ITemplateVariableExtractor>();
-
             var (parameters, credentialError) = barakoCMS.Features.Workflows.Actions.WebhookSigning.UnprotectCredentials(
                 stored, scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Security.ISecretProtector>());
 

@@ -119,7 +119,6 @@ internal class ConditionalAction : IWorkflowAction
         // actions do. A host that registers none still gets the built-in rules.
         var extractor = _serviceProvider.GetService<ITemplateVariableExtractor>();
         var protector = _serviceProvider.GetService<ISecretProtector>();
-        var registry = _serviceProvider.GetService<IWorkflowPluginRegistry>();
 
         var succeededCount = 0;
         var failedTypes = new List<string>();
@@ -169,9 +168,7 @@ internal class ConditionalAction : IWorkflowAction
             try
             {
                 childResult = await plugin.RunAsync(
-                    ActionParameters.WithTriggerOf(parameters, extractor is null
-                        ? ActionParameters.Resolve(childAction.Type, childParameters, content, registry)
-                        : ActionParameters.Resolve(extractor, childAction.Type, childParameters, content, registry)),
+                    ActionParameters.WithTriggerOf(parameters, ResolveChild(extractor, childAction.Type, childParameters, content)),
                     content, ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -236,6 +233,19 @@ internal class ConditionalAction : IWorkflowAction
         }
 
         return WorkflowActionResult.Failure(message);
+    }
+
+    /// <summary>
+    /// A child's parameters with their placeholders filled, by the host's extractor when it registers
+    /// one, and with the parameters the child's plugin fills in itself left alone.
+    /// </summary>
+    private Dictionary<string, string> ResolveChild(
+        ITemplateVariableExtractor? extractor, string type, Dictionary<string, string> childParameters, barakoCMS.Models.Content content)
+    {
+        var registry = _serviceProvider.GetService<IWorkflowPluginRegistry>();
+        return extractor is null
+            ? ActionParameters.Resolve(type, childParameters, content, registry)
+            : ActionParameters.Resolve(extractor, type, childParameters, content, registry);
     }
 
     private bool EvaluateCondition(string condition, barakoCMS.Models.Content content)
