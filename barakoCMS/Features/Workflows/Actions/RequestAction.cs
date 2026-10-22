@@ -84,7 +84,8 @@ internal sealed class RequestAction(
         // "did it fire" is asked of a request that was never sent as often as of one that was. A
         // sender a host put in its place is not asked to send a request that was refused.
         var recording = sender as IConnectorDeliverySender;
-        var delivery = ConnectorDeliveryContext.From(slug, parameters);
+        var capture = ResponseCapture.From(definition);
+        var delivery = ConnectorDeliveryContext.From(slug, parameters) with { Capture = capture };
 
         if (!composed.Ok)
         {
@@ -98,12 +99,31 @@ internal sealed class RequestAction(
             return WorkflowActionResult.Failure(composed.Refusal!);
         }
 
+        if (capture is not null && recording is null)
+        {
+            // Refused before the call. A sender that cannot hand the answer back would make the
+            // call and then drop the values the step was configured to keep.
+            return WorkflowActionResult.PermanentFailure(
+                $"Request '{slug}' keeps outputs from the response, and the connector sender in use cannot return them.");
+        }
+
         var result = recording is not null
             ? await recording.SendAsync(connector, composed, definition.Success, definition.SuccessJsonPath, delivery, ct)
             : await sender.SendAsync(connector, composed, definition.Success, definition.SuccessJsonPath, ct);
 
-        return result.Succeeded
-            ? WorkflowActionResult.Success()
-            : WorkflowActionResult.Failure($"Request '{slug}': {result.Error ?? result.Describe()}");
+        if (!result.Succeeded)
+        {
+            var message = $"Request '{slug}': {result.Error ?? result.Describe()}";
+
+            // The provider answered and the call counted as sent, so the same call would fail the
+            // same way. Retrying would spend a second call on the provider for nothing.
+            return result.OutputsFailed
+                ? WorkflowActionResult.PermanentFailure(message)
+                : WorkflowActionResult.Failure(message);
+        }
+
+        return result.Outputs is { Count: > 0 }
+            ? WorkflowActionResult.Success(result.Outputs)
+            : WorkflowActionResult.Success();
     }
 }

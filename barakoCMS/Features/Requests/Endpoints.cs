@@ -1,6 +1,7 @@
 using barakoCMS.Features.Connectors;
 using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Auth;
+using barakoCMS.Features.Workflows;
 using barakoCMS.Infrastructure.Connectors;
 using barakoCMS.Models;
 using FastEndpoints;
@@ -28,6 +29,9 @@ internal sealed class RequestResponse
     public string? QuerySlug { get; init; }
     public string Success { get; init; } = nameof(SuccessRule.TwoHundredRange);
     public string? SuccessJsonPath { get; init; }
+    public Dictionary<string, string> Outputs { get; init; } = new();
+    public string MissingOutput { get; init; } = nameof(MissingOutputRule.Fail);
+    public int MaxOutputLength { get; init; } = RequestDefinition.DefaultMaxOutputLength;
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; init; }
 
@@ -45,6 +49,9 @@ internal sealed class RequestResponse
         QuerySlug = r.QuerySlug,
         Success = r.Success.ToString(),
         SuccessJsonPath = r.SuccessJsonPath,
+        Outputs = r.Outputs,
+        MissingOutput = r.MissingOutput.ToString(),
+        MaxOutputLength = r.MaxOutputLength,
         CreatedAt = r.CreatedAt,
         UpdatedAt = r.UpdatedAt,
     };
@@ -63,6 +70,15 @@ internal class SaveRequestRequest
     public string? QuerySlug { get; set; }
     public string Success { get; set; } = nameof(SuccessRule.TwoHundredRange);
     public string? SuccessJsonPath { get; set; }
+
+    /// <summary>Values to keep from the response as step outputs: name, and a plain JSON path such as <c>$.choices[0].message.content</c>.</summary>
+    public Dictionary<string, string> Outputs { get; set; } = new();
+
+    /// <summary>Fail (the default) or Empty: what a path that finds nothing does.</summary>
+    public string MissingOutput { get; set; } = nameof(MissingOutputRule.Fail);
+
+    /// <summary>The longest an output may be, in characters. A longer one fails the step.</summary>
+    public int MaxOutputLength { get; set; } = RequestDefinition.DefaultMaxOutputLength;
 }
 
 /// <summary>What would be sent, without sending it.</summary>
@@ -118,6 +134,44 @@ internal static class RequestRules
             // this rule has a provider that lies about status codes, and a rule that quietly does
             // nothing would let it keep lying.
             return "SuccessJsonPath is required when Success is TwoHundredAndJsonPathAbsent.";
+        }
+
+        return CheckOutputs(req);
+    }
+
+    private static string? CheckOutputs(SaveRequestRequest req)
+    {
+        if (req.Outputs is not { Count: > 0 })
+        {
+            return null;
+        }
+
+        if (req.Outputs.Count > ActionOutputs.MaxCaptured)
+        {
+            return $"Outputs may name at most {ActionOutputs.MaxCaptured} values.";
+        }
+
+        foreach (var (name, path) in req.Outputs)
+        {
+            if (!ActionOutputs.IsValidName(name))
+            {
+                return $"Outputs: '{name}' is not a name a later step can read. Use 1 to {ActionOutputs.MaxNameLength} letters, digits or underscores.";
+            }
+
+            if (!OutputPath.TryParse(path, out _, out var pathError))
+            {
+                return $"Outputs: the path for '{name}' is not usable. {pathError}";
+            }
+        }
+
+        if (!Enum.TryParse<MissingOutputRule>(req.MissingOutput, ignoreCase: true, out _))
+        {
+            return $"MissingOutput must be one of: {string.Join(", ", Enum.GetNames<MissingOutputRule>())}.";
+        }
+
+        if (req.MaxOutputLength < 1 || req.MaxOutputLength > ActionOutputs.MaxValueLength)
+        {
+            return $"MaxOutputLength must be between 1 and {ActionOutputs.MaxValueLength}, the most a workflow run keeps.";
         }
 
         return null;
@@ -219,6 +273,11 @@ internal sealed class SaveRequestEndpoint(
         definition.QuerySlug = req.QuerySlug;
         definition.Success = Enum.Parse<SuccessRule>(req.Success, ignoreCase: true);
         definition.SuccessJsonPath = req.SuccessJsonPath;
+        definition.Outputs = req.Outputs ?? new();
+        definition.MissingOutput = Enum.TryParse<MissingOutputRule>(req.MissingOutput, ignoreCase: true, out var missing)
+            ? missing
+            : MissingOutputRule.Fail;
+        definition.MaxOutputLength = req.MaxOutputLength > 0 ? req.MaxOutputLength : RequestDefinition.DefaultMaxOutputLength;
         definition.UpdatedAt = DateTime.UtcNow;
 
         session.Store(definition);

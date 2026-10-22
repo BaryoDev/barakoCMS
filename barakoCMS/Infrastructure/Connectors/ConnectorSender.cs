@@ -18,6 +18,18 @@ namespace barakoCMS.Infrastructure.Connectors;
 /// </remarks>
 public sealed record ConnectorCallResult(bool Succeeded, int? StatusCode, long ElapsedMs, string? Error)
 {
+    /// <summary>
+    /// The values a Request step asked to keep from the response, by name. Only what the request
+    /// definition named, never the body.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? Outputs { get; init; }
+
+    /// <summary>
+    /// The call went through but the outputs could not be read from the answer. Sending again would
+    /// ask the provider for the same shape of answer.
+    /// </summary>
+    public bool OutputsFailed { get; init; }
+
     public string Describe() => StatusCode is { } code
         ? $"HTTP {code} in {ElapsedMs} ms"
         : $"{Error ?? "failed"} after {ElapsedMs} ms";
@@ -182,7 +194,7 @@ internal sealed class ConnectorSender(
 
     public Task<ConnectorCallResult> SendAsync(
         Connector connector, ComposedRequest composed, SuccessRule rule, string? successJsonPath, CancellationToken ct) =>
-        SendCoreAsync(connector, composed, rule, successJsonPath, null, ct);
+        SendCoreAsync(connector, composed, rule, successJsonPath, null, null, ct);
 
     /// <remarks>
     /// One row for the call, not one for each HTTP request it took. A webhook row is one attempt at
@@ -199,7 +211,7 @@ internal sealed class ConnectorSender(
 
         try
         {
-            result = await SendCoreAsync(connector, composed, rule, successJsonPath, draft, ct);
+            result = await SendCoreAsync(connector, composed, rule, successJsonPath, draft, delivery.Capture, ct);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -252,7 +264,7 @@ internal sealed class ConnectorSender(
 
     private async Task<ConnectorCallResult> SendCoreAsync(
         Connector connector, ComposedRequest composed, SuccessRule rule, string? successJsonPath,
-        ConnectorDeliveryDraft? draft, CancellationToken ct)
+        ConnectorDeliveryDraft? draft, ResponseCapture? capture, CancellationToken ct)
     {
         if (!composed.Ok)
         {
@@ -304,6 +316,11 @@ internal sealed class ConnectorSender(
             var status = (int)response.StatusCode;
             var ok = SuccessEvaluator.Succeeded(rule, status, body, successJsonPath);
 
+            if (ok && capture is not null && draft is not null)
+            {
+                return await CaptureOutputsAsync(response, status, timer.ElapsedMilliseconds, capture, draft, ct);
+            }
+
             return new ConnectorCallResult(
                 ok, status, timer.ElapsedMilliseconds,
                 ok ? null : $"The provider answered {status} and the success rule was not met.");
@@ -318,6 +335,33 @@ internal sealed class ConnectorSender(
             logger.LogWarning("Connector {Slug} send failed: {Reason}", connector.Slug, ex.GetType().Name);
             return new ConnectorCallResult(false, null, timer.ElapsedMilliseconds, Describe(ex));
         }
+    }
+
+    /// <summary>
+    /// Reads the declared outputs from an answer that met the success rule. The headers are never
+    /// read, and the body only up to <see cref="ResponseOutputs.MaxBodyBytes"/>.
+    /// </summary>
+    private static async Task<ConnectorCallResult> CaptureOutputsAsync(
+        HttpResponseMessage response, int status, long elapsedMs, ResponseCapture capture,
+        ConnectorDeliveryDraft draft, CancellationToken ct)
+    {
+        var text = await ReadCappedAsync(response, ResponseOutputs.MaxBodyBytes, ct);
+
+        Dictionary<string, string>? outputs = null;
+        string? problem = null;
+
+        if (text is null)
+        {
+            problem = $"The response was longer than {ResponseOutputs.MaxBodyBytes} bytes, so the request's outputs were not read.";
+        }
+        else
+        {
+            (outputs, problem) = ResponseOutputs.Extract(text, capture, draft.Secrets);
+        }
+
+        return problem is null
+            ? new ConnectorCallResult(true, status, elapsedMs, null) { Outputs = outputs }
+            : new ConnectorCallResult(false, status, elapsedMs, problem) { OutputsFailed = true };
     }
 
     public async Task<ConnectorFetchResult> FetchAsync(

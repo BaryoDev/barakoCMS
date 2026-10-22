@@ -5874,11 +5874,24 @@
             "format": "guid",
             "type": "string"
           },
+          "maxOutputLength": {
+            "format": "int32",
+            "type": "integer"
+          },
           "method": {
+            "type": "string"
+          },
+          "missingOutput": {
             "type": "string"
           },
           "name": {
             "type": "string"
+          },
+          "outputs": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
           },
           "pathTemplate": {
             "type": "string"
@@ -5923,11 +5936,24 @@
             },
             "type": "object"
           },
+          "maxOutputLength": {
+            "format": "int32",
+            "type": "integer"
+          },
           "method": {
+            "type": "string"
+          },
+          "missingOutput": {
             "type": "string"
           },
           "name": {
             "type": "string"
+          },
+          "outputs": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
           },
           "pathTemplate": {
             "type": "string"
