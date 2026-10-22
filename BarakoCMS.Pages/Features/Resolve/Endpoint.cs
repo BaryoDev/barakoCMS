@@ -1,6 +1,9 @@
 using barakoCMS.Core.Interfaces;
+using barakoCMS.Infrastructure.Multitenancy;
+using barakoCMS.Infrastructure.Viewers;
 using FastEndpoints;
 using Marten;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 
 namespace BarakoCMS.Pages.Features.Resolve;
@@ -25,6 +28,8 @@ internal sealed record ResolveResponse(
 /// last segment's slug, walks each one's parents, and answers with the one whose whole path matches.
 /// Every page on the walk has to be published and Public, so a published page under a draft does not
 /// resolve. The walk reads at most <see cref="PagesOptions.MaxDepth"/> ancestors per candidate.
+/// A request carrying a valid X-Viewer-Token for the tenant also resolves Members pages, and the
+/// answer is then private and not stored. A token that does not verify answers 401, as on the core routes.
 /// </remarks>
 internal sealed class Endpoint : EndpointWithoutRequest<ResolveResponse>
 {
@@ -33,9 +38,18 @@ internal sealed class Endpoint : EndpointWithoutRequest<ResolveResponse>
     private readonly IQuerySession _session;
     private readonly IPublicContentProjector _projector;
     private readonly PagesOptions _deployment;
+    private readonly TenantContext _tenant;
+    private readonly IConfiguration _config;
 
-    public Endpoint(IQuerySession session, IPublicContentProjector projector, IOptions<PagesOptions> options)
+    public Endpoint(
+        IQuerySession session,
+        IPublicContentProjector projector,
+        IOptions<PagesOptions> options,
+        TenantContext tenant,
+        IConfiguration config)
     {
+        _tenant = tenant;
+        _config = config;
         _session = session;
         _projector = projector;
         _deployment = options.Value;
@@ -49,6 +63,12 @@ internal sealed class Endpoint : EndpointWithoutRequest<ResolveResponse>
 
     public override async Task HandleAsync(CancellationToken ct)
     {
+        if (!ViewerAudience.TryRead(HttpContext, _config, _tenant.Slug, out var member))
+        {
+            await Send.UnauthorizedAsync(ct);
+            return;
+        }
+
         var raw = Query<string>("path", isRequired: false) ?? "/";
         var segments = raw.Length > MaxPathLength
             ? null
@@ -70,23 +90,11 @@ internal sealed class Endpoint : EndpointWithoutRequest<ResolveResponse>
         }
 
         var requested = "/" + string.Join('/', segments);
-        var candidates = await PublishedPages.WithSlugAsync(_session, _projector, definition!, options, slug, ct);
+        var candidates = await PublishedPages.WithSlugAsync(_session, _projector, definition!, options, slug, member, ct);
 
         foreach (var (node, entry) in candidates)
         {
-            var nodes = new List<PageNode> { node };
-            var parent = node.ParentId;
-            for (var depth = 0; parent is { } parentId && depth < options.MaxDepth; depth++)
-            {
-                if (await PublishedPages.ByIdAsync(_session, _projector, definition!, options, parentId, ct) is not { } ancestor)
-                {
-                    break;
-                }
-
-                nodes.Add(ancestor.Node);
-                parent = ancestor.Node.ParentId;
-            }
-
+            var nodes = await WithAncestorsAsync(node, definition!, options, member, ct);
             var tree = new PageTree(nodes, options.HomeSlug, options.MaxDepth);
             if (tree.Ancestry(node.Id) is not { } chain)
             {
@@ -106,15 +114,46 @@ internal sealed class Endpoint : EndpointWithoutRequest<ResolveResponse>
             // The walk projects without reading files, which leaves file fields out. The page served
             // is projected again with its files answered as the core delivery routes answer them.
             var served = await _session.LoadAsync<barakoCMS.Models.Content>(entry.Id, ct) is { } doc
-                ? await _projector.ProjectAsync(doc, definition, ct) ?? entry
+                ? await _projector.ProjectAsync(doc, definition, member, ct) ?? entry
                 : entry;
 
-            PublishedPages.SetCache(HttpContext);
+            SetCache(member);
             var bound = await BoundBlocks.MaterializeAsync(_session, _projector, definition!, served, ct);
             await Send.OkAsync(new ResolveResponse(PagesContract.Version, path, served, breadcrumbs, bound), ct);
             return;
         }
 
         await Send.NotFoundAsync(ct);
+    }
+
+    private async Task<List<PageNode>> WithAncestorsAsync(
+        PageNode node, barakoCMS.Models.ContentTypeDefinition definition, PagesOptions options, bool member, CancellationToken ct)
+    {
+        var nodes = new List<PageNode> { node };
+        var parent = node.ParentId;
+        for (var depth = 0; parent is { } parentId && depth < options.MaxDepth; depth++)
+        {
+            if (await PublishedPages.ByIdAsync(_session, _projector, definition, options, parentId, member, ct) is not { } ancestor)
+            {
+                break;
+            }
+
+            nodes.Add(ancestor.Node);
+            parent = ancestor.Node.ParentId;
+        }
+
+        return nodes;
+    }
+
+    private void SetCache(bool member)
+    {
+        if (member)
+        {
+            ViewerAudience.SetPrivateCache(HttpContext);
+        }
+        else
+        {
+            PublishedPages.SetCache(HttpContext, varyOnViewer: true);
+        }
     }
 }

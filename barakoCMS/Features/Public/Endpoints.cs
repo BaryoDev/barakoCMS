@@ -348,16 +348,8 @@ internal static class PublicDelivery
     /// shows as one rather than as a missing page. <paramref name="member"/> is true for a verified
     /// viewer and false for no header at all.
     /// </summary>
-    public static bool ReadAudience(HttpContext http, IConfiguration config, string tenantSlug, out bool member)
-    {
-        member = false;
-        var raw = http.Request.Headers[barakoCMS.Infrastructure.Viewers.ViewerToken.Header].FirstOrDefault();
-        if (string.IsNullOrWhiteSpace(raw))
-            return true;
-
-        member = barakoCMS.Infrastructure.Viewers.ViewerToken.Validate(config, raw, tenantSlug) is not null;
-        return member;
-    }
+    public static bool ReadAudience(HttpContext http, IConfiguration config, string tenantSlug, out bool member) =>
+        barakoCMS.Infrastructure.Viewers.ViewerAudience.TryRead(http, config, tenantSlug, out member);
 
     /// <summary>Published entries of a type at the audience's level: Public, and Members too for a viewer.</summary>
     public static IQueryable<ContentDoc> PublishedFor(IQuerySession session, string type, bool member)

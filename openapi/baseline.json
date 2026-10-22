@@ -19484,7 +19484,7 @@
     },
     "/api/public/pages/resolve": {
       "get": {
-        "description": "The core slug route cannot tell /about/team from /careers/team. This looks up the pages holding the\nlast segment's slug, walks each one's parents, and answers with the one whose whole path matches.\nEvery page on the walk has to be published and Public, so a published page under a draft does not\nresolve. The walk reads at most MaxDepth ancestors per candidate.",
+        "description": "The core slug route cannot tell /about/team from /careers/team. This looks up the pages holding the\nlast segment's slug, walks each one's parents, and answers with the one whose whole path matches.\nEvery page on the walk has to be published and Public, so a published page under a draft does not\nresolve. The walk reads at most MaxDepth ancestors per candidate.\nA request carrying a valid X-Viewer-Token for the tenant also resolves Members pages, and the\nanswer is then private and not stored. A token that does not verify answers 401, as on the core routes.",
         "operationId": "BarakoCMSPagesFeaturesResolveEndpoint",
         "responses": {
           "200": {
