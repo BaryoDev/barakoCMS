@@ -328,4 +328,91 @@ public class StockReservationTests(ClinicProbeHost host) : IClassFixture<ClinicP
         await zero.Should().ThrowAsync<ArgumentOutOfRangeException>();
         await negative.Should().ThrowAsync<ArgumentOutOfRangeException>();
     }
+
+    [Fact]
+    public async Task A_lapsed_hold_counts_in_the_balance_without_any_sweep()
+    {
+        var counter = Fresh();
+        await ReceiveAsync(counter, 1);
+        (await ReserveAsync(counter, 1, TimeSpan.FromMilliseconds(1))).Succeeded.Should().BeTrue();
+        await Task.Delay(100);
+
+        (await BalanceAsync(counter)).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_hold_cannot_be_confirmed_after_it_lapsed_even_before_any_sweep()
+    {
+        var counter = Fresh();
+        await ReceiveAsync(counter, 1);
+        var hold = await ReserveAsync(counter, 1, TimeSpan.FromMilliseconds(1));
+        await Task.Delay(100);
+
+        await using (var session = host.OpenSession())
+        {
+            (await Stock.ConfirmAsync(session, hold.HoldId!.Value)).Should().BeFalse();
+            await session.SaveChangesAsync();
+        }
+
+        await using (var sweep = host.OpenSession())
+        {
+            (await Stock.ReleaseExpiredAsync(sweep)).Should().Be(1);
+            await sweep.SaveChangesAsync();
+        }
+
+        (await BalanceAsync(counter)).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_sweep_given_a_time_with_an_offset_expires_the_same_holds()
+    {
+        var counter = Fresh();
+        await ReceiveAsync(counter, 1);
+        await ReserveAsync(counter, 1, TimeSpan.FromMilliseconds(1));
+        await Task.Delay(100);
+
+        await using (var sweep = host.OpenSession())
+        {
+            var at = DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(8));
+            (await Stock.ReleaseExpiredAsync(sweep, at)).Should().BeGreaterThanOrEqualTo(1);
+            await sweep.SaveChangesAsync();
+        }
+
+        (await BalanceAsync(counter)).Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData(400)]
+    [InlineData(int.MaxValue)]
+    public async Task A_hold_longer_than_the_cap_is_refused_as_an_argument(int days)
+    {
+        var counter = Fresh();
+        await ReceiveAsync(counter, 1);
+        await using var session = host.OpenSession();
+        var holdFor = days == int.MaxValue ? TimeSpan.MaxValue : TimeSpan.FromDays(days);
+
+        var act = () => Stock.ReserveAsync(session, counter, 1, holdFor);
+
+        await act.Should().ThrowAsync<ArgumentOutOfRangeException>().WithParameterName("holdFor");
+    }
+
+    [Fact]
+    public async Task Another_tenant_cannot_confirm_or_release_a_hold()
+    {
+        var counter = Fresh();
+        var owner = $"tenant-{Guid.NewGuid():N}"[..16];
+        var other = $"tenant-{Guid.NewGuid():N}"[..16];
+        await ReceiveAsync(counter, 1, tenant: owner);
+        var hold = await ReserveAsync(counter, 1, TimeSpan.FromMinutes(10), owner);
+        hold.Succeeded.Should().BeTrue();
+
+        await using (var session = host.OpenSession(other))
+        {
+            (await Stock.ConfirmAsync(session, hold.HoldId!.Value)).Should().BeFalse();
+            (await Stock.ReleaseAsync(session, hold.HoldId!.Value)).Should().BeFalse();
+            await session.SaveChangesAsync();
+        }
+
+        (await BalanceAsync(counter, owner)).Should().Be(0);
+    }
 }
