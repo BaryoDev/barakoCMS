@@ -1,5 +1,3 @@
-using barakoCMS.Infrastructure.Multitenancy;
-using barakoCMS.Models;
 using Marten;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -8,7 +6,7 @@ namespace BarakoCMS.Notifications;
 
 internal sealed class NotificationService(
     IDocumentSession session,
-    TenantContext tenant,
+    RecipientResolver recipients,
     IEnumerable<INotificationSink> sinks,
     IOptions<NotificationsOptions> options,
     ILogger<NotificationService> logger) : INotificationService
@@ -36,7 +34,7 @@ internal sealed class NotificationService(
             throw new ArgumentException(
                 $"A payload is at most {NotificationRules.MaxPayloadBytes} bytes once serialized.", nameof(request));
 
-        if (!await IsRecipientInTenantAsync(request.RecipientUserId, ct))
+        if (!await recipients.IsInTenantAsync(request.RecipientUserId, ct))
             throw new RecipientNotInTenantException(request.RecipientUserId);
 
         var notification = new Notification
@@ -73,14 +71,5 @@ internal sealed class NotificationService(
         }
 
         return notification.Id;
-    }
-
-    private async Task<bool> IsRecipientInTenantAsync(Guid userId, CancellationToken ct)
-    {
-        if (tenant.IsDefault)
-            return await session.Query<User>().AnyAsync(u => u.Id == userId, ct);
-
-        return await session.Query<Membership>().AnyAsync(
-            m => m.UserId == userId && m.TenantSlug == tenant.Slug && m.Status == MembershipStatus.Active, ct);
     }
 }

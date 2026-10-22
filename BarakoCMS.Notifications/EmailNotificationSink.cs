@@ -1,5 +1,4 @@
 using barakoCMS.Core.Interfaces;
-using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Models;
 using System.Net;
 using Marten;
@@ -7,11 +6,14 @@ using Microsoft.Extensions.Options;
 
 namespace BarakoCMS.Notifications;
 
-/// <summary>Emails a notification to its recipient when <c>Modules:Notifications:EmailDelivery:Enabled</c> is true.</summary>
+/// <summary>
+/// Emails a notification to its recipient when <c>Modules:Notifications:EmailDelivery:Enabled</c> is true.
+/// Sent on the host transport: a notification's title and body come from whatever raised it, so a
+/// tenant's own transport must not carry it.
+/// </summary>
 internal sealed class EmailNotificationSink(
     IQuerySession session,
     IEmailService email,
-    TenantContext tenant,
     IOptions<NotificationsOptions> options) : INotificationSink
 {
     public async Task DeliverAsync(Notification notification, CancellationToken ct)
@@ -23,7 +25,7 @@ internal sealed class EmailNotificationSink(
         var user = await session.LoadAsync<User>(notification.RecipientUserId, ct);
         if (string.IsNullOrWhiteSpace(user?.Email)) return;
 
-        await email.SendForTenantAsync(tenant.Slug, user.Email, notification.Title,
+        await email.SendEmailAsync(user.Email, notification.Title,
             ToHtml(notification.Body ?? notification.Title), ct);
     }
 

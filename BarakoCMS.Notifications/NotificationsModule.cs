@@ -22,6 +22,7 @@ public sealed class NotificationsModule : IBarakoModule
     {
         // `configuration` is this module's own section, Modules:Notifications.
         services.Configure<NotificationsOptions>(configuration);
+        services.TryAddScoped<RecipientResolver>();
         services.TryAddScoped<INotificationService, NotificationService>();
         services.AddScoped<INotificationSink, EmailNotificationSink>();
     }
