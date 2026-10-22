@@ -96,7 +96,6 @@
 76 barakoCMS/Infrastructure/Jobs/MartenJobStorageProvider.cs::MartenJobStorageProvider.MeasureAsync
 88 barakoCMS/Infrastructure/Migrations/MigrationLedger.cs::MigrationLedger.ApplyLockedAsync
 74 barakoCMS/Infrastructure/Migrations/ShippedMigration.cs::ShippedMigrations.Parse
-74 barakoCMS/Infrastructure/Retention/RetentionSweeper.cs::RetentionSweeper.TrySweepAllTenantsAsync
 355 barakoCMS/Infrastructure/Services/ContentTransitioner.cs::ContentTransitioner.TransitionAsync
 111 barakoCMS/Infrastructure/Services/ContentTypeValidatorService.cs::ContentTypeValidatorService.Validate
 77 barakoCMS/Infrastructure/Services/ContentUniqueness.cs::ContentUniqueness.TryRead
