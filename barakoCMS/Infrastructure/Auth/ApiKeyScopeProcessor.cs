@@ -50,7 +50,7 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
     }
 
     // The scopes a request needs (any one of them), or null if API keys may not touch this path at all.
-    private static string[]? RequiredScopes(string path, bool isWrite)
+    internal static string[]? RequiredScopes(string path, bool isWrite)
     {
         // Before the /api/contents prefix rule, or monitor:read would never apply to the counts route.
         if (!isWrite && IsCounts(path))
