@@ -75,6 +75,7 @@
          published image runs it, and its exit code is the claim. Referencing the assembly would put
          a second Program type next to the core host's. -->
     <ProjectReference Include="..\BarakoCMS.Suite\BarakoCMS.Suite.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\BarakoCMS.Contacts\BarakoCMS.Contacts.csproj" />
   </ItemGroup>
 
   <ItemGroup>

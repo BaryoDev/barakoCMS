@@ -509,6 +509,9 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             new BarakoCMS.Forms.FormsModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Forms"));
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Forms.FormsModule(), opts));
 
+            // Contacts: its endpoints are discovered with the assembly, and its unique email index lives in its schema.
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Contacts.ContactsModule(), opts));
+
             // Notifications: the service, the email sink's options and the schema, scoped to its own
             // section as the host scopes it.
             new BarakoCMS.Notifications.NotificationsModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Notifications"));
@@ -615,6 +618,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         typeof(BarakoCMS.Pages.PagesModule).Assembly,
 
         typeof(BarakoCMS.Forms.FormsModule).Assembly,
+        typeof(BarakoCMS.Contacts.ContactsModule).Assembly,
         typeof(BarakoCMS.Notifications.NotificationsModule).Assembly,
         typeof(BarakoCMS.FeatureFlags.FeatureFlagsModule).Assembly,
         typeof(BarakoCMS.Comments.CommentsModule).Assembly,

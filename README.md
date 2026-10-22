@@ -135,6 +135,7 @@ project, through the same `IBarakoModule` contract you can implement yourself.
 | **Diagnostics** | [`BarakoCMS.Diagnostics`](https://www.nuget.org/packages/BarakoCMS.Diagnostics) | Captures client-side (browser) errors and shows a deduped, resolvable **error log** in the admin. |
 | **Forms** | [`BarakoCMS.Forms`](https://www.nuget.org/packages/BarakoCMS.Forms) | Lets a public visitor submit a **form**: a content type marked as a form takes anonymous submissions, validated by its own schema, stored Sensitive, rate limited, with a honeypot and optional Turnstile. |
 | **Comments** | [`BarakoCMS.Comments`](https://www.nuget.org/packages/BarakoCMS.Comments) | A thread of comments and replies on any record. Reading or adding one needs read access to the record itself. Text is stored and returned as text. |
+| **Contacts** | [`BarakoCMS.Contacts`](https://www.nuget.org/packages/BarakoCMS.Contacts) | One record for a **person or an organization**: typed custom fields, person to organization links, email deduplication with a merge endpoint, and Public-only anonymous delivery. |
 | **Analytics.Umami** | [`BarakoCMS.Analytics.Umami`](https://www.nuget.org/packages/BarakoCMS.Analytics.Umami) | A server-side proxy over self-hosted [Umami](https://umami.is): visitors, pages, referrers, countries, devices, plus registering sites and verifying install. |
 | **Pages** | [`BarakoCMS.Pages`](https://www.nuget.org/packages/BarakoCMS.Pages) | A **page tree** over a content type: refuses parent loops, over-deep pages and reserved top-level slugs, and serves the nested menu, path resolution with breadcrumbs, and a drafts-included tree for the console. |
 | **Pwa** | [`BarakoCMS.Pwa`](https://www.nuget.org/packages/BarakoCMS.Pwa) | Tracks PWA installs / installed-app launches (anonymous or tied to the signed-in user) so the admin shows **who** installed the app. |
@@ -234,7 +235,7 @@ BarakoCMS is headless, so you build the frontend. These BaryoDev packages help:
               Portability                   Email.Smtp                Pwa
               Pages                         Comments
               ExternalAuth                                            Diagnostics
-              Forms                         DeviceTrust
+              Forms                         DeviceTrust               Contacts
                     |                         |                         |
                     +-------------------------+-------------------------+
                                               v

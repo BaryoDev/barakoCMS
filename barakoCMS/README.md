@@ -42,6 +42,7 @@ Optional packages, each installable on its own:
 | `BarakoCMS.Accounting` | Double-entry ledger |
 | `BarakoCMS.AI` | Semantic search, self-hosted embeddings |
 | `BarakoCMS.Analytics.Umami` | Privacy-friendly analytics |
+| `BarakoCMS.Contacts` | Person and organization records with dedupe and merge |
 | `BarakoCMS.DeviceTrust` | Device binding and approval |
 | `BarakoCMS.Diagnostics` | Browser error capture |
 | `BarakoCMS.Email.Smtp` | Transactional email over any SMTP relay |
