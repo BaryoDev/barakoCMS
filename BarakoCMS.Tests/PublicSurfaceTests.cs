@@ -327,6 +327,9 @@ public class PublicSurfaceTests
         var transition = Contract.GetExportedTypes()
             .Where(t => t.Name.Contains("ContentTransition", StringComparison.Ordinal))
             .Where(t => t.Namespace == "barakoCMS.Core.Interfaces")
+            // The hook context's record of the move in progress. It belongs to IContentLifecycleHook,
+            // not to what a module calls to transition an entry.
+            .Where(t => t != typeof(barakoCMS.Core.Interfaces.ContentTransition))
             .Select(t => t.FullName!)
             .ToArray();
 
