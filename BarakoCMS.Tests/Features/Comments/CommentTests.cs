@@ -354,6 +354,69 @@ public class CommentTests
     }
 
     [Fact]
+    public async Task An_author_cannot_delete_a_root_that_holds_another_authors_reply()
+    {
+        var type = NewType();
+        var entry = await EntryAsync(type);
+        var (a, _) = await UserAsync(Both, type);
+        var (b, _) = await UserAsync(Both, type);
+        var root = await PostAsync(a, "content", entry, "a's root");
+        await PostAsync(b, "content", entry, "b's reply", root.GetProperty("id").GetGuid());
+
+        var res = await a.DeleteAsync($"/api/comments/{root.GetProperty("id").GetGuid()}", Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        Bodies(await ListAsync(a, "content", entry)).Should().Equal("a's root", "b's reply");
+    }
+
+    [Fact]
+    public async Task A_moderator_holding_only_manage_comments_can_delete_a_comment_and_its_replies()
+    {
+        var type = NewType();
+        var entry = await EntryAsync(type);
+        var (author, _) = await UserAsync(Both, type);
+        var (moderator, _) = await UserAsync([CommentsCapabilities.ManageComments], type);
+        var root = await PostAsync(author, "content", entry, "remove me");
+        await PostAsync(author, "content", entry, "and me", root.GetProperty("id").GetGuid());
+        await PostAsync(author, "content", entry, "stay");
+
+        var res = await moderator.DeleteAsync($"/api/comments/{root.GetProperty("id").GetGuid()}", Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        Bodies(await ListAsync(author, "content", entry)).Should().Equal("stay");
+    }
+
+    [Fact]
+    public async Task A_caller_with_neither_post_nor_manage_comments_cannot_delete()
+    {
+        var type = NewType();
+        var entry = await EntryAsync(type);
+        var admin = await AdminAsync();
+        var (reader, _) = await UserAsync([CommentsCapabilities.ReadComments], type);
+        var comment = await PostAsync(admin, "content", entry, "kept");
+
+        (await reader.DeleteAsync($"/api/comments/{comment.GetProperty("id").GetGuid()}", Ct))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        Bodies(await ListAsync(admin, "content", entry)).Should().Equal("kept");
+    }
+
+    [Fact]
+    public async Task Delete_is_refused_when_the_caller_can_no_longer_read_the_record()
+    {
+        var id = Guid.NewGuid();
+        TicketCommentTarget.Instance.Add(id, readable: true);
+        var admin = await AdminAsync();
+        var comment = await PostAsync(admin, "ticket", id, "mine");
+        TicketCommentTarget.Instance.Add(id, readable: false);
+
+        var res = await admin.DeleteAsync($"/api/comments/{comment.GetProperty("id").GetGuid()}", Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        TicketCommentTarget.Instance.Add(id, readable: true);
+        Bodies(await ListAsync(admin, "ticket", id)).Should().Equal("mine");
+    }
+
+    [Fact]
     public async Task A_comment_that_does_not_exist_cannot_be_deleted()
     {
         var admin = await AdminAsync();

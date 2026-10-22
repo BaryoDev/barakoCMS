@@ -127,6 +127,25 @@ public class CommentTenantTests
     }
 
     [Fact]
+    public async Task A_comment_in_another_tenant_cannot_be_deleted_by_its_id()
+    {
+        var acme = await TenantAsync();
+        var globex = await TenantAsync();
+        var globexEntry = await EntryInAsync(globex);
+        var globexClient = await MemberAsync(globex, "203.0.113.145");
+        var acmeClient = await MemberAsync(acme, "203.0.113.146");
+        var posted = await globexClient.PostAsJsonAsync(
+            "/api/comments", new { targetType = "content", targetId = globexEntry, body = "globex only" }, Ct);
+        posted.StatusCode.Should().Be(HttpStatusCode.Created);
+        var id = (await posted.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("id").GetGuid();
+
+        var res = await acmeClient.DeleteAsync($"/api/comments/{id}", Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await CountAsync(globexClient, globexEntry)).Should().Be(1, "acme's delete touched nothing in globex");
+    }
+
+    [Fact]
     public async Task A_comment_stored_in_one_tenant_is_not_in_another_tenants_partition()
     {
         var acme = await TenantAsync();
