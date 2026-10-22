@@ -206,8 +206,8 @@ under the caller's own field and row rules.
   totals alike, so the totals equal the sum of the rows. `week` is the ISO week in the site's time
   zone, labelled by its Monday (`2026-03-09`).
 - A range names a relative window (`today`, `last7days`, `last30days`, `thismonth`, `lastmonth`,
-  `thisyear`, any letter case), or `from` and `to`. A range with none of them is refused when the
-  query is saved. `from` and `to` in a run body move the saved range and are refused on a query
+  `thisyear`, any letter case), or `from` and `to`. A range with only a field and no bounds given
+  at run time does not limit the rows. `from` and `to` in a run body move the saved range and are refused on a query
   with no range. Dates must fall in the years 2 to 9998.
 - `count` with a field counts the entries where that number field is present, so the field must be
   numeric. Leave the field out to count entries.

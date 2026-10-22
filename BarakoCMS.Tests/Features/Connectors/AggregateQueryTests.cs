@@ -286,7 +286,7 @@ public class AggregateQueryTests
             ("A", 2m, "2026-03-15T12:00:00Z"),
             ("A", 4m, "2026-04-02T12:00:00Z"));
         var client = await AdminAsync();
-        var slug = await SaveOkAsync(client, type, range: new { field = "Date", from = "2000-01-01" },
+        var slug = await SaveOkAsync(client, type, range: new { field = "Date" },
             measures: [new { fn = "sum", field = "Total", @as = "total" }]);
 
         var march = await PostJsonAsync(client, $"/api/queries/{slug}/run", new { from = "2026-03-01", to = "2026-03-31" });
@@ -311,7 +311,7 @@ public class AggregateQueryTests
         var client = await MemberAsync(tenant);
         var byDay = await SaveOkAsync(client, type, groupBy: [new { field = "Date", bucket = "day" }],
             measures: [new { fn = "sum", field = "Total", @as = "total" }]);
-        var ranged = await SaveOkAsync(client, type, range: new { field = "Date", from = "2000-01-01" },
+        var ranged = await SaveOkAsync(client, type, range: new { field = "Date" },
             measures: [new { fn = "sum", field = "Total", @as = "total" }]);
 
         var rows = (await RunOkAsync(client, byDay)).GetProperty("rows").EnumerateArray().ToList();
@@ -339,7 +339,7 @@ public class AggregateQueryTests
 
         var client = await MemberAsync(tenant);
         var slug = await SaveOkAsync(client, type, groupBy: [new { field = "Date", bucket = "day" }],
-            range: new { field = "Date", from = "2000-01-01" },
+            range: new { field = "Date" },
             measures: [new { fn = "sum", field = "Total", @as = "total" }]);
 
         var body = await PostJsonAsync(client, $"/api/queries/{slug}/run", new { from = "2026-03-01", to = "2026-03-31" });
@@ -589,7 +589,7 @@ public class AggregateQueryTests
         var type = await SeedOrdersAsync(null, ("A", 1m));
         var client = await AdminAsync();
         var noRange = await SaveOkAsync(client, type, measures: [new { fn = "sum", field = "Total", @as = "t" }]);
-        var ranged = await SaveOkAsync(client, type, range: new { field = "Date", from = "2000-01-01" },
+        var ranged = await SaveOkAsync(client, type, range: new { field = "Date" },
             measures: [new { fn = "sum", field = "Total", @as = "t" }]);
 
         var refused = await client.PostAsJsonAsync($"/api/queries/{noRange}/run", new { from = "2026-03-01" }, Ct);
@@ -598,19 +598,6 @@ public class AggregateQueryTests
 
         (await PostJsonAsync(client, $"/api/queries/{ranged}/run", new { from = "2000-02-01" }))
             .GetProperty("ok").GetBoolean().Should().BeTrue("the control: a saved range takes a run-time from");
-    }
-
-    [Fact]
-    public async Task A_range_that_names_no_relative_from_or_to_is_refused_at_save()
-    {
-        var type = await SeedOrdersAsync(null, ("A", 1m));
-        var client = await AdminAsync();
-
-        var res = await SaveAsync(client, type, range: new { field = "Date" },
-            measures: [new { fn = "sum", field = "Total", @as = "t" }]);
-
-        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await res.Content.ReadAsStringAsync(Ct)).Should().Contain("range");
     }
 
     [Fact]
@@ -623,7 +610,7 @@ public class AggregateQueryTests
         var savedRange = await SaveAsync(client, type, range: new { field = "Date", to = "9999-12-31" }, measures: measures);
         savedRange.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
-        var slug = await SaveOkAsync(client, type, range: new { field = "Date", from = "2000-01-01" }, measures: measures);
+        var slug = await SaveOkAsync(client, type, range: new { field = "Date" }, measures: measures);
         var run = await client.PostAsJsonAsync($"/api/queries/{slug}/run", new { to = "9999-12-31" }, Ct);
         run.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 

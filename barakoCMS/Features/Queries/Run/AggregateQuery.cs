@@ -332,8 +332,6 @@ internal sealed partial class AggregateQuery(
         var hasBounds = !string.IsNullOrWhiteSpace(range.From) || !string.IsNullOrWhiteSpace(range.To);
         if (hasRelative && hasBounds)
             return "A range is either relative or has from and to, not both.";
-        if (!hasRelative && !hasBounds)
-            return "A range needs a relative window, a from or a to.";
         if (hasRelative && !Relatives.Contains(relative!, StringComparer.OrdinalIgnoreCase))
             return $"Unknown range '{range.Relative}'. Supported: {string.Join(", ", Relatives)}.";
 
