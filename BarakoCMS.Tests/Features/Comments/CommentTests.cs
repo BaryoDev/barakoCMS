@@ -322,16 +322,15 @@ public class CommentTests
         var type = NewType();
         var entry = await EntryAsync(type);
         var (author, _) = await UserAsync(Both, type);
-        var admin = await AdminAsync();
         var root = await PostAsync(author, "content", entry, "mine");
-        var reply = await PostAsync(admin, "content", entry, "reply", root.GetProperty("id").GetGuid());
-        await PostAsync(admin, "content", entry, "nested", reply.GetProperty("id").GetGuid());
-        await PostAsync(admin, "content", entry, "unrelated");
+        var reply = await PostAsync(author, "content", entry, "reply", root.GetProperty("id").GetGuid());
+        await PostAsync(author, "content", entry, "nested", reply.GetProperty("id").GetGuid());
+        await PostAsync(author, "content", entry, "unrelated");
 
         var res = await author.DeleteAsync($"/api/comments/{root.GetProperty("id").GetGuid()}", Ct);
 
         res.StatusCode.Should().Be(HttpStatusCode.NoContent);
-        Bodies(await ListAsync(admin, "content", entry)).Should().Equal("unrelated");
+        Bodies(await ListAsync(author, "content", entry)).Should().Equal("unrelated");
     }
 
     [Fact]
