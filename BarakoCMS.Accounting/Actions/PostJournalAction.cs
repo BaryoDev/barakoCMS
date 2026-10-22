@@ -1,6 +1,7 @@
 using System.Globalization;
 using barakoCMS.Features.Workflows;
 using barakoCMS.Infrastructure.Attributes;
+using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using BarakoCMS.Accounting.Domain;
 using Marten;
@@ -16,6 +17,10 @@ namespace BarakoCMS.Accounting;
 /// amount is <c>{{Amount}}</c> (the action's Amount parameter), <c>{{Data.Field}}</c> (a decimal
 /// field of the subject) or a decimal literal; anything else fails for good, since waiting will
 /// not make it a number.
+///
+/// Mapping, ActionKey, Memo and Amount arrive as written (see <c>SelfResolvedParameters</c>). A
+/// placeholder in one that reads a field of the subject that is not Public fails for good, by the
+/// field's name; the rest is filled in by the action the way the runner fills any parameter.
 /// </remarks>
 [WorkflowActionMetadata(
     Description = "Post the journal entry a mapping describes for the entry that triggered the workflow",
@@ -23,17 +28,29 @@ namespace BarakoCMS.Accounting;
     RequiredCapability = AccountingCapabilities.PostEntries,
     RequiredParameters = new[] { "Mapping", "ActionKey" },
     OptionalParameters = new[] { "Date", "Memo", "Amount" },
+    SelfResolvedParameters = new[] { "Mapping", "ActionKey", "Memo", "Amount" },
     ExampleJson = @"{""Type"":""Accounting.PostJournal"",""Parameters"":{""Mapping"":""receipt-cash"",""ActionKey"":""receipt""}}"
 )]
-public sealed class PostJournalAction(LedgerService ledger, AccountMappingStore mappings, IDocumentSession session) : IWorkflowAction
+public sealed class PostJournalAction(LedgerService ledger, AccountMappingStore mappings, IDocumentSession session, ITemplateVariableExtractor? extractor = null) : IWorkflowAction
 {
     public string Type => "Accounting.PostJournal";
 
     public Task ExecuteAsync(Dictionary<string, string> parameters, Content content, CancellationToken ct) =>
         RunAsync(parameters, content, ct);
 
-    public async Task<WorkflowActionResult> RunAsync(Dictionary<string, string> parameters, Content content, CancellationToken ct)
+    public async Task<WorkflowActionResult> RunAsync(Dictionary<string, string> parameters, Content content, CancellationToken ct) =>
+        await PostAsync(parameters, content, ct);
+
+    private async Task<WorkflowActionResult> PostAsync(
+        Dictionary<string, string> raw, Content content, CancellationToken ct)
     {
+        // Mapping, ActionKey, Memo and Amount arrive as written: the check is by the name of the
+        // field a placeholder reads, which a filled-in value no longer tells.
+        var sensitive = await SubjectSensitivity.FieldsAsync(session, content, ct);
+        if (SubjectSensitivity.Fill(raw, SubjectSensitivity.PostJournalParameters, content, sensitive, extractor, out var problem)
+            is not { } parameters)
+            return WorkflowActionResult.PermanentFailure(problem!);
+
         if (!parameters.TryGetValue("Mapping", out var mappingName) || string.IsNullOrWhiteSpace(mappingName))
             return WorkflowActionResult.PermanentFailure("Parameter 'Mapping' is required.");
         if (!parameters.TryGetValue("ActionKey", out var actionKey) || string.IsNullOrWhiteSpace(actionKey))
@@ -53,14 +70,11 @@ public sealed class PostJournalAction(LedgerService ledger, AccountMappingStore 
         if (posted.Entry is { } existing)
             return Done(existing.Id, ContentData.AsString(ContentData.Get(existing.Data, "EntryNumber")) ?? string.Empty);
 
-        var sensitive = await SubjectSensitivity.FieldsAsync(session, content, ct);
         var chart = (await AccountingContentReader.AccountsAsync(session, ct))
             .GroupBy(a => a.Code, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First().Code, StringComparer.OrdinalIgnoreCase);
-        var (lines, problem) = ResolveLines(rule, parameters, content, sensitive, chart);
-        problem ??= SubjectSensitivity.Problem([parameters.GetValueOrDefault("Memo"), actionKey, mappingName], content, sensitive)
-            ?? SubjectSensitivity.AmountProblem(parameters.GetValueOrDefault("Amount"), content, sensitive);
-        if (problem is not null)
-            return WorkflowActionResult.PermanentFailure(problem);
+        var (lines, linesProblem) = ResolveLines(rule, parameters, content, sensitive, chart);
+        if (linesProblem is not null)
+            return WorkflowActionResult.PermanentFailure(linesProblem);
         if (lines.Count == 0)
             return WorkflowActionResult.Success(new Dictionary<string, string> { ["id"] = string.Empty, ["entryNumber"] = string.Empty });
 

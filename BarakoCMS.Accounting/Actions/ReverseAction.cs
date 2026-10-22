@@ -2,6 +2,7 @@ using System.Globalization;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Features.Workflows;
 using barakoCMS.Infrastructure.Attributes;
+using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using Marten;
 
@@ -17,6 +18,10 @@ namespace BarakoCMS.Accounting;
 /// a crash between the two steps. Voiding only marks the original. Both entries stay in the books,
 /// each on its own date, so a report after the reversal date nets to zero and an earlier one still
 /// shows the original.
+///
+/// ActionKey and Reason arrive as written (see <c>SelfResolvedParameters</c>). A placeholder in
+/// either that reads a field of the subject that is not Public fails for good, by the field's name;
+/// the rest is filled in by the action the way the runner fills any parameter.
 /// </remarks>
 [WorkflowActionMetadata(
     Description = "Reverse the journal entry posted for an entry and key, and void the original",
@@ -24,17 +29,29 @@ namespace BarakoCMS.Accounting;
     RequiredCapability = AccountingCapabilities.PostEntries,
     RequiredParameters = new[] { "ActionKey", "Reason" },
     OptionalParameters = new[] { "Target", "Date" },
+    SelfResolvedParameters = new[] { "ActionKey", "Reason" },
     ExampleJson = @"{""Type"":""Accounting.Reverse"",""Parameters"":{""ActionKey"":""receipt"",""Reason"":""Receipt cancelled""}}"
 )]
-public sealed class ReverseAction(LedgerService ledger, IContentTransitioner transitioner, IDocumentSession session) : IWorkflowAction
+public sealed class ReverseAction(LedgerService ledger, IContentTransitioner transitioner, IDocumentSession session, ITemplateVariableExtractor? extractor = null) : IWorkflowAction
 {
     public string Type => "Accounting.Reverse";
 
     public Task ExecuteAsync(Dictionary<string, string> parameters, Content content, CancellationToken ct) =>
         RunAsync(parameters, content, ct);
 
-    public async Task<WorkflowActionResult> RunAsync(Dictionary<string, string> parameters, Content content, CancellationToken ct)
+    public async Task<WorkflowActionResult> RunAsync(Dictionary<string, string> parameters, Content content, CancellationToken ct) =>
+        await ReverseAsync(parameters, content, ct);
+
+    private async Task<WorkflowActionResult> ReverseAsync(
+        Dictionary<string, string> raw, Content content, CancellationToken ct)
     {
+        // ActionKey and Reason arrive as written: the check is by the name of the field a
+        // placeholder reads, which a filled-in value no longer tells.
+        var sensitive = await SubjectSensitivity.FieldsAsync(session, content, ct);
+        if (SubjectSensitivity.Fill(raw, SubjectSensitivity.ReverseParameters, content, sensitive, extractor, out var problem)
+            is not { } parameters)
+            return WorkflowActionResult.PermanentFailure(problem!);
+
         if (!parameters.TryGetValue("ActionKey", out var actionKey) || string.IsNullOrWhiteSpace(actionKey))
             return WorkflowActionResult.PermanentFailure("Parameter 'ActionKey' is required.");
         if (!parameters.TryGetValue("Reason", out var reason) || string.IsNullOrWhiteSpace(reason))
@@ -48,10 +65,6 @@ public sealed class ReverseAction(LedgerService ledger, IContentTransitioner tra
 
         if (!Guid.TryParse(parameters.GetValueOrDefault("RunId"), out _))
             return WorkflowActionResult.PermanentFailure("This action reverses only from a workflow run.");
-
-        var sensitive = await SubjectSensitivity.FieldsAsync(session, content, ct);
-        if (SubjectSensitivity.Problem([actionKey, reason, text], content, sensitive) is { } shown)
-            return WorkflowActionResult.PermanentFailure(shown);
 
         var originalLookup = await PostingReference.FindAsync(session, PostingReference.For(subjectId, actionKey), ct);
         var reference = PostingReference.For(subjectId, actionKey) + ":reverse";

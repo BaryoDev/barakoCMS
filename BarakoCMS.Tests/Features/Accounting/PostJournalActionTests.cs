@@ -275,32 +275,47 @@ public class PostJournalActionTests(IntegrationTestFixture fixture)
                 Fields =
                 [
                     new FieldDefinition { Name = "Total", DisplayName = "Total", Type = "decimal" },
-                    new FieldDefinition { Name = "Diagnosis", DisplayName = "Diagnosis", Type = "string", Sensitivity = SensitivityLevel.Sensitive },
+                    new FieldDefinition { Name = "Remark", DisplayName = "Remark", Type = "string", Sensitivity = SensitivityLevel.Sensitive },
                 ],
             });
             await session.SaveChangesAsync(Ct);
         }
 
-        Content Sick() => new()
+        Content Restricted() => new()
         {
             Id = Guid.NewGuid(),
             ContentType = type,
-            Data = new Dictionary<string, object> { ["Total"] = 40m, ["Diagnosis"] = "asthma" },
+            Data = new Dictionary<string, object> { ["Total"] = 40m, ["Remark"] = "private note" },
         };
 
-        var byValue = await RunAsync(Sick(), setup.Mapping, "receipt", memo: "visit for asthma");
-        var byName = await RunAsync(Sick(), setup.Mapping, "receipt", memo: "visit for {{Data.Diagnosis}}");
-        var plain = Sick();
-        var allowed = await RunAsync(plain, setup.Mapping, "receipt", memo: "consultation");
+        var byName = await RunAsync(Restricted(), setup.Mapping, "receipt", memo: "order for {{Data.Remark}}");
+        var spaced = await RunAsync(Restricted(), setup.Mapping, "receipt", memo: "order for {{ data.remark | upper }}");
+        var named = Restricted();
+        var byValue = await RunAsync(named, setup.Mapping, "receipt", memo: "order for private note");
+        var plain = Restricted();
+        var allowed = await RunAsync(plain, setup.Mapping, "receipt", memo: "service");
+        var filledSubject = Restricted();
+        var filled = await RunAsync(filledSubject, setup.Mapping, "receipt", memo: "receipt for {{data.Total}}");
 
-        byValue.Succeeded.Should().BeFalse();
-        byValue.Retryable.Should().BeFalse();
-        byValue.Error.Should().Contain("Diagnosis");
         byName.Succeeded.Should().BeFalse();
+        byName.Retryable.Should().BeFalse();
+        byName.Error.Should().Contain("Remark");
+        spaced.Succeeded.Should().BeFalse();
+        spaced.Error.Should().Contain("Remark");
+        byValue.Succeeded.Should().BeTrue("a memo that merely contains the sensitive value is not a placeholder: " + byValue.Error);
         allowed.Succeeded.Should().BeTrue(allowed.Error);
+        filled.Succeeded.Should().BeTrue(filled.Error);
+        AccountingTestData.Text((await EntriesForAsync(filledSubject)).Single(), "Memo").Should().Be("receipt for 40");
 
-        var amountFromSensitive = await SetupAsync(true, ("debit", "{{Data.Diagnosis}}"), ("credit", "{{Data.Diagnosis}}"));
-        (await RunAsync(Sick(), amountFromSensitive.Mapping, "receipt")).Succeeded.Should().BeFalse();
+        var outputSubject = Restricted();
+        var fromOutput = await RunAsync(outputSubject, setup.Mapping, "receipt", memo: "order {{ actions.0.Number }}");
+        fromOutput.Succeeded.Should().BeFalse();
+        fromOutput.Retryable.Should().BeFalse();
+        fromOutput.Error.Should().Contain("earlier action's output");
+        (await EntriesForAsync(outputSubject)).Should().BeEmpty();
+
+        var amountFromSensitive = await SetupAsync(true, ("debit", "{{Data.Remark}}"), ("credit", "{{Data.Remark}}"));
+        (await RunAsync(Restricted(), amountFromSensitive.Mapping, "receipt")).Succeeded.Should().BeFalse();
     }
 
     [Fact]
@@ -319,7 +334,7 @@ public class PostJournalActionTests(IntegrationTestFixture fixture)
                 Fields =
                 [
                     new FieldDefinition { Name = "Total", DisplayName = "Total", Type = "decimal" },
-                    new FieldDefinition { Name = "Dosage", DisplayName = "Dosage", Type = "decimal", Sensitivity = SensitivityLevel.Sensitive },
+                    new FieldDefinition { Name = "Discount", DisplayName = "Discount", Type = "decimal", Sensitivity = SensitivityLevel.Sensitive },
                 ],
             });
             await session.SaveChangesAsync(Ct);
@@ -329,18 +344,18 @@ public class PostJournalActionTests(IntegrationTestFixture fixture)
         {
             Id = Guid.NewGuid(),
             ContentType = type,
-            Data = new Dictionary<string, object> { ["Total"] = 40m, ["Dosage"] = 75.5m },
+            Data = new Dictionary<string, object> { ["Total"] = 40m, ["Discount"] = 75.5m },
         };
 
-        var filled = await RunAsync(subject, setup.Mapping, "receipt", amount: "75.5");
-        var unfilled = await RunAsync(subject, setup.Mapping, "receipt", amount: "{{Data.Dosage}}");
+        var byName = await RunAsync(subject, setup.Mapping, "receipt", amount: "{{Data.Discount}}");
 
-        filled.Succeeded.Should().BeFalse();
-        filled.Retryable.Should().BeFalse();
-        filled.Error.Should().Contain("Dosage");
-        unfilled.Succeeded.Should().BeFalse();
+        byName.Succeeded.Should().BeFalse();
+        byName.Retryable.Should().BeFalse();
+        byName.Error.Should().Contain("Discount");
         (await EntriesForAsync(subject)).Should().BeEmpty();
-        (await RunAsync(subject, setup.Mapping, "receipt", amount: "40")).Succeeded.Should().BeTrue();
+
+        // A literal that happens to equal the sensitive number is only a number.
+        (await RunAsync(subject, setup.Mapping, "receipt", amount: "75.5")).Succeeded.Should().BeTrue();
     }
 
     [Fact]
@@ -380,5 +395,17 @@ public class PostJournalActionTests(IntegrationTestFixture fixture)
         new AccountingModule().ConfigureWorkflowActions(new ModuleWorkflowActionRegistry().For(services, new AccountingModule()));
 
         services.Should().Contain(d => d.ServiceType == typeof(IWorkflowAction));
+    }
+
+    [Fact]
+    public void The_text_parameters_are_declared_as_filled_by_the_actions()
+    {
+        static string[] Declared(Type action) =>
+            ((barakoCMS.Infrastructure.Attributes.WorkflowActionMetadataAttribute)action
+                .GetCustomAttributes(typeof(barakoCMS.Infrastructure.Attributes.WorkflowActionMetadataAttribute), false).Single())
+            .SelfResolvedParameters;
+
+        Declared(typeof(PostJournalAction)).Should().BeEquivalentTo("Mapping", "ActionKey", "Memo", "Amount");
+        Declared(typeof(ReverseAction)).Should().BeEquivalentTo("ActionKey", "Reason");
     }
 }

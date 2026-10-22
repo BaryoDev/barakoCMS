@@ -170,7 +170,7 @@ public class ReverseActionTests(IntegrationTestFixture fixture)
                 Fields =
                 [
                     new FieldDefinition { Name = "Total", DisplayName = "Total", Type = "decimal" },
-                    new FieldDefinition { Name = "Diagnosis", DisplayName = "Diagnosis", Type = "string", Sensitivity = SensitivityLevel.Sensitive },
+                    new FieldDefinition { Name = "Remark", DisplayName = "Remark", Type = "string", Sensitivity = SensitivityLevel.Sensitive },
                 ],
             });
             await session.SaveChangesAsync(Ct);
@@ -180,20 +180,24 @@ public class ReverseActionTests(IntegrationTestFixture fixture)
         {
             Id = Guid.NewGuid(),
             ContentType = type,
-            Data = new Dictionary<string, object> { ["Total"] = 40m, ["Diagnosis"] = "asthma" },
+            Data = new Dictionary<string, object> { ["Total"] = 40m, ["Remark"] = "private note" },
         };
         (await PostAsync(subject, mapping)).Succeeded.Should().BeTrue();
 
-        var byValue = await ReverseAsync(subject, "cancelled, asthma visit");
-        var byName = await ReverseAsync(subject, "cancelled {{Data.Diagnosis}}");
+        var byName = await ReverseAsync(subject, "cancelled {{Data.Remark}}");
+        var spaced = await ReverseAsync(subject, "cancelled {{ data.remark }}");
 
-        byValue.Succeeded.Should().BeFalse();
-        byValue.Retryable.Should().BeFalse();
-        byValue.Error.Should().Contain("Diagnosis");
         byName.Succeeded.Should().BeFalse();
+        byName.Retryable.Should().BeFalse();
+        byName.Error.Should().Contain("Remark");
+        spaced.Succeeded.Should().BeFalse();
         var original = (await AccountingTestData.EntriesAsync(fixture, $"{subject.Id:N}:")).Single();
         original.LifecycleState.Should().Be("Posted");
-        (await ReverseAsync(subject, "cancelled by customer")).Succeeded.Should().BeTrue();
+
+        // The sensitive value written out is only text, and a public placeholder is filled in.
+        (await ReverseAsync(subject, "cancelled, private order for {{data.Total}}")).Succeeded.Should().BeTrue();
+        var voided = (await AccountingTestData.EntriesAsync(fixture, $"{subject.Id:N}:")).Single(e => e.LifecycleState == "Voided");
+        AccountingTestData.Text(voided, "VoidReason").Should().Be("cancelled, private order for 40");
     }
 
     [Fact]
