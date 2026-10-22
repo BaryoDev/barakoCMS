@@ -108,8 +108,9 @@ public class AccountScopedTenantTests
             var response = await client.GetAsync($"{path}?pageSize=100&page={page}", Ct);
             response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
             var body = await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
-            all.AddRange(body.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("slug").GetString()!));
-            if (all.Count >= body.GetProperty("totalItems").GetInt32()) return all;
+            var items = body.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("slug").GetString()!).ToList();
+            all.AddRange(items);
+            if (items.Count == 0 || all.Count >= body.GetProperty("totalItems").GetInt32()) return all;
         }
     }
 
