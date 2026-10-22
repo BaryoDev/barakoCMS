@@ -44,7 +44,6 @@ Optional packages, each installable on its own:
 | `BarakoCMS.Analytics.Umami` | Privacy-friendly analytics |
 | `BarakoCMS.DeviceTrust` | Device binding and approval |
 | `BarakoCMS.Diagnostics` | Browser error capture |
-| `BarakoCMS.Email.Resend` | Transactional email |
 | `BarakoCMS.Email.Smtp` | Transactional email over any SMTP relay |
 | `BarakoCMS.ExternalAuth` | Google / GitHub / Facebook / LinkedIn sign-in |
 | `BarakoCMS.FeatureFlags` | Flags with targeting |
@@ -57,6 +56,7 @@ Optional packages, each installable on its own:
 | `BarakoCMS.Payments` | Payment checkout and verified provider webhooks for an entry |
 | `BarakoCMS.Portability` | Export / import bundles |
 | `BarakoCMS.Pwa` | Install tracking |
+| `BarakoCMS.Notifications` | In-app notifications any module can raise |
 
 Every one is published under the `barakocms-module` tag, so one search on nuget.org returns them all.
 

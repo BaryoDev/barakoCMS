@@ -96,11 +96,18 @@ internal sealed class ConnectorDeliveryDraft(ComposedRequest composed)
     }
 
     /// <summary>Keeps the answer's body, cut and with the credentials taken out.</summary>
-    public async Task ReadResponseAsync(HttpResponseMessage response, CancellationToken ct)
+    public Task ReadResponseAsync(HttpResponseMessage response, CancellationToken ct) =>
+        HoldAsync(async () => await ConnectorDeliveryRedaction.ReadBodyAsync(response.Content, _secrets, ct), ct);
+
+    /// <summary>Keeps a body the caller has already read, the same way.</summary>
+    public Task ReadResponseAsync(Stream body, CancellationToken ct) =>
+        HoldAsync(() => ConnectorDeliveryRedaction.ReadBodyAsync(body, _secrets, ct), ct);
+
+    private async Task HoldAsync(Func<Task<string?>> read, CancellationToken ct)
     {
         try
         {
-            ResponseBody = await ConnectorDeliveryRedaction.ReadBodyAsync(response.Content, _secrets, ct);
+            ResponseBody = await read();
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -466,10 +473,15 @@ internal static class ConnectorDeliveryRedaction
     internal static async Task<string?> ReadBodyAsync(
         HttpContent content, IReadOnlyCollection<string> secrets, CancellationToken ct)
     {
+        await using var stream = await content.ReadAsStreamAsync(ct);
+        return await ReadBodyAsync(stream, secrets, ct);
+    }
+
+    internal static async Task<string?> ReadBodyAsync(
+        Stream stream, IReadOnlyCollection<string> secrets, CancellationToken ct)
+    {
         var limit = WebhookDelivery.ResponseBodyLimit;
         var longest = secrets.Count == 0 ? 0 : secrets.Max(secret => Encoding.UTF8.GetByteCount(secret));
-
-        await using var stream = await content.ReadAsStreamAsync(ct);
 
         var buffer = new byte[limit + longest];
         var total = 0;

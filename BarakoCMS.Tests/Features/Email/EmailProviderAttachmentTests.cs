@@ -1,6 +1,4 @@
-using System.Text.Json;
 using barakoCMS.Core.Interfaces;
-using BarakoCMS.Email.Resend;
 using BarakoCMS.Email.Smtp;
 using FluentAssertions;
 using Microsoft.Extensions.Options;
@@ -103,73 +101,5 @@ public class SmtpAttachmentTests
         lines.Should().NotBeEmpty();
         lines.Should().NotContain(l => l.StartsWith("Bcc:", StringComparison.OrdinalIgnoreCase));
         messages[0].Should().Contain(Convert.ToBase64String(Pdf), "the attachment itself still went");
-    }
-}
-
-/// <summary>
-/// An attachment handed to the Resend provider is in the request it posts.
-/// </summary>
-public class ResendAttachmentTests
-{
-    private const string ApiKey = "re_test_ThisIsNotARealResendKey_0123456789";
-    private static readonly byte[] Pdf = "%PDF-1.4 a receipt"u8.ToArray();
-
-    private sealed class Settings : IEmailSettingsProvider
-    {
-        public Task<ResolvedEmailSettings> GetAsync(CancellationToken ct = default) =>
-            Task.FromResult(new ResolvedEmailSettings(
-                ApiKey, "BarakoCMS <hello@example.com>", EmailSettingSource.Configuration, EmailSettingSource.Configuration));
-    }
-
-    private static readonly EmailAttachment[] OneReceipt =
-    [
-        new() { FileName = "receipt.pdf", ContentType = "application/pdf", Content = Pdf },
-    ];
-
-    [Fact]
-    public async Task An_attachment_is_posted_with_its_name_type_and_bytes()
-    {
-        var handler = new RecordingHandler();
-        var service = new ResendEmailService(new HttpClient(handler), new Settings());
-
-        await service.SendEmailAsync(
-            "guest@example.com", "Your receipt", "<p>Attached.</p>", OneReceipt, TestContext.Current.CancellationToken);
-
-        using var body = JsonDocument.Parse(handler.RequestBody);
-        body.RootElement.GetProperty("to").EnumerateArray().Single().GetString().Should().Be("guest@example.com");
-
-        var attachments = body.RootElement.GetProperty("attachments").EnumerateArray().ToList();
-        attachments.Should().HaveCount(1);
-        attachments[0].GetProperty("filename").GetString().Should().Be("receipt.pdf");
-        attachments[0].GetProperty("content_type").GetString().Should().Be("application/pdf");
-        Convert.FromBase64String(attachments[0].GetProperty("content").GetString()!).Should().Equal(Pdf);
-    }
-
-    [Fact]
-    public async Task An_attachment_sent_for_a_tenant_is_posted_too()
-    {
-        var handler = new RecordingHandler();
-        var service = new ResendEmailService(new HttpClient(handler), new Settings());
-
-        await service.SendForTenantAsync(
-            "club-a", "guest@example.com", "Your receipt", "<p>Attached.</p>", OneReceipt,
-            TestContext.Current.CancellationToken);
-
-        using var body = JsonDocument.Parse(handler.RequestBody);
-        body.RootElement.GetProperty("attachments").EnumerateArray().ToList().Should().HaveCount(1);
-    }
-
-    /// <summary>A guard: the request for an email with no attachment is the one it was before.</summary>
-    [Fact]
-    public async Task A_message_with_no_attachment_posts_no_attachments_field()
-    {
-        var handler = new RecordingHandler();
-        var service = new ResendEmailService(new HttpClient(handler), new Settings());
-
-        await service.SendEmailAsync("guest@example.com", "Hello", "<p>Body</p>", TestContext.Current.CancellationToken);
-
-        using var body = JsonDocument.Parse(handler.RequestBody);
-        body.RootElement.TryGetProperty("attachments", out _).Should().BeFalse();
-        body.RootElement.EnumerateObject().Select(p => p.Name).Should().Equal("from", "to", "subject", "html");
     }
 }

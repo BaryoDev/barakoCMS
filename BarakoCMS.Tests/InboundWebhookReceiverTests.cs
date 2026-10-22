@@ -2,7 +2,6 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using barakoCMS.Core.Interfaces;
-using BarakoCMS.Email.Resend;
 using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
@@ -107,57 +106,5 @@ public class InboundWebhookReceiverTests
 
         outcome.Should().Be(InboundWebhookOutcome.Processed);
         ran.Should().Be(1);
-    }
-
-    [Fact]
-    public async Task The_Resend_endpoint_stores_a_replayed_bounce_once()
-    {
-        Environment.GetEnvironmentVariable("RESEND_WEBHOOK_SECRET").Should().BeNull(
-            "the endpoint reads the environment first when it is set, and this test sets the secret by configuration");
-
-        var email = $"replay-{Guid.NewGuid():N}@example.com";
-        var body = $$$"""{"type":"email.bounced","data":{"to":["{{{email}}}"],"email_id":"e-{{{Guid.NewGuid():N}}}"}}""";
-        var client = _factory.WithSetting("Resend:WebhookSecret", Secret).CreateClient();
-
-        var statuses = new List<HttpStatusCode>();
-        for (var i = 0; i < 2; i++)
-        {
-            var signed = Signed("msg_replay_" + email, DateTimeOffset.UtcNow, body);
-            var req = new HttpRequestMessage(HttpMethod.Post, "/api/webhooks/resend")
-            {
-                Content = new StringContent(body, Encoding.UTF8, "application/json"),
-            };
-            foreach (var (k, v) in signed.Headers)
-                req.Headers.Add(k, v);
-            statuses.Add((await client.SendAsync(req, TestContext.Current.CancellationToken)).StatusCode);
-        }
-
-        statuses.Should().Equal(HttpStatusCode.OK, HttpStatusCode.OK);
-        using var scope = _factory.Services.CreateScope();
-        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
-        var stored = await session.Query<EmailEvent>().Where(e => e.Email == email)
-            .ToListAsync(TestContext.Current.CancellationToken);
-        stored.Should().HaveCount(1, "the same svix-id delivered twice is one provider event");
-    }
-
-    [Theory]
-    [InlineData("[1]")]
-    [InlineData("\"text\"")]
-    [InlineData("{\"type\":5}")]
-    [InlineData("{\"type\":\"email.bounced\",\"data\":{\"to\":[7]}}")]
-    public async Task The_Resend_endpoint_acks_a_signed_payload_of_the_wrong_shape(string body)
-    {
-        var client = _factory.WithSetting("Resend:WebhookSecret", Secret).CreateClient();
-        var signed = Signed("msg_shape_" + Guid.NewGuid().ToString("N"), DateTimeOffset.UtcNow, body);
-        var req = new HttpRequestMessage(HttpMethod.Post, "/api/webhooks/resend")
-        {
-            Content = new StringContent(body, Encoding.UTF8, "application/json"),
-        };
-        foreach (var (k, v) in signed.Headers)
-            req.Headers.Add(k, v);
-
-        var response = await client.SendAsync(req, TestContext.Current.CancellationToken);
-
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 }

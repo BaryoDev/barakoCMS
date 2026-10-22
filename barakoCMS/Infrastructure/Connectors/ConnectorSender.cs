@@ -105,6 +105,12 @@ internal sealed class ConnectorSender(
     /// <summary>Also counted in the slowest action the outbound settings are checked against at startup.</summary>
     internal static readonly TimeSpan DefaultGrantTimeout = TimeSpan.FromSeconds(30);
 
+    /// <summary>The longest the body of an answer may take to arrive after its headers.</summary>
+    internal TimeSpan BodyTimeout { get; init; } = barakoCMS.Infrastructure.Http.OutboundResilienceOptions.ResponseBodyAllowance;
+
+    /// <summary>The most of a body the success rule reads. Past it the rest is not looked at.</summary>
+    private const int RuleBodyLimit = 1024 * 1024;
+
     /// <summary>The longest the write of one delivery row may hold up the caller.</summary>
     /// <remarks>
     /// The send has already happened by then, and the workflow runner is one loop. A database that
@@ -285,21 +291,13 @@ internal sealed class ConnectorSender(
 
         try
         {
-            using var first = await client.SendAsync(request, ct);
+            using var first = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
             using var again = await RetryWithNewTokenAsync(client, connector, request, first,
-                () => BuildRequest(composed, target), HttpCompletionOption.ResponseContentRead, ct, draft);
+                () => BuildRequest(composed, target), HttpCompletionOption.ResponseHeadersRead, ct, draft);
             var response = again ?? first;
+
+            var body = await ReadAnswerAsync(response, rule, successJsonPath, draft, ct);
             timer.Stop();
-
-            if (draft is not null) await draft.ReadResponseAsync(response, ct);
-
-            // The body is read only when a rule needs it, and it is never returned or logged. A 401
-            // from an OAuth provider frequently contains the credential that was sent.
-            string? body = null;
-            if (rule == SuccessRule.TwoHundredAndJsonPathAbsent && !string.IsNullOrWhiteSpace(successJsonPath))
-            {
-                body = await response.Content.ReadAsStringAsync(ct);
-            }
 
             var status = (int)response.StatusCode;
             var ok = SuccessEvaluator.Succeeded(rule, status, body, successJsonPath);
@@ -317,6 +315,59 @@ internal sealed class ConnectorSender(
             timer.Stop();
             logger.LogWarning("Connector {Slug} send failed: {Reason}", connector.Slug, ex.GetType().Name);
             return new ConnectorCallResult(false, null, timer.ElapsedMilliseconds, Describe(ex));
+        }
+    }
+
+    /// <summary>
+    /// Reads the answer's body once, for the success rule and the delivery row together, and returns
+    /// the text the rule needs, or null when it needs none.
+    /// </summary>
+    /// <remarks>
+    /// The body is read only when a rule or the row needs it, and it is never returned or logged. A
+    /// 401 from an OAuth provider frequently contains the credential that was sent. The client's own
+    /// timeouts end at the headers, so <see cref="BodyTimeout"/> bounds the read here. When it runs
+    /// out the row keeps no body, and a rule that needed one fails the send.
+    /// </remarks>
+    private async Task<string?> ReadAnswerAsync(
+        HttpResponseMessage response, SuccessRule rule, string? successJsonPath,
+        ConnectorDeliveryDraft? draft, CancellationToken ct)
+    {
+        var needsBody = rule == SuccessRule.TwoHundredAndJsonPathAbsent && !string.IsNullOrWhiteSpace(successJsonPath);
+        if (!needsBody && draft is null) return null;
+
+        using var allowance = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        allowance.CancelAfter(BodyTimeout);
+
+        try
+        {
+            if (!needsBody)
+            {
+                await draft!.ReadResponseAsync(response, allowance.Token);
+                return null;
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync(allowance.Token);
+            var buffer = new byte[RuleBodyLimit];
+            var total = 0;
+
+            while (total < buffer.Length)
+            {
+                var read = await stream.ReadAsync(buffer.AsMemory(total), allowance.Token);
+                if (read == 0) break;
+                total += read;
+            }
+
+            if (draft is not null)
+            {
+                await draft.ReadResponseAsync(new MemoryStream(buffer, 0, total, writable: false), allowance.Token);
+            }
+
+            return Encoding.UTF8.GetString(buffer, 0, total);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            if (needsBody) throw new TimeoutException("The response body did not arrive in time.");
+            return null;
         }
     }
 

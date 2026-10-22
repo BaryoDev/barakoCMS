@@ -271,8 +271,8 @@ public class MultiInstanceSchedulingTests
                 },
             };
 
-            (await firstLeader.TrySweepAllTenantsAsync(DateTime.UtcNow, CancellationToken.None))
-                .Should().BeTrue("the first instance held the lock when its sweep began");
+            // True or false: it lost the lock, so it may stop before a later tenant and say so.
+            await firstLeader.TrySweepAllTenantsAsync(DateTime.UtcNow, CancellationToken.None);
 
             killed.Should().Be(1, "exactly one backend held the sweep lock and it was terminated");
         }
