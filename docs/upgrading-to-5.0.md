@@ -30,6 +30,10 @@ That is `migrations/5.0.0/marten-9-49-quick-append-events.sql`: a function repla
 touched.
 Other 5.0 changes add their own files under `migrations/5.0.0/`, each explained in its header.
 
+The Comments module (5.2.0) adds `migrations/5.2.0/253-comments.sql`, which creates its `mt_doc_comments`
+table and index. It runs only where the module is enabled, and `rollback-253-comments.sql` drops the
+table and the comments in it.
+
 ## Before you start
 
 Take a backup, and check you can restore it ([backup-and-restore.md](backup-and-restore.md)). A

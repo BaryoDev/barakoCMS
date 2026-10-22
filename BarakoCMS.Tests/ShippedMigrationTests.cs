@@ -25,6 +25,7 @@ public class ShippedMigrationTests
         "5.0.0/accounting-number-sequences",
         "5.0.0/pages-settings",
         "5.0.0/files-storage-settings",
+        "5.2.0/253-comments",
         "5.2.0/contacts",
         "5.2.0/notifications",
     ];
@@ -78,6 +79,7 @@ public class ShippedMigrationTests
             new BarakoCMS.ExternalAuth.ExternalAuthModule(),
             new BarakoCMS.Accounting.AccountingModule(),
             new BarakoCMS.Pages.PagesModule(),
+            new BarakoCMS.Comments.CommentsModule(),
             new BarakoCMS.Contacts.ContactsModule(),
             new BarakoCMS.Notifications.NotificationsModule(),
         ]);
@@ -128,6 +130,7 @@ public class ShippedMigrationTests
             new BarakoCMS.ExternalAuth.ExternalAuthModule(),
             new BarakoCMS.Accounting.AccountingModule(),
             new BarakoCMS.Pages.PagesModule(),
+            new BarakoCMS.Comments.CommentsModule(),
             new BarakoCMS.Contacts.ContactsModule(),
             new BarakoCMS.Notifications.NotificationsModule(),
         ];
@@ -138,6 +141,7 @@ public class ShippedMigrationTests
         var owned = all.Where(m => m.Owner != ShippedMigrations.CoreOwner).Select(m => m.Key).ToList();
         owned.Should().Equal(
             "Accounting/5.0.0/accounting-number-sequences",
+            "Comments/5.2.0/253-comments",
             "Contacts/5.2.0/contacts",
             "ExternalAuth/4.6.0/external-auth-identities",
             "ExternalAuth/4.8.0/external-auth-used-nonces",

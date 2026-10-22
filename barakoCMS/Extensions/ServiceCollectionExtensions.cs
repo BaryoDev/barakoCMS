@@ -123,6 +123,15 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<barakoCMS.Infrastructure.Realtime.TopicRegistry>(),
             sp.GetRequiredService<ILogger<barakoCMS.Infrastructure.Realtime.RealtimeEventListener>>()));
 
+        // The delivery response cache evicts by tag when a commit changes what a read was built from.
+        // Only when it is on, so a deployment that leaves it off pays nothing on its commits.
+        if (sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<barakoCMS.Infrastructure.Caching.DeliveryResponseCacheOptions>>().Value.Enabled)
+        {
+            options.Listeners.Add(new barakoCMS.Infrastructure.Caching.DeliveryResponseCacheListener(
+                sp.GetRequiredService<Microsoft.AspNetCore.OutputCaching.IOutputCacheStore>(),
+                sp.GetRequiredService<ILogger<barakoCMS.Infrastructure.Caching.DeliveryResponseCacheListener>>()));
+        }
+
         // The private site check forgets its cached answer when a site entry is written.
         options.Listeners.Add(new barakoCMS.Infrastructure.Multitenancy.PrivateSiteCacheListener(
             sp.GetRequiredService<barakoCMS.Infrastructure.Multitenancy.PrivateSiteCache>()));
@@ -604,6 +613,21 @@ public static class ServiceCollectionExtensions
         // Output Cache, so an endpoint's Options(x => x.CacheOutput(...)) is more than metadata.
         // See #545: this was missing, so every endpoint's CacheOutput policy was silently ignored.
         services.AddOutputCache();
+
+        // The delivery response cache (#562) is off unless Delivery:ResponseCache:Enabled is set, and
+        // its size bounds only apply then, so the output cache keeps its defaults for everyone else.
+        services.AddOptions<barakoCMS.Infrastructure.Caching.DeliveryResponseCacheOptions>()
+            .BindConfiguration(barakoCMS.Infrastructure.Caching.DeliveryResponseCacheOptions.SectionName);
+        services.AddOptions<Microsoft.AspNetCore.OutputCaching.OutputCacheOptions>()
+            .Configure<Microsoft.Extensions.Options.IOptions<barakoCMS.Infrastructure.Caching.DeliveryResponseCacheOptions>>(
+                (output, cache) =>
+                {
+                    if (!cache.Value.Enabled)
+                        return;
+
+                    output.SizeLimit = Math.Max(1, cache.Value.SizeLimitMegabytes) * 1024L * 1024L;
+                    output.MaximumBodySize = Math.Max(1, cache.Value.MaxBodyKilobytes) * 1024L;
+                });
     }
 
     private static void MapContentDocuments(StoreOptions options)
