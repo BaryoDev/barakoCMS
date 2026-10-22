@@ -127,7 +127,7 @@ internal sealed class Endpoint : EndpointWithoutRequest<ResolveResponse>
     }
 
     private async Task<List<PageNode>> WithAncestorsAsync(
-        PageNode node, ContentTypeDefinition definition, PagesOptions options, bool member, CancellationToken ct)
+        PageNode node, barakoCMS.Models.ContentTypeDefinition definition, PagesOptions options, bool member, CancellationToken ct)
     {
         var nodes = new List<PageNode> { node };
         var parent = node.ParentId;
