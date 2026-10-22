@@ -93,6 +93,7 @@ internal sealed partial class AggregateQuery(
             return AggregateResult.Refused($"The site's time zone '{plan.ZoneId}' is not one the database knows, so days cannot be told apart.");
         }
         catch (PostgresException e) when (e.SqlState is PostgresErrorCodes.DatetimeFieldOverflow
+                                          or PostgresErrorCodes.InvalidTimeZoneDisplacementValue
                                           or PostgresErrorCodes.InvalidDatetimeFormat
                                           or PostgresErrorCodes.NumericValueOutOfRange)
         {
@@ -605,7 +606,7 @@ internal sealed partial class AggregateQuery(
 
     private const string Day = @"[1-9][0-9]{3}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])";
     private const string Clock = @"[T ]([01][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9]([.][0-9]{1,9})?)?";
-    private const string Offset = @"(Z|[+-]([01][0-9]):?[0-5][0-9])";
+    private const string Offset = @"(Z|[+-](0[0-9]|1[0-5]):?[0-5][0-9])";
 
     /// <summary>
     /// A stored date as an instant. A value with no zone on it is read in the site's zone, not the
