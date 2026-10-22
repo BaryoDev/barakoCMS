@@ -141,14 +141,13 @@ public class MigrationHostTests
 
             await store.Storage.Database.EnsureStorageExistsAsync(typeof(BarakoCMS.Files.StoredFile), ct);
             await store.Storage.Database.EnsureStorageExistsAsync(typeof(BarakoCMS.Forms.PublicForm), ct);
-            await store.Storage.Database.EnsureStorageExistsAsync(typeof(BarakoCMS.Email.Resend.SentEmail), ct);
         }
 
         var preLedger = ShippedMigrations
-            .Discover([new BarakoCMS.Forms.FormsModule(), new BarakoCMS.Files.FilesModule(), new BarakoCMS.Email.Resend.ResendEmailModule()])
+            .Discover([new BarakoCMS.Forms.FormsModule(), new BarakoCMS.Files.FilesModule()])
             .Where(m => Version.Parse(m.Version) < new Version(4, 6, 0))
             .ToList();
-        preLedger.Should().HaveCount(10);
+        preLedger.Should().HaveCount(9);
 
         await using var connection = new NpgsqlConnection(_factory.ConnectionString);
         await connection.OpenAsync(ct);

@@ -51,7 +51,7 @@ matters: it is still a second host, and the resolver has to be kept around the w
 
 | Test | Before | Alba |
 | --- | --- | --- |
-| `An_ordinary_response_carries_the_api_contract_version_header` | 10 | 8 |
+| `An_ordinary_response_carries_the_api_contract_version_header` | 11 | 8 |
 | `The_header_is_present_even_on_the_meta_endpoints_own_401` | 11 | 8 |
 | File | 46 | 67 |
 

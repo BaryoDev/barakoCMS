@@ -44,16 +44,17 @@ Optional packages, each installable on its own:
 | `BarakoCMS.Analytics.Umami` | Privacy-friendly analytics |
 | `BarakoCMS.DeviceTrust` | Device binding and approval |
 | `BarakoCMS.Diagnostics` | Browser error capture |
-| `BarakoCMS.Email.Resend` | Transactional email |
 | `BarakoCMS.Email.Smtp` | Transactional email over any SMTP relay |
 | `BarakoCMS.ExternalAuth` | Google / GitHub / Facebook / LinkedIn sign-in |
 | `BarakoCMS.FeatureFlags` | Flags with targeting |
 | `BarakoCMS.Files` + `.S3` | Uploads stored in Postgres, or in S3-compatible storage with `.S3` |
 | `BarakoCMS.Forms` | Public form submissions into a content type |
+| `BarakoCMS.Comments` | A comment thread on any record |
 | `BarakoCMS.Import` | Bulk import |
 | `BarakoCMS.Pages` | Page tree, navigation and path resolution over a content type |
 | `BarakoCMS.Portability` | Export / import bundles |
 | `BarakoCMS.Pwa` | Install tracking |
+| `BarakoCMS.Notifications` | In-app notifications any module can raise |
 
 Every one is published under the `barakocms-module` tag, so one search on nuget.org returns them all.
 

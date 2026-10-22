@@ -14,7 +14,6 @@
     <ProjectReference Include="..\BarakoCMS.Import\BarakoCMS.Import.csproj" />
     <ProjectReference Include="..\BarakoCMS.Files\BarakoCMS.Files.csproj" />
     <ProjectReference Include="..\BarakoCMS.Files.S3\BarakoCMS.Files.S3.csproj" />
-    <ProjectReference Include="..\BarakoCMS.Email.Resend\BarakoCMS.Email.Resend.csproj" />
     <ProjectReference Include="..\BarakoCMS.Email.Smtp\BarakoCMS.Email.Smtp.csproj" />
     <ProjectReference Include="..\BarakoCMS.DeviceTrust\BarakoCMS.DeviceTrust.csproj" />
     <ProjectReference Include="..\BarakoCMS.ExternalAuth\BarakoCMS.ExternalAuth.csproj" />
@@ -26,6 +25,8 @@
     <ProjectReference Include="..\BarakoCMS.Diagnostics\BarakoCMS.Diagnostics.csproj" />
     <ProjectReference Include="..\BarakoCMS.Pages\BarakoCMS.Pages.csproj" />
     <ProjectReference Include="..\BarakoCMS.Forms\BarakoCMS.Forms.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Comments\BarakoCMS.Comments.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Notifications\BarakoCMS.Notifications.csproj" />
     <ProjectReference Include="..\BarakoCMS.Secrets.Aws\BarakoCMS.Secrets.Aws.csproj" />
     <ProjectReference Include="..\BarakoCMS.Secrets.Gcp\BarakoCMS.Secrets.Gcp.csproj" />
   </ItemGroup>

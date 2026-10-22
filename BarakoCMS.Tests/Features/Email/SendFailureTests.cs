@@ -17,7 +17,7 @@ internal sealed class FailingEmailService : IEmailService
     public Task SendEmailAsync(string to, string subject, string body, CancellationToken cancellationToken = default)
     {
         Attempts++;
-        throw new HttpRequestException("Resend answered 503 (this is the test provider being down).");
+        throw new HttpRequestException("The mail provider answered 503 (this is the test provider being down).");
     }
 }
 
@@ -129,7 +129,7 @@ public class SendFailureTests
 
         var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
-        body.Should().NotContainEquivalentOf("resend");
+        body.Should().NotContainEquivalentOf("mail provider");
         body.Should().NotContainEquivalentOf("503");
         body.Should().NotContainEquivalentOf("HttpRequestException");
         body.Should().NotContainEquivalentOf("stack");
@@ -173,7 +173,7 @@ public class SendFailureTests
         notSent.Body.Should().Be(sent.Body, "an outage must not be visible from outside");
         noAccount.Body.Should().Be(sent.Body, "and neither must whether the address has an account");
 
-        notSent.Body.Should().NotContainEquivalentOf("resend");
+        notSent.Body.Should().NotContainEquivalentOf("mail provider");
         notSent.Body.Should().NotContainEquivalentOf("503");
     }
 

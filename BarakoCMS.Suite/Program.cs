@@ -6,7 +6,7 @@ using BarakoCMS.Secrets.Gcp;
 
 // "Barako" — the full-suite barakoCMS host: the core engine with every module on. Configure it with
 // just a DATABASE_URL (or ConnectionStrings__DefaultConnection) and a 32+ char JWT__Key; every
-// module's own config (Resend email, OAuth, etc.) stays optional.
+// module's own config (SMTP email, OAuth, etc.) stays optional.
 
 // barakoCMS stores UTC DateTime values and relies on this Npgsql switch (set before Npgsql
 // initializes) to bind them to 'timestamp without time zone' columns.
