@@ -698,6 +698,10 @@ public static class ServiceCollectionExtensions
 
     private static void MapTenantScopedDocuments(StoreOptions options)
     {
+        options.Schema.For<LocaleSettings>()
+            .MultiTenanted()
+            .DocumentAlias("locale_settings");
+
         // Conjoined multi-tenant, deliberately, unlike the settings documents above. A credential
         // belongs to the tenant that added it, and one tenant's admin reaching another's is the
         // exact failure #287 found in the daemon.
