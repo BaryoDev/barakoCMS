@@ -75,7 +75,10 @@ public class SchedulingTests
     [Fact]
     public async Task An_entry_is_fired_once_its_due_time_arrives()
     {
-        var start = DateTimeOffset.UtcNow;
+        // Whole seconds: Postgres keeps microseconds and rounds a stored 100ns tick up, which puts the
+        // due time a hair past a clock advanced by exactly ten minutes.
+        var now = DateTimeOffset.UtcNow;
+        var start = new DateTimeOffset(now.Ticks - now.Ticks % TimeSpan.TicksPerSecond, TimeSpan.Zero);
         var time = new ManualTime(start);
         var action = NewAction();
         var handler = new Recorder(action);

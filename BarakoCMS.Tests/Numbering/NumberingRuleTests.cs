@@ -5,7 +5,9 @@ using BarakoCMS.Accounting;
 using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
 using Npgsql;
+using barakoCMS.Infrastructure.Jobs;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Models;
 using Xunit;
@@ -151,18 +153,26 @@ public class NumberingRuleTests : IAsyncLifetime
         var renamed = await _client.PostAsJsonAsync($"/api/content-types/{type}/fields/Number/change", new { newName = "InvoiceNo" }, Ct);
         renamed.StatusCode.Should().Be(HttpStatusCode.Accepted, await renamed.Content.ReadAsStringAsync(Ct));
         var id = (await renamed.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("change").GetProperty("id").GetGuid();
-        for (var i = 0; i < 150; i++)
+        // Run the change here instead of waiting on the job queue, which a full suite run keeps busy past any wait worth writing.
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var configuration = _fixture.Services.GetRequiredService<IConfiguration>();
+        var completed = false;
+        for (var attempt = 0; attempt < 20 && !completed; attempt++)
         {
-            var status = await (await _client.GetAsync($"/api/content-types/field-changes/{id}", Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
-            if (status.GetProperty("state").GetString() == "completed")
+            try
             {
-                break;
+                completed = (await FieldChanges.RunAsync(store, configuration, "*DEFAULT*", id, maxBatches: null, Ct))?.State == FieldChangeState.Completed;
             }
-
-            await Task.Delay(200, Ct);
+            catch (JasperFx.ConcurrencyException)
+            {
+                // The queued job committed the same batch first; the next run reads its progress.
+            }
         }
 
+        completed.Should().BeTrue("the rename has to finish before an entry is created under the new name");
+
         var res = await _client.PostAsJsonAsync("/api/contents", new { contentType = type, data = new Dictionary<string, object> { ["Title"] = "t" } }, Ct);
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync(Ct));
         var created = (await res.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("id").GetGuid();
         using var scope = _fixture.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
