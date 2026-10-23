@@ -517,7 +517,7 @@ public class ReferenceConditionPredicateTests
     {
         var (classes, enrollments) = await TypesAsync();
 
-        // $status is a condition the compiler declines. The caller reads published classes only.
+        // The caller reads published classes only.
         var caller = await CallerAsync(
             new ContentTypePermission { ContentTypeSlug = classes, Read = Where("$status", "_eq", "Published") },
             new ContentTypePermission { ContentTypeSlug = enrollments, Read = Where(Follows, "_eq", "$CURRENT_USER") });

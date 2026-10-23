@@ -139,4 +139,11 @@ public class ArrayHasPredicateAgreementTests
         var conditions = new Dictionary<string, object> { ["$createdBy"] = new Dictionary<string, object> { ["_has"] = "x" } };
         PermissionPredicateCompiler.Compile([new PermissionRule { Enabled = true, Conditions = conditions }], Caller).Compiled.Should().BeFalse();
     }
+
+    [Fact]
+    public void A_status_key_with_a_list_operator_is_declined()
+    {
+        var conditions = new Dictionary<string, object> { ["$status"] = new Dictionary<string, object> { ["_has"] = "Published" } };
+        PermissionPredicateCompiler.Compile([new PermissionRule { Enabled = true, Conditions = conditions }], Caller).Compiled.Should().BeFalse();
+    }
 }

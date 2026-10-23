@@ -36,12 +36,12 @@ public sealed record ReadPredicate(string? Sql, object[] Parameters)
 /// and asserts they agree. If that test is ever deleted this class becomes a liability, because
 /// nothing else can tell you the two have diverged.
 ///
+/// <c>$status</c> is compiled: the evaluator compares the enum NAME while Marten stores an integer,
+/// so the SQL maps the number back to the name, generated from the enum itself.
+///
 /// What is deliberately not compiled, and why:
 ///
 /// <list type="bullet">
-/// <item><c>$status</c>: the evaluator compares the enum NAME while Marten stores the enum as an
-/// integer, so an equivalent predicate would have to carry its own copy of the name-to-number map
-/// and stay in step with it.</item>
 /// <item>Any expected value that is not a string or a list of strings. The evaluator compares
 /// <c>ToString()</c> of both sides, and reproducing .NET number and date formatting in SQL is a
 /// bigger surface than the feature is worth.</item>
@@ -310,10 +310,31 @@ internal static class PermissionPredicateCompiler
                 value = "(d.data ->> 'LastModifiedBy')";
                 return true;
 
+            case "status":
+                value = StatusName();
+                return true;
+
             default:
-                // Includes $status, which is the one that looks compilable and is not.
                 return false;
         }
+    }
+
+    /// <summary>
+    /// The name <c>ContentStatus.ToString()</c> gives the evaluator, read from the integer Marten stores.
+    /// </summary>
+    /// <remarks>
+    /// Built from the enum, so a new member cannot leave a hand written map behind. The ELSE arm is
+    /// <c>Enum.ToString()</c> for a number with no member, which is the number as text. A document
+    /// with no Status key reads back as the property default, Draft, hence the coalesce. The names are
+    /// enum constants, not input, so they are written into the SQL rather than bound.
+    /// </remarks>
+    private static string StatusName()
+    {
+        var number = "COALESCE(d.data ->> 'Status', '" + (int)default(Models.ContentStatus) + "')";
+        var arms = string.Concat(Enum.GetValues<Models.ContentStatus>()
+            .Select(s => $" WHEN '{(int)s}' THEN '{s}'"));
+
+        return $"(CASE {number}{arms} ELSE {number} END)";
     }
 
     /// <summary>
