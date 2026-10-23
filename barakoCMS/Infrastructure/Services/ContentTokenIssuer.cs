@@ -25,6 +25,9 @@ namespace barakoCMS.Infrastructure.Services;
 /// entries that is about 4 in 10 to the 13. The tokens one writer issues are still kept apart,
 /// which costs nothing.
 ///
+/// The computed fields are worked out here too, last, from the data the entry is about to hold, so
+/// the value stored always agrees with the inputs stored beside it.
+///
 /// A token is never logged.
 ///
 /// The field a type's numbering rule fills is the server's in the same way once the entry exists:
@@ -35,20 +38,23 @@ internal sealed class ContentTokenIssuer(IDocumentSession session)
     private readonly Dictionary<string, Owned> _fields = new(StringComparer.Ordinal);
 
     /// <summary>What the server owns in a type's entries: its token fields, and the field its numbering rule fills.</summary>
-    private sealed record Owned(IReadOnlyList<FieldDefinition> Tokens, string? Number)
+    private sealed record Owned(IReadOnlyList<FieldDefinition> Tokens, string? Number, IReadOnlyList<FieldDefinition> Computed)
     {
-        public static readonly Owned Nothing = new([], null);
+        public static readonly Owned Nothing = new([], null, []);
     }
     private readonly HashSet<string> _issued = new(StringComparer.Ordinal);
 
     /// <summary>Gives a new entry its tokens, discarding whatever the event carried under those fields.</summary>
     public async Task IssueAsync(ContentCreated created, CancellationToken ct)
     {
-        foreach (var field in (await OwnedAsync(created.ContentType, ct)).Tokens)
+        var owned = await OwnedAsync(created.ContentType, ct);
+        foreach (var field in owned.Tokens)
         {
             RemoveKeys(created.Data, field.Name);
             created.Data[field.Name] = NewToken(field);
         }
+
+        ComputedFields.Apply(owned.Computed, created.Data);
     }
 
     /// <summary>
@@ -78,6 +84,8 @@ internal sealed class ContentTokenIssuer(IDocumentSession session)
             else
                 updated.Data[field.Name] = NewToken(field);
         }
+
+        ComputedFields.Apply(owned.Computed, updated.Data);
     }
 
     /// <summary>Puts the stored number back into a data update, or leaves the field out when the entry has none.</summary>
@@ -129,7 +137,8 @@ internal sealed class ContentTokenIssuer(IDocumentSession session)
 
         var owned = new Owned(
             (definition.Fields ?? []).Where(f => f is not null && TokenFields.IsToken(f.Type)).ToList(),
-            definition.Numbering is { Field.Length: > 0 } rule ? rule.Field : null);
+            definition.Numbering is { Field.Length: > 0 } rule ? rule.Field : null,
+            (definition.Fields ?? []).Where(f => f is not null && ComputedFields.IsComputed(f)).ToList());
 
         _fields[contentType] = owned;
         return owned;

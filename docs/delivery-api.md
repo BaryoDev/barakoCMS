@@ -716,6 +716,9 @@ tag starts with the tenant, so a purge by tag cannot cross tenants:
 | `t:<tenant>:sitemap`         | the sitemap |
 | `t:<tenant>:redirects`       | a redirect lookup |
 
+Nothing evicts `t:<tenant>:redirects` yet, so a changed redirect rule is served from the output
+cache until it expires.
+
 Only values the response already shows go in a tag: a type name, a published entry's id, a public
 file's id. Anything outside letters, digits and `-_.~` is percent-encoded, so a type name cannot
 pose as another tag. A `no-store` read carries no tag and no ETag.
@@ -732,7 +735,65 @@ The sitemap is the exception, because a tenant can have more types than the boun
 `t:<tenant>:sitemap` on every publish; its type tags are best effort and fall off past about thirty
 types. It carries no entry tags, since it holds up to 50,000 entries.
 
-These headers are exposed to browsers through CORS. Nothing purges a CDN yet; that is #561.
+These headers are exposed to browsers through CORS.
+
+### Purging on publish
+
+The `BarakoCMS.CdnPurge` module purges Cloudflare by tag. Add a `CdnPurge` action to a workflow that
+triggers on publish:
+
+```json
+{ "Type": "CdnPurge", "Parameters": {} }
+```
+
+It purges `t:<tenant>:entry:<id>`, `t:<tenant>:type:<type>` and `t:<tenant>:sitemap`, built by the
+same code that writes the headers, so they match what delivery sent. The bare `t:<tenant>` tag is
+not purged, since it is on every read and would empty the tenant's cache. Settings:
+
+```
+Modules__CdnPurge__ZoneId=<zone id>
+Modules__CdnPurge__ApiToken=<token allowed to purge cache on the zone>
+```
+
+The call is `POST zones/{zone}/purge_cache` with `{"tags":[...]}`. If Cloudflare answers with an
+error, or the module has no zone or token, the action fails on the run with the reason, and the run
+retries when the error is a 429 or a 5xx. The token is sent only as the bearer header and is never
+logged or stored on the run. Fastly is not supported yet.
+
+### Response cache
+
+Off by default. Set `Delivery:ResponseCache:Enabled` to `true` and the `short` class reads (the list,
+search, slug, feed, sitemap and type description routes) are kept in the API's memory, so a repeat
+does not reach Postgres.
+
+An entry is keyed on the tenant, the host, the path, every query key, the `X-Tenant` header and
+`Origin`. Only an anonymous 200 is stored. A request carrying `Authorization`, a cookie,
+`X-Viewer-Token`, `X-Share-Key` or a `preview` token is answered by the endpoint as it is with the
+cache off, and its response is never stored.
+
+A commit evicts by the tags in the table above: the entry, its type and the sitemap, plus the whole
+tenant when a deletion names no document. A publish or an unpublish shows on the next read from the
+instance that handled the write. The store is per instance, so the others expire the entry after
+`ExpireSeconds`.
+
+Limits of the window:
+
+- A read and a commit can race. A response built from rows read just before a commit may be stored
+  just after the eviction, so it can be served until `ExpireSeconds` passes.
+- The response also depends on things no commit tag names: a public file's visibility (read from
+  the file store), and a site settings change. Those show after `ExpireSeconds`, not at once.
+- A reference field with no target type is tagged so any content commit in the tenant evicts the
+  list that holds it.
+- `SizeLimitMegabytes` and `MaxBodyKilobytes` are the output cache's own limits, so once the cache is
+  enabled they apply to every endpoint that uses the output cache, the redirect lookup included.
+- Eviction runs in the instance that handled the write. Other instances are not told.
+
+| Setting | Default | |
+|---|---|---|
+| `Delivery:ResponseCache:ExpireSeconds` | 60 | longest an entry is kept |
+| `Delivery:ResponseCache:SizeLimitMegabytes` | 64 | total the cache may hold |
+| `Delivery:ResponseCache:MaxBodyKilobytes` | 512 | a larger body is served, not kept |
+| `Delivery:ResponseCache:MaxQueryLength` | 512 | a longer query string is never cached |
 
 ## Stability and deprecation
 

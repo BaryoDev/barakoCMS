@@ -219,7 +219,7 @@ public class ScheduledTriggerTests
             w.TriggerContentTypes = [type];
             w.TriggerEvent = "schedule:" + w.Name;
             w.Enabled = enabled;
-            w.Schedule = new ScheduleTrigger
+            w.DateSchedule = new ScheduleTrigger
             {
                 ContentType = type, DateField = "startsAt", Offset = offset, InState = inState, Where = where ?? new(),
             };

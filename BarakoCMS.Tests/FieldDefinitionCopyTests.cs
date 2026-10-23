@@ -38,6 +38,8 @@ public class FieldDefinitionCopyTests
             return new ParentDeclaration { MaxDepth = 3 };
         }
 
+        if (type == typeof(ComputedDefinition)) return new ComputedDefinition { Fn = "add" };
+
         if (type == typeof(Dictionary<string, object>)) return new Dictionary<string, object> { ["min"] = 1 };
 
         throw new Xunit.Sdk.XunitException(

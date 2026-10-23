@@ -28,6 +28,8 @@ internal sealed class CollectionSyncResponse
     public Dictionary<string, SyncFieldRule> FieldRules { get; init; } = new();
     public List<SyncExcludeRule> Exclude { get; init; } = new();
     public bool ArchiveMissing { get; init; }
+    public bool EmptyIsComplete { get; init; }
+    public SyncIncompleteWhen? IncompleteWhen { get; init; }
     public string KeyField { get; init; } = string.Empty;
     public List<string> FloorFields { get; init; } = new();
     public int IntervalMinutes { get; init; }
@@ -59,6 +61,8 @@ internal sealed class CollectionSyncResponse
         FieldRules = s.FieldRules ?? new(),
         Exclude = s.Exclude ?? new(),
         ArchiveMissing = s.ArchiveMissing,
+        EmptyIsComplete = s.EmptyIsComplete,
+        IncompleteWhen = s.IncompleteWhen,
         KeyField = s.KeyField,
         FloorFields = s.FloorFields,
         IntervalMinutes = s.IntervalMinutes,
@@ -99,6 +103,12 @@ internal sealed class SaveCollectionSyncRequest
 
     /// <summary>Archive this sync's entries a complete run did not produce. Off unless set.</summary>
     public bool ArchiveMissing { get; set; }
+
+    /// <summary>With ArchiveMissing, a run that read no items counts as complete. Off unless set.</summary>
+    public bool EmptyIsComplete { get; set; }
+
+    /// <summary>A response field that marks the list as partial, which fails the run. Unset by default.</summary>
+    public SyncIncompleteWhen? IncompleteWhen { get; set; }
 
     public string KeyField { get; set; } = string.Empty;
     public List<string> FloorFields { get; set; } = new();

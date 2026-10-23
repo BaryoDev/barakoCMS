@@ -29,7 +29,7 @@ public class TemplateVariableExtractorIntegrationTests
 
         // Assert
         Assert.NotNull(result.SystemVariables);
-        Assert.Equal(16, result.SystemVariables.Count);
+        Assert.Equal(18, result.SystemVariables.Count);
         Assert.Contains(result.SystemVariables, v => v.Name == "{{id}}");
         Assert.Contains(result.SystemVariables, v => v.Name == "{{contentType}}");
         Assert.Contains(result.SystemVariables, v => v.Name == "{{status}}");
@@ -46,6 +46,8 @@ public class TemplateVariableExtractorIntegrationTests
         Assert.Contains(result.SystemVariables, v => v.Name == "{{links.entry}}");
         Assert.Contains(result.SystemVariables, v => v.Name == "{{links.site}}");
         Assert.Contains(result.SystemVariables, v => v.Name == "{{links.public}}");
+        Assert.Contains(result.SystemVariables, v => v.Name == "{{schedule.at}}");
+        Assert.Contains(result.SystemVariables, v => v.Name == "{{schedule.previousAt}}");
     }
 
     /// <summary>
@@ -90,7 +92,11 @@ public class TemplateVariableExtractorIntegrationTests
 
         foreach (var listed in result.SystemVariables.Concat(result.Formats))
         {
-            var resolved = TemplateVariableExtractor.Resolve(listed.Name, entry, TemplateValueEncoding.None, context);
+            var subject = listed.Name.StartsWith("{{schedule.", StringComparison.Ordinal)
+                ? new barakoCMS.Features.Workflows.ScheduledContent(
+                    "TestType", entry.UpdatedAt, entry.CreatedAt)
+                : entry;
+            var resolved = TemplateVariableExtractor.Resolve(listed.Name, subject, TemplateValueEncoding.None, context);
 
             Assert.DoesNotContain("{{", resolved);
             Assert.Empty(TemplateExpression.Problems(listed.Name, onTransition: true));

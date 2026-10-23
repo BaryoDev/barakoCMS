@@ -111,3 +111,18 @@ using System.Runtime.CompilerServices;
 [assembly: TypeForwardedTo(typeof(global::barakoCMS.Modules.IModuleSchema))]
 [assembly: TypeForwardedTo(typeof(global::barakoCMS.Modules.ModuleCapabilities))]
 [assembly: TypeForwardedTo(typeof(global::barakoCMS.Modules.ModuleContract))]
+
+// 5.1.0 moved these from barakoCMS into BarakoCMS.Abstractions, keeping their namespaces, so a
+// module compiled against 5.0.x still resolves them by the assembly name barakoCMS.
+[assembly: TypeForwardedTo(typeof(global::barakoCMS.Core.ContentTypeName))]
+[assembly: TypeForwardedTo(typeof(global::barakoCMS.Infrastructure.Audit.AuditChain))]
+[assembly: TypeForwardedTo(typeof(global::barakoCMS.Infrastructure.Audit.AuditLog))]
+[assembly: TypeForwardedTo(typeof(global::barakoCMS.Infrastructure.Multitenancy.TenantContext))]
+[assembly: TypeForwardedTo(typeof(global::barakoCMS.Infrastructure.Services.ContentTypeFieldLimit))]
+
+// 5.2.0 moved these contract interfaces the same way.
+[assembly: TypeForwardedTo(typeof(global::barakoCMS.Infrastructure.Auth.ITokenIssuer))]
+[assembly: TypeForwardedTo(typeof(global::barakoCMS.Infrastructure.Auth.TokenIssueResult))]
+[assembly: TypeForwardedTo(typeof(global::barakoCMS.Infrastructure.Auth.Mfa.IMfaService))]
+[assembly: TypeForwardedTo(typeof(global::barakoCMS.Infrastructure.Services.IContentLifecycleRunner))]
+[assembly: TypeForwardedTo(typeof(global::barakoCMS.Infrastructure.Services.IContentValidatorService))]

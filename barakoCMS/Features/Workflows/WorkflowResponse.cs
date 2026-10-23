@@ -30,6 +30,24 @@ internal sealed class WorkflowResponse
     /// <summary>What runs the workflow. Null for the built-in runner.</summary>
     public string? Executor { get; init; }
 
+    /// <summary>The cron expression of a scheduled workflow. Left out otherwise.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? Schedule { get; init; }
+
+    /// <summary>The zone the schedule is read in: <c>tenant</c> or an IANA id. Left out when there is no schedule.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? ScheduleTimeZone { get; init; }
+
+    /// <summary>The catch-up rule of the schedule. Left out when there is no schedule.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? ScheduleCatchUp { get; init; }
+
+    /// <summary>
+    /// The next five due times in UTC, on the response to a save of a scheduled workflow. Left out
+    /// otherwise.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public List<DateTime>? NextDueTimes { get; set; }
     /// <summary>The role told when a run fails. Null for nobody.</summary>
     public string? NotifyRoleOnFailure { get; init; }
 
@@ -63,6 +81,9 @@ internal sealed class WorkflowResponse
         Actions = (w.Actions ?? []).Select(WorkflowActionResponse.From).ToList(),
         Enabled = w.Enabled,
         Executor = WorkflowExecutors.ForRun(w),
+        Schedule = w.Schedule,
+        ScheduleTimeZone = w.Schedule is null ? null : w.ScheduleTimeZone ?? WorkflowSchedule.TenantZone,
+        ScheduleCatchUp = w.Schedule is null ? null : w.ScheduleCatchUp ?? WorkflowSchedule.CatchUpOnce,
         NotifyRoleOnFailure = w.NotifyRoleOnFailure,
     };
 }

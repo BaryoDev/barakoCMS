@@ -1,6 +1,8 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using System.Text.Json;
+using barakoCMS.Core.Interfaces;
 using FastEndpoints.Security;
 using Microsoft.IdentityModel.Tokens;
 
@@ -82,6 +84,46 @@ public static class PreviewToken
             return Guid.TryParse(Claim(principal, EntryIdClaim), out var id) ? id : null;
         }
         catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The signed link purpose preview tokens are issued under.</summary>
+    public const string Purpose = PurposeValue;
+
+    private sealed record Subject(string Tenant, string Type, string Slug, Guid EntryId);
+
+    /// <summary>Issues a preview token as a <c>preview</c> signed link bound to tenant, type, slug and entry id.</summary>
+    public static (string Token, DateTime ExpiresAt) Issue(
+        ISignedLinkService links, string tenant, string type, string slug, Guid entryId, TimeSpan? lifetime = null)
+    {
+        var link = links.Issue(Purpose,
+            JsonSerializer.Serialize(new Subject(tenant, type, slug, entryId)), lifetime ?? DefaultLifetime);
+        return (link.Token, link.ExpiresAt.UtcDateTime);
+    }
+
+    /// <summary>
+    /// Validates either format: a signed link (<c>payload~signature</c>) or, until it expires, the older
+    /// JWT. Same rules as <see cref="ValidatedEntryId"/>: any failure, or a token for another tenant,
+    /// type or slug, returns null.
+    /// </summary>
+    public static async Task<Guid?> ValidatedEntryIdAsync(
+        ISignedLinkService links, IConfiguration config, string token, string tenant, string type, string slug,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(token)) return null;
+        if (token.Contains('.')) return ValidatedEntryId(config, token, tenant, type, slug);
+
+        var result = await links.ValidateAsync(Purpose, token, ct);
+        if (!result.Succeeded) return null;
+        try
+        {
+            var s = JsonSerializer.Deserialize<Subject>(result.Subject!);
+            if (s is null || !Match(s.Tenant, tenant) || !Match(s.Type, type) || !Match(s.Slug, slug)) return null;
+            return s.EntryId;
+        }
+        catch (JsonException)
         {
             return null;
         }

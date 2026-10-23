@@ -50,6 +50,31 @@ public class WorkflowDefinition
     public string? Executor { get; set; }
 
     /// <summary>
+    /// A 5-field cron expression (minute, hour, day of month, month, day of week). Read only when
+    /// the workflow's trigger is <see cref="WorkflowEvents.Schedule"/>.
+    /// </summary>
+    public string? Schedule { get; set; }
+
+    /// <summary>
+    /// The zone <see cref="Schedule"/> is read in: <c>tenant</c> for the time zone in the site
+    /// settings (UTC when there is none), or an IANA id such as <c>Asia/Manila</c>. Null reads as
+    /// <c>tenant</c>.
+    /// </summary>
+    public string? ScheduleTimeZone { get; set; }
+
+    /// <summary>
+    /// What a schedule does for due times that passed while no host was running. Only
+    /// <c>once</c> exists today: one run for the latest missed time. Null reads as <c>once</c>.
+    /// </summary>
+    public string? ScheduleCatchUp { get; set; }
+
+    /// <summary>
+    /// When the schedule was saved. A schedule with no earlier run counts due times from here, so a
+    /// new schedule does not fire for a time before it existed. Set by the server.
+    /// </summary>
+    public DateTime? ScheduleArmedAt { get; set; }
+
+    /// <summary>
     /// The module that seeded this workflow, or null for a workflow a person or a document made.
     /// </summary>
     /// <remarks>
@@ -68,7 +93,7 @@ public class WorkflowDefinition
     /// A schedule workflow ignores <see cref="TriggerEvents"/>: its stored <see cref="TriggerEvent"/>
     /// is <c>schedule:</c> plus its name, which no event carries, so nothing else can fire it.
     /// </remarks>
-    public ScheduleTrigger? Schedule { get; set; }
+    public ScheduleTrigger? DateSchedule { get; set; }
 }
 
 /// <summary>When a schedule workflow fires: an offset from a date field, for the entries of one type.</summary>

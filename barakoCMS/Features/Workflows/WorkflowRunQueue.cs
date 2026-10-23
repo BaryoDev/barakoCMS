@@ -280,7 +280,7 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
             .Where(WorkflowTriggers.FiredBy(eventType))
             .ToListAsync(ct), contentType).Count > 0;
 
-    private static WorkflowRun NewRun(
+    internal static WorkflowRun NewRun(
         WorkflowDefinition workflow, Guid contentId, string contentType, string eventType, long eventSequence,
         Guid? runId = null)
     {

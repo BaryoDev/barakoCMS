@@ -74,7 +74,16 @@ internal class WebhookAction : IWorkflowAction
     /// a defect, so each one is a reason on the result. They used to be log lines and nothing else,
     /// which is why a webhook could answer 500 for a week without the workflow looking unhealthy.
     /// </remarks>
-    public async Task<WorkflowActionResult> RunAsync(Dictionary<string, string> parameters, barakoCMS.Models.Content content, CancellationToken ct)
+    public Task<WorkflowActionResult> RunAsync(Dictionary<string, string> parameters, barakoCMS.Models.Content content, CancellationToken ct)
+        => RunAsync(parameters, content, null, ct);
+
+    /// <summary>
+    /// The same delivery, with the body and extra headers a build hook preset needs in place of the
+    /// content payload. The address checks, the delivery row and the failure results are the
+    /// webhook's own.
+    /// </summary>
+    internal async Task<WorkflowActionResult> RunAsync(
+        Dictionary<string, string> parameters, barakoCMS.Models.Content content, OutboundOverride? custom, CancellationToken ct)
     {
         var url = parameters.GetValueOrDefault("Url");
         if (string.IsNullOrEmpty(url))
@@ -163,32 +172,7 @@ internal class WebhookAction : IWorkflowAction
             // caller is not the runner and did not say.
             var triggerEvent = parameters.GetValueOrDefault("TriggerEvent");
 
-            // An erased entry has no status, data or timestamps left to send, and the defaults of
-            // the object standing in for it would read as a move to Draft just now.
-            object payload = content is ErasedContent || triggerEvent == WorkflowEvents.Deleted
-                ? new
-                {
-                    @event = triggerEvent,
-                    tenant,
-                    contentId = content.Id,
-                    contentType = content.ContentType
-                }
-                : new
-                {
-                    @event = triggerEvent,
-                    tenant,
-                    contentId = content.Id,
-                    contentType = content.ContentType,
-                    status = content.Status.ToString(),
-                    data = await DeliverableDataAsync(content, ct),
-                    createdAt = content.CreatedAt,
-                    updatedAt = content.UpdatedAt
-                };
-
-            // Serialised here rather than by JsonContent, because the signature is over the exact
-            // bytes on the wire and the receiver recomputes it over the exact bytes it read. A body
-            // serialised twice, once to sign and once to send, is only the same body by luck.
-            var body = JsonSerializer.SerializeToUtf8Bytes(payload, PayloadJson);
+            var body = custom?.Body ?? await DefaultBodyAsync(content, tenant, triggerEvent, ct);
 
             using var request = new HttpRequestMessage(HttpMethod.Post, url)
             {
@@ -220,6 +204,11 @@ internal class WebhookAction : IWorkflowAction
             if (tenant.All(c => c is > ' ' and <= '~'))
             {
                 request.Headers.TryAddWithoutValidation(WebhookSigning.TenantHeader, tenant);
+            }
+
+            foreach (var (name, value) in custom?.Headers ?? new Dictionary<string, string>())
+            {
+                request.Headers.TryAddWithoutValidation(name, value);
             }
 
             if (secret is not null)
@@ -317,6 +306,41 @@ internal class WebhookAction : IWorkflowAction
     }
 
     /// <summary>
+    /// The content payload every webhook carries. An erased entry has no status, data or timestamps
+    /// left to send, and the defaults of the object standing in for it would read as a move to Draft
+    /// just now.
+    /// </summary>
+    /// <remarks>
+    /// Serialised here rather than by JsonContent, because the signature is over the exact bytes on
+    /// the wire and the receiver recomputes it over the exact bytes it read. A body serialised twice,
+    /// once to sign and once to send, is only the same body by luck.
+    /// </remarks>
+    private async Task<byte[]> DefaultBodyAsync(barakoCMS.Models.Content content, string tenant, string? triggerEvent, CancellationToken ct)
+    {
+        object payload = content is ErasedContent || triggerEvent == WorkflowEvents.Deleted
+            ? new
+            {
+                @event = triggerEvent,
+                tenant,
+                contentId = content.Id,
+                contentType = content.ContentType
+            }
+            : new
+            {
+                @event = triggerEvent,
+                tenant,
+                contentId = content.Id,
+                contentType = content.ContentType,
+                status = content.Status.ToString(),
+                data = await DeliverableDataAsync(content, ct),
+                createdAt = content.CreatedAt,
+                updatedAt = content.UpdatedAt
+            };
+
+        return JsonSerializer.SerializeToUtf8Bytes(payload, PayloadJson);
+    }
+
+    /// <summary>
     /// The row this delivery will leave behind, filled from what the runner put in the parameters.
     /// </summary>
     /// <remarks>
@@ -344,14 +368,15 @@ internal class WebhookAction : IWorkflowAction
         return delivery;
     }
 
-    /// <summary>Every header on the request except the signature.</summary>
+    /// <summary>Every header on the request except the signature and any bearer token.</summary>
     private static Dictionary<string, string> RecordableHeaders(HttpRequestMessage request)
     {
         var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var (name, values) in request.Headers)
         {
-            if (string.Equals(name, WebhookSigning.SignatureHeader, StringComparison.OrdinalIgnoreCase)) continue;
+            if (string.Equals(name, WebhookSigning.SignatureHeader, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, "Authorization", StringComparison.OrdinalIgnoreCase)) continue;
             headers[name] = string.Join(", ", values);
         }
 

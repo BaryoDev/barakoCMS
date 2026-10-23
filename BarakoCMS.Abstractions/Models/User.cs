@@ -8,6 +8,12 @@ public class User
     public string Email { get; set; } = string.Empty;
 
     /// <summary>
+    /// What a client greets the user with. Null means unset, and <c>GET /api/me</c> then reports
+    /// <see cref="Username"/>.
+    /// </summary>
+    public string? DisplayName { get; set; }
+
+    /// <summary>
     /// <see cref="Username"/> as it is compared: trimmed and lowercased. The unique index and every
     /// lookup use this, so the database refuses a second account on the same value the query reads.
     /// </summary>

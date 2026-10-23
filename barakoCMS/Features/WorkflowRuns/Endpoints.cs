@@ -295,7 +295,8 @@ internal static class RunGate
 
 internal sealed class ListRunsEndpoint(
     IQuerySession session,
-    IConfiguration config) : Endpoint<ListRunsRequest, RunListResponse>
+    IConfiguration config,
+    TimeProvider clock) : Endpoint<ListRunsRequest, RunListResponse>
 {
     public override void Configure()
     {
@@ -331,7 +332,7 @@ internal sealed class ListRunsEndpoint(
             since = cursor;
         }
 
-        var now = DateTimeOffset.UtcNow;
+        var now = clock.GetUtcNow();
         var counts = since is null
             ? await RunQueries.CountByStatusAsync(session, req.ContentId, req.WorkflowId, ct)
             : null;

@@ -159,6 +159,7 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
         }
 
         ValidateExecutor(workflow, result);
+        ValidateSchedule(workflow, result);
 
         // Validate actions
         if (workflow.Actions == null || workflow.Actions.Count == 0)
@@ -181,6 +182,40 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// A workflow on the Schedule trigger needs a cron expression and a known zone, and anything
+    /// else must not carry one: a schedule on a workflow that never reads it looks set and is not.
+    /// </summary>
+    private static void ValidateSchedule(WorkflowDefinition workflow, WorkflowValidationResult result)
+    {
+        var scheduled = WorkflowTriggers.Events(workflow).Contains(WorkflowEvents.Schedule, StringComparer.Ordinal);
+
+        void Refuse(string field, string message)
+        {
+            result.Errors.Add(new ValidationError { Field = field, Message = message });
+            result.IsValid = false;
+        }
+
+        if (!scheduled)
+        {
+            if (!string.IsNullOrWhiteSpace(workflow.Schedule))
+                Refuse("schedule", "A schedule needs the Schedule trigger event");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(workflow.Schedule))
+            Refuse("schedule", "A Schedule trigger needs a cron expression");
+        else if (WorkflowSchedule.Parse(workflow.Schedule) is null)
+            Refuse("schedule", "Schedule must be a 5-field cron expression: minute hour day-of-month month day-of-week");
+
+        if (!WorkflowSchedule.IsKnownZone(workflow.ScheduleTimeZone))
+            Refuse("scheduleTimeZone", "Schedule time zone must be 'tenant' or an IANA id such as Asia/Manila");
+
+        if (!string.IsNullOrWhiteSpace(workflow.ScheduleCatchUp)
+            && !string.Equals(workflow.ScheduleCatchUp, WorkflowSchedule.CatchUpOnce, StringComparison.OrdinalIgnoreCase))
+            Refuse("scheduleCatchUp", "Schedule catch-up must be 'once'");
     }
 
     private void ValidateExecutor(WorkflowDefinition workflow, WorkflowValidationResult result)
@@ -229,9 +264,11 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
             foreach (var (name, template) in action.Parameters)
             {
                 var field = $"actions[{i}].parameters.{name}";
-                var resolvedByTheAction = ActionParameters.IsResolvedByTheAction(action.Type ?? string.Empty, name);
+                var resolvedByTheAction = ActionParameters.IsResolvedByTheAction(action.Type ?? string.Empty, name)
+                    && !ActionParameters.ReadsStepOutputsItself(action.Type ?? string.Empty, name);
 
-                foreach (var (ordinal, output) in ActionOutputs.References(template))
+                var read = resolvedByTheAction && IsBranch(action.Type, name) ? WithoutAttachmentsOfChildren(template, 0) : template;
+                foreach (var (ordinal, output) in ActionOutputs.References(read))
                 {
                     if (result.Warnings.Count >= MaxPlaceholderWarnings)
                     {
@@ -284,6 +321,37 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
     /// <summary>How far into nested Conditional branches the placeholders are read.</summary>
     internal const int MaxWarningDepth = 5;
 
+    private static readonly System.Text.RegularExpressions.Regex StepOutputReference = new(
+        @"\{\{\s*actions\.[0-9]",
+        System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    private static bool IsBranch(string? actionType, string name) =>
+        actionType == "Conditional"
+        && (name.Equals("ThenActions", StringComparison.OrdinalIgnoreCase) || name.Equals("ElseActions", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// A branch's text with the attachments of its child emails left out. A step output named there
+    /// has its own warning on the child, so the branch does not say it a second time.
+    /// </summary>
+    private static string WithoutAttachmentsOfChildren(string? branch, int depth)
+    {
+        var text = new System.Text.StringBuilder();
+        foreach (var child in ChildActions(branch))
+        {
+            foreach (var (name, value) in child.Parameters ?? [])
+            {
+                if (ActionParameters.ReadsStepOutputsItself(child.Type ?? string.Empty, name))
+                {
+                    continue;
+                }
+
+                text.Append(IsBranch(child.Type, name) && depth < MaxWarningDepth ? WithoutAttachmentsOfChildren(value, depth + 1) : value).Append(' ');
+            }
+        }
+
+        return text.ToString();
+    }
+
     /// <summary>
     /// Lists every placeholder of an action that the engine will send as written. Never an error:
     /// a template has always been allowed to hold text the engine does not know.
@@ -301,6 +369,19 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
         foreach (var (name, template) in action.Parameters)
         {
             if (result.Warnings.Count > MaxPlaceholderWarnings) return;
+
+            if (depth > 0
+                && ActionParameters.ReadsStepOutputsItself(action.Type ?? string.Empty, name)
+                && template is not null
+                && StepOutputReference.IsMatch(template))
+            {
+                result.Warnings.Add(new ValidationError
+                {
+                    Field = $"{field}.parameters.{name}",
+                    Message = "This reads the output of an earlier step, and a step inside a Conditional is not given the run's "
+                            + "step outputs, so the file cannot be attached. Move the email out of the Conditional."
+                });
+            }
 
             if (ActionParameters.IsResolvedByTheAction(action.Type ?? string.Empty, name))
             {
@@ -403,6 +484,7 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
     {
         var result = Validate(workflow, ct);
         await AddTemplateWarningsAsync(workflow, result, ct);
+        await AddPublishErrorsAsync(workflow, result, ct);
 
         var events = WorkflowTriggers.Events(workflow);
         if (!events.Any(e => WorkflowEvents.TransitionName(e) is { Length: > 0 }))
@@ -449,6 +531,51 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Refuses a Publish action whose payload is not a JSON object of text, names a placeholder outside
+    /// the allowlist, or names a field its trigger type does not mark Public.
+    /// </summary>
+    /// <remarks>
+    /// Only the workflow's own actions are read, not the children of a Conditional. The action checks
+    /// again when it runs, so a child cannot send what a top-level action may not.
+    /// </remarks>
+    private async Task AddPublishErrorsAsync(WorkflowDefinition workflow, WorkflowValidationResult result, CancellationToken ct)
+    {
+        if (workflow.Actions is null) return;
+
+        List<ContentTypeDefinition>? definitions = null;
+
+        for (var i = 0; i < workflow.Actions.Count; i++)
+        {
+            var action = workflow.Actions[i];
+            if (action is null || !string.Equals(action.Type, "Publish", StringComparison.Ordinal)) continue;
+
+            var payload = action.Parameters?.GetValueOrDefault(PublishPayload.PayloadParameter);
+            if (string.IsNullOrWhiteSpace(payload)) continue;
+
+            if (definitions is null)
+            {
+                definitions = [];
+                foreach (var contentType in WorkflowTriggers.ContentTypes(workflow))
+                {
+                    var definition = await _session.Query<ContentTypeDefinition>()
+                        .FirstOrDefaultAsync(d => d.Name == contentType, ct);
+                    if (definition is not null) definitions.Add(definition);
+                }
+            }
+
+            foreach (var problem in PublishPayload.Problems(payload, definitions))
+            {
+                result.Errors.Add(new ValidationError
+                {
+                    Field = $"actions[{i}].parameters.{PublishPayload.PayloadParameter}",
+                    Message = problem,
+                });
+                result.IsValid = false;
+            }
+        }
     }
 
     /// <summary>How many distinct templates one validation reads.</summary>
@@ -806,7 +933,7 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
             }
         }
 
-        if (string.Equals(action.Type, "Webhook", StringComparison.Ordinal)
+        if (action.Type is "Webhook" or "Publish"
             && WebhookSigning.IsInsecureSignedUrl(action.Parameters.GetValueOrDefault("Url"), action.Parameters, _allowInsecureSignedUrls))
         {
             result.Errors.Add(new ValidationError

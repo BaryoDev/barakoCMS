@@ -1,5 +1,4 @@
 using barakoCMS.Modules;
-using Marten;
 
 namespace BarakoCMS.Pwa;
 
@@ -13,6 +12,16 @@ namespace BarakoCMS.Pwa;
 public sealed class PwaModule : IBarakoModule
 {
     public string Name => "Pwa";
+
+    public string? PackageId => "BarakoCMS.Pwa";
+
+    public string? PackageVersion => ModuleMetadata.VersionOf(GetType());
+
+    public string? Category => ModuleCategory.Platform;
+
+    public string? Description => "Installs tracked for the PWA home screen";
+
+    public string? Glyph => "smartphone";
 
     public void ConfigureSchema(IModuleSchema schema)
     {
@@ -32,6 +41,15 @@ public sealed class PwaModule : IBarakoModule
     /// turning that off, which is the point of issue #443, would take the module away from every
     /// Admin. Additive and idempotent, and it skips a role the host never seeded.
     /// </remarks>
-    public Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) =>
-        PwaCapabilities.Defaults.GrantAsync(session, ct);
+    public Task SeedAsync(IModuleSeedContext context, CancellationToken ct) =>
+        PwaCapabilities.Defaults.GrantAsync(context, ct);
+
+    [Obsolete("Override SeedAsync(IModuleSeedContext, CancellationToken), which names no Marten type. "
+              + "Removal planned for barakoCMS 6.0.0.")]
+    public Task SeedAsync(Marten.IDocumentSession session, IServiceProvider services, CancellationToken ct)
+    {
+#pragma warning disable CS0618
+        return SeedAsync(ModuleSeedContexts.Over(session, services), ct);
+#pragma warning restore CS0618
+    }
 }

@@ -42,11 +42,19 @@ internal static class PrivateSite
             .OrderBy(c => c.CreatedAt)
             .FirstOrDefaultAsync(ct);
 
+    /// <summary>
+    /// <see cref="FindPrivateEntryAsync"/> for the request's own tenant, skipping the read while the
+    /// tenant is known not to be private (#1175).
+    /// </summary>
+    public static Task<Content?> FindCachedAsync(HttpContext context, IQuerySession session, CancellationToken ct) =>
+        context.RequestServices.GetRequiredService<PrivateSiteCache>().FindPrivateEntryAsync(
+            context.RequestServices.GetRequiredService<TenantContext>().Slug, session, ct);
+
     /// <summary>For a request already being served: false once the tenant is private and the caller no longer qualifies.</summary>
     public static async Task<bool> StillAllowedAsync(HttpContext context, CancellationToken ct)
     {
         var session = context.RequestServices.GetRequiredService<IQuerySession>();
-        return await FindPrivateEntryAsync(session, ct) is not { } site
+        return await FindCachedAsync(context, session, ct) is not { } site
                || await MayViewAsync(context, session, site, ct);
     }
 

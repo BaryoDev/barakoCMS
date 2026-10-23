@@ -63,16 +63,9 @@ public class Endpoint(
         }
         buffer.Position = 0;
 
-        // Refused before anything is decompressed. The parser materialises the whole sheet, so the
-        // cost of this request is set by the expanded size rather than the uploaded size, and an
-        // xlsx is a zip: a file well inside the body limit expands to many times its size. See
-        // SpreadsheetLimits for the measurement that produced the default.
-        var limit = SpreadsheetLimits.MaxExpandedBytes(configuration);
-        if (SpreadsheetLimits.DeclaredExpandedBytes(buffer) is { } expanded && expanded > limit)
+        if (RefusalFor(buffer) is { } refusal)
         {
-            AddError(
-                $"That file expands to {expanded / 1024 / 1024} MB, over the {limit / 1024 / 1024} MB "
-              + $"this instance will parse. Split it, or raise {SpreadsheetLimits.MaxExpandedBytesKey}.");
+            AddError(refusal);
             await Send.ErrorsAsync(400, ct);
             return;
         }
@@ -118,9 +111,25 @@ public class Endpoint(
         }, cancellation: ct);
     }
 
+    // Refused before anything is decompressed. The parser materialises the whole sheet, so the
+    // cost of this request is set by the expanded size rather than the uploaded size, and an
+    // xlsx is a zip: a file well inside the body limit expands to many times its size. See
+    // SpreadsheetLimits for the measurement that produced the default.
+    private string? RefusalFor(MemoryStream buffer)
+    {
+        var limit = SpreadsheetLimits.MaxExpandedBytes(configuration);
+        if (SpreadsheetLimits.DeclaredExpandedBytes(buffer) is { } expanded && expanded > limit)
+            return $"That file expands to {expanded / 1024 / 1024} MB, over the {limit / 1024 / 1024} MB "
+                 + $"this instance will parse. Split it, or raise {SpreadsheetLimits.MaxExpandedBytesKey}.";
+
+        return SpreadsheetGuard.Check(
+            buffer, SpreadsheetLimits.MaxColumns(configuration), SpreadsheetGuard.ExcelMaxRows);
+    }
+
     private static int SuggestHeaderRow(SheetData sheet)
     {
-        for (var r = 0; r < sheet.RowCount; r++)
+        // Only rows the preview returns, so a caller can pick the suggestion out of what it sees.
+        for (var r = 0; r < Math.Min(sheet.RowCount, MaxPreviewRows); r++)
         {
             var nonBlank = 0;
             for (var c = 0; c < sheet.ColumnCount; c++)

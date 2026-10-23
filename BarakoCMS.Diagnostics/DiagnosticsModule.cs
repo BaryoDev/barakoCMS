@@ -2,7 +2,6 @@ using barakoCMS.Core.Interfaces;
 using barakoCMS.Modules;
 using BarakoCMS.Diagnostics.Forwarding;
 using BarakoCMS.Diagnostics.Incidents;
-using Marten;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace BarakoCMS.Diagnostics;
@@ -19,6 +18,16 @@ namespace BarakoCMS.Diagnostics;
 public sealed class DiagnosticsModule : IBarakoModule
 {
     public string Name => "Diagnostics";
+
+    public string? PackageId => "BarakoCMS.Diagnostics";
+
+    public string? PackageVersion => ModuleMetadata.VersionOf(GetType());
+
+    public string? Category => ModuleCategory.Platform;
+
+    public string? Description => "Browser error logging";
+
+    public string? Glyph => "bug";
 
     /// <summary>
     /// The incidents view's sources (#893) and the optional forwarder (#627). <paramref name="configuration"/>
@@ -58,6 +67,15 @@ public sealed class DiagnosticsModule : IBarakoModule
     /// turning that off, which is the point of issue #443, would take the module away from every
     /// Admin. Additive and idempotent, and it skips a role the host never seeded.
     /// </remarks>
-    public Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) =>
-        DiagnosticsCapabilities.Defaults.GrantAsync(session, ct);
+    public Task SeedAsync(IModuleSeedContext context, CancellationToken ct) =>
+        DiagnosticsCapabilities.Defaults.GrantAsync(context, ct);
+
+    [Obsolete("Override SeedAsync(IModuleSeedContext, CancellationToken), which names no Marten type. "
+              + "Removal planned for barakoCMS 6.0.0.")]
+    public Task SeedAsync(Marten.IDocumentSession session, IServiceProvider services, CancellationToken ct)
+    {
+#pragma warning disable CS0618
+        return SeedAsync(ModuleSeedContexts.Over(session, services), ct);
+#pragma warning restore CS0618
+    }
 }

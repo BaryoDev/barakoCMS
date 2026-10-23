@@ -208,6 +208,10 @@ public class TenantSignUpPolicyTests
 
     private async Task<SocialSignIn.Tokens> SocialAsync(string email, string club)
     {
+        // Called outside a request, so token creation reads FastEndpoints' static resolver, which a
+        // class that disposed its own host can leave pointing at a disposed provider.
+        FastEndpointsResolver.RepairIfDisposed([_fixture.Services]);
+
         using var scope = _fixture.Services.CreateScope();
         var provider = scope.ServiceProvider;
         var context = new Microsoft.AspNetCore.Http.DefaultHttpContext();

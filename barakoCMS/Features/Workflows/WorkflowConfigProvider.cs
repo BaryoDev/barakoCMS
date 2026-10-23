@@ -17,8 +17,11 @@ internal sealed record WorkflowConfig(
     Dictionary<string, string>? Conditions,
     List<WorkflowAction>? Actions,
     bool Enabled = true,
-    ScheduleTrigger? Schedule = null,
-    string? NotifyRoleOnFailure = null);
+    ScheduleTrigger? DateSchedule = null,
+    string? NotifyRoleOnFailure = null,
+    string? Schedule = null,
+    string? ScheduleTimeZone = null,
+    string? ScheduleCatchUp = null);
 
 /// <summary>
 /// The <c>workflows</c> section: each workflow of the tenant under its name.
@@ -167,6 +170,8 @@ internal sealed class WorkflowConfigProvider(
                 KeepCredentials(workflow, current);
             }
 
+            ArmSchedule(workflow, current);
+
             // Not protected here: the document carries no credential, and what was carried over from
             // the stored workflow is ciphertext already, which protecting again would make unreadable.
             session.Store(workflow);
@@ -197,11 +202,31 @@ internal sealed class WorkflowConfigProvider(
 
         // A schedule workflow has no events of its own: its stored trigger is derived from its name.
         var config = new WorkflowConfig(
-            WorkflowTriggers.ContentTypes(workflow), workflow.Schedule is null ? WorkflowTriggers.Events(workflow) : [],
+            WorkflowTriggers.ContentTypes(workflow), workflow.DateSchedule is null ? WorkflowTriggers.Events(workflow) : [],
             new Dictionary<string, string>(workflow.Conditions ?? [], StringComparer.Ordinal), actions, workflow.Enabled,
-            workflow.Schedule is { } schedule ? Copy(schedule) : null,
-            string.IsNullOrWhiteSpace(workflow.NotifyRoleOnFailure) ? null : workflow.NotifyRoleOnFailure);
+            workflow.DateSchedule is { } schedule ? Copy(schedule) : null,
+            string.IsNullOrWhiteSpace(workflow.NotifyRoleOnFailure) ? null : workflow.NotifyRoleOnFailure,
+            string.IsNullOrWhiteSpace(workflow.Schedule) ? null : workflow.Schedule,
+            string.IsNullOrWhiteSpace(workflow.ScheduleTimeZone) ? null : workflow.ScheduleTimeZone,
+            string.IsNullOrWhiteSpace(workflow.ScheduleCatchUp) ? null : workflow.ScheduleCatchUp);
         return (config, held);
+    }
+
+    private static void CopyCronSchedule(WorkflowConfig config, WorkflowDefinition workflow)
+    {
+        workflow.Schedule = string.IsNullOrWhiteSpace(config.Schedule) ? null : config.Schedule;
+        workflow.ScheduleTimeZone = string.IsNullOrWhiteSpace(config.ScheduleTimeZone) ? null : config.ScheduleTimeZone;
+        workflow.ScheduleCatchUp = string.IsNullOrWhiteSpace(config.ScheduleCatchUp) ? null : config.ScheduleCatchUp;
+    }
+
+    private static void ArmSchedule(WorkflowDefinition workflow, WorkflowDefinition? current)
+    {
+        if (WorkflowSchedule.Parse(workflow.Schedule) is null) return;
+
+        var same = current?.ScheduleArmedAt is not null
+            && string.Equals(current.Schedule, workflow.Schedule, StringComparison.Ordinal)
+            && string.Equals(current.ScheduleTimeZone, workflow.ScheduleTimeZone, StringComparison.OrdinalIgnoreCase);
+        workflow.ScheduleArmedAt = same ? current!.ScheduleArmedAt : DateTime.UtcNow;
     }
 
     /// <summary>The document as the definition it would store, checked the way the create endpoint checks one.</summary>
@@ -220,9 +245,10 @@ internal sealed class WorkflowConfigProvider(
             Conditions = config.Conditions ?? [],
             Actions = (config.Actions ?? []).Where(a => a is not null).ToList(),
             Enabled = config.Enabled,
-            Schedule = config.Schedule is { } schedule ? Copy(schedule) : null,
+            DateSchedule = config.DateSchedule is { } schedule ? Copy(schedule) : null,
             NotifyRoleOnFailure = string.IsNullOrWhiteSpace(config.NotifyRoleOnFailure) ? null : config.NotifyRoleOnFailure,
         };
+        CopyCronSchedule(config, workflow);
         foreach (var action in workflow.Actions)
         {
             action.Parameters ??= [];
@@ -255,7 +281,7 @@ internal sealed class WorkflowConfigProvider(
             return null;
         }
 
-        if (workflow.Schedule is not null)
+        if (workflow.DateSchedule is not null)
         {
             return Scheduled(name, workflow);
         }
@@ -283,7 +309,7 @@ internal sealed class WorkflowConfigProvider(
     /// </remarks>
     private async Task<bool> PrepareScheduleAsync(string name, WorkflowDefinition workflow, List<string> errors, CancellationToken ct)
     {
-        if (workflow.Schedule is not { } due)
+        if (workflow.DateSchedule is not { } due)
         {
             return true;
         }
@@ -322,18 +348,18 @@ internal sealed class WorkflowConfigProvider(
     {
         if (string.IsNullOrWhiteSpace(schedule.DateField))
         {
-            return $"'{name}': schedule.dateField: A date field is required";
+            return $"'{name}': dateSchedule.dateField: A date field is required";
         }
 
         if (!ScheduleOffset.TryParse(schedule.Offset, out _))
         {
-            return $"'{name}': schedule.offset: Use a whole number plus m, h or d, such as -24h, of at most 365 days";
+            return $"'{name}': dateSchedule.offset: Use a whole number plus m, h or d, such as -24h, of at most 365 days";
         }
 
         if (string.IsNullOrWhiteSpace(schedule.ContentType)
             || !await session.Query<ContentTypeDefinition>().AnyAsync(barakoCMS.Core.ContentTypeName.Named(schedule.ContentType), ct))
         {
-            return $"'{name}': schedule.contentType: Content type '{schedule.ContentType}' does not exist";
+            return $"'{name}': dateSchedule.contentType: Content type '{schedule.ContentType}' does not exist";
         }
 
         return null;
@@ -361,7 +387,8 @@ internal sealed class WorkflowConfigProvider(
         var details = new List<string>();
         AddIfChanged(details, "triggers", (held.TriggerContentTypes, held.TriggerEvents), (desired.TriggerContentTypes, desired.TriggerEvents));
         AddIfChanged(details, "conditions", held.Conditions, desired.Conditions);
-        AddIfChanged(details, "schedule", held.Schedule, desired.Schedule);
+        AddIfChanged(details, "dateSchedule", held.DateSchedule, desired.DateSchedule);
+        AddIfChanged(details, "schedule", (held.Schedule, held.ScheduleTimeZone, held.ScheduleCatchUp), (desired.Schedule, desired.ScheduleTimeZone, desired.ScheduleCatchUp));
         AddIfChanged(details, "actions", held.Actions, desired.Actions);
         AddIfChanged(details, "the role notified on failure", held.NotifyRoleOnFailure, desired.NotifyRoleOnFailure);
         AddIfChanged(details, held.Enabled ? "is switched off" : "is switched on", held.Enabled, desired.Enabled);

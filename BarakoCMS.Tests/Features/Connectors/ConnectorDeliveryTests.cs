@@ -400,6 +400,84 @@ public class ConnectorDeliveryTests : IAsyncLifetime
         body.Should().NotContain("y", "nothing past the cut is kept");
     }
 
+    [Fact]
+    public async Task An_endless_body_is_read_only_as_far_as_the_row_keeps_when_nothing_is_captured()
+    {
+        var tenant = NewTenant();
+        var endless = new EndlessStream();
+
+        var host = Api(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StreamContent(endless),
+        });
+
+        var connector = await SeedAsync(tenant, host, ConnectorAuth.None);
+
+        await using var session = Store.QuerySession(tenant);
+        var result = await Sender(session).SendAsync(
+            connector, new ComposedRequest("GET", $"https://{host}/things", new(), null, null),
+            SuccessRule.TwoHundredRange, null,
+            new ConnectorDeliveryContext("read-it", Guid.NewGuid(), null, "Published", 1), Ct);
+
+        result.Succeeded.Should().BeTrue("got: {0}", result.Error);
+
+        var rows = await RowsAsync(tenant, connector.Id);
+        rows.Should().HaveCount(1);
+        rows[0].ResponseBody.Should().NotBeNull();
+        rows[0].ResponseBody!.Length.Should().Be(WebhookDelivery.ResponseBodyLimit, "the row keeps the cut body");
+
+        endless.BytesRead.Should().BeLessThanOrEqualTo(
+            WebhookDelivery.ResponseBodyLimit + EndlessStream.Chunk,
+            "the client must not buffer a body the row will cut");
+    }
+
+    [Fact]
+    public async Task A_body_that_stalls_after_the_headers_costs_the_row_its_body_and_not_the_send()
+    {
+        var tenant = NewTenant();
+        var host = Api(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new StallingStream()) });
+        var connector = await SeedAsync(tenant, host, ConnectorAuth.None);
+
+        await using var session = Store.QuerySession(tenant);
+        var sender = OAuthConnectors.Sender(
+            Host.Services, session, new ConnectorTokenCache(_clock), bodyTimeout: TimeSpan.FromMilliseconds(300));
+
+        var result = await sender.SendAsync(
+            connector, new ComposedRequest("GET", $"https://{host}/things", new(), null, null),
+            SuccessRule.TwoHundredRange, null,
+            new ConnectorDeliveryContext("read-it", Guid.NewGuid(), null, "Published", 1), Ct)
+            .WaitAsync(TimeSpan.FromSeconds(20), Ct);
+
+        result.Succeeded.Should().BeTrue("the provider answered 200; got: {0}", result.Error);
+
+        var rows = await RowsAsync(tenant, connector.Id);
+        rows.Should().HaveCount(1);
+        rows[0].ResponseStatus.Should().Be(200);
+        rows[0].ResponseBody.Should().BeNull("the body never arrived");
+    }
+
+    [Theory]
+    [InlineData("{\"error\":\"quota\"}", false)]
+    [InlineData("{\"fine\":true}", true)]
+    public async Task The_json_path_rule_and_the_row_both_see_the_body(string body, bool succeeds)
+    {
+        var tenant = NewTenant();
+        var host = Api(_ => OAuthProviderStub.Json(HttpStatusCode.OK, body));
+        var connector = await SeedAsync(tenant, host, ConnectorAuth.None);
+
+        await using var session = Store.QuerySession(tenant);
+        var result = await Sender(session).SendAsync(
+            connector, new ComposedRequest("GET", $"https://{host}/things", new(), null, null),
+            SuccessRule.TwoHundredAndJsonPathAbsent, "error",
+            new ConnectorDeliveryContext("read-it", Guid.NewGuid(), null, "Published", 1), Ct);
+
+        result.Succeeded.Should().Be(succeeds, "got: {0}", result.Error);
+
+        var rows = await RowsAsync(tenant, connector.Id);
+        rows.Should().HaveCount(1);
+        rows[0].ResponseBody.Should().Be(body);
+    }
+
     /// <summary>
     /// A guard for the inner half of the change: it is red when nothing is recorded at all, and
     /// passes whether or not the request and the answer are captured, since nothing was sent.
@@ -610,4 +688,53 @@ public class ConnectorDeliveryTests : IAsyncLifetime
         public Task WriteAsync(string tenantId, WebhookDelivery delivery, CancellationToken ct) =>
             Task.Delay(Timeout.Infinite, ct);
     }
+}
+
+/// <summary>A body with no end, counting what was read. It stops at a ceiling so a failure ends.</summary>
+internal sealed class EndlessStream : Stream
+{
+    internal const int Chunk = 8192;
+    private const long Ceiling = 64L * 1024 * 1024;
+    private long _read;
+
+    internal long BytesRead => Interlocked.Read(ref _read);
+
+    public override bool CanRead => true;
+    public override bool CanSeek => false;
+    public override bool CanWrite => false;
+    public override long Length => throw new NotSupportedException();
+
+    public override long Position
+    {
+        get => throw new NotSupportedException();
+        set => throw new NotSupportedException();
+    }
+
+    public override void Flush()
+    {
+    }
+
+    public override int Read(byte[] buffer, int offset, int count) => Fill(buffer.AsSpan(offset, count));
+
+    public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default) =>
+        ValueTask.FromResult(Fill(buffer.Span));
+
+    public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken ct) =>
+        Task.FromResult(Fill(buffer.AsSpan(offset, count)));
+
+    private int Fill(Span<byte> target)
+    {
+        var room = (int)Math.Min(Math.Min(target.Length, Chunk), Ceiling - BytesRead);
+        if (room <= 0) return 0;
+
+        target[..room].Fill((byte)'a');
+        Interlocked.Add(ref _read, room);
+        return room;
+    }
+
+    public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+    public override void SetLength(long value) => throw new NotSupportedException();
+
+    public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
 }

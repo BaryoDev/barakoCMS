@@ -89,6 +89,10 @@ public class SemanticSearchScanBoundTests
 
     private async Task<JsonElement> SearchAsync(string type, int limit = 10)
     {
+        // The private site check caches its answer, so it is cached before the statements are counted.
+        (await _client.GetAsync("/api/public/gate-warmup", TestContext.Current.CancellationToken)).Dispose();
+        _logger.RawCommands.Clear();
+
         var response = await _client.GetAsync(
             $"/api/public/{type}/semantic?q={Uri.EscapeDataString(Words)}&limit={limit}",
             TestContext.Current.CancellationToken);

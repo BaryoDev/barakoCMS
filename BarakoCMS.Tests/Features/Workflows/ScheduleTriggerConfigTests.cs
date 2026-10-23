@@ -52,16 +52,16 @@ public class ScheduleTriggerConfigTests
         (await ApplyAsync(client, document)).Response.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var stored = await _callers.InTenantAsync(tenant, s => s.Query<WorkflowDefinition>().SingleAsync(w => w.Name == name, Ct));
-        stored!.Schedule.Should().NotBeNull();
-        stored.Schedule!.Offset.Should().Be("-24h");
-        stored.Schedule.InState.Should().Be("Booked");
-        stored.Schedule.Where.Should().Equal(new Dictionary<string, string> { ["Type"] = "Walk-in" });
+        stored!.DateSchedule.Should().NotBeNull();
+        stored.DateSchedule!.Offset.Should().Be("-24h");
+        stored.DateSchedule.InState.Should().Be("Booked");
+        stored.DateSchedule.Where.Should().Equal(new Dictionary<string, string> { ["Type"] = "Walk-in" });
         stored.TriggerEvent.Should().Be($"schedule:{name}");
         stored.TriggerContentType.Should().Be(type);
 
         var (_, export) = await ExportAsync(client, "workflows");
         var exported = export.GetProperty("workflows").GetProperty(name);
-        exported.GetProperty("schedule").GetProperty("dateField").GetString().Should().Be("startsAt");
+        exported.GetProperty("dateSchedule").GetProperty("dateField").GetString().Should().Be("startsAt");
         exported.GetProperty("triggerEvents").GetArrayLength().Should().Be(0);
 
         var (response, plan) = await PlanAsync(client, new { version = 1, workflows = JsonSerializer.Deserialize<JsonElement>(export.GetProperty("workflows").GetRawText()) });
@@ -70,9 +70,9 @@ public class ScheduleTriggerConfigTests
     }
 
     [Theory]
-    [InlineData("unknown-type", "startsAt", "-24h", "schedule.contentType")]
-    [InlineData("", "", "-24h", "schedule.dateField")]
-    [InlineData("", "startsAt", "tomorrow", "schedule.offset")]
+    [InlineData("unknown-type", "startsAt", "-24h", "dateSchedule.contentType")]
+    [InlineData("", "", "-24h", "dateSchedule.dateField")]
+    [InlineData("", "startsAt", "tomorrow", "dateSchedule.offset")]
     public async Task A_bad_schedule_is_refused_by_name(string contentType, string dateField, string offset, string field)
     {
         var (tenant, type, client) = await TenantWithTypeAsync();
@@ -97,7 +97,7 @@ public class ScheduleTriggerConfigTests
 
     private static object Workflow(string contentType, string offset, string dateField) => new
     {
-        schedule = new { contentType, dateField, offset, inState = "Booked", where = new Dictionary<string, string> { ["Type"] = "Walk-in" } },
+        dateSchedule = new { contentType, dateField, offset, inState = "Booked", where = new Dictionary<string, string> { ["Type"] = "Walk-in" } },
         actions = new[] { new { type = "Webhook", parameters = new Dictionary<string, string> { ["Url"] = "https://hooks.example.com/remind" } } },
     };
 }

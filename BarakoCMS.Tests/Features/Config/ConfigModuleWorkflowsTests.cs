@@ -159,6 +159,82 @@ public class ConfigModuleWorkflowsTests
     }
 
     [Fact]
+    public async Task A_cron_schedule_is_applied_exported_and_planned_when_it_changes()
+    {
+        var (tenant, client, _, _) = await TenantWithBothAsync();
+        var name = Unique("cron-");
+        object Document(string cron, string zone) => new
+        {
+            version = 1,
+            workflows = new Dictionary<string, object>
+            {
+                [name] = new
+                {
+                    triggerContentTypes = new[] { "delivery" },
+                    triggerEvents = new[] { "Schedule" },
+                    schedule = cron,
+                    scheduleTimeZone = zone,
+                    scheduleCatchUp = "once",
+                    actions = new[] { new { type = "Webhook", parameters = new Dictionary<string, string> { ["Url"] = "https://hooks.example.com/a" } } },
+                },
+            },
+        };
+
+        var (applied, body) = await ApplyAsync(client, Document("0 9 * * 1", "Asia/Manila"), allowDestructive: true);
+
+        applied.StatusCode.Should().Be(HttpStatusCode.OK, body.ToString());
+        var stored = await _callers.InTenantAsync(tenant, s => s.Query<WorkflowDefinition>().SingleAsync(w => w.Name == name, Ct));
+        stored.Schedule.Should().Be("0 9 * * 1");
+        stored.ScheduleTimeZone.Should().Be("Asia/Manila");
+        stored.ScheduleCatchUp.Should().Be("once");
+        stored.ScheduleArmedAt.Should().NotBeNull();
+
+        var (_, export) = await ExportAsync(client, "workflows");
+        var exported = export.GetProperty("workflows").GetProperty(name);
+        exported.GetProperty("schedule").GetString().Should().Be("0 9 * * 1");
+        exported.GetProperty("scheduleTimeZone").GetString().Should().Be("Asia/Manila");
+        exported.GetProperty("scheduleCatchUp").GetString().Should().Be("once");
+
+        var (_, same) = await PlanAsync(client, Document("0 9 * * 1", "Asia/Manila"));
+        Changes(same).Should().NotContain(c => c.StartsWith($"workflows/{name} "));
+
+        var (_, plan) = await PlanAsync(client, Document("0 10 * * 1", "Asia/Manila"));
+        Changes(plan).Should().Contain(c => c.StartsWith($"workflows/{name} "));
+    }
+
+    [Fact]
+    public async Task A_document_that_leaves_the_cron_schedule_unchanged_keeps_when_it_was_armed()
+    {
+        var (tenant, client, _, _) = await TenantWithBothAsync();
+        var name = Unique("cron-");
+        object Document(bool enabled) => new
+        {
+            version = 1,
+            workflows = new Dictionary<string, object>
+            {
+                [name] = new
+                {
+                    triggerContentTypes = new[] { "delivery" },
+                    triggerEvents = new[] { "Schedule" },
+                    schedule = "0 9 * * 1",
+                    scheduleTimeZone = "Asia/Manila",
+                    enabled,
+                    actions = new[] { new { type = "Webhook", parameters = new Dictionary<string, string> { ["Url"] = "https://hooks.example.com/a" } } },
+                },
+            },
+        };
+        await ApplyAsync(client, Document(true), allowDestructive: true);
+        var first = await _callers.InTenantAsync(tenant, s => s.Query<WorkflowDefinition>().SingleAsync(w => w.Name == name, Ct));
+
+        await ApplyAsync(client, Document(false), allowDestructive: true);
+
+        var second = await _callers.InTenantAsync(tenant, s => s.Query<WorkflowDefinition>().SingleAsync(w => w.Name == name, Ct));
+        second.Enabled.Should().BeFalse();
+        first.ScheduleArmedAt.Should().NotBeNull();
+        second.ScheduleArmedAt.Should().Be(first.ScheduleArmedAt);
+    }
+
+    [Fact]
     public async Task A_document_naming_a_module_owned_workflow_with_the_same_content_changes_nothing()
     {
         var (_, client, owned, _) = await TenantWithBothAsync();

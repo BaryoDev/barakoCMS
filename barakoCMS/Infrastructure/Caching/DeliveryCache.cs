@@ -196,6 +196,14 @@ public static class DeliveryCache
         return (builder.ToString(), dropped);
     }
 
+    /// <summary>
+    /// The tags a purge for these scopes names, in the same format a delivery read emits. The bare
+    /// tenant tag is left out: it is on every read of the tenant, so purging it would empty the
+    /// tenant's whole cache for one publish. Every tag still starts with the tenant.
+    /// </summary>
+    public static IReadOnlyList<string> PurgeTags(string tenant, IEnumerable<CacheScope> scopes) =>
+        scopes.Select(s => Tag(tenant, s)).Distinct(StringComparer.Ordinal).ToList();
+
     /// <summary>A weak ETag over the tenant and the bytes a caller is sent.</summary>
     public static string WeakETag(string tenant, ReadOnlySpan<byte> body)
     {

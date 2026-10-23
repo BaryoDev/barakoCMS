@@ -1,1 +1,0 @@
-- **Workflows a module seeds are module-owned.** `WorkflowDefinition.OwnerModule` is set by `ModuleWorkflows.SeedAsync`. Config apply never plans to delete a module-owned workflow and refuses a document that names one with other content, and config export leaves them out.

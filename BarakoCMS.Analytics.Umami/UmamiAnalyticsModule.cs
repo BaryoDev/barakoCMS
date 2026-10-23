@@ -17,6 +17,16 @@ public sealed class UmamiAnalyticsModule : IBarakoModule
 {
     public string Name => "Analytics.Umami";
 
+    public string? PackageId => "BarakoCMS.Analytics.Umami";
+
+    public string? PackageVersion => ModuleMetadata.VersionOf(GetType());
+
+    public string? Category => ModuleCategory.Insight;
+
+    public string? Description => "Umami visitor analytics for admins";
+
+    public string? Glyph => "bar-chart";
+
     /// <summary>Settings used to live at the root "Umami" section. See IBarakoModule.</summary>
     public string? LegacyConfigurationSection => UmamiOptions.SectionName;
 
@@ -36,6 +46,15 @@ public sealed class UmamiAnalyticsModule : IBarakoModule
     /// turning that off, which is the point of issue #443, would take the module away from every
     /// Admin. Additive and idempotent, and it skips a role the host never seeded.
     /// </remarks>
-    public Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) =>
-        AnalyticsCapabilities.Defaults.GrantAsync(session, ct);
+    public Task SeedAsync(IModuleSeedContext context, CancellationToken ct) =>
+        AnalyticsCapabilities.Defaults.GrantAsync(context, ct);
+
+    [Obsolete("Override SeedAsync(IModuleSeedContext, CancellationToken), which names no Marten type. "
+              + "Removal planned for barakoCMS 6.0.0.")]
+    public Task SeedAsync(Marten.IDocumentSession session, IServiceProvider services, CancellationToken ct)
+    {
+#pragma warning disable CS0618
+        return SeedAsync(ModuleSeedContexts.Over(session, services), ct);
+#pragma warning restore CS0618
+    }
 }

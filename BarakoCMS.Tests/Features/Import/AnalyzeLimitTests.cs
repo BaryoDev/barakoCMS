@@ -90,6 +90,48 @@ public class AnalyzeLimitTests
         stream.Position.Should().Be(0, "the stream is handed on to the parser afterwards");
     }
 
+    /// <summary>
+    /// Rows and columns each inside their caps can still multiply out: every row is padded to its
+    /// last column, so a few thousand rows holding one cell at the column cap is millions of cells.
+    /// </summary>
+    [Fact]
+    public async Task A_sheet_whose_padded_cells_pass_the_budget_is_refused_and_the_same_rows_narrow_are_not()
+    {
+        var wide = await AnalyzeAsync(Xlsx(rows: 8_000, secondColumn: "IV"), "wide.xlsx");
+        var narrow = await AnalyzeAsync(Xlsx(rows: 8_000), "narrow.xlsx");
+
+        wide.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await wide.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).Should().Contain("positions");
+        narrow.StatusCode.Should().Be(HttpStatusCode.OK,
+            await narrow.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+    }
+
+    /// <summary>
+    /// The parser pads every row to the widest column in the sheet, and numbers a row or cell with no
+    /// address, or an address already passed, as the next one, so one wide cell over many such narrow
+    /// rows is the same rectangle.
+    /// </summary>
+    [Fact]
+    public async Task One_wide_cell_over_many_unaddressed_rows_is_refused()
+    {
+        var response = await AnalyzeAsync(XlsxWideFirstRowThenUnaddressed(rows: 8_000), "tall.xlsx");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).Should().Contain("positions");
+    }
+
+    [Theory]
+    [InlineData("<row r=\"5000000000\"></row>", "5000000000")]
+    [InlineData("<row r=\"x1\"></row>", "x1")]
+    [InlineData("<row><c r=\"1A\" t=\"inlineStr\"><is><t>x</t></is></c></row>", "1A")]
+    public async Task A_row_or_cell_address_out_of_range_or_unreadable_is_refused(string sheetData, string named)
+    {
+        var response = await AnalyzeAsync(XlsxOf(sheetData), "odd.xlsx");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).Should().Contain(named);
+    }
+
     [Fact]
     public void A_non_archive_reports_no_declared_expansion()
     {
@@ -200,16 +242,36 @@ public class AnalyzeLimitTests
     /// A minimal xlsx with the given number of two-cell rows, built here rather than checked in so
     /// the repository does not carry a file whose only purpose is to be expensive.
     /// </summary>
-    private static byte[] Xlsx(int rows)
+    private static byte[] Xlsx(int rows, string secondColumn = "B")
+    {
+        var data = new StringBuilder();
+        for (var r = 1; r <= rows; r++)
+        {
+            data.Append($"<row r=\"{r}\"><c r=\"A{r}\" t=\"inlineStr\"><is><t>x</t></is></c>");
+            data.Append($"<c r=\"{secondColumn}{r}\" t=\"inlineStr\"><is><t>y</t></is></c></row>");
+        }
+
+        return XlsxOf(data.ToString());
+    }
+
+    /// <summary>One wide cell in the first row, then rows of one cell that alternate between no address and row 1 again.</summary>
+    private static byte[] XlsxWideFirstRowThenUnaddressed(int rows)
+    {
+        var data = new StringBuilder("<row><c r=\"IV1\" t=\"inlineStr\"><is><t>x</t></is></c></row>");
+        for (var r = 2; r <= rows; r++)
+            data.Append(r % 2 == 0
+                ? "<row><c t=\"inlineStr\"><is><t>y</t></is></c></row>"
+                : "<row r=\"1\"><c r=\"A1\" t=\"inlineStr\"><is><t>y</t></is></c></row>");
+
+        return XlsxOf(data.ToString());
+    }
+
+    private static byte[] XlsxOf(string sheetData)
     {
         var sheet = new StringBuilder();
         sheet.Append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
         sheet.Append("<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData>");
-        for (var r = 1; r <= rows; r++)
-        {
-            sheet.Append($"<row r=\"{r}\"><c r=\"A{r}\" t=\"inlineStr\"><is><t>x</t></is></c>");
-            sheet.Append($"<c r=\"B{r}\" t=\"inlineStr\"><is><t>y</t></is></c></row>");
-        }
+        sheet.Append(sheetData);
         sheet.Append("</sheetData></worksheet>");
 
         using var buffer = new MemoryStream();

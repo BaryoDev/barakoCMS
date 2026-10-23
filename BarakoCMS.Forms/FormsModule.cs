@@ -1,6 +1,5 @@
 using System.Threading.RateLimiting;
 using barakoCMS.Modules;
-using Marten;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
@@ -19,6 +18,16 @@ namespace BarakoCMS.Forms;
 public sealed class FormsModule : IBarakoModule
 {
     public string Name => "Forms";
+
+    public string? PackageId => "BarakoCMS.Forms";
+
+    public string? PackageVersion => ModuleMetadata.VersionOf(GetType());
+
+    public string? Category => ModuleCategory.Content;
+
+    public string? Description => "Public forms that accept anonymous submissions";
+
+    public string? Glyph => "clipboard-list";
 
     public int HttpContractVersion => 1;
 
@@ -99,6 +108,15 @@ public sealed class FormsModule : IBarakoModule
     /// Gives this module's capability to Admin, which core cannot do because it does not know the
     /// module exists. Additive and idempotent.
     /// </summary>
-    public Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) =>
-        FormsCapabilities.Defaults.GrantAsync(session, ct);
+    public Task SeedAsync(IModuleSeedContext context, CancellationToken ct) =>
+        FormsCapabilities.Defaults.GrantAsync(context, ct);
+
+    [Obsolete("Override SeedAsync(IModuleSeedContext, CancellationToken), which names no Marten type. "
+              + "Removal planned for barakoCMS 6.0.0.")]
+    public Task SeedAsync(Marten.IDocumentSession session, IServiceProvider services, CancellationToken ct)
+    {
+#pragma warning disable CS0618
+        return SeedAsync(ModuleSeedContexts.Over(session, services), ct);
+#pragma warning restore CS0618
+    }
 }

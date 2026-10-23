@@ -88,22 +88,33 @@ public class ReportingService(IQuerySession session)
         var start = new DateOnly(year, month, 1);
         var end = start.AddMonths(1).AddDays(-1);
         var entries = await PostedEntriesAsync(end, ct);
+        return BuildCashFlow(entries, cashCodes, year, month);
+    }
 
-        decimal opening = 0, receipts = 0, disbursements = 0;
+    // Receipts and disbursements classify each entry's net cash movement, so a transfer between two
+    // cash accounts (net zero) adds to neither. The detail lines still show every leg.
+    internal static CashFlow BuildCashFlow(IEnumerable<JournalEntry> entries, IReadOnlyCollection<string> cashCodes, int year, int month)
+    {
+        var start = new DateOnly(year, month, 1);
+        decimal opening = 0, receipts = 0, disbursements = 0, running = 0;
         var lines = new List<LedgerLine>();
 
         foreach (var e in entries.OrderBy(e => e.Date).ThenBy(e => e.EntryNumber))
-        foreach (var l in e.Lines.Where(l => cashCodes.Contains(l.AccountCode)))
         {
-            var delta = l.Debit - l.Credit; // cash is debit-normal
+            var cashLines = e.Lines.Where(l => cashCodes.Contains(l.AccountCode)).ToList();
+            var net = cashLines.Sum(l => l.Debit - l.Credit); // cash is debit-normal
             if (e.Date < start)
             {
-                opening += delta;
+                opening += net;
+                running = opening;
+                continue;
             }
-            else
+
+            if (net > 0) receipts += net; else if (net < 0) disbursements += -net;
+            foreach (var l in cashLines)
             {
-                if (delta >= 0) receipts += delta; else disbursements += -delta;
-                lines.Add(new LedgerLine(e.Date, e.EntryNumber, l.Memo ?? e.Memo, l.Debit, l.Credit, opening + receipts - disbursements, e.Attachments));
+                running += l.Debit - l.Credit;
+                lines.Add(new LedgerLine(e.Date, e.EntryNumber, l.Memo ?? e.Memo, l.Debit, l.Credit, running, e.Attachments));
             }
         }
 

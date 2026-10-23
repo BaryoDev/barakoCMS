@@ -60,6 +60,39 @@ public interface IBarakoModule
     /// </remarks>
     int HttpContractVersion => 0;
 
+    /// <summary>The NuGet package id this module ships as, e.g. "BarakoCMS.Forms". Optional.</summary>
+    /// <remarks>
+    /// Shown by <c>GET /api/modules</c> so a console can print an install line. The default is
+    /// null, meaning unstated.
+    /// </remarks>
+    string? PackageId => null;
+
+    /// <summary>The version of the package this module ships in. Optional.</summary>
+    /// <remarks>
+    /// Not <see cref="ContractVersion"/> or <see cref="HttpContractVersion"/>. Use
+    /// <see cref="ModuleMetadata.VersionOf"/> to read it from the module's assembly. The default
+    /// is null, meaning unstated.
+    /// </remarks>
+    string? PackageVersion => null;
+
+    /// <summary>
+    /// Which group a console files this module under. Optional. One of <see cref="ModuleCategory"/>.
+    /// </summary>
+    /// <remarks>
+    /// A closed set, so a console can lay out a page without meeting a name it has no place for.
+    /// A value outside the set is reported as null. The default is null, meaning unstated.
+    /// </remarks>
+    string? Category => null;
+
+    /// <summary>A one-line description for a module list. Optional. The default is null.</summary>
+    string? Description => null;
+
+    /// <summary>
+    /// The name of an icon in the console's icon set. Optional. The default is null, and a console
+    /// shows its own fallback.
+    /// </summary>
+    string? Glyph => null;
+
     /// <summary>
     /// Names of modules that must be configured before this one.
     /// </summary>
@@ -112,6 +145,19 @@ public interface IBarakoModule
     /// redacted even if listed. See <see cref="ModuleConfigurationView"/>.
     /// </remarks>
     ModuleConfigurationView? ConfigurationView => null;
+
+    /// <summary>
+    /// Which seeded roles start with which rights on the content types this module seeds. Optional.
+    /// </summary>
+    /// <remarks>
+    /// Seeding a content type in <see cref="SeedAsync"/> gives no role any right on it, and only
+    /// SuperAdmin passes a content check without a rule. Declare the rights here and the host
+    /// grants them after <see cref="SeedAsync"/> returns, in the same session. See
+    /// <see cref="ContentPermissionDefaults"/> for what is and is not overwritten.
+    ///
+    /// The default declares nothing, and a module that declares nothing grants nothing, as before.
+    /// </remarks>
+    ContentPermissionDefaults? ContentPermissions => null;
 
     /// <summary>
     /// Register the module's own document types and indexes.
@@ -238,5 +284,31 @@ public interface IBarakoModule
     /// Throwing fails your module's seed and nobody else's. It is logged against your module name
     /// and rethrown to the host once every module has had its turn.
     /// </summary>
+    [Obsolete("Override SeedAsync(IModuleSeedContext, CancellationToken), which names no Marten type. "
+              + "Removal planned for barakoCMS 6.0.0.")]
     Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) => Task.CompletedTask;
+
+    /// <summary>
+    /// Seed idempotent baseline data (roles, reference data, content types) through barakoCMS types
+    /// only. Runs only when the host invokes <c>RunBarakoModuleSeedersAsync</c>.
+    /// </summary>
+    /// <remarks>
+    /// Same rules as the session overload: the context is yours alone, the host commits it once
+    /// this returns, and throwing fails your module's seed and nobody else's. This is the member
+    /// the host calls. The default hands a module that only overrides the older, Marten-typed
+    /// overload its session, so existing modules behave as before.
+    /// </remarks>
+    Task SeedAsync(IModuleSeedContext context, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (context is not ModuleSeedContext host)
+        {
+            throw new NotSupportedException(
+                "This module seeds through the Marten-typed SeedAsync, which needs the host's own seed context.");
+        }
+
+#pragma warning disable CS0618 // the default exists so a module written before the seed context still seeds
+        return SeedAsync(host.Session, host.Services, ct);
+#pragma warning restore CS0618
+    }
 }

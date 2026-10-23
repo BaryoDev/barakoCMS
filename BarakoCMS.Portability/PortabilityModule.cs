@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Marten;
 using barakoCMS.Modules;
 
 namespace BarakoCMS.Portability;
@@ -18,6 +17,16 @@ public sealed class PortabilityModule : IBarakoModule
 {
     public string Name => "Portability";
 
+    public string? PackageId => "BarakoCMS.Portability";
+
+    public string? PackageVersion => ModuleMetadata.VersionOf(GetType());
+
+    public string? Category => ModuleCategory.Platform;
+
+    public string? Description => "Export and import content types and content";
+
+    public string? Glyph => "package";
+
     /// <summary>Adds the <c>contents</c> section, which is what lets a bundle apply as a config document.</summary>
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration) =>
         services.AddScoped<barakoCMS.Core.Interfaces.IConfigProvider, ContentsConfigProvider>();
@@ -31,6 +40,15 @@ public sealed class PortabilityModule : IBarakoModule
     /// turning that off, which is the point of issue #443, would take the module away from every
     /// Admin. Additive and idempotent, and it skips a role the host never seeded.
     /// </remarks>
-    public Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) =>
-        PortabilityCapabilities.Defaults.GrantAsync(session, ct);
+    public Task SeedAsync(IModuleSeedContext context, CancellationToken ct) =>
+        PortabilityCapabilities.Defaults.GrantAsync(context, ct);
+
+    [Obsolete("Override SeedAsync(IModuleSeedContext, CancellationToken), which names no Marten type. "
+              + "Removal planned for barakoCMS 6.0.0.")]
+    public Task SeedAsync(Marten.IDocumentSession session, IServiceProvider services, CancellationToken ct)
+    {
+#pragma warning disable CS0618
+        return SeedAsync(ModuleSeedContexts.Over(session, services), ct);
+#pragma warning restore CS0618
+    }
 }

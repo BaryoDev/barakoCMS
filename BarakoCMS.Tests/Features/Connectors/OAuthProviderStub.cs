@@ -103,7 +103,7 @@ internal sealed class FakeProvider
             return !RefuseEverything
                 && call.Authorization?.StartsWith("Bearer ", StringComparison.Ordinal) == true
                 && _live.ContainsKey(call.Authorization["Bearer ".Length..])
-                    ? OAuthProviderStub.Json(HttpStatusCode.OK, ApiBody)
+                    ? ApiAnswer?.Invoke(call) ?? OAuthProviderStub.Json(HttpStatusCode.OK, ApiBody)
                     : OAuthProviderStub.Json(HttpStatusCode.Unauthorized, "{\"error\":\"invalid_token\"}");
         });
     }
@@ -121,6 +121,9 @@ internal sealed class FakeProvider
     internal Func<ProviderCall, HttpResponseMessage?>? TokenAnswer { get; set; }
 
     internal bool RefuseEverything { get; set; }
+
+    /// <summary>Replaces the API's answer to a call that carries a live token, when it returns one.</summary>
+    internal Func<ProviderCall, HttpResponseMessage?>? ApiAnswer { get; set; }
 
     /// <summary>Completes when an API call has arrived and is being held by <see cref="HoldApi"/>.</summary>
     internal Task ApiReached => _apiReached.Task;
@@ -362,7 +365,7 @@ internal static class OAuthConnectors
     internal static ConnectorSender Sender(
         IServiceProvider services, IQuerySession session, ConnectorTokenCache cache,
         ILogger<ConnectorSender>? logger = null, TimeSpan? grantTimeout = null,
-        IConnectorDeliveryLog? deliveries = null, TimeSpan? recordTimeout = null) =>
+        IConnectorDeliveryLog? deliveries = null, TimeSpan? recordTimeout = null, TimeSpan? bodyTimeout = null) =>
         new(
             services.GetRequiredService<IHttpClientFactory>(),
             session,
@@ -373,6 +376,7 @@ internal static class OAuthConnectors
         {
             GrantTimeout = grantTimeout ?? TimeSpan.FromSeconds(30),
             RecordTimeout = recordTimeout ?? TimeSpan.FromSeconds(5),
+            BodyTimeout = bodyTimeout ?? barakoCMS.Infrastructure.Http.OutboundResilienceOptions.ResponseBodyAllowance,
         };
 
     internal static string NewSlug() => "oauth" + Guid.NewGuid().ToString("n")[..10];

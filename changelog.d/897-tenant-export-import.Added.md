@@ -1,5 +1,0 @@
-- **A tenant can be moved as a bundle.** `GET /api/tenants/{handle}/export` writes one tenant as a
-  bundle (the config engine's sections plus its entries, read a page at a time), and `POST
-  /api/tenants/import` creates a new tenant from one. Platform admins only (manage_tenants or
-  SuperAdmin). Password hashes, API keys and mail credentials are not in a bundle. Members, files,
-  redirects and the audit log are not carried yet. See docs/tenant-export-import.md (part of #897).

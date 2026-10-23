@@ -534,6 +534,21 @@ public class TransitionRequiredFieldsTests
     /// <summary>Every entry id the hook ran for, with the transition it was told, null for a plain save.</summary>
     private static readonly System.Collections.Concurrent.ConcurrentBag<(Guid Id, ContentTransition? Transition)> SeenTransitions = [];
 
+    private static readonly System.Collections.Concurrent.ConcurrentBag<(Guid Id, ContentTransition? Transition)> SeenThroughInterface = [];
+
+    private sealed class PortableHook : IContentLifecycleHook
+    {
+        public string ContentType => HookType;
+
+        public Task<IReadOnlyList<string>> BeforeSaveAsync(IContentHookContext context, CancellationToken ct)
+        {
+            if (context.EntryId is { } entry)
+                SeenThroughInterface.Add((entry, context.Transition));
+
+            return Task.FromResult<IReadOnlyList<string>>([]);
+        }
+    }
+
     private sealed class RefusingHook : IContentLifecycleHook
     {
         public string ContentType => HookType;
@@ -600,6 +615,7 @@ public class TransitionRequiredFieldsTests
             return _host ??= _factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
             {
                 services.AddScoped<IContentLifecycleHook, RefusingHook>();
+                services.AddScoped<IContentLifecycleHook, PortableHook>();
                 services.AddScoped<IPermissionResolver>(sp => new AdvancingPermissionResolver(
                     ActivatorUtilities.CreateInstance<CachedPermissionResolver>(sp),
                     sp.GetRequiredService<IDocumentStore>(),
@@ -664,6 +680,22 @@ public class TransitionRequiredFieldsTests
         after.Count.Should().BeGreaterThan(before, "the hook ran for the plain save too");
         after.Count(s => s.Transition is null).Should().BeGreaterThan(0);
         after.Count(s => s.Transition is not null).Should().Be(1, "the plain save names no transition");
+    }
+
+    [Fact]
+    public async Task A_hook_written_against_the_hook_context_interface_is_told_the_transition()
+    {
+        var type = await StoredTypeAsync(Review("RejectionReason"), Fields(), fixedName: HookType);
+        var id = await SubmittedAsync(type);
+        var reviewer = await UserAsync(Reviewer(type), GateHost());
+
+        var moved = await MoveAsync(reviewer, id, "Reject", new() { ["RejectionReason"] = "No receipt attached" });
+        moved.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", moved.StatusCode, await moved.Content.ReadAsStringAsync());
+
+        var seen = SeenThroughInterface.Where(s => s.Id == id && s.Transition is not null).Select(s => s.Transition!).ToList();
+        seen.Should().ContainSingle("the hook ran once for the move");
+        seen[0].Name.Should().Be("Reject");
+        seen[0].ToState.Should().Be("Rejected");
     }
 
     /// <summary>

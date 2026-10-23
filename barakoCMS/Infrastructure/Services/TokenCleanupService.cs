@@ -1,4 +1,5 @@
 using Marten;
+using barakoCMS.Infrastructure.Retention;
 using barakoCMS.Models;
 
 namespace barakoCMS.Infrastructure.Services;
@@ -45,6 +46,44 @@ public class TokenCleanupService(
     }
 
     /// <summary>
+    /// What is removed once its own expiry has passed. A zero window means "expired now": these rows
+    /// carry their own expiry, so the cutoff is the current time.
+    /// </summary>
+    /// <remarks>
+    /// Expired sign-in codes were never deleted by anything. OtpService only marks outstanding codes
+    /// Consumed when a new one is issued, so every OTP request left a permanent row and the "this
+    /// email, not consumed" scan in send and verify got slower with each one. A pending registration
+    /// nobody confirmed holds a username, an address and a password hash, so keeping it after the
+    /// token stopped working is data retained for no purpose.
+    /// </remarks>
+    internal static readonly IReadOnlyList<RetentionDeclaration> Declarations =
+    [
+        Expired<RefreshToken>(t => t.ExpiresAt),
+        Expired<RevokedToken>(t => t.ExpiresAt),
+        Expired<OtpCode>(t => t.ExpiresAt),
+        Expired<MagicLinkToken>(t => t.ExpiresAt),
+        Expired<PendingRegistration>(t => t.ExpiresAt),
+    ];
+
+    private static RetentionDeclaration Expired<T>(System.Linq.Expressions.Expression<Func<T, DateTime>> expiresAt)
+        where T : notnull
+    {
+        var parameter = expiresAt.Parameters[0];
+        return new RetentionDeclaration<T>(
+            typeof(T).Name,
+            cutoff =>
+            {
+                var limit = cutoff.UtcDateTime;
+                return System.Linq.Expressions.Expression.Lambda<Func<T, bool>>(
+                    System.Linq.Expressions.Expression.LessThan(
+                        expiresAt.Body, System.Linq.Expressions.Expression.Constant(limit)),
+                    parameter);
+            },
+            // One tick, so the cutoff is effectively now while the sweeper still reads the window as on.
+            _ => TimeSpan.FromTicks(1));
+    }
+
+    /// <summary>
     /// One sweep. Internal so a test can run it directly instead of waiting on the timer.
     /// </summary>
     /// <remarks>
@@ -57,23 +96,8 @@ public class TokenCleanupService(
         using var scope = serviceProvider.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
 
-        var now = DateTime.UtcNow;
-
-        session.DeleteWhere<RefreshToken>(t => t.ExpiresAt < now);
-        session.DeleteWhere<RevokedToken>(t => t.ExpiresAt < now);
-
-        // Expired sign-in codes were never deleted by anything. OtpService only marks outstanding
-        // codes Consumed when a new one is issued, so every OTP request left a permanent row and the
-        // "this email, not consumed" scan in send and verify got slower with each one. The ExpiresAt
-        // index is already registered, so this pass costs an indexed delete.
-        session.DeleteWhere<OtpCode>(o => o.ExpiresAt < now);
-
-        // Same shape, same reason. A pending registration nobody confirmed is dead weight, and it
-        // holds a username, an address and a password hash, so keeping it after the token stopped
-        // working is data retained for no purpose.
-        session.DeleteWhere<PendingRegistration>(p => p.ExpiresAt < now);
-
-        await session.SaveChangesAsync(ct);
+        await RetentionSweeper.SweepSessionAsync(
+            session, session.TenantId, Declarations, DateTimeOffset.UtcNow, ct);
 
         logger.LogInformation("Token cleanup swept expired refresh tokens, revoked tokens, OTP codes, and unconfirmed registrations");
     }

@@ -55,10 +55,20 @@ internal class CreateWorkflowEndpoint(
         WebhookSigning.ProtectSecrets(workflow, protector);
 
         workflow.Id = Guid.NewGuid();
+
+        var response = barakoCMS.Features.Workflows.WorkflowResponse.Saved(workflow, validation.Warnings);
+
+        if (WorkflowSchedule.Parse(workflow.Schedule) is { } cron)
+        {
+            var now = DateTime.UtcNow;
+            workflow.ScheduleArmedAt = now;
+            response.NextDueTimes = WorkflowSchedule.Next(
+                cron, await WorkflowSchedule.ZoneAsync(session, workflow, ct), now, WorkflowSchedule.PreviewCount);
+        }
+
         session.Store(workflow);
         await session.SaveChangesAsync(ct);
-        await Send.ResponseAsync(
-            barakoCMS.Features.Workflows.WorkflowResponse.Saved(workflow, validation.Warnings), cancellation: ct);
+        await Send.ResponseAsync(response, cancellation: ct);
     }
 }
 
@@ -435,22 +445,45 @@ internal sealed class UpdateWorkflowEndpoint(
 
         workflow.Id = stored.Id;
 
+        var response = WorkflowResponse.Saved(workflow, validation.Warnings);
+        await ArmScheduleAsync(workflow, stored, response, ct);
+
         // An update and not a store, so a delete committed after the load above is not undone by
         // this inserting the workflow again.
         session.Update(workflow);
         await WorkflowAudit.RecordAsync(session, tenant.Slug, "workflow.updated", workflow, User, ct: ct);
 
+        if (!await SaveUnlessDeletedAsync(ct)) return;
+
+        await Send.ResponseAsync(response, cancellation: ct);
+    }
+
+    private async Task<bool> SaveUnlessDeletedAsync(CancellationToken ct)
+    {
         try
         {
             await session.SaveChangesAsync(ct);
+            return true;
         }
         catch (Exception ex) when (ex.GetType().Name.Contains("NonExistentDocument"))
         {
             await Send.NotFoundAsync(ct);
-            return;
+            return false;
         }
+    }
 
-        await Send.ResponseAsync(WorkflowResponse.Saved(workflow, validation.Warnings), cancellation: ct);
+    private async Task ArmScheduleAsync(
+        WorkflowDefinition workflow, WorkflowDefinition stored, WorkflowResponse response, CancellationToken ct)
+    {
+        if (WorkflowSchedule.Parse(workflow.Schedule) is not { } cron) return;
+
+        var now = DateTime.UtcNow;
+        var sameSchedule = stored.ScheduleArmedAt is not null
+            && string.Equals(stored.Schedule, workflow.Schedule, StringComparison.Ordinal)
+            && string.Equals(stored.ScheduleTimeZone, workflow.ScheduleTimeZone, StringComparison.OrdinalIgnoreCase);
+        workflow.ScheduleArmedAt = sameSchedule ? stored.ScheduleArmedAt : now;
+        response.NextDueTimes = WorkflowSchedule.Next(
+            cron, await WorkflowSchedule.ZoneAsync(session, workflow, ct), now, WorkflowSchedule.PreviewCount);
     }
 
     /// <summary>

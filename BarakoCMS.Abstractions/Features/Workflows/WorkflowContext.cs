@@ -15,6 +15,14 @@ public sealed class WorkflowContext
     /// <summary>The trigger that fired: a content event, a transition or a module's trigger.</summary>
     public required string TriggerEvent { get; init; }
 
+    /// <summary>
+    /// This action's position in the run, counting from zero, or -1 when the caller did not say.
+    /// </summary>
+    public int Ordinal { get; init; } = -1;
+
+    /// <summary>True when this is the undo of the action at <see cref="Ordinal"/>, which can read what that action made.</summary>
+    public bool Undoing { get; init; }
+
     /// <summary>The tenant the run belongs to.</summary>
     public string TenantId { get; init; } = string.Empty;
 
@@ -27,4 +35,18 @@ public sealed class WorkflowContext
     /// failed, or produced nothing the workflow captured has no entry.
     /// </remarks>
     public IReadOnlyDictionary<int, IReadOnlyDictionary<string, string>> Outputs { get; init; } = NoOutputs;
+
+    /// <summary>
+    /// The stored files earlier actions of this run declared they made
+    /// (<see cref="WorkflowActionResult.ProducedFiles"/>), by the action's position counting from
+    /// zero.
+    /// </summary>
+    /// <remarks>
+    /// Only actions that succeeded are here, and only files of this run. An id that appears in an
+    /// output or a parameter but not here was not made by this run.
+    /// </remarks>
+    public IReadOnlyDictionary<int, IReadOnlyList<Guid>> ProducedFiles { get; init; } = NoFiles;
+
+    private static readonly IReadOnlyDictionary<int, IReadOnlyList<Guid>> NoFiles =
+        new Dictionary<int, IReadOnlyList<Guid>>();
 }

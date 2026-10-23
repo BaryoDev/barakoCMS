@@ -453,6 +453,16 @@ public class FieldDefinition
     /// </remarks>
     public int? TokenLength { get; set; }
 
+    /// <summary>
+    /// How the server computes this field's value from other fields of the same entry. Null, the
+    /// default, is an ordinary field.
+    /// </summary>
+    /// <remarks>
+    /// The value is worked out inside every write, stored with the entry, and read only: a write
+    /// that sets the field is refused. Checked when the type is saved.
+    /// </remarks>
+    public ComputedDefinition? Computed { get; set; }
+
     public bool IsRequired { get; set; }
     public object? DefaultValue { get; set; }
     public Dictionary<string, object> ValidationRules { get; set; } = new(); // min, max, regex, etc.
@@ -509,4 +519,17 @@ public enum SensitivityMode
     Off,           // no scrubbing at all
     SensitiveOnly, // scrub only fields/documents marked Sensitive or Hidden (default)
     All,           // reserved: strict lockdown (currently behaves as SensitiveOnly)
+}
+
+/// <summary>A computed field's function and what it reads: <c>{ "fn": "hours", "args": ["TimeIn", "TimeOut"], "round": 2 }</c>.</summary>
+public class ComputedDefinition
+{
+    /// <summary>One of add, subtract, multiply, divide, round, min, max, hours, days, duration, concat, coalesce.</summary>
+    public string Fn { get; set; } = string.Empty;
+
+    /// <summary>Field names of the same entry. Numeric functions also take a number written out.</summary>
+    public List<string> Args { get; set; } = new();
+
+    /// <summary>Decimal places a numeric result is rounded to, 0 to 10. Null leaves a decimal as it comes out.</summary>
+    public int? Round { get; set; }
 }

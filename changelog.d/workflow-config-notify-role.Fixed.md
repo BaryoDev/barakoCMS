@@ -1,1 +1,0 @@
-- **A workflow applied by config keeps `notifyRoleOnFailure`.** Config apply dropped it, so a failure handler never saw the role. It is now read on apply, written on export, and a change to it shows in the plan.

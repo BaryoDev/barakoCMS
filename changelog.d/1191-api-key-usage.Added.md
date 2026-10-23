@@ -1,1 +1,0 @@
-- **API key usage.** `GET /api/api-keys/{id}/usage` shows when a key was last used, why it was refused in the last 24 hours (scope, content type, expired, revoked), and the content types it names that no longer exist. Refusals are counted in memory, capped per key, and exported as `barakocms_api_key_refusals_total` by reason.

@@ -50,9 +50,16 @@ internal sealed class Endpoint(
     private ModuleSummary Summarise(ModuleCatalogueEntry entry)
     {
         var finding = entry.Enabled ? schema.For(entry.Name) : null;
-        return finding is null
-            ? new ModuleSummary(entry.Name, entry.ContractVersion, entry.Enabled, ModuleSchemaState.Unknown, [])
-            : new ModuleSummary(entry.Name, entry.ContractVersion, entry.Enabled, finding.State,
-                finding.Changes.Select(c => c.Name).ToArray());
+        return new ModuleSummary(
+            entry.Name,
+            entry.ContractVersion,
+            entry.Enabled,
+            finding?.State ?? ModuleSchemaState.Unknown,
+            finding?.Changes.Select(c => c.Name).ToArray() ?? [],
+            entry.PackageId,
+            entry.PackageVersion,
+            entry.Category,
+            entry.Description,
+            entry.Glyph);
     }
 }

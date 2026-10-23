@@ -1,5 +1,4 @@
 using barakoCMS.Modules;
-using Marten;
 
 namespace BarakoCMS.FeatureFlags;
 
@@ -15,6 +14,16 @@ namespace BarakoCMS.FeatureFlags;
 public sealed class FeatureFlagsModule : IBarakoModule
 {
     public string Name => "FeatureFlags";
+
+    public string? PackageId => "BarakoCMS.FeatureFlags";
+
+    public string? PackageVersion => ModuleMetadata.VersionOf(GetType());
+
+    public string? Category => ModuleCategory.Platform;
+
+    public string? Description => "Feature flags targeted by tenant, user or percentage";
+
+    public string? Glyph => "flag";
 
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
     {
@@ -38,6 +47,15 @@ public sealed class FeatureFlagsModule : IBarakoModule
     /// turning that off, which is the point of issue #443, would take the module away from every
     /// Admin. Additive and idempotent, and it skips a role the host never seeded.
     /// </remarks>
-    public Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) =>
-        FeatureFlagCapabilities.Defaults.GrantAsync(session, ct);
+    public Task SeedAsync(IModuleSeedContext context, CancellationToken ct) =>
+        FeatureFlagCapabilities.Defaults.GrantAsync(context, ct);
+
+    [Obsolete("Override SeedAsync(IModuleSeedContext, CancellationToken), which names no Marten type. "
+              + "Removal planned for barakoCMS 6.0.0.")]
+    public Task SeedAsync(Marten.IDocumentSession session, IServiceProvider services, CancellationToken ct)
+    {
+#pragma warning disable CS0618
+        return SeedAsync(ModuleSeedContexts.Over(session, services), ct);
+#pragma warning restore CS0618
+    }
 }

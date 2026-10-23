@@ -1,5 +1,5 @@
 using Marten;
-using barakoCMS.Infrastructure.Multitenancy;
+using barakoCMS.Infrastructure.Retention;
 using barakoCMS.Models;
 
 namespace barakoCMS.Features.Workflows;
@@ -115,51 +115,11 @@ internal sealed class WorkflowRunRetentionService : BackgroundService
     /// <returns>False when another instance held the lock and this tick did nothing.</returns>
     public async Task<bool> TrySweepAllTenantsAsync(DateTimeOffset nowUtc, CancellationToken ct)
     {
-        // The connection object rather than one rebuilt from its ConnectionString, because Npgsql
-        // redacts the password out of that string unless Persist Security Info is set.
-        await using var lockConnection = _store.Storage.Database.CreateConnection();
-        await lockConnection.OpenAsync(ct);
+        var result = await RetentionSweeper.TrySweepAllTenantsAsync(
+            _store, _config, SweepLockKey, PartitionsWithRunsSql, Declarations(Windows()),
+            nowUtc, _logger, "Workflow run", ct);
 
-        await using (var acquire = lockConnection.CreateCommand())
-        {
-            acquire.CommandText = "select pg_try_advisory_lock(@key)";
-            acquire.Parameters.AddWithValue("key", SweepLockKey);
-
-            if ((bool?)await acquire.ExecuteScalarAsync(ct) is not true)
-            {
-                _logger.LogDebug("Another instance is sweeping workflow runs; skipping this tick.");
-                return false;
-            }
-        }
-
-        try
-        {
-            var removed = 0;
-
-            var fromRegistry = TenantPartitions.ListsFromRegistry(_config);
-
-            foreach (var tenantId in await TenantPartitions.ListAsync(_store, _config, PartitionsWithRunsSql, ct))
-            {
-                await using var session = _store.LightweightSession(tenantId);
-                if (fromRegistry && !await HasFinishedRunsAsync(session, ct)) continue;
-
-                removed += await SweepTenantAsync(session, nowUtc, Windows(), _logger, ct);
-            }
-
-            if (removed > 0)
-            {
-                _logger.LogInformation("Workflow run retention removed {Count} run(s)", removed);
-            }
-
-            return true;
-        }
-        finally
-        {
-            await using var release = lockConnection.CreateCommand();
-            release.CommandText = "select pg_advisory_unlock(@key)";
-            release.Parameters.AddWithValue("key", SweepLockKey);
-            await release.ExecuteScalarAsync(CancellationToken.None);
-        }
+        return result.LockHeld;
     }
 
     /// <summary>How long each class of finished run is kept.</summary>
@@ -190,88 +150,45 @@ internal sealed class WorkflowRunRetentionService : BackgroundService
       + "where (data ->> 'Status')::integer in (2, 3, 4, 5)";
 
     /// <summary>
-    /// One query that ends the visit to a partition with nothing finished in it, which with database
-    /// tenancy on is most registered tenants on most sweeps. With it off the partitions already came
-    /// from finished runs, so this is not asked.
-    /// </summary>
-    private static Task<bool> HasFinishedRunsAsync(IQuerySession session, CancellationToken ct) =>
-        session.Query<WorkflowRun>().AnyAsync(
-            r => r.Status == RunStatus.Succeeded
-              || r.Status == RunStatus.Failed
-              || r.Status == RunStatus.PartiallyFailed
-              || r.Status == RunStatus.Cancelled,
-            ct);
-
-    /// <summary>
     /// Deletes the finished runs past their window in one partition. Pure over the session, so a test
     /// drives it without the timer.
     /// </summary>
-    public static async Task<int> SweepTenantAsync(
+    public static Task<int> SweepTenantAsync(
         IDocumentSession session,
         DateTimeOffset nowUtc,
         RetentionWindows windows,
         ILogger? logger,
-        CancellationToken ct)
-    {
-        var removed = 0;
+        CancellationToken ct) =>
+        RetentionSweeper.SweepSessionAsync(session, session.TenantId, Declarations(windows), nowUtc, ct);
 
-        // Succeeded on its own, then the two that contain a failure. PartiallyFailed is grouped with
-        // Failed on purpose: it holds at least one action nobody has dealt with, and the reason this
-        // has two windows is that such a run stays interesting. Cancelled goes with them: it holds
-        // an action that never went out, and somebody asking why wants it for as long as a failure.
-        removed += await SweepClassAsync(
-            session, nowUtc, windows.SucceededDays, [RunStatus.Succeeded], logger, ct);
+    private static readonly RunStatus[] FinishedStatuses =
+        [RunStatus.Succeeded, RunStatus.Failed, RunStatus.PartiallyFailed, RunStatus.Cancelled];
 
-        removed += await SweepClassAsync(
-            session, nowUtc, windows.FailedDays,
-            [RunStatus.Failed, RunStatus.PartiallyFailed, RunStatus.Cancelled], logger, ct);
+    /// <summary>
+    /// Succeeded on its own, then the three that contain a failure. PartiallyFailed is grouped with
+    /// Failed on purpose: it holds at least one action nobody has dealt with, and the reason this
+    /// has two windows is that such a run stays interesting. Cancelled goes with them: it holds
+    /// an action that never went out, and somebody asking why wants it for as long as a failure.
+    /// </summary>
+    internal static IReadOnlyList<RetentionDeclaration> Declarations(RetentionWindows windows) =>
+    [
+        ForStatuses("Succeeded workflow runs", windows.SucceededDays, [RunStatus.Succeeded]),
+        ForStatuses("Failed workflow runs", windows.FailedDays,
+            [RunStatus.Failed, RunStatus.PartiallyFailed, RunStatus.Cancelled]),
+    ];
 
-        return removed;
-    }
-
-    private static async Task<int> SweepClassAsync(
-        IDocumentSession session,
-        DateTimeOffset nowUtc,
-        int days,
-        RunStatus[] statuses,
-        ILogger? logger,
-        CancellationToken ct)
-    {
-        if (days <= 0) return 0;
-
-        var cutoff = nowUtc.AddDays(-days);
-        var removed = 0;
-
-        for (var batch = 0; batch < DefaultMaxBatchesPerSweep; batch++)
-        {
+    private static RetentionDeclaration ForStatuses(string name, int days, RunStatus[] statuses) =>
+        new RetentionDeclaration<WorkflowRun>(
+            name,
             // Aged on when it finished, falling back to when it was created. A finished run should
             // always carry a completion time; one that does not would otherwise be immortal, which is
             // the failure mode a retention sweep exists to prevent.
-            var due = await session.Query<WorkflowRun>()
-                .Where(r => statuses.Contains(r.Status)
-                         && ((r.CompletedAt != null && r.CompletedAt < cutoff)
-                          || (r.CompletedAt == null && r.CreatedAt < cutoff)))
-                .OrderBy(r => r.CreatedAt)
-                .Take(DefaultBatchSize)
-                .ToListAsync(ct);
-
-            if (due.Count == 0) break;
-
-            foreach (var run in due)
-            {
-                session.Delete(run);
-            }
-
-            await session.SaveChangesAsync(ct);
-            removed += due.Count;
-
-            logger?.LogDebug("Removed {Count} workflow run(s) older than {Days} days", due.Count, days);
-
-            if (due.Count < DefaultBatchSize) break;
-        }
-
-        return removed;
-    }
+            cutoff => r => statuses.Contains(r.Status)
+                        && ((r.CompletedAt != null && r.CompletedAt < cutoff)
+                         || (r.CompletedAt == null && r.CreatedAt < cutoff)),
+            _ => days <= 0 ? null : TimeSpan.FromDays(days),
+            // A run that has not finished is never removed, so a partition holding only those is empty here.
+            r => FinishedStatuses.Contains(r.Status));
 }
 
 /// <summary>How many days each class of finished run is kept. Zero or less keeps them forever.</summary>

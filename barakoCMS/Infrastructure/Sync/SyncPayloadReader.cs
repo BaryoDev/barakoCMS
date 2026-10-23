@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Xml;
 using System.Xml.Linq;
+using barakoCMS.Models;
 
 namespace barakoCMS.Infrastructure.Sync;
 
@@ -20,6 +21,9 @@ internal sealed record SyncPayload(IReadOnlyList<IReadOnlyDictionary<string, str
 
     /// <summary>The source held more items than were read, so the rows are not all of it.</summary>
     public bool Truncated { get; init; }
+
+    /// <summary>An incomplete-when rule was set and the response did not carry its field.</summary>
+    public bool MarkerMissing { get; init; }
 }
 
 /// <summary>
@@ -61,7 +65,8 @@ internal static class SyncPayloadReader
     /// <c>labels[].name</c> and <c>labels[0].name</c> both keep every label's name.
     /// </param>
     public static SyncPayload ReadJson(
-        string body, string itemsPath, int maxItems, IReadOnlyCollection<string>? paths = null)
+        string body, string itemsPath, int maxItems, IReadOnlyCollection<string>? paths = null,
+        SyncIncompleteWhen? incompleteWhen = null)
     {
         JsonDocument document;
         try
@@ -79,6 +84,10 @@ internal static class SyncPayloadReader
         using (document)
         {
             var element = document.RootElement;
+
+            var marker = CheckMarker(element, incompleteWhen);
+            if (marker.Failure is not null) return marker.Failure;
+            var markerMissing = marker.Missing;
 
             foreach (var segment in Segments(itemsPath))
             {
@@ -111,9 +120,54 @@ internal static class SyncPayloadReader
                 rows.Add(row);
             }
 
-            return new SyncPayload(rows, null) { Truncated = element.GetArrayLength() > rows.Count };
+            return new SyncPayload(rows, null)
+            {
+                Truncated = element.GetArrayLength() > rows.Count,
+                MarkerMissing = markerMissing,
+            };
         }
     }
+
+    private static (SyncPayload? Failure, bool Missing) CheckMarker(JsonElement root, SyncIncompleteWhen? rule)
+    {
+        if (rule is not { Path.Length: > 0 }) return (null, false);
+
+        var value = MarkerValue(root, rule.Path);
+        if (value is null) return (null, true);
+
+        return Matches(value, rule.EqualTo.Trim())
+            ? (SyncPayload.Failed(
+                $"The response says it is a partial list ('{rule.Path}' is '{rule.EqualTo}'), so it was not read."), false)
+            : (null, false);
+    }
+
+    private static string? MarkerValue(JsonElement root, string path)
+    {
+        var element = root;
+
+        foreach (var segment in Segments(path))
+        {
+            if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty(segment, out var next))
+            {
+                return null;
+            }
+
+            element = next;
+        }
+
+        return element.ValueKind switch
+        {
+            JsonValueKind.String => element.GetString(),
+            JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False => element.GetRawText(),
+            _ => null,
+        };
+    }
+
+    private static bool Matches(string value, string expected) =>
+        string.Equals(value, expected, StringComparison.OrdinalIgnoreCase)
+        || (decimal.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var a)
+            && decimal.TryParse(expected, NumberStyles.Float, CultureInfo.InvariantCulture, out var b)
+            && a == b);
 
     private static IEnumerable<string> Segments(string path) =>
         path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);

@@ -100,101 +100,10 @@ public class Endpoint(
             return;
         }
 
-        // Every record goes through the content create write path, the same as POST /api/contents:
-        // a field the caller may not see is dropped, the record is validated, and the type's
-        // lifecycle hooks run. The batch carries the definition resolved above, and what earlier
-        // rows claimed, so a singleton type takes one row and two rows cannot share a slug.
-        // The check before the batch asks only whether a Create rule exists. This asks whether one
-        // holds for each row as it will be stored, the caller as its creator. Asked by the batch
-        // before it counts the row, so a refused row claims no slug a later row could need.
-        var batch = new ContentCreateBatch
-        {
-            Admit = async (request, token) =>
-            {
-                var asStored = new Content
-                {
-                    Id = Guid.NewGuid(),
-                    ContentType = request.ContentType,
-                    Data = new Dictionary<string, object>(request.Data, request.Data.Comparer),
-                    Status = request.Status,
-                    CreatedBy = userId,
-                    LastModifiedBy = userId,
-                };
-
-                return await permissions.CanPerformActionAsync(user, request.ContentType, "create", asStored, token)
-                    ? null
-                    : "Your create permission on this content type does not cover this row.";
-            },
-        };
-        if (definition is not null)
-            batch.UseSchema(definition);
-
-        // One transaction, each row written before the next is checked, so a lifecycle hook sees
-        // the rows before it. Rolled back when a row is refused and the import is all or nothing.
-        var (created, errors) = await Resolve<IContentBatchRunner>().RunAsync(async (scope, token) =>
-        {
-            var batchSession = scope.GetRequiredService<IDocumentSession>();
-            var creator = scope.GetRequiredService<IContentCreator>();
-            var rowErrors = new List<Response.RowError>();
-            var written = 0;
-
-            for (var i = 0; i < req.Records.Count; i++)
-            {
-                var record = req.Records[i] ?? new Dictionary<string, object>();
-
-                // A spreadsheet cell arrives as text, and a money field that declares a currency
-                // takes a number. Plain decimal text is read as one here, so the entry stores a
-                // number; anything else stays text and the validator refuses it naming the field.
-                if (definition is not null)
-                {
-                    foreach (var key in record.Keys.ToList())
-                    {
-                        var field = definition.Fields.FirstOrDefault(
-                            f => f is not null && string.Equals(f.Name, key, StringComparison.OrdinalIgnoreCase));
-
-                        if (field is not null
-                            && barakoCMS.Core.Validation.FieldTypeRegistry.TryReadAmountText(field, record[key], out var amount))
-                        {
-                            record[key] = amount;
-                        }
-                    }
-                }
-
-                var request = new ContentCreateRequest
-                {
-                    ContentType = req.ContentType,
-                    Data = record,
-                    Status = req.Status,
-                };
-
-                var messages = await creator.CheckAsync(request, userId, HttpContext, batch, token);
-                if (messages.Count > 0)
-                {
-                    rowErrors.Add(new Response.RowError { Row = i, Messages = messages.ToList() });
-
-                    // Whatever a hook staged for a row it then refused is not this batch's.
-                    batchSession.EjectAllPendingChanges();
-                    continue;
-                }
-
-                try
-                {
-                    await creator.StageAsync(request, userId, batch, token);
-                    await batchSession.SaveChangesAsync(token);
-                    written++;
-                }
-                catch (Exception ex) when (ex is ContentUniquenessException or ContentCreateRefusedException)
-                {
-                    // A uniqueness rule or the type's numbering refused the row. A row error like
-                    // any other, so continueOnError still writes the rows that pass.
-                    rowErrors.Add(new Response.RowError { Row = i, Messages = [ex.Message] });
-                    batchSession.EjectAllPendingChanges();
-                }
-            }
-
-            var commit = rowErrors.Count == 0 || req.ContinueOnError;
-            return new ContentBatchOutcome<(int, List<Response.RowError>)>((commit ? written : 0, rowErrors), commit);
-        }, ct);
+        var result = await RecordBatchWriter.WriteAsync(
+            Resolve<IContentBatchRunner>(), permissions, user, definition, req.ContentType, req.Status,
+            req.Records, rowNumbers: null, req.ContinueOnError, dryRun: false, loopLimit: null, HttpContext, ct);
+        var (created, errors) = (result.Created, result.Errors);
 
         if (errors.Count > 0 && !req.ContinueOnError)
         {

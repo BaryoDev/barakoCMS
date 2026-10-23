@@ -103,7 +103,34 @@ public static class ServiceCollectionExtensions
 
         AddHealthChecksDashboard(services, configuration);
 
+        LegacyEmailKeyCheck.WarnIfIgnored(services, configuration);
+
         return services;
+    }
+
+    private static void AddCommitListeners(StoreOptions options, IServiceProvider sp)
+    {
+        // The public event stream learns about content changes after the session that wrote
+        // them commits, on this instance. See ContentChangeListener for why it is not a
+        // projection.
+        options.Listeners.Add(new barakoCMS.Features.Public.Events.ContentChangeListener(
+            sp.GetRequiredService<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>(),
+            sp.GetRequiredService<ILogger<barakoCMS.Features.Public.Events.ContentChangeListener>>()));
+
+        AddRealtimeListeners(options, sp);
+
+        // The delivery response cache evicts by tag when a commit changes what a read was built from.
+        // Only when it is on, so a deployment that leaves it off pays nothing on its commits.
+        if (sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<barakoCMS.Infrastructure.Caching.DeliveryResponseCacheOptions>>().Value.Enabled)
+        {
+            options.Listeners.Add(new barakoCMS.Infrastructure.Caching.DeliveryResponseCacheListener(
+                sp.GetRequiredService<Microsoft.AspNetCore.OutputCaching.IOutputCacheStore>(),
+                sp.GetRequiredService<ILogger<barakoCMS.Infrastructure.Caching.DeliveryResponseCacheListener>>()));
+        }
+
+        // The private site check forgets its cached answer when a site entry is written.
+        options.Listeners.Add(new barakoCMS.Infrastructure.Multitenancy.PrivateSiteCacheListener(
+            sp.GetRequiredService<barakoCMS.Infrastructure.Multitenancy.PrivateSiteCache>()));
     }
 
     /// <summary>
@@ -610,6 +637,21 @@ public static class ServiceCollectionExtensions
         // Output Cache, so an endpoint's Options(x => x.CacheOutput(...)) is more than metadata.
         // See #545: this was missing, so every endpoint's CacheOutput policy was silently ignored.
         services.AddOutputCache();
+
+        // The delivery response cache (#562) is off unless Delivery:ResponseCache:Enabled is set, and
+        // its size bounds only apply then, so the output cache keeps its defaults for everyone else.
+        services.AddOptions<barakoCMS.Infrastructure.Caching.DeliveryResponseCacheOptions>()
+            .BindConfiguration(barakoCMS.Infrastructure.Caching.DeliveryResponseCacheOptions.SectionName);
+        services.AddOptions<Microsoft.AspNetCore.OutputCaching.OutputCacheOptions>()
+            .Configure<Microsoft.Extensions.Options.IOptions<barakoCMS.Infrastructure.Caching.DeliveryResponseCacheOptions>>(
+                (output, cache) =>
+                {
+                    if (!cache.Value.Enabled)
+                        return;
+
+                    output.SizeLimit = Math.Max(1, cache.Value.SizeLimitMegabytes) * 1024L * 1024L;
+                    output.MaximumBodySize = Math.Max(1, cache.Value.MaxBodyKilobytes) * 1024L;
+                });
     }
 
     private static void MapContentDocuments(StoreOptions options)
@@ -695,6 +737,13 @@ public static class ServiceCollectionExtensions
         options.Schema.For<SystemSetting>()
             .SingleTenanted()
             .DocumentAlias("system_settings");
+
+        MapPendingBuilds(options);
+        // Global: a webhook carries no tenant, and the receiver has to find a replay before it
+        // knows whose data the event touches.
+        options.Schema.For<InboundWebhookEvent>()
+            .SingleTenanted()
+            .DocumentAlias("inbound_webhook_events");
     }
 
     // The changed-since poll orders workflow runs by (UpdatedAt, id), so the index carries both.
@@ -730,6 +779,14 @@ public static class ServiceCollectionExtensions
                 idx.IsUnique = true;
                 idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
             });
+
+        // Conjoined: a link is spent in the tenant that issued it.
+        options.Schema.For<ActionLinkUse>()
+            .MultiTenanted()
+            .DocumentAlias("action_link_uses")
+            .Index(x => x.ExpiresAt);
+        options.Schema.For<barakoCMS.Infrastructure.Links.SignedLinkUse>()
+            .DocumentAlias("signed_link_uses");
 
         options.Schema.For<Connector>()
             .MultiTenanted()
@@ -779,11 +836,23 @@ public static class ServiceCollectionExtensions
             .Index(x => x.Status).Index(x => x.CreatedAt).Index(WorkflowRunUpdatedAtThenId, idx => idx.Name = WorkflowRunUpdatedAtThenIdIndex).Index(x => new { x.WorkflowDefinitionId, x.UpdatedAt, x.Id }, idx => idx.Name = "mt_doc_workflow_runs_idx_workflow_updated_at");
         options.Listeners.Add(new barakoCMS.Infrastructure.Workflows.WorkflowRunStampListener());
 
+        options.Schema.For<barakoCMS.Features.Workflows.ScheduleClaim>()
+            .MultiTenanted()
+            .DocumentAlias("workflow_schedule_claims")
+            .Index(x => x.WorkflowId);
+
         options.Schema.For<WebhookDelivery>()
             .MultiTenanted()
             .DocumentAlias("webhook_deliveries")
             .Index(x => x.WorkflowId)
             .Index(x => x.CreatedAt);
+
+        options.Schema.For<OutboxMessage>()
+            .MultiTenanted()
+            .DocumentAlias("outbox_messages")
+            // Two nodes polling the same table both load a due message and only one lease wins.
+            .UseOptimisticConcurrency(true)
+            .Index(x => x.Status).Index(x => x.NextAttemptAt);
 
         options.Schema.For<WorkflowFieldApplyMarker>()
             .MultiTenanted()
@@ -865,6 +934,15 @@ public static class ServiceCollectionExtensions
             // and both mint tokens. Device approval and passwordless sign-in both rest on this
             // path, and the login endpoint next door already uses an atomic Patch().Increment
             // for exactly this class of race.
+            .UseOptimisticConcurrency(true)
+            .Index(x => x.Email)
+            .Index(x => x.ExpiresAt);
+
+        options.Schema.For<MagicLinkToken>()
+            .SingleTenanted() // keyed by global email; the tenant it signs in to is kept as data
+            .DocumentAlias("magic_link_tokens")
+            // Same reason OtpCode above has it. Two requests carrying one link must not both
+            // sign in.
             .UseOptimisticConcurrency(true)
             .Index(x => x.Email)
             .Index(x => x.ExpiresAt);
@@ -988,7 +1066,7 @@ public static class ServiceCollectionExtensions
         IReadOnlyList<IBarakoModule> modules)
     {
         var connectionString = ResolveConnectionString(configuration);
-        services.AddMarten((IServiceProvider sp) =>
+        var marten = services.AddMarten((IServiceProvider sp) =>
         {
             var options = new StoreOptions();
 
@@ -1067,14 +1145,7 @@ public static class ServiceCollectionExtensions
 
             options.Projections.Add(new WorkflowProjection(sp), JasperFx.Events.Projections.ProjectionLifecycle.Async);
 
-            // The public event stream learns about content changes after the session that wrote
-            // them commits, on this instance. See ContentChangeListener for why it is not a
-            // projection.
-            options.Listeners.Add(new barakoCMS.Features.Public.Events.ContentChangeListener(
-                sp.GetRequiredService<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>(),
-                sp.GetRequiredService<ILogger<barakoCMS.Features.Public.Events.ContentChangeListener>>()));
-
-            AddRealtimeListeners(options, sp);
+            AddCommitListeners(options, sp);
 
             // What goes in the correlation and causation columns is decided here, for every session
             // of the store and not only the scoped one: Marten's own default is the raw parent id of
@@ -1101,9 +1172,7 @@ public static class ServiceCollectionExtensions
 #pragma warning restore CS0618
             }
 
-            // Gapless counters for INumberAllocator (#584).
-            options.Storage.ExtendedSchemaObjects.Add(
-                barakoCMS.Infrastructure.Numbering.NumberCounterTable.Build(options.DatabaseSchemaName));
+            AddCounterTables(options);
 
             return options;
         })
@@ -1115,6 +1184,8 @@ public static class ServiceCollectionExtensions
         //
         // HotCold takes a Postgres advisory lock per projection so exactly one process runs each.
         .AddAsyncDaemon(JasperFx.Events.Daemon.DaemonMode.HotCold);
+        if (barakoCMS.Infrastructure.Jobs.WolverineJobs.IsEnabled(configuration))
+            barakoCMS.Infrastructure.Jobs.WolverineJobs.IntegrateDurableWork(marten);
         // Schema is applied explicitly at startup via host.ApplyMartenSchemaAsync() (below), called
         // BEFORE the data seeders run. ApplyAllDatabaseChangesOnStartup() can't be used here: it
         // registers a hosted service that runs during app.Run(), but the seeders run before that, so
@@ -1159,15 +1230,16 @@ public static class ServiceCollectionExtensions
                     sp.GetRequiredService<barakoCMS.Infrastructure.Http.OutboundResilience>(),
                     sp.GetService<Microsoft.AspNetCore.Http.IHttpContextAccessor>()))
                 // Above the retry budget, so the client's own timeout never cuts the tries short; it
-                // still bounds a buffered body read after the headers.
+                // bounds a buffered body only; a read made after the headers has to bound itself.
                 .ConfigureHttpClient(client => client.Timeout = outbound.ClientTimeout);
     }
 
     private static void AddContentServices(IServiceCollection services)
     {
         // Defaults registered with TryAdd so an opted-in module or the host can substitute a real
-        // provider (e.g. a Resend email module) without being clobbered by these mocks.
+        // provider (e.g. an email provider module) without being clobbered by these mocks.
         services.TryAddScoped<barakoCMS.Core.Interfaces.IEmailService, barakoCMS.Infrastructure.Services.MockEmailService>();
+        services.TryAddScoped<barakoCMS.Core.Interfaces.IInboundWebhookVerifier, barakoCMS.Infrastructure.Services.InboundWebhookVerifier>();
         services.TryAddScoped<barakoCMS.Core.Interfaces.ISmsService, barakoCMS.Infrastructure.Services.MockSmsService>();
         services.TryAddScoped<barakoCMS.Core.Interfaces.IFileStore, barakoCMS.Infrastructure.Services.NoFileStore>();
         services.AddScoped<barakoCMS.Core.Interfaces.ISensitivityService, barakoCMS.Infrastructure.Services.SensitivityService>();
@@ -1196,6 +1268,8 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<IConfiguration>(),
                 sp.GetRequiredService<barakoCMS.Infrastructure.Multitenancy.BatchTransaction>(),
                 sp.GetRequiredService<ILogger<barakoCMS.Infrastructure.Services.ContentWriter>>()));
+        services.AddScoped<barakoCMS.Core.Interfaces.IContentReader>(sp =>
+            new barakoCMS.Core.Interfaces.SessionContentReader(sp.GetRequiredService<IQuerySession>()));
         services.AddScoped<barakoCMS.Infrastructure.Services.IContentRebuilder, barakoCMS.Infrastructure.Services.ContentRebuilder>();
         // Runs any per-content-type domain rules a module registered (IContentLifecycleHook), so a
         // domain with real invariants can still be modelled as ordinary content.
@@ -1292,25 +1366,47 @@ public static class ServiceCollectionExtensions
         // rather than the one passed in here, so a host that layers settings on after this call
         // (the test fixtures do) is read as configured.
         services.AddSingleton<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>();
+        services.AddSingleton<barakoCMS.Infrastructure.Multitenancy.PrivateSiteCache>();
         services.TryAddSingleton(TimeProvider.System);
+        services.TryAddScoped<barakoCMS.Core.Interfaces.ISignedLinkService, barakoCMS.Infrastructure.Links.SignedLinkService>();
         services.AddSingleton<barakoCMS.Core.Interfaces.INumberAllocator, barakoCMS.Infrastructure.Numbering.GaplessNumberAllocator>();
         services.AddSingleton<barakoCMS.Infrastructure.Numbering.SequenceNumberAllocator>();
         services.AddSingleton<barakoCMS.Infrastructure.Numbering.HiLoNumberAllocator>();
         services.AddSingleton<barakoCMS.Core.Interfaces.INumberStrategies, barakoCMS.Infrastructure.Numbering.NumberStrategies>();
         services.AddSingleton<barakoCMS.Core.Interfaces.IExternalNumberLedger, barakoCMS.Infrastructure.Numbering.ExternalNumberLedger>();
+        services.AddSingleton<barakoCMS.Core.Interfaces.IStockReservations, barakoCMS.Infrastructure.Reservations.StockReservations>();
         services.AddSingleton(sp => barakoCMS.Features.Public.Events.ContentEventsOptions.FromConfiguration(
             sp.GetRequiredService<IConfiguration>()));
+    }
+
+    private static void MapPendingBuilds(StoreOptions options) =>
+        options.Schema.For<PendingBuild>()
+            .MultiTenanted()
+            .DocumentAlias("pending_builds")
+            // Claiming a due row is a read, a check and a write, and two nodes sweeping together
+            // must not both fire the hook. The second save is refused by the version.
+            .UseOptimisticConcurrency(true)
+            .Index(x => x.FireAt);
+
+    /// <summary>Gapless number counters (#584) and stock counters, holds and movements (#580).</summary>
+    private static void AddCounterTables(StoreOptions options)
+    {
+        options.Storage.ExtendedSchemaObjects.Add(
+            barakoCMS.Infrastructure.Numbering.NumberCounterTable.Build(options.DatabaseSchemaName));
+        barakoCMS.Infrastructure.Reservations.StockTables.AddTo(options);
     }
 
     private static void AddRetentionServices(IServiceCollection services)
     {
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowRunRetentionService>();
+        services.AddHostedService<barakoCMS.Infrastructure.Reservations.StockHoldSweeper>();
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowCredentialMigrationService>();
         services.AddHostedService<barakoCMS.Infrastructure.Security.SecretRewrapService>();
         services.AddHostedService<barakoCMS.Infrastructure.Services.StoredValidationRulesNotice>();
         services.AddHostedService<barakoCMS.Infrastructure.Services.StoredReferenceConditionsNotice>();
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowExecutionLogRedactionService>();
         services.AddHostedService<barakoCMS.Features.WebhookDeliveries.WebhookDeliveryRetentionService>();
+        services.AddHostedService<barakoCMS.Features.Workflows.Outbox.OutboxSender>();
         services.AddHostedService<barakoCMS.Infrastructure.Jobs.JobDeadLetterRetentionService>();
         services.AddHostedService<barakoCMS.Infrastructure.Services.IdempotencyRetentionService>();
     }
@@ -1348,8 +1444,14 @@ public static class ServiceCollectionExtensions
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.EmailAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.SmsAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.WebhookAction>();
+        services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.BuildHookAction>();
+        services.AddHostedService<barakoCMS.Features.Workflows.Actions.BuildHookSweepService>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.CreateTaskAction>();
+        services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.PublishAction>();
+        services.AddScoped<barakoCMS.Features.Workflows.Outbox.OutboxStaging>();
+        services.AddSingleton<barakoCMS.Features.Workflows.Outbox.IOutboxTransport, barakoCMS.Features.Workflows.Outbox.SignedHttpOutboxTransport>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.UpdateFieldAction>();
+        services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.CreateEntryAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.CreateContentAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.TransitionAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.RequestAction>();
@@ -1378,7 +1480,15 @@ public static class ServiceCollectionExtensions
             sp.GetService<IConfiguration>(),
             sp.GetRequiredService<barakoCMS.Features.Workflows.WorkflowTriggerRegistry>(),
             sp.GetRequiredService<barakoCMS.Features.Workflows.WorkflowExecutors>()));
-        services.AddScoped<ITemplateVariableExtractor, TemplateVariableExtractor>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.ActionLinkTokenIssuer>();
+        services.AddScoped<ITemplateVariableExtractor>(sp => new TemplateVariableExtractor(
+            sp.GetRequiredService<Marten.IDocumentSession>(),
+            sp.GetService<barakoCMS.Infrastructure.Services.IPermissionResolver>(),
+            sp.GetService<barakoCMS.Core.Interfaces.ISensitivityService>(),
+            sp.GetService<IConfiguration>())
+        {
+            ActionLinks = sp.GetService<barakoCMS.Infrastructure.Services.ActionLinkTokenIssuer>(),
+        });
         services.AddScoped<IWorkflowDebugger, WorkflowDebugger>();
     }
 
@@ -1531,16 +1641,8 @@ public static class ServiceCollectionExtensions
 
     private static void AddHealthChecksDashboard(IServiceCollection services, IConfiguration configuration)
     {
-        if (configuration.GetValue<bool>("HealthChecksUI:Enabled"))
-        {
-            services.AddHealthChecksUI(setup =>
-            {
-                setup.SetEvaluationTimeInSeconds(10); // Check every 10 seconds
-                setup.MaximumHistoryEntriesPerEndpoint(60);
-                setup.AddHealthCheckEndpoint("BarakoCMS", "/health");
-            })
-            .AddInMemoryStorage();
-        }
+        barakoCMS.Infrastructure.Health.HealthChecksUiRemoval.WarnIfEnabled(
+            configuration, message => Log.Warning("{HealthChecksUiRemoved}", message));
     }
 
     private static readonly Dictionary<string, string> SslModeMap = new(StringComparer.OrdinalIgnoreCase)
@@ -1822,9 +1924,6 @@ public static class ServiceCollectionExtensions
     private static void UseSecurityHeaders(IApplicationBuilder app, IConfiguration configuration, string? env)
     {
         var csp = barakoCMS.Infrastructure.Security.SecurityHeaders.ContentSecurityPolicy(env);
-        var healthDashboardCsp =
-            barakoCMS.Infrastructure.Security.SecurityHeaders.HealthDashboardContentSecurityPolicy(env);
-        var healthDashboardEnabled = configuration.GetValue<bool>("HealthChecksUI:Enabled");
 
         // Written as the response starts rather than before next. The exception handler, the
         // malformed request refusal and the 503 above all sit outside this block and clear the
@@ -1846,13 +1945,7 @@ public static class ServiceCollectionExtensions
                 // way to detect content on the page by watching which loads were blocked. The CSP
                 // below is the control that actually applies. See issue #271.
 
-                // Content Security Policy. The looser style-src is reached only by the health
-                // dashboard, and only while the dashboard is switched on.
-                var policy = healthDashboardEnabled &&
-                             barakoCMS.Infrastructure.Security.SecurityHeaders.IsHealthDashboardPath(context.Request.Path)
-                    ? healthDashboardCsp
-                    : csp;
-                headers.TryAdd("Content-Security-Policy", policy);
+                headers.TryAdd("Content-Security-Policy", csp);
 
                 // A token, a key or the caller's own details: no browser or proxy keeps a copy. Pragma
                 // is for HTTP/1.0 caches, which do not read Cache-Control.
@@ -1965,6 +2058,9 @@ public static class ServiceCollectionExtensions
 
         // Resolve the tenant from the subdomain, early so downstream code can read it.
         app.UseMiddleware<barakoCMS.Infrastructure.Multitenancy.TenantResolutionMiddleware>();
+
+        // Stamp the resolved tenant slug on every log event from here on.
+        app.UseMiddleware<barakoCMS.Infrastructure.Middleware.TenantLogEnrichmentMiddleware>();
 
         // CORS (Must be before Authentication/Authorization)
         app.Use(async (context, next) =>
@@ -2154,15 +2250,6 @@ public static class ServiceCollectionExtensions
         app.UseHealthChecks("/health/live", Probe(check => check.Tags.Contains("live")));
         app.UseHealthChecks("/health/ready", Probe(check => check.Tags.Contains("ready")));
         app.UseHealthChecks("/health", Probe(_ => true));
-
-        if (configuration.GetValue<bool>("HealthChecksUI:Enabled"))
-        {
-            app.UseHealthChecksUI(options =>
-            {
-                options.UIPath = "/health-ui";
-                options.ApiPath = "/health-ui-api";
-            });
-        }
     }
 
     private static void UseOpenApi(IApplicationBuilder app, IConfiguration configuration, string? env)
@@ -2240,8 +2327,18 @@ public static class ServiceCollectionExtensions
 
             try
             {
-                await module.SeedAsync(session, scope.ServiceProvider, ct);
+                await module.SeedAsync(new ModuleSeedContext(session, scope.ServiceProvider), ct);
+                var granted = 0;
+                if (module.ContentPermissions is { } contentPermissions)
+                {
+                    granted = await contentPermissions.GrantAsync(
+                        session, ct, message => Log.Warning("Module {Module}: {Message}", module.Name, message));
+                }
                 await session.SaveChangesAsync(ct);
+                // A denial is cached for minutes and a new rule would not be seen until it expires.
+                if (granted > 0)
+                    scope.ServiceProvider.GetService<barakoCMS.Infrastructure.Services.IPermissionResolver>()
+                        ?.InvalidateAllPermissions();
             }
             catch (OperationCanceledException)
             {
@@ -2288,6 +2385,7 @@ public static class ServiceCollectionExtensions
         // model against the live database, so run outside, it can describe a database another host is
         // halfway through changing and refuse to start over a difference that no longer exists by the
         // time it looks.
+        var applyLockConfiguration = host.Services.GetRequiredService<IConfiguration>();
         await barakoCMS.Infrastructure.Services.SchemaApplyLock.RunAsync(store, async () =>
         {
             // Before the schema exists, so a new database gets its ledger rows first. See
@@ -2302,7 +2400,7 @@ public static class ServiceCollectionExtensions
 
             // Inside the lock, so two hosts starting together do not both rewrite every account.
             await barakoCMS.Infrastructure.Services.UserIdentityBackfill.RunAsync(store);
-        });
+        }, applyLockConfiguration);
 
         host.Services.GetService<barakoCMS.Infrastructure.Jobs.JobStorageGate>()?.Open();
     }

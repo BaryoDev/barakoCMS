@@ -361,7 +361,8 @@ public static class SystemCapabilities
         All, ManageRoles, ManagePlatformRoles, ManageTenants, ManageTenantMembers, ManageUsers, ManageUserMembership, ManageUserGroups,
         ManageApiKeys, ViewAuditLog, ManageSettings, ManageEmailSettings, ManageContentTypes, ManagePublicDelivery,
         ViewMonitoring, ManageRedirects, ManageQueries, ManageRequests, ViewConnectors, ManageConnectors,
-        ManageWorkflows, RunWorkflows, ViewWorkflowRuns, RetryWorkflowActions, RollbackContent, EraseContent, ViewModules, ViewModuleConfiguration,
+        ManageWorkflows, RunWorkflows, ViewWorkflowRuns, RetryWorkflowActions, RollbackContent, EraseContent, ViewModules,
+        ViewModuleConfiguration,
         ViewJobs, ViewWebhookResponseBodies, ManageCollectionSyncs, ViewSensitive, ViewHidden,
         ViewNumberGaps, ManageStations, ManageConfig,
     };

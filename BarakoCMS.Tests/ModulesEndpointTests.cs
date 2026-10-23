@@ -50,7 +50,14 @@ public class ModulesEndpointTests
                     // registration is the one the endpoint resolves.
                     services.AddSingleton(new ModuleCatalogue(
                     [
-                        new ModuleCatalogueEntry(Zulu, ModuleContract.Version, Enabled: true),
+                        new ModuleCatalogueEntry(Zulu, ModuleContract.Version, Enabled: true)
+                        {
+                            PackageId = "Zulu.Probe",
+                            PackageVersion = "1.2.3",
+                            Category = ModuleCategory.Insight,
+                            Description = "A probe",
+                            Glyph = "flag",
+                        },
                         new ModuleCatalogueEntry(Mike, 0, Enabled: false),
                         new ModuleCatalogueEntry(Alpha, 0, Enabled: true),
                     ]));
@@ -73,6 +80,28 @@ public class ModulesEndpointTests
         items.Select(i => i.GetProperty("name").GetString()).Should().Equal([Alpha, Mike, Zulu]);
         items[0].GetProperty("contractVersion").GetInt32().Should().Be(0, "a module that states no contract version reports the unstated default");
         items[2].GetProperty("contractVersion").GetInt32().Should().Be(ModuleContract.Version);
+    }
+
+    [Fact]
+    public async Task It_reports_the_identity_a_module_declared_and_null_for_one_that_declared_nothing()
+    {
+        var client = await AdminClientFor(HostWithModules());
+
+        var response = await client.GetAsync("/api/modules", TestContext.Current.CancellationToken);
+
+        var items = await ItemsAsync(response);
+        items.Should().HaveCount(3);
+        var zulu = items.Single(i => i.GetProperty("name").GetString() == Zulu);
+        zulu.GetProperty("packageId").GetString().Should().Be("Zulu.Probe");
+        zulu.GetProperty("packageVersion").GetString().Should().Be("1.2.3");
+        zulu.GetProperty("category").GetString().Should().Be("Insight");
+        zulu.GetProperty("description").GetString().Should().Be("A probe");
+        zulu.GetProperty("glyph").GetString().Should().Be("flag");
+        var alpha = items.Single(i => i.GetProperty("name").GetString() == Alpha);
+        foreach (var field in new[] { "packageId", "packageVersion", "category", "description", "glyph" })
+        {
+            alpha.GetProperty(field).ValueKind.Should().Be(JsonValueKind.Null, field);
+        }
     }
 
     /// <summary>
@@ -114,7 +143,7 @@ public class ModulesEndpointTests
     /// reconnaissance, and the response carries three fields so there is nowhere for it to hide.
     /// </summary>
     [Fact]
-    public async Task It_reports_the_name_the_contract_version_and_enabled_and_nothing_else()
+    public async Task It_reports_the_name_the_versions_enabled_schema_and_identity_fields_and_nothing_else()
     {
         var client = await AdminClientFor(HostWithModules());
 
@@ -126,7 +155,8 @@ public class ModulesEndpointTests
         foreach (var item in items)
         {
             item.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(
-                ["name", "contractVersion", "enabled", "schemaState", "schemaChanges"]);
+                ["name", "contractVersion", "enabled", "schemaState", "schemaChanges",
+                    "packageId", "packageVersion", "category", "description", "glyph"]);
         }
     }
 

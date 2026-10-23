@@ -33,6 +33,9 @@ internal static class ActionParameters
     /// placeholder names from the entry itself, so a field holding a list of files is read as a
     /// list and not as the text a list renders to.
     ///
+    /// A Publish's payload is left as written too. The action resolves each of its values on its own,
+    /// so a quote in a field cannot rewrite the JSON, and checks the placeholders against its allowlist.
+    ///
     /// So is the template an email names: which template is sent is the workflow's choice, never
     /// a value in the entry.
     /// </remarks>
@@ -41,9 +44,18 @@ internal static class ActionParameters
          && (parameter.Equals("Condition", StringComparison.OrdinalIgnoreCase)
              || parameter.Equals("ThenActions", StringComparison.OrdinalIgnoreCase)
              || parameter.Equals("ElseActions", StringComparison.OrdinalIgnoreCase)))
+        || (actionType == "Publish" && parameter.Equals(Actions.PublishPayload.PayloadParameter, StringComparison.OrdinalIgnoreCase))
         || (actionType == "Email"
             && (parameter.Equals(Actions.EmailAction.AttachmentsParameter, StringComparison.OrdinalIgnoreCase)
                 || parameter.Equals(EmailTemplates.EmailTemplateRenderer.TemplateParameter, StringComparison.OrdinalIgnoreCase)));
+
+    /// <summary>
+    /// Whether the action reads <c>{{actions.N.name}}</c> in this parameter itself. An email's
+    /// attachments do, to attach a file an earlier step produced; the others it resolves keep a
+    /// reference as written.
+    /// </summary>
+    public static bool ReadsStepOutputsItself(string actionType, string parameter) =>
+        actionType == "Email" && parameter.Equals(Actions.EmailAction.AttachmentsParameter, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The parameter the runner and the engine use to tell an action which trigger fired.</summary>
     public const string TriggerEventParameter = "TriggerEvent";
@@ -84,6 +96,12 @@ internal static class ActionParameters
         Models.Content content, string? triggerEvent, long eventSequence, CancellationToken ct)
     {
         await extractor.PrepareAsync(content, triggerEvent, eventSequence, parameters.Values, ct);
+
+        var recipient = actionType == "Email" && parameters.TryGetValue("To", out var to)
+            ? extractor.ResolveVariables(to, content)
+            : null;
+        await extractor.ForRecipientAsync(recipient, content, ct);
+
         return Resolve(extractor, actionType, parameters, content);
     }
 

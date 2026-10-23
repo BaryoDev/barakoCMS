@@ -22,6 +22,16 @@ public sealed class FilesModule : IBarakoModule
 {
     public string Name => "Files";
 
+    public string? PackageId => "BarakoCMS.Files";
+
+    public string? PackageVersion => ModuleMetadata.VersionOf(GetType());
+
+    public string? Category => ModuleCategory.Content;
+
+    public string? Description => "File uploads stored in Postgres";
+
+    public string? Glyph => "paperclip";
+
     // 2: a private file somebody else uploaded opens to manage_all_files, not to the role names
     // Admin and SuperAdmin, so a caller that only had the name now gets 404 or 403 (#886).
     public int HttpContractVersion => 2;
@@ -97,6 +107,15 @@ public sealed class FilesModule : IBarakoModule
     /// turning that off, which is the point of issue #443, would take the module away from every
     /// Admin. Additive and idempotent, and it skips a role the host never seeded.
     /// </remarks>
-    public Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct) =>
-        FileCapabilities.Defaults.GrantAsync(session, ct);
+    public Task SeedAsync(IModuleSeedContext context, CancellationToken ct) =>
+        FileCapabilities.Defaults.GrantAsync(context, ct);
+
+    [Obsolete("Override SeedAsync(IModuleSeedContext, CancellationToken), which names no Marten type. "
+              + "Removal planned for barakoCMS 6.0.0.")]
+    public Task SeedAsync(Marten.IDocumentSession session, IServiceProvider services, CancellationToken ct)
+    {
+#pragma warning disable CS0618
+        return SeedAsync(ModuleSeedContexts.Over(session, services), ct);
+#pragma warning restore CS0618
+    }
 }

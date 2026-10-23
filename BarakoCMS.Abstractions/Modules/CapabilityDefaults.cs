@@ -69,6 +69,23 @@ public sealed class CapabilityDefaults
     public IReadOnlyList<string> LegacyRoles { get; }
 
     /// <summary>
+    /// Grants the capabilities to each declared role that exists, from a seed that was given an
+    /// <see cref="IModuleSeedContext"/>. Same behaviour as the session overload.
+    /// </summary>
+    public Task<int> GrantAsync(IModuleSeedContext context, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (context is not ModuleSeedContext host)
+        {
+            throw new NotSupportedException("Granting needs the host's own seed context.");
+        }
+
+#pragma warning disable CS0618
+        return GrantAsync(host.Session, ct);
+#pragma warning restore CS0618
+    }
+
+    /// <summary>
     /// Grants the capabilities to each declared role that exists, and reports how many roles were
     /// changed. Call it from <c>SeedAsync</c>.
     /// </summary>
@@ -92,6 +109,8 @@ public sealed class CapabilityDefaults
     /// Does not commit: the host calls <c>SaveChangesAsync</c> once the seed returns, which is what
     /// keeps a module's seed all-or-nothing.
     /// </remarks>
+    [Obsolete("Call GrantAsync(IModuleSeedContext, CancellationToken) from SeedAsync(IModuleSeedContext, "
+              + "CancellationToken). Removal planned for barakoCMS 6.0.0.")]
     public async Task<int> GrantAsync(IDocumentSession session, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(session);
@@ -111,11 +130,7 @@ public sealed class CapabilityDefaults
 
         foreach (var seeded in Roles)
         {
-            var name = seeded.Name;
-            var role = staged.FirstOrDefault(r => r.Id == seeded.Id)
-                       ?? await LoadLiveAsync(session, seeded.Id, ct)
-                       ?? staged.FirstOrDefault(r => DeploymentRoleNames.Matches(r, name))
-                       ?? await DeploymentRoleNames.FindAsync(session, name, ct);
+            var role = await FindSeededAsync(session, staged, seeded, ct);
 
             if (role is null || !seen.Add(role.Id))
             {
@@ -147,6 +162,20 @@ public sealed class CapabilityDefaults
         }
 
         return changed;
+    }
+
+    /// <summary>
+    /// The role a seeded declaration names: the one holding the id, else the deployment's role
+    /// carrying the name. Null where neither exists. Shared with <see cref="ContentPermissionDefaults"/>.
+    /// </summary>
+    internal static async Task<Role?> FindSeededAsync(
+        IDocumentSession session, IReadOnlyList<Role> staged, SeededRole seeded, CancellationToken ct)
+    {
+        var name = seeded.Name;
+        return staged.FirstOrDefault(r => r.Id == seeded.Id)
+               ?? await LoadLiveAsync(session, seeded.Id, ct)
+               ?? staged.FirstOrDefault(r => DeploymentRoleNames.Matches(r, name))
+               ?? await DeploymentRoleNames.FindAsync(session, name, ct);
     }
 
     /// <summary>The role under <paramref name="id"/>, unless it is deleted: a deleted role is granted nothing.</summary>

@@ -1,1 +1,0 @@
-- **The `changed` rule kind fires on list and object fields.** It compared the type name of a list or object, so an edited list read as unchanged or an untouched one as changed. A list or object is now compared as canonical JSON: list order counts, object key order does not, numbers compare as exact decimals. String fields behave as before.

@@ -1,1 +1,0 @@
-- **A workflow CreateContent now numbers a `{branch}` series.** The action set the branch without its code, so a type with a branch number series refused every entry with "The numbering needs a branch with a code." The code is now looked up the way an HTTP request resolves it.

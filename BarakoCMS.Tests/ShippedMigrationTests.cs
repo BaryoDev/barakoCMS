@@ -18,7 +18,6 @@ public class ShippedMigrationTests
     [
         "4.2.0/stored-files-parent-index",
         "4.2.0/forms-public-forms",
-        "4.5.0/email-sent-emails",
         "4.6.0/external-auth-identities",
         "4.6.0/forms-email-verification",
         "4.7.0/forms-tenant-policy-restore",
@@ -27,6 +26,16 @@ public class ShippedMigrationTests
         "5.0.0/pages-settings",
         "5.0.0/files-storage-settings",
         "5.1.0/915-external-auth-role-maps",
+        "5.2.0/booking-resources",
+        "5.2.0/payments-payable-types",
+        "5.2.0/payments-attempts",
+        "5.2.0/payments-events",
+        "5.2.0/report-definitions",
+        "5.2.0/scheduled-entries",
+        "5.2.0/253-comments",
+        "5.2.0/585-documents",
+        "5.2.0/contacts",
+        "5.2.0/notifications",
     ];
 
     /// <summary>
@@ -47,7 +56,6 @@ public class ShippedMigrationTests
         ["core/4.3.0/collection-syncs"] = "5e6bfbb5045bb318be0febd8722406d5b6aaf2f81319fbd4eabcdf19e0cdab95",
         ["core/4.3.0/marten-9-37-event-store-columns"] = "5d6df1963b0b8a32852f05dc53c9c3efdf6b992bb378fbb35403be51b66a9f24",
         ["core/4.4.0/marten-9-38-quick-append-events"] = "4ad71cedf652c705f6603a0f7de7fb6a7b4d8660b6e55a50d3b5c8156f20dae9",
-        ["Email.Resend/4.5.0/email-sent-emails"] = "c0e606da0fefdde0bc1b9bd644e8e63fb55deba306b547399063946762cdf996",
         ["core/4.5.0/refresh-token-hash-index"] = "3ee5a9d53d0cdc0a85907dcb10a546a467deb3718f48376d07f5aa7040b40c3e",
         ["core/4.6.0/event-correlation-metadata"] = "0a14352be55a4384536624ffcf789daa8044096ffd5de88193b0f884a4e3530e",
         ["core/4.6.0/sensitivity-by-capability"] = "6d3a18f101477fcd92164695340f1e3f243ab6e00a0a8afbd2aa6b275af7b068",
@@ -75,6 +83,25 @@ public class ShippedMigrationTests
         ["core/5.1.0/workflow-run-updated-at-index"] = "096c752f26b5372a0fc3b8858620742a80482d241f0242a0a5e1090f9c6dab0a",
         ["core/5.1.0/workflow-run-workflow-index"] = "588062405fa26596a8472b717f804c18d29e6495c2a7d570b9533a825f2e7024",
         ["core/5.1.0/event-headers"] = "68c7dc43fcbeb9a2c3c02612cf1996a75be8bf0f0a80bd6537d03c9f98c3c05a",
+        ["core/5.2.0/898-accounts"] = "78b8366a747bbaf8a33128d7a242366886211395d48c4d7c56b88816db6cf42e",
+        ["core/5.2.0/580-stock-reservations"] = "9ef9947628be0b15a2d13b58778a42ffb4d400daa2709dd3faede73960eda970",
+        ["core/5.2.0/910-inbound-webhook-events"] = "96514e93595f69e06588ee266cb1d0376be8661898910a4bc27aef855225f710",
+        ["core/5.2.0/action-link-uses"] = "5cb1eeda12dcc8fc801327f845e531c4c62285eae3ef3dcd6e50f89956341c5d",
+        ["core/5.2.0/magic-link-tokens"] = "ab39ed40193ba3fed9de40089ee02496f012debaf11b9cad91abd9e4c7c03909",
+        ["core/5.2.0/outbox-messages"] = "e19d42500768b05e6406ff2f4c614431f24b4790e95d217008532a0ec1dc6ee1",
+        ["core/5.2.0/pending-builds"] = "a169671e0291d7153f383041f5d9faded2817d7bfbe7aad3fad5a7ba389763f2",
+        ["core/5.2.0/signed-link-uses"] = "038b3f05443ea16918589b1bad1d11bc89311d406001e44794ade130c8fac426",
+        ["core/5.2.0/workflow-schedule-claims"] = "51d6a157ef250942f01f3d4d5060fbdee32e9efee187f7551d7a42721e4f4371",
+        ["Booking/5.2.0/booking-resources"] = "01aab1064f0fbefb9c7580d06a486338d258c25c91feb633579ae81910fe0a5b",
+        ["Comments/5.2.0/253-comments"] = "6fa6040b649fb8de053d0a0562d0a4d9f67e6bb226484f2fa92cc279ba48375c",
+        ["Contacts/5.2.0/contacts"] = "2968c22f7a40931744606e374eaad261e7591eb7d6a9615119cb01a537f73abf",
+        ["Documents/5.2.0/585-documents"] = "803bc108e5819f96927eb90a4d312b6db8df1afbafca9b92a1890f8da2eb1ccb",
+        ["Notifications/5.2.0/notifications"] = "1b67a01b978c5a0ad72830510666f9753884bbc95d87b6d718acfb6d98724703",
+        ["Payments/5.2.0/payments-attempts"] = "8902981ecb6379ee7ab9b6abe2319fab9c437d8c98c03f5e75acea8308e11577",
+        ["Payments/5.2.0/payments-events"] = "861608b1ddb306ea7df2f7773ab09f944511dee6e5185e9902ace3864d410f20",
+        ["Payments/5.2.0/payments-payable-types"] = "9a858e1ac3deddf710beaac891c06e90506d0e4d9690bdc31ae232ab59afac72",
+        ["Reports/5.2.0/report-definitions"] = "ef0af931ee858f6b45c69fa330f0899881547aab3dcdc15c7b9765724eb0a4f1",
+        ["Scheduling/5.2.0/scheduled-entries"] = "5d53624df8efaf75dade91db2d193845524941866665ae9b39aab5b5f9a13249",
     };
 
     private static IReadOnlyList<ShippedMigration> FirstParty() =>
@@ -82,10 +109,17 @@ public class ShippedMigrationTests
         [
             new BarakoCMS.Forms.FormsModule(),
             new BarakoCMS.Files.FilesModule(),
-            new BarakoCMS.Email.Resend.ResendEmailModule(),
             new BarakoCMS.ExternalAuth.ExternalAuthModule(),
             new BarakoCMS.Accounting.AccountingModule(),
             new BarakoCMS.Pages.PagesModule(),
+            new BarakoCMS.Comments.CommentsModule(),
+            new BarakoCMS.Contacts.ContactsModule(),
+            new BarakoCMS.Notifications.NotificationsModule(),
+            new BarakoCMS.Booking.BookingModule(),
+            new BarakoCMS.Payments.PaymentsModule(),
+            new BarakoCMS.Reports.ReportsModule(),
+            new BarakoCMS.Scheduling.SchedulingModule(),
+            new BarakoCMS.Documents.DocumentsModule(),
         ]);
 
     private sealed class SecondOwnerOfTheFilesAssembly : IBarakoModule
@@ -131,10 +165,17 @@ public class ShippedMigrationTests
         [
             new BarakoCMS.Forms.FormsModule(),
             new BarakoCMS.Files.FilesModule(),
-            new BarakoCMS.Email.Resend.ResendEmailModule(),
             new BarakoCMS.ExternalAuth.ExternalAuthModule(),
             new BarakoCMS.Accounting.AccountingModule(),
             new BarakoCMS.Pages.PagesModule(),
+            new BarakoCMS.Booking.BookingModule(),
+            new BarakoCMS.Payments.PaymentsModule(),
+            new BarakoCMS.Reports.ReportsModule(),
+            new BarakoCMS.Scheduling.SchedulingModule(),
+            new BarakoCMS.Comments.CommentsModule(),
+            new BarakoCMS.Contacts.ContactsModule(),
+            new BarakoCMS.Notifications.NotificationsModule(),
+            new BarakoCMS.Documents.DocumentsModule(),
         ];
 
         var all = ShippedMigrations.Discover(modules);
@@ -143,7 +184,10 @@ public class ShippedMigrationTests
         var owned = all.Where(m => m.Owner != ShippedMigrations.CoreOwner).Select(m => m.Key).ToList();
         owned.Should().Equal(
             "Accounting/5.0.0/accounting-number-sequences",
-            "Email.Resend/4.5.0/email-sent-emails",
+            "Booking/5.2.0/booking-resources",
+            "Comments/5.2.0/253-comments",
+            "Contacts/5.2.0/contacts",
+            "Documents/5.2.0/585-documents",
             "ExternalAuth/4.6.0/external-auth-identities",
             "ExternalAuth/4.8.0/external-auth-used-nonces",
             "ExternalAuth/5.1.0/915-external-auth-role-maps",
@@ -152,9 +196,15 @@ public class ShippedMigrationTests
             "Forms/4.2.0/forms-public-forms",
             "Forms/4.6.0/forms-email-verification",
             "Forms/4.7.0/forms-tenant-policy-restore",
-            "Pages/5.0.0/pages-settings");
+            "Notifications/5.2.0/notifications",
+            "Pages/5.0.0/pages-settings",
+            "Payments/5.2.0/payments-attempts",
+            "Payments/5.2.0/payments-events",
+            "Payments/5.2.0/payments-payable-types",
+            "Reports/5.2.0/report-definitions",
+            "Scheduling/5.2.0/scheduled-entries");
         coreOnly.Count.Should().BeGreaterThanOrEqualTo(7, "seven core files were released before the ledger");
-        coreOnly.Should().HaveCount(all.Count - 11, "a module that is not enabled contributes nothing");
+        coreOnly.Should().HaveCount(all.Count - owned.Count, "a module that is not enabled contributes nothing");
         coreOnly.Should().OnlyContain(m => m.Owner == ShippedMigrations.CoreOwner);
         coreOnly.Select(m => m.Id).Should().NotIntersectWith(ModuleOwned, "core must not also ship a module's file");
     }
@@ -189,11 +239,11 @@ public class ShippedMigrationTests
     public void Every_file_released_before_the_ledger_says_when_to_skip_it()
     {
         var preLedger = ShippedMigrations
-            .Discover([new BarakoCMS.Forms.FormsModule(), new BarakoCMS.Files.FilesModule(), new BarakoCMS.Email.Resend.ResendEmailModule()])
+            .Discover([new BarakoCMS.Forms.FormsModule(), new BarakoCMS.Files.FilesModule()])
             .Where(m => Version.Parse(m.Version) < new Version(4, 6, 0))
             .ToList();
 
-        preLedger.Should().HaveCount(10);
+        preLedger.Should().HaveCount(9);
         preLedger.Should().OnlyContain(m => m.SkipWhen != null);
         preLedger.Where(m => !m.Transactional).Select(m => m.Key).Should().Equal(
             new[] { "Files/4.2.0/stored-files-parent-index" },

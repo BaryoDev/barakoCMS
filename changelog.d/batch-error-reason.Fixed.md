@@ -1,1 +1,0 @@
-- **A failed batch step names itself and gives its reason.** The error for a failing step was `steps[n]` as the message with no name, so the rule or hook message was lost. It now has the name `steps[n]` and the reason as its message.

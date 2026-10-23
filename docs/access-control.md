@@ -829,7 +829,7 @@ same registries the API checks requests against, so a client does not keep its o
 
 ```json
 {
-  "apiContractVersion": 9,
+  "apiContractVersion": 11,
   "fieldTypes": [
     { "name": "int", "aliases": ["integer", "number"], "editorHint": "number", "ruleNames": ["min", "max", "requiredWhen"] }
   ],
@@ -959,7 +959,7 @@ says.
 | `Features/ContentType/*` | `manage_public_delivery` | `PUT /api/content-types/{name}/public-delivery`, `PUT /api/content-types/{name}/fields/{field}/sensitivity` | SuperAdmin, Admin |
 | `Features/Monitoring/*` | `view_monitoring` | `GET /api/monitoring/health`, `/k8s`, `/metrics` | SuperAdmin, Admin |
 | `Features/Redirects/*` | `manage_redirects` | `/api/redirects`, `DELETE /api/redirects/{id}`, `POST /api/redirects/import` | SuperAdmin, Admin |
-| `Features/Queries/*` | `manage_queries` | `/api/queries`, `/api/queries/{slug}`, `POST /api/queries/{slug}/preview` | SuperAdmin, Admin |
+| `Features/Queries/*` | `manage_queries` | `/api/queries`, `/api/queries/{slug}`, `POST /api/queries/{slug}/preview`, `POST /api/queries/{slug}/run` | SuperAdmin, Admin |
 | `Features/Requests/*` | `manage_requests` | `/api/requests`, `/api/requests/{slug}`, `POST /api/requests/{slug}/dry-run/{contentId}` | SuperAdmin, Admin |
 | `Features/Connectors/*` | `view_connectors` | `GET /api/connectors`, `GET /api/connectors/{slug}` | SuperAdmin, Admin |
 | `Features/Connectors/*` | `manage_connectors` | `POST /api/connectors`, `PUT` and `DELETE /api/connectors/{slug}`, `POST /api/connectors/{slug}/test` | SuperAdmin, Admin |
@@ -1075,8 +1075,10 @@ it on the routing table, which is where `GET /api/capabilities` and the role wri
 | AI | `manage_search_index` | `POST /api/ai/index/{type}` |
 | Analytics (Umami) | `view_analytics` | the five read endpoints under `/api/analytics` |
 | Analytics (Umami) | `manage_analytics_websites` | `POST /api/analytics/websites` |
+| Comments | `read_comments` | `GET /api/comments` |
+| Comments | `post_comments` | `POST /api/comments`, and `DELETE /api/comments/{id}` for the caller's own comments |
+| Comments | `manage_comments` | no route of its own: `DELETE /api/comments/{id}` for anyone's comment, including one whose record is gone |
 | Diagnostics | `manage_client_errors` | `GET /api/client-errors`, `POST /api/client-errors/{id}/resolve` |
-| Email (Resend) | `view_email_events` | `GET /api/email-events` |
 | Feature flags | `manage_feature_flags` | everything under `/api/feature-flags/admin` |
 | Files | `upload_files` | `POST /api/files`, `GET /api/files`, `GET /api/files/{id}/meta`, `PATCH /api/files/{id}`, `GET /api/files/{id}/usage`, `DELETE /api/files/{id}` |
 | Files | `manage_all_files` | no route of its own: `GET /api/files/{id}` and `DELETE /api/files/{id}` for a private file somebody else uploaded |
@@ -1084,6 +1086,7 @@ it on the routing table, which is where `GET /api/capabilities` and the role wri
 | Import | `analyze_spreadsheets` | `POST /api/import/analyze` |
 | Portability | `export_content` | `GET /api/portability/export` |
 | Portability | `import_content` | `POST /api/portability/import` |
+| Notifications | `manage_notifications` | `POST /api/notifications`, `GET /api/notifications/admin` |
 | PWA | `view_pwa_installs` | `GET /api/pwa/installs` |
 
 Three of those are splits of a gate that used to be one role list. Accounting splits reading the
@@ -1100,7 +1103,7 @@ global role, which only a platform administrator grants, or only through a tenan
 
 - Client errors, email events and PWA installs each belong to one tenant. Through a global role you
   see every tenant's rows; through a membership you see the current tenant's. An email event
-  belongs to the tenant that sent the email, recorded against Resend's id at send time; an event
+  belongs to the tenant that sent the email, recorded against the provider's id at send time; an event
   with no recorded sender is visible through a global role only. Only mail sent on a tenant's
   behalf through `IEmailService.SendForTenantAsync` (a workflow's email) is recorded; a user's own
   account mail, such as a sign-in code or a lockout notice, belongs to no tenant.

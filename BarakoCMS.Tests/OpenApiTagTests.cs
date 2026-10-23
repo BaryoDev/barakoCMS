@@ -114,17 +114,19 @@ public class OpenApiTagTests
             "Audit",
             "Auth",
             "Blocks",
+            "Booking",
             "Capabilities",
             "Changes",
             "Collections",
+            "Comments",
             "Config",
             "ConnectorDeliveries",
             "Connectors",
+            "Contacts",
             "Content",
             "ContentType",
             "DeviceTrust",
             "Diagnostics",
-            "Email.Resend",
             "EmailTemplates",
             "ExternalAuth",
             "FeatureFlags",
@@ -135,14 +137,18 @@ public class OpenApiTagTests
             "Me",
             "Modules",
             "Monitoring",
+            "Notifications",
             "Numbering",
             "Pages",
+            "Payments",
             "Portability",
             "Preview",
             "Public",
             "Pwa",
+            "Qr",
             "Queries",
             "Redirects",
+            "Reports",
             "Requests",
             "Roles",
             "Seo",
@@ -150,6 +156,7 @@ public class OpenApiTagTests
             "Site",
             "Stations",
             "Tenants",
+            "Testing.Fixture",
             "UserGroups",
             "Users",
             "Viewers",
@@ -179,7 +186,7 @@ public class OpenApiTagTests
     [InlineData("BarakoCMS.Files.Features.Upload", "Files")]
     [InlineData("BarakoCMS.AI.Features", "AI")]
     [InlineData("BarakoCMS.ExternalAuth", "ExternalAuth")]
-    [InlineData("BarakoCMS.Email.Resend", "Email.Resend")]
+    [InlineData("BarakoCMS.Email.Smtp", "Email.Smtp")]
     public void The_namespace_convention_maps_to_the_documented_tag(string ns, string expected)
         => barakoCMS.Infrastructure.OpenApi.EndpointTagConvention.ForNamespace(ns).Should().Be(expected);
 

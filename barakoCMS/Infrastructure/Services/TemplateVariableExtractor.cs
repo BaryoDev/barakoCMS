@@ -57,6 +57,13 @@ public interface ITemplateVariableExtractor
     string ResolveVariables(string template, Content content);
 
     /// <summary>
+    /// Names the user an email is addressed to, by address, so <c>{{links.action "Approve"}}</c>
+    /// can be signed for them. Call after the entry was prepared and before it is resolved. An
+    /// extractor that signs no links ignores it.
+    /// </summary>
+    Task ForRecipientAsync(string? email, Content content, CancellationToken ct = default) => Task.CompletedTask;
+
+    /// <summary>
     /// Resolves the template like <see cref="ResolveVariables(string, Content)"/>, encoding each
     /// substituted value for where the result is going. The template's own text is never changed.
     /// </summary>
@@ -186,6 +193,53 @@ public class TemplateVariableExtractor(
         return collection;
     }
 
+    /// <summary>Signs action links. Null leaves <c>links.action</c> empty.</summary>
+    internal ActionLinkTokenIssuer? ActionLinks { get; init; }
+
+    private Guid? _recipient;
+
+    public async Task ForRecipientAsync(string? email, Content content, CancellationToken ct = default)
+    {
+        _recipient = null;
+        if (ActionLinks is not { Enabled: true } || content is null)
+            return;
+
+        if (!string.IsNullOrWhiteSpace(email))
+        {
+            var wanted = email.Trim().ToLowerInvariant();
+            var user = await session.Query<User>().FirstOrDefaultAsync(u => u.Email.ToLower() == wanted, ct);
+            _recipient = user?.Id;
+        }
+
+        if (_preparedFor == content.Id && _prepared.Links is { } links)
+            _prepared = _prepared with { Links = links with { Action = await ActionLinkAsync(content, ct) } };
+    }
+
+    /// <summary>The signer for this entry and the recipient, or null when there is none to sign for.</summary>
+    private async Task<Func<string, string?>?> ActionLinkAsync(Content content, CancellationToken ct)
+    {
+        if (ActionLinks is not { Enabled: true } issuer || _recipient is not { } user
+            || content is barakoCMS.Features.Workflows.ErasedContent)
+            return null;
+
+        var lifecycle = (await session.Query<ContentTypeDefinition>()
+            .FirstOrDefaultAsync(d => d.Name == content.ContentType, ct))?.Lifecycle;
+        if (lifecycle is null)
+            return null;
+
+        var state = content.LifecycleState ?? lifecycle.InitialState;
+        var now = DateTimeOffset.UtcNow;
+
+        return name =>
+        {
+            var declared = lifecycle.Transitions.FirstOrDefault(
+                t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
+            return declared is null || !string.Equals(declared.From, state, StringComparison.OrdinalIgnoreCase)
+                ? null
+                : issuer.Issue(content.Id, declared.Name, user, state, now);
+        };
+    }
+
     private Guid _preparedFor;
     private TemplateContext _prepared = TemplateContext.Unprepared;
 
@@ -308,7 +362,8 @@ public class TemplateVariableExtractor(
             EntryUrls.AbsoluteBase(configuration[barakoCMS.Infrastructure.Security.CanonicalHost.BaseUrlKey]),
             EntryUrls.AbsoluteBase(configuration[ConsoleUrlKey]),
             EntryUrls.AbsoluteBase(siteUrl),
-            publicUrl);
+            publicUrl,
+            await ActionLinkAsync(content, ct));
     }
 
     /// <summary>The time zone, currency and URL of the tenant's published <c>site</c> entry.</summary>
@@ -679,7 +734,25 @@ public class TemplateVariableExtractor(
     };
 
     private static List<TemplateVariable> GetSystemVariables() =>
-        [.. GetEntryVariables(), .. GetPeopleVariables(), .. GetLinkVariables()];
+        [.. GetEntryVariables(), .. GetPeopleVariables(), .. GetLinkVariables(), .. GetScheduleVariables()];
+
+    private static List<TemplateVariable> GetScheduleVariables() =>
+    [
+        new()
+        {
+            Name = "{{schedule.at}}",
+            Description = "The due time the run is for. Schedule triggers only",
+            Example = "2026-10-20T16:00:00Z",
+            Type = "datetime"
+        },
+        new()
+        {
+            Name = "{{schedule.previousAt}}",
+            Description = "The due time before it. Empty when the schedule had none. Schedule triggers only",
+            Example = "2026-10-19T16:00:00Z",
+            Type = "datetime"
+        },
+    ];
 
     private static List<TemplateVariable> GetEntryVariables()
     {

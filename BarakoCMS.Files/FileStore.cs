@@ -155,6 +155,32 @@ internal sealed class FileStore(
         return bytes is null ? null : new MemoryStream(bytes, 0, bytes.Length, writable: false, publiclyVisible: true);
     }
 
+    public async Task<StoredFileInfo?> FindForRunAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var file = await LoadForRunAsync(id, cancellationToken);
+        return file is null ? null : Info(file);
+    }
+
+    public async Task<Stream?> OpenForRunAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var file = await LoadForRunAsync(id, cancellationToken);
+        if (file is null)
+        {
+            return null;
+        }
+
+        var bytes = await (await storage.ForAsync(file, cancellationToken)).GetAsync(file.StorageKey, cancellationToken);
+        return bytes is null ? null : new MemoryStream(bytes, 0, bytes.Length, writable: false, publiclyVisible: true);
+    }
+
+    // The scope's session is opened for the scope's tenant, so an id of another tenant loads
+    // nothing. A cached resize is not a file of its own, as in every other read here.
+    private async Task<StoredFile?> LoadForRunAsync(Guid id, CancellationToken ct)
+    {
+        var file = await session.LoadAsync<StoredFile>(id, ct);
+        return file is null || file.ParentFileId is not null ? null : file;
+    }
+
     public async Task<FileSaveResult> SaveAsync(FileToStore file, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(file);

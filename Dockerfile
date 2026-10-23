@@ -26,7 +26,7 @@ RUN dotnet build "barakoCMS.csproj" -c Release -o /app/build
 FROM build AS publish
 RUN dotnet publish "barakoCMS.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
 EXPOSE 8080

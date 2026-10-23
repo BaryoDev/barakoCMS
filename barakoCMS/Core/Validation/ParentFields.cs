@@ -1,3 +1,4 @@
+#pragma warning disable CS0618 // builds a ContentLifecycleContext for ParentReferenceHook, which needs the write session
 using barakoCMS.Core.Hooks;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Models;

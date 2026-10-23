@@ -66,7 +66,39 @@ public class ModuleSchemaPreflightTests
         public string Label { get; set; } = string.Empty;
     }
 
-    private ServiceProvider Build(IBarakoModule module, AutoCreate autoCreate, string? preflight = null)
+    /// <summary>
+    /// A module's own table whose declaration changes between boots: first without the index, then
+    /// with it, which is what a module upgrade that adds an index looks like to the database.
+    /// </summary>
+    private sealed class OwnExistingTableProbe(bool withIndex) : IBarakoModule
+    {
+        public const string ModuleName = "Own Existing Table Probe";
+        public const string TableAlias = "preflight_probe_existing";
+        public string Name => ModuleName;
+
+        public void ConfigureSchema(IModuleSchema schema)
+        {
+            var mapping = schema.For<PreflightExistingDocument>().DocumentAlias(TableAlias);
+            if (withIndex)
+                mapping.Index(x => x.Label);
+        }
+    }
+
+    public sealed class PreflightExistingDocument
+    {
+        public Guid Id { get; set; }
+        public string Label { get; set; } = string.Empty;
+    }
+
+    private ServiceProvider Build(IBarakoModule module, AutoCreate autoCreate, string? preflight = null) =>
+        Build(m =>
+        {
+            m.Discover = false;
+            m.Add(module);
+        }, autoCreate, preflight);
+
+    private ServiceProvider Build(
+        Action<BarakoModuleBuilder> modules, AutoCreate autoCreate, string? preflight = null, string? enabled = null)
     {
         var pairs = new Dictionary<string, string?>
         {
@@ -75,16 +107,14 @@ public class ModuleSchemaPreflightTests
         };
         if (preflight is not null)
             pairs[ModuleSchemaPreflight.EnabledKey] = preflight;
+        if (enabled is not null)
+            pairs[ModuleEnablement.EnabledKey] = enabled;
 
         var config = new ConfigurationBuilder().AddInMemoryCollection(pairs).Build();
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton<IConfiguration>(config);
-        Host.AddBarakoCMS(services, config, m =>
-        {
-            m.Discover = false;
-            m.Add(module);
-        });
+        Host.AddBarakoCMS(services, config, modules);
 
         // The fixture sets ASPNETCORE_ENVIRONMENT=Development for the process, which picks
         // CreateOrUpdate inside AddBarakoCMS; IConfigureMarten runs after that and wins.
@@ -117,6 +147,119 @@ public class ModuleSchemaPreflightTests
         refusal.Should().Contain("AutoCreate.CreateOrUpdate", "and what would allow it");
         refusal.Should().Contain(ModuleSchemaPreflight.EnabledKey, "and how to switch the check off");
         refusal.Should().Contain("ConfigureMarten", "the object is core's, so the module is named for the hook that can reach it");
+    }
+
+    /// <summary>
+    /// A module nobody added by hand: it is found in the dependency context, the way a package
+    /// reference installs a third-party module, and still gets the check at load time (#552).
+    /// </summary>
+    [Fact]
+    public async Task A_discovered_module_that_changes_an_existing_core_table_is_refused_under_CreateOnly_and_named()
+    {
+        await EnsureContentsTableExists();
+        using var reach = DiscoverableProbeModule.ReachForCoreTable();
+        await using var provider = Build(m => m.Discover = true, AutoCreate.CreateOnly,
+            enabled: DiscoverableProbeModule.ModuleName);
+        provider.GetServices<IBarakoModule>().Should().ContainSingle(m => m is DiscoverableProbeModule,
+            "nothing added it, so discovery is the only way it got here");
+
+        var act = () => provider.PreflightModuleSchemaAsync(TestContext.Current.CancellationToken);
+
+        var refusal = (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Message;
+        refusal.Should().Contain(DiscoverableProbeModule.ModuleName);
+        refusal.Should().Contain("mt_doc_contents");
+        refusal.Should().Contain("ConfigureMarten");
+    }
+
+    [Fact]
+    public async Task A_discovered_module_that_changes_nothing_passes_under_CreateOnly()
+    {
+        await EnsureContentsTableExists();
+        await using var provider = Build(m => m.Discover = true, AutoCreate.CreateOnly,
+            enabled: DiscoverableProbeModule.ModuleName);
+        provider.GetServices<IBarakoModule>().Should().ContainSingle(m => m is DiscoverableProbeModule);
+
+        await provider.Invoking(p => p.PreflightModuleSchemaAsync(TestContext.Current.CancellationToken))
+            .Should().NotThrowAsync("the refusal above comes from the module's change, not from discovery itself");
+
+        var finding = provider.GetRequiredService<ModuleSchemaReport>().For(DiscoverableProbeModule.ModuleName);
+        finding.Should().NotBeNull("the discovered module was preflighted");
+        finding!.Changes.Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// The module owns the table, so the change is its own and not reached through ConfigureMarten.
+    /// The table is created by one boot and altered by the next, so the second sees an Update.
+    /// </summary>
+    [Fact]
+    public async Task A_module_that_adds_an_index_to_its_own_existing_table_is_refused_under_CreateOnly_and_named()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var table = "public.mt_doc_" + OwnExistingTableProbe.TableAlias;
+        try
+        {
+            await using (var first = Build(new OwnExistingTableProbe(withIndex: false), AutoCreate.All))
+            {
+                var store = first.GetRequiredService<IDocumentStore>();
+                await store.Storage.Database.EnsureStorageExistsAsync(typeof(PreflightExistingDocument), ct);
+            }
+
+            await using var provider = Build(new OwnExistingTableProbe(withIndex: true), AutoCreate.CreateOnly);
+
+            var act = () => provider.PreflightModuleSchemaAsync(ct);
+
+            var refusal = (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Message;
+            refusal.Should().Contain(OwnExistingTableProbe.ModuleName);
+            refusal.Should().Contain(table);
+            refusal.Should().NotContain("reached through ConfigureMarten", "the module owns this table");
+            var finding = provider.GetRequiredService<ModuleSchemaReport>().For(OwnExistingTableProbe.ModuleName);
+            finding.Should().NotBeNull();
+            finding!.State.Should().Be(ModuleSchemaState.NeedsMigration);
+            finding.NewObjects.Should().BeEmpty("the table already exists");
+            finding.Changes.Should().ContainSingle()
+                .Which.Should().Match<ModuleSchemaChange>(c =>
+                    c.Name == table && c.Difference == SchemaPatchDifference.Update && !c.ReachedThroughConfigureMarten);
+            provider.GetRequiredService<ModuleSchemaReport>().For(ModuleSchemaPreflight.CoreName)!.Changes
+                .Should().BeEmpty("the change is the module's");
+        }
+        finally
+        {
+            await using var connection = new Npgsql.NpgsqlConnection(_factory.ConnectionString);
+            await connection.OpenAsync(ct);
+            await using var drop = new Npgsql.NpgsqlCommand($"drop table if exists {table}", connection);
+            await drop.ExecuteNonQueryAsync(ct);
+        }
+    }
+
+    [Fact]
+    public async Task A_module_that_leaves_its_own_existing_table_alone_passes_under_CreateOnly()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var table = "public.mt_doc_" + OwnExistingTableProbe.TableAlias;
+        try
+        {
+            await using (var first = Build(new OwnExistingTableProbe(withIndex: true), AutoCreate.All))
+            {
+                var store = first.GetRequiredService<IDocumentStore>();
+                await store.Storage.Database.EnsureStorageExistsAsync(typeof(PreflightExistingDocument), ct);
+            }
+
+            await using var provider = Build(new OwnExistingTableProbe(withIndex: true), AutoCreate.CreateOnly);
+
+            await provider.Invoking(p => p.PreflightModuleSchemaAsync(ct)).Should().NotThrowAsync();
+
+            var finding = provider.GetRequiredService<ModuleSchemaReport>().For(OwnExistingTableProbe.ModuleName);
+            finding.Should().NotBeNull();
+            finding!.Changes.Should().BeEmpty("the declaration matches the table");
+            finding.NewObjects.Should().BeEmpty();
+        }
+        finally
+        {
+            await using var connection = new Npgsql.NpgsqlConnection(_factory.ConnectionString);
+            await connection.OpenAsync(ct);
+            await using var drop = new Npgsql.NpgsqlCommand($"drop table if exists {table}", connection);
+            await drop.ExecuteNonQueryAsync(ct);
+        }
     }
 
     /// <summary>

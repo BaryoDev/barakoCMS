@@ -7,7 +7,7 @@ namespace barakoCMS.Core.Interfaces;
 /// <see cref="Data"/> is the live dictionary that will be persisted — a hook may enrich it (assign a
 /// derived field, stamp a sequence number) as well as reject the write.
 /// </summary>
-public sealed class ContentLifecycleContext
+public sealed class ContentLifecycleContext : IContentHookContext
 {
     public required string ContentType { get; init; }
     public required Dictionary<string, object> Data { get; init; }
@@ -28,12 +28,19 @@ public sealed class ContentLifecycleContext
     /// commits atomically with the content write, which is what lets a hook safely allocate a
     /// sequence number without a second transaction that could leave a gap.
     /// </summary>
+    [Obsolete("Use IContentHookContext.Reader, which names no Marten type. Removal planned for barakoCMS 6.0.0.")]
     public required IDocumentSession Session { get; init; }
 
     public required Guid UserId { get; init; }
 
     public bool IsCreate => Existing is null;
 
+    IContentReader IContentHookContext.Reader =>
+#pragma warning disable CS0618
+        _reader ??= new SessionContentReader(Session);
+#pragma warning restore CS0618
+
+    private IContentReader? _reader;
     /// <summary>
     /// The lifecycle transition this write is, with its name and the states it moves between; null
     /// for a plain save. A hook picks its checks from the real move instead of a client-sent field.
@@ -78,5 +85,29 @@ public interface IContentLifecycleHook
     /// Validate and optionally enrich <see cref="ContentLifecycleContext.Data"/>. Return an empty
     /// list to allow the write; any returned message rejects it and is surfaced to the caller.
     /// </summary>
-    Task<IReadOnlyList<string>> OnBeforeSaveAsync(ContentLifecycleContext context, CancellationToken ct);
+    [Obsolete("Override BeforeSaveAsync(IContentHookContext, CancellationToken), which names no Marten type. "
+              + "Removal planned for barakoCMS 6.0.0.")]
+    Task<IReadOnlyList<string>> OnBeforeSaveAsync(ContentLifecycleContext context, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
+
+    /// <summary>
+    /// The same check through barakoCMS types only. This is the member the host calls.
+    /// </summary>
+    /// <remarks>
+    /// The default calls <see cref="OnBeforeSaveAsync"/>, so a hook written before this existed runs
+    /// unchanged. A new hook overrides this one and leaves the other alone.
+    /// </remarks>
+    Task<IReadOnlyList<string>> BeforeSaveAsync(IContentHookContext context, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (context is not ContentLifecycleContext host)
+        {
+            throw new NotSupportedException(
+                "This hook implements the Marten-typed OnBeforeSaveAsync, which needs the host's own context.");
+        }
+
+#pragma warning disable CS0618 // the default exists so a hook written before this member still runs
+        return OnBeforeSaveAsync(host, ct);
+#pragma warning restore CS0618
+    }
 }

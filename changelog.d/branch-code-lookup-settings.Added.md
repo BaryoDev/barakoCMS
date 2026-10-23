@@ -1,1 +1,0 @@
-- **The branch code lookup is configurable.** `Envelope:BranchContentType` (default `Branch`) and `Envelope:BranchCodeField` (default `Code`) name the content type and field that hold a branch's short code for `{branch}` series templates.

@@ -188,7 +188,7 @@ internal sealed class CollectionSyncRunner(
 
         var payload = sync.Source == SyncSource.Feed
             ? SyncPayloadReader.ReadFeed(fetched.Body!, sync.MaxEntries)
-            : SyncPayloadReader.ReadJson(fetched.Body!, sync.ItemsPath, sync.MaxEntries, MappedPaths(sync));
+            : SyncPayloadReader.ReadJson(fetched.Body!, sync.ItemsPath, sync.MaxEntries, MappedPaths(sync), sync.IncompleteWhen);
 
         if (!payload.Ok)
         {
@@ -300,7 +300,7 @@ internal sealed class CollectionSyncRunner(
         return new CollectionSyncOutcome(true, created, updated, unchanged, skipped, null, excluded)
         {
             Produced = produced,
-            ReadAll = payload.Rows.Count > 0 && !payload.Truncated && !fetched.HasNextPage && skipped == 0,
+            ReadAll = (payload.Rows.Count > 0 || (sync.EmptyIsComplete && !payload.MarkerMissing)) && !payload.Truncated && !fetched.HasNextPage && skipped == 0,
         };
     }
 

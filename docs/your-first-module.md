@@ -150,19 +150,20 @@ public sealed class GlossaryModule : IBarakoModule
 
     public int ContractVersion => ModuleContract.Version;
 
+    // Seeding the type gives no role any right on it. This says who may use it from the first start.
+    public ContentPermissionDefaults? ContentPermissions => ContentPermissionDefaults.None()
+        .Allow(GlossaryContentTypes.Term, SystemRoles.Admin, ContentAction.Create, ContentAction.Read);
+
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
     {
         services.AddScoped<IContentLifecycleHook, GlossaryTermHook>();
     }
 
-    public async Task SeedAsync(IDocumentSession session, IServiceProvider services, CancellationToken ct)
+    public async Task SeedAsync(IModuleSeedContext context, CancellationToken ct)
     {
-        var existing = await session.Query<ContentTypeDefinition>()
-            .FirstOrDefaultAsync(t => t.Name == GlossaryContentTypes.Term, ct);
-        if (existing is null)
-            session.Store(GlossaryContentTypes.TermDefinition());
+        await context.EnsureContentTypeAsync(GlossaryContentTypes.TermDefinition(), ct);
 
-        await GlossaryCapabilities.Defaults.GrantAsync(session, ct);
+        await GlossaryCapabilities.Defaults.GrantAsync(context, ct);
     }
 }
 ```
@@ -173,6 +174,10 @@ What each member does, briefly, with the rule behind it linked:
 - `ContractVersion` tells core which module contract you built against, so a future incompatible
   core refuses your module by name at startup instead of failing somewhere later. See
   [Contract version](../MODULES.md#contract-version).
+- `ContentPermissions` gives the seeded Admin role create and read on the type you seed. Without
+  it only SuperAdmin could use the type until someone added permission rules by hand. The host
+  applies it after `SeedAsync`, only for a role with no entry for the type yet, so rights an admin
+  changed later are kept.
 - `ConfigureServices` registers the hook you write in the next step. `configuration` is your own
   `Modules:Glossary` section, never the application root. See
   [Configuration](../MODULES.md#configuration).
@@ -210,7 +215,7 @@ public sealed class GlossaryTermHook : IContentLifecycleHook
 {
     public string ContentType => GlossaryContentTypes.Term;
 
-    public Task<IReadOnlyList<string>> OnBeforeSaveAsync(ContentLifecycleContext context, CancellationToken ct)
+    public Task<IReadOnlyList<string>> BeforeSaveAsync(IContentHookContext context, CancellationToken ct)
     {
         var term = Read(context.Data, "Term");
         var definition = Read(context.Data, "Definition");
@@ -229,8 +234,10 @@ public sealed class GlossaryTermHook : IContentLifecycleHook
 }
 ```
 
-`context.Session` is the same Marten session the write commits through, so a hook can also read
-other documents or store something atomically with the entry. The real example of that is
+`context.Reader` reads other entries, so a hook can check a write against content that already
+exists without naming a Marten type. A hook that needs the write session itself (locks, number
+allocation) still overrides the older `OnBeforeSaveAsync(ContentLifecycleContext, ...)`, which is
+obsolete and removed in 6.0.0, and uses `context.Session` to store something atomically with the entry. The real example of that is
 [`BarakoCMS.Accounting/JournalEntryHook.cs`](../BarakoCMS.Accounting/JournalEntryHook.cs): it checks
 every referenced account exists and allocates the next entry number inside the write transaction,
 so a rejected entry never uses a number.

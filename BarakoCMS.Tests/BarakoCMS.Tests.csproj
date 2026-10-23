@@ -11,6 +11,7 @@
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
     <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="Moq" />
     <PackageReference Include="NSubstitute" />
@@ -42,14 +43,21 @@
     <ProjectReference Include="..\BarakoCMS.Accounting\BarakoCMS.Accounting.csproj" />
     <ProjectReference Include="..\BarakoCMS.Pwa\BarakoCMS.Pwa.csproj" />
     <ProjectReference Include="..\BarakoCMS.Pages\BarakoCMS.Pages.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Qr\BarakoCMS.Qr.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Booking\BarakoCMS.Booking.csproj" />
     <ProjectReference Include="..\BarakoCMS.Forms\BarakoCMS.Forms.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Reports\BarakoCMS.Reports.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Payments\BarakoCMS.Payments.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Comments\BarakoCMS.Comments.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Notifications\BarakoCMS.Notifications.csproj" />
     <ProjectReference Include="..\BarakoCMS.Secrets.Aws\BarakoCMS.Secrets.Aws.csproj" />
     <ProjectReference Include="..\BarakoCMS.Secrets.Gcp\BarakoCMS.Secrets.Gcp.csproj" />
     <ProjectReference Include="..\BarakoCMS.FeatureFlags\BarakoCMS.FeatureFlags.csproj" />
-    <ProjectReference Include="..\BarakoCMS.Email.Resend\BarakoCMS.Email.Resend.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Scheduling\BarakoCMS.Scheduling.csproj" />
     <!-- The SMTP module registers a provider only when a host is configured, and it is the
          only place a mail password is held. Both are claims a test has to be able to reach. -->
     <ProjectReference Include="..\BarakoCMS.Email.Smtp\BarakoCMS.Email.Smtp.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Documents\BarakoCMS.Documents.csproj" />
     <!-- ExternalAuth had no test project reference and therefore no tests, which is why nothing
          noticed that three of its four providers never checked whether the email they were handed
          was verified. A module that cannot be reached by a test is not under-tested, it is
@@ -67,6 +75,7 @@
          what crosses the wire, so it can only be checked from a test project that can call the
          endpoints. See #123. -->
     <ProjectReference Include="..\BarakoCMS.Analytics.Umami\BarakoCMS.Analytics.Umami.csproj" />
+    <ProjectReference Include="..\BarakoCMS.CdnPurge\BarakoCMS.CdnPurge.csproj" />
     <!-- The packable test host a third-party module tests on. Its own tests run it against
          Portability, so the harness is proved on a real module before anyone outside installs it. -->
     <ProjectReference Include="..\BarakoCMS.Testing\BarakoCMS.Testing.csproj" />
@@ -74,6 +83,7 @@
          published image runs it, and its exit code is the claim. Referencing the assembly would put
          a second Program type next to the core host's. -->
     <ProjectReference Include="..\BarakoCMS.Suite\BarakoCMS.Suite.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\BarakoCMS.Contacts\BarakoCMS.Contacts.csproj" />
   </ItemGroup>
 
   <ItemGroup>

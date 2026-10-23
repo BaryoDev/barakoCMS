@@ -216,7 +216,7 @@ those attempts, including failed sign-ins against their own members. A SuperAdmi
 
 Left off on purpose: `/api/me/*` and `/api/tenants` (send the tenant you are signed in to),
 `/swagger` (the delivery paths in the document are generated per tenant), the optional health
-dashboard, and every module route, including the `POST /api/webhooks/resend` receiver. Reach those
+dashboard, and every module route. Reach those
 on a tenant's host or with `X-Tenant`.
 
 **No token for anything but a tenant.** `TokenIssuer` refuses the `default` partition and any slug

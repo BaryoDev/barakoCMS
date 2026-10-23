@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests;
 public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLifetime
 {
     private readonly PostgreSqlContainer _postgresContainer = new PostgreSqlBuilder()
-        .WithImage("postgres:16-alpine")
+        .WithImage("pgvector/pgvector:pg16")
         .WithDatabase("barako_test_db")
         .WithUsername("postgres")
         .WithPassword("postgres")
@@ -48,7 +48,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
     private readonly IDisposable _fallbacks;
 
     /// <summary>The API key this host is configured with, standing in for a deployment's own.</summary>
-    public const string ConfiguredResendKey = "re_from_the_deployment_not_the_admin";
+    public const string ConfiguredEmailKey = "key_from_the_deployment_not_the_admin";
 
     private int _hostsBuilt;
 
@@ -297,7 +297,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                 // Seeded the way a deployment with no database row yet seeds it, so the precedence
                 // tests have a configured value for a stored one to beat, and a value to fall back
                 // to when the stored one is cleared.
-                { "Resend:ApiKey", ConfiguredResendKey },
+                { "Email:ApiKey", ConfiguredEmailKey },
                 // Deliberately not the JWT key. ConnectorOptions.Validate refuses a Connectors:Key
                 // that matches another control's, so the test host proves that rule holds every run.
                 { "Connectors:Key", "test-connectors-key-that-is-its-own-and-long-enough" },
@@ -333,6 +333,11 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                 { "Modules:Pages:ReservedSlugs:0", "api" },
                 { "Modules:Pages:ReservedSlugs:1", "Blog" },
                 { "Modules:Pages:ReservedSlugs:2", "admin" },
+                // Qr lists one field of one probe type, so the allowlist and the empty-allowlist
+                // cases each have a type to use.
+                { "Modules:Qr:Fields:qrprobe:0", "Token" },
+                // Booking runs over its own probe type, so no other test's entries meet its overlap rule.
+                { "Modules:Booking:ContentType", "bookingprobe" },
             });
         });
 
@@ -469,9 +474,6 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                 services.Remove(runner);
             }
 
-            new BarakoCMS.Email.Resend.ResendEmailModule().ConfigureServices(services, ctx.Configuration);
-            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Email.Resend.ResendEmailModule(), opts));
-
             new BarakoCMS.Files.FilesModule().ConfigureServices(services, ctx.Configuration);
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Files.FilesModule(), opts));
 
@@ -494,6 +496,10 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             new BarakoCMS.Accounting.AccountingModule().ConfigureServices(services, ctx.Configuration);
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Accounting.AccountingModule(), opts));
 
+            // The fixture module: a capability, a content hook and a gated endpoint for the tests
+            // of core mechanisms that need a module and not a domain.
+            new BarakoCMS.Testing.Fixture.FixtureModule().ConfigureServices(services, ctx.Configuration);
+
             // Diagnostics: the test project references it, so FastEndpoints already discovers
             // /api/client-errors — register its schema too so those endpoints can actually run.
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Diagnostics.DiagnosticsModule(), opts));
@@ -506,11 +512,33 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             // the same options. Registered with its own section, as the host scopes it.
             new BarakoCMS.Pages.PagesModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Pages"));
 
+            // Qr: the route reads its allowlist from the options registered here.
+            new BarakoCMS.Qr.QrModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Qr"));
+            // Booking: its hook guards the probe type configured above, and the availability route reads
+            // the same options. Registered with its own section, as the host scopes it.
+            new BarakoCMS.Booking.BookingModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Booking"));
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Booking.BookingModule(), opts));
+
             // Forms: the submit endpoint is anonymous and rate limited, so its policy, its options and
             // its schema all have to be registered for /api/public/forms/* to answer at all. Scoped to
             // its own section, as the host scopes it.
             new BarakoCMS.Forms.FormsModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Forms"));
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Forms.FormsModule(), opts));
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Reports.ReportsModule(), opts));
+
+            // Payments: the checkout and webhook endpoints need the module's policy and schema, and a
+            // provider to talk to. The fake signs with a fixed secret so a test can sign or tamper.
+            new BarakoCMS.Payments.PaymentsModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Payments"));
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Payments.PaymentsModule(), opts));
+            services.AddSingleton<BarakoCMS.Payments.IPaymentProvider, BarakoCMS.Tests.Features.Payments.FakePaymentProvider>();
+
+            // Contacts: its endpoints are discovered with the assembly, and its unique email index lives in its schema.
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Contacts.ContactsModule(), opts));
+
+            // Notifications: the service, the email sink's options and the schema, scoped to its own
+            // section as the host scopes it.
+            new BarakoCMS.Notifications.NotificationsModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Notifications"));
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Notifications.NotificationsModule(), opts));
 
             // Portability: its contents section, so a bundle applies through the config engine. Called
             // through IBarakoModule, the way the host calls every module's ConfigureServices.
@@ -525,6 +553,17 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             // this project has to be able to run.
             new BarakoCMS.FeatureFlags.FeatureFlagsModule().ConfigureServices(services, ctx.Configuration);
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.FeatureFlags.FeatureFlagsModule(), opts));
+
+            // Scheduling: the sweep tests drive ScheduleSweepService directly, so only the document is needed.
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Scheduling.SchedulingModule(), opts));
+            // Comments: its schema, its content target, and a second kind of record (a ticket) so
+            // the tests can show one comment surface serving two kinds of record.
+            new BarakoCMS.Comments.CommentsModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Comments"));
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Comments.CommentsModule(), opts));
+            services.AddSingleton<BarakoCMS.Comments.ICommentTarget>(BarakoCMS.Tests.Features.Comments.TicketCommentTarget.Instance);
+
+            // Documents: its schema, so the per-tenant unique slug index exists in the test store.
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Documents.DocumentsModule(), opts));
 
             // ExternalAuth: the OAuth start/callback endpoints are anonymous, so what they refuse
             // is only checkable over real HTTP. ConfigureServices gives them IHttpClientFactory.
@@ -561,16 +600,20 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.MeteredRunnerAction>();
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.OutputRunnerAction>();
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.RecordingRunnerAction>();
+            services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.FileRunnerAction>();
+            services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.UndeclaredFileRunnerAction>();
+            services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.ManyFilesRunnerAction>();
+            services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.SavedFileRunnerAction>();
+            services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.NullFilesRunnerAction>();
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.AttemptHistoryRunnerAction>();
             services.ConfigureMarten(opts => opts.Listeners.Add(new BarakoCMS.Tests.Features.Workflows.RunnerSaveRaceListener()));
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.CreatingRunnerAction>();
             // A second executor, so a test can route a workflow away from the built-in runner.
             services.AddSingleton<barakoCMS.Features.Workflows.IWorkflowExecutor, BarakoCMS.Tests.Features.Workflows.ElsewhereExecutor>();
 
-            // Email transport, replacing the Resend provider the module above registered. Resend
-            // throws on every call here because no API key is configured, so any flow that emails
-            // something has been running against a transport that always fails. Registration needs
-            // the opposite: a test has to be able to read a token that only exists in an email.
+            // Email transport, replacing the mock core registers, which delivers nothing and keeps
+            // nothing. Registration needs the opposite: a test has to be able to read a token that
+            // only exists in an email.
             services.RemoveAll<barakoCMS.Core.Interfaces.IEmailService>();
             services.AddSingleton<RecordingEmailService>();
 
@@ -601,16 +644,23 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
     /// </summary>
     public static readonly System.Reflection.Assembly[] ModuleEndpointAssemblies =
     [
-        typeof(BarakoCMS.Email.Resend.ResendEmailModule).Assembly,
         typeof(BarakoCMS.Files.FilesModule).Assembly,
         typeof(BarakoCMS.AI.AiModule).Assembly,
         typeof(BarakoCMS.Accounting.AccountingModule).Assembly,
+        typeof(BarakoCMS.Testing.Fixture.FixtureModule).Assembly,
         typeof(BarakoCMS.Diagnostics.DiagnosticsModule).Assembly,
         typeof(BarakoCMS.Pwa.PwaModule).Assembly,
         typeof(BarakoCMS.Pages.PagesModule).Assembly,
+        typeof(BarakoCMS.Qr.QrModule).Assembly,
+        typeof(BarakoCMS.Booking.BookingModule).Assembly,
 
         typeof(BarakoCMS.Forms.FormsModule).Assembly,
+        typeof(BarakoCMS.Reports.ReportsModule).Assembly,
+        typeof(BarakoCMS.Payments.PaymentsModule).Assembly,
+        typeof(BarakoCMS.Contacts.ContactsModule).Assembly,
+        typeof(BarakoCMS.Notifications.NotificationsModule).Assembly,
         typeof(BarakoCMS.FeatureFlags.FeatureFlagsModule).Assembly,
+        typeof(BarakoCMS.Comments.CommentsModule).Assembly,
         // Portability owns no documents of its own, so beside its endpoints it needs only the
         // config section it registers, which ConfigureWebHost adds.
         typeof(BarakoCMS.Portability.PortabilityModule).Assembly,

@@ -59,7 +59,7 @@ internal static class ScheduleSweep
     {
         var (grace, pageSize) = SettingsFrom(config);
         var workflows = (await session.Query<WorkflowDefinition>().ToListAsync(ct))
-            .Where(w => w.Enabled && w.Schedule is not null)
+            .Where(w => w.Enabled && w.DateSchedule is not null)
             .OrderBy(w => w.Name, StringComparer.Ordinal)
             .ToList();
 
@@ -68,9 +68,9 @@ internal static class ScheduleSweep
 
         foreach (var workflow in workflows)
         {
-            if (!ScheduleOffset.TryParse(workflow.Schedule!.Offset, out var offset)
-                || string.IsNullOrWhiteSpace(workflow.Schedule.ContentType)
-                || string.IsNullOrWhiteSpace(workflow.Schedule.DateField))
+            if (!ScheduleOffset.TryParse(workflow.DateSchedule!.Offset, out var offset)
+                || string.IsNullOrWhiteSpace(workflow.DateSchedule.ContentType)
+                || string.IsNullOrWhiteSpace(workflow.DateSchedule.DateField))
             {
                 continue;
             }
@@ -89,7 +89,7 @@ internal static class ScheduleSweep
         IDocumentSession session, IWorkflowRunQueue queue, WorkflowDefinition workflow,
         DateTimeOffset earliest, DateTimeOffset latest, int pageSize, CancellationToken ct)
     {
-        var schedule = workflow.Schedule!;
+        var schedule = workflow.DateSchedule!;
         var field = schedule.DateField;
         var low = earliest.UtcDateTime.AddDays(-1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         var high = latest.UtcDateTime.AddDays(1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);

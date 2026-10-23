@@ -22,6 +22,9 @@ internal class CreateWorkflowRequest
     public List<WorkflowAction> Actions { get; set; } = new();
     public bool Enabled { get; set; } = true;
     public string? Executor { get; set; }
+    public string? Schedule { get; set; }
+    public string? ScheduleTimeZone { get; set; }
+    public string? ScheduleCatchUp { get; set; }
     public string? NotifyRoleOnFailure { get; set; }
 
     /// <summary>The definition this request describes, with no id.</summary>
@@ -40,6 +43,9 @@ internal class CreateWorkflowRequest
         Actions = Actions,
         Enabled = Enabled,
         Executor = Executor,
+        Schedule = Schedule,
+        ScheduleTimeZone = ScheduleTimeZone,
+        ScheduleCatchUp = ScheduleCatchUp,
         NotifyRoleOnFailure = NotifyRoleOnFailure,
     };
 }

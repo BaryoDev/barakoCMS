@@ -332,6 +332,9 @@ unaffected, and a tenant with no `Mode` is `Live`.
 
 Only a published `site` entry counts, since that is the one delivery reads. If more than one is
 published and any says `Private`, the tenant is private. `Private` is matched without regard to case.
+A tenant that is not Private costs no read for this check: the answer is cached per tenant and cleared
+on the node that writes, deletes or publishes a `site` entry. Another node learns within
+`Delivery:PrivateSite:CacheSeconds` (default 5, `0` checks on every request).
 `GET /api/tenants/{handle}/public` lets a signed-in viewer through only when `X-Tenant` names the same
 tenant as the handle, since a token is good for one tenant; any other caller needs a site link. With
 open self-registration and a default role that can read `site`, every registrant is a viewer, so

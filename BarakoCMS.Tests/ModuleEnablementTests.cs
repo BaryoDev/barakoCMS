@@ -25,6 +25,7 @@ namespace BarakoCMS.Tests;
 /// the two modules each test adds. What is asserted is what the host registered, because that is
 /// what <c>GET /api/modules</c> and the seed runner read.
 /// </remarks>
+[Collection(nameof(GlobalLoggerCollection))]
 public class ModuleEnablementTests
 {
     private sealed class Alpha : IBarakoModule

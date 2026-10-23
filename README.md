@@ -99,7 +99,7 @@ docker compose up -d
 
 - **API** at <http://localhost:5005>, health at `/health`, Swagger at `/swagger` once `SWAGGER_ENABLED=true`
 - Every module ships in the image and stays off/mock until you add its keys, so you grow into Umami
-  analytics, Resend email, social sign-in, and the rest without touching the compose.
+  analytics, SMTP email, social sign-in, and the rest without touching the compose.
 
 See **[quickstart/README.md](quickstart/README.md)** for every variable, enabling modules, and going
 behind a domain with TLS. To build from source instead, see the
@@ -127,17 +127,24 @@ project, through the same `IBarakoModule` contract you can implement yourself.
 | **Import** | [`BarakoCMS.Import`](https://www.nuget.org/packages/BarakoCMS.Import) | **Bulk import** `.xlsx`/CSV into content via [Talaan](https://github.com/BaryoDev/Talaan), through the CMS's own validation, permissions, and event sourcing. |
 | **Files** | [`BarakoCMS.Files`](https://www.nuget.org/packages/BarakoCMS.Files) | **File upload/download** stored in Postgres via Marten: receipts, photos, documents. |
 | **Files.S3** | [`BarakoCMS.Files.S3`](https://www.nuget.org/packages/BarakoCMS.Files.S3) | Stores the Files module's uploads in S3-compatible object storage (AWS S3, Cloudflare R2, SeaweedFS) instead of Postgres. Public files get a direct URL; private files are proxied through the API. |
-| **Email.Resend** | [`BarakoCMS.Email.Resend`](https://www.nuget.org/packages/BarakoCMS.Email.Resend) | An `IEmailService` over the [Resend](https://resend.com) API, plus a delivery webhook and an **email-events** feed (bounces/complaints). |
 | **Email.Smtp** | [`BarakoCMS.Email.Smtp`](https://www.nuget.org/packages/BarakoCMS.Email.Smtp) | An `IEmailService` over any **SMTP** relay (your host, Google Workspace, SES, a corporate relay) using MailKit. Registers itself only once a host is configured. |
+| **Documents** | [`BarakoCMS.Documents`](https://www.nuget.org/packages/BarakoCMS.Documents) | Renders an entry to a **PDF** from a narrow template language, drawn natively with SkiaSharp and stored through Files. A non-Public field cannot be named by a template. |
 | **DeviceTrust** | [`BarakoCMS.DeviceTrust`](https://www.nuget.org/packages/BarakoCMS.DeviceTrust) | Remembers trusted devices; step-up OTP when a new one signs in. |
 | **ExternalAuth** | [`BarakoCMS.ExternalAuth`](https://www.nuget.org/packages/BarakoCMS.ExternalAuth) | "Continue with Google / GitHub / Facebook / LinkedIn" via OAuth, and any OpenID Connect provider by configuration (Apple included), plus an id token grant for native apps, behind one master switch. |
 | **FeatureFlags** | [`BarakoCMS.FeatureFlags`](https://www.nuget.org/packages/BarakoCMS.FeatureFlags) | Create, toggle, and target flags by tenant, user, or percentage: viewable/toggleable in the admin. |
 | **Portability** | [`BarakoCMS.Portability`](https://www.nuget.org/packages/BarakoCMS.Portability) | Export/import content-type definitions and data as a JSON bundle, for backup, migration, and seeding. |
 | **Diagnostics** | [`BarakoCMS.Diagnostics`](https://www.nuget.org/packages/BarakoCMS.Diagnostics) | Captures client-side (browser) errors and shows a deduped, resolvable **error log** in the admin. |
 | **Forms** | [`BarakoCMS.Forms`](https://www.nuget.org/packages/BarakoCMS.Forms) | Lets a public visitor submit a **form**: a content type marked as a form takes anonymous submissions, validated by its own schema, stored Sensitive, rate limited, with a honeypot and optional Turnstile. |
+| **Reports** | [`BarakoCMS.Reports`](https://www.nuget.org/packages/BarakoCMS.Reports) | Saved reports over a content type: one group-by field, count, sum, avg, min and max, computed in the database under the reader's own read rules, with a CSV export that escapes formula characters. |
+| **Comments** | [`BarakoCMS.Comments`](https://www.nuget.org/packages/BarakoCMS.Comments) | A thread of comments and replies on any record. Reading or adding one needs read access to the record itself. Text is stored and returned as text. |
+| **Contacts** | [`BarakoCMS.Contacts`](https://www.nuget.org/packages/BarakoCMS.Contacts) | One record for a **person or an organization**: typed custom fields, person to organization links, email deduplication with a merge endpoint, and Public-only anonymous delivery. |
 | **Analytics.Umami** | [`BarakoCMS.Analytics.Umami`](https://www.nuget.org/packages/BarakoCMS.Analytics.Umami) | A server-side proxy over self-hosted [Umami](https://umami.is): visitors, pages, referrers, countries, devices, plus registering sites and verifying install. |
+| **CdnPurge** | [`BarakoCMS.CdnPurge`](https://www.nuget.org/packages/BarakoCMS.CdnPurge) | A `CdnPurge` workflow action that purges the cache tags of a published entry from Cloudflare. |
 | **Pages** | [`BarakoCMS.Pages`](https://www.nuget.org/packages/BarakoCMS.Pages) | A **page tree** over a content type: refuses parent loops, over-deep pages and reserved top-level slugs, and serves the nested menu, path resolution with breadcrumbs, and a drafts-included tree for the console. |
+| **Qr** | [`BarakoCMS.Qr`](https://www.nuget.org/packages/BarakoCMS.Qr) | Renders one allowed field of a public entry, such as a claim token, as a **PNG or SVG QR code**. Nothing is encoded until a deployment lists the field. |
+| **Booking** | [`BarakoCMS.Booking`](https://www.nuget.org/packages/BarakoCMS.Booking) | **Bookable resources** with time zones and opening hours, refuses overlapping bookings inside the write, and serves free slots publicly. |
 | **Pwa** | [`BarakoCMS.Pwa`](https://www.nuget.org/packages/BarakoCMS.Pwa) | Tracks PWA installs / installed-app launches (anonymous or tied to the signed-in user) so the admin shows **who** installed the app. |
+| **Notifications** | [`BarakoCMS.Notifications`](https://www.nuget.org/packages/BarakoCMS.Notifications) | In-app notifications any module can raise for a user, with a per-user inbox and pluggable delivery sinks (email built in). |
 | **AI** | [`BarakoCMS.AI`](https://www.nuget.org/packages/BarakoCMS.AI) | **Semantic search** over published content using a self-hosted embedding model ([Ollama](https://ollama.com) by default), with no third-party API key. Indexes only public fields; results are re-checked as published + public at query time. |
 | **Secrets.Aws** | [`BarakoCMS.Secrets.Aws`](https://www.nuget.org/packages/BarakoCMS.Secrets.Aws) | Reads `JWT:Key`, `Secrets:Key` and other keys and credentials from AWS Secrets Manager at startup, as the instance's role. A configuration source, not a module. |
 | **Secrets.Gcp** | [`BarakoCMS.Secrets.Gcp`](https://www.nuget.org/packages/BarakoCMS.Secrets.Gcp) | The same from Google Secret Manager, as the instance's service account. |
@@ -230,10 +237,10 @@ BarakoCMS is headless, so you build the frontend. These BaryoDev packages help:
                     v                         v                         v
               Accounting                    Files <-- Files.S3        AI
               FeatureFlags                  Import                    Analytics.Umami
-              Portability                   Email.Resend              Pwa
-              Pages
-              ExternalAuth                  Email.Smtp                Diagnostics
-              Forms                         DeviceTrust
+              Portability                   Email.Smtp                Pwa
+              Pages                         Comments
+              ExternalAuth                                            Diagnostics
+              Forms                         DeviceTrust               Contacts
                     |                         |                         |
                     +-------------------------+-------------------------+
                                               v
@@ -253,7 +260,7 @@ The question every contribution runs into, so here is the answer we use.
 | Test | Because |
 | --- | --- |
 | Two sensible projects would disagree about wanting it | Core is what nobody gets a choice about, and every choice belongs to the person deploying |
-| It names a vendor, a product or a business domain | `Resend`, `Umami`, `S3`, `Accounting`. Core's vocabulary is content, users, tenants, permissions and nothing else |
+| It names a vendor, a product or a business domain | `Umami`, `S3`, `Accounting`. Core's vocabulary is content, users, tenants, permissions and nothing else |
 | It brings a dependency core does not already carry | An SDK, an API client, a file format. Core's dependency list is a promise to everyone who installs it |
 | Removing it still leaves a working CMS | If content, auth, tenancy and delivery survive without it, it was never core |
 

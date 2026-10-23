@@ -91,6 +91,10 @@ public partial class PublicListRoundTripTests
     /// </summary>
     private async Task<(HttpResponseMessage Response, List<string> Statements)> TracedGetAsync(string url)
     {
+        // The private site check caches its answer; this makes sure it is cached before the count,
+        // so the count can include every statement and none is excused. A path of its own, so the page itself is not output cached.
+        (await Anonymous().GetAsync("/api/public/gate-warmup", Ct)).Dispose();
+
         var traceId = ActivityTraceId.CreateRandom();
         var statements = new ConcurrentQueue<string>();
         using var listener = new ActivityListener

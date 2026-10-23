@@ -51,7 +51,7 @@ internal sealed partial class WorkflowTriggerRegistry
     public bool IsModuleTrigger(string? name) => name is not null && _byName.ContainsKey(name);
 
     /// <summary>Every name a workflow may name, transitions aside, for an error that lists them.</summary>
-    public IEnumerable<string> Names => WorkflowEvents.All.Concat(ModuleTriggers.Select(t => t.Name));
+    public IEnumerable<string> Names => WorkflowEvents.All.Append(WorkflowEvents.Schedule).Concat(ModuleTriggers.Select(t => t.Name));
 
     private void Add(IBarakoModule module, string name, string description)
     {

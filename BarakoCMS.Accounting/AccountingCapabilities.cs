@@ -33,7 +33,7 @@ public static class AccountingCapabilities
 
     /// <summary>
     /// Who starts with these: the module's Accountant role and the seeded Admin role, each by its
-    /// id. They are the roles the old <c>Roles("Accountant", "Admin", "SuperAdmin")</c> gate let in.
+    /// id. They are the roles the old role-name gate on Accountant, Admin and SuperAdmin let in.
     /// </summary>
     /// <remarks>
     /// SuperAdmin is not granted: it holds <c>*</c>, which satisfies a capability from a module core

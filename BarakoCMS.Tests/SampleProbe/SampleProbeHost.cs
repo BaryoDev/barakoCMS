@@ -20,6 +20,7 @@ public sealed class SampleProbeHost : BarakoTestHost, IAsyncLifetime
     {
         o.Modules.Add(new SampleProbeModule());
         o.Settings["JWT:Key"] = IntegrationTestFixture.JwtKey;
+        o.Settings["Stock:HoldSweep:Enabled"] = "false";
         // The change feed tests create an entry and call it as the same writer.
         o.Settings["Lifecycle:AllowSelfTransition:Call"] = "true";
     })

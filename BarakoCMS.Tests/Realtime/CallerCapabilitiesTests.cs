@@ -59,4 +59,17 @@ public class CallerCapabilitiesTests
 
         (await new CallerCapabilities(_resolver).HoldsAsync(station, "read_x")).Should().BeFalse();
     }
+
+    [Fact]
+    public async Task HoldsAsync_StationWithAPlatformCapabilityClaim_DoesNotHoldIt()
+    {
+        var platform = barakoCMS.Features.Users.PlatformRoles.PlatformCapabilities.First();
+        var station = Signed(
+            new Claim("auth_method", "station"),
+            new Claim("station_cap", platform.ToUpperInvariant()),
+            new Claim("station_cap", "read_x"));
+
+        (await new CallerCapabilities(_resolver).HoldsAsync(station, platform)).Should().BeFalse();
+        (await new CallerCapabilities(_resolver).HoldsAsync(station, "read_x")).Should().BeTrue();
+    }
 }

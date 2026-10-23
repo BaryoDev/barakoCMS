@@ -122,6 +122,60 @@ public class WorkflowPlaceholderWarningTests : IAsyncLifetime
         result.Warnings[0].Message.Should().Contain("'shout', which is not a format");
     }
 
+    /// <summary>
+    /// A Conditional's child is run without the run's step outputs, so a run file reference there
+    /// can never be attached. Said at save, and only for the child that has one.
+    /// </summary>
+    [Fact]
+    public void A_run_file_reference_in_a_conditionals_child_email_is_warned_about()
+    {
+        var children = JsonSerializer.Serialize(new[]
+        {
+            new { Type = "Email", Parameters = new Dictionary<string, string> { ["To"] = "a@example.com", ["Attachments"] = "{{actions.0.FileId}}" } },
+            new { Type = "Email", Parameters = new Dictionary<string, string> { ["To"] = "a@example.com", ["Attachments"] = "{{data.Terms}}" } },
+        });
+
+        var result = _validator.Validate(Workflow("Created", new WorkflowAction
+        {
+            Type = "Conditional",
+            Parameters = new() { ["Condition"] = "{{data.State}} == Open", ["ThenActions"] = children },
+        }));
+
+        result.IsValid.Should().BeTrue();
+        result.Warnings.Should().HaveCount(1);
+        result.Warnings[0].Field.Should().Be("actions[0].parameters.ThenActions[0].parameters.Attachments");
+        result.Warnings[0].Message.Should().Contain("Conditional").And.Contain("earlier step");
+
+        var top = _validator.Validate(Workflow("Created",
+            new WorkflowAction { Type = "Email", Parameters = new() { ["To"] = "a@example.com" }, Capture = ["FileId"] },
+            new WorkflowAction
+            {
+                Type = "Email",
+                Parameters = new() { ["To"] = "a@example.com", ["Attachments"] = "{{actions.0.FileId}}" },
+            }));
+        top.Warnings.Should().BeEmpty("the same reference outside a Conditional is what the feature is for");
+    }
+
+    /// <summary>Red without the change. Only an attachment has its own warning, so another parameter keeps the one on the branch.</summary>
+    [Fact]
+    public void A_step_output_in_a_conditionals_child_subject_is_warned_about_once()
+    {
+        var children = JsonSerializer.Serialize(new[]
+        {
+            new { Type = "Email", Parameters = new Dictionary<string, string> { ["To"] = "a@example.com", ["Subject"] = "{{actions.0.FileId}}" } },
+        });
+
+        var result = _validator.Validate(Workflow("Created", new WorkflowAction
+        {
+            Type = "Conditional",
+            Parameters = new() { ["Condition"] = "{{data.State}} == Open", ["ThenActions"] = children },
+        }));
+
+        result.Warnings.Should().HaveCount(1);
+        result.Warnings[0].Field.Should().Be("actions[0].parameters.ThenActions");
+        result.Warnings[0].Message.Should().Contain("sent as written");
+    }
+
     /// <summary>Red without the change. Past fifty the list stops, and its last entry says so.</summary>
     [Fact]
     public void The_list_stops_at_fifty_and_says_there_are_more()
