@@ -19,6 +19,7 @@ namespace BarakoCMS.Tests;
 /// A host that set the key of the email module that left this repository (#1216) upgrades onto the
 /// mock service. The log has to say so.
 /// </summary>
+[Collection(nameof(GlobalLoggerCollection))]
 public class LegacyEmailKeyWarningTests
 {
     private static List<LogEvent> Boot(string? legacyKey, bool providerRegistered = false)

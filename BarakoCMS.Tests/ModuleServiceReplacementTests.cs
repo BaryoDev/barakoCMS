@@ -25,6 +25,7 @@ namespace BarakoCMS.Tests;
 /// order that decides who wins is the order <c>AddBarakoCMS</c> registers in: modules first, core
 /// after.
 /// </remarks>
+[Collection(nameof(GlobalLoggerCollection))]
 public class ModuleServiceReplacementTests
 {
     private sealed class Replacing(Action<IServiceCollection> register) : IBarakoModule
