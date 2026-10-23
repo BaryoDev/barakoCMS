@@ -1084,6 +1084,15 @@
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
         }
       },
+      "barakocms.tagging": {
+        "type": "Project",
+        "dependencies": {
+          "BarakoCMS": "[5.2.0, )",
+          "BarakoCMS.Abstractions": "[5.2.0, )",
+          "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
+          "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
+        }
+      },
       "AspNetCore.HealthChecks.NpgSql": {
         "type": "CentralTransitive",
         "requested": "[9.0.0, )",
