@@ -59,6 +59,7 @@ Optional packages, each installable on its own:
 | `BarakoCMS.Portability` | Export / import bundles |
 | `BarakoCMS.Pwa` | Install tracking |
 | `BarakoCMS.Notifications` | In-app notifications any module can raise |
+| `BarakoCMS.Tagging` | Vocabularies, nested terms and term assignments on any record |
 
 Every one is published under the `barakocms-module` tag, so one search on nuget.org returns them all.
 

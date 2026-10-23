@@ -545,6 +545,10 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             new BarakoCMS.Notifications.NotificationsModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Notifications"));
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Notifications.NotificationsModule(), opts));
 
+            // Tagging: its documents are per tenant and its endpoints are discovered with the assembly,
+            // so the schema has to be registered for them to run.
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Tagging.TaggingModule(), opts));
+
             // Portability: its contents section, so a bundle applies through the config engine. Called
             // through IBarakoModule, the way the host calls every module's ConfigureServices.
             ((barakoCMS.Modules.IBarakoModule)new BarakoCMS.Portability.PortabilityModule()).ConfigureServices(services, ctx.Configuration);
@@ -667,6 +671,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         typeof(BarakoCMS.Payments.PaymentsModule).Assembly,
         typeof(BarakoCMS.Contacts.ContactsModule).Assembly,
         typeof(BarakoCMS.Notifications.NotificationsModule).Assembly,
+        typeof(BarakoCMS.Tagging.TaggingModule).Assembly,
         typeof(BarakoCMS.FeatureFlags.FeatureFlagsModule).Assembly,
         typeof(BarakoCMS.Comments.CommentsModule).Assembly,
         typeof(BarakoCMS.Services.ServicesModule).Assembly,

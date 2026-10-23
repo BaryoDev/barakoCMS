@@ -156,6 +156,7 @@ public class OpenApiTagTests
             "Settings",
             "Site",
             "Stations",
+            "Tagging",
             "Tenants",
             "Testing.Fixture",
             "UserGroups",
