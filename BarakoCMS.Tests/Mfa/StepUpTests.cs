@@ -70,7 +70,6 @@ public class StepUpTests
         var code = new Totp(Base32Encoding.ToBytes(setup.Secret)).ComputeTotp();
         var enable = (await (await client.PostAsJsonAsync("/api/auth/mfa/enable", new MfaModels.CodeRequest { Code = code }))
             .Content.ReadFromJsonAsync<MfaModels.EnableResponse>())!;
-        await Task.Delay(1100); // the epoch is in whole seconds; a token minted in the same second would be refused
         return (id, enable.RecoveryCodes);
     }
 
@@ -177,27 +176,43 @@ public class StepUpTests
         (await client.GetAsync("/api/auth/mfa/status")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
+    private static string MintStepUpToken(Guid userId, DateTime notBefore, DateTime expires)
+    {
+        var key = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(
+            System.Text.Encoding.UTF8.GetBytes("test-super-secret-key-that-is-at-least-32-chars-long"));
+        var handler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
+        return handler.WriteToken(handler.CreateJwtSecurityToken(new Microsoft.IdentityModel.Tokens.SecurityTokenDescriptor
+        {
+            Issuer = "BarakoTest",
+            Audience = "BarakoClient:stepup",
+            NotBefore = notBefore,
+            Expires = expires,
+            SigningCredentials = new Microsoft.IdentityModel.Tokens.SigningCredentials(
+                key, Microsoft.IdentityModel.Tokens.SecurityAlgorithms.HmacSha256),
+            Subject = new System.Security.Claims.ClaimsIdentity(
+            [
+                new System.Security.Claims.Claim("purpose", "stepup"),
+                new System.Security.Claims.Claim("uid", userId.ToString()),
+            ]),
+        }));
+    }
+
     [Fact]
     public async Task StepUp_ExpiredToken_Returns403WithNoClockSkew()
     {
         var (id, _) = await EnrolledUserAsync();
-        // The client first: building it starts a host, which can take longer than the token lives.
-        var client = Client(id);
-        var token = FastEndpoints.Security.JwtBearer.CreateToken(o =>
-        {
-            o.SigningKey = "test-super-secret-key-that-is-at-least-32-chars-long";
-            o.ExpireAt = DateTime.UtcNow.AddSeconds(2);
-            o.Issuer = "BarakoTest";
-            o.Audience = "BarakoClient:stepup";
-            o.User.Claims.Add(new("purpose", "stepup"));
-            o.User.Claims.Add(new("uid", id.ToString()));
-        });
-        client.DefaultRequestHeaders.Add("X-Step-Up", token);
-        (await client.PostAsync("/api/_test/step-up", null)).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        var now = DateTime.UtcNow;
+        // Expired ten seconds ago: the default five minute clock skew would still accept it.
+        var expired = MintStepUpToken(id, now.AddHours(-1), now.AddSeconds(-10));
+        var live = MintStepUpToken(id, now.AddHours(-1), now.AddMinutes(5));
 
-        await Task.Delay(2200);
+        var liveClient = Client(id);
+        liveClient.DefaultRequestHeaders.Add("X-Step-Up", live);
+        (await liveClient.PostAsync("/api/_test/step-up", null)).StatusCode.Should().Be(HttpStatusCode.NoContent);
 
-        (await client.PostAsync("/api/_test/step-up", null)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        var expiredClient = Client(id);
+        expiredClient.DefaultRequestHeaders.Add("X-Step-Up", expired);
+        (await expiredClient.PostAsync("/api/_test/step-up", null)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
     [Fact]
