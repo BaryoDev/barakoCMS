@@ -59,6 +59,8 @@ public class WorkflowRunChangedSinceTests
         return (contentId, runs);
     }
 
+    // Callers start the clock minutes behind real time, so a fake that never reaches the endpoint
+    // moves the cursor past their stamps and fails the test.
     private async Task<HttpClient> AdminOnAsync(FakeTimeProvider clock)
     {
         var host = _factory.WithWebHostBuilder(b => b.ConfigureServices(s => s.AddSingleton<TimeProvider>(clock)));
@@ -134,7 +136,7 @@ public class WorkflowRunChangedSinceTests
     public async Task A_run_that_commits_late_with_an_older_stamp_still_appears_on_the_next_poll()
     {
         var (contentId, runs) = await SeedAsync(2);
-        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow.AddMinutes(-10));
         var admin = await AdminOnAsync(clock);
         var now = clock.GetUtcNow();
         await StampAsync(runs[0].Id, now.AddSeconds(-1));
@@ -228,7 +230,7 @@ public class WorkflowRunChangedSinceTests
     public async Task A_full_page_of_runs_changed_moments_ago_gives_a_cursor_that_still_catches_a_late_commit()
     {
         var (contentId, runs) = await SeedAsync(3);
-        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow.AddMinutes(-10));
         var admin = await AdminOnAsync(clock);
         var now = clock.GetUtcNow();
         await StampAsync(runs[0].Id, now.AddSeconds(-2));
