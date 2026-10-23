@@ -58,6 +58,12 @@
           "Microsoft.AspNetCore.SignalR.Client.Core": "10.0.13"
         }
       },
+      "Microsoft.Extensions.TimeProvider.Testing": {
+        "type": "Direct",
+        "requested": "[10.9.0, )",
+        "resolved": "10.9.0",
+        "contentHash": "0If8xc915BgRpYmKB9tOOOprvHMt8Tue6kiD8ARgVf8Ok6PNUxkJScKT7QUp7+RllR4RN2DNACgaxioy9BJxeQ=="
+      },
       "Microsoft.IdentityModel.JsonWebTokens": {
         "type": "Direct",
         "requested": "[8.23.0, )",

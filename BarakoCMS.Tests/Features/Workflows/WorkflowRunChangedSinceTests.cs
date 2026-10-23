@@ -7,6 +7,7 @@ using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
 
 namespace BarakoCMS.Tests.Features.Workflows;
 
@@ -58,9 +59,20 @@ public class WorkflowRunChangedSinceTests
         return (contentId, runs);
     }
 
-    private async Task<JsonDocument> ListAsync(string query)
+    private async Task<HttpClient> AdminOnAsync(FakeTimeProvider clock)
     {
-        var admin = await _harness.AdminAsync();
+        var host = _factory.WithWebHostBuilder(b => b.ConfigureServices(s => s.AddSingleton<TimeProvider>(clock)));
+        var client = host.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
+            "Bearer", await _factory.StoredUserTokenAsync("SuperAdmin", "Admin"));
+        return client;
+    }
+
+    private Task<JsonDocument> ListAsync(string query) => ListAsync(query, null);
+
+    private async Task<JsonDocument> ListAsync(string query, HttpClient? client)
+    {
+        var admin = client ?? await _harness.AdminAsync();
         var res = await admin.GetAsync($"/api/workflow-runs?{query}", Ct);
         var body = await res.Content.ReadAsStringAsync(Ct);
         res.StatusCode.Should().Be(HttpStatusCode.OK, "{0}", body);
@@ -122,7 +134,9 @@ public class WorkflowRunChangedSinceTests
     public async Task A_run_that_commits_late_with_an_older_stamp_still_appears_on_the_next_poll()
     {
         var (contentId, runs) = await SeedAsync(2);
-        var now = DateTimeOffset.UtcNow;
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var admin = await AdminOnAsync(clock);
+        var now = clock.GetUtcNow();
         await StampAsync(runs[0].Id, now.AddSeconds(-1));
         // runs[1] has not committed its stamp yet.
         await using (var session = _harness.Store.LightweightSession())
@@ -131,12 +145,12 @@ public class WorkflowRunChangedSinceTests
             await session.SaveChangesAsync(Ct);
         }
 
-        using var first = await ListAsync($"contentId={contentId}&changedSince={Long}");
+        using var first = await ListAsync($"contentId={contentId}&changedSince={Long}", admin);
         Ids(first).Should().Equal(runs[0].Id);
 
         await StampAsync(runs[1].Id, now.AddSeconds(-3));
 
-        using var second = await ListAsync($"contentId={contentId}&changedSince={CursorOf(first)}");
+        using var second = await ListAsync($"contentId={contentId}&changedSince={CursorOf(first)}", admin);
 
         Ids(second).Should().Contain(runs[1].Id, "the cursor lags behind now by a margin for exactly this");
     }
@@ -214,7 +228,9 @@ public class WorkflowRunChangedSinceTests
     public async Task A_full_page_of_runs_changed_moments_ago_gives_a_cursor_that_still_catches_a_late_commit()
     {
         var (contentId, runs) = await SeedAsync(3);
-        var now = DateTimeOffset.UtcNow;
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var admin = await AdminOnAsync(clock);
+        var now = clock.GetUtcNow();
         await StampAsync(runs[0].Id, now.AddSeconds(-2));
         await StampAsync(runs[1].Id, now.AddSeconds(-1));
         // runs[2] has not committed its stamp yet, and will when it does be older than runs[1].
@@ -224,7 +240,7 @@ public class WorkflowRunChangedSinceTests
             await session.SaveChangesAsync(Ct);
         }
 
-        using var first = await ListAsync($"contentId={contentId}&changedSince={Long}&pageSize=1");
+        using var first = await ListAsync($"contentId={contentId}&changedSince={Long}&pageSize=1", admin);
         Ids(first).Should().Equal(runs[0].Id);
 
         await StampAsync(runs[2].Id, now.AddSeconds(-3));
@@ -233,7 +249,7 @@ public class WorkflowRunChangedSinceTests
         var cursor = CursorOf(first);
         for (var page = 0; page < 10; page++)
         {
-            using var doc = await ListAsync($"contentId={contentId}&changedSince={cursor}&pageSize=1");
+            using var doc = await ListAsync($"contentId={contentId}&changedSince={cursor}&pageSize=1", admin);
             var ids = Ids(doc);
             if (ids.Count == 0) break;
 
