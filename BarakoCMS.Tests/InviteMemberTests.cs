@@ -240,6 +240,60 @@ public class InviteMemberTests
     }
 
     [Fact]
+    public async Task A_token_for_another_tenant_cannot_invite_here_even_with_the_capability()
+    {
+        var h = await InviterAsync(holdsCapability: true);
+        var elsewhere = _fixture.CreateClient();
+        elsewhere.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _fixture.CreateToken(
+            ["Admin"], h.SelfUserId.ToString(), new Dictionary<string, string> { ["tenant"] = "some-other-tenant" }));
+        elsewhere.DefaultRequestHeaders.Add("X-Tenant", h.Slug);
+        elsewhere.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"2001:db8:a11::{Interlocked.Increment(ref _ip):x}");
+
+        (await elsewhere.PostAsJsonAsync("/api/tenants/members/invite", new { Email = "cross@example.test" }, Ct))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await h.UserExistsAsync("cross@example.test")).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_suspended_member_holding_the_capability_cannot_invite()
+    {
+        var h = await InviterAsync(holdsCapability: true);
+        await SuspendAsync(h.Slug, h.SelfUserId);
+
+        (await h.Client.PostAsJsonAsync("/api/tenants/members/invite", new { Email = "sus@example.test" }, Ct))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await h.UserExistsAsync("sus@example.test")).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Two_invites_for_one_address_at_once_leave_one_user_and_one_membership()
+    {
+        var h = await InviterAsync(holdsCapability: true);
+        var responses = await Task.WhenAll(Enumerable.Range(0, 2).Select(_ =>
+            h.Client.PostAsJsonAsync("/api/tenants/members/invite", new { Email = "twice@example.test" }, Ct)));
+
+        responses.Select(r => (int)r.StatusCode).Should().OnlyContain(c => c < 500);
+        responses.Should().Contain(r => r.StatusCode == HttpStatusCode.OK);
+
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        var users = await session.Query<User>().Where(u => u.NormalizedEmail == "twice@example.test").ToListAsync(Ct);
+        users.Should().HaveCount(1);
+        (await session.Query<Membership>().CountAsync(m => m.UserId == users[0].Id && m.TenantSlug == h.Slug, Ct)).Should().Be(1);
+    }
+
+    private async Task SuspendAsync(string slug, Guid userId)
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var membership = await session.Query<Membership>().FirstAsync(m => m.UserId == userId && m.TenantSlug == slug, Ct);
+        membership.Status = MembershipStatus.Suspended;
+        session.Store(membership);
+        await session.SaveChangesAsync(Ct);
+        scope.ServiceProvider.GetRequiredService<IPermissionResolver>().InvalidateAllPermissions();
+    }
+
+    [Fact]
     public async Task The_capability_opens_no_other_member_route()
     {
         var h = await InviterAsync(holdsCapability: true);
