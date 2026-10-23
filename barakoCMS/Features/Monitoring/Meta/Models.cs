@@ -15,4 +15,13 @@ internal class MetaResponse
     // Lets the admin offer an API reference link to *this* instance and hide it when there is
     // nothing to link to, rather than probing /swagger and guessing from a 404.
     public bool SwaggerEnabled { get; set; }
+
+    // The caller's tenant's languages, read-only. Absent until the tenant sets any.
+    public MetaLocales? Locales { get; set; }
+}
+
+internal class MetaLocales
+{
+    public string DefaultLocale { get; set; } = "";
+    public List<string> Locales { get; set; } = [];
 }
