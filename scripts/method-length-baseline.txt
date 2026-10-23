@@ -45,7 +45,7 @@
 143 barakoCMS/Features/Connectors/Endpoints.cs::UpdateConnectorEndpoint.HandleAsync
 118 barakoCMS/Features/Content/ChangeStatus/Endpoint.cs::Endpoint.HandleAsync
 91 barakoCMS/Features/Content/Create/Endpoint.cs::Endpoint.HandleAsync
-164 barakoCMS/Features/Content/History/RollbackEndpoint.cs::RollbackEndpoint.HandleAsync
+163 barakoCMS/Features/Content/History/RollbackEndpoint.cs::RollbackEndpoint.HandleAsync
 189 barakoCMS/Features/Content/List/Endpoint.cs::Endpoint.HandleAsync
 85 barakoCMS/Features/Content/Schedule/Endpoint.cs::Endpoint.HandleAsync
 236 barakoCMS/Features/Content/Update/Endpoint.cs::Endpoint.HandleAsync
