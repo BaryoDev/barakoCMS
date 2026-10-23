@@ -74,6 +74,8 @@ public class HealthChecksUiRemovalTests
     {
         var root = RepoRoot();
         var modules = Directory.GetDirectories(root, "BarakoCMS.*")
+            // On a case-insensitive file system "BarakoCMS.*" also matches the core barakoCMS folder.
+            .Where(d => Path.GetFileName(d).StartsWith("BarakoCMS.", StringComparison.Ordinal))
             .Where(d => !d.EndsWith("BarakoCMS.Tests", StringComparison.Ordinal))
             .ToList();
         modules.Should().NotBeEmpty();
