@@ -7,10 +7,10 @@
   </PropertyGroup>
 
   <!-- "Barako" — the full pour. The engine plus every module, registered and ready. -->
+  <!-- Basic Accounting ships on NuGet but not in the image, which leaves room for the paid accounting module. -->
   <ItemGroup>
     <ProjectReference Include="..\BarakoCMS.Abstractions\BarakoCMS.Abstractions.csproj" />
     <ProjectReference Include="..\barakoCMS\barakoCMS.csproj" />
-    <ProjectReference Include="..\BarakoCMS.Accounting\BarakoCMS.Accounting.csproj" />
     <ProjectReference Include="..\BarakoCMS.Import\BarakoCMS.Import.csproj" />
     <ProjectReference Include="..\BarakoCMS.Files\BarakoCMS.Files.csproj" />
     <ProjectReference Include="..\BarakoCMS.Files.S3\BarakoCMS.Files.S3.csproj" />

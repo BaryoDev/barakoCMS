@@ -9,7 +9,7 @@ puts `ghcr.io/baryodev/barako-brew` in front of it.
 
 ## What you get
 
-- **CMS API** (`ghcr.io/baryodev/barako-cms`), core plus every module: Accounting, Analytics
+- **CMS API** (`ghcr.io/baryodev/barako-cms`), core plus every free module: Analytics
   (Umami), Email (SMTP), Feature flags, Diagnostics, Import, Files, Device trust, External auth,
   Portability.
 - **Postgres 16** with a persistent volume.
