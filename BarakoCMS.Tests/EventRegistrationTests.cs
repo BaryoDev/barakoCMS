@@ -37,6 +37,13 @@ public class EventRegistrationTests
     [Fact]
     public async Task EventRegistration_EndToEnd_Scenario()
     {
+        // Content type lookups ignore case and the database is shared, so a definition another class
+        // left under "Event" or "Registration" would validate this test's entries.
+        var suffix = Guid.NewGuid().ToString("N");
+        var eventType = $"Event{suffix}";
+        var registrationType = $"Registration{suffix}";
+        var secretType = $"SecretDoc{suffix}";
+
         // --------------------------------------------------------------------------------
         // STEP 1: Create Admin User and Token
         // --------------------------------------------------------------------------------
@@ -48,8 +55,8 @@ public class EventRegistrationTests
         // --------------------------------------------------------------------------------
         var workflow = new WorkflowDefinition
         {
-            Name = "Send Email on Registration",
-            TriggerContentType = "Registration",
+            Name = $"Send Email on Registration {suffix}",
+            TriggerContentType = registrationType,
             TriggerEvent = "Created",
             Conditions = new Dictionary<string, string>(), // Always trigger
             Actions = new List<WorkflowAction>
@@ -86,7 +93,7 @@ public class EventRegistrationTests
 
         var createEventReq = new barakoCMS.Features.Content.Create.Request
         {
-            ContentType = "Event",
+            ContentType = eventType,
             Data = eventData,
             Status = ContentStatus.Published
         };
@@ -110,7 +117,7 @@ public class EventRegistrationTests
 
         var registerReq = new barakoCMS.Features.Content.Create.Request
         {
-            ContentType = "Registration",
+            ContentType = registrationType,
             Data = registrationData,
             Status = ContentStatus.Published
         };
@@ -144,7 +151,7 @@ public class EventRegistrationTests
         var secretData = new Dictionary<string, object> { { "SecretCode", "12345" } };
         var createSecretReq = new barakoCMS.Features.Content.Create.Request
         {
-            ContentType = "SecretDoc",
+            ContentType = secretType,
             Data = secretData,
             Status = ContentStatus.Published,
             Sensitivity = SensitivityLevel.Sensitive
