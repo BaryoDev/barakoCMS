@@ -73,6 +73,7 @@ public class SuiteCompositionTests
             "Pages",
             "Portability",
             "Pwa",
+            "Tagging",
             DiscoverableProbeModule.ModuleName,
         ]);
     }

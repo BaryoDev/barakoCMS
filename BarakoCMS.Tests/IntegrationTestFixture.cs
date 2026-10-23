@@ -512,6 +512,10 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             new BarakoCMS.Forms.FormsModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Forms"));
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Forms.FormsModule(), opts));
 
+            // Tagging: its documents are per tenant and its endpoints are discovered with the assembly,
+            // so the schema has to be registered for them to run.
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Tagging.TaggingModule(), opts));
+
             // Portability: its contents section, so a bundle applies through the config engine. Called
             // through IBarakoModule, the way the host calls every module's ConfigureServices.
             ((barakoCMS.Modules.IBarakoModule)new BarakoCMS.Portability.PortabilityModule()).ConfigureServices(services, ctx.Configuration);
@@ -609,6 +613,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         typeof(BarakoCMS.Pages.PagesModule).Assembly,
 
         typeof(BarakoCMS.Forms.FormsModule).Assembly,
+        typeof(BarakoCMS.Tagging.TaggingModule).Assembly,
         typeof(BarakoCMS.FeatureFlags.FeatureFlagsModule).Assembly,
         // Portability owns no documents of its own, so beside its endpoints it needs only the
         // config section it registers, which ConfigureWebHost adds.

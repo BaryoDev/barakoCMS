@@ -148,6 +148,7 @@ public class OpenApiTagTests
             "Settings",
             "Site",
             "Stations",
+            "Tagging",
             "Tenants",
             "UserGroups",
             "Users",
