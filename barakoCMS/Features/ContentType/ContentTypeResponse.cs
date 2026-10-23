@@ -72,6 +72,8 @@ internal sealed class ContentTypeResponse
 
     /// <summary>The realtime topic clients subscribe to for this type, or null when it has none.</summary>
     public string? RealtimeTopic { get; init; }
+    /// <summary>The child type whose entries are this type's lines, or null when it has none.</summary>
+    public LinesDefinition? Lines { get; init; }
 
     /// <summary>
     /// Whether the stream is the source of truth for entries of this type, and permanent either way.
@@ -105,6 +107,7 @@ internal sealed class ContentTypeResponse
         MergeClass = d.MergeClass,
         BranchScoped = d.BranchScoped,
         RealtimeTopic = d.RealtimeTopic,
+        Lines = d.Lines,
         EventSourced = eventSourced,
         CreatedAt = d.CreatedAt,
         UpdatedAt = d.UpdatedAt,

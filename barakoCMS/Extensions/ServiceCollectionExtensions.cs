@@ -115,7 +115,8 @@ public static class ServiceCollectionExtensions
         // projection.
         options.Listeners.Add(new barakoCMS.Features.Public.Events.ContentChangeListener(
             sp.GetRequiredService<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>(),
-            sp.GetRequiredService<ILogger<barakoCMS.Features.Public.Events.ContentChangeListener>>()));
+            sp.GetRequiredService<ILogger<barakoCMS.Features.Public.Events.ContentChangeListener>>(),
+            sp.GetRequiredService<barakoCMS.Features.Public.Events.ContentChangeBus>()));
 
         AddRealtimeListeners(options, sp);
 
@@ -1370,6 +1371,8 @@ public static class ServiceCollectionExtensions
         // rather than the one passed in here, so a host that layers settings on after this call
         // (the test fixtures do) is read as configured.
         services.AddSingleton<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>();
+        services.AddSingleton<barakoCMS.Features.Public.Events.ContentChangeBus>();
+        services.AddHostedService(sp => sp.GetRequiredService<barakoCMS.Features.Public.Events.ContentChangeBus>());
         services.AddSingleton<barakoCMS.Infrastructure.Multitenancy.PrivateSiteCache>();
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddScoped<barakoCMS.Core.Interfaces.ISignedLinkService, barakoCMS.Infrastructure.Links.SignedLinkService>();

@@ -31,6 +31,11 @@ internal static class FieldNames
             named.Add("the lookup");
         }
 
+        if (definition.Lines is { TotalField: not null } lines && Same(lines.TotalField, field))
+        {
+            named.Add("the lines total");
+        }
+
         return named;
     }
 
@@ -66,6 +71,11 @@ internal static class FieldNames
             {
                 Replace(reveal.Fields, from, to);
             }
+        }
+
+        if (definition.Lines is { TotalField: not null } lines && Same(lines.TotalField, from))
+        {
+            lines.TotalField = to;
         }
     }
 

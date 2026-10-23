@@ -184,6 +184,7 @@ public class ModuleCapabilityDefaultsTests
             typeof(BarakoCMS.Notifications.NotificationsCapabilities),
             typeof(BarakoCMS.Portability.PortabilityCapabilities),
             typeof(BarakoCMS.Pwa.PwaCapabilities),
+            typeof(BarakoCMS.Services.ServicesCapabilities),
         ];
 
         // Scanned as well as named, so a module added later is held to the same rule.

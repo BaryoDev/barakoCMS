@@ -10,7 +10,8 @@ namespace barakoCMS.Features.Content.Create;
 internal class Endpoint(
     IDocumentSession session,
     barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
-    barakoCMS.Infrastructure.Services.IContentCreator creator) : Endpoint<Request, Response>
+    barakoCMS.Infrastructure.Services.IContentCreator creator,
+    barakoCMS.Infrastructure.Services.IContentBatchRunner runner) : Endpoint<Request, Response>
 {
     public override void Configure()
     {
@@ -42,7 +43,18 @@ internal class Endpoint(
             Permitted = (entry, token) => permissionResolver.AllowsCreatedEntryAsync(user, entry, token),
         };
 
+        if (req.Lines is { Count: > 0 } || await DeclaresTotalAsync(req.ContentType, ct))
+        {
+            await CreateWithLinesAsync(req, request, userId, user, ct);
+            return;
+        }
+
         if (await CheckOrRefuseAsync(request, userId, ct) is not { } errors) return;
+
+        if (errors.Count == 0)
+        {
+            errors = await barakoCMS.Features.Content.LineTotals.CheckCreateAsync(session, request.ContentType, request.Data, ct);
+        }
 
         if (request.Forbidden || (errors.Count > 0 && !await RefuseAsync(user, request, errors, ct)))
         {
@@ -142,6 +154,76 @@ internal class Endpoint(
 
         ThrowIfAnyErrors();
         return true;
+    }
+
+    private async Task<bool> DeclaresTotalAsync(string contentType, CancellationToken ct)
+    {
+        var name = barakoCMS.Core.ContentTypeName.Normalize(contentType);
+        return (await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == name, ct))?.Lines?.TotalField is not null;
+    }
+
+    /// <summary>
+    /// A header and its lines, written in one transaction. Nothing is stored unless every entry
+    /// passes, and a refused line names its position.
+    /// </summary>
+    private async Task CreateWithLinesAsync(
+        Request req, barakoCMS.Infrastructure.Services.ContentCreateRequest request, Guid userId, User user, CancellationToken ct)
+    {
+        var name = barakoCMS.Core.ContentTypeName.Normalize(req.ContentType);
+        var lineType = (await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == name, ct))?.Lines;
+        if (lineType is null)
+        {
+            AddError($"Content type '{req.ContentType}' does not take lines.");
+            ThrowIfAnyErrors();
+            return;
+        }
+
+        var lineDefinition = await session.Query<ContentTypeDefinition>()
+            .FirstOrDefaultAsync(d => d.Name.ToLower() == barakoCMS.Core.ContentTypeName.Normalize(lineType.ContentType), ct);
+        var parent = lineDefinition?.Fields.FirstOrDefault(f => string.Equals(f.Name, lineType.ParentField, StringComparison.OrdinalIgnoreCase));
+        if (parent is null
+            || !string.Equals(parent.Type, "reference", StringComparison.OrdinalIgnoreCase)
+            || parent.Multiple
+            || !string.Equals(parent.ReferenceType, name, StringComparison.OrdinalIgnoreCase))
+        {
+            AddError($"The lines of '{req.ContentType}' no longer point at it: '{lineType.ContentType}' has no single reference field '{lineType.ParentField}' to it. Set the lines again.");
+            ThrowIfAnyErrors();
+            return;
+        }
+
+        var headerId = Guid.NewGuid();
+        var header = new barakoCMS.Infrastructure.Services.ContentCreateRequest
+        {
+            ContentType = request.ContentType, Data = request.Data, Status = request.Status,
+            Sensitivity = request.Sensitivity, Id = headerId, Permitted = request.Permitted,
+        };
+        var lines = (req.Lines ?? []).Select(l => LineWriter.Line(lineType, l, headerId, req.Status, req.Sensitivity)).ToList();
+
+        if (lines.Count > 0 && !await permissionResolver.CanPerformActionAsync(user, lineType.ContentType, "create", null, ct))
+        {
+            await Send.ForbiddenAsync(ct);
+            return;
+        }
+
+        var result = await LineWriter.WriteAsync(
+            runner, header, lines, userId, req.DryRun, HttpContext,
+            entry => permissionResolver.AllowsCreatedEntryAsync(user, entry, ct), lineType, ct);
+        if (result.Forbidden)
+        {
+            await Send.ForbiddenAsync(ct);
+            return;
+        }
+
+        foreach (var error in result.Errors)
+        {
+            AddError(error);
+        }
+
+        ThrowIfAnyErrors();
+
+        await Send.ResponseAsync(req.DryRun
+            ? new Response { DryRun = true, Changes = barakoCMS.Core.Validation.DryRuns.Between(null, header.Data) }
+            : new Response { Id = headerId, Version = 1, LineIds = result.LineIds }, cancellation: ct);
     }
 
     /// <summary>The signed-in user the write is made for.</summary>

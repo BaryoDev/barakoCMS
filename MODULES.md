@@ -944,6 +944,7 @@ template ships a placeholder.
 | [BarakoCMS.ExternalAuth](BarakoCMS.ExternalAuth) | Sign-in with Google, GitHub, Facebook or LinkedIn over OAuth, matched to a user by verified email, and with any OpenID Connect provider configured by issuer URL |
 | [BarakoCMS.FeatureFlags](BarakoCMS.FeatureFlags) | Feature flags, toggled and targeted by tenant, user or percentage, evaluated server side |
 | [BarakoCMS.Scheduling](BarakoCMS.Scheduling) | Schedule a named action for a due time; one instance hands it to a registered handler, once |
+| [BarakoCMS.Services](BarakoCMS.Services) | Registry of outside services: register one, take its heartbeats, see it as Healthy, Late or Down |
 | [BarakoCMS.Portability](BarakoCMS.Portability) | Export and import content types and their entries as a JSON bundle |
 | [BarakoCMS.Diagnostics](BarakoCMS.Diagnostics) | Client error log: browser errors posted to `/api/client-errors`, deduplicated by fingerprint |
 | [BarakoCMS.Analytics.Umami](BarakoCMS.Analytics.Umami) | Admin-only proxy over an Umami instance: visitors, pages, referrers, countries, and site registration |

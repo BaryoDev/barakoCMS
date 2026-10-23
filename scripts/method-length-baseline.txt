@@ -33,7 +33,7 @@
 132 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddMartenStore
 80 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddModules
 127 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.MapGlobalDocuments
-129 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.MapTenantScopedDocuments
+133 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.MapTenantScopedDocuments
 86 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.ResolveConnectionString
 72 barakoCMS/Features/ApiKeys/Endpoints.cs::CreateApiKeyEndpoint.HandleAsync
 200 barakoCMS/Features/Auth/Login/Endpoint.cs::Endpoint.HandleAsync
@@ -44,7 +44,7 @@
 83 barakoCMS/Features/Collections/Validator.cs::SaveCollectionSyncValidator.SaveCollectionSyncValidator
 143 barakoCMS/Features/Connectors/Endpoints.cs::UpdateConnectorEndpoint.HandleAsync
 118 barakoCMS/Features/Content/ChangeStatus/Endpoint.cs::Endpoint.HandleAsync
-80 barakoCMS/Features/Content/Create/Endpoint.cs::Endpoint.HandleAsync
+91 barakoCMS/Features/Content/Create/Endpoint.cs::Endpoint.HandleAsync
 164 barakoCMS/Features/Content/History/RollbackEndpoint.cs::RollbackEndpoint.HandleAsync
 189 barakoCMS/Features/Content/List/Endpoint.cs::Endpoint.HandleAsync
 85 barakoCMS/Features/Content/Schedule/Endpoint.cs::Endpoint.HandleAsync
@@ -65,7 +65,6 @@
 110 barakoCMS/Features/Public/Endpoints.cs::GetBySlugEndpoint.HandleAsync
 79 barakoCMS/Features/Public/Endpoints.cs::ListPublishedEndpoint.HandleAsync
 75 barakoCMS/Features/Public/Endpoints.cs::PublicDelivery.ResolveIncludesAsync
-99 barakoCMS/Features/Public/Events/ContentChangeListener.cs::ContentChangeListener.BroadcastAsync
 77 barakoCMS/Features/Public/FeedEndpoint.cs::FeedEndpoint.HandleAsync
 93 barakoCMS/Features/Public/SitemapEndpoint.cs::SitemapEndpoint.HandleAsync
 126 barakoCMS/Features/Redirects/ImportEndpoint.cs::ImportRedirectsEndpoint.HandleAsync

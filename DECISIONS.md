@@ -1295,3 +1295,37 @@ a database leak has it. Keeping everything and expiring it quickly stores it too
 **Why it is recorded.** This is the one part of outputs that is a one-way door. Shipping "keep
 everything" and tightening it later would break run records people had started reading. The same
 rule as `QueryDefinition.Fields`: name what may move, refuse the rest.
+
+## D38. A client reviews on the live deployment, not on a staging copy
+
+**Decided:** 20 Oct 2026. **Status:** accepted. Tracked in #899.
+
+A change is staged in place. There is no second deployment or second tenant that holds the client's
+work in progress and gets copied over on approval. Review happens on the tenant the site runs from,
+using the controls that already hold work back:
+
+- **Drafts.** An entry that is not Published is not delivered. The client reads it through a share
+  link or a preview token.
+- **Holding mode.** A site set to `Holding` shows its holding page while the rest is built behind it.
+  `Private` hides the delivery routes from anyone without a share key or a role that may read the
+  `site` type.
+- **Share links.** A link to one entry or to the whole site, with a label, that the client opens
+  without an account.
+- **Scheduled publish.** `scheduledPublishAt` puts an approved entry live at an agreed time, so
+  approval and launch are two steps.
+- **Config applied on purpose.** A change to the model (content types, roles, site settings) is
+  carried as a configuration document. `POST /api/config/plan` shows what it would change and
+  `POST /api/config/apply` applies it, so the change is reviewed as a diff and applied once. There
+  is no CLI.
+
+A copy of the site for review was rejected. Content is edited on both sides, so the copy and the live
+site drift, and promoting one over the other either loses edits or needs a merge nobody has built.
+The review would also run on data and settings that differ from production, which is the thing the
+client is trying to check.
+
+**What it costs.** Review and live share a database, so a mistake made while staging is made on
+production data. The controls above keep it away from visitors, not away from an editor with the
+wrong role. That is why handover tells the client which role reviews and which publishes.
+
+**What would make it wrong.** A client who needs to review a model change with real visitors on the
+old model still running. That wants a second environment, and would be a new decision.
