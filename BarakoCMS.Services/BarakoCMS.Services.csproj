@@ -5,7 +5,7 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.Services</PackageId>
-    <Version>5.2.0</Version>
+    <Version>5.3.0</Version>
     <Description>Registry of outside services for barakoCMS: register a service, take its heartbeats, and see whether it is Healthy, Late or Down. The base the message state and operator actions build on.</Description>
   </PropertyGroup>
 
