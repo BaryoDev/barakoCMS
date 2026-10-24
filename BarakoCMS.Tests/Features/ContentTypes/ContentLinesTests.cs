@@ -67,6 +67,13 @@ public class ContentLinesTests : IAsyncLifetime
         return (header, line);
     }
 
+    /// <summary>
+    /// A stored entry keeps the spelling of each key as the caller sent it, and a JSON client
+    /// writes anonymous objects in camel case, so the field is read without regard to case.
+    /// </summary>
+    private static string Field(Content content, string name) =>
+        content.Data.Single(p => string.Equals(p.Key, name, StringComparison.OrdinalIgnoreCase)).Value.ToString()!;
+
     private async Task<List<Content>> StoredAsync(string type)
     {
         using var scope = _fixture.Services.CreateScope();
@@ -94,7 +101,7 @@ public class ContentLinesTests : IAsyncLifetime
 
         var stored = await StoredAsync(line);
         stored.Should().HaveCount(2);
-        stored.Select(c => c.Data["Order"].ToString()).Should().OnlyContain(v => v == headerId.ToString(),
+        stored.Select(c => Field(c, "Order")).Should().OnlyContain(v => v == headerId.ToString(),
             "the server sets the parent field, whatever the line sent there");
         (await StoredAsync(header)).Should().ContainSingle(c => c.Id == headerId);
     }
@@ -330,7 +337,7 @@ public class ContentLinesTests : IAsyncLifetime
         (await StoredAsync(line)).Should().HaveCount(2);
         var stored = await StoredAsync(header);
         stored.Should().ContainSingle();
-        decimal.Parse(stored[0].Data["Total"].ToString()!, System.Globalization.CultureInfo.InvariantCulture).Should().Be(90.5m);
+        decimal.Parse(Field(stored[0], "Total"), System.Globalization.CultureInfo.InvariantCulture).Should().Be(90.5m);
     }
 
     [Fact]
@@ -394,10 +401,10 @@ public class ContentLinesTests : IAsyncLifetime
     {
         var (header, line) = await TotalTypesAsync();
 
-        var exponent = await _client.PostAsJsonAsync("/api/contents", new
-        {
-            contentType = header, data = new { Total = "1E2" }, lines = new object[] { new { Amount = "6E1" }, new { Amount = "4E1" } },
-        }, Ct);
+        // Raw JSON, because a C# number cannot be written in exponent form.
+        var exponent = await _client.PostAsync("/api/contents", new StringContent(
+            $$"""{"contentType":"{{header}}","data":{"Total":1E2},"lines":[{"Amount":6E1},{"Amount":4E1}]}""",
+            System.Text.Encoding.UTF8, "application/json"), Ct);
         var overflow = await _client.PostAsJsonAsync("/api/contents", new
         {
             contentType = header, data = new { Total = 1 },
@@ -432,7 +439,7 @@ public class ContentLinesTests : IAsyncLifetime
         refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain($"Header {id}:").And.Contain("add up to 100");
         control.StatusCode.Should().Be(HttpStatusCode.OK, await control.Content.ReadAsStringAsync(Ct));
-        decimal.Parse((await StoredAsync(header)).Single().Data["Total"].ToString()!, System.Globalization.CultureInfo.InvariantCulture)
+        decimal.Parse(Field((await StoredAsync(header)).Single(), "Total"), System.Globalization.CultureInfo.InvariantCulture)
             .Should().Be(100m);
     }
 
@@ -452,7 +459,7 @@ public class ContentLinesTests : IAsyncLifetime
         refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain(id.ToString());
         control.StatusCode.Should().Be(HttpStatusCode.OK, await control.Content.ReadAsStringAsync(Ct));
-        (await StoredAsync(line)).Single(c => c.Id == lineIds[0]).Data["Amount"].ToString().Should().Be("60");
+        Field((await StoredAsync(line)).Single(c => c.Id == lineIds[0]), "Amount").Should().Be("60");
     }
 
     private Task<HttpResponseMessage> ChangeAsync(string type, string field, object body) =>

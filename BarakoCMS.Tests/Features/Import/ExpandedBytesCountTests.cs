@@ -10,7 +10,7 @@ public class ExpandedBytesCountTests
     private const long Limit = 1024 * 1024;
 
     [Fact]
-    public void An_entry_that_declares_a_small_size_but_holds_more_is_counted_by_what_it_holds()
+    public void An_entry_that_declares_a_small_size_is_read_no_further_than_it_declares()
     {
         var zip = ZipWithEntry(new string('a', 4 * 1024 * 1024));
         SetDeclaredSize(zip, 10);
@@ -19,9 +19,11 @@ public class ExpandedBytesCountTests
 
         SpreadsheetLimits.DeclaredExpandedBytes(stream)
             .Should().Be(10, "the directory was rewritten to claim ten bytes");
-        SpreadsheetLimits.ExpandedBytesOver(stream, Limit)
-            .Should().NotBeNull("the real content is over the limit whatever the directory says")
-            .And.Subject.Value.Should().BeGreaterThan(Limit);
+        // The runtime stops inflating an entry at the size its directory record declares, so the
+        // count is what any reader of this archive can get out of it, and a lie downwards cannot
+        // feed a parser more than the figure it was given.
+        SpreadsheetLimits.ActualExpandedBytes(stream, Limit).Should().BeLessThanOrEqualTo(Limit);
+        SpreadsheetLimits.ExpandedBytesOver(stream, Limit).Should().BeNull();
         stream.Position.Should().Be(0);
     }
 

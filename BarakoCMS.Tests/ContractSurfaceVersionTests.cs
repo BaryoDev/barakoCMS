@@ -85,7 +85,7 @@ public class ContractSurfaceVersionTests
         using var plain = await MetaAsync(await CallerHolding());
         using var reader = await MetaAsync(await CallerHolding(barakoCMS.Models.SystemCapabilities.ViewModules));
 
-        string[] expected = ["version", "apiContractVersion", "deliveryContractVersion", "swaggerEnabled"];
+        string[] expected = ["version", "apiContractVersion", "deliveryContractVersion", "swaggerEnabled", "locales"];
         plain.RootElement.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(expected);
         reader.RootElement.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(expected);
         reader.RootElement.GetRawText().Should().Be(plain.RootElement.GetRawText());

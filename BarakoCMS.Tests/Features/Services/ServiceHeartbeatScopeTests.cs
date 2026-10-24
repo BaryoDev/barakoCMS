@@ -234,7 +234,7 @@ public class ServiceHeartbeatScopeTests
 
         (await client.PostAsJsonAsync("/api/services", new { name = Unique("new") }, TestContext.Current.CancellationToken))
             .StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        (await client.GetAsync($"/api/services/{name}/heartbeat", TestContext.Current.CancellationToken))
+        (await client.GetAsync($"/api/services/{name}", TestContext.Current.CancellationToken))
             .StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await BeatAsync(client, name)).StatusCode.Should().Be(HttpStatusCode.OK, "the same key does reach the heartbeat route");
     }

@@ -25,6 +25,9 @@ public class ContentLinesCreateRuleTests
 
     public ContentLinesCreateRuleTests(IntegrationTestFixture fixture) => _fixture = fixture;
 
+    // The data goes out as a dictionary so its keys keep the field's own spelling. An anonymous
+    // object is written in camel case, and the create rule and the hook both read "Tier" and
+    // "Flip" as declared.
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     /// <summary>Moves the header to the gold tier when the entry asks for it with a Flip field.</summary>
@@ -163,7 +166,7 @@ public class ContentLinesCreateRuleTests
         var res = await client.PostAsJsonAsync("/api/contents", new
         {
             contentType = Header,
-            data = new { Tier = "silver", Flip = "yes" },
+            data = new Dictionary<string, object> { ["Tier"] = "silver", ["Flip"] = "yes" },
             lines = new object[] { new { Sku = "A-1" } },
         }, Ct);
 
@@ -182,7 +185,7 @@ public class ContentLinesCreateRuleTests
         var res = await client.PostAsJsonAsync("/api/contents", new
         {
             contentType = Header,
-            data = new { Tier = "gold" },
+            data = new Dictionary<string, object> { ["Tier"] = "gold" },
             lines = new object[] { new { Sku = "A-1" } },
         }, Ct);
 
@@ -201,7 +204,7 @@ public class ContentLinesCreateRuleTests
         var res = await client.PostAsJsonAsync("/api/contents", new
         {
             contentType = Header,
-            data = new { Tier = "silver" },
+            data = new Dictionary<string, object> { ["Tier"] = "silver" },
             lines = new object[] { new { Sku = "A-1" } },
         }, Ct);
 
