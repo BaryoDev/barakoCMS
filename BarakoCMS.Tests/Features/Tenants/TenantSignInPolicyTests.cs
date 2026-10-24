@@ -281,7 +281,8 @@ public class TenantSignInPolicyTests
     {
         var slug = await TenantAsync(new TenantSignInPolicy());
 
-        var set = await SetAsync(slug, new { methods = new[] { "sms" } });
+        // Not "sms": the test above registers that one, and the validator can outlive its host.
+        var set = await SetAsync(slug, new { methods = new[] { "fax" } });
 
         set.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await set.Content.ReadAsStringAsync(Ct)).Should().Contain("A sign-in method is one of: password, otp, social");
