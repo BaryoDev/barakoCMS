@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests.Features.Analytics;
 /// receives, which the HTTP response shows, and what the server sent to Umami, which only the
 /// outbound handler shows. <see cref="UmamiStubHandler"/> records the second half.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class UmamiProxyTests
 {
     private const string Username = "analytics-reader";

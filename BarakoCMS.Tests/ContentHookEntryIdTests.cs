@@ -23,7 +23,7 @@ namespace BarakoCMS.Tests;
 /// Not to be confused with ContentLifecycleTests, which is about a content type's declared state
 /// lifecycle (Draft, Submitted, Approved) and never touches IContentLifecycleHook.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ContentHookEntryIdTests
 {
     private const string TypeName = "hookentryidprobe";

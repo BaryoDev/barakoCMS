@@ -26,7 +26,7 @@ namespace BarakoCMS.Tests;
 /// closed; a list that forgets the owner filter returns everyone's records at once and looks like it
 /// is working, because the caller sees data.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ContentOwnershipTests
 {
     private readonly IntegrationTestFixture _factory;

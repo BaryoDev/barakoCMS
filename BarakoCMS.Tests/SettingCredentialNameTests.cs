@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests;
 /// The settings endpoint refuses a key by the same credential rule workflow parameters are hidden
 /// by, and a setting stored under such a key before the rule covered it is still read.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class SettingCredentialNameTests
 {
     private readonly IntegrationTestFixture _factory;

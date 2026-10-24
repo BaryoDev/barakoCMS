@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// never disposed, on which a teacher may clock out and reopen their own entry; without that the
 /// self transition rule would refuse the moves this class needs.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class UniquenessRuleTests
 {
     private static int _ipCounter;

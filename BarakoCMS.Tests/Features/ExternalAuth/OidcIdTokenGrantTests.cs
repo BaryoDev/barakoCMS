@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests.Features.ExternalAuth;
 /// everything would pass each refusal on its own. Each test uses its own nonces, subjects and
 /// addresses, and its own client address for the rate limit.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class OidcIdTokenGrantTests
 {
     private const string IosClient = "com.example.ios";

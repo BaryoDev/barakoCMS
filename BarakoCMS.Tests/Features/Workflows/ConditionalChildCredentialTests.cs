@@ -23,7 +23,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// ElseActions are stored encrypted, left out of the API's responses and decrypted before the child
 /// runs.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ConditionalChildCredentialTests
 {
     private const string Condition = "{{status}} == Published";

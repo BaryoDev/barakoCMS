@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// <summary>
 /// Issue #599: a run says whether a failure was permanent, and a retry of one is recorded as such.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class WorkflowPermanentFailureTests
 {
     private readonly IntegrationTestFixture _fixture;

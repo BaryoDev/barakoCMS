@@ -28,7 +28,7 @@ namespace BarakoCMS.Tests.Features.Forms;
 /// every test uses its own form and its own addresses, because the per address and per form limits
 /// are stored and would otherwise be shared across the class.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class FormEmailVerificationTests
 {
     private const string CodeError = "emailVerificationCode";
@@ -861,7 +861,7 @@ public class FormEmailVerificationTests
     {
         var client = (host ?? _factory).CreateClient();
         var bytes = Guid.NewGuid().ToByteArray();
-        var ip = $"2001:db8::{bytes[0]:x2}{bytes[1]:x2}:{bytes[2]:x2}{bytes[3]:x2}:{bytes[4]:x2}{bytes[5]:x2}";
+        var ip = $"2001:db8:{bytes[0]:x2}{bytes[1]:x2}:{bytes[2]:x2}{bytes[3]:x2}:{bytes[4]:x2}{bytes[5]:x2}::1";
         client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, ip);
         if (tenant is not null)
         {

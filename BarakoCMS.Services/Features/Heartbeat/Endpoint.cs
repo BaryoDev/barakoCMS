@@ -1,0 +1,68 @@
+using barakoCMS.Infrastructure.Auth;
+using FastEndpoints;
+using Marten;
+
+namespace BarakoCMS.Services.Features.Heartbeat;
+
+internal sealed class HeartbeatRequest
+{
+    public string Name { get; set; } = string.Empty;
+}
+
+internal sealed record HeartbeatResponse(string Name, string Health, DateTime LastHeartbeatAt);
+
+/// <summary>
+/// POST /api/services/{name}/heartbeat: the service says it is alive. Held by send_service_heartbeat
+/// alone, so the identity a service reports with cannot edit the registry. The registry is one
+/// deployment-wide table, so a registered machine key must be the caller's own API key (scope
+/// services:heartbeat), and a service without one needs the capability through a global role, never through an API key, whose
+/// owner's own rights do not count: a tenant membership must not be able to
+/// keep another party's dead service looking healthy. Never replayed from a
+/// stored response, because a replay would answer 200 without recording the beat.
+/// </summary>
+[barakoCMS.Infrastructure.Filters.NoIdempotentReplay]
+internal sealed class HeartbeatEndpoint(IDocumentSession session, IConfiguration configuration) : Endpoint<HeartbeatRequest, HeartbeatResponse>
+{
+    public override void Configure()
+    {
+        Post("/api/services/{name}/heartbeat");
+        Definition.RequireCapability(
+            ServicesCapabilities.SendServiceHeartbeat, ServicesCapabilities.Defaults.LegacyRoles);
+    }
+
+    public override async Task HandleAsync(HeartbeatRequest req, CancellationToken ct)
+    {
+        var presentedKey = PresentedKeyId();
+        var global = await PlatformScope.HoldsGloballyAsync(session, User, configuration,
+            ServicesCapabilities.SendServiceHeartbeat, ServicesCapabilities.Defaults.LegacyRoles, ct);
+        if (presentedKey is null && !global)
+        {
+            ThrowError(PlatformScope.DeploymentWideMessage, 403);
+        }
+
+        var name = ServiceAdmin.Normalize(req.Name);
+        var service = await session.Query<ServiceRegistration>().FirstOrDefaultAsync(s => s.Name == name, ct);
+        var mayBeat = service is not null
+            && (presentedKey is { } key ? service.MachineKeyId == key : service.MachineKeyId is null && global);
+        if (!mayBeat)
+        {
+            // The same answer for an unknown name and a service that is not the caller's, so a
+            // caller cannot use this route to find out which names are registered.
+            await Send.NotFoundAsync(ct);
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        service!.LastHeartbeatAt = now;
+        service.UpdatedAt = now;
+        session.Store(service);
+        await session.SaveChangesAsync(ct);
+
+        await Send.OkAsync(new HeartbeatResponse(service.Name, ServiceHealth.Evaluate(service, now).ToString(), now), ct);
+    }
+
+    private Guid? PresentedKeyId() =>
+        User.HasClaim("auth_method", "apikey") && Guid.TryParse(User.FindFirst("apikey_id")?.Value, out var id)
+            ? id
+            : null;
+}

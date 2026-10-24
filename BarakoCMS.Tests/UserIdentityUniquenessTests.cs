@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests;
 /// <c>A@example.com</c> and <c>a@example.com</c> were two values to the index and one to the query:
 /// two registrations racing past the query both inserted, and no lookup could use the index.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class UserIdentityUniquenessTests
 {
     private const string Password = "ValidPassword123!";
@@ -36,7 +36,7 @@ public class UserIdentityUniquenessTests
         _factory = factory;
         _client = factory.CreateClient();
         _client.DefaultRequestHeaders.Add(
-            TestRemoteIpFilter.Header, $"2001:db8:638::{Interlocked.Increment(ref _ipCounter):x}");
+            TestRemoteIpFilter.Header, $"2001:db8:638:{Interlocked.Increment(ref _ipCounter):x}::1");
     }
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

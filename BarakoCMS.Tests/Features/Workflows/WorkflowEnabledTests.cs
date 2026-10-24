@@ -17,7 +17,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// Every disabled workflow here has an enabled twin on the same content type and event, so a count
 /// of zero sits beside a count of one from the same call. A queue that fires nothing cannot pass.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class WorkflowEnabledTests
 {
     private readonly IntegrationTestFixture _factory;

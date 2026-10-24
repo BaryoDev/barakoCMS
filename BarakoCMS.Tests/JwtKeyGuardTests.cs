@@ -25,6 +25,17 @@ public class JwtKeyGuardTests
         act.Should().Throw<InvalidOperationException>().WithMessage("*placeholder*");
     }
 
+    [Fact]
+    public void Rejects_the_compose_development_key_outside_Development_and_allows_it_in_Development()
+    {
+        const string composeKey = "dev-only-key-minimum-32-chars-long";
+
+        var production = () => JwtKeyGuard.Validate(composeKey, isDevelopment: false);
+        production.Should().Throw<InvalidOperationException>().WithMessage("*development key*");
+
+        JwtKeyGuard.Validate(composeKey, isDevelopment: true).Should().Be(composeKey);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]

@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// One endpoint changes a field of a type that holds entries, classifies the change, and applies
 /// one that touches entries through a resumable job (#934).
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ChangeFieldTests : IAsyncLifetime
 {
     private readonly IntegrationTestFixture _fixture;
@@ -25,6 +25,11 @@ public class ChangeFieldTests : IAsyncLifetime
     {
         _fixture = fixture;
         _client = fixture.CreateClient();
+
+        // FastEndpoints keeps one queue per command type in a static that every host overwrites as it
+        // starts. Without taking it back, the job a change queues can land on a queue whose worker
+        // belongs to a disposed host and wait for the next storage probe instead of running.
+        FastEndpointsResolver.ClaimJobQueues(fixture.Services);
     }
 
     public async ValueTask InitializeAsync() =>
@@ -67,7 +72,7 @@ public class ChangeFieldTests : IAsyncLifetime
 
     private async Task<JsonElement> CompletedAsync(Guid id)
     {
-        for (var i = 0; i < 150; i++)
+        for (var i = 0; i < 600; i++)
         {
             var status = await (await _client.GetAsync($"/api/content-types/field-changes/{id}", Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
             if (status.GetProperty("state").GetString() == "completed")
@@ -75,7 +80,7 @@ public class ChangeFieldTests : IAsyncLifetime
                 return status;
             }
 
-            await Task.Delay(200, Ct);
+            await Task.Delay(50, Ct);
         }
 
         throw new Xunit.Sdk.XunitException($"Field change {id} did not complete.");

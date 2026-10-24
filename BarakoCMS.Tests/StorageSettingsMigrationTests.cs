@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests;
 /// Run in a scratch schema standing in for public, the way GaplessNumberingMigrationTests does. The
 /// table the host created in public is the expectation.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class StorageSettingsMigrationTests
 {
     private const string Table = "mt_doc_storage_settings";

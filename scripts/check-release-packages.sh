@@ -26,9 +26,10 @@ EOF
 # outside the template's own content.
 packable=$(git ls-files '*.csproj' | grep -v '/templates/' | while read -r csproj; do
     if grep -qiE '<IsPackable>[[:space:]]*true[[:space:]]*</IsPackable>' "$csproj"; then basename "$csproj" .csproj; fi
-done | grep -vx 'BarakoCMS.Templates' | sort)
+done | grep -vx 'BarakoCMS.Templates' | LC_ALL=C sort)
 [ -n "$packable" ] || { echo "check-release-packages: found no packable project, so the comparison would prove nothing"; exit 1; }
 
+# comm needs both lists in byte order, which is how the python sort above orders them.
 missing=$(comm -23 <(printf '%s\n' "$packable") <(printf '%s\n' "$listed"))
 unknown=$(comm -13 <(printf '%s\n' "$packable") <(printf '%s\n' "$listed"))
 status=0

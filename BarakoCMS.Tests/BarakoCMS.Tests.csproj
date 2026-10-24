@@ -50,10 +50,12 @@
     <ProjectReference Include="..\BarakoCMS.Payments\BarakoCMS.Payments.csproj" />
     <ProjectReference Include="..\BarakoCMS.Comments\BarakoCMS.Comments.csproj" />
     <ProjectReference Include="..\BarakoCMS.Notifications\BarakoCMS.Notifications.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Tagging\BarakoCMS.Tagging.csproj" />
     <ProjectReference Include="..\BarakoCMS.Secrets.Aws\BarakoCMS.Secrets.Aws.csproj" />
     <ProjectReference Include="..\BarakoCMS.Secrets.Gcp\BarakoCMS.Secrets.Gcp.csproj" />
     <ProjectReference Include="..\BarakoCMS.FeatureFlags\BarakoCMS.FeatureFlags.csproj" />
     <ProjectReference Include="..\BarakoCMS.Scheduling\BarakoCMS.Scheduling.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Services\BarakoCMS.Services.csproj" />
     <!-- The SMTP module registers a provider only when a host is configured, and it is the
          only place a mail password is held. Both are claims a test has to be able to reach. -->
     <ProjectReference Include="..\BarakoCMS.Email.Smtp\BarakoCMS.Email.Smtp.csproj" />
@@ -84,6 +86,11 @@
          a second Program type next to the core host's. -->
     <ProjectReference Include="..\BarakoCMS.Suite\BarakoCMS.Suite.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\BarakoCMS.Contacts\BarakoCMS.Contacts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Collections run side by side, each on its own fixture. See scripts/assign-test-collections.py. -->
+    <Content Update="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

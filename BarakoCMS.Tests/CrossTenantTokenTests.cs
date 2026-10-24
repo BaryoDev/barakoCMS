@@ -52,7 +52,7 @@ internal sealed class TestRemoteIpFilter : IStartupFilter
 ///
 /// These tests drive real HTTP so they cover the middleware chain as deployed, not just the issuer.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class CrossTenantTokenTests
 {
     private readonly HttpClient _client;

@@ -23,7 +23,7 @@ namespace BarakoCMS.Tests.Features.Public;
 /// Every type and slug is unique to its test, and an item is found by its own slug, because the
 /// sitemap lists every deliverable type the shared database holds.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class FieldRolesPublicTests
 {
     private const string Site = "https://test.example.com";

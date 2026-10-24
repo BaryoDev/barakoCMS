@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// <see cref="OutputRunnerAction"/> returns a credential among its outputs, so "not stored" is a
 /// search of the stored JSON for that value and not only of the typed field.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class WorkflowOutputTests
 {
     private readonly IntegrationTestFixture _factory;

@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests;
 /// return. The masking assertions are the ones worth breaking the code to check: a field the
 /// delivery API strips must not be named in the schema, because a field name is itself information.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class DeliveryOpenApiTests
 {
     private readonly IntegrationTestFixture _factory;

@@ -80,7 +80,7 @@ public sealed class BookingOverlapHook : IContentLifecycleHook
         }
 
         var requested = new Stretch(start!.Value, end!.Value);
-        var held = await BookedStretches.HeldAsync(session, _options, resourceId.Value, context.EntryId, ct);
+        var held = await BookedStretches.HeldAsync(session, _options, resourceId.Value, context.EntryId, ct, requested.Start, requested.End);
         return held.Any(requested.Overlaps)
             ? ["That time is not available for this resource."]
             : [];

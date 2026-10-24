@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests.Features.Import;
 /// A spreadsheet import sends every cell as text. A money field that declares a currency takes a
 /// number, so the import reads plain decimal text as one before the row is validated.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class BulkCreateMoneyTests
 {
     private readonly IntegrationTestFixture _fixture;

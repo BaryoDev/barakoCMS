@@ -24,7 +24,7 @@ namespace BarakoCMS.Tests.Features.Portability;
 /// Import is the one route that writes a whole schema and its content at once. Each test here sends
 /// a bundle the create endpoints refuse or change, and checks the import does the same.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ImportWritePathTests
 {
     private const string Secret = "PLAINTEXT-SALARY-551902";

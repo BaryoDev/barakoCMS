@@ -40,7 +40,8 @@ public interface IContentEraser
 public sealed class ContentEraser(
     IDocumentSession session,
     ErasureOptions options,
-    ILogger<ContentEraser> logger) : IContentEraser
+    ILogger<ContentEraser> logger,
+    IEnumerable<barakoCMS.Core.Interfaces.IContentErasureCascade>? cascades = null) : IContentEraser
 {
     public async Task<bool> QueueEraseAsync(Guid contentId, CancellationToken ct)
     {
@@ -81,6 +82,11 @@ public sealed class ContentEraser(
         // The entry's share links and preview tokens go with it. Once the entry is gone they open
         // nothing, and no route could list or revoke them.
         session.DeleteWhere<Models.SiteShareLink>(l => l.EntryId == contentId);
+
+        foreach (var cascade in cascades ?? [])
+        {
+            await cascade.QueueAsync(session, contentId, content.ContentType, ct);
+        }
 
         // The id only, never the content. A log line about an erasure that quotes what was erased is
         // not an erasure. Logged on queueing rather than on commit, which is a small imprecision

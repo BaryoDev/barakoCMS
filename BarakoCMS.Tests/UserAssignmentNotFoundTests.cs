@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests;
 /// role, and the caller was told it had worked. The role id was never checked at all, so a mistyped
 /// role also reported success and granted nothing.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class UserAssignmentNotFoundTests : IAsyncLifetime
 {
     private readonly IntegrationTestFixture _factory;

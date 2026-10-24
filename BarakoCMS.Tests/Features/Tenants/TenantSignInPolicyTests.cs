@@ -7,6 +7,7 @@ using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 using FluentAssertions;
 using Marten;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -17,7 +18,7 @@ namespace BarakoCMS.Tests.Features.Tenants;
 /// a sign-in starts, and shorten its sessions. All of it is decided when a token for the tenant is
 /// issued, on top of what the roles require (#920).
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class TenantSignInPolicyTests
 {
     private const string Password = "ValidPassword123!";
@@ -32,7 +33,7 @@ public class TenantSignInPolicyTests
     private HttpClient Client(string tenant)
     {
         var client = _fixture.CreateClient();
-        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"2001:db8:920::{Interlocked.Increment(ref _ip):x}");
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"2001:db8:920:{Interlocked.Increment(ref _ip):x}::1");
         client.DefaultRequestHeaders.Add("X-Tenant", tenant);
         return client;
     }
@@ -247,5 +248,83 @@ public class TenantSignInPolicyTests
         (await SetAsync(slug, new { sessionMinutes = 60 * 24 * 30 })).StatusCode.Should().Be(HttpStatusCode.BadRequest,
             "a tenant can shorten the deployment's session, not lengthen it");
         (await SetAsync(slug, new { mfaRoleIds = new[] { Guid.NewGuid() } })).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    private sealed class SmsMethod : ISignInMethod
+    {
+        public string Name => "sms";
+    }
+
+    private async Task<HttpResponseMessage> SetOnAsync(WebApplicationFactory<Program> host, string slug, object signIn)
+    {
+        var admin = host.CreateClient();
+        admin.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", await _fixture.StoredUserTokenAsync("SuperAdmin"));
+        return await admin.PutAsJsonAsync($"/api/tenants/{slug}", new { name = slug, signIn }, Ct);
+    }
+
+    [Fact]
+    public async Task A_module_method_registered_through_ISignInMethod_is_accepted_on_a_tenant_write()
+    {
+        var slug = await TenantAsync(new TenantSignInPolicy());
+        using var host = _fixture.WithWebHostBuilder(b => b.ConfigureServices(s => s.AddSingleton<ISignInMethod>(new SmsMethod())));
+
+        var set = await SetOnAsync(host, slug, new { methods = new[] { "sms" } });
+
+        set.StatusCode.Should().Be(HttpStatusCode.OK, await set.Content.ReadAsStringAsync(Ct));
+        var signIn = (await set.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("signIn");
+        signIn.GetProperty("methods").EnumerateArray().Select(e => e.GetString()).Should().Equal("sms");
+    }
+
+    [Fact]
+    public async Task An_unregistered_method_is_still_refused_on_a_tenant_write()
+    {
+        var slug = await TenantAsync(new TenantSignInPolicy());
+
+        // Not "sms": the test above registers that one, and the validator can outlive its host.
+        var set = await SetAsync(slug, new { methods = new[] { "fax" } });
+
+        set.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await set.Content.ReadAsStringAsync(Ct)).Should().Contain("A sign-in method is one of: password, otp, social");
+    }
+
+    [Fact]
+    public void AllowsExplicitly_is_false_for_an_empty_list_and_true_when_named()
+    {
+        new TenantSignInPolicy { Methods = [] }.AllowsExplicitly("sms").Should().BeFalse();
+        new TenantSignInPolicy { Methods = ["password"] }.AllowsExplicitly("sms").Should().BeFalse();
+        new TenantSignInPolicy { Methods = ["sms"] }.AllowsExplicitly("sms").Should().BeTrue();
+        new TenantSignInPolicy { Methods = ["SMS"] }.AllowsExplicitly("sms").Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task The_default_tenant_does_not_allow_an_unnamed_module_method()
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+
+        (await TenantSignIn.AllowsExplicitlyAsync(session, null, "sms", Ct)).Should().BeFalse();
+        (await TenantSignIn.AllowsExplicitlyAsync(session, Tenant.DefaultSlug, "sms", Ct)).Should().BeFalse();
+        (await TenantSignIn.AllowsExplicitlyAsync(session, "no-such-tenant", "sms", Ct)).Should().BeFalse();
+
+        var empty = await TenantAsync(new TenantSignInPolicy());
+        var named = await TenantAsync(new TenantSignInPolicy { Methods = ["sms"] });
+        (await TenantSignIn.AllowsExplicitlyAsync(session, empty, "sms", Ct)).Should().BeFalse();
+        (await TenantSignIn.AllowsExplicitlyAsync(session, named, "sms", Ct)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_suspended_tenant_does_not_allow_a_module_method_it_names()
+    {
+        var slug = $"si-{Guid.NewGuid():N}"[..16];
+        await StoreAsync(new Tenant
+        {
+            Id = Guid.NewGuid(), Slug = slug, Name = slug, SignIn = new TenantSignInPolicy { Methods = ["sms"] },
+            Status = TenantStatus.Suspended,
+        });
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+
+        (await TenantSignIn.AllowsExplicitlyAsync(session, slug, "sms", Ct)).Should().BeFalse();
     }
 }

@@ -10,7 +10,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// An <c>array</c> field may declare an <c>itemType</c>, and a write then refuses a list holding an
 /// item of another type. An array that declares none accepts any list, as before.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ArrayItemTypeTests : IAsyncLifetime
 {
     private readonly IntegrationTestFixture _fixture;

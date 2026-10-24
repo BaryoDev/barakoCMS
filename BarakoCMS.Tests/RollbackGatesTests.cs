@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests;
 /// predates them. That beats a write path which launders rejected data back in, reachable by anyone
 /// who can press Restore.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class RollbackGatesTests
 {
     private readonly IntegrationTestFixture _factory;

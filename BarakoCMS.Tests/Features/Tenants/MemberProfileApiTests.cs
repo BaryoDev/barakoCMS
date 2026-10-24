@@ -22,7 +22,7 @@ namespace BarakoCMS.Tests.Features.Tenants;
 /// Requests carry their own client IP and a tenant claim for the reasons
 /// <see cref="TenantMemberApiTests"/> gives.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class MemberProfileApiTests
 {
     private readonly IntegrationTestFixture _factory;

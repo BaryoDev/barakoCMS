@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests;
 /// about the contract are tested against the client's own fixtures. These are the server half,
 /// asserted where the server actually answers.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class AdminContractTests
 {
     private readonly IntegrationTestFixture _factory;

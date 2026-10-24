@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests.Features.Tenants;
 /// A tenant's sign-up policy decides who joins it through registration, social sign-in and
 /// invitations, and a tenant with no policy, like the default tenant, behaves as before (#914).
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class TenantSignUpPolicyTests
 {
     private const string Password = "ValidPassword123!";
@@ -28,7 +28,7 @@ public class TenantSignUpPolicyTests
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private static string NextIp() => $"2001:db8:914::{Interlocked.Increment(ref _ip):x}";
+    private static string NextIp() => $"2001:db8:914:{Interlocked.Increment(ref _ip):x}::1";
 
     private HttpClient Client(string? tenant)
     {

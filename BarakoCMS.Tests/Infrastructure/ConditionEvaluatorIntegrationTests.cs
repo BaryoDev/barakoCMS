@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests.Infrastructure;
 /// Marten round-trip. These tests store a Role via Marten, reload it, and evaluate the Conditions
 /// dictionary that comes back — the shape production code actually sees.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ConditionEvaluatorIntegrationTests
 {
     private readonly IntegrationTestFixture _factory;

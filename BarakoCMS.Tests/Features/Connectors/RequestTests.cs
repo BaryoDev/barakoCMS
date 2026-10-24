@@ -24,7 +24,7 @@ namespace BarakoCMS.Tests.Features.Connectors;
 /// Sensitive must not leave even when a template names it, and a value containing a quote must not
 /// be able to rewrite the request around it.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class RequestTests
 {
     private readonly IntegrationTestFixture _factory;

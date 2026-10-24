@@ -88,21 +88,27 @@ public static class ApiKeyScopes
     /// </summary>
     public const string ContentDestructive = "content:destructive";
 
+    /// <summary>
+    /// <c>POST /api/services/{name}/heartbeat</c>, the one route outside the content surface a key
+    /// reaches, so a registered service can report with its own key. Not implied by <see cref="All"/>.
+    /// </summary>
+    public const string ServicesHeartbeat = "services:heartbeat";
+
     public static readonly IReadOnlySet<string> Known = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         All, ContentRead, ContentWrite, ContentDestructive, ContentTypeRead, ContentTypeWrite,
-        FilesRead, FilesWrite, MonitorRead,
+        FilesRead, FilesWrite, MonitorRead, ServicesHeartbeat,
     };
 
     public static bool IsKnown(string scope) => !string.IsNullOrWhiteSpace(scope) && Known.Contains(scope);
 
     /// <summary>
     /// Does a key's granted scope set satisfy a required scope? <c>*</c> satisfies everything except
-    /// the files and monitor scopes, which a key has to name.
+    /// the files, monitor and heartbeat scopes, which a key has to name.
     /// </summary>
     public static bool Satisfies(IEnumerable<string> granted, string required)
     {
-        var explicitOnly = required is FilesRead or FilesWrite or MonitorRead;
+        var explicitOnly = required is FilesRead or FilesWrite or MonitorRead or ServicesHeartbeat;
         return granted.Any(s => (s == All && !explicitOnly)
                                 || string.Equals(s, required, StringComparison.OrdinalIgnoreCase));
     }

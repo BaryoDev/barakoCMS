@@ -100,6 +100,19 @@ internal class Endpoint(
         Definition.RequireCapability(SystemCapabilities.ManageContentTypes, "SuperAdmin", "Admin");
     }
 
+    /// <summary>
+    /// A name this tenant already uses, or one its account owns: a second type beside the account's
+    /// would be two definitions of one name.
+    /// </summary>
+    private async Task RefuseTakenNameAsync(string slug, IReadOnlyList<string> storedNames, CancellationToken ct)
+    {
+        if (storedNames.Any(stored => barakoCMS.Core.ContentTypeName.Normalize(stored) == slug))
+            ThrowError(DuplicateName, 409);
+
+        if (await barakoCMS.Infrastructure.Services.AccountContentTypes.ClashMessageAsync(session, slug, ct) is { } owned)
+            ThrowError(owned, 409);
+    }
+
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         // A token field sent as Public, which is what leaving sensitivity out sends, is stored
@@ -169,10 +182,7 @@ internal class Endpoint(
             .Select(x => x.Name)
             .ToListAsync(ct);
 
-        if (storedNames.Any(stored => barakoCMS.Core.ContentTypeName.Normalize(stored) == slug))
-        {
-            ThrowError(DuplicateName, 409);
-        }
+        await RefuseTakenNameAsync(slug, storedNames, ct);
 
         // Entries can exist under a name with no type, holding whatever keys their writers chose.
         foreach (var token in (req.Fields ?? []).Where(f => f is not null && barakoCMS.Core.Validation.TokenFields.IsToken(f.Type)))

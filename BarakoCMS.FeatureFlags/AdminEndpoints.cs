@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using barakoCMS.Infrastructure.Auth;
 using FastEndpoints;
+using FluentValidation;
 using Marten;
 
 namespace BarakoCMS.FeatureFlags;
@@ -14,6 +15,7 @@ public class FlagDto
     public List<string> UserEmails { get; set; } = new();
     public int RolloutPercent { get; set; } = 100;
     public bool IsPublic { get; set; }
+    public FlagVisibility Visibility { get; set; }
     public DateTime UpdatedAt { get; set; }
 
     internal static FlagDto From(FeatureFlag f) => new()
@@ -24,7 +26,8 @@ public class FlagDto
         TenantSlugs = f.TenantSlugs,
         UserEmails = f.UserEmails,
         RolloutPercent = f.RolloutPercent,
-        IsPublic = f.IsPublic,
+        IsPublic = f.EffectiveVisibility() == FlagVisibility.Public,
+        Visibility = f.EffectiveVisibility(),
         UpdatedAt = f.UpdatedAt,
     };
 }
@@ -72,11 +75,27 @@ public class UpsertFlagRequest
     public int? RolloutPercent { get; set; }
 
     /// <summary>
-    /// Not nullable on purpose. This is an upsert of the whole flag, so a body that omits the field
-    /// means "not public", and a client written before the field existed makes a flag private rather
-    /// than leaving it published.
+    /// Kept for clients written before levels existed. True means Public. False keeps the flag's
+    /// current level (SignedIn if that was Public, SignedIn for a new flag). Visibility wins when both are sent.
     /// </summary>
-    public bool IsPublic { get; set; }
+    public bool? IsPublic { get; set; }
+
+    /// <summary>
+    /// Who may see the flag. Left out together with IsPublic, a new flag is Admin only and an
+    /// existing flag keeps its level, except that Public drops to SignedIn, since an upsert body
+    /// that says nothing about it is not a decision to publish.
+    /// </summary>
+    public FlagVisibility? Visibility { get; set; }
+}
+
+internal sealed class UpsertFlagValidator : Validator<UpsertFlagRequest>
+{
+    public UpsertFlagValidator()
+    {
+        RuleFor(x => x.Visibility)
+            .Must(v => v is null || Enum.IsDefined(v.Value))
+            .WithMessage("Visibility must be Public, SignedIn or Admin.");
+    }
 }
 
 /// <summary>POST /api/feature-flags/admin — create or update a flag (upsert by key).</summary>
@@ -98,19 +117,29 @@ public class SaveFlagEndpoint(IDocumentSession session, IConfiguration configura
         var key = (req.Key ?? string.Empty).Trim().ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(key)) { AddError("Key is required."); await Send.ErrorsAsync(400, ct); return; }
 
-        var flag = await session.Query<FeatureFlag>().FirstOrDefaultAsync(f => f.Key == key, ct)
-                   ?? new FeatureFlag { Key = key };
+        var existing = await session.Query<FeatureFlag>().FirstOrDefaultAsync(f => f.Key == key, ct);
+        var flag = existing ?? new FeatureFlag { Key = key };
         flag.Description = string.IsNullOrWhiteSpace(req.Description) ? null : req.Description!.Trim();
         flag.Enabled = req.Enabled;
         flag.TenantSlugs = Clean(req.TenantSlugs);
         flag.UserEmails = Clean(req.UserEmails);
         flag.RolloutPercent = Math.Clamp(req.RolloutPercent ?? 100, 0, 100);
-        flag.IsPublic = req.IsPublic;
+        flag.Visibility = ChooseVisibility(req, existing);
+        flag.IsPublic = flag.Visibility == FlagVisibility.Public;
         flag.UpdatedAt = DateTime.UtcNow;
 
         session.Store(flag);
         await session.SaveChangesAsync(ct);
         await Send.ResponseAsync(FlagDto.From(flag), cancellation: ct);
+    }
+
+    private static FlagVisibility ChooseVisibility(UpsertFlagRequest req, FeatureFlag? existing)
+    {
+        if (req.Visibility is { } stated) return stated;
+        if (req.IsPublic == true) return FlagVisibility.Public;
+        if (existing is null) return req.IsPublic == false ? FlagVisibility.SignedIn : FlagVisibility.Admin;
+        var current = existing.EffectiveVisibility();
+        return current == FlagVisibility.Public ? FlagVisibility.SignedIn : current;
     }
 
     private static List<string> Clean(List<string>? xs) =>

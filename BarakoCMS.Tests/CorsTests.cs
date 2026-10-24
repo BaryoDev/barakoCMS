@@ -12,7 +12,7 @@ namespace BarakoCMS.Tests;
 /// one origin; a preflight from it is answered with the allow headers and a preflight from any other
 /// origin gets none.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class CorsTests
 {
     private const string Listed = "https://console.example.com";

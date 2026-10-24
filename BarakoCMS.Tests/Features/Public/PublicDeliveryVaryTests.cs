@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests.Features.Public;
 /// these requests build the exact case the fix is for: two tenants, the identical URL, and nothing
 /// but <c>X-Tenant</c> telling them apart.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class PublicDeliveryVaryTests
 {
     private readonly IntegrationTestFixture _factory;

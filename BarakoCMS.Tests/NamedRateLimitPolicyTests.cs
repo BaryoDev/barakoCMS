@@ -488,7 +488,7 @@ public class NamedRateLimitPolicyTests
 }
 
 /// <summary>The full host puts the delivery policy on the delivery routes.</summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class DeliveryRateLimitWiringTests
 {
     private readonly IntegrationTestFixture _fixture;
@@ -500,7 +500,7 @@ public class DeliveryRateLimitWiringTests
     private static HttpClient From(Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> host)
     {
         var client = host.CreateClient();
-        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"2001:db8:888::{Interlocked.Increment(ref _ip):x}");
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"2001:db8:888:{Interlocked.Increment(ref _ip):x}::1");
         return client;
     }
 
@@ -518,6 +518,7 @@ public class DeliveryRateLimitWiringTests
     [Theory]
     [InlineData("/api/public/{0}")]
     [InlineData("/api/public/{0}/search?q=coffee")]
+    [InlineData("/api/public/{0}/semantic?q=coffee")]
     [InlineData("/api/public/{0}/some-entry")]
     [InlineData("/api/public/{0}/feed.xml")]
     [InlineData("/api/public/sitemap.xml")]
@@ -552,7 +553,7 @@ public class DeliveryRateLimitWiringTests
 }
 
 /// <summary>The full host counts a request against the API key its handler verified.</summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ApiKeyQuotaWiringTests
 {
     private readonly IntegrationTestFixture _fixture;
@@ -584,7 +585,7 @@ public class ApiKeyQuotaWiringTests
     {
         var request = new HttpRequestMessage(HttpMethod.Get, "/api/contents");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
-        request.Headers.Add(TestRemoteIpFilter.Header, $"2001:db8:889::{Interlocked.Increment(ref _ip):x}");
+        request.Headers.Add(TestRemoteIpFilter.Header, $"2001:db8:889:{Interlocked.Increment(ref _ip):x}::1");
         using var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
         return response.StatusCode;
     }

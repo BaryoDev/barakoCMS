@@ -80,7 +80,7 @@ internal sealed partial class Endpoint(IQuerySession session, IOptions<BookingOp
             return;
         }
 
-        var held = await BookedStretches.HeldAsync(session, settings, id, null, ct);
+        var held = await BookedStretches.HeldAsync(session, settings, id, null, ct, from, to);
         var (free, truncated) = OpenSlots.Free(resource, zone, held, from!.Value, to!.Value, DateTimeOffset.UtcNow, settings.MaxSlots);
 
         HttpContext.Response.Headers.CacheControl = "no-store";

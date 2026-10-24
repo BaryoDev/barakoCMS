@@ -25,7 +25,7 @@ namespace BarakoCMS.Tests;
 /// generated clients, module consumers and anything on a phone read it from the response. A refresh
 /// sent only the cookie answers with the cookie only, since that caller is a browser.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class RefreshCookieTests
 {
     private readonly IntegrationTestFixture _factory;

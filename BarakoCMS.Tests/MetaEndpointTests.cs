@@ -7,7 +7,7 @@ using Xunit;
 
 namespace BarakoCMS.Tests;
 
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class MetaEndpointTests
 {
     private readonly IntegrationTestFixture _factory;
@@ -81,7 +81,7 @@ public class MetaEndpointTests
 
         var meta = await response.Content.ReadFromJsonAsync<Meta>();
         meta.Should().NotBeNull();
-        meta!.ApiContractVersion.Should().Be(11,
+        meta!.ApiContractVersion.Should().Be(12,
             "this is the number a console compares itself against; bumping it is a deliberate "
           + "decision under CLAUDE.md section 6 and this assertion has to be updated by hand when "
           + "it happens, not carried along automatically");

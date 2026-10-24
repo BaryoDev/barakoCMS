@@ -60,6 +60,8 @@ public class IdempotencyReplayRulesTests
         ["BarakoCMS.Accounting.Domain.Account"] = "Code is the account code",
         ["BarakoCMS.Accounting.AccountBalance"] = "Code is the account code",
         ["BarakoCMS.Accounting.Features.Accounts.CreateAccountEndpoint+Result"] = "Code is the account code",
+        ["BarakoCMS.Tagging.VocabularyResponse"] = "Key is the vocabulary's name",
+        ["BarakoCMS.Tagging.TermResponse"] = "Key is the term's name",
     };
 
     /// <summary>

@@ -24,7 +24,7 @@ namespace BarakoCMS.Tests;
 /// These pass the mode to the code under test as configuration, on the fixture's own store, so
 /// each one can run the same pass with and without the setting over the same rows.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class TenancyModeBackgroundTests
 {
     private readonly IntegrationTestFixture _fixture;

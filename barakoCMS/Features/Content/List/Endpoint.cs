@@ -337,12 +337,8 @@ internal class Endpoint(
             return;
         }
 
-        var typeNames = page.Select(i => stored[i.Id].ContentType.ToLower()).Distinct().ToArray();
-        var definitions = (await session.Query<ContentTypeDefinition>()
-                .Where(d => typeNames.Contains(d.Name.ToLower()))
-                .ToListAsync(ct))
-            .GroupBy(d => d.Name, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+        var typeNames = page.Select(i => stored[i.Id].ContentType).Distinct().ToArray();
+        var definitions = await barakoCMS.Infrastructure.Services.AccountContentTypes.ResolveManyAsync(session, typeNames, ct);
 
         var reads = new List<barakoCMS.Infrastructure.Audit.SensitiveRead>();
         foreach (var item in page)
@@ -441,8 +437,7 @@ internal class Endpoint(
         if ((await permissionResolver.FieldSetAsync(user, contentType, "read", null, ct)).IsAll)
             return null;
 
-        var definition = await session.Query<ContentTypeDefinition>()
-            .FirstNamedAsync(contentType, ct);
+        var definition = await barakoCMS.Infrastructure.Services.AccountContentTypes.ResolveAsync(session, contentType, ct);
 
         var sensitivity = Resolve<barakoCMS.Core.Interfaces.ISensitivityService>();
         var keys = new List<string>();
@@ -512,8 +507,7 @@ internal class Endpoint(
         if (string.IsNullOrEmpty(contentType))
             return (query, "A field filter needs contentType. Fields are declared per content type.");
 
-        var definition = await session.Query<ContentTypeDefinition>()
-            .FirstNamedAsync(contentType, ct)
+        var definition = await barakoCMS.Infrastructure.Services.AccountContentTypes.ResolveAsync(session, contentType, ct)
             ?? new ContentTypeDefinition { Name = contentType };
 
         // Asked for every declared field before the parse, which takes a plain predicate. The

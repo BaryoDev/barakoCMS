@@ -14,7 +14,7 @@ using MfaModels = barakoCMS.Features.Auth.Mfa;
 
 namespace BarakoCMS.Tests.Mfa;
 
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class AdminMfaResetTests
 {
     private const string Password = "P@ssword123!Ab";
@@ -30,12 +30,23 @@ public class AdminMfaResetTests
         _ip = $"198.51.100.{(n + 60) % 250 + 1}";
     }
 
+    private static readonly Lock HostGate = new();
+    private static Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program>? _host;
+
+    // One host for the class. Building one per client was most of this class's time, and each test
+    // keeps to its own rate-limit bucket through the address header instead.
+    private Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> Host()
+    {
+        lock (HostGate)
+        {
+            return _host ??= _factory.WithWebHostBuilder(b => b.ConfigureServices(s =>
+                s.AddSingleton<Microsoft.AspNetCore.Hosting.IStartupFilter, TestRemoteIpFilter>()));
+        }
+    }
+
     private HttpClient Client(string? bearer = null, string? tenant = null)
     {
-        var c = _factory
-            .WithWebHostBuilder(b => b.ConfigureServices(s =>
-                s.AddSingleton<Microsoft.AspNetCore.Hosting.IStartupFilter, TestRemoteIpFilter>()))
-            .CreateClient();
+        var c = Host().CreateClient();
         c.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, _ip);
         if (tenant is not null) c.DefaultRequestHeaders.Add("X-Tenant", tenant);
         if (bearer is not null) c.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", bearer);

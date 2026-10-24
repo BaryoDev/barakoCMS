@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests.Features.Modules;
 /// GET /api/modules/{name}/configuration. The security cases carry their own secret beside a value
 /// that must survive, so a route that returned nothing would fail as surely as one that leaked.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ModuleConfigurationEndpointTests
 {
     private const string Declared = "Probe Declared Module";

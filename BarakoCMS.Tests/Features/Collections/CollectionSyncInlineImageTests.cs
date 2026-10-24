@@ -10,7 +10,7 @@ namespace BarakoCMS.Tests.Features.Collections;
 /// A collection sync writes entries without the entry validator and maps text, so a mapping onto an
 /// inline image field is refused when the sync is saved.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class CollectionSyncInlineImageTests
 {
     private readonly CollectionSyncTests _syncs;

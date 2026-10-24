@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests;
 /// Malformed or boundary input is the caller's mistake, so it gets a 4xx, not a 500 carrying a
 /// framework or Postgres message. See #648.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class MalformedInputTests
 {
     private readonly IntegrationTestFixture _factory;
@@ -82,7 +82,7 @@ public class MalformedInputTests
     public async Task A_nul_character_in_registration_is_a_validation_error(string json)
     {
         _client.DefaultRequestHeaders.Add(
-            TestRemoteIpFilter.Header, $"2001:db8:648::{Random.Shared.Next(1, 0xffff):x}");
+            TestRemoteIpFilter.Header, $"2001:db8:648:{Random.Shared.Next(1, 0xffff):x}::1");
 
         var response = await _client.PostAsync(
             "/api/auth/register", new StringContent(json, Encoding.UTF8, "application/json"));
@@ -103,7 +103,7 @@ public class MalformedInputTests
     public async Task A_nul_character_that_reaches_the_database_is_a_bad_request()
     {
         _client.DefaultRequestHeaders.Add(
-            TestRemoteIpFilter.Header, $"2001:db8:649::{Random.Shared.Next(1, 0xffff):x}");
+            TestRemoteIpFilter.Header, $"2001:db8:649:{Random.Shared.Next(1, 0xffff):x}::1");
 
         var response = await _client.PostAsync("/api/auth/login", new StringContent(
             """{"username":"nul\u0000login","password":"whatever-password"}""",

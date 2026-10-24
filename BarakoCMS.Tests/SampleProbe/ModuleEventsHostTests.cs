@@ -4,7 +4,7 @@ using Xunit;
 
 namespace BarakoCMS.Tests.SampleProbe;
 
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ModuleEventsHostTests(SampleProbeHost host) : IClassFixture<SampleProbeHost>
 {
     [Fact]

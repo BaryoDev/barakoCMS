@@ -145,7 +145,7 @@ internal sealed class Endpoint(
         buffer.Position = 0;
 
         var limit = SpreadsheetLimits.MaxExpandedBytes(configuration);
-        if (SpreadsheetLimits.DeclaredExpandedBytes(buffer) is { } expanded && expanded > limit)
+        if (SpreadsheetLimits.ExpandedBytesOver(buffer, limit) is { } expanded)
         {
             await RefuseAsync(
                 $"That file expands to {expanded / 1024 / 1024} MB, over the {limit / 1024 / 1024} MB "

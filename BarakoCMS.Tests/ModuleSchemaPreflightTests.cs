@@ -28,7 +28,7 @@ namespace BarakoCMS.Tests;
 /// here applies schema, so the shared database is read and never changed. The probes are private
 /// nested types, which discovery ignores, so no other host in the suite picks them up.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ModuleSchemaPreflightTests
 {
     private readonly IntegrationTestFixture _factory;

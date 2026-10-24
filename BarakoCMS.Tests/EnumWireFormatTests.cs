@@ -22,7 +22,7 @@ namespace BarakoCMS.Tests;
 /// the converter to Marten's serializer instead of the HTTP one would have looked identical from
 /// the outside and quietly broken the database, so both halves are asserted here.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class EnumWireFormatTests
 {
     private readonly IntegrationTestFixture _factory;

@@ -12,7 +12,7 @@ namespace BarakoCMS.Tests.Infrastructure;
 /// <see cref="AuditLog.RecordAsync"/> against a real Marten session, so they cover the "look up the
 /// previous entry" half of the chain that the pure tests can't reach.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class AuditLogIntegrationTests
 {
     private readonly IntegrationTestFixture _factory;

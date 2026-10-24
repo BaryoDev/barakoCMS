@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests;
 /// test migrations insert into <c>public.runs</c>, so "ran once" is a row count rather than
 /// something the ledger says about itself.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class MigrationLedgerTests
 {
     private readonly IntegrationTestFixture _factory;

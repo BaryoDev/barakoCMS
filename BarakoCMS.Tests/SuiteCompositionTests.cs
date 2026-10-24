@@ -85,6 +85,8 @@ public class SuiteCompositionTests
             "Reports",
             "Scheduling",
             "Fixture",
+            "Services",
+            "Tagging",
             DiscoverableProbeModule.ModuleName,
         ]);
     }

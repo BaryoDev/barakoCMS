@@ -10,7 +10,7 @@ using static BarakoCMS.Tests.Rules.RuleKit;
 
 namespace BarakoCMS.Tests.Rules;
 
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class RuleFieldKindsTests(IntegrationTestFixture host)
 {
     private async Task<bool> PassesAsync(RuleCondition condition, Dictionary<string, object?> data, Content? existing = null)

@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// only by a caller who may read a field of its level. Then the type endpoints: a token field
 /// with no sensitivity is stored Hidden, and nothing makes it Public.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class TokenFieldTests
 {
     private readonly IntegrationTestFixture _factory;

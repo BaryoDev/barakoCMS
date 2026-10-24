@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests.Features.Config;
 /// A workflow a module seeds is the module's, not the document's. Config apply leaves it alone,
 /// refuses a document that rewrites it, and config export does not carry it.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ConfigModuleWorkflowsTests
 {
     private readonly ConfigCallers _callers;

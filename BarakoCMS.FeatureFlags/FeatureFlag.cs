@@ -34,7 +34,31 @@ public class FeatureFlag
     /// </summary>
     public bool IsPublic { get; set; }
 
+    /// <summary>
+    /// Who may be told this flag exists. Null on a flag stored before levels existed, which reads
+    /// back through <see cref="EffectiveVisibility"/> as Public when <see cref="IsPublic"/> was set
+    /// and SignedIn otherwise, so an upgrade changes what nobody sees.
+    /// </summary>
+    public FlagVisibility? Visibility { get; set; }
+
+    /// <summary>The level this flag is read at, whether or not <see cref="Visibility"/> was ever stored.</summary>
+    public FlagVisibility EffectiveVisibility() =>
+        Visibility ?? (IsPublic ? FlagVisibility.Public : FlagVisibility.SignedIn);
+
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>How widely a flag is disclosed.</summary>
+public enum FlagVisibility
+{
+    /// <summary>Anyone, signed in or not.</summary>
+    Public = 0,
+
+    /// <summary>Any signed-in caller.</summary>
+    SignedIn = 1,
+
+    /// <summary>Only a caller who can manage feature flags.</summary>
+    Admin = 2,
 }
 
 /// <summary>Who a flag is being evaluated for. All parts optional.</summary>
@@ -43,9 +67,12 @@ public record FlagContext(string? TenantSlug = null, string? UserEmail = null, s
 /// <summary>Which flags a caller may be told about, as opposed to what each one evaluates to.</summary>
 public enum FlagAudience
 {
-    /// <summary>Only flags marked <see cref="FeatureFlag.IsPublic"/>.</summary>
+    /// <summary>Only Public flags.</summary>
     Public,
 
-    /// <summary>Every flag.</summary>
+    /// <summary>Public and SignedIn flags.</summary>
     Authenticated,
+
+    /// <summary>Every flag.</summary>
+    Admin,
 }

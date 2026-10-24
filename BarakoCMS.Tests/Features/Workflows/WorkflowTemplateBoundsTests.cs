@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// sends a parameter past <see cref="TemplateExpression.MaxTemplateLength"/> as written, and saving
 /// a workflow warns about one without refusing it.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class WorkflowTemplateBoundsTests : IAsyncLifetime
 {
     private readonly IntegrationTestFixture _fixture;

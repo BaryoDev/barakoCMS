@@ -22,7 +22,7 @@ namespace BarakoCMS.Tests.Features.Public;
 /// Each host keeps its own cache, so every write goes through the host that is read from. The count
 /// is Marten's own statements, not a stopwatch.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class DeliveryResponseCacheTests(IntegrationTestFixture fixture)
 {
     private static CancellationToken Ct => ShareLinkTestHost.Ct;

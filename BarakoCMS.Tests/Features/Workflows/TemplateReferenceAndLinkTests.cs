@@ -23,7 +23,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// given. Every test here is red before the change, where a <c>data.Field.Other</c>, a loop and a
 /// link were all left as written.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class TemplateReferenceAndLinkTests
 {
     private readonly IntegrationTestFixture _fixture;

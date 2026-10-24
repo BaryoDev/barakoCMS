@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests;
 /// fake embedder. Adversarial: search returns the semantically-nearest Published, document-Public entry
 /// and never a draft, a Sensitive document, or an entry unpublished after indexing.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class AiSemanticTests
 {
     private readonly IntegrationTestFixture _factory;
@@ -52,6 +52,20 @@ public class AiSemanticTests
     }
 
     private Task<string> AdminToken() => _factory.StoredUserTokenAsync("SuperAdmin");
+
+    [Fact]
+    public async Task A_query_over_500_characters_is_refused_and_one_of_500_is_not()
+    {
+        var type = "ai_solar_long";
+        await SeedAsync(type);
+        _client.DefaultRequestHeaders.Authorization = null;
+
+        var tooLong = await _client.GetAsync($"/api/public/{type}/semantic?q={new string('a', 501)}");
+        var atLimit = await _client.GetAsync($"/api/public/{type}/semantic?q={new string('a', 500)}");
+
+        tooLong.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        atLimit.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
 
     [Fact]
     public async Task Index_ThenSemanticSearch_ReturnsNearestPublicMatch()

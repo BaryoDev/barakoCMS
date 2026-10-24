@@ -22,7 +22,26 @@ public class FeatureFlagService(IQuerySession session)
     internal async Task<IReadOnlyList<FeatureFlag>> VisibleAsync(FlagAudience audience, CancellationToken ct = default)
     {
         var all = await session.Query<FeatureFlag>().ToListAsync(ct);
-        return audience == FlagAudience.Public ? all.Where(f => f.IsPublic).ToList() : all;
+        return all.Where(f => Visible(f, audience)).ToList();
+    }
+
+    /// <summary>May a caller of this audience be told this flag exists?</summary>
+    internal static bool Visible(FeatureFlag flag, FlagAudience audience) => audience switch
+    {
+        FlagAudience.Admin => true,
+        FlagAudience.Authenticated => flag.EffectiveVisibility() != FlagVisibility.Admin,
+        _ => flag.EffectiveVisibility() == FlagVisibility.Public,
+    };
+
+    /// <summary>Anonymous is Public, signed in is Authenticated, and a flag manager is Admin.</summary>
+    internal static async Task<FlagAudience> AudienceAsync(
+        IQuerySession session, System.Security.Claims.ClaimsPrincipal user,
+        Microsoft.Extensions.Configuration.IConfiguration configuration, CancellationToken ct)
+    {
+        if (user.Identity?.IsAuthenticated != true) return FlagAudience.Public;
+        return await FlagAdmin.AllowedAsync(session, user, configuration, ct)
+            ? FlagAudience.Admin
+            : FlagAudience.Authenticated;
     }
 
     /// <summary>
@@ -37,7 +56,7 @@ public class FeatureFlagService(IQuerySession session)
         var result = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
         foreach (var f in flags)
         {
-            if (audience == FlagAudience.Public && !f.IsPublic) continue;
+            if (!Visible(f, audience)) continue;
             result[f.Key] = Evaluate(f, ctx);
         }
         return result;

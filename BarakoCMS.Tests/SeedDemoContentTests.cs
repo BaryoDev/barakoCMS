@@ -26,7 +26,7 @@ namespace BarakoCMS.Tests;
 /// Both directions are asserted. A gate that refuses everything would pass every "production gets
 /// nothing" test on its own. See issue #283.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class SeedDemoContentTests
 {
     private const string ContentTypeName = "AttendanceRecord";

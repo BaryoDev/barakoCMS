@@ -35,27 +35,37 @@ internal static class SpreadsheetGuard
     public static string? Check(Stream seekable, int maxColumns, long maxRowIndex)
     {
         var start = seekable.Position;
+
+        ZipArchive archive;
         try
         {
-            using var archive = new ZipArchive(seekable, ZipArchiveMode.Read, leaveOpen: true);
-            foreach (var entry in archive.Entries)
-            {
-                if (!entry.FullName.StartsWith("xl/worksheets/", StringComparison.OrdinalIgnoreCase)
-                    || !entry.FullName.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                using var stream = entry.Open();
-                if (CheckSheet(stream, maxColumns, maxRowIndex) is { } refusal)
-                    return refusal;
-            }
-
-            return null;
+            archive = new ZipArchive(seekable, ZipArchiveMode.Read, leaveOpen: true);
         }
         catch (InvalidDataException)
         {
+            seekable.Position = start;
             return null;
         }
-        catch (XmlException)
+
+        try
+        {
+            using (archive)
+            {
+                foreach (var entry in archive.Entries)
+                {
+                    if (!entry.FullName.StartsWith("xl/worksheets/", StringComparison.OrdinalIgnoreCase)
+                        || !entry.FullName.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    using var stream = entry.Open();
+                    if (CheckSheet(stream, maxColumns, maxRowIndex) is { } refusal)
+                        return refusal;
+                }
+
+                return null;
+            }
+        }
+        catch (Exception ex) when (ex is InvalidDataException or XmlException)
         {
             return "Could not read the file. Ensure it is a valid .xlsx or CSV.";
         }

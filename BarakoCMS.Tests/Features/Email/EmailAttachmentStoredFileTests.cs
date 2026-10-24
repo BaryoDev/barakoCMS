@@ -76,7 +76,7 @@ public class FileStoreRegistrationTests
 /// the private file through the API: its uploader, a SuperAdmin, an administrator through a
 /// membership. A rule that asked about any of them would send the file and fail the test.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class EmailAttachmentStoredFileTests
 {
     private const string Refused = "cannot be attached";
@@ -732,7 +732,7 @@ public class EmailAttachmentStoredFileTests
         var bytes = Guid.NewGuid().ToByteArray();
         visitor.DefaultRequestHeaders.Add(
             TestRemoteIpFilter.Header,
-            $"2001:db8:806::{bytes[0]:x2}{bytes[1]:x2}:{bytes[2]:x2}{bytes[3]:x2}");
+            $"2001:db8:{bytes[0]:x2}{bytes[1]:x2}:{bytes[2]:x2}{bytes[3]:x2}:806::1");
 
         var submitted = await visitor.PostAsJsonAsync(
             $"/api/public/forms/{type}", new { data = new { name, receipt = receipt.ToString() } }, TestContext.Current.CancellationToken);

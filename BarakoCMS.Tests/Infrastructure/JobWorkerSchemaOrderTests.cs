@@ -28,7 +28,7 @@ namespace BarakoCMS.Tests.Infrastructure;
 /// does not exist when the host starts.
 /// </para>
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class JobWorkerSchemaOrderTests
 {
     private readonly IntegrationTestFixture _fixture;

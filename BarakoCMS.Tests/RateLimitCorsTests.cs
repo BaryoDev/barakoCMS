@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests;
 /// header and a browser on another origin, the console, saw a network error instead of a 429. The
 /// host here allows two requests a minute per address; each test uses an address of its own.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class RateLimitCorsTests
 {
     private const string Listed = "https://console.example.com";
@@ -55,7 +55,7 @@ public class RateLimitCorsTests
     private HttpClient FromNewAddress()
     {
         var client = Host().CreateClient();
-        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"2001:db8:1109::{Interlocked.Increment(ref _ip):x}");
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"2001:db8:1109:{Interlocked.Increment(ref _ip):x}::1");
         return client;
     }
 

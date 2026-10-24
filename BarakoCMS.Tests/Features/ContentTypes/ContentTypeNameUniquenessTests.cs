@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// Driven with two sessions saving at the same time rather than one after the other. A sequential
 /// pair only ever exercises the read, which was never the broken half. See issue #198.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ContentTypeNameUniquenessTests : IAsyncLifetime
 {
     private readonly IntegrationTestFixture _fixture;

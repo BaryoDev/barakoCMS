@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests.Features.ContentApi;
 /// sibling enrollment whose reference does resolve, so a refusal is the case under test and not a
 /// rule that grants nothing.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ReferenceConditionAccessTests
 {
     private const string Follows = "Class.InstructorUser";

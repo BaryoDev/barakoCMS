@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// there. The API refuses an undeclared key now, so the tests seed one through the writer, as an
 /// older database holds it.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class TokenFieldTakeoverTests
 {
     private const string Chosen = "chosen-by-an-editor";

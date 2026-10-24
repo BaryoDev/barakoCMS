@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests;
 /// covers the declaration keyed on seeded role ids that the modules use now.
 /// </summary>
 #pragma warning disable CS0618 // the name-keyed overload is the subject of the first three tests
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ModuleCapabilityGrantTests
 {
     private readonly IntegrationTestFixture _factory;

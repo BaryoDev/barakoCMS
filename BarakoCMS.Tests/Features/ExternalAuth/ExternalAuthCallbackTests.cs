@@ -73,7 +73,7 @@ internal sealed class SingleClientFactory : IHttpClientFactory
 /// hand for the same reason: the ones the module sets are <c>Secure</c>, and the test host speaks
 /// plain HTTP, so a cookie container would accept them and then never send them back.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ExternalAuthCallbackTests
 {
     private const string BaseUrl = "https://cms.test.example";

@@ -20,7 +20,7 @@
 services:
   # 1. Reverse Proxy (Caddy) - Handles HTTPS & Routing
   caddy:
-    image: caddy:alpine
+    image: caddy:alpine@sha256:eb4d35b7452d1ab6171fbdbe8d9275b2301dad6dad92115d91e19fb9b24d510f # caddy:alpine
     container_name: barako-caddy
     restart: always
     ports:
@@ -44,7 +44,7 @@ services:
 
   # 2. Database (PostgreSQL)
   postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a # pgvector/pgvector:pg16
     container_name: barako-postgres
     restart: always
     environment:
@@ -85,7 +85,7 @@ services:
   # deployment would never get the extension. IF NOT EXISTS makes every later start a no-op. Nothing
   # depends on it, so if it fails the API still starts; its log says why.
   postgres-extensions:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:f4610795587492cd4fb887c2dc3de301b813278bb6f616992061141b5f15ac36 # postgres:16-alpine
     container_name: barako-postgres-extensions
     restart: "no"
     depends_on:
@@ -159,7 +159,7 @@ services:
   # The volume is its own, not Postgres's. A backup that dies with the thing it backs up is not a
   # backup, which is what the k8s CronJob used to do before it got the barako-backups PVC.
   db-backup:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:f4610795587492cd4fb887c2dc3de301b813278bb6f616992061141b5f15ac36 # postgres:16-alpine
     container_name: barako-db-backup
     restart: always
     # Postgres accepting connections is not the same as there being anything to back up, so

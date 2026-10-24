@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// enabled" and "public delivery enabled, 4,000 entries now anonymous" are different sentences to
 /// whoever reads the trail, and only one of them answers the question they came with.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class PublicDeliveryAuditTests
 {
     private readonly IntegrationTestFixture _factory;

@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests.Features.ExternalAuth;
 /// Cookies are attached by hand, as in <see cref="OidcSignInTests"/>: they are <c>Secure</c> and the
 /// test host speaks plain HTTP.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class OidcFormPostCallbackTests
 {
     private const string BaseUrl = "https://cms.test.example";

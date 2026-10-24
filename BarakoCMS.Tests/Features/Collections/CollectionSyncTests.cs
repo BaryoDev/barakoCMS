@@ -27,7 +27,7 @@ namespace BarakoCMS.Tests.Features.Collections;
 /// everything above the socket is the shipped code: the request definition, the composer, the
 /// connector's credentials and the fetcher.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public partial class CollectionSyncTests
 {
     private readonly IntegrationTestFixture _factory;
@@ -68,12 +68,14 @@ public partial class CollectionSyncTests
     }
 
     private static readonly Lock HostLock = new();
-    private static WebApplicationFactory<Program>? _host;
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IntegrationTestFixture, WebApplicationFactory<Program>> Hosts = new();
 
     /// <summary>
-    /// One derived host for every CollectionSync class, because each build costs a server.
+    /// One derived host per fixture for every CollectionSync class, because each build costs a server.
     /// Tests keep out of each other's way through unique route paths instead. Run-scoped because
-    /// the other CollectionSync classes reach it through an instance of this one.
+    /// the other CollectionSync classes reach it through an instance of this one. Per fixture because
+    /// the classes sit in different collections, and a token minted in one fixture's database names a
+    /// user another fixture's host has never seen.
     /// </summary>
     internal WebApplicationFactory<Program> Host
     {
@@ -81,8 +83,15 @@ public partial class CollectionSyncTests
         {
             lock (HostLock)
             {
-                return _host ??= _factory.WithRunScopedHost(b => b.ConfigureServices(services =>
+                if (Hosts.TryGetValue(_factory, out var cached))
+                {
+                    return cached;
+                }
+
+                var host = _factory.WithRunScopedHost(b => b.ConfigureServices(services =>
                     services.AddHttpClient("ExternalApi").ConfigurePrimaryHttpMessageHandler(() => new SourceStub())));
+                Hosts.Add(_factory, host);
+                return host;
             }
         }
     }

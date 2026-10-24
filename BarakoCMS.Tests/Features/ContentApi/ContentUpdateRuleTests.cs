@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests.Features.ContentApi;
 /// What an update is checked against: the rule granting it holds for the entry before and after the
 /// write, and a field the caller did not send cannot fail the write or show up in its answer.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ContentUpdateRuleTests
 {
     private const string StaleTier = "GOLD_4417";

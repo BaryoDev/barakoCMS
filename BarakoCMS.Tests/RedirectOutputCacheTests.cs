@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests;
 /// asked the database, rather than merely running fast (a timing assertion would be flaky and would
 /// not distinguish a real cache from a database that just happens to answer quickly).
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class RedirectOutputCacheTests
 {
     private readonly IntegrationTestFixture _factory;

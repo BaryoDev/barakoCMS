@@ -115,7 +115,8 @@ public static class ServiceCollectionExtensions
         // projection.
         options.Listeners.Add(new barakoCMS.Features.Public.Events.ContentChangeListener(
             sp.GetRequiredService<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>(),
-            sp.GetRequiredService<ILogger<barakoCMS.Features.Public.Events.ContentChangeListener>>()));
+            sp.GetRequiredService<ILogger<barakoCMS.Features.Public.Events.ContentChangeListener>>(),
+            sp.GetRequiredService<barakoCMS.Features.Public.Events.ContentChangeBus>()));
 
         AddRealtimeListeners(options, sp);
 
@@ -460,7 +461,7 @@ public static class ServiceCollectionExtensions
         }
         // Fail fast on a missing, too-short, or placeholder key. See JwtKeyGuard for why a length
         // check alone is not enough (the shipped k8s manifest carries a length-valid placeholder).
-        jwtKey = barakoCMS.Infrastructure.Security.JwtKeyGuard.Validate(jwtKey);
+        jwtKey = barakoCMS.Infrastructure.Security.JwtKeyGuard.Validate(jwtKey, IsDevelopmentEnvironment());
 
         services.AddAuthenticationJwtBearer(
             s => s.SigningKey = jwtKey,
@@ -619,6 +620,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<barakoCMS.Infrastructure.Auth.ITokenIssuer, barakoCMS.Infrastructure.Auth.TokenIssuer>();
         services.AddSingleton<barakoCMS.Infrastructure.Auth.LockoutNoticeSender>();
         services.AddHostedService(sp => sp.GetRequiredService<barakoCMS.Infrastructure.Auth.LockoutNoticeSender>());
+        services.AddSingleton<barakoCMS.Infrastructure.Auth.AuthMailQueue>();
+        services.AddHostedService(sp => sp.GetRequiredService<barakoCMS.Infrastructure.Auth.AuthMailQueue>());
         services.AddSingleton<barakoCMS.Infrastructure.Auth.AccountLockout>();
         services.AddScoped<ITokenRevocationService, TokenRevocationService>();
         services.AddScoped<ISessionEpochService, SessionEpochService>();
@@ -755,6 +758,10 @@ public static class ServiceCollectionExtensions
 
     private static void MapTenantScopedDocuments(StoreOptions options)
     {
+        options.Schema.For<LocaleSettings>()
+            .MultiTenanted()
+            .DocumentAlias("locale_settings");
+
         // Conjoined multi-tenant, deliberately, unlike the settings documents above. A credential
         // belongs to the tenant that added it, and one tenant's admin reaching another's is the
         // exact failure #287 found in the daemon.
@@ -1026,6 +1033,14 @@ public static class ServiceCollectionExtensions
                 idx.IsUnique = true;
                 idx.Name = AccountManagerUniqueIndex;
             });
+
+        // Global on purpose: a definition shared by the tenants of an account has to be readable
+        // from each of their partitions, which a conjoined document is not.
+        options.Schema.For<Models.AccountContentType>()
+            .SingleTenanted()
+            .DocumentAlias("account_content_types")
+            .UseOptimisticConcurrency(true)
+            .Index(x => new { x.AccountId, x.Name }, idx => idx.IsUnique = true);
     }
 
     private static void MapApiKeysAndAccounts(StoreOptions options)
@@ -1366,6 +1381,8 @@ public static class ServiceCollectionExtensions
         // rather than the one passed in here, so a host that layers settings on after this call
         // (the test fixtures do) is read as configured.
         services.AddSingleton<barakoCMS.Features.Public.Events.ContentChangeBroadcaster>();
+        services.AddSingleton<barakoCMS.Features.Public.Events.ContentChangeBus>();
+        services.AddHostedService(sp => sp.GetRequiredService<barakoCMS.Features.Public.Events.ContentChangeBus>());
         services.AddSingleton<barakoCMS.Infrastructure.Multitenancy.PrivateSiteCache>();
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddScoped<barakoCMS.Core.Interfaces.ISignedLinkService, barakoCMS.Infrastructure.Links.SignedLinkService>();
@@ -1610,10 +1627,18 @@ public static class ServiceCollectionExtensions
             // than on the first request that happens to resolve the options.
             barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.Configure(
                 new Microsoft.AspNetCore.Builder.ForwardedHeadersOptions(), configuration);
-
-            services.Configure<Microsoft.AspNetCore.Builder.ForwardedHeadersOptions>(
-                options => barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.Configure(options, configuration));
         }
+
+        // Registered either way and decided when the options resolve. UseBarakoCMS asks the host's
+        // final configuration, which can switch this on after registration (a host built with
+        // extra settings); the middleware then needs the proxy list, not the loopback default.
+        services.Configure<Microsoft.AspNetCore.Builder.ForwardedHeadersOptions>(options =>
+        {
+            if (barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.IsEnabled(configuration))
+            {
+                barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.Configure(options, configuration);
+            }
+        });
     }
 
     private static void AddRateLimiting(IServiceCollection services, IConfiguration configuration)

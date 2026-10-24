@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// A field change reaches what names the field outside the type: block bindings follow a rename and
 /// hold up a remove, and config apply keeps the field routes' rules (#1145).
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class FieldChangeSeamsTests
 {
     private readonly IntegrationTestFixture _fixture;

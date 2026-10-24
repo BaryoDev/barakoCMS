@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests.Features.Email;
 /// server. The expected strings below are the exact escaped form, so a body that leaves the markup
 /// alone cannot pass by containing the visible words.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class EmailBodyEncodingTests
 {
     private const string Link = "<a href=\"https://x.example\">click</a>";
@@ -29,7 +29,7 @@ public class EmailBodyEncodingTests
     private readonly IntegrationTestFixture _factory;
 
     private static int _ipCounter;
-    private readonly string _ip = $"2001:db8:456::{Interlocked.Increment(ref _ipCounter):x}";
+    private readonly string _ip = $"2001:db8:456:{Interlocked.Increment(ref _ipCounter):x}::1";
 
     public EmailBodyEncodingTests(IntegrationTestFixture factory) => _factory = factory;
 
@@ -70,6 +70,8 @@ public class EmailBodyEncodingTests
             new { email }, TestContext.Current.CancellationToken);
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
+        await RecordingEmailService.WaitForAsync(
+            () => _factory.Email.Messages.Any(m => m.To == email.Trim().ToLowerInvariant()));
         var sent = _factory.Email.Messages.Where(m => m.To == email.Trim().ToLowerInvariant()).ToList();
         sent.Should().ContainSingle("one code was requested for this address");
         return sent[0].Body;

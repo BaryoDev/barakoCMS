@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// then asserting the total is the invariant stated properly: a workflow that never fires still
 /// fails, on the timeout, with the reason attached.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class WorkflowFiringTests
 {
     private static readonly TimeSpan PollTimeout = TimeSpan.FromSeconds(30);

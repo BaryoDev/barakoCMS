@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests;
 /// Before this, a seeded type was creatable by SuperAdmin only. Every role here is stored under a
 /// random id and name, so a grant that reached the wrong role shows up on a role this class made.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ModuleContentPermissionDefaultsTests
 {
     private readonly IntegrationTestFixture _factory;

@@ -11,7 +11,7 @@ namespace BarakoCMS.Tests;
 /// stored rule a write skips. Stored straight into the database, because no endpoint accepts the
 /// unusable ones any more.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class StoredValidationRulesNoticeTests
 {
     private readonly IntegrationTestFixture _fixture;

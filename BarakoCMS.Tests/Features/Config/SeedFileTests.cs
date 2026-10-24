@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests.Features.Config;
 /// <c>Seed:File</c>: the seeder applies a config document with tenants, domains and members on the
 /// first start, and a second start with the same file changes nothing (#905).
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class SeedFileTests
 {
     private readonly IntegrationTestFixture _fixture;

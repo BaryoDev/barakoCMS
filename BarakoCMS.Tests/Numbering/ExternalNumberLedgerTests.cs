@@ -9,7 +9,7 @@ using Xunit;
 
 namespace BarakoCMS.Tests.Numbering;
 
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ExternalNumberLedgerTests(SampleProbeHost host) : IClassFixture<SampleProbeHost>
 {
     private IExternalNumberLedger Ledger => host.Services.GetRequiredService<IExternalNumberLedger>();

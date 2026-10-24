@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// the other is a disclosure, and read alike by every verified viewer, so it carries no role list,
 /// no mask and is never a token.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class MembersFieldTests
 {
     private readonly IntegrationTestFixture _factory;

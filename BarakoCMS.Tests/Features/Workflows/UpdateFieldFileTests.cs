@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// <c>UpdateFieldAction</c> writing to a <c>file</c> field. A workflow runs for no signed-in user,
 /// so it may attach a public file and nothing else, as its email attachments may.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class UpdateFieldFileTests
 {
     private readonly IntegrationTestFixture _fixture;

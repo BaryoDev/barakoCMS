@@ -11,7 +11,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// <summary>
 /// <c>PUT /api/workflows/{id}</c> replaces a workflow, validated the way a create is (#677).
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class WorkflowUpdateTests
 {
     private readonly IntegrationTestFixture _factory;

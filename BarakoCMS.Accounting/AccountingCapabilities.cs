@@ -26,7 +26,10 @@ public static class AccountingCapabilities
     /// </remarks>
     public const string PostEntries = "post_journal_entries";
 
-    internal static readonly string[] All = [ViewLedger, PostEntries];
+    /// <summary>Read and change the account mappings the posting actions use.</summary>
+    public const string ManageMappings = "manage_accounting_mappings";
+
+    internal static readonly string[] All = [ViewLedger, PostEntries, ManageMappings];
 
     /// <summary>The Accountant role this module seeds: its fixed id and its seeded name.</summary>
     internal static readonly SeededRole Accountant = new(AccountingModule.AccountantRoleId, "Accountant");

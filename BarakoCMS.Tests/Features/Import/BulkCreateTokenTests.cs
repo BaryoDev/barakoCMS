@@ -12,7 +12,7 @@ namespace BarakoCMS.Tests.Features.Import;
 /// A spreadsheet import into a type with a token field. A column mapped onto the token is not
 /// taken: every row gets a token of its own.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class BulkCreateTokenTests
 {
     private const string Forged = "forged0token0forged0token0forged";

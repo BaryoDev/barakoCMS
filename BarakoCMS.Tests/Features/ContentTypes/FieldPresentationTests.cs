@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// existing data are a type stored with none of the members, which has to read back and keep
 /// taking fields, and a stored field that gets its hint afterwards.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class FieldPresentationTests : IAsyncLifetime
 {
     private readonly IntegrationTestFixture _fixture;

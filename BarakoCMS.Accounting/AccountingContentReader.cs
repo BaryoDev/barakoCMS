@@ -35,12 +35,14 @@ internal static class AccountingContentReader
             .Where(c => c.ContentType == AccountingContentTypes.JournalEntry)
             .ToListAsync(ct);
 
-        // Status and Date live inside the JSON bag, so filtering happens here rather than in SQL.
+        // Date lives inside the JSON bag, so filtering happens here rather than in SQL.
         // Same shape as the previous implementation, which also materialised posted entries before
         // aggregating; roadmap U.18 tracks pushing this into a projection.
+        // A voided entry stays in the books. Voiding is a marker, not a deletion: the original counts
+        // in its own period and its reversal on its own date, so a report as of a date before the
+        // reversal shows the original, and one after shows both, netting to zero.
         return rows
             .Select(r => ToEntry(r))
-            .Where(e => e.Status == JournalStatus.Posted)
             .Where(e => asOf is not { } d || e.Date <= d)
             .ToList();
     }

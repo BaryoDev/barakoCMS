@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests.SampleProbe;
 /// A module fires a trigger with a key; a second fire with the same key for the same entry and
 /// workflow queues nothing, so a retried call does not start the work twice.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class TriggerKeyTests(SampleProbeHost host) : IClassFixture<SampleProbeHost>
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

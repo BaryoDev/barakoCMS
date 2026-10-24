@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests;
 /// written before 4.0 has no <c>OccurredAt</c> and deserialises to <c>default</c>. Treating that as
 /// an answer would rebuild those documents at year one.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ContentEventOccurredAtTests
 {
     private readonly IntegrationTestFixture _fixture;

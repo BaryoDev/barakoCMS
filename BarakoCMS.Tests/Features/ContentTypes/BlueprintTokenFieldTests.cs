@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// One directory and one derived host for the class, and a tenant per test, as
 /// <see cref="BlueprintFieldPresentationTests"/> does.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class BlueprintTokenFieldTests : IDisposable
 {
     private const string Blueprints = "/api/content-types/blueprints";

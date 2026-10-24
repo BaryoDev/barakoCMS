@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests.Features.Connectors;
 /// Issue #671, from the Request action: the action hands the sender the run it belongs to, and a
 /// request the composer refused leaves a row too.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ConnectorDeliveryActionTests : IAsyncLifetime
 {
     private readonly IntegrationTestFixture _factory;

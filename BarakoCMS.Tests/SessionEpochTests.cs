@@ -22,7 +22,7 @@ namespace BarakoCMS.Tests;
 /// is why a user who has never had a security event must never be checked against anything, and why
 /// a token minted moments after the bump has to survive.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class SessionEpochTests
 {
     private readonly IntegrationTestFixture _factory;

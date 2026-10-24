@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// Each test keeps a second workflow with a run of its own beside the one deleted, so "the run was
 /// cancelled" cannot be satisfied by a delete that cancels every run in the tenant.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class WorkflowDeleteTests
 {
     private readonly WorkflowStopHarness _harness;

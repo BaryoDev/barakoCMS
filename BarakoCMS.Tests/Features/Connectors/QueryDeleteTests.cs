@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests.Features.Connectors;
 /// <summary>
 /// Deleting a saved query is recoverable until it is erased.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class QueryDeleteTests
 {
     private readonly IntegrationTestFixture _factory;

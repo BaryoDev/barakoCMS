@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// A placeholder the engine will send as written is listed when the workflow is saved, and never
 /// refuses the save. A simulation fills the author with a sample and reads no user.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class WorkflowPlaceholderWarningTests : IAsyncLifetime
 {
     private readonly IntegrationTestFixture _fixture;

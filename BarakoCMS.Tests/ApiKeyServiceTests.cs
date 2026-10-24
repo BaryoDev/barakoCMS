@@ -64,6 +64,8 @@ public class ApiKeyServiceTests
     [InlineData(new[] { "*" }, "monitor:read", false)]
     [InlineData(new[] { "monitor:read" }, "monitor:read", true)]
     [InlineData(new[] { "monitor:read" }, "content:read", false)]
+    [InlineData(new[] { "*" }, "services:heartbeat", false)]
+    [InlineData(new[] { "services:heartbeat" }, "services:heartbeat", true)]
     public void Satisfies_EnforcesScopes(string[] granted, string required, bool expected)
     {
         ApiKeyScopes.Satisfies(granted, required).Should().Be(expected);
@@ -74,6 +76,7 @@ public class ApiKeyServiceTests
     [InlineData("monitor:read", true)]
     [InlineData("*", true)]
     [InlineData("content:destructive", true)]
+    [InlineData("services:heartbeat", true)]
     [InlineData("admin", false)]        // platform admin is deliberately not a key scope
     [InlineData("users:delete", false)]
     public void IsKnown_RejectsUnknownScopes(string scope, bool expected)

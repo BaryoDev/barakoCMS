@@ -53,9 +53,9 @@ public class Endpoint(IDocumentSession session, TenantContext tenant) : Endpoint
         var items = req.Items.Take(ClientErrorRecorder.MaxItems).ToList();
         foreach (var item in items)
         {
-            // An error from before sign-in names no tenant. The one the request resolved to keeps it
-            // on that tenant's list rather than on nobody's but a SuperAdmin's.
-            if (string.IsNullOrWhiteSpace(item.Tenant)) item.Tenant = tenant.Slug;
+            // The body is anonymous input, so the tenant it names is not believed. The one the request
+            // resolved to is the only one an error is stored under.
+            item.Tenant = tenant.Slug;
             await ClientErrorRecorder.RecordAsync(session, item, userAgent, userId, username, ct);
         }
 

@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests;
 /// the table in a scratch schema and compares the index with the one Marten created on the fixture's
 /// database. The comparison is on what Postgres reports, not on the text of either side.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class WorkflowRunWorkflowIndexMigrationTests
 {
     private const string Table = "mt_doc_workflow_runs";

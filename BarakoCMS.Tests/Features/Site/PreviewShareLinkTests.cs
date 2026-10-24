@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests.Features.Site;
 /// <c>POST /api/preview</c> as a wrapper over an entry share link (#857): the same body and status
 /// codes as before, and a token that is now stored, listed, audited and revocable.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class PreviewShareLinkTests
 {
     private readonly IntegrationTestFixture _fixture;

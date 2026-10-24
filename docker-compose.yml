@@ -31,7 +31,7 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a # pgvector/pgvector:pg16
     container_name: barako-postgres
     restart: unless-stopped
     environment:
@@ -52,7 +52,7 @@ services:
       retries: 5
 
   db-backup:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:f4610795587492cd4fb887c2dc3de301b813278bb6f616992061141b5f15ac36 # postgres:16-alpine
     container_name: barako-db-backup
     restart: unless-stopped
     depends_on:

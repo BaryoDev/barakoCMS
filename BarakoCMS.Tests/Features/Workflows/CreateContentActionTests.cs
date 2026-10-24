@@ -12,7 +12,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// CreateContent faces the type's rules, numbers the entry, and creates it once however often an
 /// attempt runs.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class CreateContentActionTests(IntegrationTestFixture fixture)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

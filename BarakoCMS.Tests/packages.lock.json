@@ -1449,6 +1449,24 @@
           "Google.Cloud.SecretManager.V1": "[2.8.0, )"
         }
       },
+      "barakocms.services": {
+        "type": "Project",
+        "dependencies": {
+          "BarakoCMS": "[5.2.0, )",
+          "BarakoCMS.Abstractions": "[5.2.0, )",
+          "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
+          "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
+        }
+      },
+      "barakocms.tagging": {
+        "type": "Project",
+        "dependencies": {
+          "BarakoCMS": "[5.2.0, )",
+          "BarakoCMS.Abstractions": "[5.2.0, )",
+          "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
+          "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
+        }
+      },
       "barakocms.testing": {
         "type": "Project",
         "dependencies": {

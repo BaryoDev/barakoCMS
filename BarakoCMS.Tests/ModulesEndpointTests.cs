@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests;
 /// So the listing tests build a host that replaces the catalogue with three entries, and the shared
 /// host stands in for a deployment running no modules at all.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ModulesEndpointTests
 {
     private readonly IntegrationTestFixture _factory;

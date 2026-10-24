@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests.Features.Accounting;
 /// Its doc comment makes two promises, so those are what gets pinned: it copies rather than moves,
 /// and running it twice does not duplicate anything.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class AccountingMigrationTests
 {
     private readonly IntegrationTestFixture _factory;

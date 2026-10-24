@@ -39,8 +39,7 @@ public class ContentValidatorService(
         }
 
         // 1. Load Schema
-        var schema = await session.Query<ContentTypeDefinition>()
-            .FirstNamedAsync(contentType);
+        var schema = await AccountContentTypes.ResolveAsync(session, contentType);
 
         // 2. The singleton cap. Creating only: an update is not a second entry, and refusing it
         // would make the flag unusable, since the one entry a singleton type is for could never be

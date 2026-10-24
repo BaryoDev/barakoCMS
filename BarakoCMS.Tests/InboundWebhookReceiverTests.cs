@@ -12,7 +12,7 @@ namespace BarakoCMS.Tests;
 /// <summary>
 /// The core receiver primitive: signature, replay window, and one run per provider event id.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class InboundWebhookReceiverTests
 {
     private const string Secret = "whsec_" + "dGVzdC1zZWNyZXQtZm9yLXN2aXgtc2lnbmluZy0xMjM0NTY3OA==";

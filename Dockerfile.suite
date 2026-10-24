@@ -1,6 +1,7 @@
 # "Barako" — the full-suite image: the barakoCMS engine with every module registered.
 # Built and pushed as ghcr.io/baryodev/barako-cms (the default, caffeinated pour).
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+# mcr.microsoft.com/dotnet/sdk:10.0
+FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:747cbade5bfd918a175ac32f8f1d931edec2c7d0d5397a3de72eaef1ac1f66d2 AS build
 WORKDIR /src
 COPY . .
 # The implicit restore inside publish runs in locked mode against the committed packages.lock.json
@@ -29,7 +30,8 @@ RUN set -- /root/.nuget/packages/skiasharp.nativeassets.linux.nodependencies/*/T
     && cp "$1" /app/publish/licenses/SkiaSharp-THIRD-PARTY-NOTICES.txt \
     && cp "$(dirname "$1")/LICENSE.txt" /app/publish/licenses/SkiaSharp-LICENSE.txt
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra AS final
+# mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra@sha256:9e3919aff68057f3e45125c5255a71d3b5f40364e45ede883348688851b9f0df AS final
 WORKDIR /app
 COPY --from=build /app/publish .
 EXPOSE 8080

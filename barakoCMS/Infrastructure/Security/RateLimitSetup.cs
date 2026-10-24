@@ -550,8 +550,19 @@ internal static class RateLimitSetup
 
     // Kept as an IP string: an IP cannot spell "renderer", so no caller can land in that partition
     // by address.
-    private static string ClientIp(HttpContext context) =>
-        context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+    private static string ClientIp(HttpContext context) => ClientKey(context.Connection.RemoteIpAddress);
+
+    /// <summary>An IPv6 client is counted by its /64, since one subscriber is handed a whole /64.</summary>
+    internal static string ClientKey(System.Net.IPAddress? address)
+    {
+        if (address is null) return "unknown";
+        if (address.IsIPv4MappedToIPv6) address = address.MapToIPv4();
+        if (address.AddressFamily != System.Net.Sockets.AddressFamily.InterNetworkV6) return address.ToString();
+
+        var bytes = address.GetAddressBytes();
+        Array.Clear(bytes, 8, 8);
+        return new System.Net.IPAddress(bytes) + "/64";
+    }
 
     internal static FixedWindowRateLimiterOptions Options(RateLimitWindow window) => new()
     {

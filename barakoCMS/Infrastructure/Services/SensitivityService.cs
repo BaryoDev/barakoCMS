@@ -544,8 +544,7 @@ public class SensitivityService : ISensitivityService
     {
         if (_schemaCache.TryGetValue(contentType, out var cached))
             return cached;
-        var def = await _session.Query<ContentTypeDefinition>()
-            .FirstNamedAsync(contentType, ct);
+        var def = await AccountContentTypes.ResolveAsync(_session, contentType, ct);
         _schemaCache[contentType] = def;
         return def;
     }

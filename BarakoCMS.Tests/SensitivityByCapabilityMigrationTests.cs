@@ -24,7 +24,7 @@ namespace BarakoCMS.Tests;
 /// repointed, because the file as written changes every role and every content type in the
 /// database, and this database is shared with every other test class.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class SensitivityByCapabilityMigrationTests
 {
     private const string Roles = "mt_doc_roles";

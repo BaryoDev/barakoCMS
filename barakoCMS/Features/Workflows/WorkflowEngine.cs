@@ -15,7 +15,8 @@ internal class WorkflowEngine(
     ITemplateVariableExtractor variableExtractor,
     IWorkflowDebugger debugger,
     ISecretProtector protector,
-    ILogger<WorkflowEngine> logger) : IWorkflowEngine
+    ILogger<WorkflowEngine> logger,
+    IWorkflowPluginRegistry? registry = null) : IWorkflowEngine
 #pragma warning restore CS0618
 {
     public async Task ProcessEventAsync(string contentType, string eventType, barakoCMS.Models.Content content, CancellationToken ct)
@@ -144,7 +145,7 @@ internal class WorkflowEngine(
                 // Resolve {{...}} template variables against the content BEFORE executing, so live
                 // runs behave like the dry-run preview.
                 resolvedParams = await ActionParameters.ResolveAsync(
-                    variableExtractor, action.Type, parameters, content, eventType, eventSequence: 0, ct);
+                    variableExtractor, action.Type, parameters, content, eventType, eventSequence: 0, ct, registry);
 
                 // The same channel the runner uses, so an action reads the trigger the same way on
                 // either path.

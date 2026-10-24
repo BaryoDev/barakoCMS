@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests.Features.Audit;
 /// change was made, which is what a person reading the log needs and what still reads after the
 /// role is renamed or deleted.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class FieldAccessAuditTests
 {
     private readonly IntegrationTestFixture _factory;

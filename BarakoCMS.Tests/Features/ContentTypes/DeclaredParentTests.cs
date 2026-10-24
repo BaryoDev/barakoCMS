@@ -11,7 +11,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// A reference field declared the parent on its definition guards a tree with no code registered
 /// for it, and Pages reads its type and fields per tenant (#929).
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class DeclaredParentTests
 {
     private readonly IntegrationTestFixture _fixture;

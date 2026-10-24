@@ -12,7 +12,7 @@ namespace BarakoCMS.Tests.Features.Accounting;
 /// <c>LedgerService.StageAsync</c> posts a journal entry on the caller's session and leaves the save to
 /// the caller, so one request can stage several entries and its own documents and commit them together.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class LedgerStagingTests
 {
     private readonly IntegrationTestFixture _factory;

@@ -22,7 +22,7 @@ namespace BarakoCMS.Tests;
 /// Each test declares its own type, and the ones that write through a session of their own use a
 /// tenant of their own, so nothing here reads another test's entries.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class UniquenessWritePathTests
 {
     private readonly IntegrationTestFixture _fixture;

@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests;
 /// <c>GET /api/public/{type}/semantic</c> takes the delivery list's filters, applies them before
 /// the scan cap and the ranking, and refuses one on a field that is not Public.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class SemanticSearchFilterTests
 {
     private const int ScanLimit = 2;

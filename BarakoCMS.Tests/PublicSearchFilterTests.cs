@@ -12,7 +12,7 @@ namespace BarakoCMS.Tests;
 /// <c>GET /api/public/{type}/search</c> takes the list's <c>filter[field][op]=value</c> parameters,
 /// applies them before the limit, and refuses one on a field that is not Public.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class PublicSearchFilterTests
 {
     private const string Needle = "quillonite";

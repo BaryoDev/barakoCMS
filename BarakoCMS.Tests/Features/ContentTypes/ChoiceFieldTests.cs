@@ -17,7 +17,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// data and nothing stable existed to filter on or to key a colour to. Every refusal here is a value
 /// that used to be accepted.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ChoiceFieldTests : IAsyncLifetime
 {
     private readonly IntegrationTestFixture _fixture;

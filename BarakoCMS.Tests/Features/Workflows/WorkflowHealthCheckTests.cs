@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// progress" forever, which is indistinguishable from the fault it is supposed to detect. Content is
 /// created first so there is something for the projection to be caught up on.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class WorkflowHealthCheckTests
 {
     private static readonly TimeSpan PollTimeout = TimeSpan.FromSeconds(30);

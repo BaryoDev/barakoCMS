@@ -5,7 +5,7 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.Qr</PackageId>
-    <Version>5.2.0</Version>
+    <Version>5.2.1</Version>
     <Description>QR codes for barakoCMS delivery: renders one field of a public entry as a PNG or SVG QR code, only for the fields a deployment lists per content type, so a claim token or a link can be scanned from a page, an email or a printed document.</Description>
   </PropertyGroup>
 

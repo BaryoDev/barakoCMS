@@ -17,7 +17,7 @@ namespace BarakoCMS.Tests.Features.Diagnostics;
 /// envelope to a stub receiver, never lets the receiver touch the ingest response, and drops rather
 /// than queues past its capacity.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ClientErrorForwardingTests(IntegrationTestFixture factory)
 {
     private const string Dsn = "https://publickey123@errors.example.test/42";

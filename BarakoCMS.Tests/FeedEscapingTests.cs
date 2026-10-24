@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests;
 /// The description must be entity-encoded like the title, so authored markup shows as text and never
 /// executes.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class FeedEscapingTests
 {
     private readonly IntegrationTestFixture _factory;

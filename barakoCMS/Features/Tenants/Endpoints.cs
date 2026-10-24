@@ -1,6 +1,7 @@
 using barakoCMS.Features.Accounts;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Multitenancy;
+using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using FastEndpoints;
 using FluentValidation;
@@ -184,8 +185,13 @@ internal sealed class TenantSignInBody
 /// </remarks>
 internal sealed class TenantWriteRequestValidator : Validator<TenantWriteRequest>
 {
-    public TenantWriteRequestValidator()
+    public TenantWriteRequestValidator(IEnumerable<ISignInMethod> moduleMethods)
     {
+        var methods = TenantSignInPolicy.KnownMethods
+            .Concat(moduleMethods.Select(m => m.Name.Trim().ToLowerInvariant()))
+            .Distinct()
+            .ToList();
+
         RuleFor(r => r.LogoUrl).Must(BeBlank).WithMessage(Moved("Logo"));
         RuleFor(r => r.About).Must(BeBlank).WithMessage(Moved("About"));
         RuleFor(r => r.Location).Must(BeBlank).WithMessage(Moved("Location"));
@@ -197,9 +203,9 @@ internal sealed class TenantWriteRequestValidator : Validator<TenantWriteRequest
         RuleFor(r => r.Status).IsInEnum();
         RuleFor(r => r.SignUp).IsInEnum();
         RuleForEach(r => r.SignIn!.Methods)
-            .Must(m => TenantSignInPolicy.KnownMethods.Contains((m ?? string.Empty).Trim().ToLowerInvariant()))
+            .Must(m => methods.Contains((m ?? string.Empty).Trim().ToLowerInvariant()))
             .When(r => r.SignIn is not null)
-            .WithMessage($"A sign-in method is one of: {string.Join(", ", TenantSignInPolicy.KnownMethods)}.");
+            .WithMessage($"A sign-in method is one of: {string.Join(", ", methods)}.");
         RuleFor(r => r.SignIn!.SessionMinutes)
             .InclusiveBetween(TenantSignInBody.MinSessionMinutes, TenantSignInBody.MaxSessionMinutes)
             .When(r => r.SignIn?.SessionMinutes is not null)
@@ -395,11 +401,13 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
 {
     private readonly IDocumentSession _session;
     private readonly ITenantDomainSource _domains;
+    private readonly IDocumentStore _store;
 
-    public UpdateTenantEndpoint(IDocumentSession session, ITenantDomainSource domains)
+    public UpdateTenantEndpoint(IDocumentSession session, ITenantDomainSource domains, IDocumentStore store)
     {
         _session = session;
         _domains = domains;
+        _store = store;
     }
 
     public override void Configure()
@@ -424,6 +432,10 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
             if (!reach.IsGlobal) { await Send.ForbiddenAsync(ct); return; }
             if (moveTo != TenantAccount.DefaultId && await _session.LoadAsync<TenantAccount>(moveTo, ct) is null)
                 AddError(r => r.AccountId, "No such account.");
+
+            if (ValidationFailures.Count == 0 && await AccountContentTypes.MoveRefusalAsync(
+                    _store, _session, tenant.Slug, tenant.AccountId ?? TenantAccount.DefaultId, moveTo, ct) is { } held)
+                ThrowError(held, 409);
         }
 
         IReadOnlyList<string>? domains = null;

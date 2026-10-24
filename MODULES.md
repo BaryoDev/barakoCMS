@@ -935,6 +935,7 @@ template ships a placeholder.
 | [BarakoCMS.Payments](BarakoCMS.Payments) | Checkout for a payable entry at the amount stored on it, and a signed, idempotent provider webhook that runs the paid transition. Provider adapters implement `IPaymentProvider` |
 | [BarakoCMS.Comments](BarakoCMS.Comments) | A comment thread on any record, behind the record's own read permission: post, reply, list (paged) and delete |
 | [BarakoCMS.Contacts](BarakoCMS.Contacts) | Contacts: a person or an organization with custom fields, links, email dedupe and merge, tenant scoped |
+| [BarakoCMS.Tagging](BarakoCMS.Tagging) | Vocabularies, terms that can nest, and term assignments on any record by content type and id, queried across types |
 | [BarakoCMS.Email.Smtp](BarakoCMS.Email.Smtp) | SMTP email provider (`IEmailService`), inert until a host is configured |
 | [BarakoCMS.Documents](BarakoCMS.Documents) | Renders an entry to a PDF with the `RenderDocument` workflow action, from a narrow template language, and stores it through Files |
 | [BarakoCMS.Pages](BarakoCMS.Pages) | Page tree over a content type: parent loop, depth and reserved slug rules, public navigation and path resolution, and an authenticated tree |
@@ -944,6 +945,7 @@ template ships a placeholder.
 | [BarakoCMS.ExternalAuth](BarakoCMS.ExternalAuth) | Sign-in with Google, GitHub, Facebook or LinkedIn over OAuth, matched to a user by verified email, and with any OpenID Connect provider configured by issuer URL |
 | [BarakoCMS.FeatureFlags](BarakoCMS.FeatureFlags) | Feature flags, toggled and targeted by tenant, user or percentage, evaluated server side |
 | [BarakoCMS.Scheduling](BarakoCMS.Scheduling) | Schedule a named action for a due time; one instance hands it to a registered handler, once |
+| [BarakoCMS.Services](BarakoCMS.Services) | Registry of outside services: register one, take its heartbeats, see it as Healthy, Late or Down |
 | [BarakoCMS.Portability](BarakoCMS.Portability) | Export and import content types and their entries as a JSON bundle |
 | [BarakoCMS.Diagnostics](BarakoCMS.Diagnostics) | Client error log: browser errors posted to `/api/client-errors`, deduplicated by fingerprint |
 | [BarakoCMS.Analytics.Umami](BarakoCMS.Analytics.Umami) | Admin-only proxy over an Umami instance: visitors, pages, referrers, countries, and site registration |

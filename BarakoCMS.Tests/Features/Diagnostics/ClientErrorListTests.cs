@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests.Features.Diagnostics;
 /// search threw at runtime. Nothing covered it because the module's schema was never registered in the
 /// test fixture. Also covers the resolved/severity filters and the admin-only gate.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ClientErrorListTests
 {
     private readonly IntegrationTestFixture _factory;

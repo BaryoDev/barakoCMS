@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests;
 /// <see cref="PermissionPredicateAgreementTests"/> holds the same property for a rule that reads
 /// the row itself.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ReferenceConditionPredicateTests
 {
     private const string Follows = "Class.InstructorUser";

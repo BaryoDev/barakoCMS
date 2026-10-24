@@ -4,7 +4,7 @@ using FluentAssertions;
 
 namespace BarakoCMS.Tests.Features.Reports;
 
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ReportRunTests
 {
     private readonly ReportTestSupport _support;

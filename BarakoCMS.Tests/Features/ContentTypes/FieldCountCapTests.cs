@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// growth past <see cref="ContentTypeFieldLimit.Default"/>. A type already stored over it keeps
 /// working, which the last integration test pins down.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class FieldCountCapTests : IAsyncLifetime
 {
     private const int Cap = ContentTypeFieldLimit.Default;

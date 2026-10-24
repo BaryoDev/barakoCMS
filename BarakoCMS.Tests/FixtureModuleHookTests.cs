@@ -12,7 +12,7 @@ namespace BarakoCMS.Tests;
 /// The fixture module's content hook through <c>/api/contents</c>: a core write path proven with a
 /// module that is not a shipped domain.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class FixtureModuleHookTests
 {
     private readonly IntegrationTestFixture _factory;

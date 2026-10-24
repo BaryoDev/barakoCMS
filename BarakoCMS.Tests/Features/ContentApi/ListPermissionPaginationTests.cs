@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests.Features.ContentApi;
 /// already supports, because it is exactly the kind of per-item rule that makes a coarse,
 /// no-specific-item permission check unsafe to use as a pagination pre-filter.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ListPermissionPaginationTests
 {
     private readonly IntegrationTestFixture _factory;

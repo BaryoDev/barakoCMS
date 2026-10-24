@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests.Features.EmailTemplates;
 /// <c>POST /api/email-templates/{id}/preview</c> renders a template against an entry the caller can
 /// read, as that caller reads it, and sends nothing.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class EmailTemplatePreviewTests
 {
     private const string Secret = "s3cret-value-7781";
@@ -47,7 +47,7 @@ public class EmailTemplatePreviewTests
     {
         var client = _fixture.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"2001:db8:829::{Interlocked.Increment(ref _ip):x}");
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"2001:db8:829:{Interlocked.Increment(ref _ip):x}::1");
         return client;
     }
 

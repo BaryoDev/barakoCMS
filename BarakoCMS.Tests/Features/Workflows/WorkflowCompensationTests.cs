@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// Compensations are <see cref="RecordingRunnerAction"/>, so "undone, last first" is read from the
 /// order the action was handed each key, not only from the statuses.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class WorkflowCompensationTests
 {
     private const string NoHandler = "NoSuchAction";

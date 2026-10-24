@@ -12,7 +12,7 @@ namespace BarakoCMS.Tests;
 /// The rules over HTTP, so the shapes a rule takes on the way through a request body and back out
 /// of the database are the ones covered.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ValidationRulesEndpointTests
 {
     private readonly IntegrationTestFixture _fixture;

@@ -132,6 +132,9 @@ fi
 echo "== changelog fragments =="
 bash scripts/changelog-assemble.sh --check || fail "changelog-assemble --check failed"
 
+echo "== conflict markers and duplicate changelog entries =="
+bash scripts/check-conflict-markers.sh || fail "check-conflict-markers failed"
+
 echo "== module versions =="
 bash scripts/check-module-versions.sh || fail "check-module-versions.sh failed"
 
@@ -147,6 +150,7 @@ bash scripts/test-upgrade-plan.sh || fail "test-upgrade-plan.sh failed"
 echo "== method length =="
 bash scripts/test-method-length.sh >/dev/null || fail "test-method-length.sh failed, so the method-length check cannot be trusted"
 python3 scripts/check-method-length.py || fail "check-method-length.py failed"
+python3 scripts/assign-test-collections.py --check || fail "assign-test-collections.py --check failed, run it without --check"
 
 echo "== pinned versions agree =="
 bash scripts/check-pinned-versions.sh || fail "check-pinned-versions.sh failed"
@@ -195,7 +199,7 @@ done < <(git ls-files --others --exclude-standard)
 diff_added="$tracked_added
 $untracked_added"
 
-if [ -n "${diff_added//$'\n'/}" ]; then
+if [ -n "$(printf '%s' "$diff_added" | tr -d '\n')" ]; then
   # Any character at or above U+2000 (general punctuation and beyond: em/en dashes, curly quotes,
   # ellipses, arrows) on an added line.
   bad_char=$(printf '%s\n' "$diff_added" | python3 -c "

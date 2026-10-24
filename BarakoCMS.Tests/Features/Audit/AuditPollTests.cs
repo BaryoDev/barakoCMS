@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests.Features.Audit;
 /// GET /api/audit?since= is the pull an outside SIEM polls: oldest first, bounded pages, and a cursor
 /// that resumes exactly where the last response stopped.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class AuditPollTests
 {
     private readonly IntegrationTestFixture _factory;

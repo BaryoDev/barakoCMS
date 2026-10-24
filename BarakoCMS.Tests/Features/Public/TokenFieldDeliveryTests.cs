@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests.Features.Public;
 /// Each test finds its own entry by id in its own type, and checks a Public field of that entry is
 /// there, so a missing token means the field was left out and not that the entry was.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class TokenFieldDeliveryTests
 {
     private readonly IntegrationTestFixture _factory;

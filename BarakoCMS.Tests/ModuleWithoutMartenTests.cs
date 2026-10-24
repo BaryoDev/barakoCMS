@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests;
 /// The probe types are in their own file, which has no Marten reference; the plumbing that stands
 /// in for the host is here.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ModuleWithoutMartenTests
 {
     private readonly IntegrationTestFixture _factory;

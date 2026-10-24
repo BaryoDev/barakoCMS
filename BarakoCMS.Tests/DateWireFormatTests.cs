@@ -23,7 +23,7 @@ namespace BarakoCMS.Tests;
 /// parse, and the stored format is what the database indexes and what an existing row already
 /// holds, so a change that fixes one and breaks the other has to be visible here.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class DateWireFormatTests
 {
     private readonly IntegrationTestFixture _factory;

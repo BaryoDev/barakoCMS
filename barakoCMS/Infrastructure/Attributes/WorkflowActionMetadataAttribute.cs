@@ -33,6 +33,19 @@ public class WorkflowActionMetadataAttribute : Attribute
     public WorkflowActionGroup Group { get; set; } = WorkflowActionGroup.Unspecified;
 
     /// <summary>
+    /// A capability the user saving a workflow must hold to save one that carries this action. Leave
+    /// it empty when the action asks for nothing beyond the workflow capability.
+    /// </summary>
+    public string RequiredCapability { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Parameters the action fills in itself. The workflow resolves every other parameter's
+    /// <c>{{...}}</c> placeholders before the action runs; these arrive as written, so the action
+    /// can see which field a placeholder names. Matched by name, in any casing.
+    /// </summary>
+    public string[] SelfResolvedParameters { get; set; } = Array.Empty<string>();
+
+    /// <summary>
     /// Example JSON configuration for documentation.
     /// </summary>
     public string ExampleJson { get; set; } = string.Empty;

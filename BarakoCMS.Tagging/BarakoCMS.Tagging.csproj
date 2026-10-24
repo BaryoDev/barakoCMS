@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>BarakoCMS.Tagging</RootNamespace>
+
+    <IsPackable>true</IsPackable>
+    <PackageId>BarakoCMS.Tagging</PackageId>
+    <Version>5.3.0</Version>
+    <Description>Tagging and taxonomy for barakoCMS: vocabularies, terms that can nest, and term assignments on any record by content type and record id, so a contact, a file and a content entry share one vocabulary. Query the records carrying a term across types, per tenant.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Microsoft.Extensions.Configuration" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="BarakoCMS.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BarakoCMS.Abstractions\BarakoCMS.Abstractions.csproj" />
+    <ProjectReference Include="..\barakoCMS\barakoCMS.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- This module's migration, shipped in its own assembly so db-migrate records it under the
+         module and runs it only where the module is enabled. See MODULES.md, "Migrations". -->
+    <EmbeddedResource Include="..\migrations\5.3.0\252-tagging.sql" LogicalName="barako-migrations/5.3.0/252-tagging.sql" />
+  </ItemGroup>
+
+</Project>

@@ -26,7 +26,7 @@ namespace BarakoCMS.Tests;
 /// catalogue and registers one more workflow action, the way <see cref="ModulesEndpointTests"/>
 /// builds its own.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class MetaDescribeTests
 {
     private const string Route = "/api/meta/describe";
@@ -551,7 +551,7 @@ public class MetaDescribeTests
             action.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(
             [
                 "type", "description", "requiredParameters", "optionalParameters", "secretParameters",
-                "group", "exampleConfiguration",
+                "group", "exampleConfiguration", "requiredCapability", "selfResolvedParameters",
             ]);
         }
     }

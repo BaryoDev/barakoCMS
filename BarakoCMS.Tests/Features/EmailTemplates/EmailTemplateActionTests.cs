@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests.Features.EmailTemplates;
 /// An Email action that names a template sends the published template of its own tenant, resolved
 /// against the entry the way an inline subject and body are, and fails permanently when it cannot.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class EmailTemplateActionTests
 {
     private readonly IntegrationTestFixture _fixture;

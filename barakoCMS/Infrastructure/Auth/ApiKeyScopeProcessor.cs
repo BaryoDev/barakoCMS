@@ -99,6 +99,8 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
             return isWrite ? ApiKeyScopes.ContentTypeWrite : ApiKeyScopes.ContentTypeRead;
         if (Match(path, "/api/files"))
             return isWrite ? ApiKeyScopes.FilesWrite : ApiKeyScopes.FilesRead;
+        if (IsServiceHeartbeat(path, isWrite))
+            return ApiKeyScopes.ServicesHeartbeat;
         return null;
     }
 
@@ -129,6 +131,18 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
         return segments.Length is 4 or 5
                && segments[3].Equals("share-links", StringComparison.OrdinalIgnoreCase)
                && !segments[2].Equals("by-slug", StringComparison.OrdinalIgnoreCase);
+    }
+
+    // POST /api/services/{name}/heartbeat and nothing else under /api/services: reading or editing the
+    // registry stays with people.
+    private static bool IsServiceHeartbeat(string path, bool isWrite)
+    {
+        var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return isWrite
+               && segments.Length == 4
+               && segments[0].Equals("api", StringComparison.OrdinalIgnoreCase)
+               && segments[1].Equals("services", StringComparison.OrdinalIgnoreCase)
+               && segments[3].Equals("heartbeat", StringComparison.OrdinalIgnoreCase);
     }
 
     // POST /api/collections/{type}/push, the one route a key limited to named types reaches (#991).

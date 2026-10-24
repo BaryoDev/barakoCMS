@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests.Features.Config;
 /// The workflow, permission rule, connector and site settings sections: the round trip #921 asks
 /// for, secrets carried by name only, and what each one treats as destructive.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ConfigSectionsTests
 {
     private readonly ConfigCallers _callers;

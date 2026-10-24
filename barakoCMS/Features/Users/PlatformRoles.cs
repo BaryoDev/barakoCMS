@@ -119,4 +119,19 @@ internal static class PlatformRoles
         Guid.TryParse(principal.FindFirst("UserId")?.Value, out var id)
             ? await session.LoadAsync<User>(id, ct)
             : null;
+
+    /// <summary>
+    /// Users are global documents, so the tenant is checked through membership. The default tenant
+    /// and a slug with no registered tenant have no membership model, as in the token issuer.
+    /// </summary>
+    public static async Task<bool> InTenantAsync(
+        IQuerySession session, barakoCMS.Infrastructure.Multitenancy.TenantContext tenant, User user, CancellationToken ct)
+    {
+        var slug = tenant.Slug;
+        if (tenant.IsDefault) return true;
+        if (!await session.Query<Tenant>().AnyAsync(t => t.Slug == slug, ct)) return true;
+
+        return await session.Query<Membership>()
+            .AnyAsync(m => m.UserId == user.Id && m.TenantSlug == slug && m.Status == MembershipStatus.Active, ct);
+    }
 }

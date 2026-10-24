@@ -12,7 +12,7 @@ namespace BarakoCMS.Tests;
 /// A leader has to notice when it stopped being one (#856). Postgres frees a session lock when its
 /// backend dies and tells nobody.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class AdvisoryLeaseTests
 {
     private readonly IntegrationTestFixture _fixture;

@@ -2,6 +2,7 @@ using FastEndpoints;
 using Marten;
 using barakoCMS.Models;
 using barakoCMS.Infrastructure.Auth;
+using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Services;
 
 namespace barakoCMS.Features.Users.ResetPassword;
@@ -22,8 +23,18 @@ internal class ResetPasswordRequest
 [barakoCMS.Infrastructure.Filters.NoIdempotentReplay]
 internal class ResetPasswordEndpoint(
     IDocumentSession session,
-    IPasswordPolicyValidator passwordValidator) : Endpoint<ResetPasswordRequest>
+    IPasswordPolicyValidator passwordValidator,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
+    IConfiguration configuration) : Endpoint<ResetPasswordRequest>
 {
+    internal const string SelfResetMessage = "Use your own password settings to change your password.";
+
+    internal const string GlobalRoleMessage =
+        "Resetting a password needs manage_users in a global role, not only through a tenant membership.";
+
+    internal const string PlatformTargetMessage =
+        "This user holds a platform role, so only a platform administrator (SuperAdmin) can reset their password.";
+
     public override void Configure()
     {
         Post("/api/users/{userId}/password");
@@ -32,10 +43,32 @@ internal class ResetPasswordEndpoint(
 
     public override async Task HandleAsync(ResetPasswordRequest req, CancellationToken ct)
     {
+        if (!await PlatformRoles.MayManageUsersAsync(session, User, configuration, ["SuperAdmin"], ct))
+        {
+            AddError(GlobalRoleMessage);
+            await Send.ErrorsAsync(403, ct);
+            return;
+        }
+
+        Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
+        if (actorId == req.UserId)
+        {
+            ThrowError(SelfResetMessage);
+            return;
+        }
+
         var user = await session.LoadAsync<User>(req.UserId, ct);
-        if (user is null)
+        if (user is null || !await PlatformRoles.InTenantAsync(session, tenant, user, ct))
         {
             await Send.NotFoundAsync(ct);
+            return;
+        }
+
+        if (await PlatformRoles.HoldsPlatformRoleAsync(session, configuration, user, ct)
+            && !await PlatformRoles.IsSuperAdminAsync(session, User, ct))
+        {
+            AddError(PlatformTargetMessage);
+            await Send.ErrorsAsync(403, ct);
             return;
         }
 
@@ -51,6 +84,9 @@ internal class ResetPasswordEndpoint(
 
         // Revoke the user's refresh tokens so existing sessions can't be refreshed after the reset.
         await RevokeRefreshTokens.ForUserAsync(session, user.Id, "Password reset by administrator", ct, Resolve<barakoCMS.Infrastructure.Services.ISessionEpochService>());
+
+        await AuditLog.RecordAsync(session, tenant.Slug, "auth.password.reset", actorId, User.FindFirst("Username")?.Value,
+            targetType: "User", targetId: user.Id.ToString(), ct: ct);
 
         await session.SaveChangesAsync(ct);
 

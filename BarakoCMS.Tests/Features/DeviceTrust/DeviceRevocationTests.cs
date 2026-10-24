@@ -26,7 +26,7 @@ namespace BarakoCMS.Tests.Features.DeviceTrust;
 /// Each instance takes its own client IP because <c>/api/auth/refresh</c> is under the auth rate
 /// limit of five per fifteen minutes per address, and the rest of the suite shares one loopback.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class DeviceRevocationTests
 {
     private static int _ipCounter;

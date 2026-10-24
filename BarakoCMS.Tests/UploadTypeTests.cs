@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests;
 /// An upload is stored only when its declared type is exactly an allowed one and its bytes are that
 /// type. The declared type used to be matched as a prefix and never compared with the bytes.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class UploadTypeTests
 {
     private readonly IntegrationTestFixture _factory;

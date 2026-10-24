@@ -17,7 +17,7 @@ namespace BarakoCMS.Tests;
 /// The fixtures hash at factor 4, below <see cref="PasswordHashing.WorkFactor"/>, which is the state
 /// every existing account is in the day the factor is raised.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class PasswordRehashTests
 {
     private const string Password = "ValidPassword123!";
@@ -33,7 +33,7 @@ public class PasswordRehashTests
         _factory = factory;
         _client = factory.CreateClient();
         _client.DefaultRequestHeaders.Add(
-            TestRemoteIpFilter.Header, $"2001:db8:639::{Interlocked.Increment(ref _ipCounter):x}");
+            TestRemoteIpFilter.Header, $"2001:db8:639:{Interlocked.Increment(ref _ipCounter):x}::1");
     }
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

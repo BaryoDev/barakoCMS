@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests;
 /// Computed fields: what a type may declare, the value the server works out, and that a caller
 /// cannot set it.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ComputedFieldTests
 {
     private static readonly ContentTypeValidatorService Validator = new();

@@ -17,7 +17,7 @@ namespace BarakoCMS.Tests.Features.Forms;
 /// and indexes it produces with the ones Marten created in <c>public</c> for the Forms module, so
 /// the file cannot drift from what the module declares.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class FormEmailVerificationMigrationTests
 {
     private static readonly string[] Tables = ["mt_doc_form_email_verifications", "mt_doc_form_email_budgets"];

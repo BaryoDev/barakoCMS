@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests.Features.Accounts;
 /// tenants and no others, a caller holding manage_tenants still manages them all, and a deployment
 /// with no accounts behaves as it did before.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class AccountScopedTenantTests
 {
     private readonly IntegrationTestFixture _fixture;

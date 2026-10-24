@@ -17,6 +17,12 @@ namespace BarakoCMS.Payments.Features.Webhook;
 /// and touches nothing. The transition runs as the system actor <c>payments-webhook</c>, on the
 /// module's own authority, since no user is behind a webhook.
 ///
+/// An event for an attempt that is no longer Pending writes nothing, so a later event cannot move
+/// a settled payment. It answers 200, except a paid event for an attempt that is not Paid (money
+/// taken for an attempt already marked failed), which answers 409 and logs a warning so a person
+/// looks at it. A second paid event for a Paid attempt answers 200, so the provider stops
+/// retrying. A paid event whose amount or currency differs from the attempt answers 409.
+///
 /// An event for a payment whose entry is no longer in the state the transition starts from answers
 /// 409 and writes nothing, so the attempt stays pending for a person or for reconciliation.
 /// </remarks>
@@ -84,6 +90,20 @@ internal sealed class Endpoint(
             return;
         }
 
+        if (attempt.Status != PaymentAttemptStatus.Pending)
+        {
+            if (received.Kind == PaymentEventKind.Paid && attempt.Status != PaymentAttemptStatus.Paid)
+            {
+                logger.LogWarning("Payment event {Event} reports payment for attempt {Attempt}, which is already {Status}.",
+                    recordId, attempt.Id, attempt.Status);
+                await Send.StringAsync("", 409, cancellation: ct);
+                return;
+            }
+
+            await Send.OkAsync(ct);
+            return;
+        }
+
         var payable = await session.LoadAsync<PayableType>(attempt.ContentType, ct);
         var entry = await session.LoadAsync<Content>(attempt.EntryId, ct);
         if (payable is null || entry is null)
@@ -94,12 +114,26 @@ internal sealed class Endpoint(
         }
 
         var paid = received.Kind == PaymentEventKind.Paid;
+        if (paid && Disagrees(received, attempt))
+        {
+            logger.LogWarning("Payment event {Event} for attempt {Attempt} does not match the amount or currency charged.", recordId, attempt.Id);
+            await Send.StringAsync("", 409, cancellation: ct);
+            return;
+        }
+
+        var transition = paid ? payable.PaidTransition : payable.FailedTransition;
+        if (!await SettleAsync(attempt, entry, recordId, paid, transition, ct)) return;
+
+        await Send.OkAsync(ct);
+    }
+
+    private async Task<bool> SettleAsync(
+        PaymentAttempt attempt, Content entry, string recordId, bool paid, string? transition, CancellationToken ct)
+    {
         attempt.Status = paid ? PaymentAttemptStatus.Paid : PaymentAttemptStatus.Failed;
         attempt.SettledAt = DateTimeOffset.UtcNow;
         session.Store(attempt);
         session.Insert(new PaymentEventRecord { Id = recordId, AttemptId = attempt.Id, HandledAt = DateTimeOffset.UtcNow });
-
-        var transition = paid ? payable.PaidTransition : payable.FailedTransition;
 
         try
         {
@@ -117,7 +151,7 @@ internal sealed class Endpoint(
                     logger.LogWarning("Payment event {Event} could not run '{Transition}': {Outcome} {Errors}",
                         recordId, transition, result.Outcome, string.Join("; ", result.Errors));
                     await Send.StringAsync("", result.Outcome == ContentTransitionOutcome.Conflict ? 409 : 422, cancellation: ct);
-                    return;
+                    return false;
                 }
             }
         }
@@ -126,8 +160,13 @@ internal sealed class Endpoint(
             // Another delivery of the same event committed first.
         }
 
-        await Send.OkAsync(ct);
+        return true;
     }
+
+    private static bool Disagrees(PaymentEvent received, PaymentAttempt attempt) =>
+        (received.Amount is { } amount && amount != attempt.Amount)
+        || (received.Currency is { Length: > 0 } currency
+            && !currency.Equals(attempt.Currency, StringComparison.OrdinalIgnoreCase));
 
     private async Task<string?> ReadBodyAsync(CancellationToken ct)
     {

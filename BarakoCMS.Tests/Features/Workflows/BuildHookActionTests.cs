@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// Issue #559: a burst of publishes fires one static build, the post goes through the webhook path so
 /// a failure shows in WebhookDeliveries, and each provider gets the body and headers it expects.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class BuildHookActionTests
 {
     private const string HookUrl = "https://hook.example/build_hooks/abc123";
@@ -254,7 +254,9 @@ public class BuildHookActionTests
 
     private sealed class ManualClock : TimeProvider
     {
-        private DateTimeOffset _now = new(2026, 10, 20, 12, 0, 0, TimeSpan.Zero);
+        // Far ahead of real time. The host's own sweeper runs on the real clock every 15 seconds, and a
+        // build due in the past is due to it too, so it would claim the build before the test sweeps.
+        private DateTimeOffset _now = new(2100, 1, 1, 12, 0, 0, TimeSpan.Zero);
 
         public override DateTimeOffset GetUtcNow() => _now;
 

@@ -216,8 +216,7 @@ internal class UpdateFieldAction : IWorkflowAction
             barakoCMS.Models.FieldDefinition? token;
             try
             {
-                var definition = await _session.Query<barakoCMS.Models.ContentTypeDefinition>()
-                    .FirstNamedAsync(targetContent.ContentType, ct);
+                var definition = await barakoCMS.Infrastructure.Services.AccountContentTypes.ResolveAsync(_session, targetContent.ContentType, ct);
                 token = definition?.Fields.FirstOrDefault(
                     f => f is not null
                          && string.Equals(f.Name, tokenKey, StringComparison.OrdinalIgnoreCase)
@@ -247,8 +246,7 @@ internal class UpdateFieldAction : IWorkflowAction
             barakoCMS.Models.FieldDefinition? declared;
             try
             {
-                var definition = await _session.Query<barakoCMS.Models.ContentTypeDefinition>()
-                    .FirstNamedAsync(targetContent.ContentType, ct);
+                var definition = await barakoCMS.Infrastructure.Services.AccountContentTypes.ResolveAsync(_session, targetContent.ContentType, ct);
                 declared = definition?.Fields.FirstOrDefault(
                     f => f is not null && string.Equals(f.Name, dataKey, StringComparison.OrdinalIgnoreCase));
             }

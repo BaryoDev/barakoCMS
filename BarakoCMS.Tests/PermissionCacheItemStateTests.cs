@@ -23,7 +23,7 @@ namespace BarakoCMS.Tests;
 /// Both tests here go through HTTP twice with a write in between, because one call can never show
 /// this. The first call is what populates the cache and the second is the assertion.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class PermissionCacheItemStateTests
 {
     private readonly IntegrationTestFixture _factory;

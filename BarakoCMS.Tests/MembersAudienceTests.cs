@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests;
 /// The Members audience (#912): an entry or a field at that level is withheld from an anonymous
 /// delivery call and served with a viewer token, and a viewer token opens no authoring route.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class MembersAudienceTests
 {
     private readonly IntegrationTestFixture _factory;

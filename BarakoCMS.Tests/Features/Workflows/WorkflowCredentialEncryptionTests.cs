@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// <summary>
 /// Issue #765: every parameter the API hides as a credential is stored encrypted, not only Secret.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class WorkflowCredentialEncryptionTests
 {
     private readonly IntegrationTestFixture _fixture;

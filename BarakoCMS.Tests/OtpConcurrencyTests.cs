@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests;
 /// <c>ConcurrencyException</c> turns an already-used code into a 500. These pin both halves, that
 /// exactly one caller is let in and that the other is refused rather than erroring.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class OtpConcurrencyTests
 {
     private readonly IntegrationTestFixture _factory;
@@ -111,5 +111,54 @@ public class OtpConcurrencyTests
         var second = await Verify(email, "654321");
         second.StatusCode.Should().NotBe(HttpStatusCode.OK, "a consumed code cannot be reused");
         ((int)second.StatusCode).Should().BeLessThan(500, "and reuse is refused, not an error");
+    }
+
+    [Fact]
+    public async Task Parallel_wrong_guesses_are_all_counted_and_the_right_code_is_then_refused()
+    {
+        var email = await SeedUserWithCodeAsync("424242");
+
+        Task<HttpResponseMessage> WrongFrom(int n)
+        {
+            var req = new HttpRequestMessage(HttpMethod.Post, "/api/auth/otp/verify")
+            {
+                Content = JsonContent.Create(new OtpVerifyRequest { Email = email, Code = "000000" }),
+            };
+            req.Headers.Add(TestRemoteIpFilter.Header, $"198.18.{Random.Shared.Next(1, 250)}.{n + 1}");
+            return _client.SendAsync(req);
+        }
+
+        var wrong = await Task.WhenAll(Enumerable.Range(0, 12).Select(WrongFrom));
+
+        wrong.Should().HaveCount(12);
+        wrong.Should().OnlyContain(r => r.StatusCode != HttpStatusCode.OK);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var q = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+            var row = (await q.Query<OtpCode>().Where(o => o.Email == email.ToLowerInvariant()).ToListAsync()).Single();
+            row.Attempts.Should().BeGreaterThanOrEqualTo(5, "the guesses were counted, not lost to a race");
+        }
+
+        var right = await Verify(email, "424242");
+        right.StatusCode.Should().NotBe(HttpStatusCode.OK, "the cap is spent, so even the right code is refused");
+    }
+
+    [Fact]
+    public async Task A_wrong_code_raises_the_attempt_count_by_one_and_the_right_code_still_signs_in()
+    {
+        var email = await SeedUserWithCodeAsync("135790");
+
+        (await Verify(email, "000000")).StatusCode.Should().NotBe(HttpStatusCode.OK);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var q = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+            var row = (await q.Query<OtpCode>().Where(o => o.Email == email.ToLowerInvariant()).ToListAsync()).Single();
+            row.Attempts.Should().Be(1);
+            row.Consumed.Should().BeFalse();
+        }
+
+        (await Verify(email, "135790")).StatusCode.Should().Be(HttpStatusCode.OK);
     }
 }

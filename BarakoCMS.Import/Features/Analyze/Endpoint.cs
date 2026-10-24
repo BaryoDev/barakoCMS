@@ -118,7 +118,7 @@ public class Endpoint(
     private string? RefusalFor(MemoryStream buffer)
     {
         var limit = SpreadsheetLimits.MaxExpandedBytes(configuration);
-        if (SpreadsheetLimits.DeclaredExpandedBytes(buffer) is { } expanded && expanded > limit)
+        if (SpreadsheetLimits.ExpandedBytesOver(buffer, limit) is { } expanded)
             return $"That file expands to {expanded / 1024 / 1024} MB, over the {limit / 1024 / 1024} MB "
                  + $"this instance will parse. Split it, or raise {SpreadsheetLimits.MaxExpandedBytesKey}.";
 

@@ -54,7 +54,7 @@ public sealed class WolverineProbeQueuer(DurableTenantPublisher publisher, strin
 /// Durable work on Wolverine behind <see cref="IDurableOutbox"/> (#965, #528). The host is built
 /// here, on the fixture's database and a schema of its own, with the switch on.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class WolverineDurableOutboxTests
 {
     private const string Schema = "wolverine_t965";

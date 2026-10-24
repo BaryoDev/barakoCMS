@@ -25,7 +25,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// whether a socket was opened at all, rather than on the payload object the action builds. A
 /// projection can be correct in the object and wrong by the time it is serialised.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class WebhookPayloadTests
 {
     private const string Ssn = "123-45-6789";

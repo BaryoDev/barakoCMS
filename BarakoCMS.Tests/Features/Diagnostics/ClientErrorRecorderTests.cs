@@ -10,7 +10,7 @@ namespace BarakoCMS.Tests.Features.Diagnostics;
 
 // Exercises the real dedup/reopen logic against Postgres. Uses the shared test container but its own
 // Marten store + schema so it stays isolated from the app's documents.
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ClientErrorRecorderTests
 {
     private readonly IntegrationTestFixture _fixture;

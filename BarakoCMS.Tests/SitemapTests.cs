@@ -8,7 +8,7 @@ using barakoCMS.Models;
 
 namespace BarakoCMS.Tests;
 
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class SitemapTests
 {
     private readonly IntegrationTestFixture _factory;

@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// <c>UpdateFieldAction</c> writing to a reference that holds a list. Its parameter is one piece of
 /// text, which an entry write refuses there, so the action fails rather than storing it.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class UpdateFieldReferenceListTests
 {
     private readonly IntegrationTestFixture _fixture;

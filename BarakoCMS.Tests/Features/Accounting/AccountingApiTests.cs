@@ -23,7 +23,7 @@ namespace BarakoCMS.Tests.Features.Accounting;
 /// The invariants worth stating: an unbalanced entry never reaches the store, a rejected post consumes
 /// no entry number, amounts survive as decimal, and posting requires an accounting role.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class AccountingApiTests
 {
     private readonly IntegrationTestFixture _factory;
@@ -282,9 +282,20 @@ public class AccountingApiTests
         });
         created.IsSuccessStatusCode.Should().BeTrue(await created.Content.ReadAsStringAsync());
 
-        var listed = await _client.GetAsync("/api/accounting/accounts");
-        listed.IsSuccessStatusCode.Should().BeTrue();
-        (await listed.Content.ReadAsStringAsync()).Should().Contain(code);
+        // The list is paged by code, and the database is shared with the other accounting tests, so
+        // the new account can sit past the first page. Every page is read until it turns up.
+        var found = false;
+        for (var page = 1; !found; page++)
+        {
+            var listed = await _client.GetAsync($"/api/accounting/accounts?page={page}&pageSize=100");
+            listed.IsSuccessStatusCode.Should().BeTrue();
+            var body = await listed.Content.ReadAsStringAsync();
+            found = body.Contains(code, StringComparison.Ordinal);
+            if (!found && !body.Contains("\"code\"", StringComparison.Ordinal))
+                break;
+        }
+
+        found.Should().BeTrue($"account {code} is listed on one of the pages");
     }
 
     [Fact]

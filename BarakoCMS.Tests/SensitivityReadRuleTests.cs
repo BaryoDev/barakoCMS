@@ -23,7 +23,7 @@ namespace BarakoCMS.Tests;
 /// a Public field or document and everything with the mode off, and those are asked of a service
 /// built with no store at all: a rule that reached for one would fail on the null.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public sealed class SensitivityReadRuleTests : IDisposable
 {
     private readonly IServiceScope _scope;

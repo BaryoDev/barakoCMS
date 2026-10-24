@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// Content type and entry writes take <c>dryRun</c>: the write is checked by everything the real
 /// one runs, and the answer says what it would change, with nothing stored (#892).
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class DryRunTests : IAsyncLifetime
 {
     private readonly IntegrationTestFixture _fixture;

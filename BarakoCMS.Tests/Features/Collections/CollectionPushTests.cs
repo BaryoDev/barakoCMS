@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests.Features.Collections;
 /// The caller in mind is a repository's CI posting its changelog or docs when they change, so most
 /// of these go through an API key rather than a session, the way that caller would.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class CollectionPushTests
 {
     private static readonly TimeSpan PollTimeout = TimeSpan.FromSeconds(30);

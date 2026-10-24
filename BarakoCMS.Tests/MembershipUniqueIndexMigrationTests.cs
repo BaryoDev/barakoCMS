@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests;
 /// The file is run against a copy of the memberships table in a scratch schema, so the rows it
 /// refuses on are ones the test put there and the shared table is never touched.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class MembershipUniqueIndexMigrationTests
 {
     private const string Table = "mt_doc_memberships";

@@ -22,7 +22,7 @@ namespace BarakoCMS.Tests.Features.ContentApi;
 /// only files they reach are their own and public ones. Every refusal has a control beside it: the
 /// same id from the user the file belongs to.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class FileFieldAccessTests
 {
     private const string Refusal = "takes the id of a stored file you may use";

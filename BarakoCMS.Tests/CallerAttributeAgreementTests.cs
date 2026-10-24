@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests;
 /// value. A list is served from the predicate and a single entry from the evaluator, so a
 /// disagreement here is an entry a caller can list and not open, or open and not list.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class CallerAttributeAgreementTests
 {
     private readonly IntegrationTestFixture _fixture;

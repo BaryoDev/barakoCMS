@@ -7,7 +7,7 @@ using Xunit;
 namespace BarakoCMS.Tests;
 
 /// <summary>Proves conjoined multi-tenancy isolates documents: one tenant cannot see another's data.</summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class TenantIsolationTests
 {
     private readonly IntegrationTestFixture _factory;

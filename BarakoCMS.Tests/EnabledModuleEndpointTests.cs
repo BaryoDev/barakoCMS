@@ -24,13 +24,13 @@ namespace BarakoCMS.Tests;
 /// <c>BarakoTestHost</c> turns FastEndpoints' auto discovery off and names the endpoint assemblies
 /// itself, so it cannot show what a real host maps. This host does not.
 /// <para>
-/// In the Sequential collection, and on the fixture's JWT key, for the reasons
+/// In the IntegrationSerial collection, and on the fixture's JWT key, for the reasons
 /// <see cref="BarakoTestHostTests"/> gives: FastEndpoints keeps endpoint configuration and the
 /// signing key in statics each host overwrites. Run in parallel, this host's startup left
 /// DeviceEnforcementTests without its enforcement processor.
 /// </para>
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public sealed class EnabledModuleEndpointTests(EnabledModuleEndpointTests.Host host, IntegrationTestFixture fixture)
     : IClassFixture<EnabledModuleEndpointTests.Host>
 {

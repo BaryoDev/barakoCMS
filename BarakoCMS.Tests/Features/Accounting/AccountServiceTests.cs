@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests.Features.Accounting;
 /// accounts, batch charging, delisting, and reminders. Being consumer-only means a break here shows
 /// up in someone else's repository, after a release, rather than in this one's CI.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class AccountServiceTests
 {
     private readonly IntegrationTestFixture _factory;

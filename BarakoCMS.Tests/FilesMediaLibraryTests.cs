@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests;
 /// file's id and by the URL shape a client stores, since content has no typed file field: a
 /// reference is whatever string the editor put in a field.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class FilesMediaLibraryTests
 {
     private readonly IntegrationTestFixture _factory;

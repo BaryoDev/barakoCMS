@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests;
 /// The question issue #106 asked first: does a job queued inside a request share the request's
 /// transaction? The endpoints under <c>/api/_test/jobs</c> exist only in this test host.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class TransactionalEnqueueTests
 {
     private readonly IntegrationTestFixture _factory;

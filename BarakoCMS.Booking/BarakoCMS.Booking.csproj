@@ -5,7 +5,7 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.Booking</PackageId>
-    <Version>5.2.0</Version>
+    <Version>5.2.1</Version>
     <Description>Booking for barakoCMS: resources with a time zone, weekly opening hours and exceptions, bookings as content entries that a lifecycle hook refuses when they overlap another active booking of the same resource, and a public availability route that returns free slots only.</Description>
   </PropertyGroup>
 

@@ -29,7 +29,7 @@ namespace BarakoCMS.Tests.Features.Tenants;
 /// The site type is stored by hand with <c>Name</c> and <c>Logo</c>, which is the type a tenant
 /// made from the blueprint before the profile fields were in it.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class TenantProfileMigrationTests
 {
     private const string Up = "tenant-profile-to-site.sql";

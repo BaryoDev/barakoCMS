@@ -25,7 +25,7 @@ internal sealed class PaymentHarness(IntegrationTestFixture factory)
         var bytes = Guid.NewGuid().ToByteArray();
         client.DefaultRequestHeaders.Add(
             TestRemoteIpFilter.Header,
-            $"2001:db8::{bytes[0]:x2}{bytes[1]:x2}:{bytes[2]:x2}{bytes[3]:x2}:{bytes[4]:x2}{bytes[5]:x2}");
+            $"2001:db8:{bytes[0]:x2}{bytes[1]:x2}:{bytes[2]:x2}{bytes[3]:x2}:{bytes[4]:x2}{bytes[5]:x2}::1");
         return client;
     }
 
@@ -109,6 +109,12 @@ internal sealed class PaymentHarness(IntegrationTestFixture factory)
 
     public static string Body(string eventId, string reference, string type) =>
         JsonSerializer.Serialize(new { id = eventId, reference, type });
+
+    public Task<HttpResponseMessage> SignedWebhookAsync(string eventId, string reference, string type, decimal amount, string currency)
+    {
+        var body = JsonSerializer.Serialize(new { id = eventId, reference, type, amount, currency });
+        return WebhookAsync(body, FakePaymentProvider.Sign(body));
+    }
 
     public Task<HttpResponseMessage> WebhookAsync(string body, string? signature, string provider = "fake")
     {

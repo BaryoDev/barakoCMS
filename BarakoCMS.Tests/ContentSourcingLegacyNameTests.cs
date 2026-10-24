@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests;
 ///
 /// Each refusal has its pair, so neither passes against a server that refuses every create.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ContentSourcingLegacyNameTests
 {
     private readonly IntegrationTestFixture _factory;

@@ -7,10 +7,10 @@
   </PropertyGroup>
 
   <!-- "Barako" — the full pour. The engine plus every module, registered and ready. -->
+  <!-- Basic Accounting ships on NuGet but not in the image, which leaves room for the paid accounting module. -->
   <ItemGroup>
     <ProjectReference Include="..\BarakoCMS.Abstractions\BarakoCMS.Abstractions.csproj" />
     <ProjectReference Include="..\barakoCMS\barakoCMS.csproj" />
-    <ProjectReference Include="..\BarakoCMS.Accounting\BarakoCMS.Accounting.csproj" />
     <ProjectReference Include="..\BarakoCMS.Import\BarakoCMS.Import.csproj" />
     <ProjectReference Include="..\BarakoCMS.Files\BarakoCMS.Files.csproj" />
     <ProjectReference Include="..\BarakoCMS.Files.S3\BarakoCMS.Files.S3.csproj" />
@@ -19,6 +19,7 @@
     <ProjectReference Include="..\BarakoCMS.ExternalAuth\BarakoCMS.ExternalAuth.csproj" />
     <ProjectReference Include="..\BarakoCMS.FeatureFlags\BarakoCMS.FeatureFlags.csproj" />
     <ProjectReference Include="..\BarakoCMS.Scheduling\BarakoCMS.Scheduling.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Services\BarakoCMS.Services.csproj" />
     <ProjectReference Include="..\BarakoCMS.Portability\BarakoCMS.Portability.csproj" />
     <ProjectReference Include="..\BarakoCMS.Analytics.Umami\BarakoCMS.Analytics.Umami.csproj" />
     <ProjectReference Include="..\BarakoCMS.CdnPurge\BarakoCMS.CdnPurge.csproj" />
@@ -34,6 +35,7 @@
     <ProjectReference Include="..\BarakoCMS.Comments\BarakoCMS.Comments.csproj" />
     <ProjectReference Include="..\BarakoCMS.Documents\BarakoCMS.Documents.csproj" />
     <ProjectReference Include="..\BarakoCMS.Notifications\BarakoCMS.Notifications.csproj" />
+    <ProjectReference Include="..\BarakoCMS.Tagging\BarakoCMS.Tagging.csproj" />
     <ProjectReference Include="..\BarakoCMS.Secrets.Aws\BarakoCMS.Secrets.Aws.csproj" />
     <ProjectReference Include="..\BarakoCMS.Secrets.Gcp\BarakoCMS.Secrets.Gcp.csproj" />
     <ProjectReference Include="..\BarakoCMS.Contacts\BarakoCMS.Contacts.csproj" />

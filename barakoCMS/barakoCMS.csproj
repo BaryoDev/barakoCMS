@@ -3,7 +3,7 @@
   <PropertyGroup>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageId>BarakoCMS</PackageId>
-    <Version>5.2.0</Version>
+    <Version>5.3.0</Version>
 
     <Description>Headless CMS for .NET 10 on FastEndpoints and Marten over PostgreSQL: content types defined at runtime, event-sourced content, role and capability access control with field sensitivity, multi-tenancy, a public delivery API, blueprints, collection syncs and push, and workflows with 7 built-in actions. Optional modules ship as separate packages.</Description>
     <IsPackable>true</IsPackable>
@@ -52,7 +52,7 @@
          never runs, the tenancy role script, which is a superuser's one-off, and the files a
          module ships from its own assembly so the ledger carries them under that module. -->
     <EmbeddedResource Include="..\migrations\**\*.sql"
-                      Exclude="..\migrations\tenancy\**;..\migrations\**\rollback-*.sql;..\migrations\4.2.0\stored-files-parent-index.sql;..\migrations\4.2.0\forms-public-forms.sql;..\migrations\4.6.0\external-auth-identities.sql;..\migrations\4.6.0\forms-email-verification.sql;..\migrations\4.7.0\forms-tenant-policy-restore.sql;..\migrations\4.8.0\external-auth-used-nonces.sql;..\migrations\5.0.0\accounting-number-sequences.sql;..\migrations\5.0.0\pages-settings.sql;..\migrations\5.0.0\files-storage-settings.sql;..\migrations\5.1.0\915-external-auth-role-maps.sql;..\migrations\5.2.0\booking-resources.sql;..\migrations\5.2.0\payments-payable-types.sql;..\migrations\5.2.0\payments-attempts.sql;..\migrations\5.2.0\payments-events.sql;..\migrations\5.2.0\report-definitions.sql;..\migrations\5.2.0\scheduled-entries.sql;..\migrations\5.2.0\notifications.sql;..\migrations\5.2.0\contacts.sql;..\migrations\5.2.0\253-comments.sql;..\migrations\5.2.0\585-documents.sql"
+                      Exclude="..\migrations\tenancy\**;..\migrations\**\rollback-*.sql;..\migrations\4.2.0\stored-files-parent-index.sql;..\migrations\4.2.0\forms-public-forms.sql;..\migrations\4.6.0\external-auth-identities.sql;..\migrations\4.6.0\forms-email-verification.sql;..\migrations\4.7.0\forms-tenant-policy-restore.sql;..\migrations\4.8.0\external-auth-used-nonces.sql;..\migrations\5.0.0\accounting-number-sequences.sql;..\migrations\5.0.0\pages-settings.sql;..\migrations\5.0.0\files-storage-settings.sql;..\migrations\5.1.0\915-external-auth-role-maps.sql;..\migrations\5.2.0\booking-resources.sql;..\migrations\5.2.0\payments-payable-types.sql;..\migrations\5.2.0\payments-attempts.sql;..\migrations\5.2.0\payments-events.sql;..\migrations\5.2.0\report-definitions.sql;..\migrations\5.2.0\scheduled-entries.sql;..\migrations\5.2.0\notifications.sql;..\migrations\5.2.0\contacts.sql;..\migrations\5.2.0\253-comments.sql;..\migrations\5.2.0\585-documents.sql;..\migrations\5.3.0\accounting-journal-lifecycle.sql;..\migrations\5.3.0\accounting-mappings.sql;..\migrations\5.3.0\252-tagging.sql;..\migrations\5.3.0\833-services.sql"
                       LogicalName="barako-migrations/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
@@ -101,6 +101,11 @@
          internal: it is how the host scopes a module's settings, not public API, and CLAUDE.md
          section 6 means anything public here is a compatibility commitment. -->
     <InternalsVisibleTo Include="BarakoCMS.Tests" />
+    <!-- The accounting reports apply the same branch rule as the content routes, which is
+         internal for the reason above. -->
+    <InternalsVisibleTo Include="BarakoCMS.Accounting" />
+    <!-- The tag assignment lists hide an entry of another branch the way the content routes do. -->
+    <InternalsVisibleTo Include="BarakoCMS.Tagging" />
     <!-- Castle DynamicProxy, which NSubstitute builds on, needs to see internal types to mock an
          ILogger<T> whose T is internal. The feature slices became internal in 4.0, so several
          existing workflow-action tests could not construct their own subject without this. -->

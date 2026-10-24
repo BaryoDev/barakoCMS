@@ -27,7 +27,7 @@ namespace BarakoCMS.Tests;
 ///
 /// See issue #256.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class StartupSeedReadinessTests
 {
     /// <summary>

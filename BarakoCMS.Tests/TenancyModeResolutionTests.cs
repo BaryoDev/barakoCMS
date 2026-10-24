@@ -27,15 +27,22 @@ namespace BarakoCMS.Tests;
 internal static class MultiTenancyHost
 {
     private static readonly Lock Gate = new();
-    private static WebApplicationFactory<Program>? _host;
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IntegrationTestFixture, WebApplicationFactory<Program>> Hosts = new();
     private static int _ip;
 
     public static WebApplicationFactory<Program> For(IntegrationTestFixture fixture)
     {
         lock (Gate)
         {
-            return _host ??= fixture.WithRunScopedSettings(
+            if (Hosts.TryGetValue(fixture, out var cached))
+            {
+                return cached;
+            }
+
+            var host = fixture.WithRunScopedSettings(
                 new Dictionary<string, string?> { [TenancyOptions.ModeKey] = "Multi" });
+            Hosts.Add(fixture, host);
+            return host;
         }
     }
 
@@ -112,7 +119,7 @@ internal static class MultiTenancyHost
 /// answers 401, so a 404 carrying <see cref="TenantResolutionMiddleware.NoTenantMessage"/> can only
 /// have come from resolution, and a 401 shows the request was let through.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class TenancyModeResolutionTests
 {
     private const string Probe = "/api/contents";

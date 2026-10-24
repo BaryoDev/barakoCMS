@@ -37,9 +37,11 @@ jobs:
       # manifest, no rebuild). Fails loudly if the version was never released. The console's
       # :playground tag is barakoBrew's to roll back.
       - name: Repoint :playground to ${{ inputs.version }}
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          V='${{ inputs.version }}'
+          V="$VERSION"
           for img in barako-cms; do
             src="ghcr.io/baryodev/$img:playground-$V"
             docker buildx imagetools inspect "$src" >/dev/null \
@@ -64,9 +66,12 @@ jobs:
 
       - name: Summary
         if: always()
+        env:
+          VERSION: ${{ inputs.version }}
+          RESULT: ${{ job.status }}
         run: |
           {
             echo "## Rollback"
-            echo "- playground repointed to \`${{ inputs.version }}\`"
-            echo "- result: ${{ job.status }}"
+            echo "- playground repointed to \`$VERSION\`"
+            echo "- result: $RESULT"
           } >> "$GITHUB_STEP_SUMMARY"

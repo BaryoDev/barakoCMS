@@ -12,7 +12,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// The names are written out here and not read from the enum alone. A client holds the same list,
 /// so a status added or renamed is a change to what it reads, and this is where that shows up.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class WorkflowRunStatusOpenApiTests
 {
     private static readonly string[] RunStatuses =

@@ -11,7 +11,7 @@ namespace BarakoCMS.Tests;
 /// is the only thing that answers "will this console work here" before authentication and again
 /// mid-session if a rolling upgrade moves the contract underneath an open one.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ApiContractVersionHeaderTests
 {
     private readonly IntegrationTestFixture _factory;

@@ -9,7 +9,7 @@ using barakoCMS.Models;
 
 namespace BarakoCMS.Tests.Features.Users;
 
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class UserAssignmentApiTests
 {
     private readonly HttpClient _client;

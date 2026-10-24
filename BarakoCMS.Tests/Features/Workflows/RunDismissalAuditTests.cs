@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// which nothing succeeded is refused with 409 ("cancel it instead"). Runs are seeded with the hosted
 /// runner paused so it cannot claim them before the request lands.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class RunDismissalAuditTests(IntegrationTestFixture factory)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

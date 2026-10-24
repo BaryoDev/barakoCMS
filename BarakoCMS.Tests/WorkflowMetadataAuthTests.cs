@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests;
 /// anonymous read of content the caller had no right to, and a bypass of the role restriction that
 /// /api/schemas exists to enforce.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class WorkflowMetadataAuthTests
 {
     private readonly IntegrationTestFixture _factory;

@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests;
 /// rules moved behind IContentTransitioner and after: they are what says the move changed nothing
 /// a client or an auditor can see.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ChangeStatusTransitionTests
 {
     private readonly IntegrationTestFixture _factory;

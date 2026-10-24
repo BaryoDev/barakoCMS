@@ -11,7 +11,7 @@ namespace BarakoCMS.Tests;
 /// job, because the claim is a load, a lease and a save under optimistic concurrency. This pins the
 /// primitive that rests on: two sessions that loaded the same record cannot both save it.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class JobClaimTests
 {
     private readonly IntegrationTestFixture _factory;

@@ -15,14 +15,17 @@ internal static class JwtKeyGuard
 {
     public const int MinLength = 32;
 
+    /// <summary>The key docker-compose.yml and docker-compose.hub.yml fall back to. Public, so only Development may run on it.</summary>
+    internal const string ComposeDevKey = "dev-only-key-minimum-32-chars-long";
+
     /// <summary>The prefix every placeholder secret in the shipped manifests starts with.</summary>
     private const string PlaceholderPrefix = "REPLACE_THIS";
 
     /// <summary>
     /// Throws <see cref="System.InvalidOperationException"/> when the key is missing, too short, or a
-    /// shipped placeholder. Returns the key unchanged when it is acceptable.
+    /// shipped placeholder, or the compose development key outside Development. Returns the key unchanged when it is acceptable.
     /// </summary>
-    public static string Validate(string? key)
+    public static string Validate(string? key, bool isDevelopment = false)
     {
         if (string.IsNullOrWhiteSpace(key) || key.Length < MinLength)
         {
@@ -35,6 +38,13 @@ internal static class JwtKeyGuard
             throw new System.InvalidOperationException(
                 "JWT:Key is still the placeholder shipped in k8s/02-secret.yaml. Set a real, secret, "
               + "randomly generated key (at least 32 characters) before starting.");
+        }
+
+        if (!isDevelopment && string.Equals(key, ComposeDevKey, System.StringComparison.Ordinal))
+        {
+            throw new System.InvalidOperationException(
+                "JWT:Key is the development key shipped in the compose files. Set a real, secret, "
+              + "randomly generated key (at least 32 characters) before starting outside Development.");
         }
 
         return key;

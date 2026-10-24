@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests.Features.FeatureFlags;
 /// against the other. It also makes a rollout unmeasurable, because nobody is in the group for
 /// longer than one request.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class FeatureFlagRolloutTests
 {
     private static int _ipCounter;

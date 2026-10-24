@@ -21,13 +21,13 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         .WithUsername("postgres")
         .WithPassword("postgres")
         .WithPassword("postgres")
-        // Every class in the Sequential collection shares this container, and every host a test
+        // Every class in one integration collection shares this container, and every host a test
         // derives with WithWebHostBuilder stays alive until another class derives one (see
         // ReleaseDerivedHostsExcept).
         // Each one runs the projection daemon and the workflow runner, polling on unpooled
         // connections, so peak connections grow with the number of live hosts. The Postgres default
         // of 100 ran out at 72 and 94 hosts on CI, failing whichever host was starting with 53300.
-        // 500 covers the whole suite's ~112 hosts at 4 connections each.
+        // 500 covers one collection's share of the ~112 hosts at 4 connections each.
         .WithCommand("-c", "max_connections=500")
         .Build();
 
@@ -46,6 +46,27 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
     }
 
     private readonly IDisposable _fallbacks;
+
+    /// <summary>
+    /// Held while a host of any fixture starts. <c>AddBarakoCMS</c> reads the connection string from
+    /// process-wide environment variables while it registers Marten and the health probes, before the
+    /// factory's in-memory settings apply, so with several fixtures alive each host start has to see
+    /// its own fixture's database in those two variables and no other start may change them.
+    /// </summary>
+    private static readonly Lock HostStart = new();
+
+    private T StartAgainstOwnDatabase<T>(Func<T> start)
+    {
+        lock (HostStart)
+        {
+            Environment.SetEnvironmentVariable("DATABASE_URL", ConnectionString);
+            Environment.SetEnvironmentVariable("ConnectionStrings__DefaultConnection", ConnectionString);
+            return start();
+        }
+    }
+
+    protected override Microsoft.Extensions.Hosting.IHost CreateHost(Microsoft.Extensions.Hosting.IHostBuilder builder) =>
+        StartAgainstOwnDatabase(() => base.CreateHost(builder));
 
     /// <summary>The API key this host is configured with, standing in for a deployment's own.</summary>
     public const string ConfiguredEmailKey = "key_from_the_deployment_not_the_admin";
@@ -100,6 +121,9 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             return base.CreateHostBuilder();
         }
 
+        protected override Microsoft.Extensions.Hosting.IHost CreateHost(Microsoft.Extensions.Hosting.IHostBuilder builder) =>
+            root.StartAgainstOwnDatabase(() => base.CreateHost(builder));
+
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             root.ConfigureWebHost(builder);
@@ -136,7 +160,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
     /// when a different class derives its first host, or when this fixture is disposed (#1171).
     /// </summary>
     /// <remarks>
-    /// The Sequential collection runs one class at a time, so by the time another class derives a
+    /// A collection runs one class at a time, so by the time another class derives a
     /// host the earlier class has finished with its own. A static host cache only its own class
     /// reaches is therefore safe, and one several classes reach is not: such a host asks for
     /// <see cref="WithRunScopedHost"/> instead. A released host handed out again throws, naming
@@ -231,7 +255,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         FastEndpointsResolver.Exclusively(() =>
         {
             failures.AddRange(DisposeEach(doomed, $"when {owner} derived its first host"));
-            FastEndpointsResolver.RepairIfDisposed(_startedHosts.Reverse());
+            FastEndpointsResolver.RepairFromFallbacks();
         });
 
         if (failures.Count > 0)
@@ -277,7 +301,17 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         }
     }
 
-    public string ConnectionString => _postgresContainer.GetConnectionString().Replace("localhost", "127.0.0.1").Replace("Host=", "Server=") + ";Pooling=false";
+    public string ConnectionString => _postgresContainer.GetConnectionString().Replace("localhost", "127.0.0.1").Replace("Host=", "Server=") + PoolingSetting;
+
+    /// <summary>
+    /// Unpooled by default, so every session pays a fresh connection and a SCRAM handshake. Set
+    /// <c>BARAKO_TEST_POOLING=1</c> to pool, to measure what that costs. Off by default because a
+    /// pooled connection keeps session state between requests.
+    /// </summary>
+    private static string PoolingSetting =>
+        Environment.GetEnvironmentVariable("BARAKO_TEST_POOLING") == "1"
+            ? ";Pooling=true;Maximum Pool Size=10;Connection Idle Lifetime=10"
+            : ";Pooling=false";
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -494,6 +528,11 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             // chart-of-accounts rules), so the generic /api/contents endpoint can be tested with
             // real domain rules attached — the whole point of modelling accounting as content.
             new BarakoCMS.Accounting.AccountingModule().ConfigureServices(services, ctx.Configuration);
+            // The host registers a module's workflow actions right after its services; do the same so
+            // the workflow validator and the runner know Accounting.PostJournal and Accounting.Reverse.
+            var accountingModule = new BarakoCMS.Accounting.AccountingModule();
+            accountingModule.ConfigureWorkflowActions(
+                new barakoCMS.Features.Workflows.ModuleWorkflowActionRegistry().For(services, accountingModule));
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Accounting.AccountingModule(), opts));
 
             // The fixture module: a capability, a content hook and a gated endpoint for the tests
@@ -540,6 +579,12 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             new BarakoCMS.Notifications.NotificationsModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Notifications"));
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Notifications.NotificationsModule(), opts));
 
+            // Tagging: its documents are per tenant and its endpoints are discovered with the assembly,
+            // so the schema has to be registered for them to run. ConfigureServices adds the erasure
+            // cascade that drops a content entry's terms.
+            ((barakoCMS.Modules.IBarakoModule)new BarakoCMS.Tagging.TaggingModule()).ConfigureServices(services, ctx.Configuration);
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Tagging.TaggingModule(), opts));
+
             // Portability: its contents section, so a bundle applies through the config engine. Called
             // through IBarakoModule, the way the host calls every module's ConfigureServices.
             ((barakoCMS.Modules.IBarakoModule)new BarakoCMS.Portability.PortabilityModule()).ConfigureServices(services, ctx.Configuration);
@@ -564,6 +609,8 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
 
             // Documents: its schema, so the per-tenant unique slug index exists in the test store.
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Documents.DocumentsModule(), opts));
+            // Services: the registry and heartbeat endpoints need the document registered to run.
+            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Services.ServicesModule(), opts));
 
             // ExternalAuth: the OAuth start/callback endpoints are anonymous, so what they refuse
             // is only checkable over real HTTP. ConfigureServices gives them IHttpClientFactory.
@@ -593,6 +640,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             // is about.
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.ThrowingRunnerAction>();
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.CredentialEchoAction>();
+            services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.SelfResolvingRunnerAction>();
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.DeletedEchoAction>();
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.CountingRunnerAction>();
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.HookedRunnerAction>();
@@ -659,8 +707,10 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         typeof(BarakoCMS.Payments.PaymentsModule).Assembly,
         typeof(BarakoCMS.Contacts.ContactsModule).Assembly,
         typeof(BarakoCMS.Notifications.NotificationsModule).Assembly,
+        typeof(BarakoCMS.Tagging.TaggingModule).Assembly,
         typeof(BarakoCMS.FeatureFlags.FeatureFlagsModule).Assembly,
         typeof(BarakoCMS.Comments.CommentsModule).Assembly,
+        typeof(BarakoCMS.Services.ServicesModule).Assembly,
         // Portability owns no documents of its own, so beside its endpoints it needs only the
         // config section it registers, which ConfigureWebHost adds.
         typeof(BarakoCMS.Portability.PortabilityModule).Assembly,
@@ -692,7 +742,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         Environment.SetEnvironmentVariable("HealthChecks__MaxPrivateMemoryMegabytes", "1048576");
 
         // Canonical system roles with their well-known ids, before any test runs.
-        // xunit v3 changed execution order inside the Sequential collection, and
+        // xunit v3 changed execution order inside a collection, and
         // several tests create a role named SuperAdmin with a random id when none
         // exists by name; the fixed-id insert that used to run first then dies on
         // the unique name index. Seeding here makes role state order-proof.
@@ -827,6 +877,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         }
 
         _fallbacks.Dispose();
+        FastEndpointsResolver.RepairFromFallbacks();
         try
         {
             await _postgresContainer.DisposeAsync();
@@ -970,8 +1021,8 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
     private static Action<IWebHostBuilder> Settings(IDictionary<string, string?> settings) =>
         b => b.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(settings));
 
-    private static readonly Lock StoredCallers = new();
-    private static readonly Dictionary<string, Task<string>> StoredTokens = new(StringComparer.Ordinal);
+    private readonly Lock _storedCallers = new();
+    private readonly Dictionary<string, Task<string>> _storedTokens = new(StringComparer.Ordinal);
 
     /// <summary>
     /// A token for a user that exists, holding the seeded roles named.
@@ -994,15 +1045,15 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
     {
         var key = string.Join('\u001f', roleNames);
 
-        lock (StoredCallers)
+        lock (_storedCallers)
         {
-            if (StoredTokens.TryGetValue(key, out var cached))
+            if (_storedTokens.TryGetValue(key, out var cached))
             {
                 return cached;
             }
 
             var minted = MintForStoredUserAsync(roleNames);
-            StoredTokens[key] = minted;
+            _storedTokens[key] = minted;
             return minted;
         }
     }

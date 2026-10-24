@@ -19,7 +19,7 @@ namespace barakoCMS.Features.Auth.MagicLink.Request;
 /// </remarks>
 internal class Endpoint(
     IDocumentSession session,
-    IEmailService email,
+    AuthMailQueue mailQueue,
     IConfiguration config,
     TenantContext tenant,
     ILogger<Endpoint> logger) : Endpoint<MagicLinkRequest, MagicLinkRequestResponse>
@@ -51,14 +51,21 @@ internal class Endpoint(
             if (exists)
             {
                 // The outcome is not reflected: the response must be identical for every address.
-                _ = await IssueAndSendAsync(address, ct);
+                _ = await IssueAndQueueAsync(address, ct);
+            }
+            else
+            {
+                // Comparable work for an address with no account: the lookup of outstanding links
+                // and the token. The row write is the one step it skips. Neither branch sends inline.
+                _ = await session.Query<MagicLinkToken>().Where(t => t.Email == address && !t.Consumed).ToListAsync(ct);
+                _ = EmailVerificationToken.Create(Guid.NewGuid());
             }
         }
 
         await Send.ResponseAsync(ok, cancellation: ct);
     }
 
-    private async Task<bool> IssueAndSendAsync(string address, CancellationToken ct)
+    private async Task<bool> IssueAndQueueAsync(string address, CancellationToken ct)
     {
         var outstanding = await session.Query<MagicLinkToken>()
             .Where(t => t.Email == address && !t.Consumed)
@@ -95,16 +102,8 @@ internal class Endpoint(
           + Link(token)
           + $"<p>It expires in {(int)Lifetime.TotalMinutes} minutes and works once. "
           + "If this wasn't you, ignore this email and nothing happens.</p>";
-        try
-        {
-            await email.SendEmailAsync(address, $"Your {appName} sign-in link", body, ct);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Failed to send a magic link email");
-            return false;
-        }
+        mailQueue.Enqueue(address, $"Your {appName} sign-in link", body, "magic-link");
+        return true;
     }
 
     /// <summary>

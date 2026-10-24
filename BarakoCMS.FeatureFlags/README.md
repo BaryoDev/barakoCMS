@@ -35,8 +35,8 @@ the repository.
 
 | Method & path | Purpose | Access |
 |---|---|---|
-| `GET    /api/feature-flags` | Flags as evaluated for the caller (superseded by OFREP, below) | Anyone (public flags only until signed in) |
-| `POST   /ofrep/v1/evaluate/flags[/{key}]` | OpenFeature evaluation (see below) | Anyone (public flags only until signed in) |
+| `GET    /api/feature-flags` | Flags as evaluated for the caller (superseded by OFREP, below) | Anyone (flags limited by visibility level) |
+| `POST   /ofrep/v1/evaluate/flags[/{key}]` | OpenFeature evaluation (see below) | Anyone (flags limited by visibility level) |
 | `GET    /api/feature-flags/admin` | Every flag with its targeting rules | `Admin` / `SuperAdmin` held as a global role |
 | `POST   /api/feature-flags/admin` | Create or update a flag | `Admin` / `SuperAdmin` held as a global role |
 | `POST   /api/feature-flags/admin/{key}/toggle` | Flip a flag | `Admin` / `SuperAdmin` held as a global role |
@@ -57,8 +57,8 @@ protocol's own path to the host, which is where the routes are:
 
 | Method & path | Purpose | Access |
 |---|---|---|
-| `POST /ofrep/v1/evaluate/flags/{key}` | One flag, evaluated for the caller | Anyone (public flags only until signed in) |
-| `POST /ofrep/v1/evaluate/flags` | Every flag the caller may see, with an `ETag`; a matching `If-None-Match` answers 304 | Anyone (public flags only until signed in) |
+| `POST /ofrep/v1/evaluate/flags/{key}` | One flag, evaluated for the caller | Anyone (flags limited by visibility level) |
+| `POST /ofrep/v1/evaluate/flags` | Every flag the caller may see, with an `ETag`; a matching `If-None-Match` answers 304 | Anyone (flags limited by visibility level) |
 
 The subset covered, stated rather than implied:
 
@@ -79,21 +79,20 @@ every response says so with `Link: </ofrep/v1/evaluate/flags>; rel="successor-ve
 
 ## Public flags
 
-A flag is private until someone publishes it. `GET /api/feature-flags` is anonymous, because a public
-page rendering with flags has no user to authenticate, so an anonymous caller is handed only the flags
-with `isPublic: true`. Everything else is absent from the response, not returned as `false`: the key
-name is the leak, and `{"acquisition-of-northwind": false}` gives it away just as thoroughly.
-
-Publish one deliberately:
+A flag has a visibility level: `Public` (anyone), `SignedIn` (any signed-in caller) or `Admin` (callers
+who can manage feature flags). `GET /api/feature-flags` and the OFREP routes return only the flags the
+caller's level allows. Everything else is absent from the response, not returned as `false`, and an
+OFREP single read of a flag the caller cannot see answers exactly like a missing key.
 
 ```http
 POST /api/feature-flags/admin
-{ "key": "new-checkout", "enabled": true, "isPublic": true }
+{ "key": "new-checkout", "enabled": true, "visibility": "Public" }
 ```
 
-`isPublic` defaults to false, and the admin upsert replaces the whole flag, so a body that omits the
-field makes the flag private. Flags created before this field existed read back as private, which is
-why upgrading discloses nothing that was not already meant to be public.
+`isPublic` still works: true means `Public`, false keeps the flag's current level (`SignedIn` if it was
+Public). A flag saved with neither field is `Admin` only. Flags stored before levels existed read as
+`Public` when `isPublic` was true and `SignedIn` otherwise, so an upgrade changes what nobody sees.
+The admin list and save response return both `visibility` and `isPublic`.
 
 ## A flag is not access control
 

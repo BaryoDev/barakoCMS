@@ -28,7 +28,7 @@ namespace BarakoCMS.Tests.Features.ExternalAuth;
 /// reason given on <see cref="ExternalAuthCallbackTests"/>: the cookies are <c>Secure</c> and the
 /// test host speaks plain HTTP.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class OidcSignInTests
 {
     private const string BaseUrl = "https://cms.test.example";

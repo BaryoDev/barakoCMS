@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests.Features.Site;
 /// <remarks>
 /// Each client carries its own IP so the redeem rate limit only ever fires in the test about it.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class SiteShareLinkTests
 {
     private readonly IntegrationTestFixture _fixture;

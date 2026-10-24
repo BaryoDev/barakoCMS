@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests;
 /// pairing is the point. An absence assertion on a response that never went through the middleware
 /// passes for the wrong reason, and this repository has shipped that shape of gate before.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ResponseSecurityHeadersTests
 {
     private readonly IntegrationTestFixture _factory;

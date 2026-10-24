@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests.Features.Public;
 /// single reference, so the published id coming back shows the field is still delivered and the
 /// draft id missing shows the check and not a missing field.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class PublicReferenceDeliveryTests
 {
     private readonly IntegrationTestFixture _factory;

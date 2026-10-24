@@ -17,7 +17,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// each test reads its series before and after and asserts the difference. The projection can queue
 /// a run for another test's event in between, so the difference is at least what the test queued.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class WorkflowQueueMetricsTests
 {
     private readonly IntegrationTestFixture _factory;

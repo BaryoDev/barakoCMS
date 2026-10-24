@@ -17,7 +17,7 @@ namespace BarakoCMS.Tests;
 /// Bodies are written as raw JSON so the numbers on the wire are exactly the ones under test: a C#
 /// long cannot hold the value past Int64 that the refusal is about.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class IntFieldRangeIntegrationTests
 {
     private readonly IntegrationTestFixture _factory;

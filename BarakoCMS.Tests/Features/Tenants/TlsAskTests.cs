@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests.Features.Tenants;
 /// <c>GET /api/tenants/tls-ask?domain=</c>, the endpoint Caddy's on-demand TLS asks before it gets a
 /// certificate for a host: yes for a domain an active tenant holds, no for anything else (#904).
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class TlsAskTests
 {
     private readonly IntegrationTestFixture _fixture;
@@ -29,7 +29,7 @@ public class TlsAskTests
     private static HttpClient From(WebApplicationFactory<Program> host)
     {
         var client = host.CreateClient();
-        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"2001:db8:904::{Interlocked.Increment(ref _ip):x}");
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"2001:db8:904:{Interlocked.Increment(ref _ip):x}::1");
         return client;
     }
 

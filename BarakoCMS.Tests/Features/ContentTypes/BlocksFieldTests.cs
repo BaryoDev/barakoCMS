@@ -11,7 +11,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// The <c>blocks</c> field type, the per-tenant block schema a renderer registers, presets and
 /// bindings as tenant data, and page resolve returning a block's bound entries (#926).
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class BlocksFieldTests
 {
     private const string RendererKey = "renderer-key-for-the-blocks-tests-0123456789";

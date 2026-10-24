@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests;
 /// <c>PaginatedResponse&lt;T&gt;</c> would pass on a bare array in some serialiser configurations,
 /// and the root token is the thing that is actually frozen.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ListEnvelopeTests
 {
     private readonly IntegrationTestFixture _factory;

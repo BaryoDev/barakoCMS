@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests.Features.Roles;
 /// administrators change nothing about it (#913). role-tenancy.sql makes a role held globally a
 /// platform role (RoleTenancyMigrationTests); these pin what holds once it has.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class GlobalRoleOwnershipTests(IntegrationTestFixture fixture)
 {
     private readonly ConfigCallers _callers = new(fixture);

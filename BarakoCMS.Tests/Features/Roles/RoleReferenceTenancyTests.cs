@@ -12,7 +12,7 @@ namespace BarakoCMS.Tests.Features.Roles;
 /// A role name in a field's VisibleToRoles resolves to a role the writing tenant reaches, since a
 /// name is unique only within one owner and role-tenancy.sql copies a role under the same name (#913).
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class RoleReferenceTenancyTests
 {
     private readonly IntegrationTestFixture _fixture;

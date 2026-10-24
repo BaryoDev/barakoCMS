@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests.Features.FeatureFlags;
 /// key rather than the value. Targeting already evaluates a private flag to false for a stranger,
 /// and <c>{"acquisition-of-northwind": false}</c> tells them everything anyway.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class FeatureFlagVisibilityTests
 {
     private readonly IntegrationTestFixture _factory;

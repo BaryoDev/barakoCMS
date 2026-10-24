@@ -25,7 +25,7 @@ namespace BarakoCMS.Tests;
 /// An account that does not exist never locks, so a distinct answer for a locked one told anyone
 /// which usernames were real, and a stated lock duration told them how often to re-lock it.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class LockedAccountResponseTests
 {
     private const string Password = "ValidPassword123!";
@@ -40,7 +40,7 @@ public class LockedAccountResponseTests
         _factory = factory;
         _client = factory.CreateClient();
         _client.DefaultRequestHeaders.Add(
-            TestRemoteIpFilter.Header, $"2001:db8:640::{Interlocked.Increment(ref _ipCounter):x}");
+            TestRemoteIpFilter.Header, $"2001:db8:640:{Interlocked.Increment(ref _ipCounter):x}::1");
     }
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -326,7 +326,7 @@ public class LockedAccountResponseTests
     private static int _requestIpCounter;
 
     /// <summary>A fresh address per request, so the per-IP auth limit is never what answers.</summary>
-    private static string NextIp() => $"2001:db8:640:1::{Interlocked.Increment(ref _requestIpCounter):x}";
+    private static string NextIp() => $"2001:db8:6401:{Interlocked.Increment(ref _requestIpCounter):x}::1";
 
     private sealed class SlowEmailService(TimeSpan delay) : IEmailService
     {

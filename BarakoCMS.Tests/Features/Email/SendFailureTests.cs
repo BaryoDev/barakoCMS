@@ -9,6 +9,17 @@ using Xunit;
 
 namespace BarakoCMS.Tests.Features.Email;
 
+/// <summary>Never finishes a send until released.</summary>
+internal sealed class BlockedEmailService : IEmailService
+{
+    private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public void Release() => _release.TrySetResult();
+
+    public async Task SendEmailAsync(string to, string subject, string body, CancellationToken cancellationToken = default) =>
+        await _release.Task.WaitAsync(cancellationToken);
+}
+
 /// <summary>Fails every send, the way a provider outage or a revoked key does.</summary>
 internal sealed class FailingEmailService : IEmailService
 {
@@ -36,7 +47,7 @@ internal sealed class FailingEmailService : IEmailService
 /// and neither does "the bodies match" if the endpoint answers the same thing to everything: the
 /// pairing is what says the outage is invisible rather than that the endpoint is blind.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class SendFailureTests
 {
     private readonly IntegrationTestFixture _factory;
@@ -56,7 +67,7 @@ public class SendFailureTests
     /// xunit constructs the class once per test method, so this counter hands each test its own.
     /// The IPv6 documentation range again, on a different subnet from the other classes using it.
     /// </remarks>
-    private readonly string _ip = $"2001:db8:123::{Interlocked.Increment(ref _ipCounter):x}";
+    private readonly string _ip = $"2001:db8:123:{Interlocked.Increment(ref _ipCounter):x}::1";
 
     public SendFailureTests(IntegrationTestFixture factory) => _factory = factory;
 
@@ -162,6 +173,7 @@ public class SendFailureTests
         var notSent = await Request(broken, registered);
         var noAccount = await Request(working, unknown);
 
+        await RecordingEmailService.WaitForAsync(() => failing.Attempts > 0);
         failing.Attempts.Should().BeGreaterThan(0,
             "the outage case has to have actually tried to send, or it is the no-account case wearing a hat");
 
@@ -175,6 +187,28 @@ public class SendFailureTests
 
         notSent.Body.Should().NotContainEquivalentOf("mail provider");
         notSent.Body.Should().NotContainEquivalentOf("503");
+    }
+
+    [Fact]
+    public async Task A_sign_in_code_request_does_not_wait_for_the_mail_transport()
+    {
+        var blocked = new BlockedEmailService();
+        var host = _factory.WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<IEmailService>();
+                services.AddSingleton<IEmailService>(blocked);
+            }));
+        var client = Client(host.CreateClient());
+        var registered = await SignedUpEmailAsync();
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(15));
+        var response = await client.PostAsJsonAsync("/api/auth/otp/request", new { email = registered }, timeout.Token);
+
+        blocked.Release();
+        response.StatusCode.Should().Be(HttpStatusCode.OK,
+            "the send happens after the answer, so a stuck transport does not hold the request");
     }
 
     private static async Task<(HttpStatusCode Status, string Body)> Request(HttpClient client, string email)

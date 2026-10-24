@@ -6,7 +6,7 @@ using FluentAssertions;
 namespace BarakoCMS.Tests.Features.Reports;
 
 /// <summary>A report runs as the person who asks: it never shows more than their own read rules do.</summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ReportPermissionTests
 {
     private readonly ReportTestSupport _support;

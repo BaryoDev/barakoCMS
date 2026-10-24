@@ -79,4 +79,74 @@ public static class SpreadsheetLimits
             seekable.Position = start;
         }
     }
+
+    /// <summary>
+    /// The bytes the archive actually expands to, counted as they are read and abandoned once the
+    /// count passes <paramref name="limit"/>. Null when the bytes are not a zip.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="DeclaredExpandedBytes"/> trusts the sizes in the central directory, which the
+    /// sender writes. This reads the entries for real into nothing, so the work is bounded by the
+    /// limit whatever the directory claims. A figure above the limit means "more than the limit",
+    /// not the full size.
+    /// </remarks>
+    public static long? ActualExpandedBytes(Stream seekable, long limit)
+    {
+        var start = seekable.Position;
+
+        ZipArchive archive;
+        try
+        {
+            archive = new ZipArchive(seekable, ZipArchiveMode.Read, leaveOpen: true);
+        }
+        catch (InvalidDataException)
+        {
+            seekable.Position = start;
+            return null;
+        }
+
+        try
+        {
+            using (archive)
+            {
+                long total = 0;
+                var buffer = new byte[81920];
+                foreach (var entry in archive.Entries)
+                {
+                    using var content = entry.Open();
+                    int read;
+                    while ((read = content.Read(buffer, 0, buffer.Length)) > 0)
+                    {
+                        total += read;
+                        if (total > limit)
+                            return total;
+                    }
+                }
+
+                return total;
+            }
+        }
+        catch (InvalidDataException)
+        {
+            // It opened as a zip but an entry cannot be read, so the rest cannot be measured.
+            // Counted as over the limit rather than passed on for the parser to expand.
+            return limit + 1;
+        }
+        finally
+        {
+            seekable.Position = start;
+        }
+    }
+
+    /// <summary>
+    /// The size to refuse on: the declared figure when it is already over, otherwise the counted one.
+    /// Null when the file is not a zip or is within the limit.
+    /// </summary>
+    public static long? ExpandedBytesOver(Stream seekable, long limit)
+    {
+        if (DeclaredExpandedBytes(seekable) is { } declared && declared > limit)
+            return declared;
+
+        return ActualExpandedBytes(seekable, limit) is { } actual && actual > limit ? actual : null;
+    }
 }

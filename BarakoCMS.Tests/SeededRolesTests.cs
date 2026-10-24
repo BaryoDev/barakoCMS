@@ -24,10 +24,10 @@ namespace BarakoCMS.Tests;
 ///
 /// The seeding test builds a host of its own on an empty database in the fixture's Postgres. The
 /// fixture's own database cannot answer "exactly these roles": every other test class puts roles in
-/// it. In the Sequential collection and on the fixture's JWT key for the reason
+/// it. In an integration collection and on the fixture's JWT key for the reason
 /// <see cref="EnabledModuleEndpointTests"/> gives.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public sealed class SeededRolesTests(IntegrationTestFixture fixture)
 {
     [Fact]

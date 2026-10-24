@@ -3,6 +3,7 @@ using barakoCMS.Infrastructure.Caching;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
+// RequireRateLimiting lives here; this project is not a Web SDK project, so it is not implicitly used.
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Options;
 
@@ -31,13 +32,17 @@ public class SemanticSearchEndpoint(
     IEmbeddingClient embed) : EndpointWithoutRequest<SemanticResponse>
 {
     private const int MaxResults = 20;
+    internal const int MaxQueryLength = 500;
+
+    // The core delivery policy (RateLimitSetup.DeliveryPolicy, which is internal to the core).
+    private const string DeliveryPolicy = "delivery";
     private const double Floor = 0.4; // ignore weak matches so an unrelated query returns nothing
 
     public override void Configure()
     {
         Get("/api/public/{type}/semantic");
         AllowAnonymous();
-        Options(x => x.WithMetadata(DeliveryCache.Validators));
+        Options(x => x.WithMetadata(DeliveryCache.Validators).RequireRateLimiting(DeliveryPolicy));
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -53,6 +58,13 @@ public class SemanticSearchEndpoint(
         // model call, which makes an ungated endpoint a free compute endpoint as well as a leak.
         var def = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
         if (def is not { IsPubliclyDeliverable: true }) { await Send.NotFoundAsync(ct); return; }
+
+        if (q.Length > MaxQueryLength)
+        {
+            AddError($"q may be at most {MaxQueryLength} characters.");
+            await Send.ErrorsAsync(400, ct);
+            return;
+        }
 
         // Before the embedding call, so a refused filter costs no model call and answers 400
         // whatever q holds.
@@ -127,6 +139,15 @@ public class SemanticSearchEndpoint(
             return;
         }
 
+        var (results, hitIds) = await VisibleHitsAsync(ranked, type, def, limit, ct);
+
+        SetCache(type, hitIds);
+        await Send.OkAsync(new SemanticResponse(results, results.Count, q) { Truncated = truncated }, ct);
+    }
+
+    private async Task<(List<SemanticHit> Results, List<Guid> HitIds)> VisibleHitsAsync(
+        List<(ContentEmbedding e, double score)> ranked, string type, ContentTypeDefinition def, int limit, CancellationToken ct)
+    {
         // The vector is only a hint; the current content is the source of truth on visibility.
         var current = ranked.Count == 0
             ? new Dictionary<Guid, Content>()
@@ -146,8 +167,7 @@ public class SemanticSearchEndpoint(
             if (results.Count >= limit) break;
         }
 
-        SetCache(type, hitIds);
-        await Send.OkAsync(new SemanticResponse(results, results.Count, q) { Truncated = truncated }, ct);
+        return (results, hitIds);
     }
 
     // The answer is built from the resolved tenant, and the X-Tenant header is read before the

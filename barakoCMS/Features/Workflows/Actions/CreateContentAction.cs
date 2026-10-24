@@ -82,7 +82,7 @@ internal sealed class CreateContentAction(
 
         // A json field takes only a whole list or object, which a template fills as JSON text. A
         // value mixed into other text could add keys, so that is refused. Permanent, no value named.
-        var declared = (await session.Query<ContentTypeDefinition>().FirstNamedAsync(type, ct))?.Fields;
+        var declared = (await barakoCMS.Infrastructure.Services.AccountContentTypes.ResolveAsync(session, type, ct))?.Fields;
         var refusal = barakoCMS.Core.Validation.JsonTextFields.Read(
             declared, request.Data, key => ActionParameters.IsStructured(parameters, "Data." + key));
         if (refusal is not null)
@@ -126,7 +126,7 @@ internal sealed class CreateContentAction(
 
     private async Task<WorkflowActionResult> DoneAsync(barakoCMS.Models.Content created, string type, CancellationToken ct)
     {
-        var definition = await session.Query<ContentTypeDefinition>().FirstNamedAsync(type, ct);
+        var definition = await barakoCMS.Infrastructure.Services.AccountContentTypes.ResolveAsync(session, type, ct);
         var number = definition?.Numbering?.Field is { Length: > 0 } field
             && created.Data.TryGetValue(field, out var value) ? value?.ToString() : null;
 

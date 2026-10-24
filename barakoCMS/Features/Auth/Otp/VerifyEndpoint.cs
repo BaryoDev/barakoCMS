@@ -1,6 +1,7 @@
 using FastEndpoints;
 using FastEndpoints.Security;
 using Marten;
+using Marten.Patching;
 using barakoCMS.Models;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Cryptography;
@@ -88,6 +89,41 @@ internal class VerifyEndpoint(
         }
     }
 
+    /// <summary>
+    /// Counts a guess before it is checked. The increment is atomic in the database, so parallel
+    /// requests each get their own number, and only a request whose number is within the cap gets
+    /// its guess evaluated. Returns the code as it stands after the increment, or null when this
+    /// request is over the cap.
+    /// </summary>
+    private async Task<OtpCode?> ReserveAttemptAsync(Guid id, CancellationToken ct)
+    {
+        session.Patch<OtpCode>(id).Increment(x => x.Attempts);
+        await session.SaveChangesAsync(ct);
+
+        var current = await session.LoadAsync<OtpCode>(id, ct);
+        if (current is null || current.Consumed || current.Attempts > MaxAttempts)
+            return null;
+
+        return current;
+    }
+
+    private (string Token, DateTime Expiry) StoreRefreshToken(Guid userId, string? deviceId, TimeSpan lifetime)
+    {
+        var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
+        var expiry = DateTime.UtcNow.Add(lifetime);
+        session.Store(new RefreshToken
+        {
+            Id = Guid.NewGuid(),
+            TokenHash = RefreshToken.HashOf(token),
+            UserId = userId,
+            ExpiresAt = expiry,
+            CreatedAt = DateTime.UtcNow,
+            IsRevoked = false,
+            DeviceId = deviceId,
+        });
+        return (token, expiry);
+    }
+
     public override async Task HandleAsync(OtpVerifyRequest req, CancellationToken ct)
     {
         var email = (req.Email ?? string.Empty).Trim().ToLowerInvariant();
@@ -110,13 +146,17 @@ internal class VerifyEndpoint(
             return;
         }
 
+        var reserved = await ReserveAttemptAsync(otp.Id, ct);
+        if (reserved is null)
+        {
+            ThrowError("Too many attempts. Please request a new code.");
+            return;
+        }
+
+        otp = reserved;
+
         if (!BCrypt.Net.BCrypt.Verify(code, otp.CodeHash))
         {
-            otp.Attempts += 1;
-            session.Update(otp);
-            // A lost race here means a concurrent request already touched this code. The answer is
-            // the same either way, so the result of the save does not change it.
-            await TrySaveAsync(ct);
             ThrowError("Invalid or expired code.");
             return;
         }
@@ -167,18 +207,7 @@ internal class VerifyEndpoint(
         var accessTokenExpiry = issued.ExpiresAt;
         var jwtToken = issued.Token;
 
-        var refreshTokenString = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
-        var refreshTokenExpiry = DateTime.UtcNow.Add(issued.RefreshLifetime);
-        session.Store(new RefreshToken
-        {
-            Id = Guid.NewGuid(),
-            TokenHash = RefreshToken.HashOf(refreshTokenString),
-            UserId = user.Id,
-            ExpiresAt = refreshTokenExpiry,
-            CreatedAt = DateTime.UtcNow,
-            IsRevoked = false,
-            DeviceId = device.DeviceId,
-        });
+        var (refreshTokenString, refreshTokenExpiry) = StoreRefreshToken(user.Id, device.DeviceId, issued.RefreshLifetime);
         // The one that must not be best-effort. Losing here means another request consumed this
         // code, so returning the tokens computed above would mint a second session from one code,
         // which is the race the optimistic concurrency was added to stop.

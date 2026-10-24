@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests.Booking;
 /// The fixture points the module at <c>bookingprobe</c>. Every test books its own resource, so
 /// bookings in one test never meet another's.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class BookingModuleTests
 {
     private const string TypeName = "bookingprobe";
@@ -179,6 +179,65 @@ public class BookingModuleTests
         res.StatusCode.Should().Be(HttpStatusCode.BadRequest, text);
         text.Should().Contain("not available");
         text.Should().NotContain("10:00").And.NotContain("12:00");
+    }
+
+    [Fact]
+    public async Task Bookings_far_outside_the_requested_time_do_not_block_it_and_offsets_near_the_edge_still_do()
+    {
+        var client = await AdminAsync();
+        var resource = await CreateResourceAsync(client, ResourceBody());
+        await BookedAsync(client, resource, 24 * 40 + 10, 24 * 40 + 12);
+        await BookedAsync(client, resource, -24 * 40 + 10, -24 * 40 + 12);
+
+        (await BookAsync(client, resource, 10, 12)).IsSuccessStatusCode.Should().BeTrue("neither far booking overlaps");
+
+        // 2031-06-03T08:00+14:00 to 10:00+14:00 is 2031-06-02T18:00Z to 20:00Z, a calendar day later in its own offset.
+        var edge = await client.PostAsJsonAsync("/api/contents", new
+        {
+            contentType = TypeName,
+            data = new Dictionary<string, object?>
+            {
+                ["Resource"] = resource.ToString(),
+                ["Start"] = "2031-06-03T08:00:00+14:00",
+                ["End"] = "2031-06-03T10:00:00+14:00",
+            },
+        }, Ct);
+        edge.IsSuccessStatusCode.Should().BeTrue(await edge.Content.ReadAsStringAsync(Ct));
+
+        var clash = await BookAsync(client, resource, 19, 21);
+
+        clash.StatusCode.Should().Be(HttpStatusCode.BadRequest, await clash.Content.ReadAsStringAsync(Ct));
+    }
+
+    [Fact]
+    public async Task A_booking_stored_with_a_padded_or_non_canonical_date_still_blocks_an_overlap()
+    {
+        var client = await AdminAsync();
+        var resource = await CreateResourceAsync(client, ResourceBody());
+
+        async Task StoreAsync(string start, string end)
+        {
+            var res = await client.PostAsJsonAsync("/api/contents", new
+            {
+                contentType = TypeName,
+                data = new Dictionary<string, object?>
+                {
+                    ["Resource"] = resource.ToString(),
+                    ["Start"] = start,
+                    ["End"] = end,
+                },
+            }, Ct);
+            res.IsSuccessStatusCode.Should().BeTrue(await res.Content.ReadAsStringAsync(Ct));
+        }
+
+        await StoreAsync("  2031-06-02T10:00:00Z", "2031-06-02T12:00:00Z");
+        await StoreAsync("2031-06-02 14:00:00+00:00", "2031-06-02T16:00:00.000+00:00");
+
+        var first = await BookAsync(client, resource, 11, 13);
+        var second = await BookAsync(client, resource, 15, 17);
+
+        first.StatusCode.Should().Be(HttpStatusCode.BadRequest, await first.Content.ReadAsStringAsync(Ct));
+        second.StatusCode.Should().Be(HttpStatusCode.BadRequest, await second.Content.ReadAsStringAsync(Ct));
     }
 
     [Fact]

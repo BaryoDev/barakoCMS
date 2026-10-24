@@ -24,7 +24,7 @@ using UpdateContentResponse = barakoCMS.Features.Content.Update.Response;
 
 namespace BarakoCMS.Tests;
 
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class IntegrationTests
 {
     private readonly HttpClient _client;
@@ -43,7 +43,7 @@ public class IntegrationTests
         // per IP, and once confirming an address became a second call to a registration-limited route
         // (#268) the two tests below spent all five between them, leaving nothing for the next.
         _client.DefaultRequestHeaders.Add(
-            TestRemoteIpFilter.Header, $"2001:db8:1717::{Interlocked.Increment(ref _ipCounter):x}");
+            TestRemoteIpFilter.Header, $"2001:db8:1717:{Interlocked.Increment(ref _ipCounter):x}::1");
     }
 
     private string CreateAdminToken()

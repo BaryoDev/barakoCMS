@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests;
 /// A user group holds roles, and its members hold them too (#919). Groups used to be stored,
 /// listed and assigned, and changed nothing about what anyone could do.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class UserGroupRoleTests
 {
     private readonly IntegrationTestFixture _factory;

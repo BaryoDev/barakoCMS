@@ -36,6 +36,10 @@ public class ShippedMigrationTests
         "5.2.0/585-documents",
         "5.2.0/contacts",
         "5.2.0/notifications",
+        "5.3.0/accounting-journal-lifecycle",
+        "5.3.0/accounting-mappings",
+        "5.3.0/252-tagging",
+        "5.3.0/833-services",
     ];
 
     /// <summary>
@@ -92,6 +96,10 @@ public class ShippedMigrationTests
         ["core/5.2.0/pending-builds"] = "a169671e0291d7153f383041f5d9faded2817d7bfbe7aad3fad5a7ba389763f2",
         ["core/5.2.0/signed-link-uses"] = "038b3f05443ea16918589b1bad1d11bc89311d406001e44794ade130c8fac426",
         ["core/5.2.0/workflow-schedule-claims"] = "51d6a157ef250942f01f3d4d5060fbdee32e9efee187f7551d7a42721e4f4371",
+        ["core/5.3.0/945-account-content-types"] = "0c45c34c4bf1bbd4ceb84601a4283030f022a1c75f3988ae546fa7f5e53dbd54",
+        ["core/5.3.0/98-locale-settings"] = "feb469f6ed7c50b4cbb368e1e3784b6551a68645e42d088d4802a4baabc0a77c",
+        ["Accounting/5.3.0/accounting-journal-lifecycle"] = "9729574df1abebb11b7e8e5f27e826053f8abf4d22ac71b7379b9bf41f918d29",
+        ["Accounting/5.3.0/accounting-mappings"] = "aa1c2f31888dd847149609343ba3e03b0a04f6aa6af17669f27d9d3143c3c1d5",
         ["Booking/5.2.0/booking-resources"] = "01aab1064f0fbefb9c7580d06a486338d258c25c91feb633579ae81910fe0a5b",
         ["Comments/5.2.0/253-comments"] = "6fa6040b649fb8de053d0a0562d0a4d9f67e6bb226484f2fa92cc279ba48375c",
         ["Contacts/5.2.0/contacts"] = "2968c22f7a40931744606e374eaad261e7591eb7d6a9615119cb01a537f73abf",
@@ -176,6 +184,8 @@ public class ShippedMigrationTests
             new BarakoCMS.Contacts.ContactsModule(),
             new BarakoCMS.Notifications.NotificationsModule(),
             new BarakoCMS.Documents.DocumentsModule(),
+            new BarakoCMS.Tagging.TaggingModule(),
+            new BarakoCMS.Services.ServicesModule(),
         ];
 
         var all = ShippedMigrations.Discover(modules);
@@ -184,6 +194,8 @@ public class ShippedMigrationTests
         var owned = all.Where(m => m.Owner != ShippedMigrations.CoreOwner).Select(m => m.Key).ToList();
         owned.Should().Equal(
             "Accounting/5.0.0/accounting-number-sequences",
+            "Accounting/5.3.0/accounting-journal-lifecycle",
+            "Accounting/5.3.0/accounting-mappings",
             "Booking/5.2.0/booking-resources",
             "Comments/5.2.0/253-comments",
             "Contacts/5.2.0/contacts",
@@ -202,7 +214,9 @@ public class ShippedMigrationTests
             "Payments/5.2.0/payments-events",
             "Payments/5.2.0/payments-payable-types",
             "Reports/5.2.0/report-definitions",
-            "Scheduling/5.2.0/scheduled-entries");
+            "Scheduling/5.2.0/scheduled-entries",
+            "Services/5.3.0/833-services",
+            "Tagging/5.3.0/252-tagging");
         coreOnly.Count.Should().BeGreaterThanOrEqualTo(7, "seven core files were released before the ledger");
         coreOnly.Should().HaveCount(all.Count - owned.Count, "a module that is not enabled contributes nothing");
         coreOnly.Should().OnlyContain(m => m.Owner == ShippedMigrations.CoreOwner);

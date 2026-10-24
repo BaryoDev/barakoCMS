@@ -9,7 +9,7 @@ using barakoCMS.Models;
 
 namespace BarakoCMS.Tests.Features.Audit;
 
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class AuditListTests
 {
     private readonly IntegrationTestFixture _factory;

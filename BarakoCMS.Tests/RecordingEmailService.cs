@@ -36,6 +36,22 @@ public sealed class RecordingEmailService : IEmailService
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Waits for a condition on mail that a background queue sends after the request has answered.
+    /// Polls, and returns false at the deadline so the caller's assertion says what was missing.
+    /// </summary>
+    public static async Task<bool> WaitForAsync(Func<bool> condition, int timeoutMs = 10_000)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (!condition())
+        {
+            if (DateTime.UtcNow >= deadline) return false;
+            await Task.Delay(50);
+        }
+
+        return true;
+    }
+
     /// <summary>The most recent registration token emailed to <paramref name="email"/>, or null.</summary>
     public string? LastVerificationTokenFor(string email)
     {
