@@ -810,7 +810,7 @@ jobs:
     name: Announce (discussions)
     needs: [gate, publish-packages]
     if: needs.gate.outputs.should_release == 'true'
-    uses: BaryoDev/.github/.github/workflows/announce.yml@main
+    uses: BaryoDev/.github/.github/workflows/announce.yml@7d9cbb97e4a8fea9d5244ab6de9b06cb2eab8229 # main
     with:
       package: "barakoCMS suite"
       version: ${{ needs.gate.outputs.version }}
