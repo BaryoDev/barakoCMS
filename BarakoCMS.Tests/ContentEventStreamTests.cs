@@ -145,9 +145,14 @@ public class ContentEventStreamTests
         }
     }
 
-    private static HttpRequestMessage Request(string url, string? tenant = null, string? remoteIp = null)
+    private static HttpRequestMessage Request(string url, string? tenant = null, string? remoteIp = null, string? forwardedFor = null)
     {
         var request = new HttpRequestMessage(HttpMethod.Get, url);
+        if (forwardedFor is not null)
+        {
+            request.Headers.Add("X-Forwarded-For", forwardedFor);
+        }
+
         if (tenant is not null)
         {
             request.Headers.Add("X-Tenant", tenant);
@@ -515,6 +520,33 @@ public class ContentEventStreamTests
 
         using var other = await OpenStream.OpenAsync(client, "/api/public/events", remoteIp: second);
         other.StatusCode.Should().Be(HttpStatusCode.OK, "another address is under its own cap");
+    }
+
+    [Fact]
+    public async Task Behind_a_trusted_proxy_the_per_client_cap_counts_the_forwarded_client()
+    {
+        const string proxy = "10.20.30.40";
+        var host = EnabledHost(new Dictionary<string, string?>
+        {
+            ["Delivery:Events:MaxConnectionsPerClient"] = "1",
+            ["ForwardedHeaders:Enabled"] = "true",
+            ["ForwardedHeaders:KnownProxies:0"] = proxy,
+        });
+        var client = host.CreateClient();
+
+        using var held = await client.SendAsync(
+            Request("/api/public/events", remoteIp: proxy, forwardedFor: "203.0.113.51"), HttpCompletionOption.ResponseHeadersRead);
+        held.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var sameClient = await client.SendAsync(
+            Request("/api/public/events", remoteIp: proxy, forwardedFor: "203.0.113.51"), HttpCompletionOption.ResponseHeadersRead);
+        sameClient.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable,
+            "the forwarded client already holds its one stream");
+
+        using var otherClient = await client.SendAsync(
+            Request("/api/public/events", remoteIp: proxy, forwardedFor: "203.0.113.52"), HttpCompletionOption.ResponseHeadersRead);
+        otherClient.StatusCode.Should().Be(HttpStatusCode.OK,
+            "a different forwarded client behind the same proxy has its own cap");
     }
 
     [Fact]
