@@ -518,6 +518,7 @@ public class DeliveryRateLimitWiringTests
     [Theory]
     [InlineData("/api/public/{0}")]
     [InlineData("/api/public/{0}/search?q=coffee")]
+    [InlineData("/api/public/{0}/semantic?q=coffee")]
     [InlineData("/api/public/{0}/some-entry")]
     [InlineData("/api/public/{0}/feed.xml")]
     [InlineData("/api/public/sitemap.xml")]

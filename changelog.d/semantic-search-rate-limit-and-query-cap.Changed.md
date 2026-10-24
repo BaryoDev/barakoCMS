@@ -1,0 +1,1 @@
+- **Semantic search uses the delivery rate limit and caps the query at 500 characters.** A longer `q` answers 400.
