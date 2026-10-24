@@ -25,6 +25,10 @@ internal sealed class Endpoint(IDocumentSession session) : Endpoint<Request>
             return;
         }
 
+        // Held until the commit below, so a child added while this runs either lands first and is
+        // seen by the check, or waits and finds its parent gone.
+        await TaggingLocks.ForVocabularyAsync(session, term.VocabularyId, ct);
+
         if (await session.Query<Term>().AnyAsync(t => t.ParentId == term.Id, ct))
         {
             AddError("The term has children. Move or delete them first.");

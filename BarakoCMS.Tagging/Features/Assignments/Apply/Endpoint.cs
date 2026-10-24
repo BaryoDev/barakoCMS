@@ -32,9 +32,20 @@ internal sealed class Endpoint(IDocumentSession session) : Endpoint<Request, Ass
         var contentType = req.ContentType.Trim().ToLowerInvariant();
         var id = TaggingIds.ForAssignment(term.Id, contentType, req.RecordId);
 
+        await TaggingLocks.ForRecordAsync(session, contentType, req.RecordId, ct);
+
         var assignment = await session.LoadAsync<TermAssignment>(id, ct);
         if (assignment is null)
         {
+            var carried = await session.Query<TermAssignment>()
+                .CountAsync(a => a.ContentType == contentType && a.RecordId == req.RecordId, ct);
+            if (carried >= TaggingRules.MaxTermsPerRecord)
+            {
+                AddError($"A record carries at most {TaggingRules.MaxTermsPerRecord} terms.");
+                await Send.ErrorsAsync(400, ct);
+                return;
+            }
+
             assignment = new TermAssignment
             {
                 Id = id,

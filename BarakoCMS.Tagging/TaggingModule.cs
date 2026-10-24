@@ -13,6 +13,9 @@ public sealed class TaggingModule : IBarakoModule
 
     public int HttpContractVersion => 1;
 
+    public void ConfigureServices(Microsoft.Extensions.DependencyInjection.IServiceCollection services, Microsoft.Extensions.Configuration.IConfiguration configuration) =>
+        services.AddScoped<barakoCMS.Core.Interfaces.IContentErasureCascade, TermsErasureCascade>();
+
     public void ConfigureSchema(IModuleSchema schema)
     {
         // All three are per tenant, so a vocabulary, a term or an assignment in one tenant is not

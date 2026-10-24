@@ -25,6 +25,7 @@ internal sealed class Endpoint(IDocumentSession session) : Endpoint<Request, Ter
             return;
         }
 
+        await TaggingLocks.ForVocabularyAsync(session, req.VocabularyId, ct);
         var tree = await TermTree.LoadAsync(session, req.VocabularyId, ct);
         if (tree.Count >= TaggingRules.MaxTermsPerVocabulary)
         {

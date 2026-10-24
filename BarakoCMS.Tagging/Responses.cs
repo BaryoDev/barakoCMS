@@ -75,6 +75,9 @@ internal static class TaggingRules
     /// <summary>Terms in one vocabulary, so walking its tree stays bounded.</summary>
     public const int MaxTermsPerVocabulary = 10_000;
 
+    /// <summary>Terms on one record, so listing the terms of a record stays bounded.</summary>
+    public const int MaxTermsPerRecord = 100;
+
     /// <summary>Lowercase letters, digits, hyphens and underscores, starting with a letter or digit.</summary>
     public static IRuleBuilderOptions<T, string> ValidKey<T>(this IRuleBuilder<T, string> rule) =>
         rule.NotEmpty().MaximumLength(MaxKeyLength).Matches("^[a-z0-9][a-z0-9_-]*$")
