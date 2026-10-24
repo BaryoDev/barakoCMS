@@ -8,7 +8,7 @@ using static BarakoCMS.Tests.Features.Config.ConfigCallers;
 
 namespace BarakoCMS.Tests.Numbering;
 
-[Collection("Integration4")]
+[Collection("Integration3")]
 public class NumberingConfigTests(IntegrationTestFixture fixture)
 {
     private readonly BarakoCMS.Tests.Features.Config.ConfigCallers callers = new(fixture);

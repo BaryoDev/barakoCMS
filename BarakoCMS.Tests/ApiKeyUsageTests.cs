@@ -12,7 +12,7 @@ using barakoCMS.Models;
 
 namespace BarakoCMS.Tests;
 
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class ApiKeyUsageTests(IntegrationTestFixture factory)
 {
     private readonly HttpClient _client = factory.CreateClient();

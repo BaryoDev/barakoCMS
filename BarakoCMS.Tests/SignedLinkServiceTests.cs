@@ -9,7 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace BarakoCMS.Tests;
 
-[Collection("Integration1")]
+[Collection("Integration2")]
 public class SignedLinkServiceTests
 {
     private readonly IntegrationTestFixture _factory;

@@ -24,7 +24,7 @@ namespace BarakoCMS.Tests.Features.Connectors;
 /// The provider is a stub that answers a body the test chose. A response is untrusted, so the
 /// bodies here include a planted placeholder, a credential header and a body over the read cap.
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration4")]
 public class RequestOutputsActionTests : IAsyncLifetime
 {
     private const string Reply =

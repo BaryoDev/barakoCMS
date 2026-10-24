@@ -8,7 +8,7 @@ using static BarakoCMS.Tests.Rules.RuleRows;
 
 namespace BarakoCMS.Tests.Rules;
 
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class RuleRefTests(IntegrationTestFixture host)
 {
     private static string Name(string prefix) => $"{prefix}{Guid.NewGuid():n}"[..20];

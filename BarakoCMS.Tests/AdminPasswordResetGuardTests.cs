@@ -11,7 +11,7 @@ using Xunit;
 
 namespace BarakoCMS.Tests;
 
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class AdminPasswordResetGuardTests
 {
     private const string OldPassword = "OldPassw0rd!x";

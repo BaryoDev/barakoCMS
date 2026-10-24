@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests;
 /// The host allows a creator to make the Issue move on their own entry, because a batch that
 /// creates an entry and issues it is the creator moving it on, and the default policy refuses that.
 /// </remarks>
-[Collection("Integration1")]
+[Collection("Integration3")]
 public class ContentBatchWriteTests(IntegrationTestFixture host)
 {
     private const string Refusal = "A order is required.";

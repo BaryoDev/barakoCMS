@@ -6,7 +6,7 @@ using Xunit;
 namespace BarakoCMS.Tests.Features.Tagging;
 
 /// <summary>Who may call the Tagging endpoints, and that one tenant cannot see another's data.</summary>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class TaggingAccessTests
 {
     private readonly IntegrationTestFixture _factory;

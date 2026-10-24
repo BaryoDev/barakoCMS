@@ -10,7 +10,7 @@ using static BarakoCMS.Tests.Features.Config.ConfigCallers;
 namespace BarakoCMS.Tests.Features.Accounting;
 
 /// <summary>The accountingMappings section: stored, exported, checked against the chart and gated.</summary>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class AccountMappingTests(IntegrationTestFixture fixture)
 {
     private readonly ConfigCallers _callers = new(fixture);

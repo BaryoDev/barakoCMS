@@ -11,7 +11,7 @@ using Xunit;
 namespace BarakoCMS.Tests.Features.Notifications;
 
 /// <summary>Raising a notification, by a module through the service and by a client over HTTP.</summary>
-[Collection("Integration1")]
+[Collection("Integration4")]
 public class RaiseNotificationTests
 {
     private readonly IntegrationTestFixture _factory;

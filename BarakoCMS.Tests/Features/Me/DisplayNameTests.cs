@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests.Features.Me;
 /// A user's display name: <c>GET /api/me</c> returns it, falls back to the username when unset, and
 /// <c>PUT /api/me/profile</c> sets and clears it (#1160).
 /// </summary>
-[Collection("Integration1")]
+[Collection("Integration4")]
 public class DisplayNameTests
 {
     private const string MeRoute = "/api/me";

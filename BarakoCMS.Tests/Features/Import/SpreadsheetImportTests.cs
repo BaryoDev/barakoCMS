@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests.Features.Import;
 /// <c>POST /api/import/spreadsheet</c> imports every row of an uploaded sheet, where analyze only
 /// previews 500, and says what it did with each bound it hits.
 /// </summary>
-[Collection("Integration2")]
+[Collection("Integration3")]
 public class SpreadsheetImportTests
 {
     private readonly IntegrationTestFixture _fixture;

@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests.Features.Accounts;
 /// account see it and validate their own entries against it, a tenant outside the account does not,
 /// the tenant's admin cannot change it, and an account manager can.
 /// </summary>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class AccountContentTypeTests
 {
     private readonly IntegrationTestFixture _fixture;

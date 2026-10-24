@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests.Features.Comments;
 /// A thread on any record: post, reply, list by target, and the rule that a comment is only as
 /// readable as the record it hangs on.
 /// </summary>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class CommentTests
 {
     private readonly IntegrationTestFixture _factory;

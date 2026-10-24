@@ -23,7 +23,7 @@ namespace BarakoCMS.Tests.Features.Connectors;
 /// own cache and clock, which is what lets them count token calls exactly and move time. The ones
 /// about storage, responses and the two endpoints go over HTTP, through the host's own sender.
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration4")]
 public class ConnectorOAuthTests : IAsyncLifetime
 {
     private const string Secret = "fake-client-secret-for-the-oauth-tests";

@@ -8,7 +8,7 @@ using static BarakoCMS.Tests.Rules.RuleRows;
 
 namespace BarakoCMS.Tests.Rules;
 
-[Collection("Integration2")]
+[Collection("Integration4")]
 public class RuleLetTests(IntegrationTestFixture host)
 {
     private sealed class FixedLookup(string name, RuleLookupValue value) : IRuleLookup

@@ -11,7 +11,7 @@ using barakoCMS.Models;
 namespace BarakoCMS.Tests.Features.Comments;
 
 /// <summary>A tenant's comments are invisible to every other tenant, by id or by listing.</summary>
-[Collection("Integration4")]
+[Collection("Integration2")]
 public class CommentTenantTests
 {
     private readonly IntegrationTestFixture _factory;

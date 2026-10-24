@@ -57,7 +57,7 @@ public class ReportCsvTests
     }
 }
 
-[Collection("Integration1")]
+[Collection("Integration4")]
 public class ReportCsvExportTests
 {
     private readonly ReportTestSupport _support;

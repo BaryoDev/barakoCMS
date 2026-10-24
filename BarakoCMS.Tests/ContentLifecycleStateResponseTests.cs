@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests;
 /// The content read and list return the lifecycle state: the stored one, or the type's initial
 /// state for an entry that has not moved, and nothing for a type without a lifecycle or a hidden row.
 /// </summary>
-[Collection("Integration4")]
+[Collection("Integration2")]
 public class ContentLifecycleStateResponseTests
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests.Features.Accounting;
 /// A journal entry is Posted when it is made and Voided by the Void transition, and a Voided entry
 /// stays in the books, counted on its own date, and its reversal counts on the reversal date. An upgraded database reads the same way after the 5.1.0 migration.
 /// </summary>
-[Collection("Integration4")]
+[Collection("Integration2")]
 public class JournalLifecycleTests(IntegrationTestFixture fixture)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

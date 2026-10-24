@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests.Features.Services;
 /// The registry is one deployment-wide table, so a heartbeat is bound to the service's own machine
 /// key, or to a global holder of send_service_heartbeat when no key is registered.
 /// </summary>
-[Collection("Integration2")]
+[Collection("Integration3")]
 public class ServiceHeartbeatScopeTests
 {
     private readonly IntegrationTestFixture _factory;

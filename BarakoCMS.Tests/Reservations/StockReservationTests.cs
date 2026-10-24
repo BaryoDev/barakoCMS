@@ -10,7 +10,7 @@ using Xunit;
 
 namespace BarakoCMS.Tests.Reservations;
 
-[Collection("Integration1")]
+[Collection("Integration2")]
 public class StockReservationTests(SampleProbeHost host) : IClassFixture<SampleProbeHost>
 {
     private IStockReservations Stock => host.Services.GetRequiredService<IStockReservations>();

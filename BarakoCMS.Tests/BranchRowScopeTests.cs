@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests;
 /// A read rule of <c>$branch eq $CURRENT_BRANCH</c> shows the rows of the request's branch, and only
 /// of a branch the member holds.
 /// </summary>
-[Collection("Integration3")]
+[Collection("Integration4")]
 public class BranchRowScopeTests
 {
     private readonly IntegrationTestFixture _factory;

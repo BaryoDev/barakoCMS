@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests.Realtime;
 /// Each test works in a tenant of its own, so a topic name one test takes is free in the next.
 /// Types are saved through the config apply, the writer that carries a whole definition.
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration4")]
 public class ContentTopicDeclarationTests(SampleProbeHost host) : IClassFixture<SampleProbeHost>
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

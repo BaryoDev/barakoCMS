@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// Issue #559: a burst of publishes fires one static build, the post goes through the webhook path so
 /// a failure shows in WebhookDeliveries, and each provider gets the body and headers it expects.
 /// </summary>
-[Collection("Integration2")]
+[Collection("Integration4")]
 public class BuildHookActionTests
 {
     private const string HookUrl = "https://hook.example/build_hooks/abc123";

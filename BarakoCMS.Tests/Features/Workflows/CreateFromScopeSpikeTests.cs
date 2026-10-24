@@ -9,7 +9,7 @@ using Xunit;
 namespace BarakoCMS.Tests.Features.Workflows;
 
 /// <summary>Staging an entry from a tenant scope with no HttpContext numbers it and sets its initial state.</summary>
-[Collection("Integration1")]
+[Collection("Integration2")]
 public class CreateFromScopeSpikeTests(IntegrationTestFixture fixture)
 {
     [Fact]

@@ -9,7 +9,7 @@ using static BarakoCMS.Tests.Realtime.ContentTopicKit;
 
 namespace BarakoCMS.Tests.Realtime;
 
-[Collection("Integration4")]
+[Collection("Integration3")]
 public class ContentRealtimeHubTests(SampleProbeHost host) : IClassFixture<SampleProbeHost>
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

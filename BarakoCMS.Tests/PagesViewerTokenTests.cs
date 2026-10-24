@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests;
 /// The Pages module's resolve route honours X-Viewer-Token the way the core public reads do: a
 /// Members page answers only for a viewer token valid for the request's tenant.
 /// </summary>
-[Collection("Integration2")]
+[Collection("Integration4")]
 public class PagesViewerTokenTests
 {
     private const string TypeName = "pageviewerprobe";

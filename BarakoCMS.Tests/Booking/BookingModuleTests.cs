@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests.Booking;
 /// The fixture points the module at <c>bookingprobe</c>. Every test books its own resource, so
 /// bookings in one test never meet another's.
 /// </remarks>
-[Collection("Integration1")]
+[Collection("Integration3")]
 public class BookingModuleTests
 {
     private const string TypeName = "bookingprobe";

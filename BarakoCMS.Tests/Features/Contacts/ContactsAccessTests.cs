@@ -6,7 +6,7 @@ using Xunit;
 namespace BarakoCMS.Tests.Features.Contacts;
 
 /// <summary>Who may read and write contacts, and that one tenant never reaches another's.</summary>
-[Collection("Integration1")]
+[Collection("Integration3")]
 public class ContactsAccessTests(IntegrationTestFixture factory)
 {
     private readonly ContactsTestHost _host = new(factory);

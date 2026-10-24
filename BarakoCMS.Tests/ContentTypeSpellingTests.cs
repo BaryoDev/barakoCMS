@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests;
 /// An entry keeps the type name as the caller spelled it, and listing by the type finds every
 /// spelling (#1159).
 /// </summary>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class ContentTypeSpellingTests
 {
     private readonly IntegrationTestFixture _factory;

@@ -8,7 +8,7 @@ namespace BarakoCMS.Tests.Features.Payments;
 /// <summary>
 /// POST /api/payments/webhooks/{provider}: signed, handled once per provider event id.
 /// </summary>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class PaymentWebhookTests
 {
     private readonly PaymentHarness _payments;

@@ -12,7 +12,7 @@ using static BarakoCMS.Tests.Rules.RuleKit;
 namespace BarakoCMS.Tests.Rules;
 
 /// <summary>Where the engine is called: every lifecycle transition, by a user or by a module.</summary>
-[Collection("Integration4")]
+[Collection("Integration3")]
 public class RuleCallSiteTests(IntegrationTestFixture host)
 {
     private const string Refusal = "A order is required.";

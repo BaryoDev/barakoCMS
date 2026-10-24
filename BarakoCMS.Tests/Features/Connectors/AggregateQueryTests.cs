@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests.Features.Connectors;
 /// different number. Each refusal has a control beside it, so a runner that refused everything
 /// cannot pass.
 /// </remarks>
-[Collection("Integration4")]
+[Collection("Integration2")]
 public class AggregateQueryTests
 {
     private static int _ip;

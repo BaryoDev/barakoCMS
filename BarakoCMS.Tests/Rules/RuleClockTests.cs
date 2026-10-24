@@ -7,7 +7,7 @@ using static BarakoCMS.Tests.Rules.RuleKit;
 
 namespace BarakoCMS.Tests.Rules;
 
-[Collection("Integration2")]
+[Collection("Integration4")]
 public class RuleClockTests(IntegrationTestFixture host)
 {
     private static RuleDefinition Zoned(string? zone, RuleCondition condition)

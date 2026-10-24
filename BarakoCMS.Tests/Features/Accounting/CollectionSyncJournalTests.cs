@@ -10,7 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace BarakoCMS.Tests.Features.Accounting;
 
 /// <summary>A collection sync goes through the lifecycle hooks, so it cannot rewrite what a hook keeps fixed.</summary>
-[Collection("Integration3")]
+[Collection("Integration4")]
 public class CollectionSyncJournalTests(IntegrationTestFixture fixture)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

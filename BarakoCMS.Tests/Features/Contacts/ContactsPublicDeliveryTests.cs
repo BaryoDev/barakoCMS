@@ -6,7 +6,7 @@ using Xunit;
 namespace BarakoCMS.Tests.Features.Contacts;
 
 /// <summary>Anonymous delivery serves published contacts, Public fields only, per tenant.</summary>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class ContactsPublicDeliveryTests(IntegrationTestFixture factory)
 {
     private readonly ContactsTestHost _host = new(factory);

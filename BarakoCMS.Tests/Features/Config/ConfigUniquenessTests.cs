@@ -9,7 +9,7 @@ namespace BarakoCMS.Tests.Features.Config;
 /// A content type's uniqueness rules in the config document: stored when the type is created, checked
 /// the way create checks them, round-tripped by export, and left alone by a document without them.
 /// </summary>
-[Collection("Integration3")]
+[Collection("Integration4")]
 public class ConfigUniquenessTests
 {
     private readonly ConfigCallers _callers;

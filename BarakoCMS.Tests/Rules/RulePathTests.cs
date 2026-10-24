@@ -8,7 +8,7 @@ using static BarakoCMS.Tests.Rules.RuleKit;
 
 namespace BarakoCMS.Tests.Rules;
 
-[Collection("Integration1")]
+[Collection("Integration2")]
 public class RulePathTests(IntegrationTestFixture host)
 {
     private static readonly object[] Results = [new { Version = 1, SignedBy = "" }, new { Version = 2, SignedBy = "Ana" }];

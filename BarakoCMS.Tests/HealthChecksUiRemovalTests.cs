@@ -6,7 +6,7 @@ using Xunit;
 
 namespace BarakoCMS.Tests;
 
-[Collection("Integration1")]
+[Collection("Integration2")]
 public class HealthChecksUiRemovalTests
 {
     private readonly IntegrationTestFixture _fixture;

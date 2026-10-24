@@ -12,7 +12,7 @@ namespace BarakoCMS.Tests;
 /// The Qr module (#807). The fixture lists <c>Token</c> for <c>qrprobe</c> and nothing for any other
 /// type, so <c>qrunlisted</c> stands for an empty allowlist.
 /// </summary>
-[Collection("Integration1")]
+[Collection("Integration2")]
 public class QrRenderTests
 {
     private const string Listed = "qrprobe";

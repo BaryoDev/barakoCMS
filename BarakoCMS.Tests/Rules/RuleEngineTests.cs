@@ -4,7 +4,7 @@ using static BarakoCMS.Tests.Rules.RuleKit;
 
 namespace BarakoCMS.Tests.Rules;
 
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class RuleEngineTests(IntegrationTestFixture host)
 {
     [Fact]

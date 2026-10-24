@@ -6,7 +6,7 @@ using Xunit;
 namespace BarakoCMS.Tests.Features.Contacts;
 
 /// <summary>A contact is created once per email in a tenant, and the second attempt says who has it.</summary>
-[Collection("Integration3")]
+[Collection("Integration4")]
 public class ContactsCreateAndDedupeTests(IntegrationTestFixture factory)
 {
     private readonly ContactsTestHost _host = new(factory);

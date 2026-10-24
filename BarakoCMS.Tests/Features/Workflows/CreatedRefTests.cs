@@ -6,7 +6,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 
 /// <summary>The entries an action reports it created are kept on its attempt, and only on a success.</summary>
 /// <remarks>Runs are seeded and drained with the hosted runner stopped, as in <see cref="WorkflowOutputTests"/>.</remarks>
-[Collection("Integration4")]
+[Collection("Integration3")]
 public class CreatedRefTests
 {
     private readonly WorkflowStopHarness _harness;
