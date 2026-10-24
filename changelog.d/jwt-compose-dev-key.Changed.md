@@ -1,0 +1,1 @@
+- **The API rejects the compose default JWT key outside Development.** Set `JWT_SECRET` to your own key when you run the compose files with `ASPNETCORE_ENVIRONMENT` set to anything but Development. Local runs in Development are unchanged.
