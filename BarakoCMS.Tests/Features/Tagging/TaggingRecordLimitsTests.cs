@@ -66,6 +66,31 @@ public class TaggingRecordLimitsTests
         (await CountAsync(term)).Should().Be(1, "only the erased entry's assignment goes");
     }
 
+    [Fact]
+    public async Task A_record_tagged_by_its_uppercase_id_loses_its_terms_when_the_entry_is_erased()
+    {
+        var id = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var writer = scope.ServiceProvider.GetRequiredService<barakoCMS.Core.Interfaces.IContentWriter>();
+            await writer.CreateAsync(new barakoCMS.Events.ContentCreated(
+                id, "tagged-probe", new Dictionary<string, object> { ["FullName"] = "x" },
+                ContentStatus.Draft, Guid.NewGuid(), "x", SensitivityLevel.Public), default);
+            await session.SaveChangesAsync();
+        }
+
+        var api = await TaggingApi.SuperAdminAsync(_factory);
+        var term = IdOf(await api.CreateTermAsync(IdOf(await api.CreateVocabularyAsync())));
+        (await api.ApplyAsync("Tagged-Probe", id.ToString().ToUpperInvariant(), term)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await api.ApplyAsync("tagged-probe", $"{{{id}}}", term)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await CountAsync(term)).Should().Be(1, "both spellings name one record");
+
+        (await api.Http.DeleteAsync($"/api/contents/{id}/erase")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        (await CountAsync(term)).Should().Be(0);
+    }
+
     private async Task<int> CountAsync(Guid termId)
     {
         using var scope = _factory.Services.CreateScope();

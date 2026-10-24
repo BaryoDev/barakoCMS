@@ -15,7 +15,7 @@ internal sealed class Endpoint(IDocumentSession session) : Endpoint<Request>
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        var id = TaggingIds.ForAssignment(req.TermId, req.ContentType.Trim().ToLowerInvariant(), req.RecordId);
+        var id = TaggingIds.ForAssignment(req.TermId, TaggingIds.TypeKey(req.ContentType), TaggingIds.RecordKey(req.RecordId));
 
         var assignment = await session.LoadAsync<TermAssignment>(id, ct);
         if (assignment is null)

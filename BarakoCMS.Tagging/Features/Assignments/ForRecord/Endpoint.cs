@@ -16,17 +16,18 @@ internal sealed class Endpoint(IQuerySession session, barakoCMS.Infrastructure.S
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        var contentType = req.ContentType.Trim().ToLowerInvariant();
+        var contentType = TaggingIds.TypeKey(req.ContentType);
+        var recordId = TaggingIds.RecordKey(req.RecordId);
 
         var access = await RecordReadAccess.ForCallerAsync(session, permissions, Resolve<barakoCMS.Infrastructure.Services.IBranchScopeGuard>(), User, ct);
-        if (access is null || !await access.CanReadAsync(contentType, req.RecordId, ct))
+        if (access is null || !await access.CanReadAsync(contentType, recordId, ct))
         {
             await Send.ForbiddenAsync(ct);
             return;
         }
 
         var page = await session.Query<TermAssignment>()
-            .Where(a => a.ContentType == contentType && a.RecordId == req.RecordId)
+            .Where(a => a.ContentType == contentType && a.RecordId == recordId)
             .OrderByDescending(a => a.AssignedAt)
             .ThenBy(a => a.Id)
             .ToPagedResponseAsync(req, ct);

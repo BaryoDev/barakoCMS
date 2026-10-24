@@ -8,8 +8,8 @@ internal sealed class TermsErasureCascade : IContentErasureCascade
 {
     public Task QueueAsync(IDocumentSession session, Guid contentId, string contentType, CancellationToken ct)
     {
-        var type = contentType.ToLowerInvariant();
-        var record = contentId.ToString();
+        var type = TaggingIds.TypeKey(contentType);
+        var record = TaggingIds.RecordKey(contentId.ToString());
         session.DeleteWhere<TermAssignment>(a => a.ContentType == type && a.RecordId == record);
         return Task.CompletedTask;
     }

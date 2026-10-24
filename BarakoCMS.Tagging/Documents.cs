@@ -60,6 +60,16 @@ public sealed class TermAssignment
 /// <summary>The ids the documents are stored under.</summary>
 internal static class TaggingIds
 {
+    /// <summary>A record id as it is stored: trimmed, and a Guid in its canonical lowercase form.</summary>
+    public static string RecordKey(string recordId)
+    {
+        var trimmed = recordId.Trim();
+        return Guid.TryParse(trimmed, out var guid) ? guid.ToString("D") : trimmed;
+    }
+
+    /// <summary>A content type as it is stored: trimmed and lowercase.</summary>
+    public static string TypeKey(string contentType) => contentType.Trim().ToLowerInvariant();
+
     public static Guid ForVocabulary(string key) => From($"vocabulary|{key}");
 
     public static Guid ForTerm(Guid vocabularyId, string key) => From($"term|{vocabularyId:N}|{key}");

@@ -29,16 +29,17 @@ internal sealed class Endpoint(IDocumentSession session) : Endpoint<Request, Ass
             return;
         }
 
-        var contentType = req.ContentType.Trim().ToLowerInvariant();
-        var id = TaggingIds.ForAssignment(term.Id, contentType, req.RecordId);
+        var contentType = TaggingIds.TypeKey(req.ContentType);
+        var recordId = TaggingIds.RecordKey(req.RecordId);
+        var id = TaggingIds.ForAssignment(term.Id, contentType, recordId);
 
-        await TaggingLocks.ForRecordAsync(session, contentType, req.RecordId, ct);
+        await TaggingLocks.ForRecordAsync(session, contentType, recordId, ct);
 
         var assignment = await session.LoadAsync<TermAssignment>(id, ct);
         if (assignment is null)
         {
             var carried = await session.Query<TermAssignment>()
-                .CountAsync(a => a.ContentType == contentType && a.RecordId == req.RecordId, ct);
+                .CountAsync(a => a.ContentType == contentType && a.RecordId == recordId, ct);
             if (carried >= TaggingRules.MaxTermsPerRecord)
             {
                 AddError($"A record carries at most {TaggingRules.MaxTermsPerRecord} terms.");
@@ -52,7 +53,7 @@ internal sealed class Endpoint(IDocumentSession session) : Endpoint<Request, Ass
                 TermId = term.Id,
                 VocabularyId = term.VocabularyId,
                 ContentType = contentType,
-                RecordId = req.RecordId,
+                RecordId = recordId,
                 AssignedAt = DateTimeOffset.UtcNow,
                 AssignedBy = User.FindFirst("UserId")?.Value,
             };

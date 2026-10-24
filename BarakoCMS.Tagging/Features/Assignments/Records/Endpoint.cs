@@ -22,7 +22,7 @@ internal sealed class Endpoint(IQuerySession session, barakoCMS.Infrastructure.S
     {
         var access = await RecordReadAccess.ForCallerAsync(session, permissions, Resolve<barakoCMS.Infrastructure.Services.IBranchScopeGuard>(), User, ct);
         if (access is null
-            || (!string.IsNullOrWhiteSpace(req.ContentType) && !await access.CanReadTypeAsync(req.ContentType.Trim().ToLowerInvariant(), ct)))
+            || (!string.IsNullOrWhiteSpace(req.ContentType) && !await access.CanReadTypeAsync(TaggingIds.TypeKey(req.ContentType), ct)))
         {
             await Send.ForbiddenAsync(ct);
             return;
@@ -42,7 +42,7 @@ internal sealed class Endpoint(IQuerySession session, barakoCMS.Infrastructure.S
         var assignments = session.Query<TermAssignment>().Where(a => termIds.Contains(a.TermId));
         if (!string.IsNullOrWhiteSpace(req.ContentType))
         {
-            var contentType = req.ContentType.Trim().ToLowerInvariant();
+            var contentType = TaggingIds.TypeKey(req.ContentType);
             assignments = assignments.Where(a => a.ContentType == contentType);
         }
 
