@@ -10,7 +10,7 @@ namespace BarakoCMS.Tagging.Features.Assignments.Records;
 /// unless one is named, paged, newest first. With <c>includeDescendants</c>, a record carrying a
 /// term nested under this one counts too.
 /// </summary>
-internal sealed class Endpoint(IQuerySession session) : Endpoint<Request, PaginatedResponse<AssignmentResponse>>
+internal sealed class Endpoint(IQuerySession session, barakoCMS.Infrastructure.Services.IPermissionResolver permissions) : Endpoint<Request, PaginatedResponse<AssignmentResponse>>
 {
     public override void Configure()
     {
@@ -20,6 +20,14 @@ internal sealed class Endpoint(IQuerySession session) : Endpoint<Request, Pagina
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
+        var access = await RecordReadAccess.ForCallerAsync(session, permissions, User, ct);
+        if (access is null
+            || (!string.IsNullOrWhiteSpace(req.ContentType) && !await access.CanReadTypeAsync(req.ContentType.Trim().ToLowerInvariant(), ct)))
+        {
+            await Send.ForbiddenAsync(ct);
+            return;
+        }
+
         var term = await session.LoadAsync<Term>(req.TermId, ct);
         if (term is null)
         {
@@ -43,9 +51,16 @@ internal sealed class Endpoint(IQuerySession session) : Endpoint<Request, Pagina
             .ThenBy(a => a.Id)
             .ToPagedResponseAsync(req, ct);
 
+        var readable = new List<TermAssignment>();
+        foreach (var assignment in page.Items)
+        {
+            if (await access.CanReadAsync(assignment.ContentType, assignment.RecordId, ct))
+                readable.Add(assignment);
+        }
+
         await Send.OkAsync(new PaginatedResponse<AssignmentResponse>
         {
-            Items = page.Items.Select(AssignmentResponse.From).ToList(),
+            Items = readable.Select(AssignmentResponse.From).ToList(),
             Page = page.Page,
             PageSize = page.PageSize,
             TotalItems = page.TotalItems,

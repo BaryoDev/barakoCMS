@@ -6,7 +6,7 @@ using Marten;
 namespace BarakoCMS.Tagging.Features.Assignments.ForRecord;
 
 /// <summary>GET /api/taxonomy/records/{contentType}/{recordId}/terms. The terms on one record, paged, newest first.</summary>
-internal sealed class Endpoint(IQuerySession session) : Endpoint<Request, PaginatedResponse<TermResponse>>
+internal sealed class Endpoint(IQuerySession session, barakoCMS.Infrastructure.Services.IPermissionResolver permissions) : Endpoint<Request, PaginatedResponse<TermResponse>>
 {
     public override void Configure()
     {
@@ -17,6 +17,13 @@ internal sealed class Endpoint(IQuerySession session) : Endpoint<Request, Pagina
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         var contentType = req.ContentType.Trim().ToLowerInvariant();
+
+        var access = await RecordReadAccess.ForCallerAsync(session, permissions, User, ct);
+        if (access is null || !await access.CanReadAsync(contentType, req.RecordId, ct))
+        {
+            await Send.ForbiddenAsync(ct);
+            return;
+        }
 
         var page = await session.Query<TermAssignment>()
             .Where(a => a.ContentType == contentType && a.RecordId == req.RecordId)
