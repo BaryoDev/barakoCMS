@@ -182,6 +182,34 @@ public class BookingModuleTests
     }
 
     [Fact]
+    public async Task Bookings_far_outside_the_requested_time_do_not_block_it_and_offsets_near_the_edge_still_do()
+    {
+        var client = await AdminAsync();
+        var resource = await CreateResourceAsync(client, ResourceBody());
+        await BookedAsync(client, resource, 24 * 40 + 10, 24 * 40 + 12);
+        await BookedAsync(client, resource, -24 * 40 + 10, -24 * 40 + 12);
+
+        (await BookAsync(client, resource, 10, 12)).IsSuccessStatusCode.Should().BeTrue("neither far booking overlaps");
+
+        // 2031-06-03T08:00+14:00 to 10:00+14:00 is 2031-06-02T18:00Z to 20:00Z, a calendar day later in its own offset.
+        var edge = await client.PostAsJsonAsync("/api/contents", new
+        {
+            contentType = TypeName,
+            data = new Dictionary<string, object?>
+            {
+                ["Resource"] = resource.ToString(),
+                ["Start"] = "2031-06-03T08:00:00+14:00",
+                ["End"] = "2031-06-03T10:00:00+14:00",
+            },
+        }, Ct);
+        edge.IsSuccessStatusCode.Should().BeTrue(await edge.Content.ReadAsStringAsync(Ct));
+
+        var clash = await BookAsync(client, resource, 19, 21);
+
+        clash.StatusCode.Should().Be(HttpStatusCode.BadRequest, await clash.Content.ReadAsStringAsync(Ct));
+    }
+
+    [Fact]
     public async Task Adjacent_bookings_of_one_resource_are_allowed()
     {
         var client = await AdminAsync();

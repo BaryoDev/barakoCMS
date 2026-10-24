@@ -1,0 +1,1 @@
+- **Booking checks read only the bookings near the requested time.** The overlap check and the availability route filter by date in the query instead of loading every booking of the resource. Results are unchanged.
