@@ -18,8 +18,10 @@ namespace BarakoCMS.Payments.Features.Webhook;
 /// module's own authority, since no user is behind a webhook.
 ///
 /// An event for an attempt that is no longer Pending writes nothing, so a later event cannot move
-/// a settled payment. A failed event answers 200. A paid event answers 409 and logs a warning. A paid event whose amount or currency differs from the
-/// attempt answers 409.
+/// a settled payment. It answers 200, except a paid event for an attempt that is not Paid (money
+/// taken for an attempt already marked failed), which answers 409 and logs a warning so a person
+/// looks at it. A second paid event for a Paid attempt answers 200, so the provider stops
+/// retrying. A paid event whose amount or currency differs from the attempt answers 409.
 ///
 /// An event for a payment whose entry is no longer in the state the transition starts from answers
 /// 409 and writes nothing, so the attempt stays pending for a person or for reconciliation.
@@ -90,9 +92,10 @@ internal sealed class Endpoint(
 
         if (attempt.Status != PaymentAttemptStatus.Pending)
         {
-            if (received.Kind == PaymentEventKind.Paid)
+            if (received.Kind == PaymentEventKind.Paid && attempt.Status != PaymentAttemptStatus.Paid)
             {
-                logger.LogWarning("Payment event {Event} reports payment for attempt {Attempt}, which is already {Status}.", recordId, attempt.Id, attempt.Status);
+                logger.LogWarning("Payment event {Event} reports payment for attempt {Attempt}, which is already {Status}.",
+                    recordId, attempt.Id, attempt.Status);
                 await Send.StringAsync("", 409, cancellation: ct);
                 return;
             }

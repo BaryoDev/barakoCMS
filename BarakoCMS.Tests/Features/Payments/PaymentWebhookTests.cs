@@ -122,6 +122,21 @@ public class PaymentWebhookTests
     }
 
     [Fact]
+    public async Task A_second_paid_event_for_a_paid_attempt_answers_200_so_the_provider_stops_retrying()
+    {
+        var type = await _payments.PayableTypeAsync();
+        var entryId = await _payments.EntryAsync(type);
+        var (attemptId, reference) = await _payments.CheckoutAsync(entryId);
+        (await _payments.SignedWebhookAsync("evt_pp1", reference, "paid")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var again = await _payments.SignedWebhookAsync("evt_pp2", reference, "paid");
+
+        again.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await _payments.AttemptAsync(attemptId)).Status.Should().Be(PaymentAttemptStatus.Paid);
+        (await _payments.EventRecordsAsync(attemptId)).Should().HaveCount(1);
+    }
+
+    [Fact]
     public async Task A_paid_event_for_a_failed_attempt_answers_409_and_changes_nothing()
     {
         var type = await _payments.PayableTypeAsync();
