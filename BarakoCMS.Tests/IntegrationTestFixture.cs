@@ -580,7 +580,9 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Notifications.NotificationsModule(), opts));
 
             // Tagging: its documents are per tenant and its endpoints are discovered with the assembly,
-            // so the schema has to be registered for them to run.
+            // so the schema has to be registered for them to run. ConfigureServices adds the erasure
+            // cascade that drops a content entry's terms.
+            ((barakoCMS.Modules.IBarakoModule)new BarakoCMS.Tagging.TaggingModule()).ConfigureServices(services, ctx.Configuration);
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Tagging.TaggingModule(), opts));
 
             // Portability: its contents section, so a bundle applies through the config engine. Called
