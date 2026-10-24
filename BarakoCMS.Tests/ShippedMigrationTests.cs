@@ -38,6 +38,8 @@ public class ShippedMigrationTests
         "5.2.0/notifications",
         "5.3.0/accounting-journal-lifecycle",
         "5.3.0/accounting-mappings",
+        "5.3.0/252-tagging",
+        "5.3.0/833-services",
     ];
 
     /// <summary>
@@ -178,6 +180,8 @@ public class ShippedMigrationTests
             new BarakoCMS.Contacts.ContactsModule(),
             new BarakoCMS.Notifications.NotificationsModule(),
             new BarakoCMS.Documents.DocumentsModule(),
+            new BarakoCMS.Tagging.TaggingModule(),
+            new BarakoCMS.Services.ServicesModule(),
         ];
 
         var all = ShippedMigrations.Discover(modules);
@@ -186,8 +190,8 @@ public class ShippedMigrationTests
         var owned = all.Where(m => m.Owner != ShippedMigrations.CoreOwner).Select(m => m.Key).ToList();
         owned.Should().Equal(
             "Accounting/5.0.0/accounting-number-sequences",
-            "Accounting/5.2.0/accounting-journal-lifecycle",
-            "Accounting/5.2.0/accounting-mappings",
+            "Accounting/5.3.0/accounting-journal-lifecycle",
+            "Accounting/5.3.0/accounting-mappings",
             "Booking/5.2.0/booking-resources",
             "Comments/5.2.0/253-comments",
             "Contacts/5.2.0/contacts",
@@ -206,7 +210,9 @@ public class ShippedMigrationTests
             "Payments/5.2.0/payments-events",
             "Payments/5.2.0/payments-payable-types",
             "Reports/5.2.0/report-definitions",
-            "Scheduling/5.2.0/scheduled-entries");
+            "Scheduling/5.2.0/scheduled-entries",
+            "Services/5.3.0/833-services",
+            "Tagging/5.3.0/252-tagging");
         coreOnly.Count.Should().BeGreaterThanOrEqualTo(7, "seven core files were released before the ledger");
         coreOnly.Should().HaveCount(all.Count - owned.Count, "a module that is not enabled contributes nothing");
         coreOnly.Should().OnlyContain(m => m.Owner == ShippedMigrations.CoreOwner);
