@@ -164,7 +164,7 @@ Test classes are `{Subject}Tests`. Test methods read as sentences describing the
 - **`scripts/preflight.sh`** does a locked-mode restore first (before any build, since a build's
   own implicit restore rewrites `packages.lock.json` and would hide a stale one), then builds with
   `--no-restore`, runs the named test classes and fails if a class matches zero tests, then checks
-  changelog fragments, module versions, method length (a method over 70 lines may not appear or
+  changelog fragments, conflict markers and repeated changelog entries, module versions, method length (a method over 70 lines may not appear or
   grow; `scripts/method-length-baseline.txt` holds today's, and its numbers only go down), and
   dash/banned-word and workflow-duplicate-key scans that
   cover the working tree and untracked files, not just what is committed. **`scripts/sync-master.sh`**

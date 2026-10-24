@@ -67,10 +67,6 @@ Module contracts: BarakoCMS.AI `HttpContractVersion` 2 to 3 (a semantic search q
 
 ### Changed
 
-- **The managed platform guide says how uploads work on Azure.** `PostgresFileStorage` is durable
-  across restarts and scale-out, so App Service needs nothing extra for uploads. Azure Blob is not
-  supported, and the guide names the S3-compatible route (`Files.S3` with `ServiceUrl`). Docs only,
-  no route or contract change.
 - **Staging in place is recorded as a decision.** D38 in `DECISIONS.md` says a client reviews on the
   live tenant using drafts, holding mode, share links, scheduled publish and configuration applied through
   `/api/config/apply`, not on a staging copy. `docs/delivering-a-client-project.md` has the review path. No code

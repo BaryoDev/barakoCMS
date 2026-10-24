@@ -132,6 +132,9 @@ fi
 echo "== changelog fragments =="
 bash scripts/changelog-assemble.sh --check || fail "changelog-assemble --check failed"
 
+echo "== conflict markers and duplicate changelog entries =="
+bash scripts/check-conflict-markers.sh || fail "check-conflict-markers failed"
+
 echo "== module versions =="
 bash scripts/check-module-versions.sh || fail "check-module-versions.sh failed"
 
