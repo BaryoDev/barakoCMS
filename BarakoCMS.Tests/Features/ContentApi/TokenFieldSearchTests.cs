@@ -17,7 +17,7 @@ namespace BarakoCMS.Tests.Features.ContentApi;
 /// the search still finds the entry by another field, so an empty answer means the token was
 /// skipped and not that the search is broken.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class TokenFieldSearchTests
 {
     private readonly IntegrationTestFixture _factory;

@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests.Features.Tenants;
 /// a sign-in starts, and shorten its sessions. All of it is decided when a token for the tenant is
 /// issued, on top of what the roles require (#920).
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class TenantSignInPolicyTests
 {
     private const string Password = "ValidPassword123!";

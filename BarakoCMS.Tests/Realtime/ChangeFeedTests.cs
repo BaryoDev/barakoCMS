@@ -13,7 +13,7 @@ using Xunit;
 
 namespace BarakoCMS.Tests.Realtime;
 
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class ChangeFeedTests(SampleProbeHost host) : IClassFixture<SampleProbeHost>
 {
     private static readonly string[] Tickets = ["read_probe_tickets"];

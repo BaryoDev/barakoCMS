@@ -12,7 +12,7 @@ using MfaModels = barakoCMS.Features.Auth.Mfa;
 
 namespace BarakoCMS.Tests.Mfa;
 
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class StepUpTests
 {
     private static int _ipCounter;

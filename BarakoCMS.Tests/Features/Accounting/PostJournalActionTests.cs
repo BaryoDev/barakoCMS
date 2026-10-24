@@ -12,7 +12,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace BarakoCMS.Tests.Features.Accounting;
 
 /// <summary>Accounting.PostJournal posts a mapping's lines once for a subject and key, whatever is retried.</summary>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class PostJournalActionTests(IntegrationTestFixture fixture)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

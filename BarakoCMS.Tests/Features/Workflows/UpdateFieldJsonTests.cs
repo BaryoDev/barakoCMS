@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// <c>UpdateFieldAction</c> on a json field. Its parameter is text, so JSON text for a field that
 /// holds a list or an object is stored as that list or object, never as the text.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class UpdateFieldJsonTests(IntegrationTestFixture fixture)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

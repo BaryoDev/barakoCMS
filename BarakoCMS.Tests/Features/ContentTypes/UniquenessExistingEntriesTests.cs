@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// editable while a write that would bring another entry to their values is refused.
 /// </summary>
 /// <remarks>A tenant per test, so the counts and the lists are this test's entries and no others.</remarks>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class UniquenessExistingEntriesTests
 {
     private static int _ipCounter;

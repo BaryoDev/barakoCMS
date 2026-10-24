@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests;
 /// An image's width and height are read on upload and returned from the metadata routes, and a
 /// variant reports its own (#667).
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class ImageDimensionTests
 {
     private readonly IntegrationTestFixture _factory;

@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// A conditional create rule is asked about the header and its lines as they will be stored, after
 /// the lifecycle hooks, the same as POST /api/contents without lines (#578).
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ContentLinesCreateRuleTests
 {
     private const string Header = "linesrulehdr";

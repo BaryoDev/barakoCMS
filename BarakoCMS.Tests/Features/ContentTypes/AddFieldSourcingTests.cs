@@ -17,7 +17,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// endpoint that refuses every field on an event-sourced type, and one that refuses every field
 /// that is not Public.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class AddFieldSourcingTests : IAsyncLifetime
 {
     private readonly IntegrationTestFixture _fixture;

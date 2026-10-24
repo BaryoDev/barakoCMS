@@ -27,7 +27,7 @@ namespace BarakoCMS.Tests;
 /// only by case. Those are where two implementations of the same rule diverge, and none of them
 /// would appear in a handful of hand-written examples.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class PermissionPredicateAgreementTests
 {
     private readonly IntegrationTestFixture _fixture;

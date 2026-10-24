@@ -10,7 +10,7 @@ namespace BarakoCMS.Tests;
 /// <summary>
 /// Two auth defects that degraded quietly rather than failing.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class AuthHardeningTests
 {
     private readonly IntegrationTestFixture _factory;

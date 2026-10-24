@@ -24,7 +24,7 @@ namespace BarakoCMS.Tests.Features.ExternalAuth;
 /// paired with the same sign-in under a claim that matches nothing, or in a tenant with no map,
 /// because a sign-in that always granted the role would pass the grant on its own.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("IntegrationSerial")]
 public class ExternalRoleMapTests
 {
     private static int _ipCounter;

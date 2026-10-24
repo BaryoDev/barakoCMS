@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests;
 /// Every role here is stored under a random id and a random name, so a grant that reached the wrong
 /// role shows up on a role this class made and not on the shared Admin.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class ModuleCapabilityDefaultsTests
 {
     private readonly IntegrationTestFixture _factory;

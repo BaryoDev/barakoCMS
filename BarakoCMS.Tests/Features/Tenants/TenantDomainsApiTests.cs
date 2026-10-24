@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests.Features.Tenants;
 /// several sites resolves each request's host to a tenant, so an operator has to be able to add a
 /// domain and see it take effect on the next request.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class TenantDomainsApiTests
 {
     private readonly IntegrationTestFixture _fixture;

@@ -23,7 +23,7 @@ namespace BarakoCMS.Tests.Features.Public;
 ///
 /// A type must now say so. Field-level sensitivity still applies on top; this is a gate above it.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class PublicDeliveryOptInTests
 {
     private readonly IntegrationTestFixture _factory;

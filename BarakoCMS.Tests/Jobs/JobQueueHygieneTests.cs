@@ -23,7 +23,7 @@ namespace BarakoCMS.Tests.Jobs;
 /// here is the only thing that touches it. The gauges count the whole table, which other tests also
 /// write to, so they are asserted as at least what the test stored.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("IntegrationSerial")]
 public class JobQueueHygieneTests
 {
     private readonly IntegrationTestFixture _fixture;

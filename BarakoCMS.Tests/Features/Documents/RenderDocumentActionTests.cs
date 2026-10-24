@@ -9,7 +9,7 @@ using Xunit;
 
 namespace BarakoCMS.Tests.Features.Documents;
 
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class RenderDocumentActionTests(IntegrationTestFixture factory)
 {
     private IDocumentStore Store => factory.Services.GetRequiredService<IDocumentStore>();

@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests;
 /// <summary>
 /// Deleting a role or a group is recoverable until it is erased (#625).
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class RoleSoftDeleteTests
 {
     private readonly IntegrationTestFixture _factory;

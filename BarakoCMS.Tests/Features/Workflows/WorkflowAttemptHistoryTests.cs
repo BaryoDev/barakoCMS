@@ -10,7 +10,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// The history an action keeps of every try: what is in it, what it never holds, how it is capped,
 /// and that two writers on one run do not lose each other's entries.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class WorkflowAttemptHistoryTests
 {
     private readonly WorkflowStopHarness _harness;

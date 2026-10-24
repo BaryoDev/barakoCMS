@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests.Features.Portability;
 /// A money field's currency travels in a bundle, and an import does not change the one a stored
 /// field declares: that goes through the currency endpoint, which counts the entries affected.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class ImportMoneyCurrencyTests
 {
     private static int _ipCounter;

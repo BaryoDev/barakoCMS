@@ -12,7 +12,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace BarakoCMS.Tests.Features.Accounting;
 
 /// <summary>GET /api/accounting/cash-flow reports one month over the listed cash accounts.</summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class CashFlowRouteTests(IntegrationTestFixture fixture)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

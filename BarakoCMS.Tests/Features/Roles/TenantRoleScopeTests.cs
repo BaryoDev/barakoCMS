@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests.Features.Roles;
 /// roles, and nothing of another tenant's. A platform role changes only with manage_platform_roles
 /// (#913).
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class TenantRoleScopeTests
 {
     private readonly IntegrationTestFixture _fixture;

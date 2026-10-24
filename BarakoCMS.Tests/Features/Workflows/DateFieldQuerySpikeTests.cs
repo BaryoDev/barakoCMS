@@ -17,7 +17,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// fail on a value like 2026-02-30. The window is widened by a day each side, because an offset in
 /// the text can move the UTC date by that much, and the exact window is applied after the read.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class DateFieldQuerySpikeTests(IntegrationTestFixture factory)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

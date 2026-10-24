@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// the targets existed, include left the ids alone, and <c>contains</c> matched any id holding the
 /// text asked for.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class ManyValuedReferenceTests : IAsyncLifetime
 {
     private readonly IntegrationTestFixture _fixture;

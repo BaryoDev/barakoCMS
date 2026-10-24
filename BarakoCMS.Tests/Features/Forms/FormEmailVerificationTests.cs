@@ -28,7 +28,7 @@ namespace BarakoCMS.Tests.Features.Forms;
 /// every test uses its own form and its own addresses, because the per address and per form limits
 /// are stored and would otherwise be shared across the class.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class FormEmailVerificationTests
 {
     private const string CodeError = "emailVerificationCode";

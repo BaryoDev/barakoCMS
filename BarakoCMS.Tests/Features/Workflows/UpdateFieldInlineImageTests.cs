@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// <c>UpdateFieldAction</c> on an inline image field. Its parameter is text, which an inline image
 /// field never holds, so the action fails without writing anything.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class UpdateFieldInlineImageTests
 {
     private readonly IntegrationTestFixture _fixture;

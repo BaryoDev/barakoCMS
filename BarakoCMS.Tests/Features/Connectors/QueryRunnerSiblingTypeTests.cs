@@ -7,7 +7,7 @@ using barakoCMS.Models;
 namespace BarakoCMS.Tests.Features.Connectors;
 
 /// <summary>Two stored types that differ only by case keep their rows apart in a saved query.</summary>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class QueryRunnerSiblingTypeTests(IntegrationTestFixture factory)
 {
     private static Content Row(string type, string title) => new()

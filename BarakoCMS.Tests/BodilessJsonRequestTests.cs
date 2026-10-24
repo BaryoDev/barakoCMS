@@ -17,7 +17,7 @@ namespace BarakoCMS.Tests;
 /// client that sets <c>Content-Type: application/json</c> on every call reached the serializer with
 /// zero bytes and came back 400 naming <c>serializerErrors</c>. See issue #681.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class BodilessJsonRequestTests
 {
     private readonly IntegrationTestFixture _factory;

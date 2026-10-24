@@ -7,7 +7,7 @@ using Xunit;
 
 namespace BarakoCMS.Tests.Features.Workflows;
 
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class WorkflowToolsApiTests : IAsyncLifetime
 {
     private readonly HttpClient _client;

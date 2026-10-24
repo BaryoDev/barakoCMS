@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// and so on) are exactly the names other tests are likely to create in the default tenant, so
 /// applying there would make this class and its neighbours fail on each other's leftovers.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ContentTypeBlueprintTests
 {
     private readonly IntegrationTestFixture _factory;

@@ -17,7 +17,7 @@ namespace BarakoCMS.Tests;
 /// write, and a key can't reach the platform-management surface at all. Auth changes get abuse cases,
 /// not just edge cases (see AI_DEVELOPMENT_LIFECYCLE.md).
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ApiKeyIntegrationTests
 {
     private readonly IntegrationTestFixture _factory;

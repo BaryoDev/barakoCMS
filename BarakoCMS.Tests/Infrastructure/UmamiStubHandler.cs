@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests;
 /// the network would test the internet instead.
 ///
 /// The log is static because the typed client's handler is built by the host, and a test has no
-/// other handle on the instance. The analytics tests run in the Sequential collection and each one
+/// other handle on the instance. The analytics tests share one collection (scripts/test-collections.json) and each one
 /// clears the log before it starts.
 /// </remarks>
 internal sealed class UmamiStubHandler : HttpMessageHandler

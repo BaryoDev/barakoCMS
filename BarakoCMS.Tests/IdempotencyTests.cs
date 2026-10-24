@@ -17,7 +17,7 @@ namespace BarakoCMS.Tests;
 /// and its response, so a retry of the same request from the same caller gets that response back
 /// (issue #612).
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class IdempotencyTests
 {
     private readonly HttpClient _client;

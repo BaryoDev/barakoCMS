@@ -12,7 +12,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// An entry a workflow run created keeps the run's id, set only by a caller inside the server and
 /// never from a request body.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class SourceRunTests(IntegrationTestFixture fixture) : IAsyncLifetime
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests.Features.Public;
 /// route template and the role of each Public field, and names nothing delivery would not return
 /// (#1108). It takes no route a content type is read on, whatever the type is called.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class PublicTypeDescriptionTests
 {
     private readonly IntegrationTestFixture _factory;

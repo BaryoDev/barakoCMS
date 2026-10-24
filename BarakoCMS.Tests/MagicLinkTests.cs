@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests;
 /// Sign in with an emailed link. The "auth" rate limit is 5 requests per 15 minutes per client IP,
 /// so each test class instance takes a private IP through TestRemoteIpFilter and stays under it.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class MagicLinkTests
 {
     private const string RequestPath = "/api/auth/magic-link/request";

@@ -5,7 +5,7 @@ using Xunit;
 
 namespace BarakoCMS.Tests;
 
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class SecurityTests
 {
     private readonly IntegrationTestFixture _factory;

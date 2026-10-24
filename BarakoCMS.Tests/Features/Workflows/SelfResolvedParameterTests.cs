@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// written, from the runner, from a conditional's child and in the dry run preview. Its other
 /// parameters are filled as usual.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class SelfResolvedParameterTests
 {
     private const string Template = "Total {{data.Total}} for {{ data.Owner }}";

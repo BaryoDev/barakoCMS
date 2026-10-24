@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests.Features.ContentApi;
 /// came back, and this endpoint materialises the whole permitted set, so "it returned my row" is the
 /// easiest false positive in the codebase to write.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class EntriesListTests
 {
     private readonly IntegrationTestFixture _factory;

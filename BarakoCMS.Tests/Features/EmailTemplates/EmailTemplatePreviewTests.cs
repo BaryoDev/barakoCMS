@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests.Features.EmailTemplates;
 /// <c>POST /api/email-templates/{id}/preview</c> renders a template against an entry the caller can
 /// read, as that caller reads it, and sends nothing.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class EmailTemplatePreviewTests
 {
     private const string Secret = "s3cret-value-7781";

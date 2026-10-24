@@ -11,7 +11,7 @@ namespace BarakoCMS.Tests;
 /// only Published, document-Public entries, only over Public fields — a draft, a Sensitive document, and
 /// a value stored in a Sensitive field must never surface. Title hits outrank body hits.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class PublicSearchTests
 {
     private readonly IntegrationTestFixture _factory;

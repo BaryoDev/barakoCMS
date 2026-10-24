@@ -17,7 +17,7 @@ namespace BarakoCMS.Tests;
 /// refusing a document-Sensitive entry. Adversarial: no token, wrong slug, wrong tenant, and garbage all
 /// fall back to published-only (404 for a draft). Plus the authenticated mint endpoint.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class PreviewTests
 {
     private readonly IntegrationTestFixture _factory;

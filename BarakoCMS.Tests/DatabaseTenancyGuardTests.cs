@@ -25,7 +25,7 @@ namespace BarakoCMS.Tests;
 /// The test host connects as the container's superuser, which makes it the exact configuration the
 /// guard exists to reject, and therefore the right place to test it.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class DatabaseTenancyGuardTests
 {
     private readonly IntegrationTestFixture _fixture;

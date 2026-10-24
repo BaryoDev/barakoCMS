@@ -7,7 +7,7 @@ using static BarakoCMS.Tests.Features.Notifications.NotificationCallers;
 namespace BarakoCMS.Tests.Features.Notifications;
 
 /// <summary>Marking read: only the recipient can, and only their own.</summary>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class MarkNotificationReadTests
 {
     private readonly NotificationCallers _callers;

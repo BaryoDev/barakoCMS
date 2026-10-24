@@ -27,7 +27,7 @@ namespace BarakoCMS.Tests.Features.Collections;
 /// everything above the socket is the shipped code: the request definition, the composer, the
 /// connector's credentials and the fetcher.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public partial class CollectionSyncTests
 {
     private readonly IntegrationTestFixture _factory;

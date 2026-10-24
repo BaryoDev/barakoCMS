@@ -23,7 +23,7 @@ namespace BarakoCMS.Tests;
 /// issuer. <c>POST /api/me/switch</c> is the path where the issuer is the only check, because the
 /// target comes from the body and the request itself is on a registered tenant.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class TenancyModeTokenTests
 {
     private readonly IntegrationTestFixture _fixture;

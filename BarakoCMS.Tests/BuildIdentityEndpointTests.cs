@@ -12,7 +12,7 @@ namespace BarakoCMS.Tests;
 /// image says so rather than returning something a comparison might accept, and /health keeps the
 /// body it always had.
 /// </summary>
-[Collection("Sequential")]
+[Collection("IntegrationSerial")]
 public class BuildIdentityEndpointTests
 {
     private const string Variable = "BARAKO_BUILD_SHA";
@@ -21,7 +21,7 @@ public class BuildIdentityEndpointTests
 
     public BuildIdentityEndpointTests(IntegrationTestFixture factory) => _factory = factory;
 
-    // The variable is process-wide, which is why this class is in the Sequential collection and why
+    // The variable is process-wide, which is why this class is in the IntegrationSerial collection and why
     // every test restores what it found.
     private async Task<string> ShaReportedWhenStampedWith(string? value)
     {

@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests.Features.ContentApi;
 /// Every narrowing assertion sits beside the unfiltered list returning more, because an endpoint
 /// that ignored the parameter would otherwise pass anything that only looks at what came back.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class EntriesListFieldFilterTests
 {
     private const string Pin = "4821";

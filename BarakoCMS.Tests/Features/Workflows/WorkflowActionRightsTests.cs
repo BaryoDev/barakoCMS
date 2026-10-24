@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// Content actions run as the system, so the person who saves the workflow is the one
 /// held to the create and transition rights, and a Transition has to name the type it moves.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class WorkflowActionRightsTests(IntegrationTestFixture fixture)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

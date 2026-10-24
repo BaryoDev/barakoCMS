@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests;
 /// refresh, which replaces them with a hashed row, so a deploy signs nobody out and the last plain
 /// row is gone within the seven day lifetime.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class RefreshTokenStorageTests
 {
     private const string Password = "Rt!Passw0rd123";

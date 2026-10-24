@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests;
 /// The schedule trigger. The clock is the <c>nowUtc</c> each sweep is handed, so no test waits for
 /// a minute to pass.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class WorkflowScheduleTests
 {
     private readonly IntegrationTestFixture _fixture;

@@ -11,7 +11,7 @@ namespace BarakoCMS.Tests.Features.Config;
 /// Export, plan and apply over the content type and role sections: a round trip, a plan that writes
 /// nothing, the destructive flag, the gates and tenant isolation (#921).
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class ConfigEngineTests
 {
     private readonly ConfigCallers _callers;

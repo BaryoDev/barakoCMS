@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests.Features.Me;
 /// Every role here has a name no gate lists and the token claims a different name, so the answer
 /// can only have come from the store.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class WhoAmIEndpointTests
 {
     private const string Route = "/api/me";

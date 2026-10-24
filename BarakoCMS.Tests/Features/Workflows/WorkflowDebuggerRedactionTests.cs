@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// Issue #608: the execution log is served at <c>/api/workflows/{id}/debug</c>, so what it stores
 /// is what anyone who can read workflow runs sees.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class WorkflowDebuggerRedactionTests : IAsyncLifetime
 {
     private const string Recipient = "alice@example.test";

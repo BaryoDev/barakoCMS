@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests.Features.Forms;
 /// A form with an opening and closing date read from a singleton entry: submissions outside the
 /// window are refused with 403, and editing the date moves the window with no restart.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class FormSubmissionWindowTests
 {
     private readonly IntegrationTestFixture _factory;

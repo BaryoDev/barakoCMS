@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests;
 /// the way its header allows, after the policy was put on the table as a host with database
 /// enforcement puts it.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class TenantPolicyRestoreMigrationTests
 {
     private const string Policy = "tenant_id = current_setting('app.tenant_id', true)";

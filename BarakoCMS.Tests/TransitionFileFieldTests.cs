@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests;
 /// a reviewer, who may download only their own private files. Before the check named the actor,
 /// the administrator's reach decided what the reviewer could attach.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class TransitionFileFieldTests
 {
     private readonly IntegrationTestFixture _factory;

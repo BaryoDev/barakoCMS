@@ -27,7 +27,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// Lowering is a disclosure of data written under the old promise, so it is refused unless the
 /// request says it means it, and it is recorded under an audit action of its own.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("IntegrationSerial")]
 public class FieldSensitivityChangeTests
 {
     private readonly IntegrationTestFixture _factory;

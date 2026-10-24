@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests.Features.Users;
 /// them. An administrator whose roles come from a tenant membership manages that tenant's roster
 /// through <c>/api/tenants/members</c> instead.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class PlatformRoleGrantTests
 {
     private readonly IntegrationTestFixture _fixture;

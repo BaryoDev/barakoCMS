@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// data before it is validated. If that stored amount does not fit, the refusal is about a value
 /// the caller never sent and may not read, so the refusal must not carry it.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class MoneyFieldUpdateTests
 {
     private const string HiddenAmount = "4321.987";

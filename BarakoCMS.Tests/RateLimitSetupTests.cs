@@ -440,7 +440,7 @@ public class RateLimitSetupTests
 }
 
 /// <summary>The full host builds its limiter from the <c>RateLimiting</c> section.</summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class RateLimitWiringTests
 {
     private const string Key = "renderer-key-for-wiring-0123456789abcdef";

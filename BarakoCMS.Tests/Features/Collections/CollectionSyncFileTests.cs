@@ -10,7 +10,7 @@ namespace BarakoCMS.Tests.Features.Collections;
 /// A collection sync writes entries without the entry validator and for no signed-in user, so it
 /// may not fill a <c>file</c> field: there is nobody to ask the file store as.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class CollectionSyncFileTests
 {
     private const string Items = """

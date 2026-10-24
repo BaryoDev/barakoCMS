@@ -10,7 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace BarakoCMS.Tests.Features.Workflows;
 
 /// <summary>Transition moves an entry as the system, treats an entry already there as done, and sorts refusals.</summary>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class TransitionActionTests(IntegrationTestFixture fixture)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

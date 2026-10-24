@@ -27,7 +27,7 @@ namespace BarakoCMS.Tests;
 /// Every assertion goes through `ShouldBeRejectedOnMerits`, so a 429 from a shared rate-limit bucket
 /// cannot stand in for an authorisation refusal. That distinction has bitten this suite before.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class CrossTenantContentApiTests
 {
     private readonly IntegrationTestFixture _factory;

@@ -13,7 +13,7 @@ using static BarakoCMS.Tests.Realtime.ContentTopicKit;
 
 namespace BarakoCMS.Tests.Realtime;
 
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class ContentChangeFeedTests(SampleProbeHost host) : IClassFixture<SampleProbeHost>
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

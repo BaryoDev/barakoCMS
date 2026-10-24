@@ -23,7 +23,7 @@ namespace BarakoCMS.Tests.Features.Tenants;
 /// stand in for a refusal, and the tenant claim is minted the way <c>TokenIssuer</c> mints it, so
 /// these go through <c>TenantAccessMiddleware</c> as deployed.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class TenantMemberApiTests
 {
     private readonly IntegrationTestFixture _factory;

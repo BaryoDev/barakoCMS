@@ -26,7 +26,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// A test that leaves an attempt waiting on a retry stops that run before it ends, or the next test
 /// would find it due.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("IntegrationSerial")]
 public class WorkflowRunnerMetricsTests
 {
     private const string Metered = MeteredRunnerAction.ActionType;

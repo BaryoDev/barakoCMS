@@ -23,7 +23,7 @@ namespace BarakoCMS.Tests;
 /// status as a transition. A consumer sending only id, data and version, which is what a data-only
 /// edit looks like, un-published the item and emitted a ContentStatusChanged saying so.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ContentStatusBindingTests
 {
     private readonly IntegrationTestFixture _factory;

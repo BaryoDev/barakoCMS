@@ -30,7 +30,7 @@ namespace BarakoCMS.Tests;
 /// container, so its own broadcaster; a write through the shared fixture would broadcast to a
 /// broadcaster nobody here is subscribed to.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class ContentEventStreamTests
 {
     private readonly IntegrationTestFixture _factory;

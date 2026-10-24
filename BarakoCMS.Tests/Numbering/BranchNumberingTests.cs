@@ -14,7 +14,7 @@ using Xunit;
 namespace BarakoCMS.Tests.Numbering;
 
 /// <summary>A rule with a series template counts per branch, using the code of the branch the write is for.</summary>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class BranchNumberingTests
 {
     private readonly IntegrationTestFixture _fixture;

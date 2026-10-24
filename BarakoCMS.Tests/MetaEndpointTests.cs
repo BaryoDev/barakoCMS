@@ -7,7 +7,7 @@ using Xunit;
 
 namespace BarakoCMS.Tests;
 
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class MetaEndpointTests
 {
     private readonly IntegrationTestFixture _factory;

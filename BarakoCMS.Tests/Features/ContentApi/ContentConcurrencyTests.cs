@@ -95,7 +95,7 @@ internal sealed class DocumentAdvancingContentWriter : IContentWriter
 /// check event-sourced types already have on their stream (D3). <c>Content:Concurrency:Require</c>
 /// decides only what happens to a write that sends neither.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ContentConcurrencyTests
 {
     private readonly IntegrationTestFixture _factory;

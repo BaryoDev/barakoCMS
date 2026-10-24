@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests.Features.Accounting;
 /// accounting needs no bespoke write API, and that routing it through the generic one does not lose
 /// the balance invariant.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class AccountingAsContentTests
 {
     private readonly IntegrationTestFixture _factory;

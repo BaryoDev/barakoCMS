@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests;
 /// An exception nobody handled answers 500 without its message, and with the headers every other
 /// response carries.
 /// </summary>
-[Collection("Sequential")]
+[Collection("IntegrationSerial")]
 public class UnhandledExceptionResponseTests
 {
     private const string ThrowingPath = "/__test/unhandled-exception";

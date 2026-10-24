@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// mixed case (stored straight through the session, as a module seeds it) and named lowercase.
 /// A difference of more than case stays a different type, and is the control for each.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class ContentTypeCaseTests
 {
     private static readonly TimeSpan PollTimeout = TimeSpan.FromSeconds(30);
@@ -380,7 +380,7 @@ public class ContentTypeCaseTests
 /// Two stored types that differ only by case (legacy data: a module-seeded "PurchaseOrder" beside a
 /// config "purchaseorder"). A name that is neither exact is a guess, and a guess is refused.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class ContentTypeAmbiguousCaseTests : IAsyncLifetime
 {
     private readonly IntegrationTestFixture _factory;

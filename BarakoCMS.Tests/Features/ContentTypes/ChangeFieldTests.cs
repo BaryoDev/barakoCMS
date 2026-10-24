@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// One endpoint changes a field of a type that holds entries, classifies the change, and applies
 /// one that touches entries through a resumable job (#934).
 /// </summary>
-[Collection("Sequential")]
+[Collection("IntegrationSerial")]
 public class ChangeFieldTests : IAsyncLifetime
 {
     private readonly IntegrationTestFixture _fixture;

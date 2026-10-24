@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests.Features.Accounting;
 /// through the generic content endpoint and then assert the computed numbers, because the risk of
 /// this conversion was never "does it compile" — it was whether the balances still come out right.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class AccountingReportingTests
 {
     private readonly IntegrationTestFixture _factory;

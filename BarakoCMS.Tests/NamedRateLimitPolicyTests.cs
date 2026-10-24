@@ -488,7 +488,7 @@ public class NamedRateLimitPolicyTests
 }
 
 /// <summary>The full host puts the delivery policy on the delivery routes.</summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class DeliveryRateLimitWiringTests
 {
     private readonly IntegrationTestFixture _fixture;
@@ -552,7 +552,7 @@ public class DeliveryRateLimitWiringTests
 }
 
 /// <summary>The full host counts a request against the API key its handler verified.</summary>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class ApiKeyQuotaWiringTests
 {
     private readonly IntegrationTestFixture _fixture;

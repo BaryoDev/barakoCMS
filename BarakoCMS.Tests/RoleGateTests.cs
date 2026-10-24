@@ -23,7 +23,7 @@ namespace BarakoCMS.Tests;
 /// or the capability gate from issue #272, so migrating an endpoint from one to the other keeps it
 /// in scope rather than dropping it out.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class RoleGateTests
 {
     private readonly IntegrationTestFixture _factory;
@@ -224,7 +224,8 @@ public class RoleGateTests
     /// <summary>
     /// The structural half of this file. It asks the running host which core endpoints carry a role
     /// gate and compares that with <see cref="Inventory"/>, which is also what drives the three
-    /// behavioural theories below. So a gated endpoint with no refusal coverage cannot exist: it is
+    /// behavioural theories, one in this class and one each in <see cref="RoleGateWrongRoleTests"/> and
+    /// <see cref="RoleGateAdminTests"/> so the collections can run them side by side. So a gated endpoint with no refusal coverage cannot exist: it is
     /// either in the inventory, and therefore tested, or this test fails naming it.
     /// </summary>
     [Fact]
@@ -253,44 +254,7 @@ public class RoleGateTests
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
-    [Theory]
-    [MemberData(nameof(AllGatedRoutes))]
-    public async Task Refuses_a_signed_in_caller_without_an_admin_role(GatedRoute route)
-    {
-        var client = await WrongRoleClient();
-
-        var response = await client.SendAsync(Request(route));
-
-        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
-    }
-
-    /// <summary>
-    /// The positive control. Without it a gate that refuses everyone, or a route that no longer
-    /// exists, would leave both refusal theories green.
-    /// </summary>
-    /// <remarks>
-    /// The admin is refused nothing and reaches the endpoint: 401 and 403 mean the gate turned an
-    /// allowed role away, and 404 means routing found nothing to run. What comes back instead is
-    /// usually a 400 from binding the deliberately unparseable id or body, which only the endpoint
-    /// itself can produce, and which mutates nothing.
-    /// </remarks>
-    [Theory]
-    [MemberData(nameof(AllGatedRoutes))]
-    public async Task Still_answers_an_admin(GatedRoute route)
-    {
-        var client = await AdminClient();
-
-        var response = await client.SendAsync(Request(route));
-
-        response.StatusCode.Should().NotBe(HttpStatusCode.Unauthorized,
-            "an admin holding the gated role must not be turned away by authentication");
-        response.StatusCode.Should().NotBe(HttpStatusCode.Forbidden,
-            "a gate that refuses an admin too would make the two refusal tests pass for the wrong reason");
-        response.StatusCode.Should().NotBe(HttpStatusCode.NotFound,
-            "routing must still reach an endpoint here, otherwise the refusals above only prove the route is gone");
-    }
-
-    private static HttpRequestMessage Request(GatedRoute route)
+    internal static HttpRequestMessage Request(GatedRoute route)
     {
         var request = new HttpRequestMessage(new HttpMethod(route.Verb), route.Probe);
 
@@ -305,31 +269,14 @@ public class RoleGateTests
         return request;
     }
 
-    // One caller of each kind for the whole class, rather than one per theory case. The database is
-    // shared with every other test in the collection, and a hundred throwaway users would sit at
-    // the top of GET /api/users, where other tests read the first row.
-    private static readonly Lock Gate = new();
-    private static Task<HttpClient>? _admin;
-    private static Task<HttpClient>? _wrongRole;
-
-    private Task<HttpClient> AdminClient()
-    {
-        lock (Gate) return _admin ??= AuthedAsStoredUser("SuperAdmin", "Admin");
-    }
-
-    private Task<HttpClient> WrongRoleClient()
-    {
-        lock (Gate) return _wrongRole ??= AuthedAsStoredUser("User");
-    }
-
     /// <summary>
     /// Roles are resolved from the stored <see cref="barakoCMS.Models.User"/> and its memberships,
     /// not from the token alone, so a caller that has to pass anything beyond the FastEndpoints
     /// gate needs a real user document holding real role ids.
     /// </summary>
-    private async Task<HttpClient> AuthedAsStoredUser(params string[] roleNames)
+    internal static async Task<HttpClient> AuthedAsStoredUser(IntegrationTestFixture factory, params string[] roleNames)
     {
-        using var scope = _factory.Services.CreateScope();
+        using var scope = factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
 
         var roleIds = new List<Guid>();
@@ -359,9 +306,9 @@ public class RoleGateTests
         });
         await session.SaveChangesAsync();
 
-        var client = _factory.CreateClient();
+        var client = factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer", _factory.CreateToken(roles: roleNames, userId: userId.ToString()));
+            "Bearer", factory.CreateToken(roles: roleNames, userId: userId.ToString()));
         return client;
     }
 

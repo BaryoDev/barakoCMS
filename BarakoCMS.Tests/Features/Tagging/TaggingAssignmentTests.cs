@@ -5,7 +5,7 @@ using Xunit;
 namespace BarakoCMS.Tests.Features.Tagging;
 
 /// <summary>Applying a term to a record, taking it off, and querying by term.</summary>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class TaggingAssignmentTests
 {
     private readonly IntegrationTestFixture _factory;

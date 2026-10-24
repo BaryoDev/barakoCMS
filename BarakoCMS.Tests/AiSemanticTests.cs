@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests;
 /// fake embedder. Adversarial: search returns the semantically-nearest Published, document-Public entry
 /// and never a draft, a Sensitive document, or an entry unpublished after indexing.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class AiSemanticTests
 {
     private readonly IntegrationTestFixture _factory;

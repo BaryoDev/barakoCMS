@@ -22,7 +22,7 @@ namespace BarakoCMS.Tests;
 /// stored SuperAdmin who is never the caller under test, so the uploader branch of the rule cannot
 /// be what answers.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class FileOwnershipCapabilityTests
 {
     private readonly IntegrationTestFixture _factory;

@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests;
 /// is the failure this file exists to catch. Asserting on the resolved store rather than grepping
 /// for the call means a replacement that sets the same four values individually still passes.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class MartenV8DefaultsTests
 {
     private readonly IntegrationTestFixture _fixture;

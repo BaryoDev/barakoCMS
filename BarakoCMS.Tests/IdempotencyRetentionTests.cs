@@ -9,7 +9,7 @@ using Xunit;
 
 namespace BarakoCMS.Tests;
 
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class IdempotencyRetentionTests
 {
     private readonly IntegrationTestFixture _factory;

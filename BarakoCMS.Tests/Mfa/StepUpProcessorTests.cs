@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests.Mfa;
 /// Stations and API keys cannot reach the step-up test endpoint through the host (their own gates
 /// refuse it first, and a station needs an endpoint that opts in), so the processor is called directly.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class StepUpProcessorTests
 {
     private static async Task<DefaultHttpContext> RunAsync(string authMethod)

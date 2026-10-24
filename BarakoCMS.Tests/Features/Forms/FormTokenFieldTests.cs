@@ -17,7 +17,7 @@ namespace BarakoCMS.Tests.Features.Forms;
 /// <remarks>
 /// Every test sends from its own client IP, for the reason <see cref="FormSubmissionTests"/> does.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class FormTokenFieldTests
 {
     private readonly IntegrationTestFixture _factory;

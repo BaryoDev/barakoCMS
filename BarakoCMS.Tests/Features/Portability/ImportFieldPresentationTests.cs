@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests.Features.Portability;
 /// A field's editor hint, section and role and a type's route template travel in a bundle, and an
 /// import holds them to the rules the content type endpoints apply.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class ImportFieldPresentationTests
 {
     private static int _ipCounter;

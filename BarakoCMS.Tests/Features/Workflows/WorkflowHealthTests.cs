@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// Each test makes its own workflow, named to sort first, so the page it asks for holds it however
 /// many workflows other tests left behind.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class WorkflowHealthTests
 {
     private readonly WorkflowStopHarness _harness;

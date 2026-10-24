@@ -34,7 +34,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// Every tenant is registered after the host was built, and each pair includes an inactive one, so
 /// a registry read cached at startup or filtered on <see cref="Tenant.Status"/> fails here too.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class TenantPartitionsTests
 {
     private readonly IntegrationTestFixture _fixture;

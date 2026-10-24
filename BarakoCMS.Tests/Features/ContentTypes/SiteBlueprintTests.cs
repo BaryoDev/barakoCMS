@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 ///
 /// Every apply runs in a tenant made for the test, for the reason ContentTypeBlueprintTests gives.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class SiteBlueprintTests
 {
     private readonly IntegrationTestFixture _factory;

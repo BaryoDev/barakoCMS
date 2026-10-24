@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests.Features.FeatureFlags;
 /// The OFREP routes beside GET /api/feature-flags (#628). The first test is the ticket's done-when:
 /// an OpenFeature SDK with the stock OFREP provider reads a flag, with no client of ours in between.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class OfrepEvaluationTests(IntegrationTestFixture factory)
 {
     private const string Base = "/ofrep/v1/evaluate/flags";
