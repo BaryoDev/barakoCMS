@@ -373,19 +373,39 @@ public class TenantScopedAdminTests
     // ---- Tenants are compared lowercased, so a report's casing does not hide it. ----
 
     [Fact]
-    public async Task A_client_error_reported_with_a_mixed_case_tenant_reaches_that_tenant()
+    public async Task A_client_error_reported_with_a_mixed_case_tenant_header_reaches_that_tenant()
     {
         var tenantA = await TenantAsync();
         var (admin, _) = await TenantAdminAsync(tenantA);
         var message = Unique("mixed");
         var reporter = _factory.CreateClient();
         reporter.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, NextIp());
+        reporter.DefaultRequestHeaders.Add("X-Tenant", tenantA.ToUpperInvariant());
 
-        (await reporter.PostAsJsonAsync("/api/client-errors",
-                new { items = new[] { new { message, tenant = tenantA.ToUpperInvariant() } } }))
+        (await reporter.PostAsJsonAsync("/api/client-errors", new { items = new[] { new { message } } }))
             .StatusCode.Should().Be(HttpStatusCode.OK);
 
         (await ItemsAsync(await admin.GetAsync($"/api/client-errors?q={message}"))).Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task A_client_error_naming_another_tenant_in_its_body_is_stored_under_the_callers_tenant()
+    {
+        var tenantA = await TenantAsync();
+        var tenantB = await TenantAsync();
+        var (adminA, _) = await TenantAdminAsync(tenantA);
+        var (adminB, _) = await TenantAdminAsync(tenantB);
+        var message = Unique("named");
+        var reporter = _factory.CreateClient();
+        reporter.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, NextIp());
+        reporter.DefaultRequestHeaders.Add("X-Tenant", tenantA);
+
+        (await reporter.PostAsJsonAsync("/api/client-errors",
+                new { items = new[] { new { message, tenant = tenantB } } }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await ItemsAsync(await adminA.GetAsync($"/api/client-errors?q={message}"))).Should().ContainSingle();
+        (await ItemsAsync(await adminB.GetAsync($"/api/client-errors?q={message}"))).Should().BeEmpty();
     }
 
     [Fact]
