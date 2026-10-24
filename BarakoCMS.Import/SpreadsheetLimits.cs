@@ -94,29 +94,43 @@ public static class SpreadsheetLimits
     {
         var start = seekable.Position;
 
+        ZipArchive archive;
         try
         {
-            using var archive = new ZipArchive(seekable, ZipArchiveMode.Read, leaveOpen: true);
-
-            long total = 0;
-            var buffer = new byte[81920];
-            foreach (var entry in archive.Entries)
-            {
-                using var content = entry.Open();
-                int read;
-                while ((read = content.Read(buffer, 0, buffer.Length)) > 0)
-                {
-                    total += read;
-                    if (total > limit)
-                        return total;
-                }
-            }
-
-            return total;
+            archive = new ZipArchive(seekable, ZipArchiveMode.Read, leaveOpen: true);
         }
         catch (InvalidDataException)
         {
+            seekable.Position = start;
             return null;
+        }
+
+        try
+        {
+            using (archive)
+            {
+                long total = 0;
+                var buffer = new byte[81920];
+                foreach (var entry in archive.Entries)
+                {
+                    using var content = entry.Open();
+                    int read;
+                    while ((read = content.Read(buffer, 0, buffer.Length)) > 0)
+                    {
+                        total += read;
+                        if (total > limit)
+                            return total;
+                    }
+                }
+
+                return total;
+            }
+        }
+        catch (InvalidDataException)
+        {
+            // It opened as a zip but an entry cannot be read, so the rest cannot be measured.
+            // Counted as over the limit rather than passed on for the parser to expand.
+            return limit + 1;
         }
         finally
         {

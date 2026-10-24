@@ -21,4 +21,8 @@
     <!-- Talaan is consumed as a published NuGet package so this module builds standalone (CI, NuGet). -->
     <PackageReference Include="Talaan" />
   </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="BarakoCMS.Tests" />
+  </ItemGroup>
 </Project>

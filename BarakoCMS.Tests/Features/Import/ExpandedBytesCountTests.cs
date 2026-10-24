@@ -43,14 +43,44 @@ public class ExpandedBytesCountTests
         SpreadsheetLimits.ExpandedBytesOver(stream, Limit).Should().BeNull();
     }
 
-    private static byte[] ZipWithEntry(string content)
+    [Fact]
+    public void A_corrupt_first_entry_does_not_hide_a_large_later_one()
+    {
+        var zip = ZipWithEntries(
+            ("a.xml", new string('a', 1000)),
+            ("b.xml", new string('b', 4 * 1024 * 1024)));
+        zip[30 + "a.xml".Length] = 0xFF;
+
+        using var stream = new MemoryStream(zip);
+
+        SpreadsheetLimits.ExpandedBytesOver(stream, Limit)
+            .Should().NotBeNull("an archive with an unreadable entry cannot be measured, so it is refused");
+    }
+
+    [Fact]
+    public void A_worksheet_entry_that_cannot_be_read_is_refused_not_passed()
+    {
+        var zip = ZipWithEntries(("xl/worksheets/sheet1.xml", new string('a', 1000)));
+        zip[30 + "xl/worksheets/sheet1.xml".Length] = 0xFF;
+
+        using var stream = new MemoryStream(zip);
+
+        SpreadsheetGuard.Check(stream, 256, 1_000_000).Should().NotBeNull();
+    }
+
+    private static byte[] ZipWithEntry(string content) => ZipWithEntries(("xl/worksheets/sheet1.xml", content));
+
+    private static byte[] ZipWithEntries(params (string Name, string Content)[] entries)
     {
         using var output = new MemoryStream();
         using (var archive = new ZipArchive(output, ZipArchiveMode.Create, leaveOpen: true))
         {
-            var entry = archive.CreateEntry("xl/worksheets/sheet1.xml", CompressionLevel.Optimal);
-            using var writer = new StreamWriter(entry.Open());
-            writer.Write(content);
+            foreach (var (name, content) in entries)
+            {
+                var entry = archive.CreateEntry(name, CompressionLevel.Optimal);
+                using var writer = new StreamWriter(entry.Open());
+                writer.Write(content);
+            }
         }
 
         return output.ToArray();
