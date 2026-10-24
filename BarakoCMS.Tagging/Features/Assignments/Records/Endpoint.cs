@@ -20,7 +20,7 @@ internal sealed class Endpoint(IQuerySession session, barakoCMS.Infrastructure.S
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        var access = await RecordReadAccess.ForCallerAsync(session, permissions, User, ct);
+        var access = await RecordReadAccess.ForCallerAsync(session, permissions, Resolve<barakoCMS.Infrastructure.Services.IBranchScopeGuard>(), User, ct);
         if (access is null
             || (!string.IsNullOrWhiteSpace(req.ContentType) && !await access.CanReadTypeAsync(req.ContentType.Trim().ToLowerInvariant(), ct)))
         {
@@ -46,24 +46,24 @@ internal sealed class Endpoint(IQuerySession session, barakoCMS.Infrastructure.S
             assignments = assignments.Where(a => a.ContentType == contentType);
         }
 
-        var page = await assignments
+        // Read access is per record, so it is applied before paging: a page cut first would come back
+        // short and a total taken first would count records the caller cannot see. The newest
+        // MaxScanned assignments are the ones considered.
+        var candidates = await assignments
             .OrderByDescending(a => a.AssignedAt)
             .ThenBy(a => a.Id)
-            .ToPagedResponseAsync(req, ct);
-
-        var readable = new List<TermAssignment>();
-        foreach (var assignment in page.Items)
-        {
-            if (await access.CanReadAsync(assignment.ContentType, assignment.RecordId, ct))
-                readable.Add(assignment);
-        }
+            .Take(MaxScanned)
+            .ToListAsync(ct);
+        var readable = await access.ReadableAsync(candidates, ct);
 
         await Send.OkAsync(new PaginatedResponse<AssignmentResponse>
         {
-            Items = readable.Select(AssignmentResponse.From).ToList(),
-            Page = page.Page,
-            PageSize = page.PageSize,
-            TotalItems = page.TotalItems,
+            Items = readable.Skip(req.Skip).Take(req.Take).Select(AssignmentResponse.From).ToList(),
+            Page = req.Page,
+            PageSize = req.PageSize,
+            TotalItems = readable.Count,
         }, ct);
     }
+
+    private const int MaxScanned = 5000;
 }

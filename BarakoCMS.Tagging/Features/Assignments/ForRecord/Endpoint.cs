@@ -18,7 +18,7 @@ internal sealed class Endpoint(IQuerySession session, barakoCMS.Infrastructure.S
     {
         var contentType = req.ContentType.Trim().ToLowerInvariant();
 
-        var access = await RecordReadAccess.ForCallerAsync(session, permissions, User, ct);
+        var access = await RecordReadAccess.ForCallerAsync(session, permissions, Resolve<barakoCMS.Infrastructure.Services.IBranchScopeGuard>(), User, ct);
         if (access is null || !await access.CanReadAsync(contentType, req.RecordId, ct))
         {
             await Send.ForbiddenAsync(ct);
