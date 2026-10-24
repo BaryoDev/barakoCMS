@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests.Features.Pwa;
 /// than refused. Attribution therefore depends on a later authenticated report for the same device
 /// backfilling the user onto the existing row. That backfill is the contract these pin down.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class PwaReportTests
 {
     private readonly IntegrationTestFixture _factory;

@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests.Features.Collections;
 /// back before the push compares an entry with what is stored, or every push of an unchanged entry
 /// would count as a change and append an event.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class CollectionPushTokenTests
 {
     private readonly IntegrationTestFixture _factory;

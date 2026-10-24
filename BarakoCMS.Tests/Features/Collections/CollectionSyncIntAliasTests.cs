@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests.Features.Collections;
 /// Converting the aliases would skip an item whose cell holds 3.5, which syncs today, and turn
 /// stored text into numbers on the next run.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class CollectionSyncIntAliasTests
 {
     private const string Rated = """

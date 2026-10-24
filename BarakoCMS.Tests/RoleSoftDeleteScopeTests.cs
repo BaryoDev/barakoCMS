@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests;
 /// Who may restore or erase a deleted role, which deleted rows a name reuse takes, and the places
 /// that build a caller's roles ignoring a deleted role or group (#625).
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class RoleSoftDeleteScopeTests
 {
     private readonly IntegrationTestFixture _factory;

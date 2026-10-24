@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests.Features.ContentApi;
 /// Each refusal carries its control: the same caller, the same entry, a field the set does allow.
 /// Rows are found by id, never by position, since the database is shared with every other class.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class PermissionFieldSetTests
 {
     private static int _sequence;

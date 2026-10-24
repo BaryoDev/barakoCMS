@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests;
 /// class with every method on it. Tags now come from the endpoint's namespace, so these tests are
 /// what stops a new endpoint in an unexpected namespace quietly rejoining a catch-all.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class OpenApiTagTests
 {
     private readonly IntegrationTestFixture _factory;

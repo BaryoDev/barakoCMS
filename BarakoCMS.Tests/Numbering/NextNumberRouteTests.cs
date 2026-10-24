@@ -9,7 +9,7 @@ using static BarakoCMS.Tests.Features.Config.ConfigCallers;
 
 namespace BarakoCMS.Tests.Numbering;
 
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class NextNumberRouteTests(IntegrationTestFixture fixture)
 {
     private readonly BarakoCMS.Tests.Features.Config.ConfigCallers callers = new(fixture);

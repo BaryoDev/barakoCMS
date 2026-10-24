@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests.Jobs;
 /// The job is on a queue of the test's own, which no worker serves, and in a tenant of its own, so
 /// the provider built here is the only thing that touches it and the spans are picked out by its id.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("IntegrationSerial")]
 public class JobRunSpanTests
 {
     private const string Payload = "the-payload-a-request-queued-4f1c";

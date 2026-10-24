@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests.Features.Diagnostics;
 /// redacted on the server. One test per source, a redaction test whose markers are only absent
 /// because the redactor removed them, and the gate with its positive control first.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class IncidentsEndpointTests(IntegrationTestFixture factory)
 {
     private static string Letters(int n) =>

@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests;
 /// replayed, recovery codes are single-use, disable needs a code, and setup requires authentication.
 /// Each test instance uses a distinct client IP so it gets its own auth rate-limit bucket.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class MfaTests
 {
     private const string Password = "P@ssword123!Ab";

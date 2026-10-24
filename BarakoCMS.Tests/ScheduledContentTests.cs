@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests;
 /// delivery reflects it. Covers: due Draft -> Published, due Published -> Archived, future schedules
 /// left untouched, and the consumed field being cleared while the opposite one is preserved.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class ScheduledContentTests
 {
     private readonly IntegrationTestFixture _factory;

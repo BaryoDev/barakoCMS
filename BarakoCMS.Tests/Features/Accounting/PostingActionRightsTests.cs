@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests.Features.Accounting;
 /// The posting actions run as the system, so the person who saves the workflow must hold the
 /// capability to post journal entries.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class PostingActionRightsTests(IntegrationTestFixture fixture)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

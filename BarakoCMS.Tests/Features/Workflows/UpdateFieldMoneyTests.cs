@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// text, and text stored there would be refused on every later save of the entry, so the action
 /// stores a number or fails.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class UpdateFieldMoneyTests
 {
     private readonly IntegrationTestFixture _fixture;

@@ -158,6 +158,18 @@ internal static class FastEndpointsResolver
         }
     }
 
+    /// <summary>
+    /// <see cref="RepairIfDisposed"/> over the hosts of every live fixture, newest first. With several
+    /// fixtures alive, one disposing must hand the resolver to a host of another.
+    /// </summary>
+    public static void RepairFromFallbacks()
+    {
+        lock (Gate)
+        {
+            RepairIfDisposed(Fallbacks.AsEnumerable().Reverse().SelectMany(f => f()).ToList());
+        }
+    }
+
     /// <summary>Sees every value written to the static, under the lock. For tests that pin what is written.</summary>
     internal static Action<IServiceResolver?>? OnWrite { get; set; }
 

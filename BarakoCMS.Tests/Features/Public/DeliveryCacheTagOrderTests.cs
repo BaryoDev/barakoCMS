@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests.Features.Public;
 /// tags so an included type is still purged, the sitemap tag first on a tenant with many types, and
 /// no validators on a file 404.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class DeliveryCacheTagOrderTests(IntegrationTestFixture fixture)
 {
     private readonly ShareLinkTestHost _host = new(fixture);

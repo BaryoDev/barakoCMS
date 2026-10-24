@@ -122,7 +122,7 @@ public class RedirectRulesTests
 }
 
 /// <summary>The redirect endpoints end to end, including the anonymous resolve.</summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class RedirectEndpointTests
 {
     private readonly IntegrationTestFixture _factory;

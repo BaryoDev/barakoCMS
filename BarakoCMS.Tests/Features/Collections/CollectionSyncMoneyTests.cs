@@ -11,7 +11,7 @@ namespace BarakoCMS.Tests.Features.Collections;
 /// itself: an item whose amount has more decimal places than the field's currency takes is skipped,
 /// the way an item that does not convert to its field's type is.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class CollectionSyncMoneyTests
 {
     private const string Priced = """

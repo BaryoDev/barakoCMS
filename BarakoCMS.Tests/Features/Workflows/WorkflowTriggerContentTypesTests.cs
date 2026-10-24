@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// without ever seeing that class, and a field the class has but the JSON lacks is the break that
 /// matters.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class WorkflowTriggerContentTypesTests
 {
     private readonly IntegrationTestFixture _factory;

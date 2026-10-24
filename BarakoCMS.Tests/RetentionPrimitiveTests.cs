@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests;
 /// The retention primitive on its own, over webhook deliveries. Each test scopes its declaration to
 /// a marker URL and its tenant list to its own slugs, so a pass cannot touch rows other tests own.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class RetentionPrimitiveTests(IntegrationTestFixture fixture)
 {
     private static readonly DateTimeOffset Now = new(2026, 9, 2, 12, 0, 0, TimeSpan.Zero);

@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests;
 /// <summary>
 /// A tenant can send mail from its own address while another tenant keeps the host default (#896).
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class TenantEmailSettingsTests
 {
     private const string TenantKey = "re_tenant_key_nobody_should_ever_see_again";

@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests.Features.Public;
 /// Every test sends from its own address, so the per visitor limit of one test cannot answer
 /// another's request with 429, and every reference is new, so the per reference limit cannot either.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class PublicLookupTests
 {
     private readonly IntegrationTestFixture _factory;

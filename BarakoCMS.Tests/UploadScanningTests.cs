@@ -57,7 +57,7 @@ internal sealed class ScriptedScanner : IFileScanner
 /// The other half of each pairing is that nothing was stored. A refusal that still wrote the bytes
 /// is the failure this whole feature exists to prevent, and the status code says nothing about it.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class UploadScanningTests
 {
     private readonly IntegrationTestFixture _factory;
@@ -235,7 +235,7 @@ public class UploadScanningTests
 /// then call every file clean in production. Talking to a real socket is the only thing that checks
 /// the bytes.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class ClamAvProtocolTests
 {
     /// <summary>Accepts one connection, reads an INSTREAM, and answers the scripted line.</summary>

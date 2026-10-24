@@ -10,7 +10,7 @@ using static BarakoCMS.Tests.Features.Config.ConfigCallers;
 namespace BarakoCMS.Tests.Features.Workflows;
 
 /// <summary>A schedule on a workflow: the offset text, and how the workflows config section stores and refuses it.</summary>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class ScheduleTriggerConfigTests
 {
     private readonly ConfigCallers _callers;

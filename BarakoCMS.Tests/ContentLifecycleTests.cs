@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests;
 /// that exists is one of those. And a custom lifecycle must not touch `ContentStatus`, which is what
 /// public delivery reads: an invoice moving to Approved is not an invoice becoming publicly visible.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ContentLifecycleTests
 {
     private readonly IntegrationTestFixture _factory;

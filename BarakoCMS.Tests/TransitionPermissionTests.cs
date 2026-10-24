@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests;
 /// rule for an undeclared transition looks like it works and grants approval to everyone who can
 /// edit, which is the defect wearing the fix's clothes.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class TransitionPermissionTests
 {
     private readonly IntegrationTestFixture _factory;

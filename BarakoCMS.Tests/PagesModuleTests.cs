@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests;
 /// includes the reserved ones: a nested page that takes one blocks the top-level refusal from ever
 /// being reached, so each reserved slug belongs to exactly one test.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class PagesModuleTests
 {
     private const string TypeName = "pagetreeprobe";

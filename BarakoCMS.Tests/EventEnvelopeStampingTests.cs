@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests;
 /// Content events carry the branch they were written for, the node that wrote them and that node's
 /// gapless origin sequence, and the document keeps the branch through a rebuild.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class EventEnvelopeStampingTests
 {
     private const string Type = "envelope-probe";

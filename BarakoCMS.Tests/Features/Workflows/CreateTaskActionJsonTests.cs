@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// <c>CreateTaskAction</c> with <c>Data.*</c> on a json field. Its parameters are text, so JSON text
 /// for a field that holds a list or an object is stored as that list or object, never as the text.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class CreateTaskActionJsonTests(IntegrationTestFixture fixture)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

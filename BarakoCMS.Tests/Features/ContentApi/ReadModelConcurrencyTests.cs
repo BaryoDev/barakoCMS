@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests.Features.ContentApi;
 /// recorded the reversal: replaying the stream gives Published, the document says Draft, and
 /// delivery stops serving an item that was published. See issue #299.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class ReadModelConcurrencyTests
 {
     private readonly IntegrationTestFixture _fixture;

@@ -23,7 +23,7 @@ namespace BarakoCMS.Tests.Features.Collections;
 /// The wait is 300 milliseconds here, not the five seconds a deployment gets, so a test that
 /// expects a refusal does not sit through the default. The one test about waiting raises it.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class CollectionSyncRunLockTests : IDisposable
 {
     private const string TwoPackages = CollectionSyncTests.TwoPackages;

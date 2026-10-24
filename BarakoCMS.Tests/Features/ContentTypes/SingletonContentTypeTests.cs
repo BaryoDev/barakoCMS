@@ -25,7 +25,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// of a rule the unique index underneath it enforces. There is no index to lean on here, because
 /// whether a type is a singleton lives in another document.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class SingletonContentTypeTests
 {
     private readonly IntegrationTestFixture _fixture;

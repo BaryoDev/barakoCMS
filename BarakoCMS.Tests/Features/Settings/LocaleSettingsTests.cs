@@ -12,7 +12,7 @@ using Xunit;
 namespace BarakoCMS.Tests.Features.Settings;
 
 /// <summary>A tenant's languages: stored per tenant, validated, and admin only.</summary>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class LocaleSettingsTests
 {
     private readonly IntegrationTestFixture _factory;

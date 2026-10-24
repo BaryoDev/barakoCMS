@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests.Features.Portability;
 /// for every caller, an import generates a new one whatever the bundle carries, and a bundle may
 /// not turn a stored token into another type.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class ImportTokenFieldTests
 {
     private const string Forged = "forged0token0forged0token0forged";

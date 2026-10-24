@@ -39,7 +39,7 @@ namespace BarakoCMS.Tests;
 /// <c>IntegrationTestFixture.WithSetting</c> states for the hosts it builds.
 /// </para>
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class RateLimitStartupCheckTests
 {
     private const string FormsRoute = "api/public/forms/{slug}";

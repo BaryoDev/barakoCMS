@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// the outcome the action's own result type exists to rule out. The failure is permanent, since
 /// the field is a token on every retry, and it does not name the value the action was given.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class UpdateFieldTokenTests
 {
     private const string Forged = "forged0token0forged0token0forged";

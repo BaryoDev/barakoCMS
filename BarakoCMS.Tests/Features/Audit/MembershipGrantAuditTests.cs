@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests.Features.Audit;
 /// rows lacked was what the person held before, and one path (creating a tenant) wrote a membership
 /// with no row at all.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class MembershipGrantAuditTests
 {
     private readonly IntegrationTestFixture _factory;

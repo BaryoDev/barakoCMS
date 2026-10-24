@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests.Features.Portability;
 /// An import into an already-configured site works, which is why this survives casual testing.
 /// See issue #168.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ImportTests : IAsyncLifetime
 {
     private readonly IntegrationTestFixture _fixture;

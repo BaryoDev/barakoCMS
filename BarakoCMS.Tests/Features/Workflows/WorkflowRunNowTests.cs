@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// Every refusal here has a request beside it that succeeds, so a route that refuses everything
 /// cannot pass.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class WorkflowRunNowTests
 {
     private readonly IntegrationTestFixture _factory;

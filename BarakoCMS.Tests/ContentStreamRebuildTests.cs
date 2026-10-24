@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests;
 ///
 /// This deletes the document and rebuilds it from the stream alone.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ContentStreamRebuildTests
 {
     private readonly IntegrationTestFixture _fixture;

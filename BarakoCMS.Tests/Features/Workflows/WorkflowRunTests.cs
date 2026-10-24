@@ -27,7 +27,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// take the claim explicitly rather than racing two workers and hoping they overlap, which is the
 /// lesson MultiInstanceSchedulingTests already records.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class WorkflowRunTests
 {
     private readonly IntegrationTestFixture _factory;

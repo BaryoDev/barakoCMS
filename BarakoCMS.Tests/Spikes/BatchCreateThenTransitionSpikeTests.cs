@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests.Spikes;
 /// These facts pin that: the stream reads ContentCreated then ContentTransitioned, the state is
 /// the target state, and a batch that does not commit leaves nothing.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class BatchCreateThenTransitionSpikeTests(IntegrationTestFixture host)
 {
     private async Task<string> TypeAsync()

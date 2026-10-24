@@ -24,7 +24,7 @@ namespace BarakoCMS.Tests;
 /// Every refusal here is paired with the same request succeeding once the field is sent. A check
 /// that refused every Reject would pass the refusals on its own.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class TransitionRequiredFieldsTests
 {
     private static readonly TimeSpan PollTimeout = TimeSpan.FromSeconds(30);

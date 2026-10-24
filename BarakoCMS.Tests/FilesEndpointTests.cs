@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests;
 /// download as the security-relevant case: a public upload is anonymously readable, a private one is
 /// not (404, indistinguishable from missing), and a random id is 404.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class FilesEndpointTests
 {
     private readonly IntegrationTestFixture _factory;

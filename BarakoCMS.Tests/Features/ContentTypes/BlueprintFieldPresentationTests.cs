@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// cannot meet a type another class created. The directory is written before each test and
 /// removed after it.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class BlueprintFieldPresentationTests : IDisposable
 {
     private const string Blueprints = "/api/content-types/blueprints";

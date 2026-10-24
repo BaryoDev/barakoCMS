@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// the currency afterwards are the ones about existing data: nothing is rewritten, and what does
 /// not fit is counted and reported before the change lands.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class MoneyFieldTests : IAsyncLifetime
 {
     private readonly IntegrationTestFixture _fixture;

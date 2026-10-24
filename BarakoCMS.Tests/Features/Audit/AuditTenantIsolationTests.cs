@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests.Features.Audit;
 /// own filter, any tenant admin reads every tenant's audit log by leaving ?tenant unset or by
 /// naming a victim tenant.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class AuditTenantIsolationTests
 {
     private readonly IntegrationTestFixture _factory;

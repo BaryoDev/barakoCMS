@@ -26,10 +26,10 @@ namespace BarakoCMS.Tests;
 /// </summary>
 /// <remarks>
 /// A host of its own, with three probe modules and the third left off the enabled list. In the
-/// Sequential collection and on the fixture's JWT key for the reasons
+/// IntegrationSerial collection and on the fixture's JWT key for the reasons
 /// <see cref="BarakoTestHostTests"/> gives.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("IntegrationSerial")]
 public class ModuleConfigureAppTests : IClassFixture<ModuleConfigureAppTests.Host>
 {
     private const string OrderHeader = "X-Probe-Order";

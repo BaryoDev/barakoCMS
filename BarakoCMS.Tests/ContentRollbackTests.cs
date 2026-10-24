@@ -5,7 +5,7 @@ using FluentAssertions;
 
 namespace BarakoCMS.Tests;
 
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ContentRollbackTests
 {
     private readonly HttpClient _client;

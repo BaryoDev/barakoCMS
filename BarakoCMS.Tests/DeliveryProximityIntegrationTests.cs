@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests;
 /// constant or a degrees-for-radians slip shows up as a number rather than as an ordering that
 /// happens to look right.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class DeliveryProximityIntegrationTests
 {
     private readonly IntegrationTestFixture _factory;

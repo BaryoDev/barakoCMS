@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests.SampleProbe;
 /// A trigger a module registered: a workflow can be saved on it, the module fires it, and a run
 /// starts. Firing stays inside the scope's tenant, and a module cannot fire core's own triggers.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ModuleWorkflowTriggerTests(SampleProbeHost host) : IClassFixture<SampleProbeHost>
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

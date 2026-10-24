@@ -22,7 +22,7 @@ namespace BarakoCMS.Tests.Features.Connectors;
 /// answer can quote back exactly what it was sent. Every test asserts the row exists before it
 /// asserts what is not in it.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class ConnectorDeliveryTests : IAsyncLifetime
 {
     private readonly IntegrationTestFixture _factory;

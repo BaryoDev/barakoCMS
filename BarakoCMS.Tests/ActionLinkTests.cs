@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests;
 /// Each refusal is paired with the same link working before the thing it lacked is taken away, so
 /// a route that refused everything would not pass.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class ActionLinkTests
 {
     private readonly IntegrationTestFixture _factory;

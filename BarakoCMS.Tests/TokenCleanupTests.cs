@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests;
 /// "this email, not consumed" scan in send and verify degraded with the table. The ExpiresAt index
 /// was already registered, so the pass was the only missing part.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class TokenCleanupTests
 {
     private readonly IntegrationTestFixture _factory;

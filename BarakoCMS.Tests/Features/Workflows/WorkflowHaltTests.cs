@@ -17,7 +17,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// which the runner records as a permanent failure on the first attempt. The actions after it are
 /// <see cref="CountingRunnerAction"/>, so "not run" is a count of zero and not only a status.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class WorkflowHaltTests
 {
     private const string NoHandler = "NoSuchAction";

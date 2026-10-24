@@ -6,7 +6,7 @@ using FastEndpoints.Security;
 
 namespace BarakoCMS.Tests.Features.UserGroups;
 
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class UserGroupApiTests
 {
     private readonly HttpClient _client;

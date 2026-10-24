@@ -14,7 +14,7 @@ using Xunit;
 
 namespace BarakoCMS.Tests.Realtime;
 
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class RealtimeHubTests(SampleProbeHost host) : IClassFixture<SampleProbeHost>
 {
     private static readonly string[] Tickets = ["read_probe_tickets"];

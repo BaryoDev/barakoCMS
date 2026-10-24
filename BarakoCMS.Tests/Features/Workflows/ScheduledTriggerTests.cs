@@ -12,7 +12,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// offset has passed, and never for a value that is missing, empty or not a date.
 /// </summary>
 /// <remarks>Entries and workflows are made under a content type of the test's own, so one test's sweep queues nothing for another's.</remarks>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class ScheduledTriggerTests
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

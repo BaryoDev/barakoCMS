@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests;
 /// Names and numbers are written out as literals. A released console reads the header by its name,
 /// so a test that compared against the constants would follow a rename and stay green.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ContractSurfaceVersionTests
 {
     private const string AdminHeader = "X-Api-Contract-Version";

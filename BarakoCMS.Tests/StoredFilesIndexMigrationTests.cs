@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests;
 /// caught it after merge: same columns, same uniqueness, a name Marten does not generate, so every
 /// start-up assertion wanted to drop and recreate it.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class StoredFilesIndexMigrationTests
 {
     private readonly IntegrationTestFixture _factory;

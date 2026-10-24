@@ -17,7 +17,7 @@ namespace BarakoCMS.Tests.Jobs;
 /// zero: the shared fixture sets the base to 0, where a jittered wait and an exact one are both
 /// nothing and no test on it can tell them apart.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("IntegrationSerial")]
 public class JobRetryJitterTests
 {
     private const int BaseSeconds = 40;

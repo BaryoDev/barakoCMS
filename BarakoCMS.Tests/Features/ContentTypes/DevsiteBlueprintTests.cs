@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// blueprint itself, so the kit works on a tenant that has applied nothing else, and a clashing type
 /// name refuses the whole apply rather than merging around it.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class DevsiteBlueprintTests
 {
     private readonly IntegrationTestFixture _factory;

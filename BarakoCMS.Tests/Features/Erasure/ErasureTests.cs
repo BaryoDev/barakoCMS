@@ -17,7 +17,7 @@ namespace BarakoCMS.Tests.Features.Erasure;
 /// events already written in plaintext, so an operator who selects it and is allowed to start has
 /// the belief without the property, and only finds out in a regulator's letter.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class ErasureTests
 {
     private readonly IntegrationTestFixture _factory;

@@ -6,7 +6,7 @@ using Xunit;
 namespace BarakoCMS.Tests.Features.Tagging;
 
 /// <summary>/api/taxonomy/vocabularies/{id}/terms and /api/taxonomy/terms/{id}.</summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class TaggingTermTests
 {
     private readonly IntegrationTestFixture _factory;

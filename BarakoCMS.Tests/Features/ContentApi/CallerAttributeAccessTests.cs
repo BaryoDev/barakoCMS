@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests.Features.ContentApi;
 /// variable that is not resolved is plain text, and every entry is "not equal" to that text. Under
 /// <c>_eq</c> the same mistake denies and looks correct.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class CallerAttributeAccessTests
 {
     private readonly IntegrationTestFixture _factory;

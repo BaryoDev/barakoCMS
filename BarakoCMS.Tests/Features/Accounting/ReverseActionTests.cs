@@ -9,7 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace BarakoCMS.Tests.Features.Accounting;
 
 /// <summary>Accounting.Reverse swaps the posting, voids the original and does it once.</summary>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class ReverseActionTests(IntegrationTestFixture fixture)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

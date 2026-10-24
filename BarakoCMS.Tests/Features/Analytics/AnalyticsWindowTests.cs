@@ -11,7 +11,7 @@ namespace BarakoCMS.Tests.Features.Analytics;
 /// An explicit <c>from</c> and <c>to</c> on the analytics routes, and the previous window beside a
 /// series (#677). The stub records what was asked of Umami, which is where a wrong window shows.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class AnalyticsWindowTests
 {
     private const string SiteId = "site-1";

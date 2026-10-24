@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests.Features.Audit;
 /// Reads of data above Public write one row per request naming the entries and fields, never a
 /// value (#916), and a share link opened or redeemed writes a row naming the link.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class SensitiveReadAuditTests
 {
     private readonly IntegrationTestFixture _fixture;

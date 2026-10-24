@@ -147,6 +147,7 @@ bash scripts/test-upgrade-plan.sh || fail "test-upgrade-plan.sh failed"
 echo "== method length =="
 bash scripts/test-method-length.sh >/dev/null || fail "test-method-length.sh failed, so the method-length check cannot be trusted"
 python3 scripts/check-method-length.py || fail "check-method-length.py failed"
+python3 scripts/assign-test-collections.py --check || fail "assign-test-collections.py --check failed, run it without --check"
 
 echo "== pinned versions agree =="
 bash scripts/check-pinned-versions.sh || fail "check-pinned-versions.sh failed"

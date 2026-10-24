@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests.Features.Config;
 /// Sections a module registers: a form round trips through the Forms module's provider, and a
 /// Portability bundle applies as a config document through the Portability module's (#921).
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class ConfigModuleSectionsTests
 {
     private readonly ConfigCallers _callers;

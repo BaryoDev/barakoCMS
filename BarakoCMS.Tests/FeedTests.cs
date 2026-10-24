@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests;
 /// document-Public entries appear, only over Public fields — a draft, a Sensitive document, and a value
 /// in a Sensitive field must never surface. Newest first; item links use the frontend path template.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class FeedTests
 {
     private readonly IntegrationTestFixture _factory;

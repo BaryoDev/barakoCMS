@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests;
 /// other Pages tests use is left as it is. One for the class and never disposed, per the note on
 /// IntegrationTestFixture.WithSetting.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class PagesFileFieldTests
 {
     private const string TypeName = "pagefileprobe";

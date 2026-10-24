@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests.Features.Site;
 /// The private site check is cached per tenant (#1175): a public tenant costs no read for it, and
 /// every write to a site entry is seen by the next request.
 /// </summary>
-[Collection("Sequential")]
+[Collection("IntegrationSerial")]
 public class PrivateSiteCacheTests
 {
     private const string GateStatement = "lower(e.key) = 'mode'";

@@ -25,7 +25,7 @@ namespace BarakoCMS.Tests.Features.ContentApi;
 /// key string itself is under test. A flag whose name is misspelt in the reader is a setting that
 /// silently does nothing, and reading it back through configuration is what catches that.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class DocumentTypeAppendFlagTests
 {
     private readonly IntegrationTestFixture _fixture;

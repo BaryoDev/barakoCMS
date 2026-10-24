@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests;
 /// Responses that carry a token, a key or the caller's own details must not be kept by a browser or
 /// a proxy cache (#654, OWASP ASVS 8.2.1). Every other response keeps whatever caching it had.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class ResponseHygieneTests
 {
     private const string Password = "P@ssword123!";

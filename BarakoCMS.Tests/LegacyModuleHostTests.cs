@@ -27,11 +27,11 @@ namespace BarakoCMS.Tests;
 /// module contract and the models in assembly <c>barakoCMS</c>. <c>Barako.Fixture.Broken</c> names a
 /// type no barakoCMS has. Both are built by <c>Fixtures/LegacyModules/build.sh</c>.
 /// <para>
-/// In the Sequential collection and on the fixture's JWT key, for the reasons
+/// In the IntegrationSerial collection and on the fixture's JWT key, for the reasons
 /// <see cref="EnabledModuleEndpointTests"/> gives.
 /// </para>
 /// </remarks>
-[Collection("Sequential")]
+[Collection("IntegrationSerial")]
 public sealed class LegacyModuleHostTests(LegacyModuleHostTests.Host host) : IClassFixture<LegacyModuleHostTests.Host>
 {
     public sealed class Host : IAsyncLifetime

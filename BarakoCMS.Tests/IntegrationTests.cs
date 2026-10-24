@@ -24,7 +24,7 @@ using UpdateContentResponse = barakoCMS.Features.Content.Update.Response;
 
 namespace BarakoCMS.Tests;
 
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class IntegrationTests
 {
     private readonly HttpClient _client;

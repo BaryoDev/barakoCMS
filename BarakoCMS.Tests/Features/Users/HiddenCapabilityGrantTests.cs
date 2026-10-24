@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests.Features.Users;
 ///
 /// The callers are built the way <see cref="PlatformRoleGrantTests"/> builds them.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class HiddenCapabilityGrantTests
 {
     private readonly IntegrationTestFixture _fixture;

@@ -1,0 +1,57 @@
+{
+  "serial": {
+    "AwsSecretsHostTests.cs": "replaces FastEndpoints' static service resolver with a host of its own",
+    "BarakoTestHostTests.cs": "starts hosts of its own or checks the fixture itself, which a second live fixture would disturb",
+    "BuildIdentityEndpointTests.cs": "sets process-wide environment variables or switches",
+    "DataSeederTests.cs": "sets process-wide environment variables or switches",
+    "DerivedHostReleaseTests.cs": "starts hosts of its own or checks the fixture itself, which a second live fixture would disturb",
+    "EnabledModuleEndpointTests.cs": "sets process-wide environment variables or switches",
+    "EventCorrelationTests.cs": "asserts on process-wide metrics or trace listeners that any parallel host would feed",
+    "Features/ContentTypes/BlocksFieldTests.cs": "replaces FastEndpoints' static service resolver with a host of its own",
+    "Features/ContentTypes/ChangeFieldTests.cs": "queues FastEndpoints jobs through the process-wide JobQueues static, which every host start overwrites",
+    "Features/ContentTypes/ContentLinesTests.cs": "queues FastEndpoints jobs through the process-wide JobQueues static, which every host start overwrites",
+    "Features/ContentTypes/FieldChangeSeamsTests.cs": "queues FastEndpoints jobs through the process-wide JobQueues static, which every host start overwrites",
+    "Features/ContentTypes/FieldSensitivityChangeTests.cs": "queues FastEndpoints jobs through the process-wide JobQueues static, which every host start overwrites",
+    "Features/Diagnostics/ClientErrorForwardingTests.cs": "replaces FastEndpoints' static service resolver with a host of its own",
+    "Features/ExternalAuth/ExternalRoleMapTests.cs": "replaces FastEndpoints' static service resolver with a host of its own",
+    "Features/Public/PublicListRoundTripTests.cs": "asserts on process-wide metrics or trace listeners that any parallel host would feed",
+    "Features/Site/PrivateSiteCacheTests.cs": "asserts on process-wide metrics or trace listeners that any parallel host would feed",
+    "Features/Site/PrivateSiteModeTests.cs": "replaces FastEndpoints' static service resolver with a host of its own",
+    "Features/Tenants/TlsAskTests.cs": "replaces FastEndpoints' static service resolver with a host of its own",
+    "Features/Workflows/WorkflowQueueMetricsTests.cs": "asserts on process-wide metrics or trace listeners that any parallel host would feed",
+    "Features/Workflows/WorkflowRunnerMetricsTests.cs": "asserts on process-wide metrics or trace listeners that any parallel host would feed",
+    "Infrastructure/JobWorkerSchemaOrderTests.cs": "queues FastEndpoints jobs through the process-wide JobQueues static, which every host start overwrites",
+    "Jobs/JobQueueHygieneTests.cs": "queues FastEndpoints jobs through the process-wide JobQueues static, which every host start overwrites",
+    "Jobs/JobRetryJitterTests.cs": "queues FastEndpoints jobs through the process-wide JobQueues static, which every host start overwrites",
+    "Jobs/JobRunSpanTests.cs": "queues FastEndpoints jobs through the process-wide JobQueues static, which every host start overwrites",
+    "LegacyModuleHostTests.cs": "swaps Serilog's process-wide Log.Logger and an AppContext switch",
+    "LockedAccountResponseTests.cs": "replaces FastEndpoints' static service resolver with a host of its own",
+    "MetricsEndpointTests.cs": "asserts on process-wide metrics or trace listeners that any parallel host would feed",
+    "ModuleConfigureAppTests.cs": "starts hosts of its own or checks the fixture itself, which a second live fixture would disturb",
+    "ModuleSchemaPreflightTests.cs": "swaps Serilog's process-wide Log.Logger",
+    "NpgsqlSpanScrubTests.cs": "asserts on process-wide metrics or trace listeners that any parallel host would feed",
+    "Numbering/NumberingRuleTests.cs": "queues FastEndpoints jobs through the process-wide JobQueues static, which every host start overwrites",
+    "StorageSettingsTests.cs": "replaces FastEndpoints' static service resolver with a host of its own",
+    "TransactionalEnqueueTests.cs": "queues FastEndpoints jobs through the process-wide JobQueues static, which every host start overwrites",
+    "UnhandledExceptionResponseTests.cs": "replaces FastEndpoints' static service resolver with a host of its own"
+  },
+  "together": [
+    {
+      "reason": "share the static Umami request log",
+      "files": [
+        "Features/Analytics/AnalyticsWindowTests.cs",
+        "Features/Analytics/UmamiProxyTests.cs"
+      ]
+    },
+    {
+      "reason": "share the OAuth stub's static log capture",
+      "files": [
+        "Features/Connectors/ConnectorDeliveryActionTests.cs",
+        "Features/Connectors/ConnectorDeliveryTests.cs",
+        "Features/Connectors/ConnectorOAuthRetryTests.cs",
+        "Features/Connectors/ConnectorOAuthTests.cs",
+        "Features/Connectors/RequestOutputsActionTests.cs"
+      ]
+    }
+  ]
+}

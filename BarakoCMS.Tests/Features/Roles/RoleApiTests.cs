@@ -7,7 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace BarakoCMS.Tests.Features.Roles;
 
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class RoleApiTests
 {
     private readonly HttpClient _client;

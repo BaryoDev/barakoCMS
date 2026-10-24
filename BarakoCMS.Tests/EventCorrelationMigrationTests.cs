@@ -24,7 +24,7 @@ namespace BarakoCMS.Tests;
 /// the result is compared with <c>public</c>, which Marten built for this run with the same
 /// options production uses for the event store.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class EventCorrelationMigrationTests
 {
     private const string Function = "mt_quick_append_events";

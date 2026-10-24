@@ -25,7 +25,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// particular host: "NoSuchAction" fails for good on its first attempt everywhere, and
 /// <see cref="CountingRunnerAction"/> is registered on the fixture.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class WorkflowRunnerFairClaimTests
 {
     private const string NoHandler = "NoSuchAction";

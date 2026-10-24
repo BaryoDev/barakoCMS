@@ -17,7 +17,7 @@ namespace BarakoCMS.Tests;
 /// The fixtures hash at factor 4, below <see cref="PasswordHashing.WorkFactor"/>, which is the state
 /// every existing account is in the day the factor is raised.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class PasswordRehashTests
 {
     private const string Password = "ValidPassword123!";

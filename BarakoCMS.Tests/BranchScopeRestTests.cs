@@ -12,7 +12,7 @@ namespace BarakoCMS.Tests;
 /// A caller who holds branch A cannot reach an entry of a branch scoped type stamped B through the
 /// content routes. A hidden entry answers as one that does not exist.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class BranchScopeRestTests(SampleProbeHost host) : IClassFixture<SampleProbeHost>
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

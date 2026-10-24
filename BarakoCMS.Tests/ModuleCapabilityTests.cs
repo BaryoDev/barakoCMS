@@ -22,7 +22,7 @@ namespace BarakoCMS.Tests;
 /// fallback, and turning that off, which is the whole point of the issue, would take every module
 /// away from every Admin.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class ModuleCapabilityTests
 {
     private readonly IntegrationTestFixture _factory;

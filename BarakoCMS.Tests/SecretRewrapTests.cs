@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests;
 /// another test wrote: those do not open under these rings and are only counted. That is also why
 /// the count is asserted as a difference between two passes rather than as an absolute number.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class SecretRewrapTests
 {
     private const string KeyA = "rewrap-ring-material-a-at-least-32-chars-long";

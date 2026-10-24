@@ -6,7 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace BarakoCMS.Tests;
 
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class ContentSensitivityTests
 {
     private readonly HttpClient _client;

@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests;
 ///
 /// So integrity is checked on write, and the read path degrades rather than failing.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ContentReferenceTests
 {
     private readonly IntegrationTestFixture _factory;

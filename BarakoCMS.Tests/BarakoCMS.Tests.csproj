@@ -89,6 +89,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Collections run side by side, each on its own fixture. See scripts/assign-test-collections.py. -->
+    <Content Update="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Assemblies built against older barakoCMS releases, loaded by path at run time. Their sources
          sit beside them for build.sh and are not part of this project. Copied to a subfolder, so
          nothing resolves them by name. -->

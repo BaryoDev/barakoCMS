@@ -24,7 +24,7 @@ namespace BarakoCMS.Tests;
 /// provider would pass just as well against a document holding the plaintext, which is the failure
 /// being ruled out.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class EmailSettingsTests
 {
     private const string Key = "re_a_key_nobody_should_ever_see_again";

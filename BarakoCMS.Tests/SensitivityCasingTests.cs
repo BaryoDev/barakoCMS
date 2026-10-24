@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests;
 /// field, delivered as that field, and not masked as that field. The third reader is the one
 /// deciding whether to hide it.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class SensitivityCasingTests
 {
     private readonly IntegrationTestFixture _factory;

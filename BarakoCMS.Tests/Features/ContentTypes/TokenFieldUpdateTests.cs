@@ -17,7 +17,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// The caller in each case is the seeded SuperAdmin, who may read and write every other field, so
 /// the field-sensitivity rule for callers who may not see a field is not what keeps the token.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class TokenFieldUpdateTests
 {
     private readonly IntegrationTestFixture _factory;

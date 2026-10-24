@@ -25,7 +25,7 @@ namespace BarakoCMS.Tests;
 /// An account that does not exist never locks, so a distinct answer for a locked one told anyone
 /// which usernames were real, and a stated lock duration told them how often to re-lock it.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("IntegrationSerial")]
 public class LockedAccountResponseTests
 {
     private const string Password = "ValidPassword123!";

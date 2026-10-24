@@ -30,7 +30,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// only that it agrees with itself, and what a receiver needs is that the documented recipe agrees
 /// with the wire.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class WebhookDeliveryTests
 {
     private const string Secret = "whsec_test_9f2c1e8b";
@@ -387,12 +387,12 @@ public class WebhookDeliveryTests
         }
 
         WebhookDelivery? row = null;
-        for (var i = 0; i < 30 && row is null; i++)
+        for (var i = 0; i < 150 && row is null; i++)
         {
             await using var check = store.QuerySession(tenant);
             row = await check.Query<WebhookDelivery>()
                 .FirstOrDefaultAsync(d => d.RunId == run.Id, TestContext.Current.CancellationToken);
-            if (row is null) await Task.Delay(500, TestContext.Current.CancellationToken);
+            if (row is null) await Task.Delay(100, TestContext.Current.CancellationToken);
         }
 
         row.Should().NotBeNull("the runner passes the run id and the action writes it on the row");

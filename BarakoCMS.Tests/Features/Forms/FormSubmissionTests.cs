@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests.Features.Forms;
 /// Every test sends from its own client IP, because the submit limit is five per IP per ten minutes
 /// and the suite would otherwise spend one shared bucket across every test here.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class FormSubmissionTests
 {
     private static readonly TimeSpan PollTimeout = TimeSpan.FromSeconds(30);

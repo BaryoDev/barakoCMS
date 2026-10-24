@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests.Features.Site;
 /// whole site or a signed-in viewer who may read the <c>site</c> type, and other tenants are
 /// unaffected.
 /// </summary>
-[Collection("Sequential")]
+[Collection("IntegrationSerial")]
 public class PrivateSiteModeTests
 {
     private readonly IntegrationTestFixture _fixture;

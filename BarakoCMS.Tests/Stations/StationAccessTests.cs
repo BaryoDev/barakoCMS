@@ -17,7 +17,7 @@ using Xunit;
 
 namespace BarakoCMS.Tests.Stations;
 
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class StationAccessTests(SampleProbeHost host) : IClassFixture<SampleProbeHost>
 {
     private async Task<CreatedStation> CreateStationAsync(string? tenant = null, params string[] capabilities)

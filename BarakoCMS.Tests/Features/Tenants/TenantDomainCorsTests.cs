@@ -26,7 +26,7 @@ namespace BarakoCMS.Tests.Features.Tenants;
 /// restart before a browser on it could call anything. Each host here lists one origin in
 /// <c>CORS:AllowedOrigins</c>, so every test also shows the configured list still answers as before.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class TenantDomainCorsTests
 {
     private const string Listed = "https://console.example.com";

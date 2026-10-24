@@ -7,7 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace BarakoCMS.Tests;
 
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class AuthTokenReuseTests
 {
     private readonly HttpClient _client;

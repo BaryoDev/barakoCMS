@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests;
 /// application's own serializer so the keys and the id format are the ones a real row has. The
 /// shared database is not used: the file looks at every role, and other classes' roles are there.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class RoleTenancyMigrationTests
 {
     private readonly IntegrationTestFixture _fixture;

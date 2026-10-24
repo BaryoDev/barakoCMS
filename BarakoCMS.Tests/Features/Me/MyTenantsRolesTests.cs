@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests.Features.Me;
 /// <c>GET /api/me/tenants</c> reports the roles the caller holds in each tenant (#677), since a role
 /// can differ per tenant and a switcher shows it beside each one.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class MyTenantsRolesTests
 {
     private const string Route = "/api/me/tenants";

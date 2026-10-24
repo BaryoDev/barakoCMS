@@ -29,7 +29,7 @@ namespace BarakoCMS.Tests;
 /// The walk over each response type is <see cref="EventSurfaceTests.Reachable"/>, unchanged, so
 /// widening the surface cannot quietly get a weaker check than the core already has.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class ModuleEventSurfaceTests
 {
     private readonly IntegrationTestFixture _factory;

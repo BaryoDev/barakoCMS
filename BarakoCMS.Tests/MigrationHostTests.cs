@@ -12,7 +12,7 @@ namespace BarakoCMS.Tests;
 /// The ledger as a real host uses it: the command on the host the published image runs, the rows a
 /// first start writes, and the skip queries of the files released before the ledger (issue #901).
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class MigrationHostTests
 {
     private readonly IntegrationTestFixture _factory;

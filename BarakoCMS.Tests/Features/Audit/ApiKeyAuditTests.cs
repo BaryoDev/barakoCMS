@@ -11,7 +11,7 @@ namespace BarakoCMS.Tests.Features.Audit;
 /// An API key acts as the user who made it, so making one and revoking one are grant changes. Neither
 /// was recorded, which left "when was the leaked key revoked, and by whom" without an answer.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ApiKeyAuditTests
 {
     private readonly IntegrationTestFixture _factory;

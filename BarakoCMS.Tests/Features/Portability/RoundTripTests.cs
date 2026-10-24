@@ -27,7 +27,7 @@ namespace BarakoCMS.Tests.Features.Portability;
 /// no tenant identity by design, so nothing in the file says where it belongs and the only thing
 /// deciding is the tenant of the request carrying it.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class RoundTripTests
 {
     private static int _ipCounter;

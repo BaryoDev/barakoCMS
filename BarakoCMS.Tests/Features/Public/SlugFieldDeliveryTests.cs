@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests.Features.Public;
 /// definition is one no endpoint would accept for a token. Each test checks the entry's Public
 /// field is delivered, so a missing value means the slug rule and not a missing entry.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class SlugFieldDeliveryTests
 {
     private readonly IntegrationTestFixture _factory;

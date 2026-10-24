@@ -24,7 +24,7 @@ namespace BarakoCMS.Tests;
 /// what decides an outcome. The token carries whatever names the test says, which is the point of
 /// the tests that hand it "HR" and "SuperAdmin".
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class SensitivityByCapabilityTests
 {
     private const string Notes = "customer notes 5521";

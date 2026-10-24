@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests.Features.Connectors;
 /// Issue #671: <c>GET /api/connector-deliveries</c> lists what was sent through connectors, and
 /// <c>GET /api/webhook-deliveries</c> goes on listing webhooks only, though both read one table.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration3")]
 public class ConnectorDeliveryListTests
 {
     private const string ConnectorRoute = "/api/connector-deliveries";

@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests;
 /// Hidden and BirthDay field is Sensitive, sign in as users whose stored roles differ, GET/LIST
 /// through the HTTP pipeline, and assert what each one actually receives.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class SensitivityIntegrationTests
 {
     private readonly IntegrationTestFixture _factory;

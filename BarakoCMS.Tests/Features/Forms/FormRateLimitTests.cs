@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests.Features.Forms;
 /// A submission with no data reaches validation and is 400, so a 400 here means the limiter let the
 /// request through and a 429 means it did not.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class FormRateLimitTests
 {
     private readonly IntegrationTestFixture _factory;

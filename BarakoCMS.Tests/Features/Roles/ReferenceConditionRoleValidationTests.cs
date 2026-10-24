@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests.Features.Roles;
 /// Every case runs against <c>POST /api/roles</c> and <c>PUT /api/roles/{id}</c>, since the two
 /// slices each carry the check.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ReferenceConditionRoleValidationTests
 {
     private readonly IntegrationTestFixture _fixture;

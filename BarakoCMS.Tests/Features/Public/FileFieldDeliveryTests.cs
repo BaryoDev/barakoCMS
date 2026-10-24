@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests.Features.Public;
 /// database is shared. Entries are stored directly, as published ones, so what is under test is the
 /// read: the write rules have their own class.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration4")]
 public class FileFieldDeliveryTests
 {
     private readonly IntegrationTestFixture _factory;

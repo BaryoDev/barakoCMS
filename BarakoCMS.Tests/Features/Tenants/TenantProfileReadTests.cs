@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests.Features.Tenants;
 /// <remarks>
 /// Each test stores different values on the two sides, so an answer says which side it came from.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class TenantProfileReadTests
 {
     private readonly IntegrationTestFixture _fixture;

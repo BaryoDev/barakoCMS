@@ -22,7 +22,7 @@ namespace BarakoCMS.Tests.Features.ExternalAuth;
 /// is the one place all four providers converge on, so a fifth provider added later inherits this
 /// without anybody having to remember.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class SocialSignInMfaTests
 {
     private readonly IntegrationTestFixture _fixture;

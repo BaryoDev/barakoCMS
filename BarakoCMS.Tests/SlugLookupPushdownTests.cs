@@ -85,7 +85,7 @@ internal sealed class CapturingMartenLogger : IMartenLogger, IMartenSessionLogge
 /// statements Postgres was actually sent. Correctness of the match is asserted alongside it, since
 /// pushing a predicate down is only worth anything if it still finds the right row.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class SlugLookupPushdownTests
 {
     private readonly IntegrationTestFixture _factory;

@@ -31,18 +31,25 @@ internal sealed class OAuthProviderStub : HttpMessageHandler
     private static readonly ConcurrentDictionary<string, Func<ProviderCall, CancellationToken, Task<HttpResponseMessage>>> Routes = new();
 
     private static readonly Lock HostLock = new();
-    private static WebApplicationFactory<Program>? _host;
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IntegrationTestFixture, WebApplicationFactory<Program>> Hosts = new();
 
     internal static WebApplicationFactory<Program> HostFor(IntegrationTestFixture factory)
     {
         lock (HostLock)
         {
-            return _host ??= factory.WithRunScopedHost(b => b.ConfigureServices(services =>
+            if (Hosts.TryGetValue(factory, out var cached))
+            {
+                return cached;
+            }
+
+            var host = factory.WithRunScopedHost(b => b.ConfigureServices(services =>
             {
                 services.AddHttpClient("ExternalApi").ConfigurePrimaryHttpMessageHandler(() => new OAuthProviderStub());
                 services.AddSingleton<ILoggerFactory>(_ => LoggerFactory.Create(logging =>
                     logging.SetMinimumLevel(LogLevel.Trace).AddProvider(new CapturedLogs())));
             }));
+            Hosts.Add(factory, host);
+            return host;
         }
     }
 

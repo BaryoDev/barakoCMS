@@ -27,7 +27,7 @@ namespace BarakoCMS.Tests.Features.DeviceTrust;
 /// client IP: <c>/api/auth/refresh</c> is under the auth rate limit (5 per 15 minutes per IP) and
 /// the rest of the suite shares one loopback address.
 /// </remarks>
-[Collection("Sequential")]
+[Collection("Integration2")]
 public class DeviceEnforcementTests
 {
     private static int _ipCounter;
