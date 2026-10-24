@@ -31,8 +31,9 @@ public static class AccountContentTypes
     public static async Task<AccountContentType?> FindAsync(IQuerySession session, string name, CancellationToken ct = default)
     {
         var accountId = await AccountOfAsync(session, TenantSlugOf(session), ct);
+        var lowered = (name ?? string.Empty).ToLower();
         return await session.Query<AccountContentType>()
-            .FirstOrDefaultAsync(t => t.AccountId == accountId && t.Name == name, ct);
+            .FirstOrDefaultAsync(t => t.AccountId == accountId && t.Name.ToLower() == lowered, ct);
     }
 
     public static async Task<ContentTypeDefinition?> FindDefinitionAsync(
