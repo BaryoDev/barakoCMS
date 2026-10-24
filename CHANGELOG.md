@@ -36,7 +36,7 @@ The Suite image no longer serves the Accounting routes (`/api/accounting/account
 
 Module contracts: BarakoCMS.AI `HttpContractVersion` 2 to 3 (a semantic search query over 500 characters answers 400), BarakoCMS.Pwa 0 to 1 (the install report refuses a bad field). New modules BarakoCMS.Tagging and BarakoCMS.Services start at 1. A payment event for an attempt that is no longer pending answers 200 or 409 as described under Changed.
 
-**Package changes.** BarakoCMS.Tagging and BarakoCMS.Services are new packages. Modules with changes: Accounting 4.6.0, FeatureFlags 4.6.0, AI 4.6.1, Pwa 4.5.1, Diagnostics 4.5.1, Import 4.7.1, Portability 4.7.1, Booking 5.2.1 and Payments 0.1.1. Nothing is removed from the package surface.
+**Package changes.** BarakoCMS.Tagging and BarakoCMS.Services are new packages. Modules with changes: Accounting 4.6.0, FeatureFlags 4.6.0, AI 4.6.1, Pwa 4.5.1, Diagnostics 4.5.1, Import 4.7.1, Portability 4.7.1, Booking 5.2.1, Qr 5.2.1 (its package icon no longer carries EXIF metadata) and Payments 0.1.1. Nothing is removed from the package surface.
 
 **Rolling back to 5.2.** Stop 5.3, run the rollback lines `--list` prints, newest first, then remove each rolled-back file's ledger row with `db-migrate --forget <key>` and start 5.2.x. `rollback-252-tagging.sql`, `rollback-833-services.sql`, `rollback-945-account-content-types.sql`, `rollback-98-locale-settings.sql` and `rollback-accounting-mappings.sql` sit beside their files. Rolling back drops the tables those files created, so their rows are lost: tags, services, account content types, locale settings and accounting mappings. The journal lifecycle file has no rollback, since it only adds a state to existing entries.
 
