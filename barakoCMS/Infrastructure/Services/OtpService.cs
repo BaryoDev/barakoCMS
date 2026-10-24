@@ -71,7 +71,7 @@ public class OtpService : IOtpService
             return false;
         }
 
-        _mail.Enqueue(issued.Value.To, issued.Value.Subject, issued.Value.Body);
+        _mail.Enqueue(issued.Value.To, issued.Value.Subject, issued.Value.Body, "otp");
         return true;
     }
 

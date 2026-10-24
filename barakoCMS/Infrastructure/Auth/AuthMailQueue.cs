@@ -10,7 +10,7 @@ namespace barakoCMS.Infrastructure.Auth;
 /// </summary>
 /// <remarks>
 /// Same shape as <see cref="LockoutNoticeSender"/>: bounded, each send from its own DI scope, a
-/// failure logged and not retried. One message is held per address, and a newer one replaces the
+/// failure logged and not retried. One message is held per kind and address, and a newer one replaces the
 /// queued one, since a newer code or link supersedes the old. When the queue is full the message is
 /// dropped, counted and logged (without the address) rather than the request waiting. Messages
 /// still queued when the host stops are not sent.
@@ -29,31 +29,36 @@ public sealed class AuthMailQueue(
         "Sign-in mail not sent because the queue was full.");
 
     private readonly object _gate = new();
-    private readonly Dictionary<string, (string Subject, string Body)> _pending = new();
+    private readonly Dictionary<string, (string To, string Subject, string Body)> _pending = new();
     private readonly Channel<string> _order = Channel.CreateUnbounded<string>(
         new UnboundedChannelOptions { SingleReader = false });
 
     internal int PendingCount { get { lock (_gate) return _pending.Count; } }
 
-    internal string? PendingBody(string to)
+    internal string? PendingBody(string to, string kind = DefaultKind)
     {
-        lock (_gate) return _pending.TryGetValue(to.ToLowerInvariant(), out var m) ? m.Body : null;
+        lock (_gate) return _pending.TryGetValue(KeyFor(kind, to), out var m) ? m.Body : null;
     }
 
-    public void Enqueue(string to, string subject, string body)
+    internal const string DefaultKind = "sign-in";
+
+    private static string KeyFor(string kind, string to) => kind + "\n" + to.ToLowerInvariant();
+
+    public void Enqueue(string to, string subject, string body, string kind = DefaultKind)
     {
-        var key = to.ToLowerInvariant();
+        var key = KeyFor(kind, to);
+        var message = (to.ToLowerInvariant(), subject, body);
         lock (_gate)
         {
             if (_pending.ContainsKey(key))
             {
-                _pending[key] = (subject, body);
+                _pending[key] = message;
                 return;
             }
 
             if (_pending.Count < Capacity)
             {
-                _pending[key] = (subject, body);
+                _pending[key] = message;
                 _order.Writer.TryWrite(key);
                 return;
             }
@@ -72,7 +77,7 @@ public sealed class AuthMailQueue(
         {
             await foreach (var key in _order.Reader.ReadAllAsync(stoppingToken))
             {
-                (string Subject, string Body) message;
+                (string To, string Subject, string Body) message;
                 lock (_gate)
                 {
                     if (!_pending.Remove(key, out message)) continue;
@@ -85,7 +90,7 @@ public sealed class AuthMailQueue(
                 {
                     await using var scope = scopes.CreateAsyncScope();
                     var sender = scope.ServiceProvider.GetRequiredService<IEmailService>();
-                    await sender.SendEmailAsync(key, message.Subject, message.Body, timeout.Token);
+                    await sender.SendEmailAsync(message.To, message.Subject, message.Body, timeout.Token);
                 }
                 catch (Exception ex)
                 {

@@ -25,6 +25,20 @@ public class AuthMailQueueTests
     }
 
     [Fact]
+    public void Mail_of_a_different_kind_to_the_same_address_is_held_separately()
+    {
+        var queue = Queue();
+
+        queue.Enqueue("someone@example.com", "Verify", "verification", "verification");
+        queue.Enqueue("someone@example.com", "Reset", "reset", "password-reset");
+        queue.Enqueue("someone@example.com", "Reset", "reset again", "password-reset");
+
+        queue.PendingCount.Should().Be(2);
+        queue.PendingBody("someone@example.com", "verification").Should().Be("verification");
+        queue.PendingBody("someone@example.com", "password-reset").Should().Be("reset again");
+    }
+
+    [Fact]
     public void A_full_queue_drops_the_message_and_counts_it()
     {
         var queue = Queue();

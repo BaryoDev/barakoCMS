@@ -102,7 +102,7 @@ internal class Endpoint(
           + Link(token)
           + $"<p>It expires in {(int)Lifetime.TotalMinutes} minutes and works once. "
           + "If this wasn't you, ignore this email and nothing happens.</p>";
-        mailQueue.Enqueue(address, $"Your {appName} sign-in link", body);
+        mailQueue.Enqueue(address, $"Your {appName} sign-in link", body, "magic-link");
         return true;
     }
 
