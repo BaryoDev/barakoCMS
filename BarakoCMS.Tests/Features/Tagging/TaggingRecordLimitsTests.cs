@@ -41,6 +41,45 @@ public class TaggingRecordLimitsTests
     }
 
     [Fact]
+    public async Task A_term_with_more_records_than_the_scan_cap_says_the_list_is_truncated()
+    {
+        var api = await TaggingApi.SuperAdminAsync(_factory);
+        var vocabularyId = IdOf(await api.CreateVocabularyAsync());
+        var termId = IdOf(await api.CreateTermAsync(vocabularyId, "cap-term"));
+        var smallId = IdOf(await api.CreateTermAsync(vocabularyId, "cap-small"));
+        var type = TaggingApi.Unique("cap");
+        var now = DateTimeOffset.UtcNow;
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(Enumerable.Range(0, 5001).Select(i => new BarakoCMS.Tagging.TermAssignment
+            {
+                Id = Guid.NewGuid(),
+                TermId = termId,
+                VocabularyId = vocabularyId,
+                ContentType = type,
+                RecordId = Guid.NewGuid().ToString(),
+                AssignedAt = now.AddSeconds(-i),
+            }).ToArray());
+            session.Store(new BarakoCMS.Tagging.TermAssignment
+            {
+                Id = Guid.NewGuid(), TermId = smallId, VocabularyId = vocabularyId,
+                ContentType = type, RecordId = Guid.NewGuid().ToString(), AssignedAt = now,
+            });
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        var big = await TaggingApi.BodyAsync(await api.Http.GetAsync($"/api/taxonomy/terms/{termId}/records"));
+        var small = await TaggingApi.BodyAsync(await api.Http.GetAsync($"/api/taxonomy/terms/{smallId}/records"));
+
+        big.GetProperty("truncated").GetBoolean().Should().BeTrue();
+        big.GetProperty("totalItems").GetInt32().Should().Be(5000);
+        small.GetProperty("truncated").GetBoolean().Should().BeFalse();
+        small.GetProperty("totalItems").GetInt32().Should().Be(1);
+    }
+
+    [Fact]
     public async Task Erasing_a_content_entry_removes_the_terms_on_it_and_leaves_other_records_alone()
     {
         var id = Guid.NewGuid();

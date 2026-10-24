@@ -10,7 +10,7 @@ namespace BarakoCMS.Tagging.Features.Assignments.Records;
 /// unless one is named, paged, newest first. With <c>includeDescendants</c>, a record carrying a
 /// term nested under this one counts too.
 /// </summary>
-internal sealed class Endpoint(IQuerySession session, barakoCMS.Infrastructure.Services.IPermissionResolver permissions) : Endpoint<Request, PaginatedResponse<AssignmentResponse>>
+internal sealed class Endpoint(IQuerySession session, barakoCMS.Infrastructure.Services.IPermissionResolver permissions) : Endpoint<Request, Response>
 {
     public override void Configure()
     {
@@ -52,16 +52,18 @@ internal sealed class Endpoint(IQuerySession session, barakoCMS.Infrastructure.S
         var candidates = await assignments
             .OrderByDescending(a => a.AssignedAt)
             .ThenBy(a => a.Id)
-            .Take(MaxScanned)
+            .Take(MaxScanned + 1)
             .ToListAsync(ct);
-        var readable = await access.ReadableAsync(candidates, ct);
+        var truncated = candidates.Count > MaxScanned;
+        var readable = await access.ReadableAsync(truncated ? candidates.Take(MaxScanned).ToList() : candidates, ct);
 
-        await Send.OkAsync(new PaginatedResponse<AssignmentResponse>
+        await Send.OkAsync(new Response
         {
             Items = readable.Skip(req.Skip).Take(req.Take).Select(AssignmentResponse.From).ToList(),
             Page = req.Page,
             PageSize = req.PageSize,
             TotalItems = readable.Count,
+            Truncated = truncated,
         }, ct);
     }
 
