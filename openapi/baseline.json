@@ -61,275 +61,6 @@
         },
         "type": "object"
       },
-      "BarakoCMSAccountingAccountBalance": {
-        "additionalProperties": false,
-        "properties": {
-          "balance": {
-            "format": "decimal",
-            "type": "number"
-          },
-          "code": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "parentCode": {
-            "nullable": true,
-            "type": "string"
-          },
-          "type": {
-            "$ref": "#/components/schemas/BarakoCMSAccountingDomainAccountType"
-          }
-        },
-        "type": "object"
-      },
-      "BarakoCMSAccountingAccountLedger": {
-        "additionalProperties": false,
-        "properties": {
-          "accountCode": {
-            "type": "string"
-          },
-          "accountName": {
-            "type": "string"
-          },
-          "balance": {
-            "format": "decimal",
-            "type": "number"
-          },
-          "lines": {
-            "items": {
-              "$ref": "#/components/schemas/BarakoCMSAccountingLedgerLine"
-            },
-            "type": "array"
-          },
-          "memberId": {
-            "format": "guid",
-            "nullable": true,
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "BarakoCMSAccountingDomainAccount": {
-        "additionalProperties": false,
-        "description": "A single account in the club's chart of accounts. Stored as a strongly-typed Marten document\n(not a barakoCMS content type) so money-adjacent code works with real Decimal\nvalues and Marten can aggregate balances in SQL.\n            \nA member's receivable is modelled as a child account whose ParentCode points at\nthe \"Accounts Receivable - Members\" control account (e.g. code \"1100-3322657\", parent \"1100\"),\nwith MemberId linking back to the member content item.",
-        "properties": {
-          "code": {
-            "description": "Human-facing account code, unique across the chart (e.g. \"1000\", \"1100-3322657\").",
-            "type": "string"
-          },
-          "createdAt": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "id": {
-            "format": "guid",
-            "type": "string"
-          },
-          "isActive": {
-            "type": "boolean"
-          },
-          "isDebitNormal": {
-            "description": "True when this account increases with a debit (Asset, Expense).",
-            "type": "boolean"
-          },
-          "memberId": {
-            "description": "Set when this is a member's personal sub-account; links to the member content item id.",
-            "format": "guid",
-            "nullable": true,
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "parentCode": {
-            "description": "Code of the control/parent account, or null for a top-level account.",
-            "nullable": true,
-            "type": "string"
-          },
-          "payeeName": {
-            "description": "Set when this is an external payee's sub-account (RI, District, magazine, etc.).",
-            "nullable": true,
-            "type": "string"
-          },
-          "type": {
-            "$ref": "#/components/schemas/BarakoCMSAccountingDomainAccountType"
-          }
-        },
-        "type": "object"
-      },
-      "BarakoCMSAccountingDomainAccountType": {
-        "description": "The five classical account classes. Normal balance side is derived from this:\nAsset and Expense are debit-normal; Liability, Equity and Income are credit-normal.",
-        "enum": [
-          "Asset",
-          "Liability",
-          "Equity",
-          "Income",
-          "Expense"
-        ],
-        "type": "string",
-        "x-enumNames": [
-          "Asset",
-          "Liability",
-          "Equity",
-          "Income",
-          "Expense"
-        ]
-      },
-      "BarakoCMSAccountingFeaturesAccountsCreateAccountEndpoint_Request": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "type": "string"
-          },
-          "memberId": {
-            "format": "guid",
-            "nullable": true,
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "parentCode": {
-            "nullable": true,
-            "type": "string"
-          },
-          "payeeName": {
-            "nullable": true,
-            "type": "string"
-          },
-          "type": {
-            "$ref": "#/components/schemas/BarakoCMSAccountingDomainAccountType"
-          }
-        },
-        "type": "object"
-      },
-      "BarakoCMSAccountingFeaturesAccountsCreateAccountEndpoint_Result": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "type": "string"
-          },
-          "created": {
-            "type": "boolean"
-          }
-        },
-        "type": "object"
-      },
-      "BarakoCMSAccountingFeaturesPostJournalEntryRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "attachments": {
-            "items": {
-              "type": "string"
-            },
-            "nullable": true,
-            "type": "array"
-          },
-          "date": {
-            "format": "date",
-            "type": "string"
-          },
-          "lines": {
-            "items": {
-              "$ref": "#/components/schemas/BarakoCMSAccountingFeaturesPostJournalEntryRequest_LineDto"
-            },
-            "type": "array"
-          },
-          "memo": {
-            "type": "string"
-          },
-          "reference": {
-            "nullable": true,
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "BarakoCMSAccountingFeaturesPostJournalEntryRequest_LineDto": {
-        "additionalProperties": false,
-        "properties": {
-          "accountCode": {
-            "type": "string"
-          },
-          "credit": {
-            "format": "decimal",
-            "type": "number"
-          },
-          "debit": {
-            "format": "decimal",
-            "type": "number"
-          },
-          "memo": {
-            "nullable": true,
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "BarakoCMSAccountingFeaturesPostJournalEntryResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "amount": {
-            "format": "decimal",
-            "type": "number"
-          },
-          "entryNumber": {
-            "type": "string"
-          },
-          "id": {
-            "format": "guid",
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "BarakoCMSAccountingFeaturesReportsAccountLedgerEndpoint_Request": {
-        "additionalProperties": false,
-        "type": "object"
-      },
-      "BarakoCMSAccountingFeaturesReportsBalancesEndpoint_Request": {
-        "additionalProperties": false,
-        "type": "object"
-      },
-      "BarakoCMSAccountingLedgerLine": {
-        "additionalProperties": false,
-        "properties": {
-          "attachments": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "credit": {
-            "format": "decimal",
-            "type": "number"
-          },
-          "date": {
-            "format": "date",
-            "type": "string"
-          },
-          "debit": {
-            "format": "decimal",
-            "type": "number"
-          },
-          "entryNumber": {
-            "type": "string"
-          },
-          "memo": {
-            "type": "string"
-          },
-          "runningBalance": {
-            "format": "decimal",
-            "type": "number"
-          }
-        },
-        "type": "object"
-      },
       "BarakoCMSAnalyticsUmamiFeaturesAnalyticsWindowRequest": {
         "additionalProperties": false,
         "type": "object"
@@ -1807,9 +1538,26 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "visibility": {
+            "$ref": "#/components/schemas/BarakoCMSFeatureFlagsFlagVisibility"
           }
         },
         "type": "object"
+      },
+      "BarakoCMSFeatureFlagsFlagVisibility": {
+        "description": "How widely a flag is disclosed.",
+        "enum": [
+          "Public",
+          "SignedIn",
+          "Admin"
+        ],
+        "type": "string",
+        "x-enumNames": [
+          "Public",
+          "SignedIn",
+          "Admin"
+        ]
       },
       "BarakoCMSFeatureFlagsKeyRequest": {
         "additionalProperties": false,
@@ -1882,7 +1630,8 @@
             "type": "boolean"
           },
           "isPublic": {
-            "description": "Not nullable on purpose. This is an upsert of the whole flag, so a body that omits the field\nmeans \"not public\", and a client written before the field existed makes a flag private rather\nthan leaving it published.",
+            "description": "Kept for clients written before levels existed. True means Public. False keeps the flag's\ncurrent level (SignedIn if that was Public, SignedIn for a new flag). Visibility wins when both are sent.",
+            "nullable": true,
             "type": "boolean"
           },
           "key": {
@@ -1906,6 +1655,15 @@
             },
             "nullable": true,
             "type": "array"
+          },
+          "visibility": {
+            "description": "Who may see the flag. Left out together with IsPublic, a new flag is Admin only and an\nexisting flag keeps its level, except that Public drops to SignedIn, since an upsert body\nthat says nothing about it is not a decision to publish.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSFeatureFlagsFlagVisibility"
+              }
+            ]
           }
         },
         "type": "object"
@@ -1992,6 +1750,44 @@
           "name": {
             "description": "The account's name, or null when none has been set and the console keeps its own.",
             "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesAccountsContentTypesCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSModelsFieldDefinition"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesAccountsContentTypesCreateResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "accountId": {
+            "format": "guid",
+            "type": "string"
+          },
+          "id": {
+            "format": "guid",
+            "type": "string"
+          },
+          "name": {
             "type": "string"
           }
         },
@@ -3893,6 +3689,15 @@
             "description": "Check the write with everything the real write runs and answer with what it would change,\nstoring nothing.",
             "type": "boolean"
           },
+          "lines": {
+            "description": "The entries of the type's line type to write with this one, in one transaction. Refused for a\ntype that declares no lines. Each takes this entry's status and sensitivity, and the line\ntype's parent field is set to this entry's id whatever is sent there.",
+            "items": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "nullable": true,
+            "type": "array"
+          },
           "sensitivity": {
             "$ref": "#/components/schemas/BarakoCMSModelsSensitivityLevel"
           },
@@ -3925,6 +3730,15 @@
             "format": "guid",
             "type": "string"
           },
+          "lineIds": {
+            "description": "The ids of the lines written with the entry, in the order sent. An empty list when the entry was written through the lines path with none, null when it was not.",
+            "items": {
+              "format": "guid",
+              "type": "string"
+            },
+            "nullable": true,
+            "type": "array"
+          },
           "version": {
             "description": "Initial event-stream version (1). Echo it back in an update's Version field for concurrency checks.",
             "format": "int64",
@@ -3939,6 +3753,35 @@
       },
       "BarakoCMSFeaturesContentGetBySlugRequest": {
         "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentGetLinesRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentGetLinesResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "header": {
+            "description": "The header, shaped as GET /api/contents/{id} shapes it.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesContentGetResponse"
+              }
+            ]
+          },
+          "lines": {
+            "description": "The lines the caller may read, oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesContentGetResponse"
+            },
+            "type": "array"
+          },
+          "truncated": {
+            "description": "True when the header has more lines than are listed. Counted over the lines the caller may read.",
+            "type": "boolean"
+          }
+        },
         "type": "object"
       },
       "BarakoCMSFeaturesContentGetRequest": {
@@ -4801,6 +4644,15 @@
               }
             ]
           },
+          "lines": {
+            "description": "The child type whose entries are this type's lines, or null when it has none.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsLinesDefinition"
+              }
+            ]
+          },
           "lookup": {
             "description": "The anonymous lookup this type answers, or null when it answers none.",
             "nullable": true,
@@ -4830,6 +4682,12 @@
                 "$ref": "#/components/schemas/BarakoCMSModelsNumberingRule"
               }
             ]
+          },
+          "ownerAccountId": {
+            "description": "The account that owns this type and shares it with its tenants, or null for a type the tenant owns.",
+            "format": "guid",
+            "nullable": true,
+            "type": "string"
           },
           "realtimeTopic": {
             "description": "The realtime topic clients subscribe to for this type, or null when it has none.",
@@ -5212,6 +5070,38 @@
               "type": "string"
             },
             "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentTypeSetLinesRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "lines": {
+            "description": "The lines the type takes from now on, or null to take none.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsLinesDefinition"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentTypeSetLinesResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "lines": {
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsLinesDefinition"
+              }
+            ]
+          },
+          "name": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -6204,6 +6094,21 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesMonitoringMetaMetaLocales": {
+        "additionalProperties": false,
+        "properties": {
+          "defaultLocale": {
+            "type": "string"
+          },
+          "locales": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesMonitoringMetaMetaResponse": {
         "additionalProperties": false,
         "properties": {
@@ -6214,6 +6119,14 @@
           "deliveryContractVersion": {
             "format": "int32",
             "type": "integer"
+          },
+          "locales": {
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesMonitoringMetaMetaLocales"
+              }
+            ]
           },
           "swaggerEnabled": {
             "type": "boolean"
@@ -7285,6 +7198,71 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesSettingsLocalesLocaleSettingsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "defaultLocale": {
+            "type": "string"
+          },
+          "fallbackChains": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": "object"
+          },
+          "locales": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "updatedBy": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesSettingsLocalesUpdateLocaleSettingsRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "defaultLocale": {
+            "nullable": false,
+            "type": "string"
+          },
+          "fallbackChains": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "nullable": false,
+            "type": "object"
+          },
+          "locales": {
+            "items": {
+              "type": "string"
+            },
+            "nullable": false,
+            "type": "array"
+          }
+        },
+        "required": [
+          "defaultLocale",
+          "locales",
+          "fallbackChains"
+        ],
         "type": "object"
       },
       "BarakoCMSFeaturesSettingsSystemSettingDto": {
@@ -10690,6 +10668,15 @@
               }
             ]
           },
+          "lines": {
+            "description": "The child type whose entries are this type's lines, or null for a type with none.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsLinesDefinition"
+              }
+            ]
+          },
           "lookup": {
             "description": "An anonymous lookup of one entry by a reference plus an identifier, or null for none.",
             "nullable": true,
@@ -10999,6 +10986,31 @@
         },
         "type": "object"
       },
+      "BarakoCMSModelsLinesDefinition": {
+        "additionalProperties": false,
+        "description": "A header's lines: entries of another content type that point back at the header.",
+        "properties": {
+          "contentType": {
+            "description": "The content type a line is an entry of.",
+            "type": "string"
+          },
+          "lineAmountField": {
+            "description": "The number field of the line type that TotalField adds up.",
+            "nullable": true,
+            "type": "string"
+          },
+          "parentField": {
+            "description": "A single reference field of the line type whose reference type is the header type. Holds\nthe header's id.",
+            "type": "string"
+          },
+          "totalField": {
+            "description": "A number field of the header that must equal the sum of LineAmountField over\nits lines, or null for no such rule. Set together with LineAmountField.",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSModelsListRequest": {
         "allOf": [
           {
@@ -11165,48 +11177,6 @@
         "description": "Base class for paginated requests.\nEnforces maximum page size of 100 items.",
         "type": "object"
       },
-      "BarakoCMSModelsPaginatedResponseOfAccount": {
-        "additionalProperties": false,
-        "description": "Generic paginated response with metadata.",
-        "properties": {
-          "hasNextPage": {
-            "description": "Whether there is a next page",
-            "type": "boolean"
-          },
-          "hasPreviousPage": {
-            "description": "Whether there is a previous page",
-            "type": "boolean"
-          },
-          "items": {
-            "description": "Items for the current page",
-            "items": {
-              "$ref": "#/components/schemas/BarakoCMSAccountingDomainAccount"
-            },
-            "type": "array"
-          },
-          "page": {
-            "description": "Current page number (1-indexed)",
-            "format": "int32",
-            "type": "integer"
-          },
-          "pageSize": {
-            "description": "Number of items per page",
-            "format": "int32",
-            "type": "integer"
-          },
-          "totalItems": {
-            "description": "Total number of items across all pages",
-            "format": "int32",
-            "type": "integer"
-          },
-          "totalPages": {
-            "description": "Total number of pages",
-            "format": "int32",
-            "type": "integer"
-          }
-        },
-        "type": "object"
-      },
       "BarakoCMSModelsPaginatedResponseOfAccountResponse": {
         "additionalProperties": false,
         "description": "Generic paginated response with metadata.",
@@ -11307,6 +11277,48 @@
             "description": "Items for the current page",
             "items": {
               "$ref": "#/components/schemas/BarakoCMSFeaturesTenantsMembersAssignableRoleResponse"
+            },
+            "type": "array"
+          },
+          "page": {
+            "description": "Current page number (1-indexed)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "pageSize": {
+            "description": "Number of items per page",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalItems": {
+            "description": "Total number of items across all pages",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalPages": {
+            "description": "Total number of pages",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSModelsPaginatedResponseOfAssignmentResponse": {
+        "additionalProperties": false,
+        "description": "Generic paginated response with metadata.",
+        "properties": {
+          "hasNextPage": {
+            "description": "Whether there is a next page",
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "description": "Whether there is a previous page",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Items for the current page",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSTaggingAssignmentResponse"
             },
             "type": "array"
           },
@@ -12719,6 +12731,48 @@
         },
         "type": "object"
       },
+      "BarakoCMSModelsPaginatedResponseOfServiceDto": {
+        "additionalProperties": false,
+        "description": "Generic paginated response with metadata.",
+        "properties": {
+          "hasNextPage": {
+            "description": "Whether there is a next page",
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "description": "Whether there is a previous page",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Items for the current page",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSServicesServiceDto"
+            },
+            "type": "array"
+          },
+          "page": {
+            "description": "Current page number (1-indexed)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "pageSize": {
+            "description": "Number of items per page",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalItems": {
+            "description": "Total number of items across all pages",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalPages": {
+            "description": "Total number of pages",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSModelsPaginatedResponseOfShareLinkResponse": {
         "additionalProperties": false,
         "description": "Generic paginated response with metadata.",
@@ -12887,6 +12941,48 @@
         },
         "type": "object"
       },
+      "BarakoCMSModelsPaginatedResponseOfTermResponse": {
+        "additionalProperties": false,
+        "description": "Generic paginated response with metadata.",
+        "properties": {
+          "hasNextPage": {
+            "description": "Whether there is a next page",
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "description": "Whether there is a previous page",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Items for the current page",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSTaggingTermResponse"
+            },
+            "type": "array"
+          },
+          "page": {
+            "description": "Current page number (1-indexed)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "pageSize": {
+            "description": "Number of items per page",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalItems": {
+            "description": "Total number of items across all pages",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalPages": {
+            "description": "Total number of pages",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSModelsPaginatedResponseOfUserGroupResponse": {
         "additionalProperties": false,
         "description": "Generic paginated response with metadata.",
@@ -12987,6 +13083,48 @@
             "description": "Items for the current page",
             "items": {
               "$ref": "#/components/schemas/BarakoCMSFeaturesContentHistoryVersionResponse"
+            },
+            "type": "array"
+          },
+          "page": {
+            "description": "Current page number (1-indexed)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "pageSize": {
+            "description": "Number of items per page",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalItems": {
+            "description": "Total number of items across all pages",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalPages": {
+            "description": "Total number of pages",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSModelsPaginatedResponseOfVocabularyResponse": {
+        "additionalProperties": false,
+        "description": "Generic paginated response with metadata.",
+        "properties": {
+          "hasNextPage": {
+            "description": "Whether there is a next page",
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "description": "Whether there is a previous page",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Items for the current page",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSTaggingVocabularyResponse"
             },
             "type": "array"
           },
@@ -13828,6 +13966,10 @@
             },
             "type": "array"
           },
+          "requiredCapability": {
+            "description": "The capability a user must hold to save a workflow that carries this action. Empty when none.",
+            "type": "string"
+          },
           "requiredParameters": {
             "description": "List of required parameter names.",
             "items": {
@@ -13837,6 +13979,13 @@
           },
           "secretParameters": {
             "description": "The required and optional parameter names whose value the API leaves out when it returns a\nworkflow, so a value entered for one cannot be read back.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "selfResolvedParameters": {
+            "description": "The parameters the action fills in itself. They reach it with their {{...}}\nplaceholders as written.",
             "items": {
               "type": "string"
             },
@@ -14668,6 +14817,9 @@
         "properties": {
           "deviceId": {
             "description": "Stable per-browser id the client persists; dedups repeat launches.",
+            "maxLength": 100,
+            "minLength": 0,
+            "nullable": false,
             "type": "string"
           },
           "displayMode": {
@@ -14681,10 +14833,15 @@
           },
           "platform": {
             "description": "ios | android | windows | macos | linux | other.",
+            "maxLength": 40,
+            "minLength": 0,
             "nullable": true,
             "type": "string"
           }
         },
+        "required": [
+          "deviceId"
+        ],
         "type": "object"
       },
       "BarakoCMSQrFeaturesRenderRequest": {
@@ -14830,6 +14987,388 @@
         },
         "type": "object"
       },
+      "BarakoCMSServicesFeaturesGetGetServiceRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSServicesFeaturesHeartbeatHeartbeatRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSServicesFeaturesHeartbeatHeartbeatResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "health": {
+            "type": "string"
+          },
+          "lastHeartbeatAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSServicesFeaturesRegisterRegisterServiceRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "deliveryUrl": {
+            "nullable": true,
+            "type": "string"
+          },
+          "healthUrl": {
+            "nullable": true,
+            "type": "string"
+          },
+          "heartbeatIntervalSeconds": {
+            "format": "int32",
+            "nullable": true,
+            "type": "integer"
+          },
+          "machineKeyId": {
+            "format": "guid",
+            "nullable": true,
+            "type": "string"
+          },
+          "messageTypes": {
+            "items": {
+              "type": "string"
+            },
+            "nullable": true,
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "topic": {
+            "maxLength": 200,
+            "minLength": 0,
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSServicesServiceDto": {
+        "additionalProperties": false,
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "deliveryUrl": {
+            "nullable": true,
+            "type": "string"
+          },
+          "health": {
+            "description": "Healthy, Late or Down.",
+            "type": "string"
+          },
+          "healthUrl": {
+            "nullable": true,
+            "type": "string"
+          },
+          "heartbeatIntervalSeconds": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "lastHeartbeatAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "machineKeyId": {
+            "format": "guid",
+            "nullable": true,
+            "type": "string"
+          },
+          "messageTypes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "topic": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSTaggingAssignmentResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "assignedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "assignedBy": {
+            "nullable": true,
+            "type": "string"
+          },
+          "contentType": {
+            "type": "string"
+          },
+          "recordId": {
+            "type": "string"
+          },
+          "termId": {
+            "format": "guid",
+            "type": "string"
+          },
+          "vocabularyId": {
+            "format": "guid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSTaggingFeaturesAssignmentsApplyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "termId": {
+            "format": "guid",
+            "minLength": 1,
+            "nullable": false,
+            "type": "string"
+          }
+        },
+        "required": [
+          "termId"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSTaggingFeaturesAssignmentsForRecordRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BarakoCMSModelsPaginatedRequest"
+          },
+          {
+            "additionalProperties": false,
+            "type": "object"
+          }
+        ]
+      },
+      "BarakoCMSTaggingFeaturesAssignmentsRecordsRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BarakoCMSModelsPaginatedRequest"
+          },
+          {
+            "additionalProperties": false,
+            "type": "object"
+          }
+        ]
+      },
+      "BarakoCMSTaggingFeaturesAssignmentsRecordsResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfAssignmentResponse"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "truncated": {
+                "description": "True when more assignments exist than the 5000 considered, so the list and total are of the newest ones only.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          }
+        ]
+      },
+      "BarakoCMSTaggingFeaturesAssignmentsRemoveRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSTaggingFeaturesTermsCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "maxLength": 64,
+            "minLength": 0,
+            "nullable": false,
+            "pattern": "^[a-z0-9][a-z0-9_-]*$",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 0,
+            "nullable": false,
+            "type": "string"
+          },
+          "parentId": {
+            "description": "A term of the same vocabulary to nest under. Left out, the term is at the top.",
+            "format": "guid",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "name"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSTaggingFeaturesTermsDeleteRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSTaggingFeaturesTermsListRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BarakoCMSModelsPaginatedRequest"
+          },
+          {
+            "additionalProperties": false,
+            "type": "object"
+          }
+        ]
+      },
+      "BarakoCMSTaggingFeaturesTermsUpdateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "maxLength": 200,
+            "minLength": 0,
+            "nullable": false,
+            "type": "string"
+          },
+          "parentId": {
+            "description": "The term to nest under. Left out, the term moves to the top.",
+            "format": "guid",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSTaggingFeaturesVocabulariesCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "maxLength": 1000,
+            "minLength": 0,
+            "nullable": true,
+            "type": "string"
+          },
+          "key": {
+            "maxLength": 64,
+            "minLength": 0,
+            "nullable": false,
+            "pattern": "^[a-z0-9][a-z0-9_-]*$",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 0,
+            "nullable": false,
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "name"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSTaggingFeaturesVocabulariesDeleteRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSTaggingFeaturesVocabulariesListRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BarakoCMSModelsPaginatedRequest"
+          },
+          {
+            "additionalProperties": false,
+            "type": "object"
+          }
+        ]
+      },
+      "BarakoCMSTaggingFeaturesVocabulariesUpdateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "maxLength": 1000,
+            "minLength": 0,
+            "nullable": true,
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 0,
+            "nullable": false,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSTaggingTermResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "guid",
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "parentId": {
+            "format": "guid",
+            "nullable": true,
+            "type": "string"
+          },
+          "vocabularyId": {
+            "format": "guid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSTaggingVocabularyResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "description": {
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "guid",
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "FastEndpointsEmptyRequest": {
         "additionalProperties": false,
         "description": "a request dto that doesn't have any properties",
@@ -14917,230 +15456,6 @@
   },
   "openapi": "3.0.0",
   "paths": {
-    "/api/accounting/accounts": {
-      "get": {
-        "operationId": "BarakoCMSAccountingFeaturesAccountsListAccountsEndpoint",
-        "parameters": [
-          {
-            "description": "Page number (1-indexed). Clamped to the range 1..21474837 to prevent a negative OFFSET.",
-            "in": "query",
-            "name": "page",
-            "required": true,
-            "schema": {
-              "format": "int32",
-              "type": "integer"
-            }
-          },
-          {
-            "description": "Number of items per page. Clamped to the range 1..100 to prevent negative/zero LIMIT.",
-            "in": "query",
-            "name": "pageSize",
-            "required": true,
-            "schema": {
-              "format": "int32",
-              "type": "integer"
-            }
-          },
-          {
-            "description": "Sort order: \"asc\" or \"desc\". Honoured by the endpoints that document a sort column.",
-            "in": "query",
-            "name": "sortOrder",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfAccount"
-                }
-              }
-            },
-            "description": "Success"
-          },
-          "401": {
-            "description": "Unauthorized"
-          }
-        },
-        "security": [
-          {
-            "JWTBearerAuth": []
-          }
-        ],
-        "summary": "GET /api/accounting/accounts \u2014 list the chart of accounts.",
-        "tags": [
-          "Accounting"
-        ]
-      },
-      "post": {
-        "operationId": "BarakoCMSAccountingFeaturesAccountsCreateAccountEndpoint",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BarakoCMSAccountingFeaturesAccountsCreateAccountEndpoint_Request"
-              }
-            }
-          },
-          "description": "",
-          "required": true,
-          "x-name": "Request",
-          "x-position": 1
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BarakoCMSAccountingFeaturesAccountsCreateAccountEndpoint_Result"
-                }
-              }
-            },
-            "description": "Success"
-          },
-          "401": {
-            "description": "Unauthorized"
-          }
-        },
-        "security": [
-          {
-            "JWTBearerAuth": []
-          }
-        ],
-        "summary": "POST /api/accounting/accounts \u2014 create a chart-of-accounts entry.",
-        "tags": [
-          "Accounting"
-        ]
-      }
-    },
-    "/api/accounting/accounts/{code}/ledger": {
-      "get": {
-        "operationId": "BarakoCMSAccountingFeaturesReportsAccountLedgerEndpoint",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "code",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BarakoCMSAccountingAccountLedger"
-                }
-              }
-            },
-            "description": "Success"
-          },
-          "401": {
-            "description": "Unauthorized"
-          }
-        },
-        "security": [
-          {
-            "JWTBearerAuth": []
-          }
-        ],
-        "summary": "GET /api/accounting/accounts/{code}/ledger \u2014 a single account's ledger with running balance.",
-        "tags": [
-          "Accounting"
-        ]
-      }
-    },
-    "/api/accounting/balances": {
-      "get": {
-        "operationId": "BarakoCMSAccountingFeaturesReportsBalancesEndpoint",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "asOf",
-            "schema": {
-              "format": "date",
-              "nullable": true,
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/BarakoCMSAccountingAccountBalance"
-                  },
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Success"
-          },
-          "401": {
-            "description": "Unauthorized"
-          }
-        },
-        "security": [
-          {
-            "JWTBearerAuth": []
-          }
-        ],
-        "summary": "GET /api/accounting/balances?asOf=yyyy-MM-dd \u2014 trial-balance-style listing.",
-        "tags": [
-          "Accounting"
-        ]
-      }
-    },
-    "/api/accounting/journal-entries": {
-      "post": {
-        "operationId": "BarakoCMSAccountingFeaturesPostJournalEntryEndpoint",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BarakoCMSAccountingFeaturesPostJournalEntryRequest"
-              }
-            }
-          },
-          "description": "",
-          "required": true,
-          "x-name": "Request",
-          "x-position": 1
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BarakoCMSAccountingFeaturesPostJournalEntryResponse"
-                }
-              }
-            },
-            "description": "Success"
-          },
-          "401": {
-            "description": "Unauthorized"
-          }
-        },
-        "security": [
-          {
-            "JWTBearerAuth": []
-          }
-        ],
-        "summary": "POST /api/accounting/journal-entries \u2014 post one balanced journal entry.",
-        "tags": [
-          "Accounting"
-        ]
-      }
-    },
     "/api/accounts": {
       "get": {
         "description": "The implicit default account is listed first, so a deployment with no accounts still sees the\none that holds its tenants. Then the stored accounts by name.",
@@ -15375,6 +15690,235 @@
           }
         ],
         "summary": "PUT /api/accounts/{slug}: change an account's name and console branding (platform manager only).",
+        "tags": [
+          "Accounts"
+        ]
+      }
+    },
+    "/api/accounts/{slug}/content-types": {
+      "get": {
+        "operationId": "barakoCMSFeaturesAccountsContentTypesListEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfContentTypeResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/accounts/{slug}/content-types: the content types the account owns.",
+        "tags": [
+          "Accounts"
+        ]
+      },
+      "post": {
+        "description": "Refused when the account already owns the name, and when a tenant of the account already has its\nown type of that name. That check reads each tenant on a session opened for it, so it holds\nunder Tenancy:DatabaseEnforcement. A non-Public field is refused when a tenant has decided\nthe name as event sourced, and visibleToRoles takes platform roles only.\nA token field is refused: handing out values for a field some tenant's entries may already hold\nis the per-tenant check the type-level create makes, and it is not made across tenants yet.",
+        "operationId": "barakoCMSFeaturesAccountsContentTypesCreateEndpoint",
+        "parameters": [
+          {
+            "description": "The account, from the route.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesAccountsContentTypesCreateRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "Request",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesAccountsContentTypesCreateResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/accounts/{slug}/content-types: define a content type every tenant of the account uses.",
+        "tags": [
+          "Accounts"
+        ]
+      }
+    },
+    "/api/accounts/{slug}/content-types/{name}": {
+      "delete": {
+        "description": "Refused while an entry of the type exists in any tenant of the account, counted on a session\nopened for each tenant so it holds under Tenancy:DatabaseEnforcement, since the entries\nwould be left with no type to validate them. A tenant that cannot be read fails the request\nrather than counting as empty.",
+        "operationId": "barakoCMSFeaturesAccountsContentTypesDeleteEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "DELETE /api/accounts/{slug}/content-types/{name}: remove an account-owned type.",
+        "tags": [
+          "Accounts"
+        ]
+      }
+    },
+    "/api/accounts/{slug}/content-types/{name}/fields": {
+      "post": {
+        "description": "Takes the request and answers the response of the tenant-side endpoint of the same name. The\nstored entries of every tenant are not rewritten: a new field is optional or has a default, so\nan entry written before it is still valid. A required field with no default is refused when an\nentry of the type exists in any of the account's tenants, counted on a session opened for each\ntenant so it holds under Tenancy:DatabaseEnforcement. Two requests adding fields at once\ncannot lose one: the type is stored with optimistic concurrency and the loser gets 409. Changing or removing a field of a shared type\nneeds the versioned schema change of #934 and is not offered.",
+        "operationId": "barakoCMSFeaturesAccountsContentTypesAddFieldEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeAddFieldRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "Request",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeAddFieldResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/accounts/{slug}/content-types/{name}/fields: add a field to an account-owned type, for every tenant of the account.",
         "tags": [
           "Accounts"
         ]
@@ -17671,6 +18215,7 @@
         "operationId": "BarakoCMSBookingFeaturesResourcesListEndpoint",
         "parameters": [
           {
+            "description": "Page number (1-indexed). Clamped to the range 1..21474837 to prevent a negative OFFSET.",
             "in": "query",
             "name": "page",
             "required": true,
@@ -17680,6 +18225,7 @@
             }
           },
           {
+            "description": "Number of items per page. Clamped to the range 1..100 to prevent negative/zero LIMIT.",
             "in": "query",
             "name": "pageSize",
             "required": true,
@@ -17689,6 +18235,7 @@
             }
           },
           {
+            "description": "Sort order: \"asc\" or \"desc\". Honoured by the endpoints that document a sort column.",
             "in": "query",
             "name": "sortOrder",
             "required": true,
@@ -20348,6 +20895,59 @@
         ]
       }
     },
+    "/api/content-types/{name}/lines": {
+      "put": {
+        "description": "Opt in per type: a type with no lines declared is created exactly as before. Declaring lines\nchanges nothing already stored. Only a create that carries lines uses it.",
+        "operationId": "barakoCMSFeaturesContentTypeSetLinesEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeSetLinesRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "Request",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeSetLinesResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "PUT /api/content-types/{name}/lines, which sets or clears the child type whose entries are a\ntype's lines.",
+        "tags": [
+          "ContentType"
+        ]
+      }
+    },
     "/api/content-types/{name}/lookup": {
       "put": {
         "description": "The same gate as turning public delivery on, because it is the same decision: what an anonymous\ncaller can read. A field that is Sensitive, Hidden or a token cannot be in the returned set, and\na reveal may add a token but no other non-Public field.",
@@ -21328,6 +21928,46 @@
         ]
       }
     },
+    "/api/contents/{id}/lines": {
+      "get": {
+        "operationId": "barakoCMSFeaturesContentGetLinesEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesContentGetLinesResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/contents/{id}/lines, which reads a header with all of its lines. The lines are one\nquery on the session, which filters by tenant, so a header of another tenant is a 404 and its\nlines are never reached.",
+        "tags": [
+          "Content"
+        ]
+      }
+    },
     "/api/contents/{id}/rollback/{versionId}": {
       "post": {
         "operationId": "barakoCMSFeaturesContentHistoryRollbackEndpoint",
@@ -21964,6 +22604,16 @@
               }
             },
             "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
           },
           "401": {
             "description": "Unauthorized"
@@ -23883,7 +24533,7 @@
     },
     "/api/payments/webhooks/{provider}": {
       "post": {
-        "description": "An event is handled once. Its provider event id is the key of a stored record, saved in the same\ncommit as the transition, so a redelivery finds the record and answers 200 without doing\nanything, and two deliveries racing each other cannot both commit. A bad signature answers 401\nand touches nothing. The transition runs as the system actor payments-webhook, on the\nmodule's own authority, since no user is behind a webhook.\n            \nAn event for a payment whose entry is no longer in the state the transition starts from answers\n409 and writes nothing, so the attempt stays pending for a person or for reconciliation.",
+        "description": "An event is handled once. Its provider event id is the key of a stored record, saved in the same\ncommit as the transition, so a redelivery finds the record and answers 200 without doing\nanything, and two deliveries racing each other cannot both commit. A bad signature answers 401\nand touches nothing. The transition runs as the system actor payments-webhook, on the\nmodule's own authority, since no user is behind a webhook.\n            \nAn event for an attempt that is no longer Pending writes nothing, so a later event cannot move\na settled payment. It answers 200, except a paid event for an attempt that is not Paid (money\ntaken for an attempt already marked failed), which answers 409 and logs a warning so a person\nlooks at it. A second paid event for a Paid attempt answers 200, so the provider stops\nretrying. A paid event whose amount or currency differs from the attempt answers 409.\n            \nAn event for a payment whose entry is no longer in the state the transition starts from answers\n409 and writes nothing, so the attempt stays pending for a person or for reconciliation.",
         "operationId": "BarakoCMSPaymentsFeaturesWebhookEndpoint",
         "parameters": [
           {
@@ -25088,6 +25738,16 @@
         "responses": {
           "204": {
             "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
           }
         },
         "summary": "POST /api/pwa/report \u2014 the client reports how it's running (installed app vs browser tab), on\nlaunch and on install. Anonymous by default; when a signed-in user reports, their identity is\nrecorded so the admin can see who installed the app. Idempotent per device.",
@@ -26468,6 +27128,191 @@
         ]
       }
     },
+    "/api/services": {
+      "get": {
+        "operationId": "BarakoCMSServicesFeaturesListListServicesEndpoint",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfServiceDto"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/services: the registered services with their health, by name.",
+        "tags": [
+          "Services"
+        ]
+      },
+      "post": {
+        "operationId": "BarakoCMSServicesFeaturesRegisterRegisterServiceEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSServicesFeaturesRegisterRegisterServiceRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "RegisterServiceRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSServicesServiceDto"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/services: registers an outside service. A name already registered is a 409. A machine\nkey is checked as an API key from any tenant, because the registry is deployment-wide and the\ncaller is a global administrator.",
+        "tags": [
+          "Services"
+        ]
+      }
+    },
+    "/api/services/{name}": {
+      "get": {
+        "operationId": "BarakoCMSServicesFeaturesGetGetServiceEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSServicesServiceDto"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/services/{name}: one service with its health.",
+        "tags": [
+          "Services"
+        ]
+      }
+    },
+    "/api/services/{name}/heartbeat": {
+      "post": {
+        "operationId": "BarakoCMSServicesFeaturesHeartbeatHeartbeatEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSServicesFeaturesHeartbeatHeartbeatResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/services/{name}/heartbeat: the service says it is alive. Held by send_service_heartbeat\nalone, so the identity a service reports with cannot edit the registry. The registry is one\ndeployment-wide table, so a registered machine key must be the caller's own API key (scope\nservices:heartbeat), and a service without one needs the capability through a global role, never through an API key, whose\nowner's own rights do not count: a tenant membership must not be able to\nkeep another party's dead service looking healthy. Never replayed from a\nstored response, because a replay would answer 200 without recording the beat.",
+        "tags": [
+          "Services"
+        ]
+      }
+    },
     "/api/settings": {
       "get": {
         "operationId": "barakoCMSFeaturesSettingsGetSettingsEndpoint",
@@ -26655,6 +27500,85 @@
           }
         ],
         "summary": "Sends one email to the caller's own address, so a configuration screen can say whether it worked.",
+        "tags": [
+          "Settings"
+        ]
+      }
+    },
+    "/api/settings/locales": {
+      "get": {
+        "operationId": "barakoCMSFeaturesSettingsLocalesGetLocaleSettingsEndpoint",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesSettingsLocalesLocaleSettingsResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "The caller's tenant's languages. Empty until an admin sets them.",
+        "tags": [
+          "Settings"
+        ]
+      },
+      "put": {
+        "operationId": "barakoCMSFeaturesSettingsLocalesUpdateLocaleSettingsEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesSettingsLocalesUpdateLocaleSettingsRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "UpdateLocaleSettingsRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesSettingsLocalesLocaleSettingsResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "Replaces the caller's tenant's languages with the body.",
         "tags": [
           "Settings"
         ]
@@ -27042,6 +27966,743 @@
         "summary": "Takes effect on the station's next request: the key is checked against the store every time.",
         "tags": [
           "Stations"
+        ]
+      }
+    },
+    "/api/taxonomy/records/{contentType}/{recordId}/terms": {
+      "get": {
+        "operationId": "BarakoCMSTaggingFeaturesAssignmentsForRecordEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contentType",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "recordId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfTermResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/taxonomy/records/{contentType}/{recordId}/terms. The terms on one record, paged, newest first.",
+        "tags": [
+          "Tagging"
+        ]
+      },
+      "post": {
+        "description": "The record is not looked up. Its content type and id are only a name, which is what lets one\nvocabulary tag records that live in different modules.",
+        "operationId": "BarakoCMSTaggingFeaturesAssignmentsApplyEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contentType",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "recordId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSTaggingFeaturesAssignmentsApplyRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "Request",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSTaggingAssignmentResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/taxonomy/records/{contentType}/{recordId}/terms. Puts a term on a record. Applying a\nterm the record already carries changes nothing and answers the existing assignment.",
+        "tags": [
+          "Tagging"
+        ]
+      }
+    },
+    "/api/taxonomy/records/{contentType}/{recordId}/terms/{termId}": {
+      "delete": {
+        "operationId": "BarakoCMSTaggingFeaturesAssignmentsRemoveEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contentType",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "recordId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "termId",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "DELETE /api/taxonomy/records/{contentType}/{recordId}/terms/{termId}. Takes a term off a record.",
+        "tags": [
+          "Tagging"
+        ]
+      }
+    },
+    "/api/taxonomy/terms/{id}": {
+      "delete": {
+        "operationId": "BarakoCMSTaggingFeaturesTermsDeleteEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "DELETE /api/taxonomy/terms/{id}. Removes a term and the assignments that point at it. A term\nwith children is refused with 409, so a branch is never removed by accident.",
+        "tags": [
+          "Tagging"
+        ]
+      },
+      "put": {
+        "operationId": "BarakoCMSTaggingFeaturesTermsUpdateEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSTaggingFeaturesTermsUpdateRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "Request",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSTaggingTermResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "PUT /api/taxonomy/terms/{id}. Renames a term and sets where it sits. The key stays. A term\ncannot move under itself or under one of its own descendants.",
+        "tags": [
+          "Tagging"
+        ]
+      }
+    },
+    "/api/taxonomy/terms/{termId}/records": {
+      "get": {
+        "operationId": "BarakoCMSTaggingFeaturesAssignmentsRecordsEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "termId",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only records of this content type. Left out, records of every type.",
+            "in": "query",
+            "name": "contentType",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Also count records carrying a term nested under this one.",
+            "in": "query",
+            "name": "includeDescendants",
+            "required": true,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSTaggingFeaturesAssignmentsRecordsResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/taxonomy/terms/{termId}/records. The records carrying a term, across content types\nunless one is named, paged, newest first. With includeDescendants, a record carrying a\nterm nested under this one counts too.",
+        "tags": [
+          "Tagging"
+        ]
+      }
+    },
+    "/api/taxonomy/vocabularies": {
+      "get": {
+        "operationId": "BarakoCMSTaggingFeaturesVocabulariesListEndpoint",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfVocabularyResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/taxonomy/vocabularies. The tenant's vocabularies, paged, by key.",
+        "tags": [
+          "Tagging"
+        ]
+      },
+      "post": {
+        "operationId": "BarakoCMSTaggingFeaturesVocabulariesCreateEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSTaggingFeaturesVocabulariesCreateRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "Request",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSTaggingVocabularyResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/taxonomy/vocabularies. Creates a vocabulary; its key is unique within the tenant.",
+        "tags": [
+          "Tagging"
+        ]
+      }
+    },
+    "/api/taxonomy/vocabularies/{id}": {
+      "delete": {
+        "operationId": "BarakoCMSTaggingFeaturesVocabulariesDeleteEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "DELETE /api/taxonomy/vocabularies/{id}. Removes the vocabulary, its terms and their assignments.",
+        "tags": [
+          "Tagging"
+        ]
+      },
+      "put": {
+        "operationId": "BarakoCMSTaggingFeaturesVocabulariesUpdateEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSTaggingFeaturesVocabulariesUpdateRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "Request",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSTaggingVocabularyResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "PUT /api/taxonomy/vocabularies/{id}. Renames a vocabulary. Its key stays.",
+        "tags": [
+          "Tagging"
+        ]
+      }
+    },
+    "/api/taxonomy/vocabularies/{vocabularyId}/terms": {
+      "get": {
+        "operationId": "BarakoCMSTaggingFeaturesTermsListEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vocabularyId",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the direct children of this term. Left out, every term of the vocabulary.",
+            "in": "query",
+            "name": "parentId",
+            "schema": {
+              "format": "guid",
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfTermResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/taxonomy/vocabularies/{vocabularyId}/terms. A vocabulary's terms, paged, by key.",
+        "tags": [
+          "Tagging"
+        ]
+      },
+      "post": {
+        "operationId": "BarakoCMSTaggingFeaturesTermsCreateEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "vocabularyId",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSTaggingFeaturesTermsCreateRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "Request",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSTaggingTermResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/taxonomy/vocabularies/{vocabularyId}/terms. Adds a term, at the top or under another\nterm of the same vocabulary. A key is unique within its vocabulary.",
+        "tags": [
+          "Tagging"
         ]
       }
     },
