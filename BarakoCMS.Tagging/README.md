@@ -6,6 +6,10 @@ One vocabulary to categorize any record. A vocabulary holds terms, terms can nes
 dotnet add package BarakoCMS.Tagging
 ```
 
+The package reference plus a restart is the install. `BarakoCMS:Modules:Enabled` decides which
+referenced modules run (`BarakoCMS__Modules__Enabled=Tagging`). To name it by hand, put
+`modules.Add(new BarakoCMS.Tagging.TaggingModule())` in the `AddBarakoCMS` callback.
+
 The module does not look up the record it tags. The content type and record id are plain strings, so the same term can sit on a content entry, a file or anything else with an id.
 
 ## Endpoints

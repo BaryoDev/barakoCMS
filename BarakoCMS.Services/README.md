@@ -11,7 +11,8 @@ dotnet add package BarakoCMS.Services
 ```
 
 The package reference plus a restart is the install. `BarakoCMS:Modules:Enabled` decides which
-referenced modules run (`BarakoCMS__Modules__Enabled=Services`).
+referenced modules run (`BarakoCMS__Modules__Enabled=Services`). To name it by hand, put
+`modules.Add(new BarakoCMS.Services.ServicesModule())` in the `AddBarakoCMS` callback.
 
 ## Endpoints
 
