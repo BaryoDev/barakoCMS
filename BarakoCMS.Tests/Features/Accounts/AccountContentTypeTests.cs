@@ -332,6 +332,31 @@ public class AccountContentTypeTests
     }
 
     [Fact]
+    public async Task An_account_type_is_found_by_its_name_in_any_case()
+    {
+        var account = await AccountAsync();
+        var inA = await TenantAsync(account.Id);
+        var manager = await ManagerAsync(account.Id);
+        var name = Unique("case");
+        var created = await manager.PostAsJsonAsync($"/api/accounts/{account.Slug}/content-types", new
+        {
+            name,
+            displayName = "Case",
+            fields = new[] { new { name = "Title", displayName = "Title", type = "string" } },
+        }, Ct);
+        created.StatusCode.Should().Be(HttpStatusCode.OK, await created.Content.ReadAsStringAsync(Ct));
+        var shouted = name.ToUpperInvariant();
+        shouted.Should().NotBe(name);
+
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        await using var session = store.QuerySession(inA);
+        var found = await AccountContentTypes.FindAsync(session, shouted, Ct);
+
+        found.Should().NotBeNull("a name differing only in case is the same type");
+        found!.Name.Should().BeEquivalentTo(name);
+    }
+
+    [Fact]
     public async Task The_redactor_names_a_sensitive_field_of_an_account_type()
     {
         var account = await AccountAsync();
