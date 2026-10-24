@@ -37,7 +37,7 @@ internal static partial class SubjectSensitivity
     /// <summary>The fields of the subject's type that are not Public, which an entry accounting users read must not carry.</summary>
     public static async Task<HashSet<string>> FieldsAsync(IQuerySession session, Content subject, CancellationToken ct)
     {
-        var definition = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == subject.ContentType, ct);
+        var definition = await barakoCMS.Infrastructure.Services.AccountContentTypes.ResolveAsync(session, subject.ContentType, ct);
         return (definition?.Fields ?? []).Where(f => f.Sensitivity != SensitivityLevel.Public)
             .Select(f => f.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
     }

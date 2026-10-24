@@ -74,7 +74,7 @@ public class ReconcileEndpoint(IQuerySession session, IPermissionResolver permis
 
     private async Task<string?> NotPublicAsync(string contentType, CancellationToken ct)
     {
-        var definition = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == contentType, ct);
+        var definition = await AccountContentTypes.ResolveAsync(session, contentType, ct);
         return definition?.Fields.FirstOrDefault(f => f.Sensitivity != SensitivityLevel.Public
             && (string.Equals(f.Name, "Total", StringComparison.OrdinalIgnoreCase) || string.Equals(f.Name, "Number", StringComparison.OrdinalIgnoreCase)))?.Name;
     }
