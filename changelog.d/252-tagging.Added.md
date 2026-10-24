@@ -1,1 +1,1 @@
-- BarakoCMS.Tagging module: vocabularies, optionally nested terms, and term assignments on any record by content type and id, with a query by term across record types (#252).
+- **A Tagging module.** vocabularies, optionally nested terms, and term assignments on any record by content type and id, with a query by term across record types (#252).
