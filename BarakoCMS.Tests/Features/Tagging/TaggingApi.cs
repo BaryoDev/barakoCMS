@@ -17,6 +17,55 @@ internal sealed class TaggingApi(IntegrationTestFixture factory, HttpClient http
     public static async Task<TaggingApi> AdminAsync(IntegrationTestFixture factory) =>
         new(factory, WithToken(factory, await factory.StoredUserTokenAsync("Admin")));
 
+    public static async Task<TaggingApi> SuperAdminAsync(IntegrationTestFixture factory) =>
+        new(factory, WithToken(factory, await factory.StoredUserTokenAsync("SuperAdmin")));
+
+    /// <summary>
+    /// A caller whose role holds <c>view_taxonomy</c> and read on <paramref name="readable"/> only,
+    /// a member of the given branches when there are any.
+    /// </summary>
+    public static async Task<HttpClient> ViewerAsync(
+        IntegrationTestFixture factory, string[] readable, params Guid[] branches)
+    {
+        var roleName = Unique("viewer");
+        var userId = Guid.NewGuid();
+        using (var scope = factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var role = new Role
+            {
+                Id = Guid.NewGuid(),
+                Name = roleName,
+                SystemCapabilities = ["view_taxonomy"],
+                Permissions = readable.Select(slug => new ContentTypePermission
+                {
+                    ContentTypeSlug = slug,
+                    Read = new PermissionRule { Enabled = true },
+                }).ToList(),
+            };
+            session.Store(role);
+            session.Store(new User
+            {
+                Id = userId,
+                Username = $"tv-{userId:n}"[..14],
+                Email = $"tv-{userId:n}@example.com",
+                RoleIds = [role.Id],
+            });
+            session.Store(new Membership
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                TenantSlug = Tenant.DefaultSlug,
+                Status = MembershipStatus.Active,
+                RoleIds = [role.Id],
+                Profile = new Dictionary<string, string> { ["branches"] = string.Join(",", branches) },
+            });
+            await session.SaveChangesAsync();
+        }
+
+        return WithToken(factory, factory.CreateToken(roles: [roleName], userId: userId.ToString()));
+    }
+
     public static async Task<HttpClient> RoleAsync(IntegrationTestFixture factory, string role) =>
         WithToken(factory, await factory.StoredUserTokenAsync(role));
 
