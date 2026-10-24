@@ -620,6 +620,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<barakoCMS.Infrastructure.Auth.ITokenIssuer, barakoCMS.Infrastructure.Auth.TokenIssuer>();
         services.AddSingleton<barakoCMS.Infrastructure.Auth.LockoutNoticeSender>();
         services.AddHostedService(sp => sp.GetRequiredService<barakoCMS.Infrastructure.Auth.LockoutNoticeSender>());
+        services.AddSingleton<barakoCMS.Infrastructure.Auth.AuthMailQueue>();
+        services.AddHostedService(sp => sp.GetRequiredService<barakoCMS.Infrastructure.Auth.AuthMailQueue>());
         services.AddSingleton<barakoCMS.Infrastructure.Auth.AccountLockout>();
         services.AddScoped<ITokenRevocationService, TokenRevocationService>();
         services.AddScoped<ISessionEpochService, SessionEpochService>();

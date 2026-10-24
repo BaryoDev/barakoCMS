@@ -70,6 +70,8 @@ public class EmailBodyEncodingTests
             new { email }, TestContext.Current.CancellationToken);
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
+        await RecordingEmailService.WaitForAsync(
+            () => _factory.Email.Messages.Any(m => m.To == email.Trim().ToLowerInvariant()));
         var sent = _factory.Email.Messages.Where(m => m.To == email.Trim().ToLowerInvariant()).ToList();
         sent.Should().ContainSingle("one code was requested for this address");
         return sent[0].Body;

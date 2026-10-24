@@ -14,8 +14,17 @@ public class OtpService : IOtpService
     private readonly IConfiguration _config;
     private readonly ILogger<OtpService> _logger;
 
+    private readonly barakoCMS.Infrastructure.Auth.AuthMailQueue? _mail;
+
     public OtpService(IDocumentSession session, IEmailService email, IConfiguration config, ILogger<OtpService> logger)
+        : this(session, email, config, logger, null)
     {
+    }
+
+    public OtpService(IDocumentSession session, IEmailService email, IConfiguration config, ILogger<OtpService> logger,
+        barakoCMS.Infrastructure.Auth.AuthMailQueue? mail)
+    {
+        _mail = mail;
         _session = session;
         _email = email;
         _config = config;
@@ -23,6 +32,51 @@ public class OtpService : IOtpService
     }
 
     public async Task<bool> SendCodeAsync(string email, barakoCMS.Infrastructure.DeviceContext device, CancellationToken ct)
+    {
+        var issued = await IssueAsync(email, device, ct);
+        if (issued is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            await _email.SendEmailAsync(issued.Value.To, issued.Value.Subject, issued.Value.Body, ct);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            // The code is stored, so a retry can resend, but the caller has to know this attempt
+            // did not reach anybody. It used to be swallowed here and reported as success, which
+            // told the user to check an inbox nothing had been sent to.
+            _logger.LogError(ex, "Failed to send OTP email");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Stores a code and hands the email to the background queue instead of sending it, for the
+    /// anonymous request route, which must not take longer for an address that has an account.
+    /// </summary>
+    public async Task<bool> QueueCodeAsync(string email, barakoCMS.Infrastructure.DeviceContext device, CancellationToken ct)
+    {
+        if (_mail is null)
+        {
+            return await SendCodeAsync(email, device, ct);
+        }
+
+        var issued = await IssueAsync(email, device, ct);
+        if (issued is null)
+        {
+            return false;
+        }
+
+        _mail.Enqueue(issued.Value.To, issued.Value.Subject, issued.Value.Body);
+        return true;
+    }
+
+    private async Task<(string To, string Subject, string Body)?> IssueAsync(
+        string email, barakoCMS.Infrastructure.DeviceContext device, CancellationToken ct)
     {
         email = (email ?? string.Empty).Trim().ToLowerInvariant();
 
@@ -49,7 +103,7 @@ public class OtpService : IOtpService
             // concurrent requests for the same address race. Nothing was stored, so no code exists
             // to send, and the caller has to hear that rather than be told to check an inbox.
             _logger.LogWarning("Concurrent OTP request for the same address; no code was issued");
-            return false;
+            return null;
         }
 
         var appName = _config["Branding:AppName"] ?? "BarakoCMS";
@@ -61,19 +115,7 @@ public class OtpService : IOtpService
             $"<p>You are trying to sign in using <strong>{WebUtility.HtmlEncode(DeviceForEmail(device.UserAgent))}</strong> from {WebUtility.HtmlEncode(device.IpAddress)}. " +
             $"Sharing this code lets another device or person access your account. <strong>DO NOT SHARE.</strong> " +
             $"If this wasn't you, you can ignore this email.</p>";
-        try
-        {
-            await _email.SendEmailAsync(email, $"Your {appName} sign-in code", body, ct);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            // The code is stored, so a retry can resend, but the caller has to know this attempt
-            // did not reach anybody. It used to be swallowed here and reported as success, which
-            // told the user to check an inbox nothing had been sent to.
-            _logger.LogError(ex, "Failed to send OTP email");
-            return false;
-        }
+        return (email, $"Your {appName} sign-in code", body);
     }
 
     private static readonly string[] Browsers = ["Edge", "Opera", "Chrome", "Firefox", "Safari"];

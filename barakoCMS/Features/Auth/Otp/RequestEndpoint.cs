@@ -59,7 +59,11 @@ internal class RequestEndpoint(
             .FirstOrDefaultAsync(ct);
         if (user == null)
         {
-            // Don't reveal non-existence; return the same response without sending.
+            // Same response, and comparable work: the known branch hashes a code and writes a row,
+            // so this one does the hash and the lookup of outstanding codes, and neither sends
+            // inline. The write itself is the one step it skips.
+            _ = BCrypt.Net.BCrypt.HashPassword(Guid.NewGuid().ToString("N"));
+            _ = await session.Query<OtpCode>().Where(o => o.Email == email && !o.Consumed).ToListAsync(ct);
             await Send.ResponseAsync(ok, cancellation: ct);
             return;
         }
@@ -72,7 +76,7 @@ internal class RequestEndpoint(
         //
         // The device approval path in Features/Auth/Login is different: the caller has already
         // proved the password, so there is nothing left to enumerate and it does report the failure.
-        _ = await otp.SendCodeAsync(user.Email, DeviceContext.From(HttpContext), ct);
+        _ = await otp.QueueCodeAsync(user.Email, DeviceContext.From(HttpContext), ct);
         await Send.ResponseAsync(ok, cancellation: ct);
     }
 }

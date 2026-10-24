@@ -21,4 +21,12 @@ public interface IOtpService
     /// being locked out.
     /// </returns>
     Task<bool> SendCodeAsync(string email, DeviceContext device, CancellationToken ct);
+
+    /// <summary>
+    /// The same as <see cref="SendCodeAsync"/>, for the anonymous request route: an implementation
+    /// may hand the email to a background queue so the call costs the same whatever the transport
+    /// does. True means a code was stored and its email is on its way. The default sends inline.
+    /// </summary>
+    Task<bool> QueueCodeAsync(string email, DeviceContext device, CancellationToken ct) =>
+        SendCodeAsync(email, device, ct);
 }

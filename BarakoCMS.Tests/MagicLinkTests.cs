@@ -162,6 +162,8 @@ public class MagicLinkTests
         a.StatusCode.Should().Be(HttpStatusCode.OK);
         b.StatusCode.Should().Be(HttpStatusCode.OK);
         (await b.Content.ReadAsStringAsync()).Should().Be(await a.Content.ReadAsStringAsync());
+        await RecordingEmailService.WaitForAsync(() => mail.LastVerificationTokenFor(known) is not null);
+        await Task.Delay(300); // the queue is first in, first out, so an unknown address's mail would land by now
         mail.LastVerificationTokenFor(known).Should().NotBeNullOrEmpty("the known address was mailed a link");
         mail.Messages.Where(m => m.To == unknown.ToLowerInvariant()).Should().BeEmpty();
         (await LoadByEmailAsync(unknown)).Should().BeNull();
@@ -174,6 +176,7 @@ public class MagicLinkTests
         var mail = _host.Services.GetRequiredService<RecordingEmailService>();
 
         (await Request(email)).StatusCode.Should().Be(HttpStatusCode.OK);
+        await RecordingEmailService.WaitForAsync(() => mail.LastVerificationTokenFor(email) is not null);
         var token = mail.LastVerificationTokenFor(email);
 
         token.Should().NotBeNullOrEmpty();
