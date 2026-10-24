@@ -25,6 +25,10 @@ public class ContentLinesTests : IAsyncLifetime
         _client = fixture.CreateClient();
         var ip = Guid.NewGuid().ToByteArray();
         _client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"10.{ip[0]}.{ip[1]}.{ip[2]}");
+
+        // Field changes run as FastEndpoints jobs, whose queues are a static every host overwrites
+        // as it starts. Taken back here so a change runs now, not at the next storage probe.
+        FastEndpointsResolver.ClaimJobQueues(fixture.Services);
     }
 
     public async ValueTask InitializeAsync() =>
