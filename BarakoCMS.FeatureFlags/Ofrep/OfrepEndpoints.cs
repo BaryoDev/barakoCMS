@@ -24,11 +24,10 @@ internal static class OfrepEvaluation
 {
     public const string BasePath = "/ofrep/v1/evaluate/flags";
 
-    public static FlagContext ContextFor(ClaimsPrincipal user, string tenantSlug, OfrepRequest? request, out FlagAudience audience)
+    public static FlagContext ContextFor(ClaimsPrincipal user, string tenantSlug, OfrepRequest? request)
     {
         var email = user.FindFirst("Username")?.Value ?? user.FindFirst(ClaimTypes.Email)?.Value;
         var signedIn = user.Identity?.IsAuthenticated == true;
-        audience = signedIn ? FlagAudience.Authenticated : FlagAudience.Public;
         var bucket = email ?? (signedIn ? null : request?.TargetingKey) ?? tenantSlug;
         return new FlagContext(tenantSlug, email, bucket);
     }
@@ -94,6 +93,8 @@ internal sealed class OfrepBulkResponse
 /// <summary>POST /ofrep/v1/evaluate/flags/{key}: one flag, evaluated for the caller.</summary>
 internal sealed class OfrepEvaluateFlagEndpoint(
     FeatureFlagService flags,
+    Marten.IQuerySession session,
+    Microsoft.Extensions.Configuration.IConfiguration configuration,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<OfrepKeyRequest>
 {
     public override void Configure()
@@ -105,12 +106,13 @@ internal sealed class OfrepEvaluateFlagEndpoint(
 
     public override async Task HandleAsync(OfrepKeyRequest req, CancellationToken ct)
     {
-        var ctx = OfrepEvaluation.ContextFor(User, tenant.Slug, req.Body, out var audience);
+        var ctx = OfrepEvaluation.ContextFor(User, tenant.Slug, req.Body);
+        var audience = await FeatureFlagService.AudienceAsync(session, User, configuration, ct);
         var flag = await flags.FindAsync(req.Key, ct);
 
         // A private flag answers exactly like a missing one to a caller who may not see it: the key
         // is the leak, the same rule as GET /api/feature-flags.
-        if (flag is null || (audience == FlagAudience.Public && !flag.IsPublic))
+        if (flag is null || !FeatureFlagService.Visible(flag, audience))
         {
             await Send.ResponseAsync(new OfrepError
             {
@@ -131,6 +133,8 @@ internal sealed class OfrepEvaluateFlagEndpoint(
 /// </summary>
 internal sealed class OfrepEvaluateAllEndpoint(
     FeatureFlagService flags,
+    Marten.IQuerySession session,
+    Microsoft.Extensions.Configuration.IConfiguration configuration,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<OfrepRequest, OfrepBulkResponse>
 {
     public override void Configure()
@@ -142,7 +146,8 @@ internal sealed class OfrepEvaluateAllEndpoint(
 
     public override async Task HandleAsync(OfrepRequest req, CancellationToken ct)
     {
-        var ctx = OfrepEvaluation.ContextFor(User, tenant.Slug, req, out var audience);
+        var ctx = OfrepEvaluation.ContextFor(User, tenant.Slug, req);
+        var audience = await FeatureFlagService.AudienceAsync(session, User, configuration, ct);
         var visible = await flags.VisibleAsync(audience, ct);
         var response = new OfrepBulkResponse
         {

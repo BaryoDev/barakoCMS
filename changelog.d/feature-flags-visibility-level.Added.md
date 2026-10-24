@@ -1,0 +1,1 @@
+- **Feature flags gain a visibility level.** A flag is Public, SignedIn or Admin. `isPublic` is still read and written: true means Public, and existing flags keep their audience (public stays Public, private becomes SignedIn). A flag saved with neither field is Admin only, seen by callers who can manage feature flags. The admin list and save response return `visibility`.

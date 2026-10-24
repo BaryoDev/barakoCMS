@@ -17,6 +17,8 @@ namespace BarakoCMS.FeatureFlags;
 /// </remarks>
 public class EvaluateFlagsEndpoint(
     FeatureFlagService flags,
+    Marten.IQuerySession session,
+    Microsoft.Extensions.Configuration.IConfiguration configuration,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : EndpointWithoutRequest<Dictionary<string, bool>>
 {
     public override void Configure()
@@ -31,7 +33,7 @@ public class EvaluateFlagsEndpoint(
     {
         var email = User.FindFirst("Username")?.Value ?? User.FindFirst(ClaimTypes.Email)?.Value;
         var ctx = new FlagContext(tenant.Slug, email, email ?? tenant.Slug);
-        var audience = User.Identity?.IsAuthenticated == true ? FlagAudience.Authenticated : FlagAudience.Public;
+        var audience = await FeatureFlagService.AudienceAsync(session, User, configuration, ct);
         HttpContext.Response.Headers.Link = $"<{Ofrep.OfrepEvaluation.BasePath}>; rel=\"successor-version\"";
         await Send.ResponseAsync(await flags.EvaluateAllAsync(ctx, audience, ct), cancellation: ct);
     }
