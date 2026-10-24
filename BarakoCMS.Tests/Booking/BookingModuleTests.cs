@@ -210,6 +210,37 @@ public class BookingModuleTests
     }
 
     [Fact]
+    public async Task A_booking_stored_with_a_padded_or_non_canonical_date_still_blocks_an_overlap()
+    {
+        var client = await AdminAsync();
+        var resource = await CreateResourceAsync(client, ResourceBody());
+
+        async Task StoreAsync(string start, string end)
+        {
+            var res = await client.PostAsJsonAsync("/api/contents", new
+            {
+                contentType = TypeName,
+                data = new Dictionary<string, object?>
+                {
+                    ["Resource"] = resource.ToString(),
+                    ["Start"] = start,
+                    ["End"] = end,
+                },
+            }, Ct);
+            res.IsSuccessStatusCode.Should().BeTrue(await res.Content.ReadAsStringAsync(Ct));
+        }
+
+        await StoreAsync("  2031-06-02T10:00:00Z", "2031-06-02T12:00:00Z");
+        await StoreAsync("2031-06-02 14:00:00+00:00", "2031-06-02T16:00:00.000+00:00");
+
+        var first = await BookAsync(client, resource, 11, 13);
+        var second = await BookAsync(client, resource, 15, 17);
+
+        first.StatusCode.Should().Be(HttpStatusCode.BadRequest, await first.Content.ReadAsStringAsync(Ct));
+        second.StatusCode.Should().Be(HttpStatusCode.BadRequest, await second.Content.ReadAsStringAsync(Ct));
+    }
+
+    [Fact]
     public async Task Adjacent_bookings_of_one_resource_are_allowed()
     {
         var client = await AdminAsync();

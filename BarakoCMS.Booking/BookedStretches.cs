@@ -17,15 +17,17 @@ internal static class BookedStretches
         "lower((SELECT e.value FROM jsonb_each(d.data -> 'Data') e WHERE lower(e.key) = lower(?) LIMIT 1) #>> '{}') = lower(?)";
 
     /// <summary>
-    /// The leading calendar date of one data field, as text. An instant that can be read starts with
-    /// its date, so comparing these as text never needs a cast that a bad value could break.
+    /// Keeps a row when the leading date of one data field passes <c>p {0} ?</c>, and also when the
+    /// field is missing or does not start with an ISO date, since the C# reader decides those. The
+    /// value is bound first and the field name second, the order they appear in the text.
     /// </summary>
-    private const string FieldDateSql =
-        "left((SELECT e.value FROM jsonb_each(d.data -> 'Data') e WHERE lower(e.key) = lower(?) LIMIT 1) #>> '{}', 10)";
+    private static string DateFilterSql(string comparison) =>
+        "(SELECT CASE WHEN t.p ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN t.p " + comparison + " ? ELSE true END "
+        + "FROM (SELECT left(btrim((SELECT e.value FROM jsonb_each(d.data -> 'Data') e WHERE lower(e.key) = lower(?) LIMIT 1) #>> '{}'), 10) AS p) t)";
 
-    private const string EndsOnOrAfterSql = FieldDateSql + " >= ?";
+    private static readonly string EndsOnOrAfterSql = DateFilterSql(">=");
 
-    private const string StartsOnOrBeforeSql = FieldDateSql + " <= ?";
+    private static readonly string StartsOnOrBeforeSql = DateFilterSql("<=");
 
     public static bool IsCancelled(IReadOnlyDictionary<string, object> data, BookingOptions options) =>
         BookingData.String(data, options.StatusField) is { } status
@@ -37,17 +39,18 @@ internal static class BookedStretches
     /// </summary>
     /// <remarks>
     /// With <paramref name="from"/> and <paramref name="to"/> only bookings that can overlap that
-    /// range are read. The query keeps a booking whose end date is within a day of the range start or
-    /// later, and whose start date is within a day of the range end or earlier. A day either side
-    /// covers every UTC offset, so the filter only ever keeps too much, never too little, and the
-    /// caller still compares the exact instants.
+    /// range are read. The query keeps a booking whose end date is within two days of the range start or
+    /// later, and whose start date is within two days of the range end or earlier. The margin covers
+    /// every UTC offset. A row whose field is missing or does not start with an ISO date is kept,
+    /// so the filter only ever keeps too much, never too little, and the caller still compares the
+    /// exact instants.
     /// </remarks>
     public static async Task<List<Stretch>> HeldAsync(
         IQuerySession session, BookingOptions options, Guid resource, Guid? except, CancellationToken ct,
         DateTimeOffset? from = null, DateTimeOffset? to = null)
     {
-        var notBefore = from?.UtcDateTime.AddDays(-1).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
-        var notAfter = to?.UtcDateTime.AddDays(1).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        var notBefore = from?.UtcDateTime.AddDays(-2).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        var notAfter = to?.UtcDateTime.AddDays(2).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
         var type = options.ContentType;
         var held = new List<Stretch>();
 
@@ -58,12 +61,12 @@ internal static class BookedStretches
                             && c.MatchesSql(FieldEqualsIgnoreCaseSql, options.ResourceField, resource.ToString()));
             if (notBefore is not null)
             {
-                query = query.Where(c => c.MatchesSql(EndsOnOrAfterSql, options.EndField, notBefore));
+                query = query.Where(c => c.MatchesSql(EndsOnOrAfterSql, notBefore, options.EndField));
             }
 
             if (notAfter is not null)
             {
-                query = query.Where(c => c.MatchesSql(StartsOnOrBeforeSql, options.StartField, notAfter));
+                query = query.Where(c => c.MatchesSql(StartsOnOrBeforeSql, notAfter, options.StartField));
             }
 
             var batch = await query
