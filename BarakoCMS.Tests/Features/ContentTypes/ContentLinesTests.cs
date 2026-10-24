@@ -118,6 +118,55 @@ public class ContentLinesTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_save_rule_that_refuses_the_header_is_a_422_and_stores_nothing()
+    {
+        var header = NewName("order");
+        var line = NewName("orderline");
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(), Name = header, DisplayName = header,
+                Fields = [new FieldDefinition { Name = "Customer", DisplayName = "Customer", Type = "string" }],
+                Rules =
+                [
+                    new RuleDefinition
+                    {
+                        Name = "customer", Message = "A customer is required.",
+                        All = [new RuleCondition { Kind = "field", Field = "Customer", Op = "notEmpty" }],
+                    },
+                ],
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        (await _client.PostAsJsonAsync("/api/content-types", new
+        {
+            name = line, displayName = line,
+            fields = new object[]
+            {
+                new { name = "Sku", type = "string", isRequired = true },
+                new { name = "Order", type = "reference", referenceType = header },
+            },
+        }, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await _client.PutAsJsonAsync($"/api/content-types/{header}/lines",
+            new { lines = new { contentType = line, parentField = "order" } }, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var res = await _client.PostAsJsonAsync("/api/contents", new
+        {
+            contentType = header,
+            data = new { Customer = "" },
+            lines = new object[] { new { Sku = "A-1" } },
+        }, Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity, await res.Content.ReadAsStringAsync(Ct));
+        (await res.Content.ReadAsStringAsync(Ct)).Should().Contain("A customer is required.");
+        (await StoredAsync(header)).Should().BeEmpty();
+        (await StoredAsync(line)).Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task A_dry_run_with_lines_stores_nothing()
     {
         var (header, line) = await TypesAsync();

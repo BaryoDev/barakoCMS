@@ -173,6 +173,24 @@ public class ContentLinesCreateRuleTests
     }
 
     [Fact]
+    public async Task A_header_outside_the_create_rule_on_the_data_sent_is_a_403_not_a_400()
+    {
+        await DeclareTypesAsync();
+        var client = await SilverOnlyCallerAsync();
+        var headersBefore = await StoredCountAsync(Header);
+
+        var res = await client.PostAsJsonAsync("/api/contents", new
+        {
+            contentType = Header,
+            data = new { Tier = "gold" },
+            lines = new object[] { new { Sku = "A-1" } },
+        }, Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden, await res.Content.ReadAsStringAsync(Ct));
+        (await StoredCountAsync(Header)).Should().Be(headersBefore);
+    }
+
+    [Fact]
     public async Task A_header_the_hook_leaves_inside_the_create_rule_is_written_with_its_lines()
     {
         await DeclareTypesAsync();
