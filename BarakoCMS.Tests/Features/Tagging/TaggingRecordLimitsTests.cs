@@ -1,0 +1,76 @@
+using System.Net;
+using barakoCMS.Models;
+using FluentAssertions;
+using Marten;
+using Microsoft.Extensions.DependencyInjection;
+using Xunit;
+
+namespace BarakoCMS.Tests.Features.Tagging;
+
+/// <summary>How many terms a record carries, and what happens to them when its entry is erased.</summary>
+[Collection("Sequential")]
+public class TaggingRecordLimitsTests
+{
+    private readonly IntegrationTestFixture _factory;
+
+    public TaggingRecordLimitsTests(IntegrationTestFixture factory) => _factory = factory;
+
+    private static Guid IdOf(System.Text.Json.JsonElement e) => e.GetProperty("id").GetGuid();
+
+    [Fact]
+    public async Task A_record_carries_at_most_one_hundred_terms()
+    {
+        var api = await TaggingApi.SuperAdminAsync(_factory);
+        var vocabularyId = IdOf(await api.CreateVocabularyAsync());
+        var recordId = Guid.NewGuid().ToString();
+        var first = Guid.Empty;
+
+        for (var i = 0; i < 100; i++)
+        {
+            var term = IdOf(await api.CreateTermAsync(vocabularyId, $"limit-{i}"));
+            if (i == 0) first = term;
+            (await api.ApplyAsync("limit-type", recordId, term)).StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+
+        var one = IdOf(await api.CreateTermAsync(vocabularyId, "limit-over"));
+        (await api.ApplyAsync("limit-type", recordId, one)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await api.ApplyAsync("limit-type", recordId, first)).StatusCode.Should().Be(HttpStatusCode.OK,
+            "a term the record already carries is not a new one");
+        (await api.ApplyAsync("limit-type", Guid.NewGuid().ToString(), one)).StatusCode.Should().Be(HttpStatusCode.OK,
+            "the limit is per record");
+    }
+
+    [Fact]
+    public async Task Erasing_a_content_entry_removes_the_terms_on_it_and_leaves_other_records_alone()
+    {
+        var id = Guid.NewGuid();
+        var other = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var writer = scope.ServiceProvider.GetRequiredService<barakoCMS.Core.Interfaces.IContentWriter>();
+            await writer.CreateAsync(new barakoCMS.Events.ContentCreated(
+                id, "tagged-probe", new Dictionary<string, object> { ["FullName"] = "x" },
+                ContentStatus.Draft, Guid.NewGuid(), "x", SensitivityLevel.Public), default);
+            await session.SaveChangesAsync();
+        }
+
+        var api = await TaggingApi.SuperAdminAsync(_factory);
+        var term = IdOf(await api.CreateTermAsync(IdOf(await api.CreateVocabularyAsync())));
+        (await api.ApplyAsync("tagged-probe", id.ToString(), term)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await api.ApplyAsync("tagged-probe", other.ToString(), term)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await CountAsync(term)).Should().Be(2);
+
+        (await api.Http.DeleteAsync($"/api/contents/{id}/erase")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        (await CountAsync(term)).Should().Be(1, "only the erased entry's assignment goes");
+    }
+
+    private async Task<int> CountAsync(Guid termId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
+        await using var session = store.QuerySession("*DEFAULT*");
+        return await session.Query<BarakoCMS.Tagging.TermAssignment>().CountAsync(a => a.TermId == termId);
+    }
+}
