@@ -1,0 +1,1 @@
+- **Admin password reset follows the same rules as admin MFA reset.** It needs manage_users in a global role, refuses your own account, answers 404 for a user outside the caller's tenant, needs a SuperAdmin to reset a platform-role holder, and writes an `auth.password.reset` audit entry.
