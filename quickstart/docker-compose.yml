@@ -13,7 +13,7 @@
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:f4610795587492cd4fb887c2dc3de301b813278bb6f616992061141b5f15ac36 # postgres:16-alpine
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${DB_NAME:-barakocms}
@@ -53,7 +53,7 @@ services:
   # deployment would never get the extension. IF NOT EXISTS makes every later start a no-op. Nothing
   # depends on it, so if it fails the API still starts; its log says why.
   postgres-extensions:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:f4610795587492cd4fb887c2dc3de301b813278bb6f616992061141b5f15ac36 # postgres:16-alpine
     restart: "no"
     depends_on:
       postgres:
@@ -150,7 +150,7 @@ services:
   # No container_name: compose derives one from the project, so two copies of this folder can run
   # on one host without their containers colliding.
   db-backup:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:f4610795587492cd4fb887c2dc3de301b813278bb6f616992061141b5f15ac36 # postgres:16-alpine
     restart: unless-stopped
     depends_on:
       postgres:
