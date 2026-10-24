@@ -40,6 +40,14 @@ public enum PaymentEventKind
 /// <summary>
 /// A verified webhook event. <see cref="EventId"/> is the provider's id for the event itself, which
 /// is what makes a redelivery recognisable. <see cref="Reference"/> is the one returned by
-/// <see cref="IPaymentProvider.CreateCheckoutAsync"/>.
+/// <see cref="IPaymentProvider.CreateCheckoutAsync"/>. An adapter that can read the amount and
+/// currency from the event sets them, and a paid event that disagrees with the attempt is refused.
 /// </summary>
-public sealed record PaymentEvent(string EventId, string Reference, PaymentEventKind Kind);
+public sealed record PaymentEvent(string EventId, string Reference, PaymentEventKind Kind)
+{
+    /// <summary>The amount the provider says it took, when the event carries one.</summary>
+    public decimal? Amount { get; init; }
+
+    /// <summary>The currency the provider says it took, when the event carries one.</summary>
+    public string? Currency { get; init; }
+}

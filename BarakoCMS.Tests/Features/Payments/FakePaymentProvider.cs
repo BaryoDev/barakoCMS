@@ -45,7 +45,11 @@ internal sealed class FakePaymentProvider : IPaymentProvider
 
         return kind is null
             ? null
-            : new PaymentEvent(root.GetProperty("id").GetString()!, root.GetProperty("reference").GetString()!, kind.Value);
+            : new PaymentEvent(root.GetProperty("id").GetString()!, root.GetProperty("reference").GetString()!, kind.Value)
+            {
+                Amount = root.TryGetProperty("amount", out var amount) ? amount.GetDecimal() : null,
+                Currency = root.TryGetProperty("currency", out var currency) ? currency.GetString() : null,
+            };
     }
 
     public static string Sign(string body) =>

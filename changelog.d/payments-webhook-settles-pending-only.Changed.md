@@ -1,0 +1,1 @@
+- **A payment webhook only settles a pending attempt, and checks the figures when the provider sends them.** A later event for an attempt already paid or failed answers 200 and changes nothing. A paid event whose amount or currency differs from the attempt answers 409. `PaymentEvent` gained optional `Amount` and `Currency`.

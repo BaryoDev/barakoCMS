@@ -110,6 +110,12 @@ internal sealed class PaymentHarness(IntegrationTestFixture factory)
     public static string Body(string eventId, string reference, string type) =>
         JsonSerializer.Serialize(new { id = eventId, reference, type });
 
+    public Task<HttpResponseMessage> SignedWebhookAsync(string eventId, string reference, string type, decimal amount, string currency)
+    {
+        var body = JsonSerializer.Serialize(new { id = eventId, reference, type, amount, currency });
+        return WebhookAsync(body, FakePaymentProvider.Sign(body));
+    }
+
     public Task<HttpResponseMessage> WebhookAsync(string body, string? signature, string provider = "fake")
     {
         var request = new HttpRequestMessage(HttpMethod.Post, $"/api/payments/webhooks/{provider}")

@@ -104,4 +104,54 @@ public class PaymentWebhookTests
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
+
+    [Fact]
+    public async Task A_later_event_for_a_paid_attempt_answers_200_and_leaves_it_paid()
+    {
+        var type = await _payments.PayableTypeAsync();
+        var entryId = await _payments.EntryAsync(type);
+        var (attemptId, reference) = await _payments.CheckoutAsync(entryId);
+        (await _payments.SignedWebhookAsync("evt_p1", reference, "paid")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var later = await _payments.SignedWebhookAsync("evt_p2", reference, "failed");
+
+        later.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await _payments.AttemptAsync(attemptId)).Status.Should().Be(PaymentAttemptStatus.Paid);
+        (await _payments.StateAsync(entryId)).Should().Be("Paid");
+        (await _payments.EventRecordsAsync(attemptId)).Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task A_paid_event_for_a_different_amount_or_currency_is_refused_and_changes_nothing()
+    {
+        var type = await _payments.PayableTypeAsync();
+        var entryId = await _payments.EntryAsync(type);
+        var (attemptId, reference) = await _payments.CheckoutAsync(entryId);
+
+        var wrongAmount = await _payments.SignedWebhookAsync("evt_a1", reference, "paid", 1m, "php");
+        var wrongCurrency = await _payments.SignedWebhookAsync("evt_a2", reference, "paid", (decimal)PaymentHarness.Fee, "usd");
+
+        wrongAmount.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        wrongCurrency.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await _payments.AttemptAsync(attemptId)).Status.Should().Be(PaymentAttemptStatus.Pending);
+        (await _payments.StateAsync(entryId)).Should().Be("Pending");
+        (await _payments.EventRecordsAsync(attemptId)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_paid_event_that_matches_the_charge_settles_and_one_without_figures_still_does()
+    {
+        var type = await _payments.PayableTypeAsync();
+        var matching = await _payments.EntryAsync(type);
+        var (matchingAttempt, matchingRef) = await _payments.CheckoutAsync(matching);
+        var plain = await _payments.EntryAsync(type);
+        var (plainAttempt, plainRef) = await _payments.CheckoutAsync(plain);
+
+        (await _payments.SignedWebhookAsync("evt_m1", matchingRef, "paid", (decimal)PaymentHarness.Fee, "PHP"))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await _payments.SignedWebhookAsync("evt_m2", plainRef, "paid")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await _payments.AttemptAsync(matchingAttempt)).Status.Should().Be(PaymentAttemptStatus.Paid);
+        (await _payments.AttemptAsync(plainAttempt)).Status.Should().Be(PaymentAttemptStatus.Paid);
+    }
 }

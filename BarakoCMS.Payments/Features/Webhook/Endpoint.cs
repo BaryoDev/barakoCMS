@@ -17,6 +17,10 @@ namespace BarakoCMS.Payments.Features.Webhook;
 /// and touches nothing. The transition runs as the system actor <c>payments-webhook</c>, on the
 /// module's own authority, since no user is behind a webhook.
 ///
+/// An event for an attempt that is no longer Pending answers 200 and writes nothing, so a later
+/// event cannot move a settled payment. A paid event whose amount or currency differs from the
+/// attempt answers 409.
+///
 /// An event for a payment whose entry is no longer in the state the transition starts from answers
 /// 409 and writes nothing, so the attempt stays pending for a person or for reconciliation.
 /// </remarks>
@@ -84,6 +88,12 @@ internal sealed class Endpoint(
             return;
         }
 
+        if (attempt.Status != PaymentAttemptStatus.Pending)
+        {
+            await Send.OkAsync(ct);
+            return;
+        }
+
         var payable = await session.LoadAsync<PayableType>(attempt.ContentType, ct);
         var entry = await session.LoadAsync<Content>(attempt.EntryId, ct);
         if (payable is null || entry is null)
@@ -94,6 +104,13 @@ internal sealed class Endpoint(
         }
 
         var paid = received.Kind == PaymentEventKind.Paid;
+        if (paid && Disagrees(received, attempt))
+        {
+            logger.LogWarning("Payment event {Event} for attempt {Attempt} does not match the amount or currency charged.", recordId, attempt.Id);
+            await Send.StringAsync("", 409, cancellation: ct);
+            return;
+        }
+
         attempt.Status = paid ? PaymentAttemptStatus.Paid : PaymentAttemptStatus.Failed;
         attempt.SettledAt = DateTimeOffset.UtcNow;
         session.Store(attempt);
@@ -128,6 +145,11 @@ internal sealed class Endpoint(
 
         await Send.OkAsync(ct);
     }
+
+    private static bool Disagrees(PaymentEvent received, PaymentAttempt attempt) =>
+        (received.Amount is { } amount && amount != attempt.Amount)
+        || (received.Currency is { Length: > 0 } currency
+            && !currency.Equals(attempt.Currency, StringComparison.OrdinalIgnoreCase));
 
     private async Task<string?> ReadBodyAsync(CancellationToken ct)
     {
