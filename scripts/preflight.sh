@@ -196,7 +196,7 @@ done < <(git ls-files --others --exclude-standard)
 diff_added="$tracked_added
 $untracked_added"
 
-if printf '%s' "$diff_added" | grep -q '[^[:space:]]'; then
+if [ -n "$(printf '%s' "$diff_added" | tr -d '\n')" ]; then
   # Any character at or above U+2000 (general punctuation and beyond: em/en dashes, curly quotes,
   # ellipses, arrows) on an added line.
   bad_char=$(printf '%s\n' "$diff_added" | python3 -c "
