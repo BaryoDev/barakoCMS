@@ -342,6 +342,10 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                 // minute for ninety minutes, running whichever sync a test had just configured at a
                 // moment the test did not choose.
                 { "CollectionSyncs:Enabled", "false" },
+                // The outbox sender polls once an hour here. PublishActionTests drives delivery
+                // itself, and a host sweeping every five seconds would reach the message first,
+                // refuse the test's plain-http listener and leave nothing due for the test to send.
+                { barakoCMS.Features.Workflows.Outbox.OutboxSender.PollSecondsKey, "3600" },
                 // The job queue, tuned for a test run: a retry waits nothing, so a job that fails
                 // five times dead-letters in seconds. The backoff arithmetic itself is
                 // JobBackoffTests, a unit test.

@@ -1,5 +1,8 @@
 using System.Reflection;
 using barakoCMS.Modules;
+using Microsoft.AspNetCore.Http.Connections;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using JasperFx.Events.Projections;
 using Marten.Events.Aggregation;
 
@@ -77,6 +80,12 @@ internal sealed class SampleProbeModule : IBarakoModule
     public const string EchoAction = "SampleProbe.Echo";
 
     public void ConfigureWorkflowActions(IModuleWorkflowActions actions) => actions.Add<ProbeEchoAction>(EchoAction);
+
+    // The hub tests connect over long polling. A long polling connection with no poll in flight is
+    // dropped after 15 seconds, and on a busy runner the client's next poll can come later than that,
+    // which answers 404 and fails a test that never got to call the hub.
+    public void ConfigureServices(IServiceCollection services, IConfiguration configuration) =>
+        services.PostConfigure<ConnectionOptions>(o => o.DisconnectTimeout = TimeSpan.FromMinutes(5));
 }
 
 /// <summary>A module's own workflow action, which does nothing and succeeds.</summary>
