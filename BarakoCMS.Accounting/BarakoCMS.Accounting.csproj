@@ -30,7 +30,7 @@
   <ItemGroup>
     <!-- The module's own migrations, for db-migrate (docs/migrations.md). -->
     <EmbeddedResource Include="..\migrations\5.0.0\accounting-number-sequences.sql" LogicalName="barako-migrations/5.0.0/accounting-number-sequences.sql" />
-    <EmbeddedResource Include="..\migrations\5.2.0\accounting-journal-lifecycle.sql" LogicalName="barako-migrations/5.2.0/accounting-journal-lifecycle.sql" />
-    <EmbeddedResource Include="..\migrations\5.2.0\accounting-mappings.sql" LogicalName="barako-migrations/5.2.0/accounting-mappings.sql" />
+    <EmbeddedResource Include="..\migrations\5.3.0\accounting-journal-lifecycle.sql" LogicalName="barako-migrations/5.3.0/accounting-journal-lifecycle.sql" />
+    <EmbeddedResource Include="..\migrations\5.3.0\accounting-mappings.sql" LogicalName="barako-migrations/5.3.0/accounting-mappings.sql" />
   </ItemGroup>
 </Project>

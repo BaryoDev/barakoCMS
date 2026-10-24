@@ -9,7 +9,7 @@
 -- alteration; this file exists so db-assert passes before the deploy instead of reporting the
 -- table as outstanding.
 --
---   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/5.2.0/accounting-mappings.sql
+--   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/5.3.0/accounting-mappings.sql
 --
 -- Safe to run twice. rollback-accounting-mappings.sql drops the table.
 -- barako:rerunnable

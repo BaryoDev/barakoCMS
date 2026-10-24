@@ -36,8 +36,8 @@ public class ShippedMigrationTests
         "5.2.0/585-documents",
         "5.2.0/contacts",
         "5.2.0/notifications",
-        "5.2.0/accounting-journal-lifecycle",
-        "5.2.0/accounting-mappings",
+        "5.3.0/accounting-journal-lifecycle",
+        "5.3.0/accounting-mappings",
     ];
 
     /// <summary>

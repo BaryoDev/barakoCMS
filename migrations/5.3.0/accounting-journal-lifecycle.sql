@@ -10,7 +10,7 @@
 -- Entries and types that already carry a state or a lifecycle are not changed, so running the file
 -- twice changes nothing. It is data only: no table, column or index changes.
 --
---   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/5.2.0/accounting-journal-lifecycle.sql
+--   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/5.3.0/accounting-journal-lifecycle.sql
 
 UPDATE public.mt_doc_contents
 SET data = jsonb_set(data, '{LifecycleState}',
