@@ -122,6 +122,22 @@ public class PaymentWebhookTests
     }
 
     [Fact]
+    public async Task A_paid_event_for_a_failed_attempt_answers_409_and_changes_nothing()
+    {
+        var type = await _payments.PayableTypeAsync();
+        var entryId = await _payments.EntryAsync(type);
+        var (attemptId, reference) = await _payments.CheckoutAsync(entryId);
+        (await _payments.SignedWebhookAsync("evt_f1", reference, "failed")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var later = await _payments.SignedWebhookAsync("evt_f2", reference, "paid");
+
+        later.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await _payments.AttemptAsync(attemptId)).Status.Should().Be(PaymentAttemptStatus.Failed);
+        (await _payments.StateAsync(entryId)).Should().Be("Failed");
+        (await _payments.EventRecordsAsync(attemptId)).Should().HaveCount(1);
+    }
+
+    [Fact]
     public async Task A_paid_event_for_a_different_amount_or_currency_is_refused_and_changes_nothing()
     {
         var type = await _payments.PayableTypeAsync();

@@ -17,8 +17,8 @@ namespace BarakoCMS.Payments.Features.Webhook;
 /// and touches nothing. The transition runs as the system actor <c>payments-webhook</c>, on the
 /// module's own authority, since no user is behind a webhook.
 ///
-/// An event for an attempt that is no longer Pending answers 200 and writes nothing, so a later
-/// event cannot move a settled payment. A paid event whose amount or currency differs from the
+/// An event for an attempt that is no longer Pending writes nothing, so a later event cannot move
+/// a settled payment. A failed event answers 200. A paid event answers 409 and logs a warning. A paid event whose amount or currency differs from the
 /// attempt answers 409.
 ///
 /// An event for a payment whose entry is no longer in the state the transition starts from answers
@@ -90,6 +90,13 @@ internal sealed class Endpoint(
 
         if (attempt.Status != PaymentAttemptStatus.Pending)
         {
+            if (received.Kind == PaymentEventKind.Paid)
+            {
+                logger.LogWarning("Payment event {Event} reports payment for attempt {Attempt}, which is already {Status}.", recordId, attempt.Id, attempt.Status);
+                await Send.StringAsync("", 409, cancellation: ct);
+                return;
+            }
+
             await Send.OkAsync(ct);
             return;
         }
