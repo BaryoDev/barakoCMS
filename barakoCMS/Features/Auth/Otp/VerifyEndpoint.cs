@@ -107,6 +107,23 @@ internal class VerifyEndpoint(
         return current;
     }
 
+    private (string Token, DateTime Expiry) StoreRefreshToken(Guid userId, string? deviceId, TimeSpan lifetime)
+    {
+        var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
+        var expiry = DateTime.UtcNow.Add(lifetime);
+        session.Store(new RefreshToken
+        {
+            Id = Guid.NewGuid(),
+            TokenHash = RefreshToken.HashOf(token),
+            UserId = userId,
+            ExpiresAt = expiry,
+            CreatedAt = DateTime.UtcNow,
+            IsRevoked = false,
+            DeviceId = deviceId,
+        });
+        return (token, expiry);
+    }
+
     public override async Task HandleAsync(OtpVerifyRequest req, CancellationToken ct)
     {
         var email = (req.Email ?? string.Empty).Trim().ToLowerInvariant();
@@ -190,18 +207,7 @@ internal class VerifyEndpoint(
         var accessTokenExpiry = issued.ExpiresAt;
         var jwtToken = issued.Token;
 
-        var refreshTokenString = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
-        var refreshTokenExpiry = DateTime.UtcNow.Add(issued.RefreshLifetime);
-        session.Store(new RefreshToken
-        {
-            Id = Guid.NewGuid(),
-            TokenHash = RefreshToken.HashOf(refreshTokenString),
-            UserId = user.Id,
-            ExpiresAt = refreshTokenExpiry,
-            CreatedAt = DateTime.UtcNow,
-            IsRevoked = false,
-            DeviceId = device.DeviceId,
-        });
+        var (refreshTokenString, refreshTokenExpiry) = StoreRefreshToken(user.Id, device.DeviceId, issued.RefreshLifetime);
         // The one that must not be best-effort. Losing here means another request consumed this
         // code, so returning the tokens computed above would mint a second session from one code,
         // which is the race the optimistic concurrency was added to stop.

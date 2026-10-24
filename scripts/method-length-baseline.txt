@@ -1,7 +1,7 @@
 # Methods over 70 lines in production code, with their length in lines (#969).
 # Written by scripts/check-method-length.py --update. A number here may only go down;
 # raising one, or adding a line, is a reviewed decision the pull request explains.
-109 BarakoCMS.AI/Features/SemanticSearchEndpoint.cs::SemanticSearchEndpoint.HandleAsync
+99 BarakoCMS.AI/Features/SemanticSearchEndpoint.cs::SemanticSearchEndpoint.HandleAsync
 75 BarakoCMS.Accounting/AccountingMigration.cs::AccountingMigration.RunAsync
 81 BarakoCMS.Email.Smtp/SmtpEmailService.cs::SmtpEmailService.SendEmailAsync
 87 BarakoCMS.ExternalAuth/FacebookAuthEndpoints.cs::FacebookCallbackEndpoint.HandleAsync
@@ -19,7 +19,7 @@
 106 BarakoCMS.Forms/Features/Submit/Endpoint.cs::Endpoint.HandleAsync
 102 BarakoCMS.Forms/FormEmailVerifier.cs::FormEmailVerifier.AcceptAsync
 79 BarakoCMS.Forms/FormEmailVerifier.cs::FormEmailVerifier.RequestCodeAsync
-92 BarakoCMS.Payments/Features/Webhook/Endpoint.cs::Endpoint.HandleAsync
+84 BarakoCMS.Payments/Features/Webhook/Endpoint.cs::Endpoint.HandleAsync
 87 BarakoCMS.Portability/ImportEndpoint.cs::ImportEndpoint.HandleAsync
 80 BarakoCMS.Reports/ReportPlanner.cs::ReportPlanner.PlanAsync
 96 barakoCMS/Core/Validation/FieldRules.cs::FieldRules.DefinitionErrors
@@ -36,7 +36,7 @@
 86 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.ResolveConnectionString
 72 barakoCMS/Features/ApiKeys/Endpoints.cs::CreateApiKeyEndpoint.HandleAsync
 200 barakoCMS/Features/Auth/Login/Endpoint.cs::Endpoint.HandleAsync
-108 barakoCMS/Features/Auth/Otp/VerifyEndpoint.cs::VerifyEndpoint.HandleAsync
+101 barakoCMS/Features/Auth/Otp/VerifyEndpoint.cs::VerifyEndpoint.HandleAsync
 156 barakoCMS/Features/Auth/Refresh/Endpoint.cs::Endpoint.HandleAsync
 125 barakoCMS/Features/Collections/Endpoints.cs::CollectionSyncRules.CheckAsync
 251 barakoCMS/Features/Collections/Push/Endpoint.cs::Endpoint.HandleAsync

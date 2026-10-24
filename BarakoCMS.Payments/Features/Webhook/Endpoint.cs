@@ -121,12 +121,19 @@ internal sealed class Endpoint(
             return;
         }
 
+        var transition = paid ? payable.PaidTransition : payable.FailedTransition;
+        if (!await SettleAsync(attempt, entry, recordId, paid, transition, ct)) return;
+
+        await Send.OkAsync(ct);
+    }
+
+    private async Task<bool> SettleAsync(
+        PaymentAttempt attempt, Content entry, string recordId, bool paid, string? transition, CancellationToken ct)
+    {
         attempt.Status = paid ? PaymentAttemptStatus.Paid : PaymentAttemptStatus.Failed;
         attempt.SettledAt = DateTimeOffset.UtcNow;
         session.Store(attempt);
         session.Insert(new PaymentEventRecord { Id = recordId, AttemptId = attempt.Id, HandledAt = DateTimeOffset.UtcNow });
-
-        var transition = paid ? payable.PaidTransition : payable.FailedTransition;
 
         try
         {
@@ -144,7 +151,7 @@ internal sealed class Endpoint(
                     logger.LogWarning("Payment event {Event} could not run '{Transition}': {Outcome} {Errors}",
                         recordId, transition, result.Outcome, string.Join("; ", result.Errors));
                     await Send.StringAsync("", result.Outcome == ContentTransitionOutcome.Conflict ? 409 : 422, cancellation: ct);
-                    return;
+                    return false;
                 }
             }
         }
@@ -153,7 +160,7 @@ internal sealed class Endpoint(
             // Another delivery of the same event committed first.
         }
 
-        await Send.OkAsync(ct);
+        return true;
     }
 
     private static bool Disagrees(PaymentEvent received, PaymentAttempt attempt) =>

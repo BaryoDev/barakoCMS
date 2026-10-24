@@ -139,6 +139,15 @@ public class SemanticSearchEndpoint(
             return;
         }
 
+        var (results, hitIds) = await VisibleHitsAsync(ranked, type, def, limit, ct);
+
+        SetCache(type, hitIds);
+        await Send.OkAsync(new SemanticResponse(results, results.Count, q) { Truncated = truncated }, ct);
+    }
+
+    private async Task<(List<SemanticHit> Results, List<Guid> HitIds)> VisibleHitsAsync(
+        List<(ContentEmbedding e, double score)> ranked, string type, ContentTypeDefinition def, int limit, CancellationToken ct)
+    {
         // The vector is only a hint; the current content is the source of truth on visibility.
         var current = ranked.Count == 0
             ? new Dictionary<Guid, Content>()
@@ -158,8 +167,7 @@ public class SemanticSearchEndpoint(
             if (results.Count >= limit) break;
         }
 
-        SetCache(type, hitIds);
-        await Send.OkAsync(new SemanticResponse(results, results.Count, q) { Truncated = truncated }, ct);
+        return (results, hitIds);
     }
 
     // The answer is built from the resolved tenant, and the X-Tenant header is read before the
