@@ -67,13 +67,15 @@ public class TaggingVocabularyTests
     [Fact]
     public async Task Deleting_a_vocabulary_removes_its_terms_and_their_assignments()
     {
-        var api = await TaggingApi.AdminAsync(_factory);
+        var api = await TaggingApi.SuperAdminAsync(_factory);
         var vocabulary = await api.CreateVocabularyAsync();
         var vocabularyId = vocabulary.GetProperty("id").GetGuid();
         var term = await api.CreateTermAsync(vocabularyId);
         var termId = term.GetProperty("id").GetGuid();
         var recordId = Guid.NewGuid().ToString();
         (await api.ApplyAsync("deleted-voc-type", recordId, termId)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await TaggingApi.ItemsAsync(await api.Http.GetAsync($"/api/taxonomy/records/deleted-voc-type/{recordId}/terms")))
+            .Should().HaveCount(1);
 
         (await api.Http.DeleteAsync($"/api/taxonomy/vocabularies/{vocabularyId}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
 

@@ -116,7 +116,7 @@ public class TaggingTermTests
     [Fact]
     public async Task Deleting_a_term_takes_it_off_the_records_that_carried_it()
     {
-        var api = await TaggingApi.AdminAsync(_factory);
+        var api = await TaggingApi.SuperAdminAsync(_factory);
         var vocabularyId = IdOf(await api.CreateVocabularyAsync());
         var kept = IdOf(await api.CreateTermAsync(vocabularyId));
         var removed = IdOf(await api.CreateTermAsync(vocabularyId));
