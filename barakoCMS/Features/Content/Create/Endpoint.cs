@@ -219,7 +219,7 @@ internal class Endpoint(
             AddError(error);
         }
 
-        ThrowIfAnyErrors();
+        ThrowIfAnyErrors(result.RuleRefused ? 422 : 400);
 
         await Send.ResponseAsync(req.DryRun
             ? new Response { DryRun = true, Changes = barakoCMS.Core.Validation.DryRuns.Between(null, header.Data) }
