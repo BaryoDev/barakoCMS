@@ -27,12 +27,23 @@ public class StepUpTests
         _ip = $"198.51.100.{(n + 60) % 250 + 1}";
     }
 
+    private static readonly Lock HostGate = new();
+    private static Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program>? _host;
+
+    // One host for the class. Building one per client was most of this class's time, and each test
+    // keeps to its own rate-limit bucket through the address header instead.
+    private Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> Host()
+    {
+        lock (HostGate)
+        {
+            return _host ??= _factory.WithWebHostBuilder(b => b.ConfigureServices(s =>
+                s.AddSingleton<Microsoft.AspNetCore.Hosting.IStartupFilter, TestRemoteIpFilter>()));
+        }
+    }
+
     private HttpClient Client(Guid userId)
     {
-        var c = _factory
-            .WithWebHostBuilder(b => b.ConfigureServices(s =>
-                s.AddSingleton<Microsoft.AspNetCore.Hosting.IStartupFilter, TestRemoteIpFilter>()))
-            .CreateClient();
+        var c = Host().CreateClient();
         c.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, _ip);
         c.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", _factory.CreateToken(new[] { "SuperAdmin" }, userId.ToString()));
