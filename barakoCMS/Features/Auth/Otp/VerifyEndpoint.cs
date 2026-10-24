@@ -88,6 +88,23 @@ internal class VerifyEndpoint(
         }
     }
 
+    /// <summary>
+    /// Counts a guess before it is checked. The comparison and the increment are one statement, so
+    /// parallel requests cannot all pass the cap on the same stale count.
+    /// </summary>
+    private async Task<bool> ReserveAttemptAsync(Guid id, CancellationToken ct)
+    {
+        var schema = session.DocumentStore.Options.DatabaseSchemaName;
+        var reserved = await session.QueryAsync<int>(
+            $"update {schema}.mt_doc_otpcode "
+          + "set data = jsonb_set(data, '{Attempts}', to_jsonb(coalesce((data ->> 'Attempts')::int, 0) + 1)) "
+          + "where id = ? and coalesce((data ->> 'Attempts')::int, 0) < ? "
+          + "and (data ->> 'Consumed')::boolean = false "
+          + "returning (data ->> 'Attempts')::int",
+            ct, id, MaxAttempts);
+        return reserved.Count > 0;
+    }
+
     public override async Task HandleAsync(OtpVerifyRequest req, CancellationToken ct)
     {
         var email = (req.Email ?? string.Empty).Trim().ToLowerInvariant();
@@ -104,7 +121,7 @@ internal class VerifyEndpoint(
             ThrowError("Invalid or expired code.");
             return;
         }
-        if (otp.Attempts >= MaxAttempts)
+        if (otp.Attempts >= MaxAttempts || !await ReserveAttemptAsync(otp.Id, ct))
         {
             ThrowError("Too many attempts. Please request a new code.");
             return;
@@ -112,11 +129,6 @@ internal class VerifyEndpoint(
 
         if (!BCrypt.Net.BCrypt.Verify(code, otp.CodeHash))
         {
-            otp.Attempts += 1;
-            session.Update(otp);
-            // A lost race here means a concurrent request already touched this code. The answer is
-            // the same either way, so the result of the save does not change it.
-            await TrySaveAsync(ct);
             ThrowError("Invalid or expired code.");
             return;
         }

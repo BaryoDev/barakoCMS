@@ -112,4 +112,35 @@ public class OtpConcurrencyTests
         second.StatusCode.Should().NotBe(HttpStatusCode.OK, "a consumed code cannot be reused");
         ((int)second.StatusCode).Should().BeLessThan(500, "and reuse is refused, not an error");
     }
+
+    [Fact]
+    public async Task Parallel_wrong_guesses_are_all_counted_and_the_right_code_is_then_refused()
+    {
+        var email = await SeedUserWithCodeAsync("424242");
+
+        Task<HttpResponseMessage> WrongFrom(int n)
+        {
+            var req = new HttpRequestMessage(HttpMethod.Post, "/api/auth/otp/verify")
+            {
+                Content = JsonContent.Create(new OtpVerifyRequest { Email = email, Code = "000000" }),
+            };
+            req.Headers.Add(TestRemoteIpFilter.Header, $"198.18.{Random.Shared.Next(1, 250)}.{n + 1}");
+            return _client.SendAsync(req);
+        }
+
+        var wrong = await Task.WhenAll(Enumerable.Range(0, 12).Select(WrongFrom));
+
+        wrong.Should().HaveCount(12);
+        wrong.Should().OnlyContain(r => r.StatusCode != HttpStatusCode.OK);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var q = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+            var row = (await q.Query<OtpCode>().Where(o => o.Email == email.ToLowerInvariant()).ToListAsync()).Single();
+            row.Attempts.Should().Be(5, "every request that got a guess counted it, and no more than the cap got one");
+        }
+
+        var right = await Verify(email, "424242");
+        right.StatusCode.Should().NotBe(HttpStatusCode.OK, "the cap is spent, so even the right code is refused");
+    }
 }
