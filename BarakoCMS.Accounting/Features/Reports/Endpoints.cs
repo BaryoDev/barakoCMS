@@ -41,7 +41,7 @@ public class AccountLedgerEndpoint(ReportingService reports) : Endpoint<AccountL
 }
 
 /// <summary>
-/// GET /api/accounting/cash-flow?year=2026&amp;month=10&amp;cash=1010,1020 — receipts and disbursements
+/// GET /api/accounting/cash-flow?year=2026&amp;month=10&amp;cash=1010,1020 returns receipts and disbursements
 /// of one month over the listed cash accounts, with the opening and closing balance.
 /// </summary>
 public class CashFlowEndpoint(
