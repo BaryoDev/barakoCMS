@@ -1,1 +1,1 @@
-**Tag assignment lists respect record read permission.** The records on a term and the terms on a record are shown only for records the caller can read, and a page and its total count only those.
+- **Tag assignment lists respect record read permission.** The records on a term and the terms on a record are shown only for records the caller can read, and a page and its total count only those.
