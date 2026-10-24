@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests.Features.Audit;
 /// A role is what gives somebody a capability, so creating one and changing one are grant changes.
 /// Only deleting one used to be recorded, and that row held the name alone.
 /// </summary>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class RoleGrantAuditTests
 {
     private readonly IntegrationTestFixture _factory;

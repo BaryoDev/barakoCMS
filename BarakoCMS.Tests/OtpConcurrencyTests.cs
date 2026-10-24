@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests;
 /// <c>ConcurrencyException</c> turns an already-used code into a 500. These pin both halves, that
 /// exactly one caller is let in and that the other is refused rather than erroring.
 /// </remarks>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class OtpConcurrencyTests
 {
     private readonly IntegrationTestFixture _factory;

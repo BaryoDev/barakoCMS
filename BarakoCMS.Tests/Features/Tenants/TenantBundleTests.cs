@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests.Features.Tenants;
 /// GET /api/tenants/{handle}/export and POST /api/tenants/import: one tenant out as a bundle, and a
 /// new tenant made from it (#897).
 /// </summary>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class TenantBundleTests
 {
     private readonly IntegrationTestFixture _fixture;

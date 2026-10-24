@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests;
 /// A sensitivity change armed for a moment (#824): the schedule endpoint stores the intent, the
 /// sweep applies it as a real ContentSensitivityChanged, and the entry stays Published throughout.
 /// </summary>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class ScheduledSensitivityTests
 {
     private readonly IntegrationTestFixture _factory;

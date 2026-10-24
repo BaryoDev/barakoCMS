@@ -12,7 +12,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// hands a later action only those of steps that succeeded in the same run.
 /// </summary>
 /// <remarks>Runs are seeded and drained with the hosted runner stopped, as in <see cref="WorkflowOutputTests"/>.</remarks>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class WorkflowProducedFileTests
 {
     private readonly WorkflowStopHarness _harness;

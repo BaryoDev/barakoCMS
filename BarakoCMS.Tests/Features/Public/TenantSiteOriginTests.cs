@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests.Features.Public;
 /// The feed and the sitemap link to the tenant's own site, the <c>Url</c> of its published
 /// <c>site</c> entry, and fall back to <c>Feeds:SiteUrl</c> when it sets none (#923).
 /// </summary>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class TenantSiteOriginTests
 {
     private const string Fallback = "https://test.example.com";

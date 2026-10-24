@@ -22,7 +22,7 @@ namespace BarakoCMS.Tests;
 /// result is compared with <c>public</c>, which Marten built for this run with the same options
 /// production uses for the event store.
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class EventHeadersMigrationTests
 {
     private const string Function = "mt_quick_append_events";

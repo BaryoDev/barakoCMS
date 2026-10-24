@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests;
 /// would be the same class of leak as filtering on a Sensitive field, arrived at from the other
 /// direction.
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class DeliveryFilterIntegrationTests
 {
     private readonly IntegrationTestFixture _factory;

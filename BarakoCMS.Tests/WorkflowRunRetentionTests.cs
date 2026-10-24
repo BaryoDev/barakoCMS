@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests;
 /// silent: nobody notices a run that was deleted too early, they notice months later that the thing
 /// they wanted to look at is not there.
 /// </remarks>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class WorkflowRunRetentionTests
 {
     private readonly IntegrationTestFixture _fixture;

@@ -22,7 +22,7 @@ namespace BarakoCMS.Tests.Features.Import;
 /// 500 row preview. The tests here use a small file with a large declared expansion, so they assert
 /// the refusal without spending the cost that made the refusal necessary.
 /// </remarks>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class AnalyzeLimitTests
 {
     private readonly IntegrationTestFixture _factory;

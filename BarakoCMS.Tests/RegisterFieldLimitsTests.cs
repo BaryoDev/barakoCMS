@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests;
 /// The assertions are on the status rather than on the validator, because the validator running at
 /// all is half of what is being claimed. A rule on a type FastEndpoints never binds does nothing.
 /// </remarks>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class RegisterFieldLimitsTests
 {
     private readonly HttpClient _client;

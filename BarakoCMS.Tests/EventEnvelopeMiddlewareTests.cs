@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests;
 /// X-Branch-Id names the request's branch, only a branch the caller holds, and a branch scoped type
 /// refuses a create without one.
 /// </summary>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class EventEnvelopeMiddlewareTests
 {
     private readonly IntegrationTestFixture _factory;

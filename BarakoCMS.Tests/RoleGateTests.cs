@@ -23,7 +23,7 @@ namespace BarakoCMS.Tests;
 /// or the capability gate from issue #272, so migrating an endpoint from one to the other keeps it
 /// in scope rather than dropping it out.
 /// </summary>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class RoleGateTests
 {
     private readonly IntegrationTestFixture _factory;

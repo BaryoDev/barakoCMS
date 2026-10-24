@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests;
 /// header and a browser on another origin, the console, saw a network error instead of a 429. The
 /// host here allows two requests a minute per address; each test uses an address of its own.
 /// </remarks>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class RateLimitCorsTests
 {
     private const string Listed = "https://console.example.com";

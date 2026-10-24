@@ -22,7 +22,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// so that request is refused there and saved here. The other tests that go over HTTP pass either
 /// way. They pin what a caller sees for a request both types read alike.
 /// </remarks>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class CreateWorkflowRequestTests
 {
     private static readonly string[] Accepted =

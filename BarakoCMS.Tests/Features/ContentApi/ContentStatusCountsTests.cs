@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests.Features.ContentApi;
 /// Every type here holds entries the owner-scoped reader may not read, in a status the reader's
 /// own entries are not all in, so a count that ignored the read rules comes out visibly larger.
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class ContentStatusCountsTests
 {
     private const string Route = "/api/contents/counts";

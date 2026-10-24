@@ -22,7 +22,7 @@ namespace BarakoCMS.Tests;
 /// is a collision scheduled for the moment somebody publishes it, and the scheduler publishes on a
 /// timer with nobody to report a refusal to.
 /// </remarks>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class SlugUniquenessTests
 {
     private readonly IntegrationTestFixture _factory;

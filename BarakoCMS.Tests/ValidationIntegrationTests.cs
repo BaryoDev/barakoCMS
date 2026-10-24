@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests;
 /// Integration tests for validation in CRUD operations
 /// Tests the entire workflow from setup to edge cases
 /// </summary>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class ValidationIntegrationTests
 {
     private readonly IntegrationTestFixture _factory;

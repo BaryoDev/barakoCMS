@@ -31,7 +31,7 @@ namespace BarakoCMS.Tests;
 /// a password or a status.
 /// </para>
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class EmailVerificationTests
 {
     private const string Password = "ValidPassword123!";

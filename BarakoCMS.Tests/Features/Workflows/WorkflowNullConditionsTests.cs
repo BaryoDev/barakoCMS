@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// Each null workflow has a twin that is plainly fine on the same type and event, so the count of
 /// runs tells a queue that threw (none queued, the twin lost with it) from one that worked.
 /// </remarks>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class WorkflowNullConditionsTests
 {
     private readonly IntegrationTestFixture _factory;

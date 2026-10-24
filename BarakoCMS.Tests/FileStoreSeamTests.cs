@@ -79,7 +79,7 @@ public class FileStoreDefaultTests
 /// out nothing would fail here as surely as one that handed out everything. Callers are principals
 /// built the way the token issuer and the API key handler build them.
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class FileStoreSeamTests
 {
     private readonly IntegrationTestFixture _factory;

@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests.Features.Roles;
 /// protect something, since a console that does not know the members would otherwise drop every
 /// set each time it saved the role.
 /// </remarks>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class FieldSetRoleValidationTests
 {
     private readonly IntegrationTestFixture _fixture;

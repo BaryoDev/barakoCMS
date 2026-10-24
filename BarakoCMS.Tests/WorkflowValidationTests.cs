@@ -6,7 +6,7 @@ using barakoCMS.Models;
 
 namespace BarakoCMS.Tests;
 
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class WorkflowValidationTests
 {
     private readonly HttpClient _client;

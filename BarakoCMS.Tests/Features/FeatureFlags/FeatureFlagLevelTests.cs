@@ -10,7 +10,7 @@ using Xunit;
 
 namespace BarakoCMS.Tests.Features.FeatureFlags;
 
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class FeatureFlagLevelTests(IntegrationTestFixture factory)
 {
     private const string Ofrep = "/ofrep/v1/evaluate/flags";

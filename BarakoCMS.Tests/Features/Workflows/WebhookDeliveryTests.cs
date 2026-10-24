@@ -30,7 +30,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// only that it agrees with itself, and what a receiver needs is that the documented recipe agrees
 /// with the wire.
 /// </remarks>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class WebhookDeliveryTests
 {
     private const string Secret = "whsec_test_9f2c1e8b";

@@ -10,7 +10,7 @@ namespace BarakoCMS.Tests.Features.Payments;
 /// <summary>
 /// POST /api/public/payments/checkout, and the declaration that makes a type payable.
 /// </summary>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class PaymentCheckoutTests
 {
     private readonly PaymentHarness _payments;

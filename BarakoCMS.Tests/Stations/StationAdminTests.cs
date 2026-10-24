@@ -10,7 +10,7 @@ using Xunit;
 
 namespace BarakoCMS.Tests.Stations;
 
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class StationAdminTests(SampleProbeHost host) : IClassFixture<SampleProbeHost>
 {
     private static readonly string[] Manager = ["manage_stations", "read_probe_tickets"];

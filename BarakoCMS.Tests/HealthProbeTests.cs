@@ -31,7 +31,7 @@ namespace BarakoCMS.Tests;
 ///
 /// See issues #281 and #256.
 /// </remarks>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class HealthProbeTests
 {
     private readonly IntegrationTestFixture _fixture;

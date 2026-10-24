@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// is text, which an inline image field never holds, so naming one fails the action and creates
 /// nothing.
 /// </summary>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class CreateTaskInlineImageTests
 {
     private readonly IntegrationTestFixture _fixture;

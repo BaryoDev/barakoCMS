@@ -13,7 +13,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace BarakoCMS.Tests.Features.Accounting;
 
 /// <summary>The reconcile report lists the subjects the books do not agree with.</summary>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class ReconcileTests(IntegrationTestFixture fixture)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

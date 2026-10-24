@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests;
 /// this route exists for: a page the anonymous delivery route will never serve, read by a signed-in
 /// viewer.
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class ContentBySlugTests
 {
     private readonly IntegrationTestFixture _factory;

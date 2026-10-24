@@ -12,7 +12,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// A <c>json</c> field may declare a JSON Schema its values have to match, and a write naming a
 /// field the type does not declare is refused (#924).
 /// </summary>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class JsonFieldSchemaTests : IAsyncLifetime
 {
     private readonly IntegrationTestFixture _fixture;

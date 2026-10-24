@@ -26,7 +26,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// slots than they need where they can, drain where one pass is not the point, and assert on their
 /// own runs.
 /// </remarks>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class WorkflowRunnerConcurrencyTests
 {
     private readonly IntegrationTestFixture _factory;

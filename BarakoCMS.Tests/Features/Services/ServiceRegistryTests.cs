@@ -12,7 +12,7 @@ using Xunit;
 
 namespace BarakoCMS.Tests.Features.Services;
 
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class ServiceRegistryTests
 {
     private readonly IntegrationTestFixture _factory;

@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests;
 /// `session.Query` is genuinely awkward, which is the argument for driving the real engine against
 /// the real store rather than for giving up. The fixture that makes that easy already existed.
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class WorkflowTests
 {
     private readonly IntegrationTestFixture _factory;

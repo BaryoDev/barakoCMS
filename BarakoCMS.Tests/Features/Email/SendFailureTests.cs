@@ -47,7 +47,7 @@ internal sealed class FailingEmailService : IEmailService
 /// and neither does "the bodies match" if the endpoint answers the same thing to everything: the
 /// pairing is what says the outage is invisible rather than that the endpoint is blind.
 /// </remarks>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class SendFailureTests
 {
     private readonly IntegrationTestFixture _factory;

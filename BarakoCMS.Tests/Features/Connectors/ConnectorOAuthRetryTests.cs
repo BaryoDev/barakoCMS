@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests.Features.Connectors;
 /// moved two minutes on before each refusal, because a token granted less than a minute ago is
 /// not replaced.
 /// </remarks>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class ConnectorOAuthRetryTests : IAsyncLifetime
 {
     private const string Secret = "fake-client-secret-for-the-retry-tests";

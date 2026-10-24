@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// The apply runs in a tenant made for the test, for the reason <see cref="ContentTypeBlueprintTests"/>
 /// gives.
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class BlueprintRoleReferenceTests
 {
     private readonly IntegrationTestFixture _factory;

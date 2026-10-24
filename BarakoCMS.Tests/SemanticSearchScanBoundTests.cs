@@ -22,7 +22,7 @@ namespace BarakoCMS.Tests;
 /// type. So the embeddings statement Postgres was sent is captured and run again, and the rows it
 /// returns are counted.
 /// </remarks>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class SemanticSearchScanBoundTests
 {
     private const int ScanLimit = 5;

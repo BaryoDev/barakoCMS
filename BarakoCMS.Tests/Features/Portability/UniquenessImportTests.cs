@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests.Features.Portability;
 /// import nor a spreadsheet import writes two entries holding one value.
 /// </summary>
 /// <remarks>A tenant per test for the bundle imports, and a type per test for the spreadsheet one.</remarks>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class UniquenessImportTests
 {
     private static int _ipCounter;

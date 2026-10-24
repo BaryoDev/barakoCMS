@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests;
 /// The symptom in both cases is a workflow action running once per node. For an email or a webhook
 /// action that reaches the outside world, so it is not something the next deploy quietly fixes.
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class MultiInstanceSchedulingTests
 {
     private readonly IntegrationTestFixture _fixture;

@@ -7,7 +7,7 @@ using static BarakoCMS.Tests.Features.Notifications.NotificationCallers;
 namespace BarakoCMS.Tests.Features.Notifications;
 
 /// <summary>A notification raised in one tenant is invisible from another, even to the same user.</summary>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class NotificationTenantIsolationTests
 {
     private readonly NotificationCallers _callers;

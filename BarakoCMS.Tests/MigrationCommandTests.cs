@@ -9,7 +9,7 @@ namespace BarakoCMS.Tests;
 /// <c>db-migrate</c> as an operator meets it: the arguments, the lines printed and the exit code a
 /// deploy script reads (issue #901).
 /// </summary>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class MigrationCommandTests
 {
     private readonly IntegrationTestFixture _factory;

@@ -17,7 +17,7 @@ namespace BarakoCMS.Tests.Features.ExternalAuth;
 /// produces with the ones Marten created in <c>public</c> for the ExternalAuth module, so a file
 /// cannot drift from what the module declares.
 /// </remarks>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class ExternalAuthMigrationTests
 {
     private readonly IntegrationTestFixture _factory;

@@ -39,7 +39,7 @@ internal sealed class BrokenConstructorAction : IWorkflowAction
 /// of this class's own, and the fixture's hosted runner is paused, so the runner built here on that
 /// host is the only one that claims these runs.
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class WorkflowActionBuildFailureTests
 {
     private readonly IntegrationTestFixture _fixture;

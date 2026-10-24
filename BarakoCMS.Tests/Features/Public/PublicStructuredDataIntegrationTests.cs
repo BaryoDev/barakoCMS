@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests.Features.Public;
 /// A read by slug carries schema.org JSON-LD for a type that declares a structured data type, and
 /// the type is set through its own route (#567).
 /// </summary>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class PublicStructuredDataIntegrationTests
 {
     private const string SecretAuthor = "Ana Secret-Reyes";

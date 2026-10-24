@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests;
 /// RelatedPage pointing both ways between two entries has to keep working: that is the reason the
 /// rule is a hook on the declaring type and not a check every reference gets.
 /// </remarks>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class ParentReferenceHookTests
 {
     private const string TypeName = "parentrefprobe";

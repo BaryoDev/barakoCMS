@@ -6,7 +6,7 @@ using Xunit;
 namespace BarakoCMS.Tests.Features.Contacts;
 
 /// <summary>Links join a person to an organization, and a merge folds a duplicate into the survivor.</summary>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class ContactsMergeAndLinkTests(IntegrationTestFixture factory)
 {
     private readonly ContactsTestHost _host = new(factory);

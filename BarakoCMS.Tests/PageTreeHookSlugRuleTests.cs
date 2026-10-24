@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests;
 /// A top-level page cannot take a reserved slug, whatever the sensitivity of the slug field. The
 /// check on write reads the slug by the authoring rule, not by delivery's Public-only one.
 /// </summary>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class PageTreeHookSlugRuleTests
 {
     private readonly IntegrationTestFixture _factory;

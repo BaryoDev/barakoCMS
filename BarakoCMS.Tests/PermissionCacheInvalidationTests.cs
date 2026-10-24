@@ -8,7 +8,7 @@ using barakoCMS.Models;
 
 namespace BarakoCMS.Tests;
 
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class PermissionCacheInvalidationTests
 {
     private readonly HttpClient _client;

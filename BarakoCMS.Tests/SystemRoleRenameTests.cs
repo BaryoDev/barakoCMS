@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests;
 /// It looked by name. After a rename it found no role called Admin and stored a new one under the
 /// seeded id, which replaced the renamed role and emptied its permissions on every start.
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class SystemRoleRenameTests
 {
     private readonly IntegrationTestFixture _factory;

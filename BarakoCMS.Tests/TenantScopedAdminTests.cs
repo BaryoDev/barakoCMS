@@ -26,7 +26,7 @@ namespace BarakoCMS.Tests;
 /// still reaching A's. A SuperAdmin keeps the deployment-wide view, and an Admin whose role was
 /// granted globally (the single-tenant shape) keeps the deployment settings and flags.
 /// </remarks>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class TenantScopedAdminTests
 {
     private readonly IntegrationTestFixture _factory;

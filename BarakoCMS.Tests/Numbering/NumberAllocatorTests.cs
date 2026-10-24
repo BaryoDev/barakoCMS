@@ -8,7 +8,7 @@ using Xunit;
 
 namespace BarakoCMS.Tests.Numbering;
 
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class NumberAllocatorTests(SampleProbeHost host) : IClassFixture<SampleProbeHost>
 {
     private INumberAllocator Allocator => host.Services.GetRequiredService<INumberAllocator>();

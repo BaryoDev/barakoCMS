@@ -36,7 +36,7 @@ public class VectorDimensionUnitTests
     }
 }
 
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class SemanticSearchDimensionTests(IntegrationTestFixture factory)
 {
     [Fact]

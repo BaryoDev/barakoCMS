@@ -9,7 +9,7 @@ using barakoCMS.Models;
 namespace BarakoCMS.Tests.Features.Workflows;
 
 /// <summary>GET /api/contents/{id}/runs lists the runs for an entry, and answers a caller who cannot read it with 404.</summary>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class ContentRunsEndpointTests(IntegrationTestFixture fixture) : IAsyncLifetime
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

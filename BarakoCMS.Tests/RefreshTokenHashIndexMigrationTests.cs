@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests;
 /// deployed instance, CreateOnly never adds an index to it, and a name or expression written from
 /// memory makes every start-up schema assertion ask to drop and recreate it.
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class RefreshTokenHashIndexMigrationTests
 {
     private readonly IntegrationTestFixture _factory;

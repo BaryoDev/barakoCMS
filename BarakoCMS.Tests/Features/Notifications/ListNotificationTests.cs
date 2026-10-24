@@ -8,7 +8,7 @@ using static BarakoCMS.Tests.Features.Notifications.NotificationCallers;
 namespace BarakoCMS.Tests.Features.Notifications;
 
 /// <summary>Listing: a user sees their own notifications and nobody else's, in bounded pages.</summary>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class ListNotificationTests
 {
     private readonly NotificationCallers _callers;

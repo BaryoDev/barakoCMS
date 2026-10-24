@@ -14,7 +14,7 @@ using MfaModels = barakoCMS.Features.Auth.Mfa;
 
 namespace BarakoCMS.Tests.Mfa;
 
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class AdminMfaResetTests
 {
     private const string Password = "P@ssword123!Ab";

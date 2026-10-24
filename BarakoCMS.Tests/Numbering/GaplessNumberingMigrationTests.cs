@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests.Numbering;
 /// Run in a scratch schema standing in for public, the way TenantPolicyRestoreMigrationTests does,
 /// so the policies it reads and writes are ones the test made.
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class GaplessNumberingMigrationTests
 {
     private const string Policy = "tenant_id = current_setting('app.tenant_id', true)";

@@ -24,7 +24,7 @@ namespace BarakoCMS.Tests.Features.Connectors;
 /// The outbound half is a stub in place of the ExternalApi client's primary handler, so the probe
 /// that the test button sends is recorded rather than dialled.
 /// </remarks>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class ConnectorAddressChangeTests
 {
     private const string Token = "tok_address_change_credential";

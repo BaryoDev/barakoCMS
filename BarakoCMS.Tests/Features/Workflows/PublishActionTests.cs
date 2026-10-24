@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// the workflow is saved, signs what it sends, rides out an outage, and leaves no message behind when
 /// the attempt is rolled back.
 /// </summary>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class PublishActionTests
 {
     private const string Secret = "whsec_publish_test_4d1b";

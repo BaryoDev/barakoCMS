@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests;
 /// Roles are stored once for every tenant, and this database holds the roles of every other test
 /// class, so each assertion is about the roles this test stored, found by id.
 /// </remarks>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class StoredReferenceConditionsNoticeTests
 {
     private readonly IntegrationTestFixture _fixture;

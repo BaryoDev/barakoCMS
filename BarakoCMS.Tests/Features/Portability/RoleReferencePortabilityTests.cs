@@ -23,7 +23,7 @@ namespace BarakoCMS.Tests.Features.Portability;
 /// names, and a bundle naming the roles a stored field lists by id was refused as a change to who
 /// may read it.
 /// </remarks>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class RoleReferencePortabilityTests
 {
     private readonly IntegrationTestFixture _fixture;

@@ -27,7 +27,7 @@ namespace BarakoCMS.Tests;
 /// it. In an integration collection and on the fixture's JWT key for the reason
 /// <see cref="EnabledModuleEndpointTests"/> gives.
 /// </remarks>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public sealed class SeededRolesTests(IntegrationTestFixture fixture)
 {
     [Fact]

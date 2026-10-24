@@ -8,7 +8,7 @@ using Xunit;
 namespace BarakoCMS.Tests.Features.Tagging;
 
 /// <summary>How many terms a record carries, and what happens to them when its entry is erased.</summary>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class TaggingRecordLimitsTests
 {
     private readonly IntegrationTestFixture _factory;

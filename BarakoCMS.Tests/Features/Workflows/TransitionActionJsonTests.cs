@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// <c>TransitionAction</c> with <c>Data.*</c> on a json field. Its parameters are text, so JSON text
 /// for a field that holds a list or an object is sent as that list or object, never as the text.
 /// </summary>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class TransitionActionJsonTests(IntegrationTestFixture fixture)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

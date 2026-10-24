@@ -6,7 +6,7 @@ using static BarakoCMS.Tests.RoleGateTests;
 namespace BarakoCMS.Tests;
 
 /// <summary>The 403 half of <see cref="RoleGateTests"/>, in its own class so it runs beside the other two.</summary>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class RoleGateWrongRoleTests(IntegrationTestFixture factory)
 {
     // One caller for the whole class, rather than one per theory case. The database is shared with

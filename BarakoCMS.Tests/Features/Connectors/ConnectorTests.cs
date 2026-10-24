@@ -22,7 +22,7 @@ namespace BarakoCMS.Tests.Features.Connectors;
 /// Reading a secret back through the protector would pass just as well against an implementation
 /// that stored the plaintext, which is the failure being ruled out.
 /// </remarks>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class ConnectorTests
 {
     private const string Token = "tok_a_live_credential_nobody_should_see";

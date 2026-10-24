@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests;
 /// change that must be silent is followed by one that must not be, and the next change off the
 /// subscription has to be the control.
 /// </remarks>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class ContentEventBusTests
 {
     private readonly IntegrationTestFixture _factory;

@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests;
 /// and a no-op change are all rejected; the admin reset needs SuperAdmin; and after a change the old
 /// password stops working while the new one logs in.
 /// </summary>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class ChangePasswordTests
 {
     private readonly IntegrationTestFixture _factory;

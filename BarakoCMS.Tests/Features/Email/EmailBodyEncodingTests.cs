@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests.Features.Email;
 /// server. The expected strings below are the exact escaped form, so a body that leaves the markup
 /// alone cannot pass by containing the visible words.
 /// </remarks>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class EmailBodyEncodingTests
 {
     private const string Link = "<a href=\"https://x.example\">click</a>";

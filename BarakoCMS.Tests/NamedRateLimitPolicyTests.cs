@@ -553,7 +553,7 @@ public class DeliveryRateLimitWiringTests
 }
 
 /// <summary>The full host counts a request against the API key its handler verified.</summary>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class ApiKeyQuotaWiringTests
 {
     private readonly IntegrationTestFixture _fixture;

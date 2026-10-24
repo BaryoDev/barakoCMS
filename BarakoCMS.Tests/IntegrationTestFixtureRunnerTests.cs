@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests;
 /// A derived host that also ran one could claim a run a test queued on the fixture and send it
 /// through its own transport, so the test waited on a recorder that never saw the message.
 /// </remarks>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class IntegrationTestFixtureRunnerTests(IntegrationTestFixture factory)
 {
     [Fact]

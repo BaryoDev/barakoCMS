@@ -23,7 +23,7 @@ namespace BarakoCMS.Tests.Features.Accounting;
 /// The invariants worth stating: an unbalanced entry never reaches the store, a rejected post consumes
 /// no entry number, amounts survive as decimal, and posting requires an accounting role.
 /// </summary>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class AccountingApiTests
 {
     private readonly IntegrationTestFixture _factory;

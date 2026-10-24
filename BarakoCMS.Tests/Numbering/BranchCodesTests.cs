@@ -7,7 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace BarakoCMS.Tests.Numbering;
 
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class BranchCodesTests(IntegrationTestFixture fixture)
 {
     [Fact]

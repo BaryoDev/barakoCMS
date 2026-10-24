@@ -9,14 +9,5 @@ namespace BarakoCMS.Tests;
 [CollectionDefinition("Integration1")]
 public class IntegrationCollection1 : ICollectionFixture<IntegrationTestFixture>;
 
-[CollectionDefinition("Integration2")]
-public class IntegrationCollection2 : ICollectionFixture<IntegrationTestFixture>;
-
-[CollectionDefinition("Integration3")]
-public class IntegrationCollection3 : ICollectionFixture<IntegrationTestFixture>;
-
-[CollectionDefinition("Integration4")]
-public class IntegrationCollection4 : ICollectionFixture<IntegrationTestFixture>;
-
 [CollectionDefinition("IntegrationSerial", DisableParallelization = true)]
 public class IntegrationSerialCollection : ICollectionFixture<IntegrationTestFixture>;

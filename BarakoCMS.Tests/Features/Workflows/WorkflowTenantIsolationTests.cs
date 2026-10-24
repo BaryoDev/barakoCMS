@@ -23,7 +23,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// same thing on a timer, and a test that waits for a projection to catch up fails on timing rather
 /// than on tenancy.
 /// </remarks>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class WorkflowTenantIsolationTests
 {
     private readonly IntegrationTestFixture _fixture;

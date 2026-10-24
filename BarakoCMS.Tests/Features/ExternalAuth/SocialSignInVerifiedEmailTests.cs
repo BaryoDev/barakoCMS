@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests.Features.ExternalAuth;
 /// project, so nothing could reach it, which is why three of four providers shipped without ever
 /// asking whether the address they were handed had been verified. See #120.
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class SocialSignInVerifiedEmailTests
 {
     private readonly IntegrationTestFixture _fixture;

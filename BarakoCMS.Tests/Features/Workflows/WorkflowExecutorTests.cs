@@ -20,7 +20,7 @@ internal sealed class ElsewhereExecutor : IWorkflowExecutor
 /// <summary>
 /// A workflow names what runs it: the built-in runner by default, and only the runs routed to it.
 /// </summary>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class WorkflowExecutorTests
 {
     private readonly IntegrationTestFixture _factory;

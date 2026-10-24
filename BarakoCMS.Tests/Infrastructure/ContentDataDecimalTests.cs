@@ -12,7 +12,7 @@ namespace BarakoCMS.Tests.Infrastructure;
 /// database; these prove the converter is actually wired into the store — the gap that let the
 /// original <c>double</c> behaviour ship unnoticed.
 /// </summary>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class ContentDataDecimalTests
 {
     private readonly IntegrationTestFixture _factory;

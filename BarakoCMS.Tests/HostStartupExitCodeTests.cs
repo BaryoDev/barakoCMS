@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests;
 /// asserting on <c>Environment.ExitCode</c> from inside the test runner would assert on the runner's
 /// own exit code, which is a test that cannot fail.
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class HostStartupExitCodeTests
 {
     private static readonly string HostAssembly = typeof(barakoCMS.Extensions.ServiceCollectionExtensions).Assembly.Location;

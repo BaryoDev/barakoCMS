@@ -17,7 +17,7 @@ namespace BarakoCMS.Tests.Features.ContentApi;
 /// <remarks>
 /// Every caller holds <c>view_hidden</c>, so field sensitivity is not what keeps the token.
 /// </remarks>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class TokenFieldSetTests
 {
     private const string Forged = "forged0token0forged0token0forged";

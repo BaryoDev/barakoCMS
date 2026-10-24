@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests;
 /// against https://localhost. The deployments in front of the app sent nothing at all; the proxy
 /// config and its checks live with the site now.
 /// </remarks>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class HstsTests
 {
     private readonly IntegrationTestFixture _factory;

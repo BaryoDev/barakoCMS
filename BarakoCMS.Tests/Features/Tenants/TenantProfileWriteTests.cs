@@ -17,7 +17,7 @@ namespace BarakoCMS.Tests.Features.Tenants;
 /// The tenant API keeps to routing and administration: it refuses a profile value, leaves a stored
 /// one alone, and no longer answers with one (#885).
 /// </summary>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class TenantProfileWriteTests
 {
     private static readonly string[] ProfileFields =

@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests;
 /// error" sends an operator looking at the server. Both endpoints are asserted together, so the next
 /// person to add a third write endpoint has the pair to copy rather than the odd one out.
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class ContentWriteClaimParsingTests
 {
     private readonly IntegrationTestFixture _factory;

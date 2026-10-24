@@ -22,7 +22,7 @@ namespace BarakoCMS.Tests;
 /// These assert on the ProblemDetails entry carrying a `reason`, because that is the field the
 /// client reads and the one the admin was getting wrong.
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class ErrorContractTests
 {
     private readonly IntegrationTestFixture _factory;

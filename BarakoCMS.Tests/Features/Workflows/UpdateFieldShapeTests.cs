@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// <c>UpdateFieldAction</c> writing to an email or a choice field checks the value as an entry write
 /// does, and writes under the key the entry already stores the field as.
 /// </summary>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class UpdateFieldShapeTests
 {
     private readonly IntegrationTestFixture _fixture;

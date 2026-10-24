@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests.Features.Public;
 /// <remarks>
 /// Every type and slug is unique to its test, and an entry is found by its own slug.
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class InlineImageDeliveryTests : IAsyncLifetime
 {
     private readonly IntegrationTestFixture _fixture;

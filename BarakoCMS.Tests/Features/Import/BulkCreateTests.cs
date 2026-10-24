@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests.Features.Import;
 /// rows land and the bad ones come back named. Both are defensible. Silently applying half a file
 /// and reporting success is not, and it is what an import that validated as it wrote would do.
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class BulkCreateTests
 {
     private readonly IntegrationTestFixture _fixture;

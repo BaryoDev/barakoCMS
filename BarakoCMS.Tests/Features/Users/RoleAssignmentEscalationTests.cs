@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests.Features.Users;
 /// outside the whole capability model. The per-tenant sibling refuses SuperAdmin outright; this
 /// platform surface allows it, but only for a caller who already is SuperAdmin.
 /// </summary>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class RoleAssignmentEscalationTests
 {
     private readonly IntegrationTestFixture _fixture;

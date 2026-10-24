@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests.Features.Tenants;
 /// A tenant's sign-up policy decides who joins it through registration, social sign-in and
 /// invitations, and a tenant with no policy, like the default tenant, behaves as before (#914).
 /// </summary>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class TenantSignUpPolicyTests
 {
     private const string Password = "ValidPassword123!";

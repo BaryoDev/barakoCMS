@@ -38,7 +38,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// are the deliberate exception: they reuse a session precisely to control what it has and has not
 /// seen, which is explained where each one does it.
 /// </remarks>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class UpdateFieldActionTests
 {
     private readonly IntegrationTestFixture _fixture;

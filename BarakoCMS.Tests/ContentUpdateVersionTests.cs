@@ -108,7 +108,7 @@ internal sealed class StreamAdvancingContentWriter : IContentWriter
 /// echoes the reported version into its next update, which is checked against the real one, so an
 /// under-report turns into a 412 telling the user someone else edited the content when nobody did.
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class ContentUpdateVersionTests
 {
     private readonly IntegrationTestFixture _factory;

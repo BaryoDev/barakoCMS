@@ -13,7 +13,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace BarakoCMS.Tests;
 
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class EventRegistrationTests
 {
     private readonly IntegrationTestFixture _fixture;

@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// mixed case (stored straight through the session, as a module seeds it) and named lowercase.
 /// A difference of more than case stays a different type, and is the control for each.
 /// </remarks>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class ContentTypeCaseTests
 {
     private static readonly TimeSpan PollTimeout = TimeSpan.FromSeconds(30);

@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests;
 /// is a private file served by the bucket. A file stored before the prefixes keeps its flat key,
 /// and every route still has to find it by that key.
 /// </remarks>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class FileKeyLayoutTests
 {
     private readonly IntegrationTestFixture _factory;

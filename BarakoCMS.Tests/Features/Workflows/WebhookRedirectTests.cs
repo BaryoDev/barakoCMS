@@ -25,7 +25,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// loopback, does connect and does not follow the redirect. Without the second, a guard that refused
 /// every address would pass the first.
 /// </remarks>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class WebhookRedirectTests
 {
     private readonly IntegrationTestFixture _fixture;

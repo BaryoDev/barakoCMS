@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests;
 /// client (no auth header). Adversarial: a draft is never exposed, a document-level Sensitive entry is
 /// never exposed, a Sensitive field's value never leaks, and a slug doesn't resolve across types.
 /// </summary>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class PublicDeliveryTests
 {
     private readonly IntegrationTestFixture _factory;

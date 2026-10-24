@@ -9,7 +9,7 @@ using barakoCMS.Models;
 
 namespace BarakoCMS.Tests.Features.Audit;
 
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class AuditListTests
 {
     private readonly IntegrationTestFixture _factory;

@@ -23,7 +23,7 @@ namespace BarakoCMS.Tests;
 /// all, so each refusal is written next to the request that must still succeed and each rebuild next
 /// to the type whose documents must not come back.
 /// </remarks>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class ContentSourcingTests
 {
     private readonly IntegrationTestFixture _factory;

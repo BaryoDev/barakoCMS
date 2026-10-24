@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests;
 /// must be as invisible to anonymous delivery as a Draft. Each route seeds a Published sibling of
 /// the same type and asserts it IS returned, so none of these can pass against an empty table.
 /// </summary>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class ArchivedDeliveryTests
 {
     private readonly IntegrationTestFixture _factory;

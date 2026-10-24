@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests.SampleProbe;
 /// An action type a module added: a workflow can use it, an unknown one is refused, and the action
 /// catalog lists it with the metadata of the class the module wrote.
 /// </summary>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class ModuleWorkflowActionTests(SampleProbeHost host) : IClassFixture<SampleProbeHost>
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

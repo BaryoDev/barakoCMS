@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests;
 /// case and a much narrower one: with no table nothing has ever been revoked, so "not revoked" is
 /// the true answer rather than a guess. That case is kept and everything else fails closed.
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class TokenRevocationFailureTests
 {
     private readonly IntegrationTestFixture _factory;

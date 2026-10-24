@@ -22,7 +22,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// configured, and a required field with no default must not be allowed to invalidate every entry
 /// that already exists.
 /// </remarks>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class AddFieldTests : IAsyncLifetime
 {
     private readonly IntegrationTestFixture _fixture;

@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// The stamp is written by the store on every save, so a test that needs a particular UpdatedAt
 /// sets it with SQL after seeding, the way an older or slower writer would have left it.
 /// </remarks>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class WorkflowRunChangedSinceTests
 {
     private const string Long = "2019-12-31T00:00:00Z";

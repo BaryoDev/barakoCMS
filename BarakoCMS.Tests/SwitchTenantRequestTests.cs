@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests;
 /// <c>POST /api/me/switch</c> names its target with <c>tenant</c>, and <c>club</c> is an alias of it.
 /// The endpoint hands out a token for another tenant, so every refusal is checked under both names.
 /// </summary>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class SwitchTenantRequestTests
 {
     private const string NotAMember = "You are not a member of this tenant.";

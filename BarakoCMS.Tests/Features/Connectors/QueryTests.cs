@@ -22,7 +22,7 @@ namespace BarakoCMS.Tests.Features.Connectors;
 /// not Public cannot leave, and no query returns an unbounded set. Each is paired with a control, so
 /// a runner that refused everything cannot pass.
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class QueryTests
 {
     private readonly IntegrationTestFixture _factory;

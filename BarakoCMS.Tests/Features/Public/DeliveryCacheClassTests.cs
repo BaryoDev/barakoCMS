@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests.Features.Public;
 /// Every delivery read says its cache class beside an unchanged Cache-Control, carries a weak ETag
 /// and tenant tags, and answers 304 with no body when the caller already holds it (#973, #561).
 /// </summary>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class DeliveryCacheClassTests(IntegrationTestFixture fixture)
 {
     private readonly ShareLinkTestHost _host = new(fixture);

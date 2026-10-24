@@ -26,7 +26,7 @@ namespace BarakoCMS.Tests;
 /// <c>Roles:RefuseUnknownCapabilities</c> defaults to off, which is today's behaviour: the role
 /// saves. The strict cases run on a derived host that turns it on.
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class CapabilityVocabularyTests
 {
     private readonly IntegrationTestFixture _factory;

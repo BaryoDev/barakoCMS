@@ -76,7 +76,7 @@ public class FileStoreRegistrationTests
 /// the private file through the API: its uploader, a SuperAdmin, an administrator through a
 /// membership. A rule that asked about any of them would send the file and fail the test.
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class EmailAttachmentStoredFileTests
 {
     private const string Refused = "cannot be attached";

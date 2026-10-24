@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests.Features.Tenants;
 /// delivery and to anyone who is not signed in to it, 403 to its own sessions on authoring routes,
 /// and its schedules wait until it is Active again (#894).
 /// </summary>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class TenantStatusTests
 {
     private readonly IntegrationTestFixture _fixture;

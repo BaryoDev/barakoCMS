@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests;
 /// Malformed or boundary input is the caller's mistake, so it gets a 4xx, not a 500 carrying a
 /// framework or Postgres message. See #648.
 /// </summary>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class MalformedInputTests
 {
     private readonly IntegrationTestFixture _factory;

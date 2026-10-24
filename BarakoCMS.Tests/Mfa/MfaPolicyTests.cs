@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests.Mfa;
 /// Roles that require MFA, end to end over real HTTP. Same setup as MfaTests: each instance gets its
 /// own client IP, so it has its own auth rate-limit bucket.
 /// </summary>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class MfaPolicyTests
 {
     internal const string Password = "P@ssword123!Ab";

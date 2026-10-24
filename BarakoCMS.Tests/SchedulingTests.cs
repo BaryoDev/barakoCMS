@@ -7,7 +7,7 @@ using BarakoCMS.Scheduling;
 
 namespace BarakoCMS.Tests;
 
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class SchedulingTests
 {
     private readonly IntegrationTestFixture _factory;

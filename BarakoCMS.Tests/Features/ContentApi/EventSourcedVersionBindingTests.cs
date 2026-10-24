@@ -24,7 +24,7 @@ namespace BarakoCMS.Tests.Features.ContentApi;
 /// Rich. A binding that the store quietly ignores is the same as no binding at all, so it is
 /// asserted rather than assumed.
 /// </remarks>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class EventSourcedVersionBindingTests
 {
     private readonly IntegrationTestFixture _fixture;

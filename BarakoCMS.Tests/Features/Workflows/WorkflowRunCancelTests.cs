@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// reached from outside, a cancel landing while an action is out, is reached from inside the action
 /// with <see cref="HookedRunnerAction"/>.
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class WorkflowRunCancelTests
 {
     private readonly WorkflowStopHarness _harness;

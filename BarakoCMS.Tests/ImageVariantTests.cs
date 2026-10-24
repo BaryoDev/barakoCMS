@@ -42,7 +42,7 @@ internal sealed class CountingResizer : IImageResizer
 /// tested, and both refusals are paired with the request that must still succeed, because "it
 /// returned 404" is also what a completely broken download route returns.
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class ImageVariantTests
 {
     private readonly IntegrationTestFixture _factory;

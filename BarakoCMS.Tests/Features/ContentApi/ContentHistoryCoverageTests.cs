@@ -23,7 +23,7 @@ namespace BarakoCMS.Tests.Features.ContentApi;
 /// naming the five known types would still pass on the day a sixth is added and silently dropped,
 /// which is the failure worth preventing.
 /// </remarks>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class ContentHistoryCoverageTests
 {
     private readonly IntegrationTestFixture _factory;

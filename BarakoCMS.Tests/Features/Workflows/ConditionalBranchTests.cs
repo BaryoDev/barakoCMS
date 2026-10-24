@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// in what the runner hands the action, and calling the action directly never showed it. Each branch
 /// holds one Email to its own address, so the fixture's recording transport says which branch ran.
 /// </remarks>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class ConditionalBranchTests
 {
     private readonly IntegrationTestFixture _fixture;

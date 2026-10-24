@@ -7,7 +7,7 @@ using static BarakoCMS.Tests.Features.Config.ConfigCallers;
 namespace BarakoCMS.Tests.Numbering;
 
 /// <summary>A number a client took from a client-allocated series is kept and recorded; any other is replaced.</summary>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class ClientAllocatedCreateTests(IntegrationTestFixture fixture)
 {
     private readonly BarakoCMS.Tests.Features.Config.ConfigCallers callers = new(fixture);

@@ -23,7 +23,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// stream holds a second ClockOut two hours after the first, by a third person, so a run that
 /// names the latest transition and not the one at its own sequence shows too.
 /// </remarks>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class WorkflowPlaceholderRunTests
 {
     private const string Body =

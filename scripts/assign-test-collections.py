@@ -12,9 +12,14 @@ alone, after the parallel ones, because it touches state the whole process share
 scripts/test-collections.json lists what stays serial (one reason per file) and the files that must
 share a collection because they share a static. Everything else is placed longest first on the
 collection with the least recorded work (scripts/test-class-durations.json). A class with no
-recorded duration goes to the lightest collection. The collection count is 4, or
+recorded duration goes to the lightest collection. The collection count is 1, or
 BARAKO_TEST_COLLECTIONS / --collections N when this script runs; it is written into
 BarakoCMS.Tests/IntegrationCollections.cs, because xUnit reads collection names at compile time.
+
+It is 1 because FastEndpoints resolves services and job queues through process-wide statics, so
+hosts of two fixtures live in one process at once answer with each other's services and databases
+(403s for users the other database lacks, missing tables, a disposed provider). Raise it only once
+that is fixed (#1231).
 """
 
 import argparse
@@ -30,7 +35,7 @@ CONFIG = ROOT / "scripts" / "test-collections.json"
 DURATIONS = ROOT / "scripts" / "test-class-durations.json"
 DEFINITIONS = TESTS / "IntegrationCollections.cs"
 SERIAL = "IntegrationSerial"
-DEFAULT_COLLECTIONS = 4
+DEFAULT_COLLECTIONS = 1
 UNKNOWN_WEIGHT = 1.0
 
 ATTRIBUTE = re.compile(r'\[Collection\("(?:Sequential|Integration\d+|IntegrationSerial)"\)\]')

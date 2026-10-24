@@ -22,7 +22,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 ///
 /// The extractor is held as the interface, which is how every caller holds it.
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class TemplatePlaceholderContextTests
 {
     private const string ClockOut = "transition:ClockOut";

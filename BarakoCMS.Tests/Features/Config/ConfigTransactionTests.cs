@@ -12,7 +12,7 @@ namespace BarakoCMS.Tests.Features.Config;
 /// What a plan or a refused apply leaves behind outside the transaction it rolls back: no event, no
 /// listener woken, no cached permission, and the audit entries a committed apply writes (#921).
 /// </summary>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class ConfigTransactionTests
 {
     private readonly IntegrationTestFixture _fixture;

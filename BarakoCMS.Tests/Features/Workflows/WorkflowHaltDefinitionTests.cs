@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// The policy on the way in: saved through the API, refused when it names nothing, copied onto a
 /// run when the workflow fires, and honoured by the engine that runs actions in line.
 /// </summary>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class WorkflowHaltDefinitionTests
 {
     private readonly IntegrationTestFixture _factory;

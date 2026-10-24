@@ -23,7 +23,7 @@ namespace BarakoCMS.Tests.Infrastructure;
 /// worked or not.
 /// </para>
 /// </remarks>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class SchemaApplyLockTests
 {
     private readonly IntegrationTestFixture _fixture;

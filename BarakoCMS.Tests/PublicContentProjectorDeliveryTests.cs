@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests;
 /// promise a module is relying on, and a unit test cannot make it, since the endpoint's shape only
 /// exists once it has gone through the host's serialiser.
 /// </summary>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class PublicContentProjectorDeliveryTests
 {
     private readonly IntegrationTestFixture _factory;

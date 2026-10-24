@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests.Features.Site;
 /// <c>Live</c> and <c>Holding</c>, and <c>migrations/5.0.0/site-field-schemas.sql</c> brings a site
 /// type applied before 5.0.0 up to it (#924).
 /// </summary>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class SiteFieldSchemasTests
 {
     private const string Up = "site-field-schemas.sql";

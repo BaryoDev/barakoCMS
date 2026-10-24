@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// should, in the same test where the two share a workflow. A projection that fires nothing passes
 /// every negative in this file on its own.
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class WorkflowTransitionTriggerTests
 {
     private static readonly TimeSpan PollTimeout = TimeSpan.FromSeconds(30);

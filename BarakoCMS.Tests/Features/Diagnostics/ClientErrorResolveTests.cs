@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests.Features.Diagnostics;
 /// <summary>
 /// POST /api/client-errors/{id}/resolve over real HTTP, read back through the list the Errors screen uses.
 /// </summary>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class ClientErrorResolveTests
 {
     private readonly IntegrationTestFixture _factory;

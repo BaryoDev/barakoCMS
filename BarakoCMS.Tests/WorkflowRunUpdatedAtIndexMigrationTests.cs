@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests;
 /// Postgres's own canonical form, so spacing and optional parentheses in the file are not a
 /// difference and a different expression, column or name is.
 /// </remarks>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class WorkflowRunUpdatedAtIndexMigrationTests
 {
     private const string Table = "mt_doc_workflow_runs";

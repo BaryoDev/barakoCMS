@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests.Features.ContentApi;
 /// A create is checked against the entry as it will be stored, so the conditions of a Create rule
 /// hold for it the way an Update rule's hold for an edit.
 /// </summary>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class ContentCreateRuleTests
 {
     private readonly IntegrationTestFixture _factory;

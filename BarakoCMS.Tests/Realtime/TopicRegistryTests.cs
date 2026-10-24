@@ -108,7 +108,7 @@ public class TopicRegistryTests
     }
 }
 
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class TopicVocabularyTests(SampleProbeHost host) : IClassFixture<SampleProbeHost>
 {
     [Fact]

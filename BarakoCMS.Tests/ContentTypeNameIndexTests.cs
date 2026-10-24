@@ -12,7 +12,7 @@ namespace BarakoCMS.Tests;
 /// Two content types whose names differ only by case cannot both be stored, because every lookup
 /// compares ignoring case and would find both (#1158).
 /// </summary>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class ContentTypeNameIndexTests
 {
     private const string Table = "mt_doc_contenttypedefinition";

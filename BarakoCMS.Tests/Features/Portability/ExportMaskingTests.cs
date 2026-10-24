@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests.Features.Portability;
 /// field masked on <c>GET /api/contents/{id}</c> has to come out masked here too, and a caller who
 /// may see the field has to get it whole, or the bundle stops being a backup.
 /// </remarks>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class ExportMaskingTests
 {
     private const string Secret = "PLAINTEXT-SALARY-918273";

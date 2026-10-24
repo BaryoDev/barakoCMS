@@ -157,7 +157,7 @@ public class MetricsWindowTests
 }
 
 /// <summary>The window over the real pipeline: the route returns it, and the output cache feeds it.</summary>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class MetricsWindowEndpointTests
 {
     private readonly IntegrationTestFixture _factory;

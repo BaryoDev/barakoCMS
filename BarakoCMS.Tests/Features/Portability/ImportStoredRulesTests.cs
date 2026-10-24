@@ -17,7 +17,7 @@ namespace BarakoCMS.Tests.Features.Portability;
 /// refuse a bundle over that rule when the target already stores it, and still checks every field
 /// the bundle adds or changes.
 /// </summary>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class ImportStoredRulesTests
 {
     private const string UnknownRule = "matches";

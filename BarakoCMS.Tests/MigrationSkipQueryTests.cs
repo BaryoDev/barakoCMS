@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests;
 /// the smallest shape the file's statements need and that the release before it had, so a query that
 /// is true for the wrong reason fails the first assertion.
 /// </remarks>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class MigrationSkipQueryTests
 {
     private const string ImmutableTimestamp =

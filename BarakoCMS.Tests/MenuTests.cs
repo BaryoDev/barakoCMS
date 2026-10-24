@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests;
 /// anonymous public endpoint, and that draft/Sensitive/missing menus are not exposed (same rules as any
 /// other content type).
 /// </summary>
-[Collection("Integration2")]
+[Collection("Integration1")]
 public class MenuTests
 {
     private readonly IntegrationTestFixture _factory;

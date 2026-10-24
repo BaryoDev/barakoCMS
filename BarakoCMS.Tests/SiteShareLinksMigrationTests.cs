@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests;
 /// two flags and the policy count are part of what is compared. With enforcement on the table
 /// carries a tenant policy, and the file has to leave that alone.
 /// </remarks>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class SiteShareLinksMigrationTests
 {
     private const string Table = "mt_doc_site_share_links";

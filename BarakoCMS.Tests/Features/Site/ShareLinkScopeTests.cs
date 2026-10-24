@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests.Features.Site;
 /// credential for unpublished content in the hands of someone with no account, so every refusal
 /// here sits beside a control that passes.
 /// </summary>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class ShareLinkScopeTests
 {
     private readonly IntegrationTestFixture _fixture;

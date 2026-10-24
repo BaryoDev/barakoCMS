@@ -19,7 +19,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// cannot pass. The Unpublished test goes through the daemon and polls; the rest call the queue or
 /// the erase endpoint, which write their runs before they return.
 /// </remarks>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class WorkflowTriggerEventsTests
 {
     private static readonly TimeSpan PollTimeout = TimeSpan.FromSeconds(30);

@@ -22,7 +22,7 @@ namespace BarakoCMS.Tests;
 /// state an existing deployment upgrades from. So the back-compat theory here runs against a real
 /// pre-upgrade database rather than a contrived one.
 /// </remarks>
-[Collection("Integration3")]
+[Collection("Integration1")]
 public class CapabilityGateTests
 {
     private readonly IntegrationTestFixture _factory;

@@ -28,7 +28,7 @@ namespace BarakoCMS.Tests;
 /// Each refusal is paired with the same move succeeding once the thing it lacked is supplied. A
 /// transitioner that refused everything would pass the refusals on its own.
 /// </remarks>
-[Collection("Integration4")]
+[Collection("Integration1")]
 public class ContentTransitionerTests
 {
     private readonly IntegrationTestFixture _factory;
