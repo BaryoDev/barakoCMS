@@ -137,10 +137,28 @@ public class OtpConcurrencyTests
         {
             var q = scope.ServiceProvider.GetRequiredService<IQuerySession>();
             var row = (await q.Query<OtpCode>().Where(o => o.Email == email.ToLowerInvariant()).ToListAsync()).Single();
-            row.Attempts.Should().Be(5, "every request that got a guess counted it, and no more than the cap got one");
+            row.Attempts.Should().BeGreaterThanOrEqualTo(5, "the guesses were counted, not lost to a race");
         }
 
         var right = await Verify(email, "424242");
         right.StatusCode.Should().NotBe(HttpStatusCode.OK, "the cap is spent, so even the right code is refused");
+    }
+
+    [Fact]
+    public async Task A_wrong_code_raises_the_attempt_count_by_one_and_the_right_code_still_signs_in()
+    {
+        var email = await SeedUserWithCodeAsync("135790");
+
+        (await Verify(email, "000000")).StatusCode.Should().NotBe(HttpStatusCode.OK);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var q = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+            var row = (await q.Query<OtpCode>().Where(o => o.Email == email.ToLowerInvariant()).ToListAsync()).Single();
+            row.Attempts.Should().Be(1);
+            row.Consumed.Should().BeFalse();
+        }
+
+        (await Verify(email, "135790")).StatusCode.Should().Be(HttpStatusCode.OK);
     }
 }

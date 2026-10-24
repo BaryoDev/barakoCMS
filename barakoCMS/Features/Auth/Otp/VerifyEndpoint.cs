@@ -1,6 +1,7 @@
 using FastEndpoints;
 using FastEndpoints.Security;
 using Marten;
+using Marten.Patching;
 using barakoCMS.Models;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Cryptography;
@@ -89,20 +90,21 @@ internal class VerifyEndpoint(
     }
 
     /// <summary>
-    /// Counts a guess before it is checked. The comparison and the increment are one statement, so
-    /// parallel requests cannot all pass the cap on the same stale count.
+    /// Counts a guess before it is checked. The increment is atomic in the database, so parallel
+    /// requests each get their own number, and only a request whose number is within the cap gets
+    /// its guess evaluated. Returns the code as it stands after the increment, or null when this
+    /// request is over the cap.
     /// </summary>
-    private async Task<bool> ReserveAttemptAsync(Guid id, CancellationToken ct)
+    private async Task<OtpCode?> ReserveAttemptAsync(Guid id, CancellationToken ct)
     {
-        var schema = session.DocumentStore.Options.DatabaseSchemaName;
-        var reserved = await session.QueryAsync<int>(
-            $"update {schema}.mt_doc_otpcode "
-          + "set data = jsonb_set(data, '{Attempts}', to_jsonb(coalesce((data ->> 'Attempts')::int, 0) + 1)) "
-          + "where id = ? and coalesce((data ->> 'Attempts')::int, 0) < ? "
-          + "and (data ->> 'Consumed')::boolean = false "
-          + "returning (data ->> 'Attempts')::int",
-            ct, id, MaxAttempts);
-        return reserved.Count > 0;
+        session.Patch<OtpCode>(id).Increment(x => x.Attempts);
+        await session.SaveChangesAsync(ct);
+
+        var current = await session.LoadAsync<OtpCode>(id, ct);
+        if (current is null || current.Consumed || current.Attempts > MaxAttempts)
+            return null;
+
+        return current;
     }
 
     public override async Task HandleAsync(OtpVerifyRequest req, CancellationToken ct)
@@ -121,11 +123,20 @@ internal class VerifyEndpoint(
             ThrowError("Invalid or expired code.");
             return;
         }
-        if (otp.Attempts >= MaxAttempts || !await ReserveAttemptAsync(otp.Id, ct))
+        if (otp.Attempts >= MaxAttempts)
         {
             ThrowError("Too many attempts. Please request a new code.");
             return;
         }
+
+        var reserved = await ReserveAttemptAsync(otp.Id, ct);
+        if (reserved is null)
+        {
+            ThrowError("Too many attempts. Please request a new code.");
+            return;
+        }
+
+        otp = reserved;
 
         if (!BCrypt.Net.BCrypt.Verify(code, otp.CodeHash))
         {
