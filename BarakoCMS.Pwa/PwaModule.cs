@@ -17,6 +17,8 @@ public sealed class PwaModule : IBarakoModule
 
     public string? PackageVersion => ModuleMetadata.VersionOf(GetType());
 
+    public int HttpContractVersion => 1;
+
     public string? Category => ModuleCategory.Platform;
 
     public string? Description => "Installs tracked for the PWA home screen";

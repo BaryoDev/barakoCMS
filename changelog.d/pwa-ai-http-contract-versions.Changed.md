@@ -1,0 +1,1 @@
+- **The Pwa and AI modules move their HTTP contract numbers.** `BarakoCMS.Pwa` goes from 0 (unstated) to 1 and `BarakoCMS.AI` from 2 to 3, since the install report and semantic search now refuse input they used to accept. `ApiContract.Version` stays at 11.
