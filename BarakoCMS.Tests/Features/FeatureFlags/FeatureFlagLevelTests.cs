@@ -184,6 +184,24 @@ public class FeatureFlagLevelTests(IntegrationTestFixture factory)
     }
 
     [Fact]
+    public async Task An_undefined_visibility_number_is_a_400_and_a_defined_one_saves()
+    {
+        var key = NewKey("bad-level");
+        var (token, _) = await TestHelpers.CreateAdminUserAsync(factory);
+        var admin = Client(token);
+
+        var bad = await admin.PostAsJsonAsync("/api/feature-flags/admin",
+            new { key, enabled = true, visibility = 7 }, TestContext.Current.CancellationToken);
+        var good = await admin.PostAsJsonAsync("/api/feature-flags/admin",
+            new { key, enabled = true, visibility = 1 }, TestContext.Current.CancellationToken);
+
+        bad.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        good.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await good.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken))
+            .GetProperty("visibility").GetString().Should().Be("SignedIn");
+    }
+
+    [Fact]
     public async Task The_admin_list_returns_each_flags_level()
     {
         var key = NewKey("listed");

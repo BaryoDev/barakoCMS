@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using barakoCMS.Infrastructure.Auth;
 using FastEndpoints;
+using FluentValidation;
 using Marten;
 
 namespace BarakoCMS.FeatureFlags;
@@ -85,6 +86,16 @@ public class UpsertFlagRequest
     /// that says nothing about it is not a decision to publish.
     /// </summary>
     public FlagVisibility? Visibility { get; set; }
+}
+
+internal sealed class UpsertFlagValidator : Validator<UpsertFlagRequest>
+{
+    public UpsertFlagValidator()
+    {
+        RuleFor(x => x.Visibility)
+            .Must(v => v is null || Enum.IsDefined(v.Value))
+            .WithMessage("Visibility must be Public, SignedIn or Admin.");
+    }
 }
 
 /// <summary>POST /api/feature-flags/admin — create or update a flag (upsert by key).</summary>
