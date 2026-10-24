@@ -21,6 +21,8 @@ public sealed class AccountingModule : IBarakoModule
 
     public string Name => "Accounting";
 
+    public int HttpContractVersion => 1;
+
     public string? PackageId => "BarakoCMS.Accounting";
 
     public string? PackageVersion => ModuleMetadata.VersionOf(GetType());
