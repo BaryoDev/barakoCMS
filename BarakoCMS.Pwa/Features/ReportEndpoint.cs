@@ -1,4 +1,6 @@
+using barakoCMS.Infrastructure.Multitenancy;
 using FastEndpoints;
+using FluentValidation;
 // RequireRateLimiting lives here; this project is not a Web SDK project, so it is not implicitly used.
 using Microsoft.AspNetCore.Builder;
 using Marten;
@@ -25,7 +27,7 @@ public sealed class ReportRequest
 /// launch and on install. Anonymous by default; when a signed-in user reports, their identity is
 /// recorded so the admin can see who installed the app. Idempotent per device.
 /// </summary>
-public sealed class ReportEndpoint(IDocumentSession session) : Endpoint<ReportRequest>
+public sealed class ReportEndpoint(IDocumentSession session, TenantContext tenantContext) : Endpoint<ReportRequest>
 {
     public override void Configure()
     {
@@ -40,16 +42,9 @@ public sealed class ReportEndpoint(IDocumentSession session) : Endpoint<ReportRe
 
     public override async Task HandleAsync(ReportRequest req, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(req.DeviceId))
-        {
-            await Send.ResultAsync(Microsoft.AspNetCore.Http.Results.BadRequest("DeviceId is required."));
-            return;
-        }
-
         var userId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var u) ? u : (Guid?)null;
         var username = User.FindFirst("Username")?.Value;
-        // Lowercased, the way tenant resolution reads the same header, so the installs list finds it.
-        var tenant = HttpContext.Request.Headers["X-Tenant"].FirstOrDefault()?.Trim().ToLowerInvariant();
+        var tenant = tenantContext.Slug;
         var ua = HttpContext.Request.Headers.UserAgent.ToString();
         var installed = req.Installed
             || req.DisplayMode is "standalone" or "fullscreen" or "minimal-ui";
@@ -76,6 +71,11 @@ public sealed class ReportEndpoint(IDocumentSession session) : Endpoint<ReportRe
                 LaunchCount = 1,
             });
         }
+        else if (existing.Tenant is { Length: > 0 } owner && !owner.Equals(tenant, StringComparison.OrdinalIgnoreCase))
+        {
+            // The device id belongs to an install of another tenant. A report from here neither
+            // updates it nor moves it.
+        }
         else
         {
             existing.LastSeenAt = now;
@@ -83,8 +83,13 @@ public sealed class ReportEndpoint(IDocumentSession session) : Endpoint<ReportRe
             if (!string.IsNullOrWhiteSpace(req.DisplayMode)) existing.DisplayMode = req.DisplayMode;
             if (!string.IsNullOrWhiteSpace(req.Platform)) existing.Platform = req.Platform;
             if (!string.IsNullOrWhiteSpace(ua)) existing.UserAgent = Trunc(ua);
-            if (userId is not null) { existing.UserId = userId; existing.Username = username; }
-            if (!string.IsNullOrWhiteSpace(tenant)) existing.Tenant = tenant;
+            if (userId is not null && (existing.UserId is null || existing.UserId == userId))
+            {
+                existing.UserId = userId;
+                existing.Username = username;
+            }
+
+            if (string.IsNullOrWhiteSpace(existing.Tenant)) existing.Tenant = tenant;
             if (installed)
             {
                 existing.Installed = true;
@@ -98,4 +103,22 @@ public sealed class ReportEndpoint(IDocumentSession session) : Endpoint<ReportRe
     }
 
     private static string Trunc(string s) => string.IsNullOrEmpty(s) ? s : (s.Length > 400 ? s[..400] : s);
+}
+
+internal sealed class ReportValidator : Validator<ReportRequest>
+{
+    public const int MaxDeviceIdLength = 100;
+    public const int MaxPlatformLength = 40;
+
+    private static readonly string[] DisplayModes = ["browser", "standalone", "fullscreen", "minimal-ui"];
+
+    public ReportValidator()
+    {
+        RuleFor(r => r.DeviceId).NotEmpty().MaximumLength(MaxDeviceIdLength);
+        RuleFor(r => r.Platform).MaximumLength(MaxPlatformLength);
+        RuleFor(r => r.DisplayMode)
+            .Must(m => DisplayModes.Contains(m))
+            .When(r => r.DisplayMode is not null)
+            .WithMessage("DisplayMode must be one of: browser, standalone, fullscreen, minimal-ui.");
+    }
 }

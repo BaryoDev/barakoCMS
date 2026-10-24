@@ -106,4 +106,65 @@ public class PwaReportTests
 
         res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
+
+    [Fact]
+    public async Task A_report_with_an_oversized_or_unknown_field_is_refused()
+    {
+        var client = _factory.CreateClient();
+
+        var longDevice = await client.PostAsJsonAsync("/api/pwa/report", Report(new string('d', 101)));
+        var longPlatform = await client.PostAsJsonAsync("/api/pwa/report",
+            new { deviceId = $"dev-{Guid.NewGuid():N}", platform = new string('p', 41) });
+        var oddMode = await client.PostAsJsonAsync("/api/pwa/report",
+            new { deviceId = $"dev-{Guid.NewGuid():N}", displayMode = "kiosk" });
+        var goodMode = await client.PostAsJsonAsync("/api/pwa/report",
+            new { deviceId = $"dev-{Guid.NewGuid():N}", displayMode = "minimal-ui" });
+
+        longDevice.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        longPlatform.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        oddMode.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        goodMode.StatusCode.Should().Be(HttpStatusCode.NoContent);
+    }
+
+    [Fact]
+    public async Task A_report_from_a_signed_in_user_does_not_rebind_an_install_owned_by_another()
+    {
+        var device = $"dev-{Guid.NewGuid():N}";
+        HttpClient As(Guid id, string name)
+        {
+            var c = _factory.CreateClient();
+            c.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _factory.CreateToken(
+                new[] { "SuperAdmin" }, id.ToString(), new Dictionary<string, string> { ["Username"] = name }));
+            return c;
+        }
+
+        var (_, first) = await TestHelpers.CreateAdminUserAsync(_factory);
+        var (_, second) = await TestHelpers.CreateAdminUserAsync(_factory);
+        await As(first, "first-user").PostAsJsonAsync("/api/pwa/report", Report(device));
+
+        await As(second, "second-user").PostAsJsonAsync("/api/pwa/report", Report(device));
+
+        var row = await LoadAsync(device);
+        row!.UserId.Should().Be(first);
+        row.Username.Should().Be("first-user");
+    }
+
+    [Fact]
+    public async Task A_report_from_another_tenant_neither_updates_nor_moves_an_install()
+    {
+        var device = $"dev-{Guid.NewGuid():N}";
+        var home = _factory.CreateClient();
+        home.DefaultRequestHeaders.Add("X-Tenant", "default");
+        await home.PostAsJsonAsync("/api/pwa/report", Report(device, displayMode: "browser", installed: false));
+        var before = await LoadAsync(device);
+
+        var other = _factory.CreateClient();
+        other.DefaultRequestHeaders.Add("X-Tenant", "some-other-tenant");
+        await other.PostAsJsonAsync("/api/pwa/report", Report(device));
+
+        var after = await LoadAsync(device);
+        after!.Tenant.Should().Be(before!.Tenant);
+        after.LaunchCount.Should().Be(before.LaunchCount);
+        after.Installed.Should().BeFalse();
+    }
 }

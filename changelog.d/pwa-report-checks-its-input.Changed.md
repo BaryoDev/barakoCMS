@@ -1,0 +1,1 @@
+- **The install report takes its tenant from the resolved tenant and checks its fields.** DeviceId and Platform have length caps, DisplayMode must be browser, standalone, fullscreen or minimal-ui, a report no longer rebinds an install to a different user, and a report from another tenant does not touch the install.
