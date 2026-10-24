@@ -5,7 +5,7 @@
 -- The module seeds a content type definition only when none is stored, so a database that already
 -- holds the journalEntry type keeps the one without a lifecycle. This file adds the lifecycle and
 -- the VoidReason field to that stored type, and gives each existing entry its state: Voided where
--- Data.Status says Voided, Posted for every other entry. Balances and cash flow leave out Voided.
+-- Data.Status says Voided, Posted for every other entry. Voided stays in balances and cash flow, where the reversal nets it out.
 --
 -- Entries and types that already carry a state or a lifecycle are not changed, so running the file
 -- twice changes nothing. It is data only: no table, column or index changes.
