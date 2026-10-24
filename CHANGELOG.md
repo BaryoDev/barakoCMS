@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [5.3.0] - 2026-10-25
 
-5.3 is a minor release. Two new modules ship (Tagging and Services), and Accounting posts and reverses journal entries from workflows. A content type can take lines and be owned by an account, a tenant has locale settings, and a module can add a sign-in method. Feature flags gain a visibility level. The sign-in, password reset, payment webhook, semantic search and install report routes check more of what they are given. The admin API contract stays at 11 and the delivery contract stays at 9. BarakoCMS.AI moves to HTTP contract 3 and BarakoCMS.Pwa to 1.
+5.3 is a minor release. Two new modules ship (Tagging and Services), and Accounting posts and reverses journal entries from workflows. A content type can take lines and be owned by an account, a tenant has locale settings, and a module can add a sign-in method. Feature flags gain a visibility level. The sign-in, password reset, payment webhook, semantic search and install report routes check more of what they are given. The admin API contract moves from 11 to 12. The delivery contract stays at 9. BarakoCMS.AI moves to HTTP contract 3 and BarakoCMS.Pwa to 1.
 
 ### Upgrade
 
@@ -23,7 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 4. **Check the defaults.** A tenant's sign-in methods are unchanged, and a module's method stays off until a tenant names it in `signIn.methods`. A feature flag keeps its audience: public stays Public and private becomes SignedIn. The compose files now refuse the default JWT key outside Development, so set `JWT_SECRET` first if you run them in another environment.
 5. **Start 5.3.0.**
 
-**HTTP status changes.** `ApiContract.Version` stays at 11 and `ApiContract.DeliveryVersion` stays at 9. `POST /api/users/{userId}/password` (admin password reset) answers differently:
+**Breaking HTTP changes.** `ApiContract.Version` moves from 11 to 12. `ApiContract.DeliveryVersion` stays at 9. Released barakoBrew reads admin contracts up to 11: upgrade it to a release that reads 12 together with the API.
+
+The Suite image no longer serves the Accounting routes (`/api/accounting/accounts`, `/api/accounting/accounts/{code}/ledger`, `/api/accounting/balances`, `/api/accounting/journal-entries` and the new 5.3 accounting routes), since basic Accounting left the image. Add `BarakoCMS.Accounting` to your own host to keep them.
+
+`POST /api/users/{userId}/password` (admin password reset) answers differently:
 
 - 403 when the caller holds `manage_users` only through a tenant membership and not in a global role.
 - 403 when the user holds a platform role and the caller is not a SuperAdmin.
@@ -78,8 +82,8 @@ Module contracts: BarakoCMS.AI `HttpContractVersion` 2 to 3 (a semantic search q
 - **Client errors are stored under the tenant the request resolved to.** A tenant named in the report body is ignored.
 - **Import counts the bytes an xlsx expands to.** The expanded size limit now applies to the bytes actually read from the archive, not only the sizes it declares.
 - **The API rejects the compose default JWT key outside Development.** Set `JWT_SECRET` to your own key when you run the compose files with `ASPNETCORE_ENVIRONMENT` set to anything but Development. Local runs in Development are unchanged.
-- **A payment webhook only settles a pending attempt, and checks the figures when the provider sends them.** A later event for an attempt already paid or failed answers 200 and changes nothing. A paid event whose amount or currency differs from the attempt answers 409. `PaymentEvent` gained optional `Amount` and `Currency`.
-- **The Pwa and AI modules move their HTTP contract numbers.** `BarakoCMS.Pwa` goes from 0 (unstated) to 1 and `BarakoCMS.AI` from 2 to 3, since the install report and semantic search now refuse input they used to accept. `ApiContract.Version` stays at 11.
+- **A payment webhook only settles a pending attempt, and checks the figures when the provider sends them.** A later event for an attempt already settled answers 200 and changes nothing, except a paid event for an attempt already failed, which answers 409 and logs a warning. A paid event whose amount or currency differs from the attempt answers 409. `PaymentEvent` gained optional `Amount` and `Currency`.
+- **The Pwa and AI modules move their HTTP contract numbers.** `BarakoCMS.Pwa` goes from 0 (unstated) to 1 and `BarakoCMS.AI` from 2 to 3, since the install report and semantic search now refuse input they used to accept.
 - **The install report takes its tenant from the resolved tenant and checks its fields.** DeviceId and Platform have length caps, DisplayMode must be browser, standalone, fullscreen or minimal-ui, a report no longer rebinds an install to a different user, and a report from another tenant does not touch the install.
 - **Semantic search uses the delivery rate limit and caps the query at 500 characters.** A longer `q` answers 400.
 - **Sign-in code attempts are counted before the code is checked.** Requests that arrive together can no longer each get a guess past the five-attempt cap, because each is counted by an atomic increment before its guess is checked. IPv6 clients now share one rate limit bucket per /64.
