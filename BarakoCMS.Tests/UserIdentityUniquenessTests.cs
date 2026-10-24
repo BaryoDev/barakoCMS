@@ -36,7 +36,7 @@ public class UserIdentityUniquenessTests
         _factory = factory;
         _client = factory.CreateClient();
         _client.DefaultRequestHeaders.Add(
-            TestRemoteIpFilter.Header, $"2001:db8:638::{Interlocked.Increment(ref _ipCounter):x}");
+            TestRemoteIpFilter.Header, $"2001:db8:638:{Interlocked.Increment(ref _ipCounter):x}::1");
     }
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

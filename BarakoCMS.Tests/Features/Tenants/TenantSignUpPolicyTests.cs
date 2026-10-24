@@ -28,7 +28,7 @@ public class TenantSignUpPolicyTests
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private static string NextIp() => $"2001:db8:914::{Interlocked.Increment(ref _ip):x}";
+    private static string NextIp() => $"2001:db8:914:{Interlocked.Increment(ref _ip):x}::1";
 
     private HttpClient Client(string? tenant)
     {

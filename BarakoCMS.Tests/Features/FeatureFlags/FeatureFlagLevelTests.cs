@@ -16,7 +16,7 @@ public class FeatureFlagLevelTests(IntegrationTestFixture factory)
     private const string Ofrep = "/ofrep/v1/evaluate/flags";
 
     private static int _ipCounter;
-    private readonly string _ip = $"2001:db8:1149::{Interlocked.Increment(ref _ipCounter):x}";
+    private readonly string _ip = $"2001:db8:1149:{Interlocked.Increment(ref _ipCounter):x}::1";
 
     private HttpClient Client(string? token = null)
     {

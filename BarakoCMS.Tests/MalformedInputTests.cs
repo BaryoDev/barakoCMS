@@ -82,7 +82,7 @@ public class MalformedInputTests
     public async Task A_nul_character_in_registration_is_a_validation_error(string json)
     {
         _client.DefaultRequestHeaders.Add(
-            TestRemoteIpFilter.Header, $"2001:db8:648::{Random.Shared.Next(1, 0xffff):x}");
+            TestRemoteIpFilter.Header, $"2001:db8:648:{Random.Shared.Next(1, 0xffff):x}::1");
 
         var response = await _client.PostAsync(
             "/api/auth/register", new StringContent(json, Encoding.UTF8, "application/json"));
@@ -103,7 +103,7 @@ public class MalformedInputTests
     public async Task A_nul_character_that_reaches_the_database_is_a_bad_request()
     {
         _client.DefaultRequestHeaders.Add(
-            TestRemoteIpFilter.Header, $"2001:db8:649::{Random.Shared.Next(1, 0xffff):x}");
+            TestRemoteIpFilter.Header, $"2001:db8:649:{Random.Shared.Next(1, 0xffff):x}::1");
 
         var response = await _client.PostAsync("/api/auth/login", new StringContent(
             """{"username":"nul\u0000login","password":"whatever-password"}""",

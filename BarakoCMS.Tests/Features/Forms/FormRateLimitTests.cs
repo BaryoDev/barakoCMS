@@ -185,7 +185,7 @@ public class FormRateLimitTests
     {
         var client = host.CreateClient();
         var bytes = Guid.NewGuid().ToByteArray();
-        var ip = $"2001:db8:888::{bytes[0]:x2}{bytes[1]:x2}:{bytes[2]:x2}{bytes[3]:x2}:{bytes[4]:x2}{bytes[5]:x2}";
+        var ip = $"2001:db8:{bytes[0]:x2}{bytes[1]:x2}:{bytes[2]:x2}{bytes[3]:x2}:{bytes[4]:x2}{bytes[5]:x2}:888::1";
         client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, ip);
         return client;
     }

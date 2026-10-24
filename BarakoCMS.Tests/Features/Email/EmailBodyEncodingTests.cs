@@ -29,7 +29,7 @@ public class EmailBodyEncodingTests
     private readonly IntegrationTestFixture _factory;
 
     private static int _ipCounter;
-    private readonly string _ip = $"2001:db8:456::{Interlocked.Increment(ref _ipCounter):x}";
+    private readonly string _ip = $"2001:db8:456:{Interlocked.Increment(ref _ipCounter):x}::1";
 
     public EmailBodyEncodingTests(IntegrationTestFixture factory) => _factory = factory;
 

@@ -28,7 +28,7 @@ public class OfrepEvaluationTests(IntegrationTestFixture factory)
     // Its own bucket in the global limiter. Without the header every request in the shared fixture
     // counts against one address, and past its limit a request waits for the window to turn over,
     // up to a minute. The OFREP provider gives up after ten seconds and answers with the default.
-    private readonly string _ip = $"2001:db8:1148::{Interlocked.Increment(ref _ipCounter):x}";
+    private readonly string _ip = $"2001:db8:1148:{Interlocked.Increment(ref _ipCounter):x}::1";
 
     private HttpClient Client()
     {

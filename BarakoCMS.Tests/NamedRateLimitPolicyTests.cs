@@ -500,7 +500,7 @@ public class DeliveryRateLimitWiringTests
     private static HttpClient From(Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> host)
     {
         var client = host.CreateClient();
-        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"2001:db8:888::{Interlocked.Increment(ref _ip):x}");
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"2001:db8:888:{Interlocked.Increment(ref _ip):x}::1");
         return client;
     }
 
@@ -585,7 +585,7 @@ public class ApiKeyQuotaWiringTests
     {
         var request = new HttpRequestMessage(HttpMethod.Get, "/api/contents");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
-        request.Headers.Add(TestRemoteIpFilter.Header, $"2001:db8:889::{Interlocked.Increment(ref _ip):x}");
+        request.Headers.Add(TestRemoteIpFilter.Header, $"2001:db8:889:{Interlocked.Increment(ref _ip):x}::1");
         using var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
         return response.StatusCode;
     }

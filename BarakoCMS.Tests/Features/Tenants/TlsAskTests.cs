@@ -29,7 +29,7 @@ public class TlsAskTests
     private static HttpClient From(WebApplicationFactory<Program> host)
     {
         var client = host.CreateClient();
-        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"2001:db8:904::{Interlocked.Increment(ref _ip):x}");
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"2001:db8:904:{Interlocked.Increment(ref _ip):x}::1");
         return client;
     }
 

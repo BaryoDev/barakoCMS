@@ -80,7 +80,7 @@ public class TenantRoleScopeTests
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _fixture.CreateToken(
             [managerRole.Name], userId.ToString(), new Dictionary<string, string> { ["tenant"] = a }));
         client.DefaultRequestHeaders.Add("X-Tenant", a);
-        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"2001:db8:913::{Interlocked.Increment(ref _ip):x}");
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"2001:db8:913:{Interlocked.Increment(ref _ip):x}::1");
         return (a, b, client, managerRole);
     }
 

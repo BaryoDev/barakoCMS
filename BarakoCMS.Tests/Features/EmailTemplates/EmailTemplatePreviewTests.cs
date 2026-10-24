@@ -47,7 +47,7 @@ public class EmailTemplatePreviewTests
     {
         var client = _fixture.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"2001:db8:829::{Interlocked.Increment(ref _ip):x}");
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"2001:db8:829:{Interlocked.Increment(ref _ip):x}::1");
         return client;
     }
 

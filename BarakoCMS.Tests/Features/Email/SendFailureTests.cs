@@ -67,7 +67,7 @@ public class SendFailureTests
     /// xunit constructs the class once per test method, so this counter hands each test its own.
     /// The IPv6 documentation range again, on a different subnet from the other classes using it.
     /// </remarks>
-    private readonly string _ip = $"2001:db8:123::{Interlocked.Increment(ref _ipCounter):x}";
+    private readonly string _ip = $"2001:db8:123:{Interlocked.Increment(ref _ipCounter):x}::1";
 
     public SendFailureTests(IntegrationTestFixture factory) => _factory = factory;
 

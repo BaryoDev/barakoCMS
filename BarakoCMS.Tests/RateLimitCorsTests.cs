@@ -55,7 +55,7 @@ public class RateLimitCorsTests
     private HttpClient FromNewAddress()
     {
         var client = Host().CreateClient();
-        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"2001:db8:1109::{Interlocked.Increment(ref _ip):x}");
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"2001:db8:1109:{Interlocked.Increment(ref _ip):x}::1");
         return client;
     }
 

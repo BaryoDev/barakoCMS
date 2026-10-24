@@ -1627,10 +1627,18 @@ public static class ServiceCollectionExtensions
             // than on the first request that happens to resolve the options.
             barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.Configure(
                 new Microsoft.AspNetCore.Builder.ForwardedHeadersOptions(), configuration);
-
-            services.Configure<Microsoft.AspNetCore.Builder.ForwardedHeadersOptions>(
-                options => barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.Configure(options, configuration));
         }
+
+        // Registered either way and decided when the options resolve. UseBarakoCMS asks the host's
+        // final configuration, which can switch this on after registration (a host built with
+        // extra settings); the middleware then needs the proxy list, not the loopback default.
+        services.Configure<Microsoft.AspNetCore.Builder.ForwardedHeadersOptions>(options =>
+        {
+            if (barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.IsEnabled(configuration))
+            {
+                barakoCMS.Infrastructure.Security.ForwardedHeadersSetup.Configure(options, configuration);
+            }
+        });
     }
 
     private static void AddRateLimiting(IServiceCollection services, IConfiguration configuration)

@@ -33,7 +33,7 @@ public class TenantSignInPolicyTests
     private HttpClient Client(string tenant)
     {
         var client = _fixture.CreateClient();
-        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"2001:db8:920::{Interlocked.Increment(ref _ip):x}");
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"2001:db8:920:{Interlocked.Increment(ref _ip):x}::1");
         client.DefaultRequestHeaders.Add("X-Tenant", tenant);
         return client;
     }

@@ -47,7 +47,7 @@ public class EmailVerificationTests
     /// on a 429 that has nothing to do with it. The IPv6 documentation range is used because the two
     /// IPv4 documentation ranges are already crowded by other test classes counting from 1.
     /// </summary>
-    private readonly string _ip = $"2001:db8:268::{Interlocked.Increment(ref _ipCounter):x}";
+    private readonly string _ip = $"2001:db8:268:{Interlocked.Increment(ref _ipCounter):x}::1";
 
     public EmailVerificationTests(IntegrationTestFixture factory)
     {
