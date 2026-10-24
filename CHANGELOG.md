@@ -7,6 +7,86 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.3.0] - 2026-10-25
+
+5.3 is a minor release. Two new modules ship (Tagging and Services), and Accounting posts and reverses journal entries from workflows. A content type can take lines and be owned by an account, a tenant has locale settings, and a module can add a sign-in method. Feature flags gain a visibility level. The sign-in, password reset, payment webhook, semantic search and install report routes check more of what they are given. The admin API contract stays at 11 and the delivery contract stays at 9. BarakoCMS.AI moves to HTTP contract 3 and BarakoCMS.Pwa to 1.
+
+### Upgrade
+
+**From 5.2.x.** A 5.1 install upgrades to 5.2 first.
+
+1. **Take a backup and check it restores** (`docs/backup-and-restore.md`).
+2. **Stop the 5.2 API.** Every file below is applied with the API stopped.
+3. **Run `db-migrate` with the 5.3.0 image, then `db-assert`.** `FROM_VERSION=5.2.0 scripts/upgrade-check.sh --list` prints each file as a `psql` line in the order CI applies them. Under `migrations/5.3.0/`:
+   - Core, first: `945-account-content-types.sql` (the account content types table) and `98-locale-settings.sql` (the locale settings table). Both are new, empty tables.
+   - Module, after the core files; a host without that module skips its file: `252-tagging.sql` (BarakoCMS.Tagging), `833-services.sql` (BarakoCMS.Services), `accounting-mappings.sql` and `accounting-journal-lifecycle.sql` (BarakoCMS.Accounting). The journal lifecycle file changes data only: it gives each existing journal entry the state Posted, or Voided where its status says so, and can be run twice.
+4. **Check the defaults.** A tenant's sign-in methods are unchanged, and a module's method stays off until a tenant names it in `signIn.methods`. A feature flag keeps its audience: public stays Public and private becomes SignedIn. The compose files now refuse the default JWT key outside Development, so set `JWT_SECRET` first if you run them in another environment.
+5. **Start 5.3.0.**
+
+**HTTP status changes.** `ApiContract.Version` stays at 11 and `ApiContract.DeliveryVersion` stays at 9. `POST /api/users/{userId}/password` (admin password reset) answers differently:
+
+- 403 when the caller holds `manage_users` only through a tenant membership and not in a global role.
+- 403 when the user holds a platform role and the caller is not a SuperAdmin.
+- 400 when the user is the caller's own account.
+- 404 when the user is outside the caller's tenant, not only when the user does not exist.
+
+Module contracts: BarakoCMS.AI `HttpContractVersion` 2 to 3 (a semantic search query over 500 characters answers 400), BarakoCMS.Pwa 0 to 1 (the install report refuses a bad field). New modules BarakoCMS.Tagging and BarakoCMS.Services start at 1. A payment event for an attempt that is no longer pending answers 200 or 409 as described under Changed.
+
+**Package changes.** BarakoCMS.Tagging and BarakoCMS.Services are new packages. Modules with changes: Accounting 4.6.0, FeatureFlags 4.6.0, AI 4.6.1, Pwa 4.5.1, Diagnostics 4.5.1, Import 4.7.1, Portability 4.7.1, Booking 5.2.1 and Payments 0.1.1. Nothing is removed from the package surface.
+
+**Rolling back to 5.2.** Stop 5.3, run the rollback lines `--list` prints, newest first, then remove each rolled-back file's ledger row with `db-migrate --forget <key>` and start 5.2.x. `rollback-252-tagging.sql`, `rollback-833-services.sql`, `rollback-945-account-content-types.sql`, `rollback-98-locale-settings.sql` and `rollback-accounting-mappings.sql` sit beside their files. Rolling back drops the tables those files created, so their rows are lost: tags, services, account content types, locale settings and accounting mappings. The journal lifecycle file has no rollback, since it only adds a state to existing entries.
+
+### Added
+
+- **A Tagging module.** Vocabularies, optionally nested terms, and term assignments on any record by content type and id, with a query by term across record types (#252).
+- **The content event stream reaches subscribers on every instance.** A change committed on one
+  instance is sent to the others over Postgres `LISTEN` / `NOTIFY`, as the entry id and event name
+  only. Each instance reads the entry and its type again and projects it through the same masking
+  as the REST reads, in the tenant it was written in, so a notice cannot loosen masking or carry a
+  stale level. No setting, no new service, and no route, field or status code changes. Delivery
+  stays best effort, with no ordering across instances.
+- **A content type can take lines, and a header is read with them.** `PUT /api/content-types/{name}/lines` declares a child type and the single reference field on it that points back at the header (`null` clears it), and optionally `totalField` and `lineAmountField`, which hold the header's number field equal to the sum of the lines' number field. `POST /api/contents` on a type that declares lines accepts `lines`, up to 200 entries of the child type, and writes the header and every line in one transaction: a refused line (reported as `Line N: ...`) or a total that does not match stores nothing (a line amount that is missing or not a number is refused by name, and a header with a total and no lines must total 0), and `dryRun` stores nothing. Each line takes the header's status and sensitivity, and the server sets its parent field. The response carries `lineIds`. The total is checked after the hooks and numbering have run, on the values that will be stored, and again on `PUT /api/contents/{id}` for the header and for any line of it, and on `POST /api/contents` of a single line that points at an existing header (a line write that breaks its header's total is refused, naming the header). Only a parent reference in the canonical lowercase or uppercase `D` form (with hyphens, no braces) counts as pointing at a header. It is checked on create and update only, not on rollback, bulk import or workflow actions. The total field and the line type's parent and amount fields cannot be renamed or removed while the lines name them. `GET /api/contents/{id}/lines` returns the header and the lines the caller may read in one query, scoped to the caller's tenant, (the list stops at 200 and `truncated` says so). `contentTypes` responses carry `lines`. A type that declares none is created exactly as before. Erasing a line (`DELETE /api/contents/{id}/erase`) is not checked against its header's total, because an erasure request must not be blocked by it, and erasing a header does not erase its lines. Cascade on delete is not part of this yet. The total is enforced only by the content endpoints named here, so a write that does not go through them (a module storing documents directly, for one) is not held to it.- **An estate checklist.** `docs/estate-checklist.md` answers the five questions an architect asks (changes, traces, scoped credentials, consumer limits, contract version), each yes tied to a test or code path, and names what is not there yet. Docs only.
+- **A registry of outside services.** New package `BarakoCMS.Services`: `POST /api/services` registers a service (name, message types, delivery URL or topic, optional health URL), `GET /api/services` and `GET /api/services/{name}` read it with a health of Healthy, Late or Down, and `POST /api/services/{name}/heartbeat` records that it is alive (a service with a registered machine key hears only from that API key, which needs the new `services:heartbeat` scope and reaches no other route; otherwise it needs the capability through a global role, never a tenant membership; an unknown name and a service that is not yours both answer 404; a machine key must exist and not be revoked at registration). Gated by the new `manage_services` and `send_service_heartbeat` capabilities, both given to Admin. Message state, replay and pause come later. Adds the Services tag to the HTTP surface; no existing route changes.
+- **A content type can be owned by an account.** `POST /api/accounts/{slug}/content-types` defines a type that every tenant in the account uses: it is listed in `GET /api/content-types` with `ownerAccountId`, and entries written in those tenants are validated against it while staying tenant scoped. A field added with `POST /api/accounts/{slug}/content-types/{name}/fields` applies to all of them. A tenant admin cannot change it, an account manager can, and a tenant outside the account does not see it. A tenant-local type of the same name is refused on create, in a blueprint apply and in an import, and the account's definition wins wherever it is read. Checks across the account's tenants run per tenant, so they hold under Tenancy:DatabaseEnforcement. A tenant holding entries of its account's types cannot move out of it. New `AccountContentType` document. First slice of #945: workflows, lifecycles, roles and the field migration of #934 are not in it.
+- **A tenant has locale settings.** `GET` and `PUT /api/settings/locales` (admin) hold the tenant's default locale, its language codes and ordered fallback chains. `GET /api/meta` returns the languages as an optional `locales` field. Nothing picks a translation from them yet.
+- **`GET /api/accounting/cash-flow`.** Returns the receipts, disbursements, opening and closing balance of one month over up to 20 cash accounts. A voided entry stays in, with its reversal. Needs `view_ledger`. BarakoCMS.Accounting is 4.6.0.
+- **Accounting mappings are a config section.** `accountingMappings` holds named rules that say which accounts a business event debits and credits, read and written with the new `manage_accounting_mappings` capability (granted to Accountant and Admin). Apply `migrations/5.3.0/accounting-mappings.sql` before the upgrade so `db-assert` finds the table.
+- **`Accounting.PostJournal` workflow action.** Posts the journal entry a named mapping describes for the entry that triggered the workflow. The same subject and `ActionKey` post once, however often the action is retried, and the entry records the run that made it.
+- **`GET /api/accounting/reconcile`.** Lists the entries of a content type, made within a range of at most 366 days, whose workflow posting is missing or differs from their `Total`. A posting that was reversed counts as settled. Needs `view_ledger`.
+- **`Accounting.Reverse` workflow action.** Reverses the entry `Accounting.PostJournal` posted for a subject and key: posts the lines with debits and credits swapped, then voids the original with the reason given. A retry finishes the job without posting a second reversal. The voided original and its reversal both stay in the books and cancel by date.
+- **Feature flags gain a visibility level.** A flag is Public, SignedIn or Admin. `isPublic` is still read and written: true means Public, and existing flags keep their audience (public stays Public, private becomes SignedIn). A flag saved with neither field is Admin only, seen by callers who can manage feature flags. The admin list and save response return `visibility`.
+- **Journal entries have a Posted and Voided lifecycle.** A new entry starts Posted, the `Void` transition (with a `VoidReason`) makes it Voided, and a Voided entry stays in balances, ledgers and cash flow, where its reversal nets it to zero by date. Apply `migrations/5.3.0/accounting-journal-lifecycle.sql` to give existing entries and the stored `journalEntry` type their state.
+- **A module can add a tenant sign-in method that is off until named.** A module registers an
+  `ISignInMethod`, and a tenant can then name it in `signIn.methods`. An empty list still allows only
+  the three built-in methods, so a module method stays off for every tenant that does not name it.
+  `TenantSignIn.AllowsExplicitlyAsync` is how a module asks.
+
+### Changed
+
+- **The managed platform guide says how uploads work on Azure.** `PostgresFileStorage` is durable
+  across restarts and scale-out, so App Service needs nothing extra for uploads. Azure Blob is not
+  supported, and the guide names the S3-compatible route (`Files.S3` with `ServiceUrl`). Docs only,
+  no route or contract change.
+- **Staging in place is recorded as a decision.** D38 in `DECISIONS.md` says a client reviews on the
+  live tenant using drafts, holding mode, share links, scheduled publish and configuration applied through
+  `/api/config/apply`, not on a staging copy. `docs/delivering-a-client-project.md` has the review path. No code
+  or contract change.
+- **The `barako-cms` image no longer includes the basic Accounting module.** It is still published on NuGet; add `BarakoCMS.Accounting` to your own host to keep using it. Existing accounting data stays in the database.
+- **Admin password reset follows the same rules as admin MFA reset.** It needs manage_users in a global role, refuses your own account, answers 404 for a user outside the caller's tenant, needs a SuperAdmin to reset a platform-role holder, and writes an `auth.password.reset` audit entry.
+- **Sign-in mail is held one message per address.** A newer code or link replaces the queued one, four senders run at once, a send gives up after 10 seconds, and mail dropped on a full queue is counted in `barakocms_auth_mail_dropped_total`.
+- **Booking checks read only the bookings near the requested time.** The overlap check and the availability route filter by date in the query instead of loading every booking of the resource. Results are unchanged.
+- **Client errors are stored under the tenant the request resolved to.** A tenant named in the report body is ignored.
+- **Import counts the bytes an xlsx expands to.** The expanded size limit now applies to the bytes actually read from the archive, not only the sizes it declares.
+- **The API rejects the compose default JWT key outside Development.** Set `JWT_SECRET` to your own key when you run the compose files with `ASPNETCORE_ENVIRONMENT` set to anything but Development. Local runs in Development are unchanged.
+- **A payment webhook only settles a pending attempt, and checks the figures when the provider sends them.** A later event for an attempt already paid or failed answers 200 and changes nothing. A paid event whose amount or currency differs from the attempt answers 409. `PaymentEvent` gained optional `Amount` and `Currency`.
+- **The Pwa and AI modules move their HTTP contract numbers.** `BarakoCMS.Pwa` goes from 0 (unstated) to 1 and `BarakoCMS.AI` from 2 to 3, since the install report and semantic search now refuse input they used to accept. `ApiContract.Version` stays at 11.
+- **The install report takes its tenant from the resolved tenant and checks its fields.** DeviceId and Platform have length caps, DisplayMode must be browser, standalone, fullscreen or minimal-ui, a report no longer rebinds an install to a different user, and a report from another tenant does not touch the install.
+- **Semantic search uses the delivery rate limit and caps the query at 500 characters.** A longer `q` answers 400.
+- **Sign-in code attempts are counted before the code is checked.** Requests that arrive together can no longer each get a guess past the five-attempt cap, because each is counted by an atomic increment before its guess is checked. IPv6 clients now share one rate limit bucket per /64.
+- **Sign-in code and magic link requests send their email in the background.** The request answers the same way, and in about the same time, whether or not the address has an account. `IOtpService` gains `QueueCodeAsync` with a default that sends inline.
+- **Tagging caps terms per record and cleans up on erase.** A record carries at most 100 terms (400 over that). Erasing a content entry removes its term assignments. Record ids and content types are stored in one normal form.
+- **Tag assignment lists respect record read permission.** The records on a term and the terms on a record are shown only for records the caller can read, and a page and its total count only those.
+
 ## [5.2.0] - 2026-10-23
 
 5.2 is a minor release. Workflows can fire on a cron schedule, create entries, move them through their lifecycle and publish to outside services. Fields can be computed. Saved queries group, count and sum in the database. Six new modules ship (Contacts, Notifications, Comments, Scheduling, Reports, Payments) alongside Documents, Qr, CdnPurge and build triggers, and core can reserve against a counter. The admin API contract moves from 9 to 11. The delivery contract stays at 9. The Resend email module moved to the private feed.

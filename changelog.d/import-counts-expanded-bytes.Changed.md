@@ -1,1 +1,0 @@
-- **Import counts the bytes an xlsx expands to.** The expanded size limit now applies to the bytes actually read from the archive, not only the sizes it declares.

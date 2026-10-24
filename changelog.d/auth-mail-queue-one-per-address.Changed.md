@@ -1,1 +1,0 @@
-- **Sign-in mail is held one message per address.** A newer code or link replaces the queued one, four senders run at once, a send gives up after 10 seconds, and mail dropped on a full queue is counted in `barakocms_auth_mail_dropped_total`.

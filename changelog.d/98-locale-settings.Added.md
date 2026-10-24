@@ -1,1 +1,0 @@
-- **A tenant has locale settings.** `GET` and `PUT /api/settings/locales` (admin) hold the tenant's default locale, its language codes and ordered fallback chains. `GET /api/meta` returns the languages as an optional `locales` field. Nothing picks a translation from them yet.

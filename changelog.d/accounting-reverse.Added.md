@@ -1,1 +1,0 @@
-- **`Accounting.Reverse` workflow action.** Reverses the entry `Accounting.PostJournal` posted for a subject and key: posts the lines with debits and credits swapped, then voids the original with the reason given. A retry finishes the job without posting a second reversal. The voided original and its reversal both stay in the books and cancel by date.

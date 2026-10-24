@@ -1,1 +1,0 @@
-- **A Tagging module.** Vocabularies, optionally nested terms, and term assignments on any record by content type and id, with a query by term across record types (#252).

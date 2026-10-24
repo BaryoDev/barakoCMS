@@ -1,1 +1,0 @@
-- **Tagging caps terms per record and cleans up on erase.** A record carries at most 100 terms (400 over that). Erasing a content entry removes its term assignments. Record ids and content types are stored in one normal form.

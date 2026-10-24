@@ -1,1 +1,0 @@
-- **Client errors are stored under the tenant the request resolved to.** A tenant named in the report body is ignored.

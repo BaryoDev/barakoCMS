@@ -1,1 +1,0 @@
-- **Accounting mappings are a config section.** `accountingMappings` holds named rules that say which accounts a business event debits and credits, read and written with the new `manage_accounting_mappings` capability (granted to Accountant and Admin). Apply `migrations/5.3.0/accounting-mappings.sql` before the upgrade so `db-assert` finds the table.

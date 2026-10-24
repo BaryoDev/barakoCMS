@@ -1,1 +1,0 @@
-- **`Accounting.PostJournal` workflow action.** Posts the journal entry a named mapping describes for the entry that triggered the workflow. The same subject and `ActionKey` post once, however often the action is retried, and the entry records the run that made it.

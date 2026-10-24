@@ -1,1 +1,0 @@
-- **Sign-in code attempts are counted before the code is checked.** Requests that arrive together can no longer each get a guess past the five-attempt cap, because each is counted by an atomic increment before its guess is checked. IPv6 clients now share one rate limit bucket per /64.

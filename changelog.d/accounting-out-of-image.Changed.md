@@ -1,1 +1,0 @@
-- **The `barako-cms` image no longer includes the basic Accounting module.** It is still published on NuGet; add `BarakoCMS.Accounting` to your own host to keep using it. Existing accounting data stays in the database.

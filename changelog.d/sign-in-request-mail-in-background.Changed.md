@@ -1,1 +1,0 @@
-- **Sign-in code and magic link requests send their email in the background.** The request answers the same way, and in about the same time, whether or not the address has an account. `IOtpService` gains `QueueCodeAsync` with a default that sends inline.
