@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests.Features.Public;
 /// <c>GET /api/public/{type}</c> takes its count and its page in one query (#508), and
 /// <c>changedSince</c> keeps only what was updated after an instant (#560).
 /// </summary>
-[Collection("IntegrationSerial")]
+[Collection("Integration1")]
 public partial class PublicListRoundTripTests
 {
     private static int _ipCounter;

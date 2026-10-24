@@ -11,7 +11,7 @@ namespace BarakoCMS.Tests;
 /// the thing worth pinning down is that a request reaching the host is refused before the endpoint
 /// runs, and that a scraper holding the key still gets its numbers.
 /// </summary>
-[Collection("IntegrationSerial")]
+[Collection("Integration1")]
 public class MetricsEndpointTests
 {
     private const string ScrapeKey = "test-scrape-key-9f2a";

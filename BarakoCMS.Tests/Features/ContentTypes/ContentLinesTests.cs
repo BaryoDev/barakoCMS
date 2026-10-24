@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// A type that declares lines takes them with its header in one transaction; a type that does not
 /// is created as before (#578).
 /// </summary>
-[Collection("IntegrationSerial")]
+[Collection("Integration1")]
 public class ContentLinesTests : IAsyncLifetime
 {
     private readonly IntegrationTestFixture _fixture;

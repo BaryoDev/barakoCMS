@@ -29,7 +29,7 @@ namespace BarakoCMS.Tests;
 /// IntegrationSerial collection and on the fixture's JWT key for the reasons
 /// <see cref="BarakoTestHostTests"/> gives.
 /// </remarks>
-[Collection("IntegrationSerial")]
+[Collection("Integration1")]
 public class ModuleConfigureAppTests : IClassFixture<ModuleConfigureAppTests.Host>
 {
     private const string OrderHeader = "X-Probe-Order";

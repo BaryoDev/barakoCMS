@@ -25,7 +25,7 @@ namespace BarakoCMS.Tests;
 /// Each test sends a trace id of its own and reads back the stream or the run it created by id, so
 /// nothing another test stores can satisfy or fail an assertion.
 /// </remarks>
-[Collection("IntegrationSerial")]
+[Collection("Integration1")]
 public sealed class EventCorrelationTests : IDisposable
 {
     private const string CorrelationHeader = "X-Correlation-ID";

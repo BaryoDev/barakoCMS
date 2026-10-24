@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests;
 /// A tenant chooses where its uploads are stored through <c>/api/settings/storage</c>, tests a
 /// bucket before saving it, and switches without a restart (#781). Against a real SeaweedFS.
 /// </summary>
-[Collection("IntegrationSerial")]
+[Collection("Integration1")]
 public class StorageSettingsTests : IAsyncLifetime
 {
     private const string AccessKey = "barako-test";

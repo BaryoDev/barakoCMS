@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests.Numbering;
 /// A content type declares a numbering rule and a created entry gets the next number, by the
 /// strategy the rule names; Accounting numbers through the same primitive (#584).
 /// </summary>
-[Collection("IntegrationSerial")]
+[Collection("Integration1")]
 public class NumberingRuleTests : IAsyncLifetime
 {
     private readonly IntegrationTestFixture _fixture;

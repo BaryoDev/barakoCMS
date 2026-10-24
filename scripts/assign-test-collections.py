@@ -12,7 +12,8 @@ alone, after the parallel ones, because it touches state the whole process share
 scripts/test-collections.json lists what stays serial (one reason per file) and the files that must
 share a collection because they share a static. Everything else is placed longest first on the
 collection with the least recorded work (scripts/test-class-durations.json). A class with no
-recorded duration goes to the lightest collection. The collection count is 1, or
+recorded duration goes to the lightest collection. With one collection the serial list is not used
+and every class goes to Integration1, so one fixture serves the whole process. The collection count is 1, or
 BARAKO_TEST_COLLECTIONS / --collections N when this script runs; it is written into
 BarakoCMS.Tests/IntegrationCollections.cs, because xUnit reads collection names at compile time.
 
@@ -99,10 +100,12 @@ def assign(classes, config, count):
                 sys.exit(f"{f} is both serial and in a together group")
             in_group[f] = index
 
+    # With one collection there is nothing to run apart from, and a serial collection would be a
+    # second fixture alive in the same process, which is the problem one collection avoids.
     units = {}
     for path, name, full, start, end in classes:
         rel = relative(path)
-        if rel in config["serial"]:
+        if rel in config["serial"] and count > 1:
             continue
         key = ("group", in_group[rel]) if rel in in_group else ("class", full)
         units.setdefault(key, []).append((path, start, full))
@@ -128,9 +131,10 @@ def assign(classes, config, count):
     for key, members in units.items():
         for path, start, full in members:
             result[(path, start)] = f"Integration{placed[key] + 1}"
-    for path, name, full, start, end in classes:
-        if relative(path) in config["serial"]:
-            result[(path, start)] = SERIAL
+    if count > 1:
+        for path, name, full, start, end in classes:
+            if relative(path) in config["serial"]:
+                result[(path, start)] = SERIAL
     return result, load
 
 
@@ -141,8 +145,12 @@ def definitions(count):
         "namespace BarakoCMS.Tests;",
         "",
         "// Written by scripts/assign-test-collections.py. Do not edit by hand.",
+    ] + ([
         "// Each parallel collection owns an IntegrationTestFixture (its own Postgres container and host),",
         "// and xUnit runs the collections side by side. IntegrationSerial runs alone, after them.",
+    ] if count > 1 else [
+        "// One collection, so one IntegrationTestFixture serves every integration class in the process.",
+    ]) + [
         "",
     ]
     for i in range(1, count + 1):
@@ -151,11 +159,12 @@ def definitions(count):
             f"public class IntegrationCollection{i} : ICollectionFixture<IntegrationTestFixture>;",
             "",
         ]
-    lines += [
-        f'[CollectionDefinition("{SERIAL}", DisableParallelization = true)]',
-        "public class IntegrationSerialCollection : ICollectionFixture<IntegrationTestFixture>;",
-        "",
-    ]
+    if count > 1:
+        lines += [
+            f'[CollectionDefinition("{SERIAL}", DisableParallelization = true)]',
+            "public class IntegrationSerialCollection : ICollectionFixture<IntegrationTestFixture>;",
+            "",
+        ]
     return "\n".join(lines)
 
 

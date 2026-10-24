@@ -34,7 +34,7 @@ namespace BarakoCMS.Tests;
 /// its enforcement processor that way while this class ran beside it.
 /// </para>
 /// </remarks>
-[Collection("IntegrationSerial")]
+[Collection("Integration1")]
 public class BarakoTestHostTests : IClassFixture<BarakoTestHostTests.Host>
 {
     public sealed class Host : BarakoTestHost

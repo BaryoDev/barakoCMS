@@ -30,7 +30,7 @@ namespace BarakoCMS.Tests;
 /// DeviceEnforcementTests without its enforcement processor.
 /// </para>
 /// </remarks>
-[Collection("IntegrationSerial")]
+[Collection("Integration1")]
 public sealed class EnabledModuleEndpointTests(EnabledModuleEndpointTests.Host host, IntegrationTestFixture fixture)
     : IClassFixture<EnabledModuleEndpointTests.Host>
 {

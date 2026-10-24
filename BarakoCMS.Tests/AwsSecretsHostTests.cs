@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests;
 /// this class may have left it on a disposed provider, so the test starts a host of its own for a
 /// live one and puts the previous resolver back when it ends.
 /// </remarks>
-[Collection("IntegrationSerial")]
+[Collection("Integration1")]
 public class AwsSecretsHostTests
 {
     private const string StoreJwtKey = "jwt-key-from-the-store-that-is-at-least-32-chars";

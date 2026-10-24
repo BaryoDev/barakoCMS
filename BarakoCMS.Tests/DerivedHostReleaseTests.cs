@@ -12,7 +12,7 @@ namespace BarakoCMS.Tests;
 /// Undisposed, each derived host kept Marten, Wolverine and the hosted services polling on unpooled
 /// connections for the rest of the run, which wedged the full suite against the Docker port-forward.
 /// </remarks>
-[Collection("IntegrationSerial")]
+[Collection("Integration1")]
 public class DerivedHostReleaseTests(IntegrationTestFixture fixture)
 {
     private const string AnotherClass = "Some.Other.Class";

@@ -5,7 +5,7 @@ using barakoCMS.Data;
 
 namespace BarakoCMS.Tests;
 
-[Collection("IntegrationSerial")]
+[Collection("Integration1")]
 public class DataSeederTests
 {
     private readonly IntegrationTestFixture _factory;

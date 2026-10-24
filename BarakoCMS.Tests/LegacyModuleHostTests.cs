@@ -31,7 +31,7 @@ namespace BarakoCMS.Tests;
 /// <see cref="EnabledModuleEndpointTests"/> gives.
 /// </para>
 /// </remarks>
-[Collection("IntegrationSerial")]
+[Collection("Integration1")]
 public sealed class LegacyModuleHostTests(LegacyModuleHostTests.Host host) : IClassFixture<LegacyModuleHostTests.Host>
 {
     public sealed class Host : IAsyncLifetime

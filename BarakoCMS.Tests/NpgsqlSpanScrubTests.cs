@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests;
 /// what is asserted is what this Npgsql version actually records. Each statement carries a marker
 /// comment the test made up, which is how its span is found among the commands other tests run.
 /// </remarks>
-[Collection("IntegrationSerial")]
+[Collection("Integration1")]
 public class NpgsqlSpanScrubTests
 {
     private const string Secret = "a-parameter-value-9b31e";

@@ -12,7 +12,7 @@ namespace BarakoCMS.Tests;
 /// image says so rather than returning something a comparison might accept, and /health keeps the
 /// body it always had.
 /// </summary>
-[Collection("IntegrationSerial")]
+[Collection("Integration1")]
 public class BuildIdentityEndpointTests
 {
     private const string Variable = "BARAKO_BUILD_SHA";
