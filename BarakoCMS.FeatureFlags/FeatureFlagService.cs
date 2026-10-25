@@ -19,10 +19,33 @@ public class FeatureFlagService(IQuerySession session)
         session.Query<FeatureFlag>().FirstOrDefaultAsync(f => f.Key == key, ct);
 
     /// <summary>Every flag a caller of this audience may be told about.</summary>
-    internal async Task<IReadOnlyList<FeatureFlag>> VisibleAsync(FlagAudience audience, CancellationToken ct = default)
+    internal async Task<IReadOnlyList<FeatureFlag>> VisibleAsync(
+        FlagAudience audience, string? tenantSlug, CancellationToken ct = default)
     {
         var all = await session.Query<FeatureFlag>().ToListAsync(ct);
-        return all.Where(f => Visible(f, audience)).ToList();
+        return all.Where(f => Visible(f, audience) && AppliesTo(f, audience, tenantSlug)).ToList();
+    }
+
+    /// <summary>
+    /// A flag limited to some tenants is not listed to a caller of another one. A flag manager
+    /// still sees every flag.
+    /// </summary>
+    internal static bool AppliesTo(FeatureFlag flag, FlagAudience audience, string? tenantSlug) =>
+        audience == FlagAudience.Admin
+        || flag.TenantSlugs.Count == 0
+        || (tenantSlug is not null && flag.TenantSlugs.Contains(tenantSlug, StringComparer.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The email stored on the signed-in user's own record. The Username claim is chosen by the
+    /// user at registration, so it is not an identity to target on.
+    /// </summary>
+    internal static async Task<string?> VerifiedEmailAsync(
+        IQuerySession session, System.Security.Claims.ClaimsPrincipal user, CancellationToken ct)
+    {
+        if (user.Identity?.IsAuthenticated != true) return null;
+        if (!Guid.TryParse(user.FindFirst("UserId")?.Value, out var id)) return null;
+        var email = (await session.LoadAsync<barakoCMS.Models.User>(id, ct))?.Email;
+        return string.IsNullOrWhiteSpace(email) ? null : email;
     }
 
     /// <summary>May a caller of this audience be told this flag exists?</summary>
@@ -56,7 +79,7 @@ public class FeatureFlagService(IQuerySession session)
         var result = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
         foreach (var f in flags)
         {
-            if (!Visible(f, audience)) continue;
+            if (!Visible(f, audience) || !AppliesTo(f, audience, ctx.TenantSlug)) continue;
             result[f.Key] = Evaluate(f, ctx);
         }
         return result;

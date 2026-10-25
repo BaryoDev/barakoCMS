@@ -224,12 +224,20 @@ public class EmailVerificationTests
     {
         var (username, email) = Identity();
 
-        await Register(username, email);
-        var first = _factory.Email.LastVerificationTokenFor(email);
+        // The cooldown is off here: it would otherwise keep the second attempt from issuing anything.
+        var host = _factory.WithSetting("Auth:RegisterMailCooldownMinutes", "0");
+        var client = host.CreateClient();
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, _ip);
+        var mail = host.Services.GetRequiredService<RecordingEmailService>();
+        Task<HttpResponseMessage> RegisterOn() => client.PostAsJsonAsync("/api/auth/register",
+            new { Username = username, Email = email, Password }, TestContext.Current.CancellationToken);
+
+        await RegisterOn();
+        var first = mail.LastVerificationTokenFor(email);
         first.Should().NotBeNull();
 
-        await Register(username, email);
-        var second = _factory.Email.LastVerificationTokenFor(email);
+        await RegisterOn();
+        var second = mail.LastVerificationTokenFor(email);
         second.Should().NotBeNull().And.NotBe(first, "a second attempt issues a new token");
 
         var stale = await Verify(first!);
@@ -238,6 +246,55 @@ public class EmailVerificationTests
           + "attempt named, which is not what the person who registered second asked for");
 
         (await Verify(second!)).StatusCode.Should().Be(HttpStatusCode.OK, "the current one still works");
+    }
+
+    [Fact]
+    public async Task Registering_the_same_address_twice_inside_the_cooldown_sends_one_mail()
+    {
+        var (username, email) = Identity();
+
+        var first = await Register(username, email);
+        var second = await Register(username, email);
+
+        second.StatusCode.Should().Be(first.StatusCode);
+        (await second.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).Should().Be(
+            await first.Content.ReadAsStringAsync(TestContext.Current.CancellationToken),
+            "the cooldown is not visible in the answer");
+        _factory.Email.Messages.Count(m => m.To == email).Should().Be(1, "the second request fell inside the cooldown");
+    }
+
+    [Fact]
+    public async Task The_one_mail_inside_the_cooldown_creates_the_latest_username()
+    {
+        var (firstName, email) = Identity();
+        var secondName = $"b{Guid.NewGuid():N}"[..20];
+
+        await Register(firstName, email);
+        await Register(secondName, email);
+
+        var mails = _factory.Email.Messages.Where(m => m.To == email).ToList();
+        mails.Should().HaveCount(1, "the second request fell inside the cooldown");
+        var token = _factory.Email.LastVerificationTokenFor(email);
+        token.Should().NotBeNull();
+
+        (await Verify(token!)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var user = await FindUser(email);
+        user.Should().NotBeNull();
+        user!.Username.Should().Be(secondName, "the link in the first mail creates what the latest request asked for");
+    }
+
+    [Fact]
+    public async Task An_address_that_already_has_an_account_is_mailed_once_inside_the_cooldown()
+    {
+        var (takenUsername, takenEmail) = Identity();
+        await SeedUserAsync(takenUsername, takenEmail);
+
+        await Register($"a{Guid.NewGuid():N}"[..20], takenEmail);
+        await Register($"b{Guid.NewGuid():N}"[..20], takenEmail);
+
+        _factory.Email.Messages.Count(m => m.To == takenEmail).Should().Be(1,
+            "the notice to the owner is limited the same way as the confirmation mail");
     }
 
     /// <summary>

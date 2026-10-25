@@ -1,4 +1,7 @@
 using barakoCMS.Modules;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace BarakoCMS.Pwa;
 
@@ -24,6 +27,16 @@ public sealed class PwaModule : IBarakoModule
     public string? Description => "Installs tracked for the PWA home screen";
 
     public string? Glyph => "smartphone";
+
+    public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddOptions<PwaOptions>()
+            .Bind(configuration)
+            .Validate(o => o.RetentionDays >= 0, "Modules:Pwa:RetentionDays may not be negative.")
+            .ValidateOnStart();
+        services.AddSingleton(sp => sp.GetRequiredService<IOptions<PwaOptions>>().Value);
+        services.AddHostedService<PwaRetentionService>();
+    }
 
     public void ConfigureSchema(IModuleSchema schema)
     {

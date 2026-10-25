@@ -37,7 +37,7 @@
 72 barakoCMS/Features/ApiKeys/Endpoints.cs::CreateApiKeyEndpoint.HandleAsync
 200 barakoCMS/Features/Auth/Login/Endpoint.cs::Endpoint.HandleAsync
 101 barakoCMS/Features/Auth/Otp/VerifyEndpoint.cs::VerifyEndpoint.HandleAsync
-156 barakoCMS/Features/Auth/Refresh/Endpoint.cs::Endpoint.HandleAsync
+153 barakoCMS/Features/Auth/Refresh/Endpoint.cs::Endpoint.HandleAsync
 125 barakoCMS/Features/Collections/Endpoints.cs::CollectionSyncRules.CheckAsync
 251 barakoCMS/Features/Collections/Push/Endpoint.cs::Endpoint.HandleAsync
 83 barakoCMS/Features/Collections/Validator.cs::SaveCollectionSyncValidator.SaveCollectionSyncValidator

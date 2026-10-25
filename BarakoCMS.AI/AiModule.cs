@@ -1,7 +1,9 @@
 using barakoCMS.Models;
 using barakoCMS.Modules;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace BarakoCMS.AI;
 
@@ -35,7 +37,21 @@ public sealed class AiModule : IBarakoModule
     {
         // `configuration` is already this module's own section (Modules:AI), so bind it whole
         // rather than reaching for a root-level key.
-        services.Configure<AiOptions>(configuration);
+        services.AddOptions<AiOptions>()
+            .Bind(configuration)
+            .Validate(o => o.SemanticSearchPermitLimit >= 1 && o.SemanticSearchWindowSeconds >= 1,
+                "Modules:AI semantic search rate limit values must be at least 1.")
+            .ValidateOnStart();
+
+        services.AddOptions<RateLimiterOptions>().Configure<IConfiguration, IOptions<AiOptions>>((options, root, ai) =>
+        {
+            var rendererKeyHash = barakoCMS.Infrastructure.Security.RateLimitSetup.RendererKeyHashOf(root);
+            var window = new barakoCMS.Infrastructure.Security.RateLimitWindow(
+                ai.Value.SemanticSearchPermitLimit, ai.Value.SemanticSearchWindowSeconds, 0);
+            options.AddPolicy(AiOptions.SemanticSearchRateLimitPolicy, context =>
+                barakoCMS.Infrastructure.Security.RateLimitSetup.RendererAwarePartition(
+                    context, AiOptions.SemanticSearchRateLimitPolicy, window, rendererKeyHash));
+        });
         services.AddHttpClient<IEmbeddingClient, OllamaEmbeddingClient>();
     }
 

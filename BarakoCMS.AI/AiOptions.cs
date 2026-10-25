@@ -28,5 +28,12 @@ public sealed class AiOptions
     /// </summary>
     public int SemanticSearchScanLimit { get; set; } = DefaultSemanticSearchScanLimit;
 
+    public const string SemanticSearchRateLimitPolicy = "ai-semantic-search";
+
+    /// <summary>Semantic searches allowed per client IP in <see cref="SemanticSearchWindowSeconds"/>.</summary>
+    public int SemanticSearchPermitLimit { get; set; } = 60;
+
+    public int SemanticSearchWindowSeconds { get; set; } = 60;
+
     public bool IsConfigured => Enabled && !string.IsNullOrWhiteSpace(EmbeddingBaseUrl);
 }

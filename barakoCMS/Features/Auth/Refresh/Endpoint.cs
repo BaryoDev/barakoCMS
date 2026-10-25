@@ -14,21 +14,18 @@ internal class Endpoint : Endpoint<Request, Response>
     private readonly IQuerySession _querySession;
     private readonly IDocumentSession _documentSession;
     private readonly ILogger<Endpoint> _logger;
-    private readonly barakoCMS.Infrastructure.Services.ITokenRevocationService _tokenRevocation;
     private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
 
     public Endpoint(
         IQuerySession querySession,
         IDocumentSession documentSession,
         ILogger<Endpoint> logger,
-        barakoCMS.Infrastructure.Services.ITokenRevocationService tokenRevocation,
         barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
         barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer)
     {
         _querySession = querySession;
         _documentSession = documentSession;
         _logger = logger;
-        _tokenRevocation = tokenRevocation;
         _tenant = tenant;
         _tokenIssuer = tokenIssuer;
     }
@@ -41,6 +38,23 @@ internal class Endpoint : Endpoint<Request, Response>
         AllowAnonymous(); // No auth required, validated by refresh token
         barakoCMS.Infrastructure.Auth.Mfa.MfaEnrollment.AllowDuringMfaEnrollment(Definition);
         Options(x => x.RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.RefreshPolicy));
+    }
+
+    private Task RevokeSessionsAsync(Guid userId, string reason, CancellationToken ct) =>
+        barakoCMS.Infrastructure.Auth.RevokeRefreshTokens.ForUserAsync(
+            _documentSession, userId, reason, ct, Resolve<barakoCMS.Infrastructure.Services.ISessionEpochService>());
+
+    private async Task RevokeAfterRaceAsync(Guid userId, CancellationToken ct)
+    {
+        _logger.LogWarning(
+            "Concurrent refresh-token use detected for UserId: {UserId}. Rejecting duplicate rotation.",
+            userId);
+
+        // The rotation never committed, so drop it before revoking: the session still holds it.
+        _documentSession.EjectAllPendingChanges();
+        await RevokeSessionsAsync(userId, "reuse_detected", ct);
+        await _documentSession.SaveChangesAsync(ct);
+        ThrowError("Refresh token was already used. Please log in again.", 401);
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
@@ -83,7 +97,7 @@ internal class Endpoint : Endpoint<Request, Response>
                 _logger.LogWarning(
                     "Refresh token reuse detected. Revoking all tokens for UserId: {UserId}",
                     refreshToken.UserId);
-                await _tokenRevocation.RevokeAllUserTokensAsync(refreshToken.UserId, "reuse_detected", ct);
+                await RevokeSessionsAsync(refreshToken.UserId, "reuse_detected", ct);
                 await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.token.reuse_detected", refreshToken.UserId, null,
                     ipAddress: barakoCMS.Infrastructure.DeviceContext.From(HttpContext).IpAddress, ct: ct);
                 await _documentSession.SaveChangesAsync(ct);
@@ -175,10 +189,7 @@ internal class Endpoint : Endpoint<Request, Response>
         }
         catch (JasperFx.ConcurrencyException)
         {
-            _logger.LogWarning(
-                "Concurrent refresh-token use detected for UserId: {UserId}. Rejecting duplicate rotation.",
-                refreshToken.UserId);
-            ThrowError("Refresh token was already used. Please log in again.", 401);
+            await RevokeAfterRaceAsync(refreshToken.UserId, ct);
             return;
         }
 

@@ -106,6 +106,8 @@
     <InternalsVisibleTo Include="BarakoCMS.Accounting" />
     <!-- The tag assignment lists hide an entry of another branch the way the content routes do. -->
     <InternalsVisibleTo Include="BarakoCMS.Tagging" />
+    <!-- Semantic search counts visitors the way public delivery does. -->
+    <InternalsVisibleTo Include="BarakoCMS.AI" />
     <!-- Castle DynamicProxy, which NSubstitute builds on, needs to see internal types to mock an
          ILogger<T> whose T is internal. The feature slices became internal in 4.0, so several
          existing workflow-action tests could not construct their own subject without this. -->

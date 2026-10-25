@@ -1,0 +1,1 @@
+Semantic search has its own per-address rate limit, 60 requests a minute by default. IPv6 clients are counted by /64, and a renderer with the renderer key is counted per visitor named in X-Barako-Visitor-IP. Tune it with Modules:AI:SemanticSearchPermitLimit and Modules:AI:SemanticSearchWindowSeconds.
