@@ -1,6 +1,8 @@
 using System.Reflection;
+using barakoCMS.Infrastructure.Realtime;
 using barakoCMS.Modules;
 using Microsoft.AspNetCore.Http.Connections;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using JasperFx.Events.Projections;
@@ -81,11 +83,18 @@ internal sealed class SampleProbeModule : IBarakoModule
 
     public void ConfigureWorkflowActions(IModuleWorkflowActions actions) => actions.Add<ProbeEchoAction>(EchoAction);
 
-    // The hub tests connect over long polling. A long polling connection with no poll in flight is
-    // dropped after 15 seconds, and on a busy runner the client's next poll can come later than that,
-    // which answers 404 and fails a test that never got to call the hub.
-    public void ConfigureServices(IServiceCollection services, IConfiguration configuration) =>
+    // The hub tests connect over long polling, and two 15 second defaults fail them on a busy runner.
+    // A connection with no poll in flight is dropped after 15 seconds, so a late next poll answers 404.
+    // The server also gives up on a handshake it has not read within 15 seconds and answers
+    // "Handshake was canceled.", which the client reports as a canceled start.
+    public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
+    {
         services.PostConfigure<ConnectionOptions>(o => o.DisconnectTimeout = TimeSpan.FromMinutes(5));
+        services.PostConfigure<HubOptions>(o => o.HandshakeTimeout = HubHandshakeTimeout);
+        services.PostConfigure<HubOptions<RealtimeHub>>(o => o.HandshakeTimeout = HubHandshakeTimeout);
+    }
+
+    internal static readonly TimeSpan HubHandshakeTimeout = TimeSpan.FromMinutes(2);
 }
 
 /// <summary>A module's own workflow action, which does nothing and succeeds.</summary>

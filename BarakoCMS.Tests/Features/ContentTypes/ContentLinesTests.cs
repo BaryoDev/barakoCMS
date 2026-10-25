@@ -4,6 +4,7 @@ using System.Text.Json;
 using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
+using barakoCMS.Infrastructure.Jobs;
 using barakoCMS.Models;
 using Xunit;
 
@@ -462,22 +463,37 @@ public class ContentLinesTests : IAsyncLifetime
         Field((await StoredAsync(line)).Single(c => c.Id == lineIds[0]), "Amount").Should().Be("60");
     }
 
-    private Task<HttpResponseMessage> ChangeAsync(string type, string field, object body)
-    {
-        // Field changes run as FastEndpoints jobs, whose queues are a static every host overwrites
-        // as it starts. Other classes start hosts while this one runs, so the queues are taken back
-        // just before the change is queued, not once in the constructor, or the change waits for
-        // the next storage probe a minute later.
-        FastEndpointsResolver.ClaimJobQueues(_fixture.Services);
-        return _client.PostAsJsonAsync($"/api/content-types/{type}/fields/{field}/change", body, Ct);
-    }
+    private Task<HttpResponseMessage> ChangeAsync(string type, string field, object body) =>
+        _client.PostAsJsonAsync($"/api/content-types/{type}/fields/{field}/change", body, Ct);
 
     private async Task CompletedAsync(HttpResponseMessage accepted)
     {
         accepted.StatusCode.Should().Be(HttpStatusCode.Accepted, await accepted.Content.ReadAsStringAsync(Ct));
         var id = (await accepted.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("change").GetProperty("id").GetGuid();
+
+        // The change runs here rather than on the job queue. FastEndpoints keeps that queue in a
+        // static every host overwrites as it starts, and in a run of the whole suite in one process
+        // the queued job can sit on another host's queue past any wait. When the worker does pick it
+        // up, the two runs race and the one that saves second loses the optimistic concurrency check,
+        // so a lost race runs again from what the worker saved. A worker that comes later finds the
+        // change completed. ChangeFieldTests covers the queued path.
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await FieldChanges.RunAsync(
+                    _fixture.Services.GetRequiredService<IDocumentStore>(),
+                    _fixture.Services.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>(),
+                    JasperFx.StorageConstants.DefaultTenantId, id, maxBatches: null, Ct);
+                break;
+            }
+            catch (JasperFx.ConcurrencyException) when (attempt < 5)
+            {
+            }
+        }
+
         var last = "no status read";
-        for (var i = 0; i < 450; i++)
+        for (var i = 0; i < 50; i++)
         {
             var response = await _client.GetAsync($"/api/content-types/field-changes/{id}", Ct);
             var text = await response.Content.ReadAsStringAsync(Ct);
