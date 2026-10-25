@@ -1,1 +1,1 @@
-The PWA report stores the platform as ios, android, windows, macos, linux or other. Device rows not seen for 180 days are deleted, set Modules:Pwa:RetentionDays to change it, 0 keeps them.
+The PWA report stores a new report's platform as a lowercased ios, android, windows, macos or linux, or other for anything else. Rows already stored keep their old values. Device rows can be deleted once they have not been seen for a number of days: set Modules:Pwa:RetentionDays to opt in. It is 0 by default, which keeps every row.

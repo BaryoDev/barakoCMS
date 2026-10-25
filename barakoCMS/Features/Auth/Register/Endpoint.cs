@@ -119,9 +119,10 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        // Inside the cooldown the earlier mail is still the one to use, so nothing is issued and the
-        // answer is the same as for any other request.
-        if (!ClaimMailSlot(email))
+        // Inside the cooldown the earlier mail is the one in the inbox, so no new mail goes out. The
+        // pending row behind it takes the latest username and password instead, so that one link
+        // creates what the most recent request asked for.
+        if (!ClaimMailSlot(email) && await UpdateLivePendingAsync(req.Username, email, passwordHash, decision, ct))
         {
             await Send.ResponseAsync(new Response { Message = Accepted });
             return;
@@ -138,12 +139,33 @@ internal class Endpoint : Endpoint<Request, Response>
         await Send.ResponseAsync(new Response { Message = Accepted });
     }
 
+    private async Task<bool> UpdateLivePendingAsync(
+        string username, string email, string passwordHash,
+        barakoCMS.Infrastructure.Auth.SignUpDecision decision, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        var pending = await _session.Query<PendingRegistration>()
+            .Where(p => p.Email == email && !p.Consumed && p.ExpiresAt > now)
+            .OrderByDescending(p => p.CreatedAt)
+            .FirstOrDefaultAsync(ct);
+        if (pending is null) return false;
+
+        pending.Username = username;
+        pending.PasswordHash = passwordHash;
+        pending.TenantSlug = decision.Outcome == barakoCMS.Infrastructure.Auth.SignUpOutcome.Join ? decision.TenantSlug : null;
+        _session.Update(pending);
+        await _session.SaveChangesAsync(ct);
+        return true;
+    }
+
     internal const string MailCooldownKey = "Auth:RegisterMailCooldownMinutes";
     internal const int DefaultMailCooldownMinutes = 5;
 
     /// <summary>
     /// True when this address has not been mailed within the cooldown, and starts the cooldown. The
-    /// known and unknown branches share it, so which one ran does not show. Zero turns it off.
+    /// known and unknown branches share it, so which one ran does not show. Zero turns it off. The
+    /// claim is held in this instance's memory, so with several instances each keeps its own
+    /// cooldown and a restart clears it.
     /// </summary>
     private bool ClaimMailSlot(string email)
     {

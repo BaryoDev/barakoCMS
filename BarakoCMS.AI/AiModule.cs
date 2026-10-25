@@ -1,6 +1,5 @@
 using barakoCMS.Models;
 using barakoCMS.Modules;
-using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -44,18 +43,15 @@ public sealed class AiModule : IBarakoModule
                 "Modules:AI semantic search rate limit values must be at least 1.")
             .ValidateOnStart();
 
-        services.Configure<RateLimiterOptions>(options =>
+        services.AddOptions<RateLimiterOptions>().Configure<IConfiguration, IOptions<AiOptions>>((options, root, ai) =>
+        {
+            var rendererKeyHash = barakoCMS.Infrastructure.Security.RateLimitSetup.RendererKeyHashOf(root);
+            var window = new barakoCMS.Infrastructure.Security.RateLimitWindow(
+                ai.Value.SemanticSearchPermitLimit, ai.Value.SemanticSearchWindowSeconds, 0);
             options.AddPolicy(AiOptions.SemanticSearchRateLimitPolicy, context =>
-            {
-                var limits = context.RequestServices.GetRequiredService<IOptions<AiOptions>>().Value;
-                var ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-                return RateLimitPartition.GetFixedWindowLimiter($"ai-semantic-search-{ip}", _ =>
-                    new FixedWindowRateLimiterOptions
-                    {
-                        PermitLimit = limits.SemanticSearchPermitLimit,
-                        Window = TimeSpan.FromSeconds(limits.SemanticSearchWindowSeconds),
-                    });
-            }));
+                barakoCMS.Infrastructure.Security.RateLimitSetup.RendererAwarePartition(
+                    context, AiOptions.SemanticSearchRateLimitPolicy, window, rendererKeyHash));
+        });
         services.AddHttpClient<IEmbeddingClient, OllamaEmbeddingClient>();
     }
 

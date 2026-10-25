@@ -44,6 +44,19 @@ internal class Endpoint : Endpoint<Request, Response>
         barakoCMS.Infrastructure.Auth.RevokeRefreshTokens.ForUserAsync(
             _documentSession, userId, reason, ct, Resolve<barakoCMS.Infrastructure.Services.ISessionEpochService>());
 
+    private async Task RevokeAfterRaceAsync(Guid userId, CancellationToken ct)
+    {
+        _logger.LogWarning(
+            "Concurrent refresh-token use detected for UserId: {UserId}. Rejecting duplicate rotation.",
+            userId);
+
+        // The rotation never committed, so drop it before revoking: the session still holds it.
+        _documentSession.EjectAllPendingChanges();
+        await RevokeSessionsAsync(userId, "reuse_detected", ct);
+        await _documentSession.SaveChangesAsync(ct);
+        ThrowError("Refresh token was already used. Please log in again.", 401);
+    }
+
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         // Body first, then the cookie. The body keeps working for every non-browser caller, and the
@@ -176,15 +189,7 @@ internal class Endpoint : Endpoint<Request, Response>
         }
         catch (JasperFx.ConcurrencyException)
         {
-            _logger.LogWarning(
-                "Concurrent refresh-token use detected for UserId: {UserId}. Rejecting duplicate rotation.",
-                refreshToken.UserId);
-
-            // The rotation never committed, so drop it before revoking: the session still holds it.
-            _documentSession.EjectAllPendingChanges();
-            await RevokeSessionsAsync(refreshToken.UserId, "reuse_detected", ct);
-            await _documentSession.SaveChangesAsync(ct);
-            ThrowError("Refresh token was already used. Please log in again.", 401);
+            await RevokeAfterRaceAsync(refreshToken.UserId, ct);
             return;
         }
 

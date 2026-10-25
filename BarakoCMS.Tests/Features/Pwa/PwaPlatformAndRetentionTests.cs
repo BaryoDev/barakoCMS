@@ -51,32 +51,53 @@ public class PwaPlatformAndRetentionTests(IntegrationTestFixture factory)
         (await LoadAsync(device))!.Platform.Should().BeNull();
     }
 
-    [Fact]
-    public async Task The_sweep_deletes_devices_not_seen_within_the_retention_window_and_keeps_the_rest()
+    private async Task<(string Stale, string Recent)> SeedDevicesAsync()
     {
         var stale = $"stale-{Guid.NewGuid():N}";
         var recent = $"recent-{Guid.NewGuid():N}";
-        using (var scope = factory.Services.CreateScope())
-        {
-            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            session.Store(new PwaInstall { DeviceId = stale, LastSeenAt = DateTime.UtcNow.AddDays(-200) });
-            session.Store(new PwaInstall { DeviceId = recent, LastSeenAt = DateTime.UtcNow.AddDays(-20) });
-            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
-        }
+        using var scope = factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(new PwaInstall { DeviceId = stale, LastSeenAt = DateTime.UtcNow.AddDays(-200) });
+        session.Store(new PwaInstall { DeviceId = recent, LastSeenAt = DateTime.UtcNow.AddDays(-20) });
+        await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        return (stale, recent);
+    }
 
+    private static PwaRetentionService SweeperOf(IServiceProvider services)
+    {
+        var service = services.GetServices<IHostedService>().OfType<PwaRetentionService>().ToList();
+        service.Should().HaveCount(1);
+        return service[0];
+    }
+
+    [Fact]
+    public async Task The_sweep_deletes_devices_not_seen_within_the_configured_window_and_keeps_the_rest()
+    {
+        var (stale, recent) = await SeedDevicesAsync();
         (await LoadAsync(stale)).Should().NotBeNull("the control: the row exists before the sweep");
 
-        var service = factory.Services.GetServices<IHostedService>().OfType<PwaRetentionService>().ToList();
-        service.Should().HaveCount(1);
-        await service[0].SweepAsync(DateTime.UtcNow, TestContext.Current.CancellationToken);
+        var host = factory.WithSetting("Modules:Pwa:RetentionDays", "180");
+        await SweeperOf(host.Services).SweepAsync(DateTime.UtcNow, TestContext.Current.CancellationToken);
 
-        (await LoadAsync(stale)).Should().BeNull("180 days is the default window");
+        (await LoadAsync(stale)).Should().BeNull("200 days is past the 180 day window");
         (await LoadAsync(recent)).Should().NotBeNull();
     }
 
     [Fact]
-    public void Retention_defaults_to_180_days()
+    public async Task Without_a_retention_setting_the_sweep_deletes_nothing()
     {
-        new PwaOptions().RetentionDays.Should().Be(180);
+        var (stale, recent) = await SeedDevicesAsync();
+        (await LoadAsync(stale)).Should().NotBeNull("the control: the row exists before the sweep");
+
+        await SweeperOf(factory.Services).SweepAsync(DateTime.UtcNow, TestContext.Current.CancellationToken);
+
+        (await LoadAsync(stale)).Should().NotBeNull("retention is off until it is set");
+        (await LoadAsync(recent)).Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Retention_is_off_by_default()
+    {
+        new PwaOptions().RetentionDays.Should().Be(0);
     }
 }

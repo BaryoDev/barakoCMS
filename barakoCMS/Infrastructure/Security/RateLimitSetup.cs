@@ -457,6 +457,29 @@ internal static class RateLimitSetup
             : RateLimitPartition.GetNoLimiter(NotCountedHere);
 
     /// <summary>
+    /// The renderer key hash from configuration, or null when no key is set. For a module that
+    /// builds its own policy and needs the same renderer handling as delivery.
+    /// </summary>
+    internal static byte[]? RendererKeyHashOf(IConfiguration configuration) =>
+        Read(configuration).RendererKey is { } key ? Hash(key) : null;
+
+    /// <summary>
+    /// A module's own limit with delivery's renderer handling: the client IP is counted, the renderer
+    /// is counted by the visitor it names in <see cref="VisitorIpHeader"/>, and a renderer that names
+    /// none stays on the renderer bucket alone.
+    /// </summary>
+    internal static RateLimitPartition<string> RendererAwarePartition(
+        HttpContext context, string name, RateLimitWindow window, byte[]? rendererKeyHash)
+    {
+        if (!HasRendererKey(context, rendererKeyHash))
+            return RateLimitPartition.GetFixedWindowLimiter($"{name}|{ClientIp(context)}", _ => Options(window));
+
+        return VisitorIp(context) is { } visitor
+            ? RateLimitPartition.GetFixedWindowLimiter($"{name}|visitor|{visitor}", _ => Options(window))
+            : RateLimitPartition.GetNoLimiter(NotCountedHere);
+    }
+
+    /// <summary>
     /// The bucket of the name a TLS ask is about, not of the caller: a flood of made-up names then
     /// spreads over <see cref="TlsAskBuckets"/> buckets and leaves a real name's bucket nearly empty.
     /// </summary>

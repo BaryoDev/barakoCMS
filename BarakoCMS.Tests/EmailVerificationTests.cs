@@ -264,6 +264,27 @@ public class EmailVerificationTests
     }
 
     [Fact]
+    public async Task The_one_mail_inside_the_cooldown_creates_the_latest_username()
+    {
+        var (firstName, email) = Identity();
+        var secondName = $"b{Guid.NewGuid():N}"[..20];
+
+        await Register(firstName, email);
+        await Register(secondName, email);
+
+        var mails = _factory.Email.Messages.Where(m => m.To == email).ToList();
+        mails.Should().HaveCount(1, "the second request fell inside the cooldown");
+        var token = _factory.Email.LastVerificationTokenFor(email);
+        token.Should().NotBeNull();
+
+        (await Verify(token!)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var user = await FindUser(email);
+        user.Should().NotBeNull();
+        user!.Username.Should().Be(secondName, "the link in the first mail creates what the latest request asked for");
+    }
+
+    [Fact]
     public async Task An_address_that_already_has_an_account_is_mailed_once_inside_the_cooldown()
     {
         var (takenUsername, takenEmail) = Identity();

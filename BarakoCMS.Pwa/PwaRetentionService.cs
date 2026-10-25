@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 namespace BarakoCMS.Pwa;
 
 /// <summary>
-/// Deletes device rows not seen for <c>Modules:Pwa:RetentionDays</c> days (180 by default, 0 keeps
+/// Deletes device rows not seen for <c>Modules:Pwa:RetentionDays</c> days (off by default: 0 keeps
 /// them forever). A device that reports again after its row is gone simply starts a new one.
 /// </summary>
 internal sealed class PwaRetentionService(
@@ -56,8 +56,8 @@ internal sealed class PwaRetentionService(
 /// <summary>Bound from <c>Modules:Pwa</c>.</summary>
 public sealed class PwaOptions
 {
-    public const int DefaultRetentionDays = 180;
+    public const int DefaultRetentionDays = 0;
 
-    /// <summary>Days a device may go unseen before its row is deleted. Zero keeps every row.</summary>
+    /// <summary>Days a device may go unseen before its row is deleted. Zero, the default, keeps every row.</summary>
     public int RetentionDays { get; set; } = DefaultRetentionDays;
 }
