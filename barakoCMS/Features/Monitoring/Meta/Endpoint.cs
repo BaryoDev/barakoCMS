@@ -39,7 +39,7 @@ internal class Endpoint(IConfiguration configuration, Marten.IQuerySession sessi
     // InformationalVersion carries the full <Version> string; AssemblyVersion would flatten
     // 3.21.0 to 3.21.0.0 and drop any prerelease suffix. The build appends "+<commit sha>" when
     // SourceLink is active, which is not useful here.
-    private static string ReadVersion()
+    internal static string ReadVersion()
     {
         var informational = typeof(Endpoint).Assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;

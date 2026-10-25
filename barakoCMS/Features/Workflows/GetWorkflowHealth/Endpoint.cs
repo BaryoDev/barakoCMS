@@ -169,7 +169,7 @@ internal sealed class Endpoint(IQuerySession session, IConfiguration config, Tim
 
     internal sealed record DayHealth(
         int Runs24h, List<RecentRun> Recent, double? SuccessRate, string Verdict, string Summary,
-        List<WorkflowDayHealth> Workflows);
+        List<WorkflowDayHealth> Workflows, int Finished = 0, int Succeeded = 0);
 
     /// <summary>
     /// The tenant's last 24 hours as of <paramref name="now"/>: one grouped query per status off the
@@ -226,7 +226,7 @@ internal sealed class Endpoint(IQuerySession session, IConfiguration config, Tim
             WorkflowHealthRules.Rate(succeeded, finished),
             verdict,
             WorkflowHealthRules.Summary(runs, succeeded, finished, verdict),
-            workflows);
+            workflows, finished, succeeded);
     }
 
     internal static int WindowCap(IConfiguration config)

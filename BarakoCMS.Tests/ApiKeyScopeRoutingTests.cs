@@ -30,4 +30,23 @@ public class ApiKeyScopeRoutingTests
         ApiKeyScopeProcessor.RequiredScopes(path, isWrite: false).Should().BeNull();
         ApiKeyScopeProcessor.RequiredScopes(path, isWrite: true).Should().BeNull();
     }
+
+    [Theory]
+    [InlineData("/api/overview")]
+    [InlineData("/API/Overview/")]
+    public void Get_overview_needs_monitor_read(string path) =>
+        ApiKeyScopeProcessor.RequiredScopes(path, isWrite: false).Should().Equal("monitor:read");
+
+    [Fact]
+    public void A_write_to_overview_is_refused() =>
+        ApiKeyScopeProcessor.RequiredScopes("/api/overview", isWrite: true).Should().BeNull();
+
+    [Theory]
+    [InlineData("/api/overview/items/mail.bounces/resolve")]
+    [InlineData("/api/overview/x")]
+    public void Overview_subpaths_are_refused(string path)
+    {
+        ApiKeyScopeProcessor.RequiredScopes(path, isWrite: false).Should().BeNull();
+        ApiKeyScopeProcessor.RequiredScopes(path, isWrite: true).Should().BeNull();
+    }
 }
