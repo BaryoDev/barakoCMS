@@ -39,6 +39,9 @@ public class TenancyModeTokenTests
 
     private static async Task<TokenIssueResult> IssueAsync(IServiceProvider host, User user, string tenant)
     {
+        // The issuer reads its JWT defaults through FastEndpoints' static resolver, and outside a
+        // request nothing moves it off a host another class disposed in the meantime.
+        FastEndpointsResolver.RepairIfDisposed([host]);
         using var scope = host.CreateScope();
         return await scope.ServiceProvider.GetRequiredService<ITokenIssuer>()
             .IssueAccessTokenAsync(user, tenant, ct: TestContext.Current.CancellationToken);
