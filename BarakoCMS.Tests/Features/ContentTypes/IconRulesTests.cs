@@ -68,12 +68,12 @@ public class IconRulesTests
     [Fact]
     public void A_numeric_token_over_twelve_characters_drops_its_attribute()
     {
-        var svg = "<svg viewBox=\"0 0 10 10\"><circle cx=\"5\" cy=\"5\" r=\"1.234567890123\"/><circle cx=\"5\" cy=\"5\" r=\"1.23456789012\"/></svg>";
+        var svg = "<svg viewBox=\"0 0 10 10\"><circle cx=\"5\" cy=\"5\" r=\"1.23456789013\"/><circle cx=\"5\" cy=\"5\" r=\"1.2345678901\"/></svg>";
 
         var clean = IconRules.Check(Svg(svg)).Icon!.Svg!;
 
-        clean.Should().Contain("r=\"1.23456789012\"", "twelve characters is allowed");
-        clean.Should().NotContain("1.234567890123", "thirteen is not");
+        clean.Should().Contain("r=\"1.2345678901\"", "twelve characters is allowed");
+        clean.Should().NotContain("1.23456789013", "thirteen is not");
     }
 
     [Fact]

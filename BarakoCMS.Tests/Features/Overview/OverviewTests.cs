@@ -387,7 +387,7 @@ public class OverviewTests
         var tenant = await TenantAsync();
         var bounces = new FakeBounces();
         var (without, _) = await CallerAsync(tenant, [SystemCapabilities.ViewWorkflowRuns]);
-        var (with, _) = await CallerAsync(tenant, [SystemCapabilities.ViewMonitoring], create: HostWith(bounces));
+        var (with, _) = await CallerAsync(tenant, [SystemCapabilities.ViewMonitoring, SystemCapabilities.ManageEmailSettings], create: HostWith(bounces));
         var (noModule, _) = await CallerAsync(tenant, [SystemCapabilities.ViewMonitoring]);
 
         var denied = await ReadAsync(without);
@@ -624,9 +624,8 @@ public class OverviewTests
         read.StatusCode.Should().Be(HttpStatusCode.OK, await read.Content.ReadAsStringAsync(Ct));
         using var body = JsonDocument.Parse(await read.Content.ReadAsStringAsync(Ct));
         body.RootElement.GetProperty("counts").GetProperty("failedRuns").GetProperty("current").GetInt32().Should().Be(3);
-        StripItem(body.RootElement, "API").TryGetProperty("version", out var version).Should().BeFalse(
+        Absent(StripItem(body.RootElement, "API"), "version").Should().BeTrue(
             "a key does not learn the version, as on /api/monitoring/health");
-        _ = version;
         resolve.StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await bounces.CountUnresolvedAsync(tenant, Ct)).Should().Be(1);
     }

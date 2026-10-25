@@ -215,6 +215,7 @@ public class RoleGateTests
         new("GET", "/api/accounts/{slug}/managers", "/api/accounts/default/managers"),
         new("POST", "/api/accounts/{slug}/managers", "/api/accounts/default/managers"),
         new("DELETE", "/api/accounts/{slug}/managers/{userId}", $"/api/accounts/default/managers/{NotAGuid}"),
+        new("POST", "/api/overview/items/{id}/resolve", $"/api/overview/items/{NotAGuid}/resolve"),
     ];
 
     public static TheoryData<GatedRoute> AllGatedRoutes()

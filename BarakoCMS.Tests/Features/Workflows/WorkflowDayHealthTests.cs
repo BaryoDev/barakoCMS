@@ -98,6 +98,12 @@ public class WorkflowDayHealthTests
     {
         var tenant = NewTenant();
         var workflow = Guid.NewGuid();
+        await using (var definitions = Store.LightweightSession(tenant))
+        {
+            definitions.Store(new WorkflowDefinition { Id = workflow, Name = "counted", TriggerContentType = "post", TriggerEvent = WorkflowEvents.Published });
+            await definitions.SaveChangesAsync(Ct);
+        }
+
         await SeedAsync(tenant, workflow, RunStatus.Succeeded, 9);
         await SeedAsync(tenant, workflow, RunStatus.Failed, 1);
         await SeedAsync(tenant, workflow, RunStatus.Cancelled, 20);
