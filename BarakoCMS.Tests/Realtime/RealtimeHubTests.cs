@@ -32,6 +32,7 @@ public class RealtimeHubTests(SampleProbeHost host) : IClassFixture<SampleProbeH
                 if (tenant is not null) o.Headers[TenantResolutionMiddleware.TenantHeader] = tenant;
             })
             .Build();
+        connection.HandshakeTimeout = SampleProbeModule.HubHandshakeTimeout;
         await connection.StartAsync();
         return connection;
     }
