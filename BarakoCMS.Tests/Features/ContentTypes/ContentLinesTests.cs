@@ -473,13 +473,24 @@ public class ContentLinesTests : IAsyncLifetime
 
         // The change runs here rather than on the job queue. FastEndpoints keeps that queue in a
         // static every host overwrites as it starts, and in a run of the whole suite in one process
-        // the queued job can sit on another host's queue past any wait. The job does the same thing
-        // and is idempotent, so a worker that picks it up later finds the change completed.
-        // ChangeFieldTests covers the queued path.
-        await FieldChanges.RunAsync(
-            _fixture.Services.GetRequiredService<IDocumentStore>(),
-            _fixture.Services.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>(),
-            JasperFx.StorageConstants.DefaultTenantId, id, maxBatches: null, Ct);
+        // the queued job can sit on another host's queue past any wait. When the worker does pick it
+        // up, the two runs race and the one that saves second loses the optimistic concurrency check,
+        // so a lost race runs again from what the worker saved. A worker that comes later finds the
+        // change completed. ChangeFieldTests covers the queued path.
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await FieldChanges.RunAsync(
+                    _fixture.Services.GetRequiredService<IDocumentStore>(),
+                    _fixture.Services.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>(),
+                    JasperFx.StorageConstants.DefaultTenantId, id, maxBatches: null, Ct);
+                break;
+            }
+            catch (JasperFx.ConcurrencyException) when (attempt < 5)
+            {
+            }
+        }
 
         var last = "no status read";
         for (var i = 0; i < 50; i++)
