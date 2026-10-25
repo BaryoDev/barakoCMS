@@ -1,1 +1,1 @@
-The rollback and Discord announce workflows check the version string before using it, and CI gains a NuGet audit job restored from nuget.org alone.
+- **Workflow version inputs are checked.** The rollback and Discord announce workflows validate the version string before use, and CI gains a NuGet audit job restored from nuget.org alone.

@@ -1,1 +1,1 @@
-A term move takes the vocabulary lock the term delete and create already use, so a move and a delete cannot run past each other.
+- **A term move and a term delete could run past each other.** A move now takes the vocabulary lock that term create and delete already use.
