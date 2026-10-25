@@ -31,6 +31,9 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::version must look like 3.2.2"; exit 1
+          fi
           if [ -z "${DISCORD_WEBHOOK:-}" ]; then echo "no DISCORD_WEBHOOK; skipping"; exit 0; fi
 
           # This version's CHANGELOG section: everything between "## [VERSION]" and the next "## [".

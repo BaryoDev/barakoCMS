@@ -607,6 +607,47 @@ jobs:
             exit 1
           fi
 
+  # The same Critical and High gate as the step in "Security scan", restored from nuget.org alone,
+  # so a stray feed on a runner or in a user config cannot change what it sees. Not a required
+  # check until it is marked one.
+  nuget-audit:
+    name: NuGet audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Fail on Critical or High vulnerable packages
+        run: |
+          set -euo pipefail
+          dotnet restore --locked-mode --configfile .github/nuget-audit.config
+          dotnet list package --vulnerable --include-transitive --no-restore --format json --output-version 1 > vuln-report.json
+
+          if ! jq -e '(.projects | type) == "array"' vuln-report.json > /dev/null 2>&1; then
+            echo "::error::vulnerability report missing or unreadable, failing closed"
+            exit 1
+          fi
+
+          FOUND=$(jq '[.projects[].frameworks[]? // empty
+                       | (.topLevelPackages // []) + (.transitivePackages // [])
+                       | .[] | .vulnerabilities[]?
+                       | select(.severity == "Critical" or .severity == "High")] | length' vuln-report.json)
+          case "$FOUND" in ''|*[!0-9]*) echo "::error::could not count findings, failing closed"; exit 1 ;; esac
+
+          if [ "$FOUND" -gt 0 ]; then
+            dotnet list package --vulnerable --include-transitive --no-restore
+            echo "::error::$FOUND Critical or High vulnerable packages found"
+            exit 1
+          fi
+
   # The template and the test harness are what a third party starts from, and the solution build
   # exercises neither as they ship: the template's content is not in the solution, and
   # BarakoCMS.Testing is only ever referenced by project from inside it. This packs core, the

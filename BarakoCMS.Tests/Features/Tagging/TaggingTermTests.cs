@@ -114,6 +114,37 @@ public class TaggingTermTests
     }
 
     [Fact]
+    public async Task Deleting_a_parent_while_a_child_is_added_never_leaves_a_child_without_its_parent()
+    {
+        var api = await TaggingApi.AdminAsync(_factory);
+        var vocabularyId = IdOf(await api.CreateVocabularyAsync());
+
+        for (var round = 0; round < 8; round++)
+        {
+            var parent = IdOf(await api.CreateTermAsync(vocabularyId));
+            var create = api.Http.PostAsJsonAsync($"/api/taxonomy/vocabularies/{vocabularyId}/terms",
+                new { key = $"child-{round}-{Guid.NewGuid():n}", name = "Child", parentId = parent });
+            var delete = api.Http.DeleteAsync($"/api/taxonomy/terms/{parent}");
+            await Task.WhenAll(create, delete);
+
+            var created = (await create).StatusCode == HttpStatusCode.Created;
+            var deleted = (await delete).StatusCode == HttpStatusCode.NoContent;
+            (created && deleted).Should().BeFalse("a parent that was deleted cannot also have gained a child");
+
+            var all = await TaggingApi.ItemsAsync(await api.Http.GetAsync($"/api/taxonomy/vocabularies/{vocabularyId}/terms?pageSize=100"));
+            all.Should().NotBeEmpty();
+            var ids = all.Select(IdOf).ToHashSet();
+            foreach (var term in all)
+            {
+                if (term.GetProperty("parentId").ValueKind == System.Text.Json.JsonValueKind.String)
+                {
+                    ids.Should().Contain(term.GetProperty("parentId").GetGuid());
+                }
+            }
+        }
+    }
+
+    [Fact]
     public async Task Deleting_a_term_takes_it_off_the_records_that_carried_it()
     {
         var api = await TaggingApi.SuperAdminAsync(_factory);
