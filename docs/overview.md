@@ -20,7 +20,7 @@ for the caller's tenant, and every number is a count or a capped list.
 | `counts.bounces` | `manage_email_settings` and an email module | bounces in the last 24 hours, and the 24 before |
 | `counts.signIns` | `view_audit_log` | successful sign-ins to the tenant, last 24 hours and the 24 before |
 | `workflows` | `view_workflow_runs` | `runs24h`, `successRate`, `verdict` and `summary`, the same facts as `GET /api/workflows/health` |
-| `health` | `view_monitoring` | `verdict` and `items`: API (with `version`), Database (with `ms`), Storage, Runner, and Mail |
+| `health` | `view_monitoring` | `verdict` and `items`: API (with `version`, left out for an API key), Database (with `ms`), Storage, Runner, and Mail (only with `manage_email_settings` as well) |
 | `needsYou` | | items the caller may see, worst first then by id: `id`, `severity`, `text`, `ref`, `resolvable` |
 
 A count is `{ current, prior }`, so a client can write "+12% vs prior" or "3 fewer". `ref` is
@@ -50,7 +50,7 @@ percent and up, warn at 70, otherwise bad, and ok when nothing has finished.
 ## Resolving
 
 `POST /api/overview/items/{id}/resolve` (needs `manage_email_settings`) clears a resolvable item.
-For `mail.bounces` it marks every unresolved bounce of the tenant resolved, so the next read shows
+For `mail.bounces` it marks every unresolved bounce of the tenant resolved, including any that arrived after the page loaded (it clears what is unresolved at the time of the click), so the next read shows
 Mail delivering, no item, and a verdict that no longer counts it. An unknown or non-resolvable id,
 or a deployment with no bounce source, answers 404. A key cannot call it.
 

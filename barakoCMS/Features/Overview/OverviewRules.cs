@@ -85,7 +85,7 @@ internal static class OverviewRules
     };
 
     /// <summary>API is ok when it answers, and carries the version.</summary>
-    internal static RuleResult Api(string version) =>
+    internal static RuleResult Api(string? version) =>
         new("api", Ok, new StripItem { Name = "API", Status = Ok, Version = version });
 
     /// <summary>Database follows its health check, and a slow answer is warn or bad on its own.</summary>

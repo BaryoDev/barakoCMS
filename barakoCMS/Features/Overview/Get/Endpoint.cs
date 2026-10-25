@@ -38,6 +38,8 @@ internal sealed class Endpoint(
     IServiceProvider services)
     : EndpointWithoutRequest<OverviewResponse>
 {
+    private const int MaxDuePerSource = 5000;
+
     public override void Configure()
     {
         Get("/api/overview"); // authenticated by default, each part checks its own capability
@@ -58,7 +60,8 @@ internal sealed class Endpoint(
         var mayMail = await capabilities.HoldsAsync(User, SystemCapabilities.ManageEmailSettings, ct);
 
         var bounces = services.GetService<IMailBounceSource>();
-        var unresolved = bounces is null ? 0 : await bounces.CountUnresolvedAsync(tenant.Slug, ct);
+        var mayReadMail = mayMail && bounces is not null;
+        var unresolved = mayReadMail ? await bounces!.CountUnresolvedAsync(tenant.Slug, ct) : 0;
 
         PeriodCount? publishesDue;
         PeriodCount? failedRuns = null;
@@ -79,12 +82,12 @@ internal sealed class Endpoint(
             signIns = await SignInsAsync(now, ct);
         }
 
-        if (mayMail && bounces is not null)
+        if (mayReadMail)
         {
             bounceCount = new PeriodCount
             {
-                Current = await bounces.CountAsync(tenant.Slug, now.AddHours(-OverviewRules.PeriodHours), now, ct),
-                Prior = await bounces.CountAsync(
+                Current = await bounces!.CountAsync(tenant.Slug, now.AddHours(-OverviewRules.PeriodHours), now, ct),
+                Prior = await bounces!.CountAsync(
                     tenant.Slug, now.AddHours(-2 * OverviewRules.PeriodHours), now.AddHours(-OverviewRules.PeriodHours), ct),
             };
             results.Add(OverviewRules.Bounces(unresolved));
@@ -92,7 +95,7 @@ internal sealed class Endpoint(
 
         if (mayMonitor)
         {
-            health = await ReadHealthAsync(bounces is not null ? unresolved : null, results, ct);
+            health = await ReadHealthAsync(mayReadMail ? unresolved : null, results, ct);
         }
 
         var items = OverviewRules.Order(results.Where(r => r.Item is not null).Select(r => r.Item!));
@@ -132,12 +135,15 @@ internal sealed class Endpoint(
         var overdue = 0;
         foreach (var source in reach.Sources)
         {
-            due += await source
+            // One query per source: the publish times of what is due, capped, then split in memory.
+            var times = await source
                 .Where(c => c.Status == ContentStatus.Scheduled && c.ScheduledPublishAt <= horizon)
-                .CountAsync(ct);
-            overdue += await source
-                .Where(c => c.Status == ContentStatus.Scheduled && c.ScheduledPublishAt < overdueBefore)
-                .CountAsync(ct);
+                .OrderBy(c => c.ScheduledPublishAt)
+                .Take(MaxDuePerSource)
+                .Select(c => c.ScheduledPublishAt)
+                .ToListAsync(ct);
+            due += times.Count;
+            overdue += times.Count(t => t < overdueBefore);
         }
 
         results.Add(OverviewRules.OverduePublishes(overdue));
@@ -149,18 +155,20 @@ internal sealed class Endpoint(
     {
         var day = await WorkflowHealth.Endpoint.DayHealthAsync(session, now, ct);
 
-        var dayCounts = await RunQueries.CountSinceByWorkflowAsync(
-            session, now.AddHours(-OverviewRules.PeriodHours), WorkflowHealth.WorkflowHealthRules.CountedStatuses, ct);
-        var failedDay = dayCounts.Where(c => c.Key.Status != RunStatus.Succeeded).Sum(c => c.Value);
-        var finished = dayCounts.Values.Sum();
+        var failedDay = day.Finished - day.Succeeded;
+        var finished = day.Finished;
 
-        var twoDays = await RunQueries.CountSinceByWorkflowAsync(
-            session, now.AddHours(-2 * OverviewRules.PeriodHours), [RunStatus.Failed, RunStatus.PartiallyFailed], ct);
+        var dayStart = now.AddHours(-OverviewRules.PeriodHours);
+        var priorStart = now.AddHours(-2 * OverviewRules.PeriodHours);
+        var priorFailed = await session.Query<WorkflowRun>()
+            .Where(r => (r.Status == RunStatus.Failed || r.Status == RunStatus.PartiallyFailed)
+                && r.CreatedAt >= priorStart && r.CreatedAt < dayStart)
+            .CountAsync(ct);
 
         results.Add(OverviewRules.FailedRuns(day.Verdict, failedDay, finished));
 
         return (
-            new PeriodCount { Current = failedDay, Prior = twoDays.Values.Sum() - failedDay },
+            new PeriodCount { Current = failedDay, Prior = priorFailed },
             new WorkflowOverview { Runs24h = day.Runs24h, SuccessRate = day.SuccessRate, Verdict = day.Verdict, Summary = day.Summary });
     }
 
@@ -182,7 +190,8 @@ internal sealed class Endpoint(
     private async Task<HealthStripResponse> ReadHealthAsync(int? unresolvedBounces, List<RuleResult> results, CancellationToken ct)
     {
         var report = await healthCheckService.CheckHealthAsync(ct);
-        var strip = new List<RuleResult> { OverviewRules.Api(Monitoring.Meta.Endpoint.ReadVersion()) };
+        var version = User.HasClaim("auth_method", "apikey") ? null : Monitoring.Meta.Endpoint.ReadVersion();
+        var strip = new List<RuleResult> { OverviewRules.Api(version) };
 
         if (report.Entries.TryGetValue("Database", out var database))
             strip.Add(OverviewRules.Database(database.Status, (long)database.Duration.TotalMilliseconds));

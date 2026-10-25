@@ -406,6 +406,26 @@ public class OverviewTests
             .Select(i => i.GetProperty("name").GetString()).Should().NotContain("Mail", "Mail is omitted, not reported ok, with no module");
     }
 
+    [Fact]
+    public async Task A_monitoring_only_caller_sees_no_mail_cell_and_mail_does_not_raise_the_verdict()
+    {
+        var tenant = await TenantAsync();
+        var bounces = new FakeBounces();
+        bounces.Add(tenant, DateTimeOffset.UtcNow.AddHours(-1), 5);
+        var (client, _) = await CallerAsync(tenant, [SystemCapabilities.ViewMonitoring], create: HostWith(bounces));
+
+        var overview = await ReadAsync(client);
+
+        var names = overview.GetProperty("health").GetProperty("items").EnumerateArray()
+            .Select(i => i.GetProperty("name").GetString()).ToArray();
+        names.Should().NotBeEmpty();
+        names.Should().NotContain("Mail");
+        ItemIds(overview).Should().BeEmpty();
+        overview.GetProperty("headline").GetString().Should().NotContain("warning");
+        overview.GetProperty("health").GetProperty("items").EnumerateArray()
+            .Where(i => i.GetProperty("name").GetString() == "Mail").Should().BeEmpty();
+    }
+
     // ---- each rule flips the verdict or an item on and off ----
 
     [Fact]
@@ -592,7 +612,9 @@ public class OverviewTests
         bounces.Add(tenant, DateTimeOffset.UtcNow.AddHours(-1));
         var create = HostWith(bounces);
         var (_, owner) = await CallerAsync(
-            tenant, [SystemCapabilities.ViewWorkflowRuns, SystemCapabilities.ManageEmailSettings], create: create);
+            tenant,
+            [SystemCapabilities.ViewWorkflowRuns, SystemCapabilities.ManageEmailSettings, SystemCapabilities.ViewMonitoring],
+            create: create);
         var secret = await KeyAsync(tenant, owner, ApiKeyScopes.MonitorRead);
         var http = create();
 
@@ -602,6 +624,9 @@ public class OverviewTests
         read.StatusCode.Should().Be(HttpStatusCode.OK, await read.Content.ReadAsStringAsync(Ct));
         using var body = JsonDocument.Parse(await read.Content.ReadAsStringAsync(Ct));
         body.RootElement.GetProperty("counts").GetProperty("failedRuns").GetProperty("current").GetInt32().Should().Be(3);
+        StripItem(body.RootElement, "API").TryGetProperty("version", out var version).Should().BeFalse(
+            "a key does not learn the version, as on /api/monitoring/health");
+        _ = version;
         resolve.StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await bounces.CountUnresolvedAsync(tenant, Ct)).Should().Be(1);
     }
