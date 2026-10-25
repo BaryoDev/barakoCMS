@@ -125,7 +125,7 @@ public class TaggingTermTests
 
         using var scope = _factory.Services.CreateScope();
         await using var deleting = scope.ServiceProvider.GetRequiredService<IDocumentStore>()
-            .LightweightSession(barakoCMS.Models.Tenant.DefaultSlug);
+            .LightweightSession();
 
         // The delete's transaction, held open: it owns the vocabulary lock and has not committed.
         await BarakoCMS.Tagging.TaggingLocks.ForVocabularyAsync(deleting, vocabularyId, CancellationToken.None);
