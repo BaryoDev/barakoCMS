@@ -215,6 +215,7 @@ public class StationAccessTests(SampleProbeHost host) : IClassFixture<SampleProb
                 o.AccessTokenProvider = () => Task.FromResult<string?>(station.Key);
             })
             .Build();
+        connection.HandshakeTimeout = SampleProbeModule.HubHandshakeTimeout;
         await connection.StartAsync();
         await connection.InvokeAsync("Subscribe", "probe.tickets");
 
