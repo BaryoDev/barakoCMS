@@ -66,6 +66,17 @@ public class IconRulesTests
     }
 
     [Fact]
+    public void A_numeric_token_over_twelve_characters_drops_its_attribute()
+    {
+        var svg = "<svg viewBox=\"0 0 10 10\"><circle cx=\"5\" cy=\"5\" r=\"1.234567890123\"/><circle cx=\"5\" cy=\"5\" r=\"1.23456789012\"/></svg>";
+
+        var clean = IconRules.Check(Svg(svg)).Icon!.Svg!;
+
+        clean.Should().Contain("r=\"1.23456789012\"", "twelve characters is allowed");
+        clean.Should().NotContain("1.234567890123", "thirteen is not");
+    }
+
+    [Fact]
     public void An_svg_with_no_viewBox_is_refused_by_name()
     {
         var result = IconRules.Check(Svg("<svg xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M0 0h5v5z\"/></svg>"));
@@ -147,6 +158,7 @@ public class IconRulesTests
     [InlineData("has space")]
     [InlineData("under_score")]
     [InlineData("<script>")]
+    [InlineData("home\n")]
     public void A_sprite_name_with_other_characters_is_refused(string name) =>
         IconRules.Check(new ContentTypeIcon { Name = name }).Valid.Should().BeFalse();
 

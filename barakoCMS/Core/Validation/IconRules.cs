@@ -41,10 +41,11 @@ internal static class IconRules
         ["polygon"] = ["points", "transform", "opacity", "fill-rule"],
     };
 
-    private static readonly Regex NamePattern = new("^[A-Za-z0-9-]+$", RegexOptions.Compiled);
+    private static readonly Regex NamePattern = new(@"\A[A-Za-z0-9-]+\z", RegexOptions.Compiled);
     private static readonly Regex ViewBoxPattern = new(
-        @"^\s*-?\d+(\.\d+)?[\s,]+-?\d+(\.\d+)?[\s,]+\d+(\.\d+)?[\s,]+\d+(\.\d+)?\s*$", RegexOptions.Compiled);
-    private static readonly Regex ValuePattern = new(@"^[A-Za-z0-9\s.,+\-()%]*$", RegexOptions.Compiled);
+        @"\A\s*-?\d+(\.\d+)?[\s,]+-?\d+(\.\d+)?[\s,]+\d+(\.\d+)?[\s,]+\d+(\.\d+)?\s*\z", RegexOptions.Compiled);
+    private static readonly Regex ValuePattern = new(@"\A[A-Za-z0-9\s.,+\-()%]*\z", RegexOptions.Compiled);
+    private static readonly Regex LongToken = new(@"[0-9.]{13,}", RegexOptions.Compiled);
 
     public readonly record struct Result(bool Valid, ContentTypeIcon? Icon, List<string> Errors);
 
@@ -183,5 +184,5 @@ internal static class IconRules
     }
 
     private static bool IsSafe(string value) =>
-        ValuePattern.IsMatch(value) && !value.Contains("url(", StringComparison.OrdinalIgnoreCase);
+        ValuePattern.IsMatch(value) && !LongToken.IsMatch(value) && !value.Contains("url(", StringComparison.OrdinalIgnoreCase);
 }
