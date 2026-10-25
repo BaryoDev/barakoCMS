@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using FastEndpoints;
 using Microsoft.AspNetCore.Http;
 
@@ -31,7 +30,7 @@ public class EvaluateFlagsEndpoint(
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        var email = User.FindFirst("Username")?.Value ?? User.FindFirst(ClaimTypes.Email)?.Value;
+        var email = await FeatureFlagService.VerifiedEmailAsync(session, User, ct);
         var ctx = new FlagContext(tenant.Slug, email, email ?? tenant.Slug);
         var audience = await FeatureFlagService.AudienceAsync(session, User, configuration, ct);
         HttpContext.Response.Headers.Link = $"<{Ofrep.OfrepEvaluation.BasePath}>; rel=\"successor-version\"";

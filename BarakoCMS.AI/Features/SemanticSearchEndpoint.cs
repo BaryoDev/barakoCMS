@@ -34,15 +34,13 @@ public class SemanticSearchEndpoint(
     private const int MaxResults = 20;
     internal const int MaxQueryLength = 500;
 
-    // The core delivery policy (RateLimitSetup.DeliveryPolicy, which is internal to the core).
-    private const string DeliveryPolicy = "delivery";
     private const double Floor = 0.4; // ignore weak matches so an unrelated query returns nothing
 
     public override void Configure()
     {
         Get("/api/public/{type}/semantic");
         AllowAnonymous();
-        Options(x => x.WithMetadata(DeliveryCache.Validators).RequireRateLimiting(DeliveryPolicy));
+        Options(x => x.WithMetadata(DeliveryCache.Validators).RequireRateLimiting(AiOptions.SemanticSearchRateLimitPolicy));
     }
 
     public override async Task HandleAsync(CancellationToken ct)

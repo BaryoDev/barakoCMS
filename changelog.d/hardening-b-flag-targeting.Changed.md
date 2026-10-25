@@ -1,0 +1,1 @@
+Feature flag targeting by email now uses the email stored on the user record, not the username. Flags limited to some tenants are no longer listed to callers of other tenants.

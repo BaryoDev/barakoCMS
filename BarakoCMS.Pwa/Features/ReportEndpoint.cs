@@ -49,6 +49,7 @@ public sealed class ReportEndpoint(IDocumentSession session, TenantContext tenan
         var installed = req.Installed
             || req.DisplayMode is "standalone" or "fullscreen" or "minimal-ui";
         var now = DateTime.UtcNow;
+        var platform = ReportValidator.NormalizePlatform(req.Platform);
 
         var existing = await session.Query<PwaInstall>()
             .FirstOrDefaultAsync(p => p.DeviceId == req.DeviceId, ct);
@@ -61,7 +62,7 @@ public sealed class ReportEndpoint(IDocumentSession session, TenantContext tenan
                 UserId = userId,
                 Username = username,
                 Tenant = tenant,
-                Platform = req.Platform,
+                Platform = platform,
                 UserAgent = Trunc(ua),
                 DisplayMode = req.DisplayMode ?? "browser",
                 Installed = installed,
@@ -81,7 +82,7 @@ public sealed class ReportEndpoint(IDocumentSession session, TenantContext tenan
             existing.LastSeenAt = now;
             existing.LaunchCount++;
             if (!string.IsNullOrWhiteSpace(req.DisplayMode)) existing.DisplayMode = req.DisplayMode;
-            if (!string.IsNullOrWhiteSpace(req.Platform)) existing.Platform = req.Platform;
+            if (platform is not null) existing.Platform = platform;
             if (!string.IsNullOrWhiteSpace(ua)) existing.UserAgent = Trunc(ua);
             if (userId is not null && (existing.UserId is null || existing.UserId == userId))
             {
@@ -111,6 +112,19 @@ internal sealed class ReportValidator : Validator<ReportRequest>
     public const int MaxPlatformLength = 40;
 
     private static readonly string[] DisplayModes = ["browser", "standalone", "fullscreen", "minimal-ui"];
+
+    private static readonly string[] Platforms = ["ios", "android", "windows", "macos", "linux", "other"];
+
+    /// <summary>
+    /// One of the documented platforms. A value outside the set is stored as "other" rather than
+    /// refused, so a client that sends something new keeps working. Null when none was sent.
+    /// </summary>
+    internal static string? NormalizePlatform(string? platform)
+    {
+        if (string.IsNullOrWhiteSpace(platform)) return null;
+        var value = platform.Trim().ToLowerInvariant();
+        return Platforms.Contains(value) ? value : "other";
+    }
 
     public ReportValidator()
     {

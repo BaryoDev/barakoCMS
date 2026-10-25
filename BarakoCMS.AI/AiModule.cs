@@ -1,7 +1,10 @@
 using barakoCMS.Models;
 using barakoCMS.Modules;
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace BarakoCMS.AI;
 
@@ -35,7 +38,24 @@ public sealed class AiModule : IBarakoModule
     {
         // `configuration` is already this module's own section (Modules:AI), so bind it whole
         // rather than reaching for a root-level key.
-        services.Configure<AiOptions>(configuration);
+        services.AddOptions<AiOptions>()
+            .Bind(configuration)
+            .Validate(o => o.SemanticSearchPermitLimit >= 1 && o.SemanticSearchWindowSeconds >= 1,
+                "Modules:AI semantic search rate limit values must be at least 1.")
+            .ValidateOnStart();
+
+        services.Configure<RateLimiterOptions>(options =>
+            options.AddPolicy(AiOptions.SemanticSearchRateLimitPolicy, context =>
+            {
+                var limits = context.RequestServices.GetRequiredService<IOptions<AiOptions>>().Value;
+                var ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                return RateLimitPartition.GetFixedWindowLimiter($"ai-semantic-search-{ip}", _ =>
+                    new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = limits.SemanticSearchPermitLimit,
+                        Window = TimeSpan.FromSeconds(limits.SemanticSearchWindowSeconds),
+                    });
+            }));
         services.AddHttpClient<IEmbeddingClient, OllamaEmbeddingClient>();
     }
 
