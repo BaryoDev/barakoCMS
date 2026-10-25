@@ -586,6 +586,19 @@ The action is recorded in the audit log as `workflow.run.manual`, with the actor
 
 The `lastOutcomes` list includes cancelled and abandoned runs. Workflows are ordered by name, then id.
 
+The same response also carries the tenant's last 24 hours, whatever the page or `windowDays`:
+
+| Field | Meaning |
+| --- | --- |
+| `runs24h` | Runs created in the last 24 hours, any status. |
+| `recent` | The newest ten runs, newest first, each with `runId`, `workflowId`, `status`, `createdAt` and `outcome`. |
+| `successRate` | Succeeded over succeeded, failed and partially failed in the last 24 hours, 0 to 1. Null when none has finished. |
+| `verdict` | `ok`, `warn` or `bad`. |
+| `summary` | One line saying the same. |
+| `workflows` | The rate and verdict per workflow that ran in the last 24 hours, by name, at most 100. |
+
+`outcome` is `ok` for Succeeded, `warn` for PartiallyFailed and `bad` for Failed. Pending, running and cancelled runs are listed with their own `status`, have a null `outcome`, and are left out of the rate. The verdict is `ok` at 90 percent and up, `warn` at 70 percent and up, otherwise `bad`. A tenant with no finished run in the last 24 hours is `ok`. The thresholds are `WorkflowHealthRules.OkAtOrAbovePercent` and `WarnAtOrAbovePercent`, and nothing else in the code states them. The reads group on the indexed `CreatedAt` and `Status`, so no run is loaded to count it.
+
 `GET /api/workflow-runs` takes `workflowId`. `statusCounts` follow it. When you page with a `changedSince` cursor, send the same filters (`workflowId`, `contentId`, `status`) on every page: the cursor does not remember them.
 
 ## Tracing a run and what it created
