@@ -81,7 +81,7 @@ internal static class RunQueries
     internal static async Task<IReadOnlyList<WorkflowRun>> NewestAsync(
         IQuerySession session, int count, CancellationToken ct) =>
         await session.Query<WorkflowRun>()
-            .OrderByDescending(r => r.CreatedAt)
+            .OrderByDescending(r => r.CreatedAt).ThenBy(r => r.Id)
             .Take(count)
             .ToListAsync(ct);
 

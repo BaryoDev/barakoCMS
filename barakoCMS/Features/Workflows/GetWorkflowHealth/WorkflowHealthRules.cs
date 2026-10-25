@@ -53,7 +53,7 @@ internal static class WorkflowHealthRules
         if (runs == 0) return "No runs in the last 24 hours.";
         if (finished == 0) return $"{runs} {Plural(runs)} in the last 24 hours, none finished yet.";
 
-        var percent = (int)Math.Round(100.0 * succeeded / finished, MidpointRounding.AwayFromZero);
+        var percent = (int)(succeeded * 100L / finished);
         var word = verdict switch { Ok => "healthy", Warn => "degraded", _ => "failing" };
         return $"{succeeded} of {finished} finished {Plural(finished)} succeeded in the last 24 hours ({percent}%), {word}.";
     }

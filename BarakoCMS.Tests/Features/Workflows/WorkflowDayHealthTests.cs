@@ -197,6 +197,43 @@ public class WorkflowDayHealthTests
         WorkflowHealthRules.Verdict(succeeded, finished).Should().Be(verdict);
     }
 
+    [Theory]
+    [InlineData(899, 1000, "(89%)")]
+    [InlineData(695, 1000, "(69%)")]
+    [InlineData(900, 1000, "(90%)")]
+    public void The_summary_percent_is_floored_so_it_never_reads_above_the_threshold_it_missed(int succeeded, int finished, string shown)
+    {
+        var verdict = WorkflowHealthRules.Verdict(succeeded, finished);
+
+        WorkflowHealthRules.Summary(finished, succeeded, finished, verdict).Should().Contain(shown);
+    }
+
+    [Fact]
+    public async Task A_run_exactly_24_hours_old_counts_and_one_second_older_does_not()
+    {
+        var tenant = NewTenant();
+        var now = DateTimeOffset.UtcNow;
+        await using (var session = Store.LightweightSession(tenant))
+        {
+            foreach (var age in new[] { TimeSpan.FromHours(24), TimeSpan.FromHours(24) + TimeSpan.FromSeconds(1) })
+            {
+                session.Store(new WorkflowRun
+                {
+                    Id = Guid.NewGuid(), WorkflowDefinitionId = Guid.NewGuid(), WorkflowName = "edge",
+                    ContentId = Guid.NewGuid(), ContentType = "article", TriggerEvent = WorkflowEvents.Published,
+                    Status = RunStatus.Succeeded, CreatedAt = now - age,
+                });
+            }
+
+            await session.SaveChangesAsync(Ct);
+        }
+
+        await using var read = Store.QuerySession(tenant);
+        var health = await HealthEndpoint.DayHealthAsync(read, now, Ct);
+
+        health.Runs24h.Should().Be(1);
+    }
+
     [Fact]
     public async Task The_health_route_returns_the_health_shape_and_not_a_workflow_lookup()
     {

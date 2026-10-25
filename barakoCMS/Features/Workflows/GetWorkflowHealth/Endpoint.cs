@@ -97,7 +97,7 @@ internal sealed class HealthResponse : PaginatedResponse<WorkflowHealth>
     /// <summary>One line saying the same.</summary>
     public string Summary { get; set; } = string.Empty;
 
-    /// <summary>The same rate and verdict per workflow, for the workflows that ran in the last 24 hours. At most 100, by name.</summary>
+    /// <summary>The same rate and verdict per workflow, for the workflows that ran in the last 24 hours. At most the 100 with the most runs, by name. A workflow whose definition is gone is left out.</summary>
     public List<WorkflowDayHealth> Workflows { get; set; } = new();
 
     /// <summary>The window used, in days, after it was clamped.</summary>
@@ -113,7 +113,7 @@ internal sealed class HealthResponse : PaginatedResponse<WorkflowHealth>
 /// the retention sweep keeps: a longer one would divide the successes it kept by failures it did
 /// not, and the response says the window it used.
 /// </remarks>
-internal sealed class Endpoint(IQuerySession session, IConfiguration config) : Endpoint<Request, HealthResponse>
+internal sealed class Endpoint(IQuerySession session, IConfiguration config, TimeProvider clock) : Endpoint<Request, HealthResponse>
 {
     internal const int DefaultWindowDays = 7;
     internal const int MaxWindowDays = 90;
@@ -129,7 +129,8 @@ internal sealed class Endpoint(IQuerySession session, IConfiguration config) : E
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         var window = Math.Clamp(req.WindowDays ?? DefaultWindowDays, 1, WindowCap(config));
-        var from = DateTimeOffset.UtcNow.AddDays(-window);
+        var now = clock.GetUtcNow();
+        var from = now.AddDays(-window);
 
         var page = await session.Query<WorkflowDefinition>().OrderBy(w => w.Name).ThenBy(w => w.Id).ToPagedResponseAsync(req, ct);
 
@@ -145,7 +146,7 @@ internal sealed class Endpoint(IQuerySession session, IConfiguration config) : E
             items.Add(HealthOf(workflow, counts, recent, average));
         }
 
-        var day = await DayHealthAsync(session, DateTimeOffset.UtcNow, ct);
+        var day = await DayHealthAsync(session, now, ct);
 
         await Send.ResponseAsync(new HealthResponse
         {
@@ -184,12 +185,17 @@ internal sealed class Endpoint(IQuerySession session, IConfiguration config) : E
         var finished = counts.Where(c => WorkflowHealthRules.CountedStatuses.Contains(c.Key.Status)).Sum(c => c.Value);
         var verdict = WorkflowHealthRules.Verdict(succeeded, finished);
 
-        var ranIds = counts.Keys.Select(k => k.Workflow).Distinct().ToList();
-        var names = ranIds.Count == 0
+        var top = counts.GroupBy(c => c.Key.Workflow)
+            .Select(g => (Id: g.Key, Runs: g.Sum(c => c.Value)))
+            .OrderByDescending(w => w.Runs).ThenBy(w => w.Id)
+            .Take(MaxDayWorkflows)
+            .Select(w => w.Id)
+            .ToList();
+        var names = top.Count == 0
             ? new Dictionary<Guid, string>()
-            : (await session.LoadManyAsync<WorkflowDefinition>(ct, ranIds)).ToDictionary(w => w.Id, w => w.Name);
+            : (await session.LoadManyAsync<WorkflowDefinition>(ct, top)).ToDictionary(w => w.Id, w => w.Name);
 
-        var workflows = ranIds.Select(id =>
+        var workflows = top.Where(names.ContainsKey).Select(id =>
             {
                 int Count(Func<RunStatus, bool> pick) => counts.Where(c => c.Key.Workflow == id && pick(c.Key.Status)).Sum(c => c.Value);
                 var done = Count(WorkflowHealthRules.CountedStatuses.Contains);
@@ -197,7 +203,7 @@ internal sealed class Endpoint(IQuerySession session, IConfiguration config) : E
                 return new WorkflowDayHealth
                 {
                     WorkflowId = id,
-                    Name = names.GetValueOrDefault(id, string.Empty),
+                    Name = names[id],
                     Runs24h = Count(_ => true),
                     FinishedRuns = done,
                     SuccessRate = WorkflowHealthRules.Rate(won, done),
@@ -205,7 +211,6 @@ internal sealed class Endpoint(IQuerySession session, IConfiguration config) : E
                 };
             })
             .OrderBy(w => w.Name, StringComparer.Ordinal).ThenBy(w => w.WorkflowId)
-            .Take(MaxDayWorkflows)
             .ToList();
 
         return new DayHealth(
