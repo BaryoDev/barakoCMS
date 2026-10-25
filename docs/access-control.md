@@ -726,7 +726,7 @@ as its owner, so it can never do more than the owner's own roles and capabilitie
 | `contenttype:write` | `POST`, `PUT`, `PATCH` and `DELETE` under `/api/content-types` and `/api/schemas` |
 | `files:read` | `GET` under `/api/files` (list, metadata, download, usage) |
 | `files:write` | `POST`, `PUT`, `PATCH` and `DELETE` under `/api/files` (upload, change, delete) |
-| `monitor:read` | `GET /api/contents/counts`, `GET /api/analytics/**` and `GET /api/monitoring/health`, nothing else. Counts also accept `content:read`. The health read gives a key name, status and duration per check, without description, data or tags; the owner still needs the `ViewMonitoring` capability |
+| `monitor:read` | `GET /api/contents/counts`, `GET /api/analytics/**`, `GET /api/monitoring/health` and `GET /api/overview`, nothing else. Counts also accept `content:read`. The health read gives a key name, status and duration per check, without description, data or tags; the owner still needs the `ViewMonitoring` capability |
 | `services:heartbeat` | `POST /api/services/{name}/heartbeat` only (a registered service reporting that it is alive) |
 | `*` | all of the above except `files:read`, `files:write`, `monitor:read` and `services:heartbeat` |
 
