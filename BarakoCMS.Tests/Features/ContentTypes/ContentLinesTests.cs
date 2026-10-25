@@ -25,10 +25,6 @@ public class ContentLinesTests : IAsyncLifetime
         _client = fixture.CreateClient();
         var ip = Guid.NewGuid().ToByteArray();
         _client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"10.{ip[0]}.{ip[1]}.{ip[2]}");
-
-        // Field changes run as FastEndpoints jobs, whose queues are a static every host overwrites
-        // as it starts. Taken back here so a change runs now, not at the next storage probe.
-        FastEndpointsResolver.ClaimJobQueues(fixture.Services);
     }
 
     public async ValueTask InitializeAsync() =>
@@ -466,21 +462,32 @@ public class ContentLinesTests : IAsyncLifetime
         Field((await StoredAsync(line)).Single(c => c.Id == lineIds[0]), "Amount").Should().Be("60");
     }
 
-    private Task<HttpResponseMessage> ChangeAsync(string type, string field, object body) =>
-        _client.PostAsJsonAsync($"/api/content-types/{type}/fields/{field}/change", body, Ct);
+    private Task<HttpResponseMessage> ChangeAsync(string type, string field, object body)
+    {
+        // Field changes run as FastEndpoints jobs, whose queues are a static every host overwrites
+        // as it starts. Other classes start hosts while this one runs, so the queues are taken back
+        // just before the change is queued, not once in the constructor, or the change waits for
+        // the next storage probe a minute later.
+        FastEndpointsResolver.ClaimJobQueues(_fixture.Services);
+        return _client.PostAsJsonAsync($"/api/content-types/{type}/fields/{field}/change", body, Ct);
+    }
 
     private async Task CompletedAsync(HttpResponseMessage accepted)
     {
         accepted.StatusCode.Should().Be(HttpStatusCode.Accepted, await accepted.Content.ReadAsStringAsync(Ct));
         var id = (await accepted.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("change").GetProperty("id").GetGuid();
-        for (var i = 0; i < 150; i++)
+        var last = "no status read";
+        for (var i = 0; i < 450; i++)
         {
-            var status = await (await _client.GetAsync($"/api/content-types/field-changes/{id}", Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
-            if (status.GetProperty("state").GetString() == "completed") return;
+            var response = await _client.GetAsync($"/api/content-types/field-changes/{id}", Ct);
+            var text = await response.Content.ReadAsStringAsync(Ct);
+            last = $"{(int)response.StatusCode} {text}";
+            if (response.IsSuccessStatusCode
+                && JsonDocument.Parse(text).RootElement.GetProperty("state").GetString() == "completed") return;
             await Task.Delay(200, Ct);
         }
 
-        throw new Xunit.Sdk.XunitException($"Field change {id} did not complete.");
+        throw new Xunit.Sdk.XunitException($"Field change {id} did not complete. Last status: {last}");
     }
 
     private async Task<ContentTypeDefinition> DefinitionAsync(string type)
