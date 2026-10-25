@@ -955,7 +955,7 @@ says.
 | `Features/Audit/*` | `view_audit_log` | `GET /api/audit` | SuperAdmin, Admin |
 | `Features/Settings/*` | `manage_settings` | `/api/settings`, `GET /api/settings/email` | SuperAdmin, Admin |
 | `Features/Settings/Email/*` | `manage_email_settings` | `PUT /api/settings/email`, `POST /api/settings/email/test` | SuperAdmin |
-| `Features/ContentType/*` | `manage_content_types` | `/api/content-types` (and its `/api/schemas` alias), `POST /api/content-types/{name}/rebuild`, `POST /api/content-types/{name}/seo-fields`, `PUT /api/content-types/{name}/fields/{field}/presentation`, `PUT /api/content-types/{name}/route-template` | SuperAdmin, Admin |
+| `Features/ContentType/*` | `manage_content_types` | `/api/content-types` (and its `/api/schemas` alias), `POST /api/content-types/{name}/rebuild`, `POST /api/content-types/{name}/seo-fields`, `PUT /api/content-types/{name}/fields/{field}/presentation`, `PUT /api/content-types/{name}/route-template`, `PUT /api/content-types/{name}/icon` | SuperAdmin, Admin |
 | `Features/Modules/*` | `view_modules` | `GET /api/modules` | SuperAdmin, Admin |
 | `Features/Modules/Configuration/*` | `view_module_configuration` | `GET /api/modules/{name}/configuration` | SuperAdmin |
 | `Features/ContentType/*` | `manage_public_delivery` | `PUT /api/content-types/{name}/public-delivery`, `PUT /api/content-types/{name}/fields/{field}/sensitivity` | SuperAdmin, Admin |

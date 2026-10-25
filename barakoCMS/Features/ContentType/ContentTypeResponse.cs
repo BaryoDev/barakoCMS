@@ -30,6 +30,9 @@ internal sealed class ContentTypeResponse
 
     public bool IsPubliclyDeliverable { get; init; }
 
+    /// <summary>The icon the type is drawn with, a sprite name or sanitised SVG, or null for none.</summary>
+    public ContentTypeIcon? Icon { get; init; }
+
     /// <summary>Whether this type holds exactly one entry.</summary>
     /// <remarks>
     /// On the response because the console cannot work it out from anywhere else, and it is what
@@ -101,6 +104,7 @@ internal sealed class ContentTypeResponse
         Fields = d.Fields,
         Lifecycle = d.Lifecycle,
         IsPubliclyDeliverable = d.IsPubliclyDeliverable,
+        Icon = d.Icon,
         IsSingleton = d.IsSingleton,
         RouteTemplate = d.RouteTemplate,
         StructuredDataType = d.StructuredDataType,

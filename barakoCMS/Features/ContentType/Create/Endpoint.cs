@@ -34,6 +34,9 @@ internal class Request
     /// </summary>
     public string? RouteTemplate { get; set; }
 
+    /// <summary>The icon the type is drawn with, a sprite name or an SVG. Null, the default, is none.</summary>
+    public ContentTypeIcon? Icon { get; set; }
+
     /// <summary>
     /// The schema.org type a single delivered entry is described as, such as <c>Article</c>. Null,
     /// the default, emits no structured data.
@@ -130,18 +133,13 @@ internal class Endpoint(
         }
 
         var (routeValid, routeErrors) = validator.ValidateRouteTemplate(req.RouteTemplate);
-        if (!routeValid)
-        {
-            isValid = false;
-            errors.AddRange(routeErrors);
-        }
+        Collect(ref isValid, errors, routeValid, routeErrors);
+
+        var iconCheck = barakoCMS.Core.Validation.IconRules.Check(req.Icon);
+        Collect(ref isValid, errors, iconCheck.Valid, iconCheck.Errors);
 
         var (structuredValid, structuredErrors) = validator.ValidateStructuredDataType(req.StructuredDataType);
-        if (!structuredValid)
-        {
-            isValid = false;
-            errors.AddRange(structuredErrors);
-        }
+        Collect(ref isValid, errors, structuredValid, structuredErrors);
 
         var (uniquenessValid, uniquenessErrors) = validator.ValidateUniqueness(req.Uniqueness, req.Fields, req.Lifecycle);
         if (!uniquenessValid)
@@ -267,7 +265,7 @@ internal class Endpoint(
         }
 
         // 5. Create, or for a dry run say what would be created and stop: every check has run.
-        var def = NewDefinition(req, slug);
+        var def = NewDefinition(req, slug, iconCheck.Icon);
         if (req.DryRun)
         {
             var changes = def.Fields.Select(f => new barakoCMS.Core.Validation.FieldDiff(f.Name, null, f.Type)).ToList();
@@ -306,7 +304,7 @@ internal class Endpoint(
         }, ct);
     }
 
-    private static ContentTypeDefinition NewDefinition(Request req, string slug) => new()
+    private static ContentTypeDefinition NewDefinition(Request req, string slug, ContentTypeIcon? icon) => new()
     {
         Id = Guid.NewGuid(),
         Name = slug,
@@ -317,11 +315,19 @@ internal class Endpoint(
         IsPubliclyDeliverable = req.IsPubliclyDeliverable,
         IsSingleton = req.IsSingleton,
         RouteTemplate = req.RouteTemplate,
+        Icon = icon,
         StructuredDataType = req.StructuredDataType,
         Uniqueness = req.Uniqueness is { Count: > 0 } ? req.Uniqueness : null,
         CreatedAt = DateTimeOffset.UtcNow,
         UpdatedAt = DateTimeOffset.UtcNow,
     };
+
+    private static void Collect(ref bool isValid, List<string> errors, bool valid, IEnumerable<string> found)
+    {
+        if (valid) return;
+        isValid = false;
+        errors.AddRange(found);
+    }
 
     private static string Lower(bool value) => value ? "true" : "false";
 
