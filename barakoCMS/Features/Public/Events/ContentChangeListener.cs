@@ -300,6 +300,7 @@ internal sealed class ContentChangeListener(
             DisplayName = def.DisplayName,
             Description = def.Description,
             IsPubliclyDeliverable = def.IsPubliclyDeliverable,
+            Icon = def.Icon,
             RouteTemplate = def.RouteTemplate,
             StructuredDataType = def.StructuredDataType,
             CreatedAt = def.CreatedAt,

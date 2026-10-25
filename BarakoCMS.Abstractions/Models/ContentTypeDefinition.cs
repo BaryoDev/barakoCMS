@@ -26,6 +26,14 @@ public class ContentTypeDefinition
     public bool IsPubliclyDeliverable { get; set; }
 
     /// <summary>
+    /// The icon the console and a renderer draw this type with, or null for none.
+    /// </summary>
+    /// <remarks>
+    /// Null, the default, is every type stored before this existed.
+    /// </remarks>
+    public ContentTypeIcon? Icon { get; set; }
+
+    /// <summary>
     /// Whether this type holds exactly one entry, so it can model a site's own values: address,
     /// phone, opening hours, footer text.
     /// </summary>
