@@ -523,7 +523,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
 
             // AI module: register its schema/endpoints, but swap the Ollama client for a deterministic
             // fake so the search tests run without an embedding backend.
-            new BarakoCMS.AI.AiModule().ConfigureServices(services, ctx.Configuration);
+            new BarakoCMS.AI.AiModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:AI"));
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.AI.AiModule(), opts));
             services.RemoveAll<BarakoCMS.AI.IEmbeddingClient>();
             services.AddSingleton<BarakoCMS.AI.IEmbeddingClient, FakeEmbeddingClient>();
@@ -549,6 +549,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
 
             // Pwa: same reason — the assembly is referenced, so /api/pwa/* is discovered; register the
             // schema so those endpoints can run.
+            new BarakoCMS.Pwa.PwaModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Pwa"));
             services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Pwa.PwaModule(), opts));
 
             // Pages: its hook guards the probe type configured above, and its three endpoints read
