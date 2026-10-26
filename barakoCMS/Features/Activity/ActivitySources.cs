@@ -361,7 +361,7 @@ internal static class ActivitySources
 
         return bounces.Select(b =>
         {
-            var at = ActivityCursor.Micro(b.At);
+            var at = b.At.ToUniversalTime();
             return new ActivitySlot(new ActivityCursor(at, ActivitySource.Bounces, b.Id, 0), new ActivityRow
             {
                 Id = $"bounce-{b.Id:N}",
