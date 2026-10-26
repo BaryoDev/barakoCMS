@@ -29,6 +29,14 @@ internal sealed record ActivityCursor(DateTimeOffset At, int Source, Guid Id, lo
     /// <summary>The earliest time a cursor may name. Anything older is a malformed request, not a place in the feed.</summary>
     public static readonly DateTimeOffset Floor = new(2000, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
+    /// <summary>
+    /// The time as Postgres holds it: whole microseconds, the seventh digit rounded. Every position a
+    /// source reports goes through this, so the merge orders by the same value each source's SQL
+    /// compares. Ordering by raw ticks put two rows of one stored microsecond in a different order
+    /// than their ids, and the page cut then dropped one of them for good.
+    /// </summary>
+    public static DateTimeOffset Micro(DateTimeOffset at) => new((at.UtcTicks + 5) / 10 * 10, TimeSpan.Zero);
+
     public override string ToString() =>
         string.Create(CultureInfo.InvariantCulture, $"{At.UtcTicks}_{Source}_{Id:N}_{Sequence}");
 

@@ -94,7 +94,7 @@ internal static class ActivitySources
         // Postgres keeps microseconds and rounds the seventh digit when it reads the stored text, so a
         // cursor cut by truncating would sit below the value the database compares and repeat the row.
         var ticks = DateTime.SpecifyKind(e.CreatedAt, DateTimeKind.Utc).Ticks;
-        var at = new DateTimeOffset((ticks + 5) / 10 * 10, TimeSpan.Zero);
+        var at = ActivityCursor.Micro(new DateTimeOffset(ticks, TimeSpan.Zero));
         var position = new ActivityCursor(at, ActivitySource.Audit, e.Id, 0);
 
         var name = string.IsNullOrWhiteSpace(e.ActorUsername) ? null : Clip(e.ActorUsername);
@@ -191,7 +191,7 @@ internal static class ActivitySources
 
     private static ActivitySlot RunSlot(WorkflowRun r)
     {
-        var position = new ActivityCursor(r.UpdatedAt.ToUniversalTime(), ActivitySource.Runs, r.Id, 0);
+        var position = new ActivityCursor(ActivityCursor.Micro(r.UpdatedAt), ActivitySource.Runs, r.Id, 0);
         var kind = r.Status == RunStatus.Succeeded ? ActivityKinds.RunSucceeded : ActivityKinds.RunFailed;
         var actor = r.StartedBy is null
             ? new ActivityActor { Kind = "system", Name = "Workflow" }
@@ -264,7 +264,7 @@ internal static class ActivitySources
         var slots = new List<ActivitySlot>(raw.Count);
         foreach (var e in raw)
         {
-            var position = new ActivityCursor(e.Timestamp.ToUniversalTime(), ActivitySource.Events, Guid.Empty, e.Sequence);
+            var position = new ActivityCursor(ActivityCursor.Micro(e.Timestamp), ActivitySource.Events, Guid.Empty, e.Sequence);
             var (kind, actor) = Classify(e.Data, want);
             if (kind is null || !entries.TryGetValue(e.StreamId, out var entry))
             {
@@ -361,7 +361,7 @@ internal static class ActivitySources
 
         return bounces.Select(b =>
         {
-            var at = b.At.ToUniversalTime();
+            var at = ActivityCursor.Micro(b.At);
             return new ActivitySlot(new ActivityCursor(at, ActivitySource.Bounces, b.Id, 0), new ActivityRow
             {
                 Id = $"bounce-{b.Id:N}",
