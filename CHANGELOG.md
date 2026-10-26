@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 2. **Stop the 5.3 API, start 5.4.0.** No migration file ships with 5.4.0, so `db-migrate` has nothing new to apply. The content type icon is a field on the stored definition and reads as none until set.
 3. **Check the new settings.** `Modules:Pwa:RetentionDays` is 0, which keeps every device row. `Auth:RegisterMailCooldownMinutes` is 5, and 0 turns it off. Semantic search has its own limit of 60 requests a minute per address.
 
-`GET /api/workflow-runs` answers 400 to a `changedSince` cursor more than a day ahead of the server clock, and `GET /api/activity` does the same for `since`. A cursor from an earlier response is never ahead.
+`GET /api/activity` answers 400 to a `since` cursor more than a day ahead of the server clock. `GET /api/workflow-runs` still answers 200 with an empty page to a `changedSince` that far ahead, as in 5.3.
 
 **Package changes.** Modules with changes: AI 4.7.0 (semantic search limit settings), Pwa 4.6.0 (report platform values and `RetentionDays`), FeatureFlags 4.6.1, Tagging 5.3.1, Analytics.Umami 4.6.0 (referrer favicons) and Abstractions 5.4.0. BarakoCMS.Templates and BarakoCMS.Testing follow the core at 5.4.0. Nothing is removed from the package surface.
 

@@ -305,6 +305,38 @@ internal sealed class ListRunsEndpoint(
         Definition.RequireCapability(SystemCapabilities.ViewWorkflowRuns, RunGate.LegacyRoles);
     }
 
+    private RunStatus? ParseStatus(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+
+        if (!Enum.TryParse<RunStatus>(text, ignoreCase: true, out var parsed))
+        {
+            // Refused rather than ignored. A filter that is silently dropped returns more rows
+            // than the caller asked for, and they cannot tell that from "no matches".
+            ThrowError($"Status must be one of: {string.Join(", ", Enum.GetNames<RunStatus>())}.", 400);
+        }
+
+        return parsed;
+    }
+
+    private RunListResponse EmptyPageAfter(ListRunsRequest req, RunCursor cursor)
+    {
+        var now = clock.GetUtcNow();
+        var windows = WorkflowRunRetentionService.ReadWindows(config);
+        var sweeping = WorkflowRunRetentionService.IsEnabled(config);
+        return new RunListResponse
+        {
+            Items = [],
+            Page = req.Page,
+            PageSize = req.PageSize,
+            TotalItems = 0,
+            StatusCounts = null,
+            Cursor = cursor.ToString(),
+            SucceededRetainedFrom = sweeping && windows.SucceededDays > 0 ? now.AddDays(-windows.SucceededDays) : null,
+            FailedRetainedFrom = sweeping && windows.FailedDays > 0 ? now.AddDays(-windows.FailedDays) : null,
+        };
+    }
+
     private static IQueryable<WorkflowRun> FilterRuns(
         IQuerySession session, ListRunsRequest req, RunStatus? status, RunCursor? since)
     {
@@ -326,28 +358,23 @@ internal sealed class ListRunsEndpoint(
 
     public override async Task HandleAsync(ListRunsRequest req, CancellationToken ct)
     {
-        RunStatus? status = null;
-        if (!string.IsNullOrWhiteSpace(req.Status))
-        {
-            if (!Enum.TryParse<RunStatus>(req.Status, ignoreCase: true, out var parsed))
-            {
-                // Refused rather than ignored. A filter that is silently dropped returns more rows
-                // than the caller asked for, and they cannot tell that from "no matches".
-                ThrowError($"Status must be one of: {string.Join(", ", Enum.GetNames<RunStatus>())}.", 400);
-                return;
-            }
-
-            status = parsed;
-        }
+        var status = ParseStatus(req.Status);
 
         RunCursor? since = null;
         if (req.ChangedSince is not null)
         {
-            var latest = clock.GetUtcNow().AddDays(1);
-            if (!RunCursor.TryParse(req.ChangedSince, out var cursor)
-                || cursor.At > latest || cursor.Anchor > latest)
+            if (!RunCursor.TryParse(req.ChangedSince, out var cursor))
             {
                 ThrowError("ChangedSince must be a cursor from an earlier response or a timestamp.", 400);
+                return;
+            }
+
+            var latest = clock.GetUtcNow().AddDays(1);
+            if (cursor.At > latest || cursor.Anchor > latest)
+            {
+                // Nothing can have changed after a time that has not come, and the margin arithmetic
+                // never sees a value this far out. Answered as 5.3 did, with an empty page.
+                await Send.ResponseAsync(EmptyPageAfter(req, cursor), cancellation: ct);
                 return;
             }
 
