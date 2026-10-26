@@ -239,7 +239,9 @@ internal static class ActivitySources
         if (after is { } cursor)
         {
             var at = cursor.At;
-            var sequence = cursor.Sequence;
+            var sequence = cursor.Source == ActivitySource.Events
+                ? await SequenceOfAsync(session, cursor.Id, cursor.Sequence, ct)
+                : 0;
             query = cursor.Source switch
             {
                 ActivitySource.Events => query.Where(e => e.Timestamp > at || (e.Timestamp == at && e.Sequence > sequence)),
@@ -264,7 +266,7 @@ internal static class ActivitySources
         var slots = new List<ActivitySlot>(raw.Count);
         foreach (var e in raw)
         {
-            var position = new ActivityCursor(ActivityCursor.Micro(e.Timestamp), ActivitySource.Events, Guid.Empty, e.Sequence);
+            var position = new ActivityCursor(ActivityCursor.Micro(e.Timestamp), ActivitySource.Events, e.StreamId, e.Version);
             var (kind, actor) = Classify(e.Data, want);
             if (kind is null || !entries.TryGetValue(e.StreamId, out var entry))
             {
@@ -293,6 +295,20 @@ internal static class ActivitySources
         }
 
         return slots;
+    }
+
+    /// <summary>
+    /// The store's own order of the event a cursor names, read here so the cursor can carry the stream
+    /// and version, which belong to the tenant, and not the global sequence. The read is the caller's
+    /// tenant only. An event not found, a forged cursor or one erased, gives 0 and the events of that
+    /// instant are read again, which a client that replaces by id does not notice.
+    /// </summary>
+    private static async Task<long> SequenceOfAsync(IQuerySession session, Guid streamId, long version, CancellationToken ct)
+    {
+        var found = await session.Events.QueryAllRawEvents()
+            .Where(e => e.StreamId == streamId && e.Version == version)
+            .Take(1).ToListAsync(ct);
+        return found.Count == 0 ? 0 : found[0].Sequence;
     }
 
     /// <summary>The kind an event is, or null when it is none the request asked for, and who did it.</summary>
@@ -376,7 +392,7 @@ internal static class ActivitySources
         }).ToList();
     }
 
-    private static string Clip(string text)
+    internal static string Clip(string text)
     {
         if (text.Length <= 200) return text;
         var end = char.IsHighSurrogate(text[199]) ? 199 : 200;

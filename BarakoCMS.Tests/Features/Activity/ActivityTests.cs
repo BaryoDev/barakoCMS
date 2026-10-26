@@ -740,6 +740,9 @@ public class ActivityTests
     [InlineData("0001-01-01T00:00:00Z")]
     [InlineData("0_0_00000000000000000000000000000000_0")]
     [InlineData("1999-12-31T23:59:59Z")]
+    [InlineData("9999-12-31T23:59:59Z")]
+    [InlineData("3155378975999999999_0_00000000000000000000000000000000_0")]
+    [InlineData("638000000000000000_0_00000000000000000000000000000000_0_3155378975999999999")]
     public async Task A_since_before_the_floor_is_a_400_and_not_a_500(string since)
     {
         var tenant = await TenantAsync();
@@ -803,5 +806,47 @@ public class ActivityTests
         var title = rows[0].GetProperty("subject").GetProperty("title").GetString()!;
         title.Should().NotBeEmpty();
         char.IsHighSurrogate(title[^1]).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task An_event_cursor_names_the_stream_and_version_not_the_global_sequence()
+    {
+        var tenant = await TenantAsync();
+        var type = await TypeAsync(tenant);
+        var (client, user) = await CallerAsync(tenant, AllCapabilities, type);
+        var entries = new List<barakoCMS.Models.Content>();
+        for (var i = 0; i < 5; i++)
+        {
+            entries.Add(await EntryAsync(tenant, type, "e" + i, user.Id,
+                id => new ContentUpdated(id, [], user.Id, null, DateTime.UtcNow)));
+        }
+
+        await using var read = Store.LightweightSession(tenant);
+        var stored = (await read.Events.QueryAllRawEvents().ToListAsync(Ct)).Where(e => e.Data is ContentUpdated).ToList();
+        stored.Should().HaveCount(5);
+
+        var seen = new List<string>();
+        var cursors = new List<string>();
+        var cursor = DateTime.UtcNow.AddHours(-1).ToString("O");
+        for (var turn = 0; turn < 12; turn++)
+        {
+            var (_, page) = await ReadAsync(client, $"?kinds=edited&pageSize=2&since={Uri.EscapeDataString(cursor)}");
+            seen.AddRange(Ids(page));
+            cursor = page.GetProperty("cursor").GetString()!;
+            cursors.Add(cursor);
+            if (!page.GetProperty("hasMore").GetBoolean()) break;
+        }
+
+        seen.Should().NotBeEmpty();
+        seen.Distinct().Should().HaveCount(5, "every event is reached");
+        var streams = entries.Select(e => e.Id.ToString("N")).ToHashSet();
+        var eventCursors = cursors.Select(c => c.Split('_')).Where(p => p[1] == "2").ToList();
+        eventCursors.Should().NotBeEmpty();
+        foreach (var parts in eventCursors)
+        {
+            streams.Should().Contain(parts[2]);
+            var version = long.Parse(parts[3]);
+            stored.Single(e => e.StreamId.ToString("N") == parts[2]).Version.Should().Be(version);
+        }
     }
 }

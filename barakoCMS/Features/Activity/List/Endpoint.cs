@@ -127,7 +127,7 @@ internal sealed class Endpoint(
         {
             if (users.TryGetValue(slot.ActorUserId!.Value, out var name))
             {
-                slot.Row!.Actor = new ActivityActor { Kind = "user", Name = name };
+                slot.Row!.Actor = new ActivityActor { Kind = "user", Name = ActivitySources.Clip(name) };
             }
         }
     }

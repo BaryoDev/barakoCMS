@@ -12,15 +12,15 @@ namespace barakoCMS.Features.Activity;
 /// when there is one, and a bare ISO timestamp is accepted as the first cursor.
 ///
 /// Each source orders its own rows by its own key, the audit log and runs by a Guid the database
-/// compares and the event store by sequence, so the merge never compares two keys of different
+/// compares and the event store by its own sequence, which the cursor names by stream and version, so the merge never compares two keys of different
 /// sources. It orders by time, then by source, and keeps a source's own order inside that. A source
 /// before the cursor's reads strictly after its time, the cursor's own source reads after its key,
 /// and a source after it reads from its time, which is what makes the page boundary exact.
 /// </remarks>
 /// <param name="At">The time of the position.</param>
 /// <param name="Source">The source the position belongs to, one of <see cref="ActivitySource"/>.</param>
-/// <param name="Id">The source's id at that position, for the audit log, runs and bounces.</param>
-/// <param name="Sequence">The event sequence at that position, for the event store.</param>
+/// <param name="Id">The source's id at that position, for the audit log, runs and bounces, and the stream id for the event store.</param>
+/// <param name="Sequence">The version in the stream at that position, for the event store. Never the global event sequence, which counts every tenant's writes.</param>
 /// <param name="Anchor">
 /// Set while a client pages through rows newer than <see cref="Margin"/>: the time the last page of
 /// that run sends it back to, so a row that committed late behind the pages it already read is read
