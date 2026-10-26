@@ -323,4 +323,27 @@ public class WorkflowRunChangedSinceTests
         Check("succeededRetainedFrom", windows.SucceededDays);
         Check("failedRetainedFrom", windows.FailedDays);
     }
+
+    [Fact]
+    public async Task Changing_the_retention_window_changes_the_run_list_etag()
+    {
+        var url = $"/api/workflow-runs?workflowId={Guid.NewGuid()}";
+
+        async Task<System.Net.Http.Headers.EntityTagHeaderValue> TagAsync(string days)
+        {
+            var host = _factory.WithSetting(WorkflowRunRetentionService.SucceededDaysKey, days);
+            var client = host.CreateClient();
+            client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
+                "Bearer", await _factory.StoredUserTokenAsync("SuperAdmin", "Admin"));
+            var res = await client.GetAsync(url, Ct);
+            res.StatusCode.Should().Be(HttpStatusCode.OK);
+            res.Headers.ETag.Should().NotBeNull();
+            return res.Headers.ETag!;
+        }
+
+        var short_ = await TagAsync("3");
+        var long_ = await TagAsync("9");
+
+        long_.Should().NotBe(short_, "the page is the same empty one and only the configured window differs");
+    }
 }
