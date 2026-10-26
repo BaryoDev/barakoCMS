@@ -39,17 +39,28 @@ internal sealed class RealtimeEventListener(
     public override Task AfterCommitAsync(IDocumentSession session, IChangeSet commit, CancellationToken token)
     {
         var events = commit.GetEvents().ToList();
+        var runs = commit.Inserted.Concat(commit.Updated).OfType<WorkflowRun>().Select(r => r.Id).Distinct().ToList();
+        var tenantId = session.TenantId;
 
         // Inside a content batch this is a flush, not a commit. The notices go out once it commits.
-        return BatchTransaction.TryDeferUntilCommit(ct => NotifyAsync(events, ct))
+        return BatchTransaction.TryDeferUntilCommit(ct => NotifyAsync(events, runs, tenantId, ct))
             ? Task.CompletedTask
-            : NotifyAsync(events, token);
+            : NotifyAsync(events, runs, tenantId, token);
     }
 
-    private async Task NotifyAsync(IReadOnlyList<JasperFx.Events.IEvent> events, CancellationToken token)
+    private async Task NotifyAsync(
+        IReadOnlyList<JasperFx.Events.IEvent> events,
+        IReadOnlyList<Guid> runs,
+        string tenantId,
+        CancellationToken token)
     {
         try
         {
+            // The group is the session's tenant, so a run written under tenant B reaches only B's subscribers.
+            var runGroup = RealtimeHub.GroupName(TenantScopes.SlugFor(tenantId), WorkflowRunTopic.Name);
+            foreach (var run in runs)
+                await hub.Clients.Group(runGroup).SendAsync(Method, WorkflowRunTopic.Notice(run), token);
+
             foreach (var e in events)
             {
                 var slug = TenantScopes.SlugFor(e.TenantId);

@@ -62,6 +62,14 @@ public sealed class RealtimeHub(TopicRegistry topics, TenantContext tenant, ISer
         Guard();
 
         var slug = UseCallersTenant();
+        if (string.Equals(topic, WorkflowRunTopic.Name, StringComparison.Ordinal))
+        {
+            await RequireCapabilityAsync(WorkflowRunTopic.Capability);
+            await EnsureSessionValidAsync(Context.ConnectionAborted);
+            await JoinAsync(GroupName(slug, WorkflowRunTopic.Name));
+            return;
+        }
+
         var module = topics.Find(topic);
         var content = module is null
             ? await services.GetRequiredService<ContentTopicCatalog>().FindAsync(slug, topic, Context.ConnectionAborted)
@@ -77,11 +85,13 @@ public sealed class RealtimeHub(TopicRegistry topics, TenantContext tenant, ISer
         else await JoinContentGroupsAsync(slug, content!);
     }
 
-    private async Task RequireCapabilityAsync(RealtimeTopic found)
+    private Task RequireCapabilityAsync(RealtimeTopic found) => RequireCapabilityAsync(found.Capability);
+
+    private async Task RequireCapabilityAsync(string capability)
     {
         var callers = services.GetRequiredService<ICallerCapabilities>();
-        if (!await callers.HoldsAsync(Context.User!, found.Capability, Context.ConnectionAborted))
-            throw new HubException($"This caller is missing the '{found.Capability}' capability.");
+        if (!await callers.HoldsAsync(Context.User!, capability, Context.ConnectionAborted))
+            throw new HubException($"This caller is missing the '{capability}' capability.");
     }
 
     // The refusals that need no lookup, made before the topic lookup and any group join.

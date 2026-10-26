@@ -1,4 +1,5 @@
 using barakoCMS.Infrastructure.Audit;
+using barakoCMS.Infrastructure.Caching;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 using FastEndpoints;
@@ -358,10 +359,20 @@ internal sealed class ListRunsEndpoint(
 
         var windows = WorkflowRunRetentionService.ReadWindows(config);
         var sweeping = WorkflowRunRetentionService.IsEnabled(config);
+        var items = page.Items.Select(RunResponse.From).ToList();
+
+        var etag = RunListETag.Compute(HttpContext, items, page.Page, page.PageSize, page.TotalItems, counts);
+        HttpContext.Response.Headers.ETag = etag;
+        HttpContext.Response.Headers.CacheControl = "private, no-cache";
+        if (DeliveryCache.IsNotModified(HttpContext.Request, etag, null))
+        {
+            HttpContext.Response.StatusCode = StatusCodes.Status304NotModified;
+            return;
+        }
 
         await Send.ResponseAsync(new RunListResponse
         {
-            Items = page.Items.Select(RunResponse.From).ToList(),
+            Items = items,
             Page = page.Page,
             PageSize = page.PageSize,
             TotalItems = page.TotalItems,
