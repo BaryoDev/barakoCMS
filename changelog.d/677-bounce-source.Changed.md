@@ -1,0 +1,1 @@
+- **IMailBounceSource gained list methods.** `ListAsync` and `ListNewestAsync` have default implementations that return nothing, so existing implementors still compile. An implementor that does not override them gives the activity feed no bounce rows. BarakoCMS.Abstractions is now 5.4.0.
