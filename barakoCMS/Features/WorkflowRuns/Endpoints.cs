@@ -367,9 +367,9 @@ internal sealed class ListRunsEndpoint(
         HttpContext.Response.Headers.CacheControl = "private, no-cache";
         if (DeliveryCache.IsNotModified(HttpContext.Request, etag, null))
         {
-            HttpContext.Response.StatusCode = StatusCodes.Status304NotModified;
-            // Completing the response is what stops FastEndpoints from sending its own 204 once HandleAsync returns.
-            await HttpContext.Response.CompleteAsync();
+            // Sent through FastEndpoints so it knows a response went out. Setting the status alone
+            // let it add its own 204 when HandleAsync returned.
+            await Send.ResultAsync(Results.StatusCode(StatusCodes.Status304NotModified));
             return;
         }
 
