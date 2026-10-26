@@ -953,6 +953,7 @@ says.
 | `Features/UserGroups/*` | `manage_user_groups` | `/api/user-groups` and everything under it | SuperAdmin, Admin |
 | `Features/ApiKeys/*` | `manage_api_keys` | `/api/api-keys` | SuperAdmin, Admin |
 | `Features/Audit/*` | `view_audit_log` | `GET /api/audit` | SuperAdmin, Admin |
+| `Features/Activity/*` | `view_audit_log` | `GET /api/activity` | SuperAdmin, Admin |
 | `Features/Settings/*` | `manage_settings` | `/api/settings`, `GET /api/settings/email` | SuperAdmin, Admin |
 | `Features/Settings/Email/*` | `manage_email_settings` | `PUT /api/settings/email`, `POST /api/settings/email/test` | SuperAdmin |
 | `Features/ContentType/*` | `manage_content_types` | `/api/content-types` (and its `/api/schemas` alias), `POST /api/content-types/{name}/rebuild`, `POST /api/content-types/{name}/seo-fields`, `PUT /api/content-types/{name}/fields/{field}/presentation`, `PUT /api/content-types/{name}/route-template`, `PUT /api/content-types/{name}/icon` | SuperAdmin, Admin |

@@ -19,4 +19,26 @@ public interface IMailBounceSource
 
     /// <summary>Marks every unresolved bounce of <paramref name="tenant"/> resolved. Returns how many it marked.</summary>
     Task<int> ResolveAllAsync(string tenant, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Up to <paramref name="limit"/> bounces of <paramref name="tenant"/> after a position, oldest
+    /// first, ordered by time and then by id. With <paramref name="afterId"/> null the position is a
+    /// time and the bounces are those strictly later. With an id it is the pair, and the bounces are
+    /// those after it in that order. The activity feed reads this. The default returns none, so an
+    /// implementor written before the feed existed still compiles and the feed shows no bounces for it.
+    /// </summary>
+    Task<IReadOnlyList<MailBounce>> ListAsync(
+        string tenant, DateTimeOffset after, Guid? afterId, int limit, CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<MailBounce>>([]);
+
+    /// <summary>The newest <paramref name="limit"/> bounces of <paramref name="tenant"/>, newest first. The default returns none.</summary>
+    Task<IReadOnlyList<MailBounce>> ListNewestAsync(
+        string tenant, int limit, CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<MailBounce>>([]);
 }
+
+/// <summary>One bounce as the activity feed shows it.</summary>
+/// <param name="Id">Stable across reads.</param>
+/// <param name="At">When the provider reported it.</param>
+/// <param name="Title">A short label for the message that bounced. Never the recipient address.</param>
+public sealed record MailBounce(Guid Id, DateTimeOffset At, string? Title);
