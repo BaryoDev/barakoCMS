@@ -99,6 +99,17 @@ public class OutboundAddressGuardTests
     [InlineData("::ffff:127.0.0.1")]
     [InlineData("::ffff:169.254.169.254")]
     [InlineData("::ffff:10.0.0.1")]
+    [InlineData("::")]
+    [InlineData("64:ff9b::a9fe:a9fe")]
+    [InlineData("64:ff9b::a00:1")]
+    [InlineData("64:ff9b:1::a9fe:a9fe")]
+    [InlineData("64:ff9b:1::a00:1")]
+    [InlineData("2002:a9fe:a9fe::1")]
+    [InlineData("2002:a00:1::1")]
+    [InlineData("2001:0:4136:e378:8000:63bf:3fff:fdd2")]
+    [InlineData("2001::a9fe:a9fe")]
+    [InlineData("::169.254.169.254")]
+    [InlineData("::10.0.0.1")]
     public void A_blocked_address_is_blocked_however_it_is_written(string address)
         => OutboundAddressGuard.IsBlockedAddress(IPAddress.Parse(address)).Should().BeTrue();
 
@@ -109,6 +120,8 @@ public class OutboundAddressGuardTests
     [InlineData("172.32.0.1")]
     [InlineData("2606:4700:4700::1111")]
     [InlineData("::ffff:8.8.8.8")]
+    [InlineData("64:ff9b::808:808")]
+    [InlineData("2002:808:808::1")]
     public void A_public_address_is_allowed(string address)
         => OutboundAddressGuard.IsBlockedAddress(IPAddress.Parse(address)).Should().BeFalse();
 
