@@ -181,6 +181,8 @@ public class WorkflowRunChangedSinceTests
 
     [Theory]
     [InlineData("3155378976000000000_0123456789abcdef0123456789abcdef", "ticks past the last date")]
+    [InlineData("3155378975999999999_0123456789abcdef0123456789abcdef", "ticks at the last date")]
+    [InlineData("9999-12-31T23:59:59Z", "a timestamp far ahead")]
     [InlineData("99999999999999999999_0123456789abcdef0123456789abcdef", "ticks past a long")]
     [InlineData("-5_0123456789abcdef0123456789abcdef", "negative ticks")]
     [InlineData("638000000000000000_not-a-guid", "a bad id")]

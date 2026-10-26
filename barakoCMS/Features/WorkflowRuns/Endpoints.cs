@@ -323,7 +323,9 @@ internal sealed class ListRunsEndpoint(
         RunCursor? since = null;
         if (req.ChangedSince is not null)
         {
-            if (!RunCursor.TryParse(req.ChangedSince, out var cursor))
+            var latest = clock.GetUtcNow().AddDays(1);
+            if (!RunCursor.TryParse(req.ChangedSince, out var cursor)
+                || cursor.At > latest || cursor.Anchor > latest)
             {
                 ThrowError("ChangedSince must be a cursor from an earlier response or a timestamp.", 400);
                 return;
