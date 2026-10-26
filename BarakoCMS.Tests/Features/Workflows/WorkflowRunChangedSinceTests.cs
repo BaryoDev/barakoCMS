@@ -261,6 +261,31 @@ public class WorkflowRunChangedSinceTests
     }
 
     [Fact]
+    public async Task More_runs_changed_moments_ago_than_a_page_holds_are_all_reached_by_following_the_cursor()
+    {
+        var (contentId, runs) = await SeedAsync(6);
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var admin = await AdminOnAsync(clock);
+
+        var seen = new HashSet<Guid>();
+        var cursor = Long;
+        for (var turn = 0; turn < 10; turn++)
+        {
+            using var doc = await ListAsync($"contentId={contentId}&changedSince={Uri.EscapeDataString(cursor)}&pageSize=2", admin);
+            var ids = Ids(doc);
+            seen.UnionWith(ids);
+            cursor = CursorOf(doc);
+            if (ids.Count >= doc.RootElement.GetProperty("totalItems").GetInt32()) break;
+
+            // A request takes time, so the margin point moves between pages.
+            clock.Advance(TimeSpan.FromMilliseconds(1));
+        }
+
+        seen.Should().HaveCount(6, "every run sits inside the margin, and a page with more behind it must still move on");
+        seen.Should().BeEquivalentTo(runs.Select(r => r.Id));
+    }
+
+    [Fact]
     public async Task Status_counts_cover_every_status_and_ignore_the_status_filter_and_the_page()
     {
         var contentId = await _harness.StoreContentAsync();
