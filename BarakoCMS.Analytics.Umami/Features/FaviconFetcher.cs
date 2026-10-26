@@ -14,10 +14,13 @@ public sealed record Favicon(byte[] Bytes, string ContentType);
 /// so a stream of distinct domains cannot grow memory without bound. SVG is not on the allowlist
 /// because it can carry script.
 /// </remarks>
-public sealed class FaviconFetcher(IHttpClientFactory httpClientFactory) : IDisposable
+public sealed class FaviconFetcher(IHttpClientFactory httpClientFactory, long cacheBytes = FaviconFetcher.DefaultCacheBytes) : IDisposable
 {
     public const int MaxBytes = 64 * 1024;
-    private const long CacheBytes = 8 * 1024 * 1024;
+    public const long DefaultCacheBytes = 8 * 1024 * 1024;
+
+    // What an entry costs beyond its bytes: the Entry, the cache bookkeeping and the key.
+    private const int EntryOverhead = 256;
 
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan Lifetime = TimeSpan.FromDays(1);
@@ -27,7 +30,10 @@ public sealed class FaviconFetcher(IHttpClientFactory httpClientFactory) : IDisp
         "image/x-icon", "image/vnd.microsoft.icon", "image/png", "image/gif", "image/jpeg", "image/webp",
     };
 
-    private readonly MemoryCache _cache = new(new MemoryCacheOptions { SizeLimit = CacheBytes });
+    private readonly MemoryCache _cache = new(new MemoryCacheOptions { SizeLimit = cacheBytes });
+
+    /// <summary>How many hosts, hits and misses, are cached right now.</summary>
+    public int CachedEntries => _cache.Count;
 
     private sealed record Entry(Favicon? Icon);
 
@@ -42,7 +48,7 @@ public sealed class FaviconFetcher(IHttpClientFactory httpClientFactory) : IDisp
         var icon = await FetchAsync(host, ct);
         _cache.Set(host, new Entry(icon), new MemoryCacheEntryOptions
         {
-            Size = Math.Max(1, icon?.Bytes.Length ?? 1),
+            Size = (icon?.Bytes.Length ?? 0) + host.Length * 2 + EntryOverhead,
             AbsoluteExpirationRelativeToNow = Lifetime,
         });
         return icon;

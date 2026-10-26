@@ -135,6 +135,24 @@ public class FaviconTests
         (await fetcher.GetAsync("down.example.com", Ct)).Should().BeNull();
     }
 
+    [Fact]
+    public async Task Many_distinct_misses_stay_under_the_cache_limit()
+    {
+        var handler = new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound));
+        const long limit = 8 * 1024;
+        using var fetcher = new FaviconFetcher(new StubFactory(handler), limit);
+
+        for (var i = 0; i < 200; i++)
+        {
+            (await fetcher.GetAsync($"site{i}.example.com", Ct)).Should().BeNull();
+        }
+
+        handler.Uris.Should().HaveCount(200);
+        fetcher.CachedEntries.Should().BeGreaterThan(0);
+        fetcher.CachedEntries.Should().BeLessThan(limit / 256 + 1);
+        fetcher.CachedEntries.Should().BeLessThan(200);
+    }
+
     private static HttpResponseMessage Respond(HttpStatusCode status, string contentType, byte[] body)
     {
         var content = new ByteArrayContent(body);
