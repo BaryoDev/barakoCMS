@@ -35,6 +35,7 @@ public sealed class UmamiAnalyticsModule : IBarakoModule
         // `configuration` is already this module's own section (Modules:Analytics.Umami).
         services.Configure<UmamiOptions>(configuration);
         services.AddHttpClient<IUmamiClient, UmamiClient>();
+        services.AddSingleton<Features.FaviconFetcher>();
     }
 
     /// <summary>
