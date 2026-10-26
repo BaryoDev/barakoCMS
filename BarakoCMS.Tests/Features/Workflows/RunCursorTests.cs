@@ -17,14 +17,55 @@ public class RunCursorTests
         before.Select(b => new WorkflowRun { Id = Guid.NewGuid(), UpdatedAt = Now - b }).ToList();
 
     [Fact]
-    public void A_page_with_more_behind_it_lags_when_its_last_run_is_inside_the_margin()
+    public void A_page_with_more_behind_it_moves_on_and_anchors_at_the_margin_when_its_last_run_is_inside_it()
     {
         var page = Page(TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(1));
 
         var next = RunCursor.Next(Input(TimeSpan.FromHours(1)), page, hasMore: true, Now);
 
-        next.At.Should().Be(Now - RunCursor.Margin, "a run stamped before the last row may still commit");
-        next.Id.Should().Be(Guid.Empty);
+        next.At.Should().Be(page[^1].UpdatedAt, "lagging would send every page back to the same runs");
+        next.Id.Should().Be(page[^1].Id);
+        next.Anchor.Should().Be(Now - RunCursor.Margin, "a run stamped before the last row may still commit");
+    }
+
+    [Fact]
+    public void A_later_page_keeps_the_anchor_it_was_given()
+    {
+        var anchor = Now - TimeSpan.FromSeconds(9);
+        var input = new RunCursor(Now - TimeSpan.FromSeconds(4), Guid.NewGuid(), anchor);
+        var page = Page(TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(2));
+
+        RunCursor.Next(input, page, hasMore: true, Now).Anchor.Should().Be(anchor);
+    }
+
+    [Fact]
+    public void The_last_page_of_an_anchored_run_returns_the_anchor()
+    {
+        var anchor = Now - TimeSpan.FromSeconds(9);
+        var input = new RunCursor(Now - TimeSpan.FromSeconds(4), Guid.NewGuid(), anchor);
+        var page = Page(TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(2));
+
+        RunCursor.Next(input, page, hasMore: false, Now).Should().Be(new RunCursor(anchor, Guid.Empty));
+    }
+
+    [Fact]
+    public void A_cursor_with_an_anchor_reads_back_as_itself()
+    {
+        var cursor = new RunCursor(Now, Guid.NewGuid(), Now - RunCursor.Margin);
+
+        RunCursor.TryParse(cursor.ToString(), out var read).Should().BeTrue();
+        read.Should().Be(cursor);
+    }
+
+    [Fact]
+    public void A_cursor_issued_before_the_anchor_existed_still_reads()
+    {
+        var id = Guid.NewGuid();
+        var issued = $"{Now.UtcTicks}_{id:N}";
+
+        RunCursor.TryParse(issued, out var read).Should().BeTrue();
+        read.Should().Be(new RunCursor(Now, id));
+        read.ToString().Should().Be(issued, "a cursor without an anchor keeps the 5.3 form");
     }
 
     [Fact]
@@ -45,8 +86,9 @@ public class RunCursorTests
 
         var next = RunCursor.Next(input, page, hasMore: true, Now);
 
-        next.Should().Be(new RunCursor(page[^1].UpdatedAt, page[^1].Id), "lagging would read this page again for ever");
-        next.Should().NotBe(input);
+        next.At.Should().Be(page[^1].UpdatedAt, "lagging would read this page again for ever");
+        next.Id.Should().Be(page[^1].Id);
+        next.Anchor.Should().Be(input.At);
     }
 
     [Fact]
