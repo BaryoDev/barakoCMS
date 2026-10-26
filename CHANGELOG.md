@@ -45,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Refresh token reuse left older access tokens working.** Reusing an already used refresh token now also ends the access tokens issued before it, and two refreshes of one token at once leave no live refresh token.
+- **Reusing a refresh token now also revokes the access tokens issued before it.** Two refreshes of one token at once leave no live refresh token.
 - **The outbound address check covers more IPv6 forms.** It now applies its IPv4 rules to them.
 - **A term move and a term delete could run past each other.** A move now takes the vocabulary lock that term create and delete already use.
 - **A client following the run cursor stalled when many runs changed at once.** When more runs changed in the last 5 seconds than one page holds, every page of `GET /api/workflow-runs?changedSince=` sent the cursor back to the same runs, and the rest were only reached once the clock passed them. A page with more behind it now moves on to its last run, and the last page goes back far enough that a run committing late is still read. Cursors issued by 5.3 still work.

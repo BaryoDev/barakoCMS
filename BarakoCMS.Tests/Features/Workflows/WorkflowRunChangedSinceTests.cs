@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Net;
 using System.Text.Json;
+using barakoCMS.Features.WorkflowRuns;
 using barakoCMS.Features.Workflows;
 using barakoCMS.Models;
 using FluentAssertions;
@@ -206,6 +207,8 @@ public class WorkflowRunChangedSinceTests
         using var doc = await ListAsync($"contentId={contentId}&changedSince={Uri.EscapeDataString(cursor)}");
 
         Ids(doc).Should().BeEmpty();
+        RunCursor.TryParse(CursorOf(doc), out var next).Should().BeTrue();
+        next.At.Should().BeOnOrBefore(DateTimeOffset.UtcNow);
     }
 
     [Fact]

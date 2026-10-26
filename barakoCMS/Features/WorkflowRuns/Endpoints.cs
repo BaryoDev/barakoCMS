@@ -319,7 +319,7 @@ internal sealed class ListRunsEndpoint(
         return parsed;
     }
 
-    private RunListResponse EmptyPageAfter(ListRunsRequest req, RunCursor cursor)
+    private RunListResponse EmptyPageAfter(ListRunsRequest req)
     {
         var now = clock.GetUtcNow();
         var windows = WorkflowRunRetentionService.ReadWindows(config);
@@ -331,7 +331,7 @@ internal sealed class ListRunsEndpoint(
             PageSize = req.PageSize,
             TotalItems = 0,
             StatusCounts = null,
-            Cursor = cursor.ToString(),
+            Cursor = RunCursor.Start(now).ToString(),
             SucceededRetainedFrom = sweeping && windows.SucceededDays > 0 ? now.AddDays(-windows.SucceededDays) : null,
             FailedRetainedFrom = sweeping && windows.FailedDays > 0 ? now.AddDays(-windows.FailedDays) : null,
         };
@@ -373,8 +373,9 @@ internal sealed class ListRunsEndpoint(
             if (cursor.At > latest || cursor.Anchor > latest)
             {
                 // Nothing can have changed after a time that has not come, and the margin arithmetic
-                // never sees a value this far out. Answered as 5.3 did, with an empty page.
-                await Send.ResponseAsync(EmptyPageAfter(req, cursor), cancellation: ct);
+                // never sees a value this far out. Answered as 5.3 did, with an empty page, and a cursor a client
+                // can follow from here.
+                await Send.ResponseAsync(EmptyPageAfter(req), cancellation: ct);
                 return;
             }
 
