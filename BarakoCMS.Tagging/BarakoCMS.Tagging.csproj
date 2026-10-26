@@ -5,7 +5,7 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.Tagging</PackageId>
-    <Version>5.3.0</Version>
+    <Version>5.3.1</Version>
     <Description>Tagging and taxonomy for barakoCMS: vocabularies, terms that can nest, and term assignments on any record by content type and record id, so a contact, a file and a content entry share one vocabulary. Query the records carrying a term across types, per tenant.</Description>
   </PropertyGroup>
 
