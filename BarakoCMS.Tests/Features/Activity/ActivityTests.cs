@@ -200,20 +200,20 @@ public class ActivityTests
         return run;
     }
 
-    private async Task<string> TypeAsync(string tenant)
+    private async Task<string> TypeAsync(string tenant, SensitivityLevel titleSensitivity = SensitivityLevel.Public)
     {
         var type = "acttype_" + Guid.NewGuid().ToString("N")[..10];
         await StoreAsync(tenant, new ContentTypeDefinition
         {
             Id = Guid.NewGuid(), Name = type, DisplayName = type,
-            Fields = [new() { Name = "Title", Type = "string", Sensitivity = SensitivityLevel.Public }],
+            Fields = [new() { Name = "Title", Type = "string", Sensitivity = titleSensitivity }],
         });
         return type;
     }
 
     /// <summary>An entry with a stream and a document, the events appended after the first one.</summary>
     private async Task<barakoCMS.Models.Content> EntryAsync(
-        string tenant, string type, string title, Guid creator, params Func<Guid, object>[] later)
+        string tenant, string type, string title, Guid creator, SensitivityLevel level, params Func<Guid, object>[] later)
     {
         var id = Guid.NewGuid();
         var entry = new barakoCMS.Models.Content
@@ -222,18 +222,23 @@ public class ActivityTests
             ContentType = type,
             Data = new Dictionary<string, object> { ["Title"] = title },
             Status = ContentStatus.Draft,
+            Sensitivity = level,
             CreatedBy = creator,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
         };
         await using var session = Store.LightweightSession(tenant);
         session.Events.StartStream<barakoCMS.Models.Content>(id, new ContentCreated(
-            id, type, entry.Data, ContentStatus.Draft, creator, null, SensitivityLevel.Public, DateTime.UtcNow));
+            id, type, entry.Data, ContentStatus.Draft, creator, null, level, DateTime.UtcNow));
         foreach (var make in later) session.Events.Append(id, make(id));
         session.Store(entry);
         await session.SaveChangesAsync(Ct);
         return entry;
     }
+
+    private Task<barakoCMS.Models.Content> EntryAsync(
+        string tenant, string type, string title, Guid creator, params Func<Guid, object>[] later) =>
+        EntryAsync(tenant, type, title, creator, SensitivityLevel.Public, later);
 
     private static void AssertRow(JsonElement row, string kind, string severity)
     {
@@ -656,5 +661,147 @@ public class ActivityTests
         var rows = Rows(page);
         rows.Should().HaveCount(1);
         rows[0].GetProperty("subject").GetProperty("title").GetString().Should().Be("Open");
+    }
+
+    // ---- review round 1 ----
+
+    [Fact]
+    public async Task A_title_that_sensitivity_masks_is_not_shown()
+    {
+        var tenant = await TenantAsync();
+        var type = await TypeAsync(tenant, SensitivityLevel.Sensitive);
+        var (client, user) = await CallerAsync(tenant, AllCapabilities, type);
+        await EntryAsync(tenant, type, "Secret plans", user.Id, id => new ContentUpdated(id, [], user.Id, null, DateTime.UtcNow));
+
+        var (body, page) = await ReadAsync(client, "?kinds=edited");
+
+        var rows = Rows(page);
+        rows.Should().HaveCount(1);
+        rows[0].GetProperty("subject").GetProperty("title").GetString().Should().Be("Untitled");
+        body.Should().NotContain("Secret plans");
+    }
+
+    [Fact]
+    public async Task An_entry_hidden_by_sensitivity_gives_no_row()
+    {
+        var tenant = await TenantAsync();
+        var type = await TypeAsync(tenant);
+        var (client, user) = await CallerAsync(tenant, AllCapabilities, type);
+        await EntryAsync(tenant, type, "Open", user.Id, id => new ContentUpdated(id, [], user.Id, null, DateTime.UtcNow));
+        await EntryAsync(tenant, type, "Hidden one", user.Id, SensitivityLevel.Hidden,
+            id => new ContentUpdated(id, [], user.Id, null, DateTime.UtcNow));
+
+        var (body, page) = await ReadAsync(client, "?kinds=edited");
+
+        var rows = Rows(page);
+        rows.Should().HaveCount(1);
+        rows[0].GetProperty("subject").GetProperty("title").GetString().Should().Be("Open");
+        body.Should().NotContain("Hidden one");
+    }
+
+    [Fact]
+    public async Task An_entry_whose_document_is_gone_gives_no_row()
+    {
+        var tenant = await TenantAsync();
+        var type = await TypeAsync(tenant);
+        var (client, user) = await CallerAsync(tenant, AllCapabilities, type);
+        var entry = await EntryAsync(tenant, type, "Erased", user.Id, id => new ContentUpdated(id, [], user.Id, null, DateTime.UtcNow));
+        await EntryAsync(tenant, type, "Kept", user.Id, id => new ContentUpdated(id, [], user.Id, null, DateTime.UtcNow));
+        await using (var session = Store.LightweightSession(tenant))
+        {
+            session.Delete<barakoCMS.Models.Content>(entry.Id);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var (_, page) = await ReadAsync(client, "?kinds=edited");
+
+        var rows = Rows(page);
+        rows.Should().HaveCount(1);
+        rows[0].GetProperty("subject").GetProperty("title").GetString().Should().Be("Kept");
+    }
+
+    [Fact]
+    public async Task A_content_row_id_is_opaque_and_the_same_on_every_read()
+    {
+        var tenant = await TenantAsync();
+        var type = await TypeAsync(tenant);
+        var (client, user) = await CallerAsync(tenant, AllCapabilities, type);
+        await EntryAsync(tenant, type, "Once", user.Id, id => new ContentUpdated(id, [], user.Id, null, DateTime.UtcNow));
+
+        var (_, first) = await ReadAsync(client, "?kinds=edited");
+        var (_, second) = await ReadAsync(client, "?kinds=edited");
+
+        Ids(first).Should().HaveCount(1);
+        Ids(first)[0].Should().MatchRegex("^event-[0-9a-f]{24}$");
+        Ids(second).Should().Equal(Ids(first));
+    }
+
+    [Theory]
+    [InlineData("0001-01-01T00:00:00Z")]
+    [InlineData("0_0_00000000000000000000000000000000_0")]
+    [InlineData("1999-12-31T23:59:59Z")]
+    public async Task A_since_before_the_floor_is_a_400_and_not_a_500(string since)
+    {
+        var tenant = await TenantAsync();
+        var bounces = new FakeBounces();
+        var (client, _) = await CallerAsync(tenant, AllCapabilities, create: HostWith(bounces));
+
+        var response = await client.GetAsync($"{Route}?since={Uri.EscapeDataString(since)}", Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Rows_stamped_with_a_seventh_digit_are_read_once_each()
+    {
+        var tenant = await TenantAsync();
+        var (client, user) = await CallerAsync(tenant, AllCapabilities);
+        var start = DateTime.SpecifyKind(DateTime.UtcNow.AddHours(-3), DateTimeKind.Utc);
+        start = new DateTime(start.Ticks - start.Ticks % 10_000_000, DateTimeKind.Utc);
+        var expected = new List<string>();
+        for (var i = 0; i < 6; i++)
+        {
+            var e = new AuditEvent
+            {
+                Id = Guid.NewGuid(), TenantSlug = tenant, Action = "auth.login.succeeded",
+                ActorUserId = user.Id, ActorUsername = user.Username,
+                CreatedAt = new DateTime(start.Ticks + i * 1_000_000 + 7, DateTimeKind.Utc),
+            };
+            await using var session = Store.LightweightSession();
+            session.Store(e);
+            await session.SaveChangesAsync(Ct);
+            expected.Add($"audit-{e.Id:N}");
+        }
+
+        var seen = new List<string>();
+        var cursor = start.AddSeconds(-1).ToString("O");
+        for (var turn = 0; turn < 12; turn++)
+        {
+            var (_, page) = await ReadAsync(client, $"?pageSize=2&since={Uri.EscapeDataString(cursor)}");
+            seen.AddRange(Ids(page));
+            cursor = page.GetProperty("cursor").GetString()!;
+            if (!page.GetProperty("hasMore").GetBoolean()) break;
+        }
+
+        seen.Should().NotBeEmpty();
+        seen.Should().OnlyHaveUniqueItems();
+        seen.Should().Equal(expected);
+    }
+
+    [Fact]
+    public async Task A_long_title_is_cut_without_splitting_an_emoji()
+    {
+        var tenant = await TenantAsync();
+        var name = new string('a', 199) + "\U0001F600" + "tail";
+        await RunAsync(tenant, RunStatus.Failed, name);
+        var (client, _) = await CallerAsync(tenant, AllCapabilities);
+
+        var (_, page) = await ReadAsync(client, "?kinds=run.failed");
+
+        var rows = Rows(page);
+        rows.Should().HaveCount(1);
+        var title = rows[0].GetProperty("subject").GetProperty("title").GetString()!;
+        title.Should().NotBeEmpty();
+        char.IsHighSurrogate(title[^1]).Should().BeFalse();
     }
 }

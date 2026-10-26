@@ -67,7 +67,7 @@ internal sealed class Endpoint(
             && await session.LoadAsync<User>(userId, ct) is { } caller)
         {
             slots.AddRange(await ActivitySources.EventsAsync(
-                session, want, input, limit, (entry, token) => MayReadAsync(caller, entry, token), ct));
+                session, want, input, limit, now, (entry, token) => TitleIfReadableAsync(caller, entry, token), ct));
         }
 
         if (want.Has(ActivityKinds.Bounced)
@@ -97,10 +97,23 @@ internal sealed class Endpoint(
         }, ct);
     }
 
-    private async Task<bool> MayReadAsync(User caller, barakoCMS.Models.Content entry, CancellationToken ct) =>
-        await branchGuard.MayAccessAsync(User, entry, ct)
-        && await permissions.CanPerformActionAsync(caller, entry.ContentType, "read", entry, ct)
-        && !await sensitivity.ApplyAsync(entry, new Dictionary<string, object>(), HttpContext, ct);
+    /// <summary>
+    /// The title of an entry as this caller may see it, or null when they may not read the entry or
+    /// sensitivity hides it whole. The rules run over a copy of the data, the same call the content
+    /// endpoints make, so a title they would mask or drop is not shown here either.
+    /// </summary>
+    private async Task<string?> TitleIfReadableAsync(User caller, barakoCMS.Models.Content entry, CancellationToken ct)
+    {
+        if (!await branchGuard.MayAccessAsync(User, entry, ct)
+            || !await permissions.CanPerformActionAsync(caller, entry.ContentType, "read", entry, ct))
+        {
+            return null;
+        }
+
+        var scrubbed = new Dictionary<string, object>(entry.Data);
+        if (await sensitivity.ApplyAsync(entry, scrubbed, HttpContext, ct)) return null;
+        return ActivitySources.TitleOf(entry.Data, scrubbed);
+    }
 
     /// <summary>Gives the rows made by a user that user's name, in one read.</summary>
     private async Task NameActorsAsync(List<ActivitySlot> page, CancellationToken ct)

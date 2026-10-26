@@ -26,6 +26,9 @@ internal sealed record ActivityCursor(DateTimeOffset At, int Source, Guid Id, lo
     /// </summary>
     public static readonly TimeSpan Margin = TimeSpan.FromSeconds(5);
 
+    /// <summary>The earliest time a cursor may name. Anything older is a malformed request, not a place in the feed.</summary>
+    public static readonly DateTimeOffset Floor = new(2000, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
     public override string ToString() =>
         string.Create(CultureInfo.InvariantCulture, $"{At.UtcTicks}_{Source}_{Id:N}_{Sequence}");
 
@@ -57,7 +60,7 @@ internal sealed record ActivityCursor(DateTimeOffset At, int Source, Guid Id, lo
     }
 
     /// <summary>Where to start polling after a newest-first first page built at <paramref name="now"/>.</summary>
-    public static ActivityCursor Start(DateTimeOffset now) => new(Floor(now - Margin), 0, Guid.Empty, 0);
+    public static ActivityCursor Start(DateTimeOffset now) => new(Trim(now - Margin), 0, Guid.Empty, 0);
 
     /// <summary>
     /// The cursor to send back after a forward page.
@@ -78,13 +81,13 @@ internal sealed record ActivityCursor(DateTimeOffset At, int Source, Guid Id, lo
     {
         if (last is null) return input;
 
-        var cap = Floor(now - Margin);
+        var cap = Trim(now - Margin);
         if (last.At <= cap) return last;
         if (cap > input.At) return new ActivityCursor(cap, 0, Guid.Empty, 0);
         return hasMore ? last : input;
     }
 
-    private static DateTimeOffset Floor(DateTimeOffset at) =>
+    private static DateTimeOffset Trim(DateTimeOffset at) =>
         new(at.UtcTicks - at.UtcTicks % TimeSpan.TicksPerMillisecond, TimeSpan.Zero);
 }
 

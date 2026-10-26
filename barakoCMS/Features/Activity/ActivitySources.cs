@@ -91,9 +91,10 @@ internal static class ActivitySources
 
     private static ActivitySlot AuditSlot(AuditEvent e)
     {
-        // Postgres keeps microseconds and a cursor cut finer than that disagrees with the stored value.
+        // Postgres keeps microseconds and rounds the seventh digit when it reads the stored text, so a
+        // cursor cut by truncating would sit below the value the database compares and repeat the row.
         var ticks = DateTime.SpecifyKind(e.CreatedAt, DateTimeKind.Utc).Ticks;
-        var at = new DateTimeOffset(ticks - ticks % 10, TimeSpan.Zero);
+        var at = new DateTimeOffset((ticks + 5) / 10 * 10, TimeSpan.Zero);
         var position = new ActivityCursor(at, ActivitySource.Audit, e.Id, 0);
 
         var name = string.IsNullOrWhiteSpace(e.ActorUsername) ? null : Clip(e.ActorUsername);
@@ -211,9 +212,19 @@ internal static class ActivitySources
 
     // ---- the event store: published, scheduled, edited ----
 
+    /// <summary>
+    /// How far back a read with no cursor looks in the event store. mt_events has no index on its
+    /// timestamp, so an open lookback would scan every event of the tenant.
+    /// </summary>
+    public static readonly TimeSpan EventLookback = TimeSpan.FromDays(7);
+
+    /// <summary>
+    /// <paramref name="titleIfReadable"/> answers the title the caller may see for an entry, or null
+    /// when the caller may not read the entry at all.
+    /// </summary>
     public static async Task<List<ActivitySlot>> EventsAsync(
-        IQuerySession session, ActivityWant want, ActivityCursor? after, int limit,
-        Func<barakoCMS.Models.Content, CancellationToken, Task<bool>> mayRead, CancellationToken ct)
+        IQuerySession session, ActivityWant want, ActivityCursor? after, int limit, DateTimeOffset now,
+        Func<barakoCMS.Models.Content, CancellationToken, Task<string?>> titleIfReadable, CancellationToken ct)
     {
         var types = new List<Type>();
         if (want.Has(ActivityKinds.Published)) types.AddRange([typeof(ContentCreated), typeof(ContentStatusChanged)]);
@@ -239,14 +250,16 @@ internal static class ActivitySources
         }
         else
         {
-            raw = await query.OrderByDescending(e => e.Timestamp).ThenByDescending(e => e.Sequence).Take(limit + 1).ToListAsync(ct);
+            var since = now - EventLookback;
+            raw = await query.Where(e => e.Timestamp >= since)
+                .OrderByDescending(e => e.Timestamp).ThenByDescending(e => e.Sequence).Take(limit + 1).ToListAsync(ct);
         }
 
         if (raw.Count == 0) return [];
 
         var ids = raw.Select(e => e.StreamId).Distinct().ToArray();
         var entries = (await session.LoadManyAsync<barakoCMS.Models.Content>(ct, ids)).ToDictionary(c => c.Id);
-        var readable = new Dictionary<Guid, bool>();
+        var titles = new Dictionary<Guid, string?>();
 
         var slots = new List<ActivitySlot>(raw.Count);
         foreach (var e in raw)
@@ -259,20 +272,20 @@ internal static class ActivitySources
                 continue;
             }
 
-            if (!readable.TryGetValue(entry.Id, out var ok))
+            if (!titles.TryGetValue(entry.Id, out var title))
             {
-                ok = readable[entry.Id] = await mayRead(entry, ct);
+                title = titles[entry.Id] = await titleIfReadable(entry, ct);
             }
 
-            slots.Add(ok
+            slots.Add(title is not null
                 ? new ActivitySlot(position, new ActivityRow
                 {
-                    Id = $"event-{e.Sequence}",
+                    Id = EventRowId(e.StreamId, e.Version),
                     At = position.At,
                     Kind = kind,
                     Severity = ActivityKinds.SeverityOf(kind),
                     Actor = actor == Guid.Empty ? new ActivityActor() : new ActivityActor { Kind = "user", Name = "A user" },
-                    Subject = new ActivitySubject { Kind = "content", Id = entry.Id.ToString(), Title = TitleOf(entry) },
+                    Subject = new ActivitySubject { Kind = "content", Id = entry.Id.ToString(), Title = title },
                     Text = ActivityKinds.TextOf(kind),
                     Ref = $"/content/{Uri.EscapeDataString(entry.ContentType)}/{entry.Id}",
                 }, actor == Guid.Empty ? null : actor)
@@ -295,14 +308,32 @@ internal static class ActivitySources
         _ => (null, Guid.Empty),
     };
 
-    private static string TitleOf(barakoCMS.Models.Content entry)
+    /// <summary>
+    /// Stable for one event and says nothing about the global event sequence, which counts the writes
+    /// of every tenant.
+    /// </summary>
+    private static string EventRowId(Guid streamId, long version)
     {
-        foreach (var (key, value) in entry.Data)
+        var hash = System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes($"{streamId:N}:{version}"));
+        return "event-" + Convert.ToHexStringLower(hash.AsSpan(0, 12));
+    }
+
+    /// <summary>
+    /// The title as the caller's sensitivity rules left it. A title they removed or masked, which is
+    /// one that no longer equals the stored value, is not shown.
+    /// </summary>
+    internal static string TitleOf(IDictionary<string, object> stored, IDictionary<string, object> scrubbed)
+    {
+        foreach (var (key, value) in scrubbed)
         {
-            if (string.Equals(key, "title", StringComparison.OrdinalIgnoreCase) && value?.ToString() is { Length: > 0 } text)
+            if (!string.Equals(key, "title", StringComparison.OrdinalIgnoreCase) || value?.ToString() is not { Length: > 0 } text)
             {
-                return Clip(text);
+                continue;
             }
+
+            var original = stored.FirstOrDefault(p => string.Equals(p.Key, key, StringComparison.Ordinal)).Value?.ToString();
+            return original == text ? Clip(text) : "Untitled";
         }
 
         return "Untitled";
@@ -320,7 +351,7 @@ internal static class ActivitySources
             {
                 ActivitySource.Bounces => await source.ListAsync(tenantSlug, cursor.At, cursor.Id, limit + 1, ct),
                 > ActivitySource.Bounces => await source.ListAsync(tenantSlug, cursor.At, null, limit + 1, ct),
-                _ => await source.ListAsync(tenantSlug, cursor.At.AddTicks(-1), null, limit + 1, ct),
+                _ => await source.ListAsync(tenantSlug, cursor.At > DateTimeOffset.MinValue.AddTicks(1) ? cursor.At.AddTicks(-1) : cursor.At, null, limit + 1, ct),
             };
         }
         else
@@ -345,5 +376,10 @@ internal static class ActivitySources
         }).ToList();
     }
 
-    private static string Clip(string text) => text.Length <= 200 ? text : text[..200];
+    private static string Clip(string text)
+    {
+        if (text.Length <= 200) return text;
+        var end = char.IsHighSurrogate(text[199]) ? 199 : 200;
+        return text[..end];
+    }
 }

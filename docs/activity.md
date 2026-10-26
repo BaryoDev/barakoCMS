@@ -12,7 +12,7 @@ new is stored.
 | `kinds` | Comma separated kinds to keep. Left out, every kind. A name this version does not know is ignored. |
 | `pageSize` | 1 to 100, default 20. `page` is ignored, the cursor is what moves. |
 
-An unreadable `since` is a 400.
+An unreadable `since`, or one before 2000-01-01, is a 400.
 
 ## Polling
 
@@ -62,6 +62,18 @@ The route needs `view_audit_log`, and a caller without it gets 403. Past that, a
 the second capability for is left out, not an error. Every read is for the caller's tenant, a
 SuperAdmin's too. An entry hidden from the caller by its sensitivity, its branch or the role's
 read rules gives no row.
+
+A title is shown as the caller's sensitivity rules leave it. A title that field sensitivity or a Read
+rule masks or removes shows as `Untitled`, and an entry hidden whole gives no row.
+
+Read with no `since`, the content event kinds (`published`, `scheduled`, `edited`) look back 7 days
+only, since the event store has no index on its timestamp. The other sources have no such window.
+
+A caller on an API key gets no content event rows. Those need a signed-in user to check read
+permission against, and a key has none. The route is not in any API key scope, so a key is turned away before this applies.
+
+The `id` of a content row is opaque and stable for the same event. It is not a position in the event
+store.
 
 No event type name, stream id or event body is in a response.
 
