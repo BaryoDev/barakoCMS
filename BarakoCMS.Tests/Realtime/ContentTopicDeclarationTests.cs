@@ -89,6 +89,17 @@ public class ContentTopicDeclarationTests(SampleProbeHost host) : IClassFixture<
     }
 
     [Fact]
+    public async Task The_workflow_runs_topic_name_is_reserved()
+    {
+        var (_, admin) = await TenantAsync();
+
+        var response = await ApplyAsync(admin, ("ticket", TypeDocument("workflow-runs")));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync(Ct)).Should().Contain("'workflow-runs' is reserved");
+    }
+
+    [Fact]
     public async Task A_module_topic_name_is_refused()
     {
         var (_, admin) = await TenantAsync();

@@ -2,7 +2,9 @@ using System.Net;
 using System.Text.Json;
 using System.Threading.Channels;
 using barakoCMS.Features.Workflows;
+using barakoCMS.Infrastructure.Realtime;
 using barakoCMS.Models;
+using Microsoft.Extensions.DependencyInjection;
 using BarakoCMS.Tests.SampleProbe;
 using FluentAssertions;
 using Microsoft.AspNetCore.SignalR;
@@ -205,5 +207,88 @@ public class WorkflowRunLiveTests(SampleProbeHost host) : IClassFixture<SamplePr
         first.StatusCode.Should().Be(HttpStatusCode.OK);
         second.StatusCode.Should().Be(HttpStatusCode.OK);
         second.Headers.ETag.Should().Be(first.Headers.ETag, "the same list gives the same tag");
+    }
+
+    [Fact]
+    public async Task A_stored_type_holding_the_reserved_topic_is_not_read_as_a_content_topic()
+    {
+        var name = await ContentTopicKit.TypeAsync(host, "workflow-runs");
+        var catalog = host.Services.GetRequiredService<ContentTopicCatalog>();
+
+        (await catalog.FindAsync(Tenant.DefaultSlug, "workflow-runs", Ct)).Should().BeNull();
+        (await catalog.ForTypeAsync(Tenant.DefaultSlug, name, Ct)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_commit_of_many_runs_sends_one_refetch_notice()
+    {
+        var caller = await host.CallerHoldingAsync(ViewRuns);
+        await using var listening = await Listening.StartAsync(host, caller.Token);
+        var marker = await StoreRunAsync(Guid.NewGuid());
+        await listening.UntilRunAsync(marker.Id);
+
+        await using (var session = host.OpenSession())
+        {
+            for (var i = 0; i < WorkflowRunTopic.MaxNoticesPerCommit + 1; i++)
+            {
+                session.Store(new WorkflowRun
+                {
+                    Id = Guid.NewGuid(),
+                    WorkflowDefinitionId = Guid.NewGuid(),
+                    WorkflowName = "Bulk",
+                    ContentId = Guid.NewGuid(),
+                    ContentType = "article",
+                    TriggerEvent = WorkflowEvents.Published,
+                });
+            }
+
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var next = await listening.UntilRunAsync(Guid.Empty);
+        next.Should().NotBeEmpty();
+        next.Should().ContainSingle(n => n.GetProperty("type").GetString() == WorkflowRunTopic.RefetchType);
+        next.Count.Should().BeLessThan(WorkflowRunTopic.MaxNoticesPerCommit, "the runs were not announced one by one");
+    }
+
+    [Fact]
+    public async Task The_same_list_in_two_tenants_has_different_etags()
+    {
+        var first = await host.CreateTenantAsync();
+        var second = await host.CreateTenantAsync();
+        var workflowId = Guid.NewGuid();
+        var url = $"/api/workflow-runs?workflowId={workflowId}";
+
+        var a = await (await host.ClientHoldingAsync(ViewRuns, first)).GetAsync(url, Ct);
+        var b = await (await host.ClientHoldingAsync(ViewRuns, second)).GetAsync(url, Ct);
+
+        a.StatusCode.Should().Be(HttpStatusCode.OK);
+        b.StatusCode.Should().Be(HttpStatusCode.OK);
+        using (var doc = JsonDocument.Parse(await a.Content.ReadAsStringAsync(Ct)))
+            doc.RootElement.GetProperty("totalItems").GetInt32().Should().Be(0, "both bodies are the same empty page");
+        a.Headers.ETag.Should().NotBeNull();
+        b.Headers.ETag.Should().NotBe(a.Headers.ETag);
+    }
+
+    [Fact]
+    public async Task Both_the_200_and_the_304_say_private_no_cache()
+    {
+        var caller = await host.CallerHoldingAsync(ViewRuns);
+        var workflowId = Guid.NewGuid();
+        await StoreRunAsync(workflowId);
+        var url = $"/api/workflow-runs?workflowId={workflowId}";
+
+        var ok = await caller.Client.GetAsync(url, Ct);
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.IfNoneMatch.Add(ok.Headers.ETag!);
+        var notModified = await caller.Client.SendAsync(request, Ct);
+
+        ok.StatusCode.Should().Be(HttpStatusCode.OK);
+        notModified.StatusCode.Should().Be(HttpStatusCode.NotModified);
+        foreach (var response in new[] { ok, notModified })
+        {
+            response.Headers.CacheControl!.Private.Should().BeTrue();
+            response.Headers.CacheControl.NoCache.Should().BeTrue();
+        }
     }
 }

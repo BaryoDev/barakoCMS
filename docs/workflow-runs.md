@@ -590,9 +590,11 @@ connection.On("changed", n => /* GET /api/workflow-runs?changedSince=<cursor> */
 
 The topic needs `view_workflow_runs`, the same capability as the list. A notice goes out to the tenant's subscribers each time a run is written, and holds only `{ topic: "workflow-runs", sequence: 0, streamId: <run id>, type: "WorkflowRun" }`. Runs are documents and not events, so there is no sequence and `GET /api/changes` does not take this topic. The list with `changedSince` is the read. A run written in another tenant is never announced to yours. Notices come from the server instance that wrote the run, so a client on a multi-instance host keeps a slow poll as a fallback.
 
+Deleted runs send no notice. A live view that wants removals reads the list on a slow poll with the ETag, and a changed total or page body shows them.
+
 The hub already runs over WebSockets, so the nginx and Caddy samples need nothing new for it.
 
-When a client cannot use the hub, `GET /api/workflow-runs` sends a weak `ETag` and answers `304 Not Modified` with no body to a matching `If-None-Match`. The tag covers the runs, the page and the counts. It leaves out `cursor` and the retention times, which move with the clock, so keep the cursor from the last 200. The query still runs; the saving is the body.
+When a client cannot use the hub, `GET /api/workflow-runs` sends a weak `ETag` and answers `304 Not Modified` with no body to a matching `If-None-Match`. The tag covers the runs, the page, the counts and the configured retention windows. It leaves out `cursor` and the retention dates, which move with the clock, so keep the cursor from the last 200. The query still runs; the saving is the body.
 
 ## Running one by hand, and how healthy a workflow is
 

@@ -29,7 +29,7 @@ A notice goes out as soon as the write commits, but the feed stops at the high-w
 
 ### The workflow-runs topic
 
-`Subscribe("workflow-runs")` needs the `view_workflow_runs` capability. A notice goes out for each workflow run written in your tenant. It has no sequence (always 0) and `type` is `WorkflowRun`, because runs are documents and not events. `GET /api/changes` does not take this topic: read `GET /api/workflow-runs?changedSince=<cursor>` instead. See `docs/workflow-runs.md`.
+`Subscribe("workflow-runs")` needs the `view_workflow_runs` capability. A notice goes out for each workflow run written in your tenant. It has no sequence (always 0) and `type` is `WorkflowRun`, because runs are documents and not events. `GET /api/changes` does not take this topic: read `GET /api/workflow-runs?changedSince=<cursor>` instead. See `docs/workflow-runs.md`. The name `workflow-runs` is reserved: a module or content type cannot declare it. When one commit writes more than 50 runs, a single notice goes out instead of one per run, with `streamId` of all zeros and `type` `WorkflowRunsChanged`. Treat it as "read the list again".
 
 ### What is checked, and when
 

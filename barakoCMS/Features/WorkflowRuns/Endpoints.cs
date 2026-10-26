@@ -361,12 +361,15 @@ internal sealed class ListRunsEndpoint(
         var sweeping = WorkflowRunRetentionService.IsEnabled(config);
         var items = page.Items.Select(RunResponse.From).ToList();
 
-        var etag = RunListETag.Compute(HttpContext, items, page.Page, page.PageSize, page.TotalItems, counts);
+        var etag = RunListETag.Compute(HttpContext, items, page.Page, page.PageSize, page.TotalItems, counts,
+            $"{sweeping}:{windows.SucceededDays}:{windows.FailedDays}");
         HttpContext.Response.Headers.ETag = etag;
         HttpContext.Response.Headers.CacheControl = "private, no-cache";
         if (DeliveryCache.IsNotModified(HttpContext.Request, etag, null))
         {
             HttpContext.Response.StatusCode = StatusCodes.Status304NotModified;
+            // Completing the response is what stops FastEndpoints from sending its own 204 once HandleAsync returns.
+            await HttpContext.Response.CompleteAsync();
             return;
         }
 

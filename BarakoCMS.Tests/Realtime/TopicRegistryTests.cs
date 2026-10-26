@@ -4,6 +4,7 @@ using barakoCMS.Models;
 using barakoCMS.Modules;
 using BarakoCMS.Tests.SampleProbe;
 using FluentAssertions;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -50,6 +51,30 @@ public class TopicRegistryTests
         ]);
 
         act.Should().Throw<InvalidOperationException>().WithMessage("*'same'*One*Two*");
+    }
+
+    [Fact]
+    public void Registry_ModuleDeclaringTheWorkflowRunsTopic_Throws()
+    {
+        var act = () => new TopicRegistry([new Declares("Squatter", t => t.Add("workflow-runs", "read_a", typeof(ProbeTicketIssued)))]);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*Squatter*'workflow-runs'*reserves*");
+    }
+
+    [Fact]
+    public void The_legacy_role_opens_the_run_topic_only_when_the_fallback_is_on()
+    {
+        var admin = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(
+            [new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Role, "Admin")], "test"));
+        var stranger = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(
+            [new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Role, "Nobody")], "test"));
+        IConfiguration On() => new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?> { [CapabilityGateProcessor.LegacyRoleFallbackKey] = "true" }).Build();
+        IConfiguration Off() => new ConfigurationBuilder().Build();
+
+        WorkflowRunTopic.LegacyRoleAllows(On(), admin).Should().BeTrue();
+        WorkflowRunTopic.LegacyRoleAllows(Off(), admin).Should().BeFalse("the default is off, as at the endpoint");
+        WorkflowRunTopic.LegacyRoleAllows(On(), stranger).Should().BeFalse();
     }
 
     [Fact]

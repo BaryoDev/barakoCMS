@@ -56,11 +56,6 @@ internal sealed class RealtimeEventListener(
     {
         try
         {
-            // The group is the session's tenant, so a run written under tenant B reaches only B's subscribers.
-            var runGroup = RealtimeHub.GroupName(TenantScopes.SlugFor(tenantId), WorkflowRunTopic.Name);
-            foreach (var run in runs)
-                await hub.Clients.Group(runGroup).SendAsync(Method, WorkflowRunTopic.Notice(run), token);
-
             foreach (var e in events)
             {
                 var slug = TenantScopes.SlugFor(e.TenantId);
@@ -82,6 +77,33 @@ internal sealed class RealtimeEventListener(
         catch (Exception ex)
         {
             logger.LogError(ex, "Realtime notice failed after a commit; the write itself succeeded");
+        }
+
+        await NotifyRunsAsync(runs, tenantId, token);
+    }
+
+    // Its own try and after the others, so a failed run send cannot drop the event and content
+    // notices of the same commit.
+    private async Task NotifyRunsAsync(IReadOnlyList<Guid> runs, string tenantId, CancellationToken token)
+    {
+        if (runs.Count == 0) return;
+
+        try
+        {
+            // The group is the session's tenant, so a run written under tenant B reaches only B's subscribers.
+            var group = hub.Clients.Group(RealtimeHub.GroupName(TenantScopes.SlugFor(tenantId), WorkflowRunTopic.Name));
+            if (runs.Count > WorkflowRunTopic.MaxNoticesPerCommit)
+            {
+                await group.SendAsync(Method, WorkflowRunTopic.RefetchNotice(), token);
+                return;
+            }
+
+            foreach (var run in runs)
+                await group.SendAsync(Method, WorkflowRunTopic.Notice(run), token);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Workflow run notice failed after a commit; the write itself succeeded");
         }
     }
 

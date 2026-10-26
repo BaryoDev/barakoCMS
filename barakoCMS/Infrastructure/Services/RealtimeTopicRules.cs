@@ -35,6 +35,11 @@ public static partial class RealtimeTopicRules
             return $"Realtime topic '{Shorten(topic)}' must be lower case words joined by dots or dashes.";
         }
 
+        if (string.Equals(topic, WorkflowRunTopic.Name, StringComparison.Ordinal))
+        {
+            return $"Realtime topic '{topic}' is reserved.";
+        }
+
         if (registry.Find(topic) is { } owner)
         {
             return $"Realtime topic '{topic}' is used by module '{owner.Module}'.";

@@ -69,6 +69,10 @@ public sealed partial class TopicRegistry
                 + $"'{type.Assembly.GetName().Name}'. A topic may only carry event types from the module's own assemblies.");
         }
 
+        if (string.Equals(name, WorkflowRunTopic.Name, StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                $"Module '{module.Name}' declared topic '{name}', which core reserves for workflow runs.");
+
         if (_byName.TryGetValue(name, out var existing))
             throw new InvalidOperationException(
                 $"Topic '{name}' is declared by module '{existing.Module}' and again by module '{module.Name}'. Topic names are shared by every module.");

@@ -64,7 +64,8 @@ public sealed class RealtimeHub(TopicRegistry topics, TenantContext tenant, ISer
         var slug = UseCallersTenant();
         if (string.Equals(topic, WorkflowRunTopic.Name, StringComparison.Ordinal))
         {
-            await RequireCapabilityAsync(WorkflowRunTopic.Capability);
+            if (!WorkflowRunTopic.LegacyRoleAllows(services.GetRequiredService<IConfiguration>(), Context.User!))
+                await RequireCapabilityAsync(WorkflowRunTopic.Capability);
             await EnsureSessionValidAsync(Context.ConnectionAborted);
             await JoinAsync(GroupName(slug, WorkflowRunTopic.Name));
             return;
