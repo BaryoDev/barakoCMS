@@ -305,6 +305,25 @@ internal sealed class ListRunsEndpoint(
         Definition.RequireCapability(SystemCapabilities.ViewWorkflowRuns, RunGate.LegacyRoles);
     }
 
+    private static IQueryable<WorkflowRun> FilterRuns(
+        IQuerySession session, ListRunsRequest req, RunStatus? status, RunCursor? since)
+    {
+        var query = session.Query<WorkflowRun>().AsQueryable();
+        if (status is { } s) query = query.Where(r => r.Status == s);
+        if (req.ContentId is { } contentId) query = query.Where(r => r.ContentId == contentId);
+        if (req.WorkflowId is { } workflowId) query = query.Where(r => r.WorkflowDefinitionId == workflowId);
+
+        if (since is { } from)
+        {
+            return query
+                .Where(r => r.MatchesSql(RunCursor.AfterSql, from.At.UtcDateTime, from.At.UtcDateTime, from.Id))
+                .OrderBy(r => r.UpdatedAt)
+                .ThenBy(r => r.Id);
+        }
+
+        return query.OrderByDescending(r => r.CreatedAt);
+    }
+
     public override async Task HandleAsync(ListRunsRequest req, CancellationToken ct)
     {
         RunStatus? status = null;
@@ -340,22 +359,7 @@ internal sealed class ListRunsEndpoint(
             ? await RunQueries.CountByStatusAsync(session, req.ContentId, req.WorkflowId, ct)
             : null;
 
-        var query = session.Query<WorkflowRun>().AsQueryable();
-        if (status is { } s) query = query.Where(r => r.Status == s);
-        if (req.ContentId is { } contentId) query = query.Where(r => r.ContentId == contentId);
-        if (req.WorkflowId is { } workflowId) query = query.Where(r => r.WorkflowDefinitionId == workflowId);
-
-        if (since is { } from)
-        {
-            query = query
-                .Where(r => r.MatchesSql(RunCursor.AfterSql, from.At.UtcDateTime, from.At.UtcDateTime, from.Id))
-                .OrderBy(r => r.UpdatedAt)
-                .ThenBy(r => r.Id);
-        }
-        else
-        {
-            query = query.OrderByDescending(r => r.CreatedAt);
-        }
+        var query = FilterRuns(session, req, status, since);
 
         var page = await query.ToPagedResponseAsync(req, ct);
 

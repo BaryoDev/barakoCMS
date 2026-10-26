@@ -235,27 +235,7 @@ internal static class ActivitySources
         var typeArray = types.ToArray();
         var query = session.Events.QueryAllRawEvents().Where(e => e.EventTypesAre(typeArray));
 
-        IReadOnlyList<IEvent> raw;
-        if (after is { } cursor)
-        {
-            var at = cursor.At;
-            var sequence = cursor.Source == ActivitySource.Events
-                ? await SequenceOfAsync(session, cursor.Id, cursor.Sequence, ct)
-                : 0;
-            query = cursor.Source switch
-            {
-                ActivitySource.Events => query.Where(e => e.Timestamp > at || (e.Timestamp == at && e.Sequence > sequence)),
-                > ActivitySource.Events => query.Where(e => e.Timestamp > at),
-                _ => query.Where(e => e.Timestamp >= at),
-            };
-            raw = await query.OrderBy(e => e.Timestamp).ThenBy(e => e.Sequence).Take(limit + 1).ToListAsync(ct);
-        }
-        else
-        {
-            var since = now - EventLookback;
-            raw = await query.Where(e => e.Timestamp >= since)
-                .OrderByDescending(e => e.Timestamp).ThenByDescending(e => e.Sequence).Take(limit + 1).ToListAsync(ct);
-        }
+        var raw = await ReadRawEventsAsync(session, query, after, limit, now, ct);
 
         if (raw.Count == 0) return [];
 
@@ -295,6 +275,30 @@ internal static class ActivitySources
         }
 
         return slots;
+    }
+
+    private static async Task<IReadOnlyList<IEvent>> ReadRawEventsAsync(
+        IQuerySession session, IQueryable<IEvent> query, ActivityCursor? after, int limit, DateTimeOffset now,
+        CancellationToken ct)
+    {
+        if (after is { } cursor)
+        {
+            var at = cursor.At;
+            var sequence = cursor.Source == ActivitySource.Events
+                ? await SequenceOfAsync(session, cursor.Id, cursor.Sequence, ct)
+                : 0;
+            query = cursor.Source switch
+            {
+                ActivitySource.Events => query.Where(e => e.Timestamp > at || (e.Timestamp == at && e.Sequence > sequence)),
+                > ActivitySource.Events => query.Where(e => e.Timestamp > at),
+                _ => query.Where(e => e.Timestamp >= at),
+            };
+            return await query.OrderBy(e => e.Timestamp).ThenBy(e => e.Sequence).Take(limit + 1).ToListAsync(ct);
+        }
+
+        var since = now - EventLookback;
+        return await query.Where(e => e.Timestamp >= since)
+            .OrderByDescending(e => e.Timestamp).ThenByDescending(e => e.Sequence).Take(limit + 1).ToListAsync(ct);
     }
 
     /// <summary>
