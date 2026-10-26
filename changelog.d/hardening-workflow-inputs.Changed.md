@@ -1,1 +1,0 @@
-- **Workflow version inputs are checked.** The rollback and Discord announce workflows validate the version string before use.

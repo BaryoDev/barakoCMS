@@ -1,1 +1,0 @@
-- **The attempt history fields were undocumented.** `docs/workflow-runs.md` now lists the fields of an action and of each `history` entry on `GET /api/workflow-runs/{id}`. No API change.

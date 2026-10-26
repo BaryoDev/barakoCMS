@@ -1,1 +1,0 @@
-- **Registration could send many mails to one address.** Registration now sends at most one mail per address every 5 minutes, and the link already mailed creates the latest request. Set Auth:RegisterMailCooldownMinutes to change the window, or 0 to turn it off. The window is kept in each instance's memory, so a restart clears it. The response is unchanged.

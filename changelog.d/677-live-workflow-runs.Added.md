@@ -1,1 +1,0 @@
-- **Workflow runs had no live view.** The realtime hub has a `workflow-runs` topic (capability `view_workflow_runs`) that sends a notice for each run written in the caller's tenant, to be read with `GET /api/workflow-runs?changedSince=`. `GET /api/workflow-runs` also sends a weak `ETag` and answers `304` to a matching `If-None-Match`.

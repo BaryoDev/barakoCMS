@@ -1,1 +1,0 @@
-- **The console can show referrer favicons without calling a third party.** `GET /api/analytics/favicon?domain=example.com` in the Umami module fetches `https://<domain>/favicon.ico` on the server (hostnames only, no redirects, 64 KB cap, no SVG), caches hits and misses for a day, and answers with `X-Content-Type-Options: nosniff`.

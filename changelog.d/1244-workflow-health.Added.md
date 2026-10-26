@@ -1,1 +1,0 @@
-- **Workflow health had no recent view.** GET /api/workflows/health now also returns the tenant's last 24 hours: `runs24h`, the newest ten runs, `successRate`, a `verdict` (ok at 90 percent and up, warn at 70, otherwise bad), a one-line `summary` and a per-workflow `workflows` list.

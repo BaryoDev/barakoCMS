@@ -1,1 +1,0 @@
-- **PWA platform values were free text and device rows were kept forever.** A new report stores its platform as a lowercased ios, android, windows, macos or linux, or other for anything else. Rows already stored keep their old values. Set Modules:Pwa:RetentionDays to delete rows not seen for that many days. It is 0 by default, which keeps every row.

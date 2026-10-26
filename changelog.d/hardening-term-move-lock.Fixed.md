@@ -1,1 +1,0 @@
-- **A term move and a term delete could run past each other.** A move now takes the vocabulary lock that term create and delete already use.
