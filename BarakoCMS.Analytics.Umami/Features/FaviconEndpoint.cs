@@ -19,7 +19,7 @@ public sealed class FaviconRequestValidator : Validator<FaviconRequest>
             .WithMessage("domain must be a plain hostname such as example.com.");
 }
 
-/// <summary>GET /api/analytics/favicon?domain=example.com — the referrer's favicon, fetched and
+/// <summary>GET /api/analytics/favicon?domain=example.com, the referrer's favicon, fetched and
 /// cached by the server so the console never contacts the referrer's site. 404 when there is none.</summary>
 public sealed class FaviconEndpoint(
     FaviconFetcher fetcher,

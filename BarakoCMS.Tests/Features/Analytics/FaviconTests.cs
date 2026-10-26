@@ -35,6 +35,13 @@ public class FaviconTests
     }
 
     [Fact]
+    public void Non_ascii_is_rejected_before_it_can_lowercase_into_ascii()
+    {
+        FaviconHostname.TryNormalize("\u212A.example.com", out _).Should().BeFalse();
+        FaviconHostname.TryNormalize("b\u00FCcher.example", out _).Should().BeFalse();
+    }
+
+    [Fact]
     public void The_validator_rejects_an_over_long_name()
     {
         var name = string.Join('.', Enumerable.Repeat(new string('a', 60), 5)) + ".com";
@@ -115,7 +122,7 @@ public class FaviconTests
     {
         var handler = new StubHandler(_ =>
         {
-            var r = new HttpResponseMessage(HttpStatusCode.Found);
+            var r = Respond(HttpStatusCode.Found, "image/png", new byte[] { 1, 2, 3 });
             r.Headers.Location = new Uri("https://evil.example.net/favicon.ico");
             return r;
         });
@@ -149,8 +156,95 @@ public class FaviconTests
 
         handler.Uris.Should().HaveCount(200);
         fetcher.CachedEntries.Should().BeGreaterThan(0);
-        fetcher.CachedEntries.Should().BeLessThan(limit / 256 + 1);
+        fetcher.CachedEntries.Should().BeLessThan((int)(limit / 256) + 1);
         fetcher.CachedEntries.Should().BeLessThan(200);
+    }
+
+    [Fact]
+    public async Task A_body_over_the_cap_is_not_read_past_the_cap()
+    {
+        var counting = new CountingStream(10 * 1024 * 1024);
+        var handler = new StubHandler(_ =>
+        {
+            var content = new StreamContent(counting);
+            content.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = content };
+        });
+        using var fetcher = new FaviconFetcher(new StubFactory(handler));
+
+        (await fetcher.GetAsync("huge.example.com", Ct)).Should().BeNull();
+
+        counting.BytesRead.Should().BeGreaterThan(0);
+        counting.BytesRead.Should().BeLessThanOrEqualTo(FaviconFetcher.MaxBytes + 1);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.InternalServerError)]
+    [InlineData(HttpStatusCode.ServiceUnavailable)]
+    public async Task A_server_error_is_retried_after_five_minutes_not_a_day(HttpStatusCode status)
+    {
+        var clock = new Clock();
+        var handler = new StubHandler(_ => new HttpResponseMessage(status));
+        using var fetcher = new FaviconFetcher(new StubFactory(handler), time: clock);
+
+        await fetcher.GetAsync("flaky.example.com", Ct);
+        clock.Advance(TimeSpan.FromMinutes(4));
+        await fetcher.GetAsync("flaky.example.com", Ct);
+        handler.Uris.Should().HaveCount(1);
+
+        clock.Advance(TimeSpan.FromMinutes(2));
+        await fetcher.GetAsync("flaky.example.com", Ct);
+        handler.Uris.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task A_connection_failure_is_retried_after_five_minutes()
+    {
+        var clock = new Clock();
+        var handler = new StubHandler(_ => throw new HttpRequestException("refused"));
+        using var fetcher = new FaviconFetcher(new StubFactory(handler), time: clock);
+
+        await fetcher.GetAsync("down.example.com", Ct);
+        clock.Advance(TimeSpan.FromMinutes(6));
+        await fetcher.GetAsync("down.example.com", Ct);
+
+        handler.Uris.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task A_404_is_kept_for_a_day()
+    {
+        var clock = new Clock();
+        var handler = new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound));
+        using var fetcher = new FaviconFetcher(new StubFactory(handler), time: clock);
+
+        await fetcher.GetAsync("none.example.com", Ct);
+        clock.Advance(TimeSpan.FromHours(23));
+        await fetcher.GetAsync("none.example.com", Ct);
+        handler.Uris.Should().HaveCount(1);
+
+        clock.Advance(TimeSpan.FromHours(2));
+        await fetcher.GetAsync("none.example.com", Ct);
+        handler.Uris.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task Concurrent_cold_requests_for_one_host_share_one_fetch()
+    {
+        var release = new TaskCompletionSource();
+        var handler = new StubHandler(_ => Respond(HttpStatusCode.OK, "image/png", new byte[] { 9 }))
+        {
+            Gate = release.Task,
+        };
+        using var fetcher = new FaviconFetcher(new StubFactory(handler));
+
+        var calls = Enumerable.Range(0, 10).Select(_ => fetcher.GetAsync("busy.example.com", Ct)).ToList();
+        release.SetResult();
+        var icons = await Task.WhenAll(calls);
+
+        icons.Should().HaveCount(10);
+        icons.Should().OnlyContain(i => i != null);
+        handler.Uris.Should().ContainSingle();
     }
 
     private static HttpResponseMessage Respond(HttpStatusCode status, string contentType, byte[] body)
@@ -182,12 +276,35 @@ public class FaviconTests
 
     private sealed class StubHandler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
     {
-        public List<string> Uris { get; } = new();
+        private readonly object _lock = new();
+        private readonly List<string> _uris = new();
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        public List<string> Uris
         {
-            Uris.Add(request.RequestUri!.ToString());
-            return Task.FromResult(respond(request));
+            get
+            {
+                lock (_lock)
+                {
+                    return _uris.ToList();
+                }
+            }
+        }
+
+        public Task? Gate { get; init; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            lock (_lock)
+            {
+                _uris.Add(request.RequestUri!.ToString());
+            }
+
+            if (Gate is not null)
+            {
+                await Gate;
+            }
+
+            return respond(request);
         }
     }
 
@@ -198,5 +315,49 @@ public class FaviconTests
             name.Should().Be("ExternalApi");
             return new HttpClient(handler, disposeHandler: false);
         }
+    }
+
+    private sealed class Clock : TimeProvider
+    {
+        private DateTimeOffset _now = new(2026, 10, 26, 12, 0, 0, TimeSpan.Zero);
+
+        public override DateTimeOffset GetUtcNow() => _now;
+
+        public void Advance(TimeSpan by) => _now += by;
+    }
+
+    private sealed class CountingStream(long length) : Stream
+    {
+        private long _position;
+
+        public long BytesRead { get; private set; }
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => _position; set => throw new NotSupportedException(); }
+
+        public override int Read(byte[] buffer, int offset, int count) => Take(count);
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            var n = Take(buffer.Length);
+            buffer.Span[..n].Clear();
+            return ValueTask.FromResult(n);
+        }
+
+        private int Take(int count)
+        {
+            var n = (int)Math.Min(count, length - _position);
+            _position += n;
+            BytesRead += n;
+            return n;
+        }
+
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 }

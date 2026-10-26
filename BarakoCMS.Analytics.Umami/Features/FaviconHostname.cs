@@ -19,6 +19,12 @@ public static class FaviconHostname
             return false;
         }
 
+        // Before lowercasing: U+212A (Kelvin sign) lowercases to an ASCII "k".
+        if (value.Any(c => c > 127))
+        {
+            return false;
+        }
+
         var lower = value.ToLowerInvariant();
         var labels = lower.Split('.');
         // A dotted name only: "localhost" and single-label intranet names have no public favicon.
