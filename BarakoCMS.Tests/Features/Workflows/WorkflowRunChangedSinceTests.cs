@@ -181,6 +181,8 @@ public class WorkflowRunChangedSinceTests
 
     [Theory]
     [InlineData("3155378976000000000_0123456789abcdef0123456789abcdef", "ticks past the last date")]
+    [InlineData("3155378975999999999_0123456789abcdef0123456789abcdef", "ticks at the last date")]
+    [InlineData("9999-12-31T23:59:59Z", "a timestamp far ahead")]
     [InlineData("99999999999999999999_0123456789abcdef0123456789abcdef", "ticks past a long")]
     [InlineData("-5_0123456789abcdef0123456789abcdef", "negative ticks")]
     [InlineData("638000000000000000_not-a-guid", "a bad id")]
@@ -258,6 +260,31 @@ public class WorkflowRunChangedSinceTests
         }
 
         seen.Should().Contain(runs[2].Id, "a page with more behind it lags too, or this run is skipped for good");
+    }
+
+    [Fact]
+    public async Task More_runs_changed_moments_ago_than_a_page_holds_are_all_reached_by_following_the_cursor()
+    {
+        var (contentId, runs) = await SeedAsync(6);
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var admin = await AdminOnAsync(clock);
+
+        var seen = new HashSet<Guid>();
+        var cursor = Long;
+        for (var turn = 0; turn < 10; turn++)
+        {
+            using var doc = await ListAsync($"contentId={contentId}&changedSince={Uri.EscapeDataString(cursor)}&pageSize=2", admin);
+            var ids = Ids(doc);
+            seen.UnionWith(ids);
+            cursor = CursorOf(doc);
+            if (ids.Count >= doc.RootElement.GetProperty("totalItems").GetInt32()) break;
+
+            // A request takes time, so the margin point moves between pages.
+            clock.Advance(TimeSpan.FromMilliseconds(1));
+        }
+
+        seen.Should().HaveCount(6, "every run sits inside the margin, and a page with more behind it must still move on");
+        seen.Should().BeEquivalentTo(runs.Select(r => r.Id));
     }
 
     [Fact]
