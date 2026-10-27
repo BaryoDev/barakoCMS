@@ -355,6 +355,10 @@ pending registrations for the same name; the first to confirm gets it and the se
 verification with the same message every other rejection there uses. That is the right way round: the
 reservation is the thing an attacker would want for free.
 
+A repeat registration for an address inside the mail cooldown changes nothing: no new mail, and the
+pending row keeps the details of the first request. The cooldown and the pending lookup are keyed by
+address alone, since username and email are unique across the whole install.
+
 **Verification is required by default**, which is the one place in the codebase where a new setting
 does not preserve existing behaviour. What it would preserve is the defect. Turning it off with
 `Auth:RequireEmailVerification=false` is a legitimate choice for a deployment with no mail transport
