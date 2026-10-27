@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Confirming a registration takes the password.** `POST /api/auth/register/verify` now takes the password chosen at registration alongside the token. A frontend's confirm page has to ask for it.
 - **IMailBounceSource gained list methods.** `ListAsync` and `ListNewestAsync` have default implementations that return nothing, so existing implementors still compile. An implementor that does not override them gives the activity feed no bounce rows. BarakoCMS.Abstractions is now 5.4.0.
 - **Flag targeting read the wrong field.** Feature flag targeting by email now uses the email stored on the user record, not the username. Flags limited to some tenants are no longer listed to callers of other tenants.
 - **PWA platform values were free text and device rows were kept forever.** A new report stores its platform as a lowercased ios, android, windows, macos or linux, or other for anything else. Rows already stored keep their old values. Set Modules:Pwa:RetentionDays to delete rows not seen for that many days. It is 0 by default, which keeps every row.

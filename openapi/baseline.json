@@ -2646,6 +2646,12 @@
       "BarakoCMSFeaturesAuthRegisterVerifyRequest": {
         "additionalProperties": false,
         "properties": {
+          "password": {
+            "maxLength": 256,
+            "minLength": 0,
+            "nullable": false,
+            "type": "string"
+          },
           "token": {
             "maxLength": 256,
             "minLength": 0,
@@ -2654,6 +2660,7 @@
           }
         },
         "required": [
+          "password",
           "token"
         ],
         "type": "object"

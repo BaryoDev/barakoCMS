@@ -393,7 +393,7 @@ unaffected. See `docs/access-control.md`.
 
 **Self-registration no longer creates an account.** `POST /api/auth/register` records the request
 and emails a single-use token that is good for 24 hours; the account appears when the token comes
-back to `POST /api/auth/register/verify`. Until then no user document exists, which is the point:
+back to `POST /api/auth/register/verify`, together with the password chosen at registration. Until then no user document exists, which is the point:
 external sign-in matches a provider's verified email to a local account by address alone, so a user
 row holding an address nobody proved handed its real owner's Google sign-in to whoever registered it
 first.

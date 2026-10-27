@@ -79,7 +79,7 @@ public class IntegrationTests
         var verificationToken = _factory.Email.LastVerificationTokenFor(email);
         verificationToken.Should().NotBeNull("registration has to email a token in a shape the verify endpoint parses");
 
-        var verifyRes = await _client.PostAsJsonAsync("/api/auth/register/verify", new { Token = verificationToken });
+        var verifyRes = await _client.PostAsJsonAsync("/api/auth/register/verify", new { Token = verificationToken, Password = password });
         verifyRes.IsSuccessStatusCode.Should().BeTrue();
 
         // 2. Login as Standard User

@@ -8,6 +8,7 @@ namespace barakoCMS.Features.Auth.Register;
 internal class VerifyRequest
 {
     public string Token { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
 }
 
 internal class VerifyResponse
@@ -36,6 +37,9 @@ internal class VerifyResponse
 /// mailbox, and there is already an endpoint for turning mailbox possession into a session
 /// (<c>/api/auth/otp/verify</c>) that costs a second round trip and does the MFA and device checks
 /// properly. Minting tokens here would be a fourth issuer path to keep in step with those.
+/// </para>
+/// <para>
+/// The request carries the password chosen at registration as well as the token: the link proves the mailbox, the password proves the same person asked.
 /// </para>
 /// </remarks>
 internal class VerifyEndpoint(
@@ -67,6 +71,13 @@ internal class VerifyEndpoint(
         }
 
         if (!EmailVerificationToken.Matches(secret, pending.TokenHash))
+        {
+            ThrowError(Invalid);
+            return;
+        }
+
+        // Before anything that spends the token, so a wrong or missing password can be retried.
+        if (!PasswordHashing.Verify(req.Password, pending.PasswordHash))
         {
             ThrowError(Invalid);
             return;

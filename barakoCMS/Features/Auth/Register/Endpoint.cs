@@ -121,7 +121,7 @@ internal class Endpoint : Endpoint<Request, Response>
 
         // Inside the cooldown the earlier mail is the one in the inbox, so no new mail goes out. The
         // pending row behind it takes the latest username and password instead, so that one link
-        // creates what the most recent request asked for.
+        // creates what the most recent request asked for, and verifying takes that request's password.
         if (!ClaimMailSlot(email) && await UpdateLivePendingAsync(req.Username, email, passwordHash, decision, ct))
         {
             await Send.ResponseAsync(new Response { Message = Accepted });

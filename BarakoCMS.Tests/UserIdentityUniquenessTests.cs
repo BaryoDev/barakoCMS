@@ -489,7 +489,7 @@ public class UserIdentityUniquenessTests
     }
 
     private Task<HttpResponseMessage> Verify(string token) =>
-        _client.PostAsJsonAsync("/api/auth/register/verify", new { Token = token }, Ct);
+        _client.PostAsJsonAsync("/api/auth/register/verify", new { Token = token, Password }, Ct);
 
     private static Task<string> MigrationAsync() =>
         File.ReadAllTextAsync(Path.Combine(RepositoryRoot(), "migrations", "4.2.0", "user-normalized-identity.sql"));

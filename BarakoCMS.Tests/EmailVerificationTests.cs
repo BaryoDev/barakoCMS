@@ -342,6 +342,60 @@ public class EmailVerificationTests
             "the refusal has to spend the token, or it can be retried until the collision clears");
     }
 
+    [Fact]
+    public async Task Verify_with_a_different_password_creates_no_account_and_keeps_the_token()
+    {
+        var (username, email) = Identity();
+        var token = await SeedPendingAsync(username, email, DateTime.UtcNow.AddHours(1));
+
+        var wrong = await Verify(token, "SomeOtherPassword456!");
+
+        wrong.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await CountUsers(email)).Should().Be(0);
+        (await PendingFor(username))!.Consumed.Should().BeFalse("a wrong password does not spend the token");
+
+        (await Verify(token)).StatusCode.Should().Be(HttpStatusCode.OK, "the right password still completes it");
+        (await CountUsers(email)).Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public async Task Verify_with_no_password_creates_no_account(string? password)
+    {
+        var (username, email) = Identity();
+        var token = await SeedPendingAsync(username, email, DateTime.UtcNow.AddHours(1));
+
+        var response = await Verify(token, password);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await CountUsers(email)).Should().Be(0);
+        (await PendingFor(username))!.Consumed.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Verify_inside_the_cooldown_takes_the_password_of_the_latest_registration()
+    {
+        var (firstName, email) = Identity();
+        var secondName = $"b{Guid.NewGuid():N}"[..20];
+        const string secondPassword = "SecondPassword789!";
+
+        await Register(firstName, email);
+        (await _client.PostAsJsonAsync("/api/auth/register",
+            new { Username = secondName, Email = email, Password = secondPassword },
+            TestContext.Current.CancellationToken)).IsSuccessStatusCode.Should().BeTrue();
+
+        var token = _factory.Email.LastVerificationTokenFor(email);
+        token.Should().NotBeNull();
+
+        (await Verify(token!, Password)).StatusCode.Should().Be(HttpStatusCode.BadRequest,
+            "the pending row holds the latest request's password");
+        (await CountUsers(email)).Should().Be(0);
+
+        (await Verify(token!, secondPassword)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await FindUser(email))!.Username.Should().Be(secondName);
+    }
+
     private static (string Username, string Email) Identity()
     {
         var id = $"ev{Guid.NewGuid():N}"[..20];
@@ -352,8 +406,8 @@ public class EmailVerificationTests
         _client.PostAsJsonAsync("/api/auth/register",
             new { Username = username, Email = email, Password }, TestContext.Current.CancellationToken);
 
-    private Task<HttpResponseMessage> Verify(string token) =>
-        _client.PostAsJsonAsync("/api/auth/register/verify", new { Token = token }, TestContext.Current.CancellationToken);
+    private Task<HttpResponseMessage> Verify(string token, string? password = Password) =>
+        _client.PostAsJsonAsync("/api/auth/register/verify", new { Token = token, Password = password }, TestContext.Current.CancellationToken);
 
     private Task<HttpResponseMessage> Login(string username) =>
         _client.PostAsJsonAsync("/api/auth/login",
