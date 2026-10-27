@@ -58,27 +58,8 @@ internal class VerifyEndpoint(
 
     public override async Task HandleAsync(VerifyRequest req, CancellationToken ct)
     {
-        if (!EmailVerificationToken.TryParse(req.Token, out var pendingId, out var secret))
-        {
-            ThrowError(Invalid);
-            return;
-        }
-
-        var pending = await session.LoadAsync<PendingRegistration>(pendingId, ct);
-        if (pending is null || pending.Consumed || pending.ExpiresAt < DateTime.UtcNow)
-        {
-            ThrowError(Invalid);
-            return;
-        }
-
-        if (!EmailVerificationToken.Matches(secret, pending.TokenHash))
-        {
-            ThrowError(Invalid);
-            return;
-        }
-
-        // Before anything that spends the token, so a wrong or missing password can be retried.
-        if (!PasswordHashing.Verify(req.Password, pending.PasswordHash))
+        var pending = await LoadConfirmableAsync(req, ct);
+        if (pending is null)
         {
             ThrowError(Invalid);
             return;
@@ -130,6 +111,34 @@ internal class VerifyEndpoint(
 
         logger.LogInformation("Registration verified for {Username}", pending.Username);
         await Send.ResponseAsync(new VerifyResponse { Message = "Email confirmed. You can sign in now." });
+    }
+
+    /// <summary>The pending row the token names, when the token and the password both match it.</summary>
+    private async Task<PendingRegistration?> LoadConfirmableAsync(VerifyRequest req, CancellationToken ct)
+    {
+        if (!EmailVerificationToken.TryParse(req.Token, out var pendingId, out var secret))
+        {
+            return null;
+        }
+
+        var pending = await session.LoadAsync<PendingRegistration>(pendingId, ct);
+        if (pending is null || pending.Consumed || pending.ExpiresAt < DateTime.UtcNow)
+        {
+            return null;
+        }
+
+        if (!EmailVerificationToken.Matches(secret, pending.TokenHash))
+        {
+            return null;
+        }
+
+        // Before anything that spends the token, so a wrong or missing password can be retried.
+        if (!PasswordHashing.Verify(req.Password, pending.PasswordHash))
+        {
+            return null;
+        }
+
+        return pending;
     }
 
     private void Consume(PendingRegistration pending)

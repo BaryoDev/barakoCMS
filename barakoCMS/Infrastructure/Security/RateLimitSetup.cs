@@ -270,13 +270,7 @@ internal static class RateLimitSetup
         options.AddPolicy(BatchPolicy, context =>
             RateLimitPartition.GetFixedWindowLimiter($"telemetry-{ClientIp(context)}", _ => Options(settings.Batch)));
 
-        options.AddPolicy(RegistrationPolicy, context =>
-            RateLimitPartition.GetFixedWindowLimiter($"registration-{ClientIp(context)}", _ => Options(settings.Registration)));
-
-        // Confirming a registration has the same window as asking for one, counted on its own so a
-        // mistyped password there does not use up the registration allowance.
-        options.AddPolicy(RegistrationVerifyPolicy, context =>
-            RateLimitPartition.GetFixedWindowLimiter($"registration-verify-{ClientIp(context)}", _ => Options(settings.Registration)));
+        AddRegistrationPolicies(options, settings);
 
         // Anonymous share link redemption. A guess costs a query, so it is held well under the global
         // limit. The key is 32 random bytes, so this is about load, not about making a guess feasible.
@@ -294,6 +288,17 @@ internal static class RateLimitSetup
             await WithCorsHeaders(context.HttpContext);
             await Reject(context.HttpContext, context.Lease, cancellationToken);
         };
+    }
+
+    private static void AddRegistrationPolicies(RateLimiterOptions options, RateLimitSettings settings)
+    {
+        options.AddPolicy(RegistrationPolicy, context =>
+            RateLimitPartition.GetFixedWindowLimiter($"registration-{ClientIp(context)}", _ => Options(settings.Registration)));
+
+        // Confirming a registration has the same window as asking for one, counted on its own so a
+        // mistyped password there does not use up the registration allowance.
+        options.AddPolicy(RegistrationVerifyPolicy, context =>
+            RateLimitPartition.GetFixedWindowLimiter($"registration-verify-{ClientIp(context)}", _ => Options(settings.Registration)));
     }
 
     internal static async Task Reject(HttpContext context, RateLimitLease lease, CancellationToken cancellationToken)
