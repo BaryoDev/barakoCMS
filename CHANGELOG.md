@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [5.4.0] - 2026-10-26
 
-5.4 is a minor release. The console gets an overview, an activity feed, a live view of workflow runs, content type icons, a sign-in methods list and referrer favicons served by the API. Several sign-in, registration, feature flag, install report and semantic search routes check more of what they are given. The admin API contract stays at 12 and the delivery contract at 9. BarakoCMS.Analytics.Umami moves to 4.6.0.
+5.4 is a minor release. The console gets an overview, an activity feed, a live view of workflow runs, content type icons, a sign-in methods list and referrer favicons served by the API. Several sign-in, registration, feature flag, install report and semantic search routes check more of what they are given. The admin API contract moves from 12 to 13. The delivery contract stays at 9. BarakoCMS.Analytics.Umami moves to 4.6.0.
 
 ### Upgrade
 
@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 3. **Check the new settings.** `Modules:Pwa:RetentionDays` is 0, which keeps every device row. `Auth:RegisterMailCooldownMinutes` is 5, and 0 turns it off. Semantic search has its own limit of 60 requests a minute per address.
 
 `GET /api/activity` answers 400 to a `since` cursor more than a day ahead of the server clock. `GET /api/workflow-runs` still answers 200 with an empty page to a `changedSince` that far ahead, as in 5.3.
+
+**Breaking HTTP changes.** `ApiContract.Version` moves from 12 to 13. `ApiContract.DeliveryVersion` stays at 9. Released barakoBrew reads admin contracts up to 12: upgrade it to 1.11.4, which reads 13, together with the API.
 
 **Package changes.** Modules with changes: AI 4.7.0 (semantic search limit settings), Pwa 4.6.0 (report platform values and `RetentionDays`), FeatureFlags 4.6.1, Tagging 5.3.1, Analytics.Umami 4.6.0 (referrer favicons) and Abstractions 5.4.0. BarakoCMS.Templates and BarakoCMS.Testing follow the core at 5.4.0. Nothing is removed from the package surface.
 
@@ -36,10 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Confirming a registration takes the password.** `POST /api/auth/register/verify` now takes the password chosen at registration alongside the token. A frontend's confirm page has to ask for it.
 - **IMailBounceSource gained list methods.** `ListAsync` and `ListNewestAsync` have default implementations that return nothing, so existing implementors still compile. An implementor that does not override them gives the activity feed no bounce rows. BarakoCMS.Abstractions is now 5.4.0.
 - **Flag targeting read the wrong field.** Feature flag targeting by email now uses the email stored on the user record, not the username. Flags limited to some tenants are no longer listed to callers of other tenants.
 - **PWA platform values were free text and device rows were kept forever.** A new report stores its platform as a lowercased ios, android, windows, macos or linux, or other for anything else. Rows already stored keep their old values. Set Modules:Pwa:RetentionDays to delete rows not seen for that many days. It is 0 by default, which keeps every row.
-- **Registration could send many mails to one address.** Registration now sends at most one mail per address every 5 minutes, and the link already mailed creates the latest request. Set Auth:RegisterMailCooldownMinutes to change the window, or 0 to turn it off. The window is kept in each instance's memory, so a restart clears it. The response is unchanged.
+- **Registration could send many mails to one address.** Registration now sends at most one mail per address every 5 minutes, and the link already mailed creates what the first request asked for. Set Auth:RegisterMailCooldownMinutes to change the window, or 0 to turn it off. The window is kept in each instance's memory, so a restart clears it. The response is unchanged.
 - **Semantic search shared the delivery rate limit.** Semantic search now has its own limit, 60 requests a minute per address by default. IPv6 clients are counted by /64, and a renderer with the renderer key is counted per visitor named in X-Barako-Visitor-IP. Tune it with Modules:AI:SemanticSearchPermitLimit and Modules:AI:SemanticSearchWindowSeconds.
 - **Workflow version inputs are checked.** The rollback and Discord announce workflows validate the version string before use.
 

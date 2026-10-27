@@ -134,7 +134,7 @@ done
 Each answers `200` with `"If that email address can be registered, we have sent it a link to
 confirm it."` whatever happened, so the endpoint does not say which addresses exist. With
 verification off the account is created on the spot. With it on (the default) the confirmation
-link arrives by email and `POST /api/auth/register/verify` with `{"token": "..."}` completes it;
+link arrives by email and `POST /api/auth/register/verify` with `{"token": "...", "password": "..."}` (the password chosen at registration) completes it;
 that is the path to use once a real provider is configured.
 
 The password policy is twelve characters with upper, lower, a digit and a symbol. Registration is

@@ -328,7 +328,7 @@ first content type.
 
 `POST /api/auth/register` writes a `PendingRegistration`, not a `User`. The user document is created
 by `POST /api/auth/register/verify`, when the address named at registration hands back the
-single-use token that was emailed to it. Until that happens there is no account and no username
+single-use token that was emailed to it, together with the password chosen at registration. Until that happens there is no account and no username
 held. The pending row itself does carry the submitted address and username, which is the point: they
 are held there, out of the users table, until somebody proves the address or the row is cleaned up,
 so there is no user document for an external provider to match onto.
@@ -354,6 +354,10 @@ cannot hold a username, so an anonymous caller cannot squat names without ever o
 pending registrations for the same name; the first to confirm gets it and the second is refused at
 verification with the same message every other rejection there uses. That is the right way round: the
 reservation is the thing an attacker would want for free.
+
+A repeat registration for an address inside the mail cooldown changes nothing: no new mail, and the
+pending row keeps the details of the first request. The cooldown and the pending lookup are keyed by
+address alone, since username and email are unique across the whole install.
 
 **Verification is required by default**, which is the one place in the codebase where a new setting
 does not preserve existing behaviour. What it would preserve is the defect. Turning it off with

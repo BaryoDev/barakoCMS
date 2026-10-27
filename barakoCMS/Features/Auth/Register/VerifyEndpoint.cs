@@ -8,6 +8,7 @@ namespace barakoCMS.Features.Auth.Register;
 internal class VerifyRequest
 {
     public string Token { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
 }
 
 internal class VerifyResponse
@@ -37,6 +38,9 @@ internal class VerifyResponse
 /// (<c>/api/auth/otp/verify</c>) that costs a second round trip and does the MFA and device checks
 /// properly. Minting tokens here would be a fourth issuer path to keep in step with those.
 /// </para>
+/// <para>
+/// The request carries the password chosen at registration as well as the token.
+/// </para>
 /// </remarks>
 internal class VerifyEndpoint(
     IDocumentSession session,
@@ -48,7 +52,7 @@ internal class VerifyEndpoint(
     {
         Post("/api/auth/register/verify");
         AllowAnonymous();
-        Options(x => x.RequireRateLimiting("registration"));
+        Options(x => x.RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.RegistrationVerifyPolicy));
     }
 
     public override async Task HandleAsync(VerifyRequest req, CancellationToken ct)
@@ -67,6 +71,13 @@ internal class VerifyEndpoint(
         }
 
         if (!EmailVerificationToken.Matches(secret, pending.TokenHash))
+        {
+            ThrowError(Invalid);
+            return;
+        }
+
+        // Before anything that spends the token, so a wrong or missing password can be retried.
+        if (!PasswordHashing.Verify(req.Password, pending.PasswordHash))
         {
             ThrowError(Invalid);
             return;

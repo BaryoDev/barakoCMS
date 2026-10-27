@@ -128,7 +128,7 @@ public class TenantSignUpPolicyTests
         (await PendingAsync(email))!.TenantSlug.Should().Be(slug, "verification has to know which tenant the registration joins");
 
         var token = await SeedPendingAsync(username, email, slug);
-        var verified = await Client(null).PostAsJsonAsync("/api/auth/register/verify", new { token }, Ct);
+        var verified = await Client(null).PostAsJsonAsync("/api/auth/register/verify", new { token, password = Password }, Ct);
         verified.StatusCode.Should().Be(HttpStatusCode.OK, await verified.Content.ReadAsStringAsync(Ct));
 
         var user = await UserAsync(email);
@@ -177,7 +177,7 @@ public class TenantSignUpPolicyTests
         var (username, email) = Identity();
         var token = await SeedPendingAsync(username, email, slug);
 
-        var verified = await Client(null).PostAsJsonAsync("/api/auth/register/verify", new { token }, Ct);
+        var verified = await Client(null).PostAsJsonAsync("/api/auth/register/verify", new { token, password = Password }, Ct);
 
         verified.StatusCode.Should().NotBe(HttpStatusCode.OK);
         (await UserAsync(email)).Should().BeNull();
@@ -199,7 +199,7 @@ public class TenantSignUpPolicyTests
             pending!.TenantSlug.Should().BeNull("no policy joins the registration to a tenant");
 
             var token = await SeedPendingAsync(username, email, null);
-            (await Client(null).PostAsJsonAsync("/api/auth/register/verify", new { token }, Ct))
+            (await Client(null).PostAsJsonAsync("/api/auth/register/verify", new { token, password = Password }, Ct))
                 .StatusCode.Should().Be(HttpStatusCode.OK);
             var user = await UserAsync(email);
             user!.RoleIds.Should().Equal([barakoCMS.Data.DataSeeder.UserRoleId], "the global User role, as registration always gave");
