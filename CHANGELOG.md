@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [5.4.0] - 2026-10-26
+## [5.4.0] - 2026-10-27
 
 5.4 is a minor release. The console gets an overview, an activity feed, a live view of workflow runs, content type icons, a sign-in methods list and referrer favicons served by the API. Several sign-in, registration, feature flag, install report and semantic search routes check more of what they are given. The admin API contract moves from 12 to 13. The delivery contract stays at 9. BarakoCMS.Analytics.Umami moves to 4.6.0.
 
