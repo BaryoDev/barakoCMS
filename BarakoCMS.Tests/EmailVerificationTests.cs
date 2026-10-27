@@ -264,7 +264,7 @@ public class EmailVerificationTests
     }
 
     [Fact]
-    public async Task The_one_mail_inside_the_cooldown_creates_the_latest_username()
+    public async Task The_one_mail_inside_the_cooldown_creates_the_first_username()
     {
         var (firstName, email) = Identity();
         var secondName = $"b{Guid.NewGuid():N}"[..20];
@@ -281,7 +281,7 @@ public class EmailVerificationTests
 
         var user = await FindUser(email);
         user.Should().NotBeNull();
-        user!.Username.Should().Be(secondName, "the link in the first mail creates what the latest request asked for");
+        user!.Username.Should().Be(firstName, "the link in the first mail creates what the first request asked for");
     }
 
     [Fact]
@@ -374,7 +374,7 @@ public class EmailVerificationTests
     }
 
     [Fact]
-    public async Task Verify_inside_the_cooldown_takes_the_password_of_the_latest_registration()
+    public async Task Verify_inside_the_cooldown_takes_the_password_of_the_first_registration()
     {
         var (firstName, email) = Identity();
         var secondName = $"b{Guid.NewGuid():N}"[..20];
@@ -388,12 +388,12 @@ public class EmailVerificationTests
         var token = _factory.Email.LastVerificationTokenFor(email);
         token.Should().NotBeNull();
 
-        (await Verify(token!, Password)).StatusCode.Should().Be(HttpStatusCode.BadRequest,
-            "the pending row holds the latest request's password");
+        (await Verify(token!, secondPassword)).StatusCode.Should().Be(HttpStatusCode.BadRequest,
+            "the pending row keeps the first request's password");
         (await CountUsers(email)).Should().Be(0);
 
-        (await Verify(token!, secondPassword)).StatusCode.Should().Be(HttpStatusCode.OK);
-        (await FindUser(email))!.Username.Should().Be(secondName);
+        (await Verify(token!, Password)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await FindUser(email))!.Username.Should().Be(firstName);
     }
 
     private static (string Username, string Email) Identity()

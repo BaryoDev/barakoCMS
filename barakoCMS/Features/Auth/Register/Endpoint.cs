@@ -119,10 +119,9 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        // Inside the cooldown the earlier mail is the one in the inbox, so no new mail goes out. The
-        // pending row behind it takes the latest username and password instead, so that one link
-        // creates what the most recent request asked for, and verifying takes that request's password.
-        if (!ClaimMailSlot(email) && await UpdateLivePendingAsync(req.Username, email, passwordHash, decision, ct))
+        // Inside the cooldown the earlier mail is the one in the inbox, so no new mail goes out and
+        // the pending row behind it is left as it was. Its link creates what the first request asked for.
+        if (!ClaimMailSlot(email) && await HasLivePendingAsync(email, ct))
         {
             await Send.ResponseAsync(new Response { Message = Accepted });
             return;
@@ -139,23 +138,11 @@ internal class Endpoint : Endpoint<Request, Response>
         await Send.ResponseAsync(new Response { Message = Accepted });
     }
 
-    private async Task<bool> UpdateLivePendingAsync(
-        string username, string email, string passwordHash,
-        barakoCMS.Infrastructure.Auth.SignUpDecision decision, CancellationToken ct)
+    private async Task<bool> HasLivePendingAsync(string email, CancellationToken ct)
     {
         var now = DateTime.UtcNow;
-        var pending = await _session.Query<PendingRegistration>()
-            .Where(p => p.Email == email && !p.Consumed && p.ExpiresAt > now)
-            .OrderByDescending(p => p.CreatedAt)
-            .FirstOrDefaultAsync(ct);
-        if (pending is null) return false;
-
-        pending.Username = username;
-        pending.PasswordHash = passwordHash;
-        pending.TenantSlug = decision.Outcome == barakoCMS.Infrastructure.Auth.SignUpOutcome.Join ? decision.TenantSlug : null;
-        _session.Update(pending);
-        await _session.SaveChangesAsync(ct);
-        return true;
+        return await _session.Query<PendingRegistration>()
+            .AnyAsync(p => p.Email == email && !p.Consumed && p.ExpiresAt > now, ct);
     }
 
     internal const string MailCooldownKey = "Auth:RegisterMailCooldownMinutes";
