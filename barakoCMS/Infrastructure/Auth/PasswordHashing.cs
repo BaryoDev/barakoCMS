@@ -28,7 +28,7 @@ internal static class PasswordHashing
         {
             return BCrypt.Net.BCrypt.Verify(password, hash);
         }
-        catch (BCrypt.Net.SaltParseException)
+        catch (Exception ex) when (ex is BCrypt.Net.SaltParseException or ArgumentException or IndexOutOfRangeException)
         {
             return false;
         }
