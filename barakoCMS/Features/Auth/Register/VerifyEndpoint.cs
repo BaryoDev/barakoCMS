@@ -42,6 +42,7 @@ internal class VerifyResponse
 /// The request carries the password chosen at registration as well as the token.
 /// </para>
 /// </remarks>
+[barakoCMS.Infrastructure.Filters.NoIdempotentReplay]
 internal class VerifyEndpoint(
     IDocumentSession session,
     ILogger<VerifyEndpoint> logger) : Endpoint<VerifyRequest, VerifyResponse>
