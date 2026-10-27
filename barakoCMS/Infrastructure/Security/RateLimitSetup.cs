@@ -96,6 +96,7 @@ internal static class RateLimitSetup
     public const string RefreshPolicy = "refresh";
     public const string BatchPolicy = "telemetry";
     public const string RegistrationPolicy = "registration";
+    public const string RegistrationVerifyPolicy = "registration-verify";
     public const string SiteSharePolicy = "site-share";
     public const string LogoutPolicy = "logout";
     public const string DeliveryPolicy = "delivery";
@@ -120,6 +121,7 @@ internal static class RateLimitSetup
         [RefreshPolicy] = "Refresh",
         [BatchPolicy] = "Batch",
         [RegistrationPolicy] = "Registration",
+        [RegistrationVerifyPolicy] = "Registration",
         [SiteSharePolicy] = "SiteShare",
         [DeliveryPolicy] = "Delivery",
         [LookupPolicy] = "Lookup",
@@ -270,6 +272,11 @@ internal static class RateLimitSetup
 
         options.AddPolicy(RegistrationPolicy, context =>
             RateLimitPartition.GetFixedWindowLimiter($"registration-{ClientIp(context)}", _ => Options(settings.Registration)));
+
+        // Confirming a registration has the same window as asking for one, counted on its own so a
+        // mistyped password there does not use up the registration allowance.
+        options.AddPolicy(RegistrationVerifyPolicy, context =>
+            RateLimitPartition.GetFixedWindowLimiter($"registration-verify-{ClientIp(context)}", _ => Options(settings.Registration)));
 
         // Anonymous share link redemption. A guess costs a query, so it is held well under the global
         // limit. The key is 32 random bytes, so this is about load, not about making a guess feasible.

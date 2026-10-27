@@ -52,7 +52,7 @@ internal class VerifyEndpoint(
     {
         Post("/api/auth/register/verify");
         AllowAnonymous();
-        Options(x => x.RequireRateLimiting("registration"));
+        Options(x => x.RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.RegistrationVerifyPolicy));
     }
 
     public override async Task HandleAsync(VerifyRequest req, CancellationToken ct)

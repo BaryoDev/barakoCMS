@@ -397,7 +397,7 @@ changes nothing until you set one. Each has `PermitLimit` (requests), `WindowSec
 | `RateLimiting:Auth` | 5 in 900 seconds, queue 0 | login, OTP and MFA, per client IP |
 | `RateLimiting:Refresh` | 60 in 900 seconds, queue 0 | token refresh, per client IP |
 | `RateLimiting:Batch` | 20 in 60 seconds, queue 0 | anonymous telemetry batches, per client IP |
-| `RateLimiting:Registration` | 5 in 3600 seconds, queue 0 | registration and its verification, per client IP |
+| `RateLimiting:Registration` | 5 in 3600 seconds, queue 0 | registration and its verification, each counted separately, per client IP |
 | `RateLimiting:SiteShare` | 10 in 60 seconds, queue 0 | anonymous share link redemption, per tenant and visitor |
 | `RateLimiting:Lookup` | 10 in 60 seconds, queue 0 | anonymous lookups (`POST /api/public/{type}/lookup`), per tenant and visitor |
 | `RateLimiting:LookupReference` | 5 in 900 seconds | anonymous lookups of one reference, from any address |
@@ -502,7 +502,7 @@ exactly as in configuration, case included. A name with a dash or a dot cannot b
 environment variable from a POSIX shell, so keep to letters, digits and underscores if that is how
 you set it.
 
-The core's own names are reserved: `auth`, `telemetry`, `registration`, `site-share`, `logout`,
+The core's own names are reserved: `auth`, `telemetry`, `registration`, `registration-verify`, `site-share`, `logout`,
 `tls-ask`, `delivery` and `email-preview` (30 email template previews a minute per signed-in user,
 fixed). They cannot be defined under `Policies`; the sections above set
 them. A host or a module that registers its own policy named `delivery` in code stops at startup

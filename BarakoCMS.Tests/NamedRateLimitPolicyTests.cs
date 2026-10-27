@@ -474,6 +474,7 @@ public class NamedRateLimitPolicyTests
             Naming("/api/tenants/tls-ask", RateLimitSetup.TlsAskPolicy),
             Naming("/api/client-errors", RateLimitSetup.BatchPolicy),
             Naming("/api/auth/register", RateLimitSetup.RegistrationPolicy),
+            Naming("/api/auth/register/verify", RateLimitSetup.RegistrationVerifyPolicy),
             Naming("/api/public/site/share-links/redeem", RateLimitSetup.SiteSharePolicy),
             Naming("/api/public/{type}", RateLimitSetup.DeliveryPolicy),
             Naming("/api/bookings/lookup", "booking-lookup"),
