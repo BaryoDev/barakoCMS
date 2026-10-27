@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [5.4.0] - 2026-10-26
 
-5.4 is a minor release. The console gets an overview, an activity feed, a live view of workflow runs, content type icons, a sign-in methods list and referrer favicons served by the API. Several sign-in, registration, feature flag, install report and semantic search routes check more of what they are given. The admin API contract stays at 12 and the delivery contract at 9. BarakoCMS.Analytics.Umami moves to 4.6.0.
+5.4 is a minor release. The console gets an overview, an activity feed, a live view of workflow runs, content type icons, a sign-in methods list and referrer favicons served by the API. Several sign-in, registration, feature flag, install report and semantic search routes check more of what they are given. The admin API contract moves from 12 to 13. The delivery contract stays at 9. BarakoCMS.Analytics.Umami moves to 4.6.0.
 
 ### Upgrade
 
@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 3. **Check the new settings.** `Modules:Pwa:RetentionDays` is 0, which keeps every device row. `Auth:RegisterMailCooldownMinutes` is 5, and 0 turns it off. Semantic search has its own limit of 60 requests a minute per address.
 
 `GET /api/activity` answers 400 to a `since` cursor more than a day ahead of the server clock. `GET /api/workflow-runs` still answers 200 with an empty page to a `changedSince` that far ahead, as in 5.3.
+
+**Breaking HTTP changes.** `ApiContract.Version` moves from 12 to 13. `ApiContract.DeliveryVersion` stays at 9. Released barakoBrew reads admin contracts up to 12: upgrade it to 1.11.4, which reads 13, together with the API.
 
 **Package changes.** Modules with changes: AI 4.7.0 (semantic search limit settings), Pwa 4.6.0 (report platform values and `RetentionDays`), FeatureFlags 4.6.1, Tagging 5.3.1, Analytics.Umami 4.6.0 (referrer favicons) and Abstractions 5.4.0. BarakoCMS.Templates and BarakoCMS.Testing follow the core at 5.4.0. Nothing is removed from the package surface.
 

@@ -51,7 +51,7 @@ public class ContractSurfaceVersionTests
 
         response.Headers.TryGetValues(AdminHeader, out var admin).Should().BeTrue(
             "the header a released console reads keeps its name");
-        admin!.Should().ContainSingle().Which.Should().Be("12");
+        admin!.Should().ContainSingle().Which.Should().Be("13");
 
         response.Headers.TryGetValues(DeliveryHeader, out var delivery).Should().BeTrue(
             "a site reads the delivery number from whatever answer it gets first, as a console reads the admin one");
@@ -65,7 +65,7 @@ public class ContractSurfaceVersionTests
 
         var admin = meta.RootElement.GetProperty("apiContractVersion");
         admin.ValueKind.Should().Be(JsonValueKind.Number, "a released console reads it as a number");
-        admin.GetInt32().Should().Be(12);
+        admin.GetInt32().Should().Be(13);
 
         var delivery = meta.RootElement.GetProperty("deliveryContractVersion");
         delivery.ValueKind.Should().Be(JsonValueKind.Number);
