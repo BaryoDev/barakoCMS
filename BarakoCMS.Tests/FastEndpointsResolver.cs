@@ -170,6 +170,33 @@ internal static class FastEndpointsResolver
         }
     }
 
+    /// <summary>
+    /// Moves the resolver off a disposed host onto a host of a live fixture, saying nothing when
+    /// there is none. A resolver that was never set, or still answers, is left alone.
+    /// </summary>
+    public static void RepairQuietly()
+    {
+        lock (Gate)
+        {
+            if (Current() is null || IsUsable())
+            {
+                return;
+            }
+
+            foreach (var host in Fallbacks.AsEnumerable().Reverse().SelectMany(f => f()).ToList())
+            {
+                try
+                {
+                    Write(host.GetRequiredService<IServiceResolver>());
+                    return;
+                }
+                catch (ObjectDisposedException)
+                {
+                }
+            }
+        }
+    }
+
     /// <summary>Sees every value written to the static, under the lock. For tests that pin what is written.</summary>
     internal static Action<IServiceResolver?>? OnWrite { get; set; }
 
