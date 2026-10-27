@@ -2,10 +2,15 @@
 #
 #   docker compose -f docker-compose.hub.yml up -d
 #
+# Set JWT_SECRET and DB_PASSWORD first, in your shell or a .env file (cp .env.example .env):
+#
+#   export JWT_SECRET=$(openssl rand -base64 48)
+#   export DB_PASSWORD=$(openssl rand -base64 24)
+#
 # The API is on http://localhost:5005. For the console, run BaryoDev/barakoBrew's quickstart
 # against it.
 #
-# This is a local try-out: no TLS, dev defaults, and a JWT key printed in this file. For a real
+# This is a local try-out: no TLS, and the API listens on localhost only. For a real
 # deployment use docker-compose.prod.yml, which runs these same published images behind Caddy with
 # required secrets. See docs/deploy-in-production.md.
 
@@ -17,7 +22,7 @@ services:
     environment:
       POSTGRES_DB: ${DB_NAME:-barako_cms}
       POSTGRES_USER: ${DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -33,18 +38,20 @@ services:
     container_name: barako-cms
     restart: unless-stopped
     ports:
-      - "5005:8080"
+      # Bound to this machine only. To reach it from other hosts, change this to "5005:8080" and put
+      # TLS in front of it (see docs/deploy-in-production.md).
+      - "127.0.0.1:5005:8080"
     environment:
-      - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Development}
-      - ConnectionStrings__DefaultConnection=Host=postgres;Database=${DB_NAME:-barako_cms};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-postgres}
+      - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
+      - ConnectionStrings__DefaultConnection=Host=postgres;Database=${DB_NAME:-barako_cms};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:?set DB_PASSWORD}
       # JWT key must be at least 32 characters or the API refuses to start.
-      - JWT__Key=${JWT_SECRET:-dev-only-key-minimum-32-chars-long}
+      - JWT__Key=${JWT_SECRET:?set JWT_SECRET to a random value of 32+ characters}
       - InitialAdmin__Username=${ADMIN_USER:-admin}
       # No default. Unset, the seeder generates a password and prints it once to the container log
       # (docker compose -f docker-compose.hub.yml logs app).
       - InitialAdmin__Password=${ADMIN_PASSWORD:-}
       # Off by default here. This file runs the published images, so it is the one people copy
-      # toward a host, and the environment above defaults to Development, which would otherwise
+      # toward a host, and if the environment is set to Development, that would otherwise
       # turn the API explorer on for them without anyone choosing it. Set SWAGGER_ENABLED=true.
       - Swagger__Enabled=${SWAGGER_ENABLED:-false}
     depends_on:
