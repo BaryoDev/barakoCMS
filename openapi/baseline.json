@@ -2647,8 +2647,7 @@
         "additionalProperties": false,
         "properties": {
           "password": {
-            "maxLength": 256,
-            "minLength": 0,
+            "minLength": 1,
             "nullable": false,
             "type": "string"
           },
@@ -2660,8 +2659,8 @@
           }
         },
         "required": [
-          "password",
-          "token"
+          "token",
+          "password"
         ],
         "type": "object"
       },
@@ -18467,7 +18466,7 @@
     },
     "/api/auth/register/verify": {
       "post": {
-        "description": "Every rejection uses one message. A token that never existed, one that expired, one already\nspent, one whose username was taken by somebody else in the meantime, and one that lost a race\nall read the same, because telling them apart tells an anonymous caller which addresses and\nusernames are in play. That is the same rule /api/auth/otp/verify follows next door.\nPOST rather than GET, even though the token arrives in an emailed link. A GET is fetched by mail\nscanners, link previewers and corporate proxies before the person clicks, and this token is\nsingle use, so a GET route hands them an account creation the recipient never asked for and a\ndead link when they do click. The link points at a frontend page that posts here.\nIt does not sign the caller in. Nothing here proves possession of the device, only of the\nmailbox, and there is already an endpoint for turning mailbox possession into a session\n(/api/auth/otp/verify) that costs a second round trip and does the MFA and device checks\nproperly. Minting tokens here would be a fourth issuer path to keep in step with those.",
+        "description": "Every rejection uses one message. A token that never existed, one that expired, one already\nspent, one whose username was taken by somebody else in the meantime, and one that lost a race\nall read the same, because telling them apart tells an anonymous caller which addresses and\nusernames are in play. That is the same rule /api/auth/otp/verify follows next door.\nPOST rather than GET, even though the token arrives in an emailed link. A GET is fetched by mail\nscanners, link previewers and corporate proxies before the person clicks, and this token is\nsingle use, so a GET route hands them an account creation the recipient never asked for and a\ndead link when they do click. The link points at a frontend page that posts here.\nIt does not sign the caller in. Nothing here proves possession of the device, only of the\nmailbox, and there is already an endpoint for turning mailbox possession into a session\n(/api/auth/otp/verify) that costs a second round trip and does the MFA and device checks\nproperly. Minting tokens here would be a fourth issuer path to keep in step with those.\nThe request carries the password chosen at registration as well as the token.",
         "operationId": "barakoCMSFeaturesAuthRegisterVerifyEndpoint",
         "requestBody": {
           "content": {

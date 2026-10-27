@@ -39,7 +39,7 @@ internal class VerifyResponse
 /// properly. Minting tokens here would be a fourth issuer path to keep in step with those.
 /// </para>
 /// <para>
-/// The request carries the password chosen at registration as well as the token: the link proves the mailbox, the password proves the same person asked.
+/// The request carries the password chosen at registration as well as the token.
 /// </para>
 /// </remarks>
 internal class VerifyEndpoint(
