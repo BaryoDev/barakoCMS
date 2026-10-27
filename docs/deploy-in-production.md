@@ -13,7 +13,7 @@ repository are for other jobs and say so in their headers:
 | --- | --- |
 | `docker-compose.prod.yml` | Production. Published images, Caddy and TLS, required secrets, nightly backup. |
 | `docker-compose.yml` | Local development. Builds from source, dev defaults. |
-| `docker-compose.hub.yml` | Local try-out of the published images. No TLS, dev defaults. |
+| `docker-compose.hub.yml` | Local try-out of the published images. No TLS, localhost only. Needs `JWT_SECRET` and `DB_PASSWORD` set (`openssl rand -base64 48`). |
 | `quickstart/docker-compose.yml` | Quickstart, and the worked example of every module's settings. Bring your own proxy. |
 
 ## What you need

@@ -400,6 +400,9 @@ jobs:
       # no value. A production compose file nobody has run is what #307 was about, so the one this
       # repository ships gets checked on every change to it.
       - name: The development and try-out files parse
+        env:
+          DB_PASSWORD: ci-not-a-real-password
+          JWT_SECRET: ci-not-a-real-key-at-least-32-characters
         run: |
           set -euo pipefail
           for f in docker-compose.yml docker-compose.hub.yml; do

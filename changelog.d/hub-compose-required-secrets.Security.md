@@ -1,0 +1,1 @@
+- **The hub compose file started with built-in secrets.** It now defaults to the Production environment, requires `JWT_SECRET` and `DB_PASSWORD` (no built-in values), and publishes the API on 127.0.0.1 only. Set both variables before `docker compose -f docker-compose.hub.yml up`.
