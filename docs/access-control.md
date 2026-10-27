@@ -726,7 +726,7 @@ as its owner, so it can never do more than the owner's own roles and capabilitie
 | `contenttype:write` | `POST`, `PUT`, `PATCH` and `DELETE` under `/api/content-types` and `/api/schemas` |
 | `files:read` | `GET` under `/api/files` (list, metadata, download, usage) |
 | `files:write` | `POST`, `PUT`, `PATCH` and `DELETE` under `/api/files` (upload, change, delete) |
-| `monitor:read` | `GET /api/contents/counts`, `GET /api/analytics/**` and `GET /api/monitoring/health`, nothing else. Counts also accept `content:read`. The health read gives a key name, status and duration per check, without description, data or tags; the owner still needs the `ViewMonitoring` capability |
+| `monitor:read` | `GET /api/contents/counts`, `GET /api/analytics/**`, `GET /api/monitoring/health` and `GET /api/overview`, nothing else. Counts also accept `content:read`. The health read gives a key name, status and duration per check, without description, data or tags; the owner still needs the `ViewMonitoring` capability |
 | `services:heartbeat` | `POST /api/services/{name}/heartbeat` only (a registered service reporting that it is alive) |
 | `*` | all of the above except `files:read`, `files:write`, `monitor:read` and `services:heartbeat` |
 
@@ -953,9 +953,10 @@ says.
 | `Features/UserGroups/*` | `manage_user_groups` | `/api/user-groups` and everything under it | SuperAdmin, Admin |
 | `Features/ApiKeys/*` | `manage_api_keys` | `/api/api-keys` | SuperAdmin, Admin |
 | `Features/Audit/*` | `view_audit_log` | `GET /api/audit` | SuperAdmin, Admin |
+| `Features/Activity/*` | `view_audit_log` | `GET /api/activity` | SuperAdmin, Admin |
 | `Features/Settings/*` | `manage_settings` | `/api/settings`, `GET /api/settings/email` | SuperAdmin, Admin |
 | `Features/Settings/Email/*` | `manage_email_settings` | `PUT /api/settings/email`, `POST /api/settings/email/test` | SuperAdmin |
-| `Features/ContentType/*` | `manage_content_types` | `/api/content-types` (and its `/api/schemas` alias), `POST /api/content-types/{name}/rebuild`, `POST /api/content-types/{name}/seo-fields`, `PUT /api/content-types/{name}/fields/{field}/presentation`, `PUT /api/content-types/{name}/route-template` | SuperAdmin, Admin |
+| `Features/ContentType/*` | `manage_content_types` | `/api/content-types` (and its `/api/schemas` alias), `POST /api/content-types/{name}/rebuild`, `POST /api/content-types/{name}/seo-fields`, `PUT /api/content-types/{name}/fields/{field}/presentation`, `PUT /api/content-types/{name}/route-template`, `PUT /api/content-types/{name}/icon` | SuperAdmin, Admin |
 | `Features/Modules/*` | `view_modules` | `GET /api/modules` | SuperAdmin, Admin |
 | `Features/Modules/Configuration/*` | `view_module_configuration` | `GET /api/modules/{name}/configuration` | SuperAdmin |
 | `Features/ContentType/*` | `manage_public_delivery` | `PUT /api/content-types/{name}/public-delivery`, `PUT /api/content-types/{name}/fields/{field}/sensitivity` | SuperAdmin, Admin |

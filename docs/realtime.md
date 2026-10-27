@@ -27,6 +27,10 @@ A notice is `{ topic, sequence, streamId, type }`. It never carries event data.
 
 A notice goes out as soon as the write commits, but the feed stops at the high-water mark, which advances a little later. So a read right after a notice can come back with `next` below the notice's `sequence`. When that happens, read again after a short delay (for example 250 ms, backing off) until `next` reaches the `sequence`. Do not treat the short page as "nothing new" and wait for the next notice.
 
+### The workflow-runs topic
+
+`Subscribe("workflow-runs")` needs the `view_workflow_runs` capability. A notice goes out for each workflow run written in your tenant. It has no sequence (always 0) and `type` is `WorkflowRun`, because runs are documents and not events. `GET /api/changes` does not take this topic: read `GET /api/workflow-runs?changedSince=<cursor>` instead. See `docs/workflow-runs.md`. The name `workflow-runs` is reserved: a module or content type cannot declare it. When one commit writes more than 50 runs, a single notice goes out instead of one per run, with `streamId` of all zeros and `type` `WorkflowRunsChanged`. Treat it as "read the list again".
+
 ### What is checked, and when
 
 - `Subscribe` checks the topic's capability, that the token has not been revoked, and the session epoch. A revoked token or a stale session is refused there.

@@ -19,6 +19,22 @@ internal static class PasswordHashing
     public static string Hash(string password) => BCrypt.Net.BCrypt.HashPassword(password, WorkFactor);
 
     /// <summary>
+    /// True when the password matches the hash. Empty input on either side never matches.
+    /// </summary>
+    public static bool Verify(string? password, string? hash)
+    {
+        if (string.IsNullOrEmpty(password) || string.IsNullOrEmpty(hash)) return false;
+        try
+        {
+            return BCrypt.Net.BCrypt.Verify(password, hash);
+        }
+        catch (Exception ex) when (ex is BCrypt.Net.SaltParseException or ArgumentException or IndexOutOfRangeException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
     /// True when the stored hash was made below <see cref="WorkFactor"/>. An empty hash, an account
     /// with no password, is never due one: rehashing it would give it a usable password.
     /// </summary>

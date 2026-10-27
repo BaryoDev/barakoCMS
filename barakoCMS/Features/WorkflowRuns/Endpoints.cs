@@ -1,4 +1,5 @@
 using barakoCMS.Infrastructure.Audit;
+using barakoCMS.Infrastructure.Caching;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 using FastEndpoints;
@@ -304,21 +305,60 @@ internal sealed class ListRunsEndpoint(
         Definition.RequireCapability(SystemCapabilities.ViewWorkflowRuns, RunGate.LegacyRoles);
     }
 
+    private RunStatus? ParseStatus(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+
+        if (!Enum.TryParse<RunStatus>(text, ignoreCase: true, out var parsed))
+        {
+            // Refused rather than ignored. A filter that is silently dropped returns more rows
+            // than the caller asked for, and they cannot tell that from "no matches".
+            ThrowError($"Status must be one of: {string.Join(", ", Enum.GetNames<RunStatus>())}.", 400);
+        }
+
+        return parsed;
+    }
+
+    private RunListResponse EmptyPageAfter(ListRunsRequest req)
+    {
+        var now = clock.GetUtcNow();
+        var windows = WorkflowRunRetentionService.ReadWindows(config);
+        var sweeping = WorkflowRunRetentionService.IsEnabled(config);
+        return new RunListResponse
+        {
+            Items = [],
+            Page = req.Page,
+            PageSize = req.PageSize,
+            TotalItems = 0,
+            StatusCounts = null,
+            Cursor = RunCursor.Start(now).ToString(),
+            SucceededRetainedFrom = sweeping && windows.SucceededDays > 0 ? now.AddDays(-windows.SucceededDays) : null,
+            FailedRetainedFrom = sweeping && windows.FailedDays > 0 ? now.AddDays(-windows.FailedDays) : null,
+        };
+    }
+
+    private static IQueryable<WorkflowRun> FilterRuns(
+        IQuerySession session, ListRunsRequest req, RunStatus? status, RunCursor? since)
+    {
+        var query = session.Query<WorkflowRun>().AsQueryable();
+        if (status is { } s) query = query.Where(r => r.Status == s);
+        if (req.ContentId is { } contentId) query = query.Where(r => r.ContentId == contentId);
+        if (req.WorkflowId is { } workflowId) query = query.Where(r => r.WorkflowDefinitionId == workflowId);
+
+        if (since is { } from)
+        {
+            return query
+                .Where(r => r.MatchesSql(RunCursor.AfterSql, from.At.UtcDateTime, from.At.UtcDateTime, from.Id))
+                .OrderBy(r => r.UpdatedAt)
+                .ThenBy(r => r.Id);
+        }
+
+        return query.OrderByDescending(r => r.CreatedAt);
+    }
+
     public override async Task HandleAsync(ListRunsRequest req, CancellationToken ct)
     {
-        RunStatus? status = null;
-        if (!string.IsNullOrWhiteSpace(req.Status))
-        {
-            if (!Enum.TryParse<RunStatus>(req.Status, ignoreCase: true, out var parsed))
-            {
-                // Refused rather than ignored. A filter that is silently dropped returns more rows
-                // than the caller asked for, and they cannot tell that from "no matches".
-                ThrowError($"Status must be one of: {string.Join(", ", Enum.GetNames<RunStatus>())}.", 400);
-                return;
-            }
-
-            status = parsed;
-        }
+        var status = ParseStatus(req.Status);
 
         RunCursor? since = null;
         if (req.ChangedSince is not null)
@@ -326,6 +366,16 @@ internal sealed class ListRunsEndpoint(
             if (!RunCursor.TryParse(req.ChangedSince, out var cursor))
             {
                 ThrowError("ChangedSince must be a cursor from an earlier response or a timestamp.", 400);
+                return;
+            }
+
+            var latest = clock.GetUtcNow().AddDays(1);
+            if (cursor.At > latest || cursor.Anchor > latest)
+            {
+                // Nothing can have changed after a time that has not come, and the margin arithmetic
+                // never sees a value this far out. Answered as 5.3 did, with an empty page, and a cursor a client
+                // can follow from here.
+                await Send.ResponseAsync(EmptyPageAfter(req), cancellation: ct);
                 return;
             }
 
@@ -337,31 +387,29 @@ internal sealed class ListRunsEndpoint(
             ? await RunQueries.CountByStatusAsync(session, req.ContentId, req.WorkflowId, ct)
             : null;
 
-        var query = session.Query<WorkflowRun>().AsQueryable();
-        if (status is { } s) query = query.Where(r => r.Status == s);
-        if (req.ContentId is { } contentId) query = query.Where(r => r.ContentId == contentId);
-        if (req.WorkflowId is { } workflowId) query = query.Where(r => r.WorkflowDefinitionId == workflowId);
-
-        if (since is { } from)
-        {
-            query = query
-                .Where(r => r.MatchesSql(RunCursor.AfterSql, from.At.UtcDateTime, from.At.UtcDateTime, from.Id))
-                .OrderBy(r => r.UpdatedAt)
-                .ThenBy(r => r.Id);
-        }
-        else
-        {
-            query = query.OrderByDescending(r => r.CreatedAt);
-        }
+        var query = FilterRuns(session, req, status, since);
 
         var page = await query.ToPagedResponseAsync(req, ct);
 
         var windows = WorkflowRunRetentionService.ReadWindows(config);
         var sweeping = WorkflowRunRetentionService.IsEnabled(config);
+        var items = page.Items.Select(RunResponse.From).ToList();
+
+        var etag = RunListETag.Compute(HttpContext, items, page.Page, page.PageSize, page.TotalItems, counts,
+            $"{sweeping}:{windows.SucceededDays}:{windows.FailedDays}");
+        HttpContext.Response.Headers.ETag = etag;
+        HttpContext.Response.Headers.CacheControl = "private, no-cache";
+        if (DeliveryCache.IsNotModified(HttpContext.Request, etag, null))
+        {
+            // Sent through FastEndpoints so it knows a response went out. Setting the status alone
+            // let it add its own 204 when HandleAsync returned.
+            await Send.ResultAsync(Results.StatusCode(StatusCodes.Status304NotModified));
+            return;
+        }
 
         await Send.ResponseAsync(new RunListResponse
         {
-            Items = page.Items.Select(RunResponse.From).ToList(),
+            Items = items,
             Page = page.Page,
             PageSize = page.PageSize,
             TotalItems = page.TotalItems,

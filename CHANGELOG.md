@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.4.0] - 2026-10-27
+
+5.4 is a minor release. The console gets an overview, an activity feed, a live view of workflow runs, content type icons, a sign-in methods list and referrer favicons served by the API. Several sign-in, registration, feature flag, install report and semantic search routes check more of what they are given. The admin API contract moves from 12 to 13. The delivery contract stays at 9. BarakoCMS.Analytics.Umami moves to 4.6.0.
+
+### Upgrade
+
+**From 5.3.x.** A 5.2 install upgrades to 5.3 first.
+
+1. **Take a backup and check it restores** (`docs/backup-and-restore.md`).
+2. **Stop the 5.3 API, start 5.4.0.** No migration file ships with 5.4.0, so `db-migrate` has nothing new to apply. The content type icon is a field on the stored definition and reads as none until set.
+3. **Check the new settings.** `Modules:Pwa:RetentionDays` is 0, which keeps every device row. `Auth:RegisterMailCooldownMinutes` is 5, and 0 turns it off. Semantic search has its own limit of 60 requests a minute per address.
+
+`GET /api/activity` answers 400 to a `since` cursor more than a day ahead of the server clock. `GET /api/workflow-runs` still answers 200 with an empty page to a `changedSince` that far ahead, as in 5.3.
+
+**Breaking HTTP changes.** `ApiContract.Version` moves from 12 to 13. `ApiContract.DeliveryVersion` stays at 9. Released barakoBrew reads admin contracts up to 12: upgrade it to 1.11.4, which reads 13, together with the API.
+
+**Package changes.** Modules with changes: AI 4.7.0 (semantic search limit settings), Pwa 4.6.0 (report platform values and `RetentionDays`), FeatureFlags 4.6.1, Tagging 5.3.1, Analytics.Umami 4.6.0 (referrer favicons) and Abstractions 5.4.0. BarakoCMS.Templates and BarakoCMS.Testing follow the core at 5.4.0. Nothing is removed from the package surface.
+
+### Added
+
+- **Content types have an icon.** `PUT /api/content-types/{name}/icon` sets a sprite `name` or a custom `svg`, and create takes `icon` too. A custom SVG is rebuilt from an allowlist on write (scripts, styles, links, event handlers and colours are dropped, shapes use `currentColor`), and a document with no `viewBox`, no shape or bad XML is a 400. Types list and public type description return `icon`.
+- **Workflow health had no recent view.** GET /api/workflows/health now also returns the tenant's last 24 hours: `runs24h`, the newest ten runs, `successRate`, a `verdict` (ok at 90 percent and up, warn at 70, otherwise bad), a one-line `summary` and a per-workflow `workflows` list.
+- **The console had no single place to see what needs attention.** `GET /api/overview` returns counts with a prior period, a Needs you list and a health strip with a verdict. Each part is null for a caller without the capability behind it. `POST /api/overview/items/{id}/resolve` clears the bounces item. A `monitor:read` key can read the overview, and an email module can report bounces through the new `IMailBounceSource`.
+- **A sign-in screen could not tell which methods a deployment offers.** Added `GET /api/auth/methods`, an anonymous list of sign-in method ids (`password`, `email-code`, and any a module announces through `ISignInMethod`). See docs/sign-in-methods.md.
+- **The console had no feed of what happened.** `GET /api/activity` merges publishing, workflow runs, bounces, sign-ins, imports and content type changes into one list of rows (`id`, `at`, `kind`, `severity`, `actor`, `subject`, `text`, `ref`), filtered by `kinds` and polled with a cursor that pages without gaps or repeats. It needs `view_audit_log`, each kind needs what reads its source, and rows are for the caller's tenant only.
+- **Workflow runs had no live view.** The realtime hub has a `workflow-runs` topic (capability `view_workflow_runs`) that sends a notice for each run written in the caller's tenant, to be read with `GET /api/workflow-runs?changedSince=`. `GET /api/workflow-runs` also sends a weak `ETag` and answers `304` to a matching `If-None-Match`.
+- **The console can show referrer favicons without calling a third party.** `GET /api/analytics/favicon?domain=example.com` in the Umami module fetches `https://<domain>/favicon.ico` on the server (hostnames only, no redirects, 64 KB cap, no SVG), caches hits and misses for a day, and answers with `X-Content-Type-Options: nosniff`.
+- **The attempt history fields were undocumented.** `docs/workflow-runs.md` now lists the fields of an action and of each `history` entry on `GET /api/workflow-runs/{id}`. No API change.
+
+### Changed
+
+- **Confirming a registration takes the password.** `POST /api/auth/register/verify` now takes the password chosen at registration alongside the token. A frontend's confirm page has to ask for it.
+- **IMailBounceSource gained list methods.** `ListAsync` and `ListNewestAsync` have default implementations that return nothing, so existing implementors still compile. An implementor that does not override them gives the activity feed no bounce rows. BarakoCMS.Abstractions is now 5.4.0.
+- **Flag targeting read the wrong field.** Feature flag targeting by email now uses the email stored on the user record, not the username. Flags limited to some tenants are no longer listed to callers of other tenants.
+- **PWA platform values were free text and device rows were kept forever.** A new report stores its platform as a lowercased ios, android, windows, macos or linux, or other for anything else. Rows already stored keep their old values. Set Modules:Pwa:RetentionDays to delete rows not seen for that many days. It is 0 by default, which keeps every row.
+- **Registration could send many mails to one address.** Registration now sends at most one mail per address every 5 minutes, and the link already mailed creates what the first request asked for. Set Auth:RegisterMailCooldownMinutes to change the window, or 0 to turn it off. The window is kept in each instance's memory, so a restart clears it. The response is unchanged.
+- **Semantic search shared the delivery rate limit.** Semantic search now has its own limit, 60 requests a minute per address by default. IPv6 clients are counted by /64, and a renderer with the renderer key is counted per visitor named in X-Barako-Visitor-IP. Tune it with Modules:AI:SemanticSearchPermitLimit and Modules:AI:SemanticSearchWindowSeconds.
+- **Workflow version inputs are checked.** The rollback and Discord announce workflows validate the version string before use.
+
+### Fixed
+
+- **Reusing a refresh token now also revokes the access tokens issued before it.** Two refreshes of one token at once leave no live refresh token.
+- **The outbound address check covers more IPv6 forms.** It now applies its IPv4 rules to them.
+- **A term move and a term delete could run past each other.** A move now takes the vocabulary lock that term create and delete already use.
+- **A client following the run cursor stalled when many runs changed at once.** When more runs changed in the last 5 seconds than one page holds, every page of `GET /api/workflow-runs?changedSince=` sent the cursor back to the same runs, and the rest were only reached once the clock passed them. A page with more behind it now moves on to its last run, and the last page goes back far enough that a run committing late is still read. Cursors issued by 5.3 still work.
+
 ## [5.3.0] - 2026-10-25
 
 5.3 is a minor release. Two new modules ship (Tagging and Services), and Accounting posts and reverses journal entries from workflows. A content type can take lines and be owned by an account, a tenant has locale settings, and a module can add a sign-in method. Feature flags gain a visibility level. The sign-in, password reset, payment webhook, semantic search and install report routes check more of what they are given. The admin API contract moves from 11 to 12. The delivery contract stays at 9. BarakoCMS.AI moves to HTTP contract 3 and BarakoCMS.Pwa to 1.

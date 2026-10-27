@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
 using FluentAssertions;
+using Marten;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace BarakoCMS.Tests.Features.Tagging;
@@ -111,6 +113,35 @@ public class TaggingTermTests
         (await api.Http.DeleteAsync($"/api/taxonomy/terms/{parent}")).StatusCode.Should().Be(HttpStatusCode.Conflict);
         (await api.Http.DeleteAsync($"/api/taxonomy/terms/{child}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
         (await api.Http.DeleteAsync($"/api/taxonomy/terms/{parent}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+    }
+
+    [Fact]
+    public async Task A_move_under_a_parent_waits_for_a_delete_of_that_parent_and_is_then_refused()
+    {
+        var api = await TaggingApi.AdminAsync(_factory);
+        var vocabularyId = IdOf(await api.CreateVocabularyAsync());
+        var parent = IdOf(await api.CreateTermAsync(vocabularyId));
+        var mover = IdOf(await api.CreateTermAsync(vocabularyId));
+
+        using var scope = _factory.Services.CreateScope();
+        await using var deleting = scope.ServiceProvider.GetRequiredService<IDocumentStore>()
+            .LightweightSession();
+
+        // The delete's transaction, held open: it owns the vocabulary lock and has not committed.
+        await BarakoCMS.Tagging.TaggingLocks.ForVocabularyAsync(deleting, vocabularyId, CancellationToken.None);
+        deleting.DeleteWhere<BarakoCMS.Tagging.Term>(t => t.Id == parent);
+
+        var move = api.Http.PutAsJsonAsync($"/api/taxonomy/terms/{mover}",
+            new { name = "Mover", parentId = parent });
+
+        var finishedWhileLocked = await Task.WhenAny(move, Task.Delay(TimeSpan.FromSeconds(3))) == move;
+        finishedWhileLocked.Should().BeFalse("a move under a parent must wait for the vocabulary lock a delete holds");
+
+        await deleting.SaveChangesAsync();
+
+        var response = await move.WaitAsync(TimeSpan.FromSeconds(30));
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest,
+            "the parent is gone once the delete commits, so the move finds no such term in the vocabulary");
     }
 
     [Fact]

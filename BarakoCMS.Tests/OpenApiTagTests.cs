@@ -108,6 +108,7 @@ public class OpenApiTagTests
         {
             "Accounting",
             "Accounts",
+            "Activity",
             "AI",
             "Analytics.Umami",
             "ApiKeys",

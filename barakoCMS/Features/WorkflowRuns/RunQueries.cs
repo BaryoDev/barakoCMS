@@ -55,6 +55,37 @@ internal static class RunQueries
     }
 
     /// <summary>
+    /// For the caller's tenant, the runs of each status created at or after a time, per workflow:
+    /// one grouped query per status asked for.
+    /// </summary>
+    internal static async Task<Dictionary<(Guid Workflow, RunStatus Status), int>> CountSinceByWorkflowAsync(
+        IQuerySession session, DateTimeOffset from, IEnumerable<RunStatus> statuses, CancellationToken ct)
+    {
+        var result = new Dictionary<(Guid, RunStatus), int>();
+        foreach (var status in statuses)
+        {
+            var wanted = status;
+            var groups = await session.Query<WorkflowRun>()
+                .Where(r => r.Status == wanted && r.CreatedAt >= from)
+                .GroupBy(r => r.WorkflowDefinitionId)
+                .Select(g => new WorkflowCount { Workflow = g.Key, Count = g.Count() })
+                .ToListAsync(ct);
+
+            foreach (var group in groups) result[(group.Workflow, wanted)] = group.Count;
+        }
+
+        return result;
+    }
+
+    /// <summary>The caller's newest runs whatever their status, newest first, off the CreatedAt index.</summary>
+    internal static async Task<IReadOnlyList<WorkflowRun>> NewestAsync(
+        IQuerySession session, int count, CancellationToken ct) =>
+        await session.Query<WorkflowRun>()
+            .OrderByDescending(r => r.CreatedAt).ThenBy(r => r.Id)
+            .Take(count)
+            .ToListAsync(ct);
+
+    /// <summary>
     /// The mean recorded duration of the actions of a workflow's newest runs created at or after a
     /// time, or null when none of them recorded one.
     /// </summary>

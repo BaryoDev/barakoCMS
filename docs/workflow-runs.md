@@ -550,6 +550,21 @@ counted as finished, and so is a run of a workflow with no actions.
 
 ## Every try of an action, and what changed since
 
+`GET /api/workflow-runs/{id}` returns the run with an `actions` list. Each action has:
+
+| Field | Meaning |
+|---|---|
+| `ordinal`, `actionType`, `status`, `onFailure`, `haltedBy` | Which action it is and where it stands |
+| `attempts` | How many tries so far |
+| `nextAttemptAt` | When the next try is due, null when none is |
+| `responseStatus`, `error`, `retryable`, `durationMs`, `completedAt` | The latest try |
+| `history` | Every try, oldest first, up to 20 |
+| `droppedAttempts` | How many older tries were dropped to stay within 20 |
+| `outputs`, `compensation` | What the action produced, and its undoing |
+
+Each `history` entry has `number`, `startedAt`, `finishedAt`, `outcome`, `responseStatus`, `error`, `retryable` and `durationMs`. A screen showing "Took", "Response" and "Next attempt in N s" reads `durationMs`, `responseStatus` and `nextAttemptAt` of the action, and the attempt list is `history`.
+
+
 An action keeps a history of its tries. Each entry has the try number, when it started and finished, the outcome, the response status the remote call answered with, the error, whether it could be retried, and how long it took. The attempt itself still shows the latest try, so a client that ignores the history sees what it saw before.
 
 The history holds the newest 20 entries, oldest first. When a twenty-first arrives the oldest is dropped and `droppedAttempts` goes up by one. A manual retry adds to the same history and never clears it. A run stored before this existed shows one entry built from what it has, and reading it does not rewrite it.
@@ -563,6 +578,23 @@ Worst case for the document is every action holding 20 entries with 500-characte
 The list response also carries `statusCounts`, the number of runs in each status for the current `contentId` filter, whatever the `status` filter and page, except that it is null when `changedSince` is given, since a poll should not pay for a count of the table. It carries too `succeededRetainedFrom` and `failedRetainedFrom`, the times before which the retention sweep removes finished runs (null when the sweep is off or keeps them).
 
 `updatedAt` is set by the store on every write of a run and is indexed. A run written before it existed has none until it is next written.
+
+## Live updates
+
+There is no stream endpoint. Subscribe to the `workflow-runs` topic on the realtime hub (`/hubs/realtime`, see `docs/realtime.md`) and read what changed with `changedSince`:
+
+```
+await connection.InvokeAsync("Subscribe", "workflow-runs");
+connection.On("changed", n => /* GET /api/workflow-runs?changedSince=<cursor> */);
+```
+
+The topic needs `view_workflow_runs`, the same capability as the list. A notice goes out to the tenant's subscribers each time a run is written, and holds only `{ topic: "workflow-runs", sequence: 0, streamId: <run id>, type: "WorkflowRun" }`. Runs are documents and not events, so there is no sequence and `GET /api/changes` does not take this topic. The list with `changedSince` is the read. A run written in another tenant is never announced to yours. Notices come from the server instance that wrote the run, so a client on a multi-instance host keeps a slow poll as a fallback.
+
+Deleted runs send no notice. A live view that wants removals reads the list on a slow poll with the ETag, and a changed total or page body shows them.
+
+The hub already runs over WebSockets, so the nginx and Caddy samples need nothing new for it.
+
+When a client cannot use the hub, `GET /api/workflow-runs` sends a weak `ETag` and answers `304 Not Modified` with no body to a matching `If-None-Match`. The tag covers the runs, the page, the counts and the configured retention windows. It leaves out `cursor` and the retention dates, which move with the clock, so keep the cursor from the last 200. The query still runs; the saving is the body.
 
 ## Running one by hand, and how healthy a workflow is
 
@@ -585,6 +617,19 @@ The action is recorded in the audit log as `workflow.run.manual`, with the actor
 `GET /api/workflows/health` (needs `view_workflow_runs`) is paged by workflow. Each item has the last 10 finished runs, `successRate`, `finishedRuns` and `averageActionDurationMs`. The rate is succeeded over succeeded, failed and partially failed in the window. Pending, running and cancelled runs are left out, and a workflow with no finished run has a null rate. `windowDays` defaults to 7 and is clamped to what retention keeps (at most 90); the response says the window it used. The average skips actions with no recorded duration and looks at the newest 200 runs in the window.
 
 The `lastOutcomes` list includes cancelled and abandoned runs. Workflows are ordered by name, then id.
+
+The same response also carries the tenant's last 24 hours, whatever the page or `windowDays`:
+
+| Field | Meaning |
+| --- | --- |
+| `runs24h` | Runs created in the last 24 hours, any status. |
+| `recent` | The newest ten runs, newest first, each with `runId`, `workflowId`, `status`, `createdAt` and `outcome`. |
+| `successRate` | Succeeded over succeeded, failed and partially failed in the last 24 hours, 0 to 1. Null when none has finished. |
+| `verdict` | `ok`, `warn` or `bad`. |
+| `summary` | One line saying the same. |
+| `workflows` | The rate and verdict per workflow that ran in the last 24 hours, by name, at most 100. |
+
+`outcome` is `ok` for Succeeded, `warn` for PartiallyFailed and `bad` for Failed. Pending, running and cancelled runs are listed with their own `status`, have a null `outcome`, and are left out of the rate. The verdict is `ok` at 90 percent and up, `warn` at 70 percent and up, otherwise `bad`. A tenant with no finished run in the last 24 hours is `ok`. The thresholds are `WorkflowHealthRules.OkAtOrAbovePercent` and `WarnAtOrAbovePercent`, and nothing else in the code states them. The reads group on the indexed `CreatedAt` and `Status`, so no run is loaded to count it.
 
 `GET /api/workflow-runs` takes `workflowId`. `statusCounts` follow it. When you page with a `changedSince` cursor, send the same filters (`workflowId`, `contentId`, `status`) on every page: the cursor does not remember them.
 

@@ -143,6 +143,8 @@ public static class ContentTypeUpsert
         // Kept when the definition carries none, for the reason KeepStoredPresentation gives.
         stored.RouteTemplate = type.RouteTemplate ?? stored.RouteTemplate;
         stored.StructuredDataType = type.StructuredDataType ?? stored.StructuredDataType;
+        // Sanitised here as well, so no caller can store markup that skipped ErrorsAsync. Null keeps.
+        stored.Icon = type.Icon is null ? stored.Icon : barakoCMS.Core.Validation.IconRules.Check(type.Icon).Icon ?? stored.Icon;
         stored.MergeClass = type.MergeClass ?? stored.MergeClass;
         stored.BranchScoped = type.BranchScoped;
         stored.RealtimeTopic = type.RealtimeTopic;
@@ -165,6 +167,7 @@ public static class ContentTypeUpsert
         IsPubliclyDeliverable = type.IsPubliclyDeliverable,
         IsSingleton = type.IsSingleton,
         RouteTemplate = type.RouteTemplate,
+        Icon = barakoCMS.Core.Validation.IconRules.Check(type.Icon).Icon,
         StructuredDataType = type.StructuredDataType,
         Uniqueness = type.Uniqueness is { Count: > 0 } ? type.Uniqueness : null,
         MergeClass = type.MergeClass,
@@ -240,6 +243,7 @@ public static class ContentTypeUpsert
 
         errors.AddRange(validator.ValidateRouteTemplate(type.RouteTemplate).Errors);
         errors.AddRange(validator.ValidateStructuredDataType(type.StructuredDataType).Errors);
+        errors.AddRange(barakoCMS.Core.Validation.IconRules.Check(type.Icon).Errors);
 
         // Checked only for a type being created. A stored type keeps its rules.
         if (stored is null)

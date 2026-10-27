@@ -8,13 +8,21 @@ namespace barakoCMS.Features.WorkflowRuns;
 /// </summary>
 /// <remarks>
 /// Opaque to a client: it hands back what the last response gave it. The text form is the ticks of
-/// the time and the id, and a bare ISO timestamp is accepted as the first cursor, standing for that
-/// time with the smallest id.
+/// the time and the id, then the ticks of <see cref="Anchor"/> when there is one, and a bare ISO
+/// timestamp is accepted as the first cursor, standing for that time with the smallest id. A cursor
+/// without the anchor part, the only form 5.3 issued, still reads.
 ///
 /// The id is compared by the database in both the filter and the order, never in code, because
 /// Postgres and .NET order a Guid differently and a cursor that disagrees with the order skips rows.
 /// </remarks>
-internal sealed record RunCursor(DateTimeOffset At, Guid Id)
+/// <param name="At">The UpdatedAt of the position.</param>
+/// <param name="Id">The run at that position, or the smallest id for a bare time.</param>
+/// <param name="Anchor">
+/// Set while a client pages through runs changed inside <see cref="Margin"/>: the time the last page
+/// of that run of pages sends it back to, so a run that committed late behind the pages it already
+/// read is read on the next poll.
+/// </param>
+internal sealed record RunCursor(DateTimeOffset At, Guid Id, DateTimeOffset? Anchor = null)
 {
     /// <summary>
     /// How far behind now a cursor is kept when the last page was taken. UpdatedAt is stamped before
@@ -32,7 +40,9 @@ internal sealed record RunCursor(DateTimeOffset At, Guid Id)
         "public.mt_immutable_timestamptz(d.data ->> 'UpdatedAt') >= ? "
         + "AND (public.mt_immutable_timestamptz(d.data ->> 'UpdatedAt'), d.id) > (?, ?)";
 
-    public override string ToString() => $"{At.UtcTicks.ToString(CultureInfo.InvariantCulture)}_{Id:N}";
+    public override string ToString() => Anchor is { } anchor
+        ? string.Create(CultureInfo.InvariantCulture, $"{At.UtcTicks}_{Id:N}_{anchor.UtcTicks}")
+        : string.Create(CultureInfo.InvariantCulture, $"{At.UtcTicks}_{Id:N}");
 
     public static bool TryParse(string? text, out RunCursor cursor)
     {
@@ -40,12 +50,24 @@ internal sealed record RunCursor(DateTimeOffset At, Guid Id)
         if (string.IsNullOrWhiteSpace(text)) return false;
 
         var parts = text.Split('_');
-        if (parts.Length == 2
+        if (parts.Length is 2 or 3
             && long.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out var ticks)
             && ticks <= DateTimeOffset.MaxValue.Ticks
             && Guid.TryParseExact(parts[1], "N", out var id))
         {
-            cursor = new RunCursor(new DateTimeOffset(ticks, TimeSpan.Zero), id);
+            DateTimeOffset? anchor = null;
+            if (parts.Length == 3)
+            {
+                if (!long.TryParse(parts[2], NumberStyles.None, CultureInfo.InvariantCulture, out var anchorTicks)
+                    || anchorTicks > DateTimeOffset.MaxValue.Ticks)
+                {
+                    return false;
+                }
+
+                anchor = new DateTimeOffset(anchorTicks, TimeSpan.Zero);
+            }
+
+            cursor = new RunCursor(new DateTimeOffset(ticks, TimeSpan.Zero), id, anchor);
             return true;
         }
 
@@ -69,28 +91,34 @@ internal sealed record RunCursor(DateTimeOffset At, Guid Id)
     /// <param name="hasMore">Whether more changed runs follow this page.</param>
     /// <param name="now">The time the page was read.</param>
     /// <remarks>
-    /// An empty page returns the cursor it was given. A page whose last row is older than
-    /// <see cref="Margin"/> returns that row exactly. Otherwise the cursor lags: it stops at
-    /// <see cref="Margin"/> before now, so a run whose transaction commits late is seen on the next
-    /// poll, on the last page and on a page with more behind it alike. A run read twice is harmless
-    /// to a client that replaces by id; a run never read is not.
+    /// A page whose last run is older than <see cref="Margin"/> returns that run exactly. A last page
+    /// that reaches inside the margin lags to <see cref="Margin"/> before now, so a run whose
+    /// transaction commits late is seen on the next poll, or returns the input when that point is not
+    /// past it.
     ///
-    /// A lagging cursor must get further than the one it replaces, or a client following it would
-    /// read the same page for ever. When the margin point is not past the input (the whole page sits
-    /// inside the margin), a page with more behind it returns its last row exactly, since the client
-    /// has to move on, and the last page returns the input, since nothing is behind it.
+    /// A page with more behind it always returns its last run, so a client reaches the end in pages
+    /// and not at the speed of the clock. Lagging there instead sent every page back to the same runs
+    /// at the front of the margin, and a run more than a page behind them was not reached until the
+    /// clock passed it. When such a page reaches inside the margin the cursor records where the lag
+    /// would have put it as <see cref="Anchor"/>, and the last page returns that, so a run committing
+    /// late behind the pages is still read. An empty page returns the cursor it was given, or its
+    /// anchor. A run read twice is harmless to a client that replaces by id; a run never read is not.
     /// </remarks>
     public static RunCursor Next(RunCursor input, IReadOnlyList<WorkflowRun> items, bool hasMore, DateTimeOffset now)
     {
-        if (items.Count == 0) return input;
+        if (items.Count == 0) return input.Anchor is { } back ? new RunCursor(back, Guid.Empty) : input;
 
         var last = items[^1];
-        var exact = new RunCursor(last.UpdatedAt, last.Id);
-
         var cap = Floor(now - Margin);
-        if (last.UpdatedAt <= cap) return exact;
-        if (cap > input.At) return new RunCursor(cap, Guid.Empty);
-        return hasMore ? exact : input;
+        if (hasMore)
+        {
+            var anchor = input.Anchor ?? (last.UpdatedAt <= cap ? null : cap > input.At ? cap : input.At);
+            return new RunCursor(last.UpdatedAt, last.Id, anchor);
+        }
+
+        if (input.Anchor is { } start) return new RunCursor(start, Guid.Empty);
+        if (last.UpdatedAt <= cap) return new RunCursor(last.UpdatedAt, last.Id);
+        return cap > input.At ? new RunCursor(cap, Guid.Empty) : input;
     }
 
     private static DateTimeOffset Floor(DateTimeOffset at) =>

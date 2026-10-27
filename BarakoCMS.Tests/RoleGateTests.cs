@@ -62,6 +62,7 @@ public class RoleGateTests
         new("GET", "/api/api-keys", "/api/api-keys"),
         new("DELETE", "/api/api-keys/{id}", $"/api/api-keys/{NotAGuid}"),
         new("GET", "/api/audit", "/api/audit"),
+        new("GET", "/api/activity", "/api/activity"),
         new("GET", "/api/jobs", "/api/jobs"),
         new("DELETE", "/api/contents/{id}/erase", $"/api/contents/{NotAGuid}/erase"),
         new("POST", "/api/contents/{id}/rollback/{versionId}", $"/api/contents/{NotAGuid}/rollback/{NotAGuid}"),
@@ -75,6 +76,7 @@ public class RoleGateTests
         new("PUT", "/api/content-types/{name}/fields/{field}/currency", "/api/content-types/no-such-type/fields/no-such-field/currency"),
         new("PUT", "/api/content-types/{name}/fields/{field}/presentation", "/api/content-types/no-such-type/fields/no-such-field/presentation"),
         new("PUT", "/api/content-types/{name}/route-template", "/api/content-types/no-such-type/route-template"),
+        new("PUT", "/api/content-types/{name}/icon", "/api/content-types/no-such-type/icon"),
         new("PUT", "/api/content-types/{name}/structured-data", "/api/content-types/no-such-type/structured-data"),
         new("PUT", "/api/content-types/{name}/uniqueness", "/api/content-types/no-such-type/uniqueness"),
         new("PUT", "/api/content-types/{name}/lookup", "/api/content-types/no-such-type/lookup"),
@@ -214,6 +216,7 @@ public class RoleGateTests
         new("GET", "/api/accounts/{slug}/managers", "/api/accounts/default/managers"),
         new("POST", "/api/accounts/{slug}/managers", "/api/accounts/default/managers"),
         new("DELETE", "/api/accounts/{slug}/managers/{userId}", $"/api/accounts/default/managers/{NotAGuid}"),
+        new("POST", "/api/overview/items/{id}/resolve", $"/api/overview/items/{NotAGuid}/resolve"),
     ];
 
     public static TheoryData<GatedRoute> AllGatedRoutes()

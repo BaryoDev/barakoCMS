@@ -49,8 +49,57 @@ internal sealed class WorkflowHealth
     public double? AverageActionDurationMs { get; init; }
 }
 
+internal sealed class RecentRun
+{
+    public Guid RunId { get; init; }
+    public Guid WorkflowId { get; init; }
+
+    /// <summary>The name of a <see cref="RunStatus"/>.</summary>
+    [NJsonSchema.Annotations.JsonSchemaType(typeof(RunStatus))]
+    public string Status { get; init; } = nameof(RunStatus.Succeeded);
+
+    /// <summary>ok, warn or bad. Null for a run that is pending, running or cancelled, which the rate leaves out.</summary>
+    public string? Outcome { get; init; }
+    public DateTimeOffset CreatedAt { get; init; }
+}
+
+internal sealed class WorkflowDayHealth
+{
+    public Guid WorkflowId { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public int Runs24h { get; init; }
+    public int FinishedRuns { get; init; }
+
+    /// <summary>From 0 to 1. Null when no run in the last 24 hours has finished.</summary>
+    public double? SuccessRate { get; init; }
+
+    /// <summary>ok, warn or bad.</summary>
+    public string Verdict { get; init; } = WorkflowHealthRules.Ok;
+}
+
 internal sealed class HealthResponse : PaginatedResponse<WorkflowHealth>
 {
+    /// <summary>Every run created in the last 24 hours, whatever its status.</summary>
+    public int Runs24h { get; set; }
+
+    /// <summary>The newest ten runs of the tenant, newest first, whatever their age or status.</summary>
+    public List<RecentRun> Recent { get; set; } = new();
+
+    /// <summary>
+    /// Succeeded over succeeded, failed and partially failed in the last 24 hours, from 0 to 1.
+    /// Null when none has finished. Not the window of <see cref="WindowDays"/>.
+    /// </summary>
+    public double? SuccessRate { get; set; }
+
+    /// <summary>ok at 90 percent and up, warn at 70 percent and up, otherwise bad. ok when nothing has finished.</summary>
+    public string Verdict { get; set; } = WorkflowHealthRules.Ok;
+
+    /// <summary>One line saying the same.</summary>
+    public string Summary { get; set; } = string.Empty;
+
+    /// <summary>The same rate and verdict per workflow, for the workflows that ran in the last 24 hours. At most the 100 with the most runs, by name. A workflow whose definition is gone is left out.</summary>
+    public List<WorkflowDayHealth> Workflows { get; set; } = new();
+
     /// <summary>The window used, in days, after it was clamped.</summary>
     public int WindowDays { get; set; }
 
@@ -64,7 +113,7 @@ internal sealed class HealthResponse : PaginatedResponse<WorkflowHealth>
 /// the retention sweep keeps: a longer one would divide the successes it kept by failures it did
 /// not, and the response says the window it used.
 /// </remarks>
-internal sealed class Endpoint(IQuerySession session, IConfiguration config) : Endpoint<Request, HealthResponse>
+internal sealed class Endpoint(IQuerySession session, IConfiguration config, TimeProvider clock) : Endpoint<Request, HealthResponse>
 {
     internal const int DefaultWindowDays = 7;
     internal const int MaxWindowDays = 90;
@@ -80,7 +129,8 @@ internal sealed class Endpoint(IQuerySession session, IConfiguration config) : E
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         var window = Math.Clamp(req.WindowDays ?? DefaultWindowDays, 1, WindowCap(config));
-        var from = DateTimeOffset.UtcNow.AddDays(-window);
+        var now = clock.GetUtcNow();
+        var from = now.AddDays(-window);
 
         var page = await session.Query<WorkflowDefinition>().OrderBy(w => w.Name).ThenBy(w => w.Id).ToPagedResponseAsync(req, ct);
 
@@ -96,8 +146,16 @@ internal sealed class Endpoint(IQuerySession session, IConfiguration config) : E
             items.Add(HealthOf(workflow, counts, recent, average));
         }
 
+        var day = await DayHealthAsync(session, now, ct);
+
         await Send.ResponseAsync(new HealthResponse
         {
+            Runs24h = day.Runs24h,
+            Recent = day.Recent,
+            SuccessRate = day.SuccessRate,
+            Verdict = day.Verdict,
+            Summary = day.Summary,
+            Workflows = day.Workflows,
             Items = items,
             Page = page.Page,
             PageSize = page.PageSize,
@@ -105,6 +163,70 @@ internal sealed class Endpoint(IQuerySession session, IConfiguration config) : E
             WindowDays = window,
             WindowFrom = from,
         }, cancellation: ct);
+    }
+
+    internal const int MaxDayWorkflows = 100;
+
+    internal sealed record DayHealth(
+        int Runs24h, List<RecentRun> Recent, double? SuccessRate, string Verdict, string Summary,
+        List<WorkflowDayHealth> Workflows, int Finished = 0, int Succeeded = 0);
+
+    /// <summary>
+    /// The tenant's last 24 hours as of <paramref name="now"/>: one grouped query per status off the
+    /// CreatedAt index, the newest ten runs, and the names of the workflows that ran.
+    /// </summary>
+    internal static async Task<DayHealth> DayHealthAsync(IQuerySession session, DateTimeOffset now, CancellationToken ct)
+    {
+        var counts = await RunQueries.CountSinceByWorkflowAsync(session, now.AddHours(-24), Enum.GetValues<RunStatus>(), ct);
+        var newest = await RunQueries.NewestAsync(session, RecentOutcomes, ct);
+
+        var runs = counts.Values.Sum();
+        var succeeded = counts.Where(c => c.Key.Status == RunStatus.Succeeded).Sum(c => c.Value);
+        var finished = counts.Where(c => WorkflowHealthRules.CountedStatuses.Contains(c.Key.Status)).Sum(c => c.Value);
+        var verdict = WorkflowHealthRules.Verdict(succeeded, finished);
+
+        var top = counts.GroupBy(c => c.Key.Workflow)
+            .Select(g => (Id: g.Key, Runs: g.Sum(c => c.Value)))
+            .OrderByDescending(w => w.Runs).ThenBy(w => w.Id)
+            .Take(MaxDayWorkflows)
+            .Select(w => w.Id)
+            .ToList();
+        var names = top.Count == 0
+            ? new Dictionary<Guid, string>()
+            : (await session.LoadManyAsync<WorkflowDefinition>(ct, top)).ToDictionary(w => w.Id, w => w.Name);
+
+        var workflows = top.Where(names.ContainsKey).Select(id =>
+            {
+                int Count(Func<RunStatus, bool> pick) => counts.Where(c => c.Key.Workflow == id && pick(c.Key.Status)).Sum(c => c.Value);
+                var done = Count(WorkflowHealthRules.CountedStatuses.Contains);
+                var won = Count(s => s == RunStatus.Succeeded);
+                return new WorkflowDayHealth
+                {
+                    WorkflowId = id,
+                    Name = names[id],
+                    Runs24h = Count(_ => true),
+                    FinishedRuns = done,
+                    SuccessRate = WorkflowHealthRules.Rate(won, done),
+                    Verdict = WorkflowHealthRules.Verdict(won, done),
+                };
+            })
+            .OrderBy(w => w.Name, StringComparer.Ordinal).ThenBy(w => w.WorkflowId)
+            .ToList();
+
+        return new DayHealth(
+            runs,
+            newest.Select(r => new RecentRun
+            {
+                RunId = r.Id,
+                WorkflowId = r.WorkflowDefinitionId,
+                Status = r.Status.ToString(),
+                Outcome = WorkflowHealthRules.Outcome(r.Status),
+                CreatedAt = r.CreatedAt,
+            }).ToList(),
+            WorkflowHealthRules.Rate(succeeded, finished),
+            verdict,
+            WorkflowHealthRules.Summary(runs, succeeded, finished, verdict),
+            workflows, finished, succeeded);
     }
 
     internal static int WindowCap(IConfiguration config)

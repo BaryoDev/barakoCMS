@@ -96,6 +96,7 @@ internal static class RateLimitSetup
     public const string RefreshPolicy = "refresh";
     public const string BatchPolicy = "telemetry";
     public const string RegistrationPolicy = "registration";
+    public const string RegistrationVerifyPolicy = "registration-verify";
     public const string SiteSharePolicy = "site-share";
     public const string LogoutPolicy = "logout";
     public const string DeliveryPolicy = "delivery";
@@ -120,6 +121,7 @@ internal static class RateLimitSetup
         [RefreshPolicy] = "Refresh",
         [BatchPolicy] = "Batch",
         [RegistrationPolicy] = "Registration",
+        [RegistrationVerifyPolicy] = "Registration",
         [SiteSharePolicy] = "SiteShare",
         [DeliveryPolicy] = "Delivery",
         [LookupPolicy] = "Lookup",
@@ -268,8 +270,7 @@ internal static class RateLimitSetup
         options.AddPolicy(BatchPolicy, context =>
             RateLimitPartition.GetFixedWindowLimiter($"telemetry-{ClientIp(context)}", _ => Options(settings.Batch)));
 
-        options.AddPolicy(RegistrationPolicy, context =>
-            RateLimitPartition.GetFixedWindowLimiter($"registration-{ClientIp(context)}", _ => Options(settings.Registration)));
+        AddRegistrationPolicies(options, settings);
 
         // Anonymous share link redemption. A guess costs a query, so it is held well under the global
         // limit. The key is 32 random bytes, so this is about load, not about making a guess feasible.
@@ -287,6 +288,17 @@ internal static class RateLimitSetup
             await WithCorsHeaders(context.HttpContext);
             await Reject(context.HttpContext, context.Lease, cancellationToken);
         };
+    }
+
+    private static void AddRegistrationPolicies(RateLimiterOptions options, RateLimitSettings settings)
+    {
+        options.AddPolicy(RegistrationPolicy, context =>
+            RateLimitPartition.GetFixedWindowLimiter($"registration-{ClientIp(context)}", _ => Options(settings.Registration)));
+
+        // Confirming a registration has the same window as asking for one, counted on its own so a
+        // mistyped password there does not use up the registration allowance.
+        options.AddPolicy(RegistrationVerifyPolicy, context =>
+            RateLimitPartition.GetFixedWindowLimiter($"registration-verify-{ClientIp(context)}", _ => Options(settings.Registration)));
     }
 
     internal static async Task Reject(HttpContext context, RateLimitLease lease, CancellationToken cancellationToken)
@@ -455,6 +467,29 @@ internal static class RateLimitSetup
         delivery is { } window && !HasRendererKey(context, rendererKeyHash)
             ? RateLimitPartition.GetFixedWindowLimiter($"delivery|{ClientIp(context)}", _ => Options(window))
             : RateLimitPartition.GetNoLimiter(NotCountedHere);
+
+    /// <summary>
+    /// The renderer key hash from configuration, or null when no key is set. For a module that
+    /// builds its own policy and needs the same renderer handling as delivery.
+    /// </summary>
+    internal static byte[]? RendererKeyHashOf(IConfiguration configuration) =>
+        Read(configuration).RendererKey is { } key ? Hash(key) : null;
+
+    /// <summary>
+    /// A module's own limit with delivery's renderer handling: the client IP is counted, the renderer
+    /// is counted by the visitor it names in <see cref="VisitorIpHeader"/>, and a renderer that names
+    /// none stays on the renderer bucket alone.
+    /// </summary>
+    internal static RateLimitPartition<string> RendererAwarePartition(
+        HttpContext context, string name, RateLimitWindow window, byte[]? rendererKeyHash)
+    {
+        if (!HasRendererKey(context, rendererKeyHash))
+            return RateLimitPartition.GetFixedWindowLimiter($"{name}|{ClientIp(context)}", _ => Options(window));
+
+        return VisitorIp(context) is { } visitor
+            ? RateLimitPartition.GetFixedWindowLimiter($"{name}|visitor|{visitor}", _ => Options(window))
+            : RateLimitPartition.GetNoLimiter(NotCountedHere);
+    }
 
     /// <summary>
     /// The bucket of the name a TLS ask is about, not of the caller: a flood of made-up names then

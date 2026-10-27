@@ -94,13 +94,29 @@ internal sealed class OutboundAddressGuard
     /// carrier-grade NAT, multicast and reserved ranges, for IPv4 and IPv6 alike.
     /// </summary>
     /// <remarks>
-    /// An IPv4-mapped IPv6 address is unwrapped first. Without that, <c>::ffff:127.0.0.1</c> reaches
-    /// loopback while every IPv4 rule below sits unread.
+    /// An IPv6 address that carries an IPv4 address (mapped, IPv4-compatible, NAT64, 6to4) is
+    /// unwrapped first. Without that, <c>::ffff:127.0.0.1</c> reaches loopback while every IPv4 rule
+    /// below sits unread. Local-use NAT64 and Teredo are refused whole: the first is operator-defined
+    /// and the second hides the client address behind a XOR.
     /// </remarks>
     public static bool IsBlockedAddress(IPAddress ip)
     {
         if (ip.IsIPv4MappedToIPv6)
             ip = ip.MapToIPv4();
+
+        if (ip.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            var v6 = ip.GetAddressBytes();
+            if (v6[0] == 0x20 && v6[1] == 0x01 && v6[2] == 0 && v6[3] == 0) return true;                 // 2001::/32 Teredo
+            if (v6[0] == 0 && v6[1] == 0x64 && v6[2] == 0xFF && v6[3] == 0x9B && v6[4] == 0 && v6[5] == 0x01)
+                return true;                                                                              // 64:ff9b:1::/48
+            if (v6[0] == 0x20 && v6[1] == 0x02)
+                return IsBlockedAddress(new IPAddress(v6[2..6]));                                         // 2002::/16 6to4
+            if (v6[..4].SequenceEqual(new byte[] { 0, 0x64, 0xFF, 0x9B }) && v6[4..12].All(x => x == 0))
+                return IsBlockedAddress(new IPAddress(v6[12..16]));                                       // 64:ff9b::/96 NAT64
+            if (v6[..12].All(x => x == 0) && v6[12..16].Any(x => x != 0))
+                return IsBlockedAddress(new IPAddress(v6[12..16]));                                       // ::/96 IPv4-compatible
+        }
 
         if (IPAddress.IsLoopback(ip))
             return true;

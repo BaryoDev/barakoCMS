@@ -8,7 +8,7 @@ namespace barakoCMS.Infrastructure.Auth;
 /// API key (<c>auth_method=apikey</c>). API keys are confined to the content surface (content,
 /// content types, schemas, collection pushes) and to read vs write by HTTP method, except that
 /// erasing and rolling back an entry need <c>content:destructive</c>. <c>monitor:read</c> reaches only the
-/// content counts, the analytics reads and the per-check health read. A key that names content types
+/// content counts, the analytics reads, the overview and the per-check health read. A key that names content types
 /// reaches only the push route for those types. Everything else (managing users,
 /// roles, tenants, or keys themselves) stays behind human JWTs, so a leaked key can never escalate
 /// into platform administration. Human JWT callers are untouched: they carry no scope claims and use
@@ -57,6 +57,8 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
             return [ApiKeyScopes.ContentRead, ApiKeyScopes.MonitorRead];
         if (!isWrite && IsMonitoringHealth(path))
             return [ApiKeyScopes.MonitorRead];
+        if (!isWrite && IsOverview(path))
+            return [ApiKeyScopes.MonitorRead];
         if (Match(path, "/api/analytics"))
             return isWrite ? null : [ApiKeyScopes.MonitorRead];
         var one = RequiredScope(path, isWrite);
@@ -81,6 +83,15 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
                && segments[0].Equals("api", StringComparison.OrdinalIgnoreCase)
                && segments[1].Equals("monitoring", StringComparison.OrdinalIgnoreCase)
                && segments[2].Equals("health", StringComparison.OrdinalIgnoreCase);
+    }
+
+    // GET /api/overview, the exact two segments. The resolve route under it is a write and stays closed to keys.
+    private static bool IsOverview(string path)
+    {
+        var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return segments.Length == 2
+               && segments[0].Equals("api", StringComparison.OrdinalIgnoreCase)
+               && segments[1].Equals("overview", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? RequiredScope(string path, bool isWrite)

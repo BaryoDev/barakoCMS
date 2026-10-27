@@ -44,5 +44,6 @@ internal class VerifyRequestValidator : FastEndpoints.Validator<VerifyRequest>
     public VerifyRequestValidator()
     {
         RuleFor(x => x.Token).NotEmpty().MaximumLength(256);
+        RuleFor(x => x.Password).NotEmpty();
     }
 }

@@ -69,56 +69,14 @@ internal sealed class Endpoint(IQuerySession session, IPermissionResolver permis
             return;
         }
 
-        IReadOnlyList<string> types = string.IsNullOrWhiteSpace(req.ContentType)
-            ? await session.Query<ContentTypeDefinition>()
-                .Select(d => d.Name)
-                .ToListAsync(ct)
-            : [req.ContentType];
-
-        var unconditional = new List<string>();
-        var conditional = new List<(string Type, ReadPredicate Predicate)>();
-        var uncounted = new List<string>();
-
-        foreach (var type in types)
-        {
-            var predicate = await permissionResolver.ReadPredicateAsync(user, type, ct);
-            if (!predicate.Compiled)
-            {
-                // Named only to a caller with some read rule for it, so the list cannot tell anyone
-                // which types exist that they may not read at all.
-                if (await permissionResolver.CanPerformActionAsync(user, type, "read", null, ct))
-                {
-                    uncounted.Add(type);
-                }
-            }
-            else if (predicate.Sql == ReadPredicate.All.Sql)
-            {
-                unconditional.Add(type);
-            }
-            else if (predicate.Sql != ReadPredicate.Nothing.Sql)
-            {
-                conditional.Add((type, predicate));
-            }
-        }
-
-        // Counts what the caller may reach: a branch scoped type counts only the caller's branches.
-        var branchScope = await Resolve<barakoCMS.Infrastructure.Services.IBranchScopeGuard>().FilterAsync(User, ct);
-        IQueryable<barakoCMS.Models.Content> Reachable(IQueryable<barakoCMS.Models.Content> rows) =>
-            branchScope is null ? rows : rows.Where(c => c.MatchesSql(branchScope.Sql, branchScope.Parameters));
+        var reach = await ReachableContent.ForAsync(
+            session, permissionResolver, Resolve<barakoCMS.Infrastructure.Services.IBranchScopeGuard>(),
+            User, user, req.ContentType, ct);
 
         var tally = new Tally();
-        if (unconditional.Count > 0)
+        foreach (var source in reach.Sources)
         {
-            await tally.AddAsync(
-                Reachable(session.Query<barakoCMS.Models.Content>().Where(c => c.ContentType.IsOneOf(unconditional))), ct);
-        }
-
-        foreach (var (type, predicate) in conditional)
-        {
-            await tally.AddAsync(
-                Reachable(session.Query<barakoCMS.Models.Content>()
-                    .Where(c => c.ContentType == type)
-                    .Where(c => c.MatchesSql(predicate.Sql!, predicate.Parameters))), ct);
+            await tally.AddAsync(source, ct);
         }
 
         await Send.OkAsync(new Response(
@@ -127,7 +85,7 @@ internal sealed class Endpoint(IQuerySession session, IPermissionResolver permis
             tally.Published,
             tally.Archived,
             tally.Scheduled,
-            uncounted.Order(StringComparer.Ordinal).ToList()), ct);
+            reach.Uncounted), ct);
     }
 
     private sealed class Tally

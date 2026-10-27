@@ -71,7 +71,7 @@ public sealed class ContentTopicCatalog(Func<IDocumentStore> store) : DocumentSe
     private async Task<Dictionary<string, ContentTopic>> ReadAsync(string slug)
     {
         await using var read = store().QuerySession(TenantScopes.TenantIdFor(slug));
-        var types = await read.Query<ContentTypeDefinition>().Where(d => d.RealtimeTopic != null).ToListAsync();
+        var types = await read.Query<ContentTypeDefinition>().Where(d => d.RealtimeTopic != null && d.RealtimeTopic != WorkflowRunTopic.Name).ToListAsync();
         return types.ToDictionary(d => d.RealtimeTopic!, d => new ContentTopic(d.RealtimeTopic!, d.Name, d.BranchScoped), StringComparer.Ordinal);
     }
 }

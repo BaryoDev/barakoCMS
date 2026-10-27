@@ -24,9 +24,8 @@ internal static class OfrepEvaluation
 {
     public const string BasePath = "/ofrep/v1/evaluate/flags";
 
-    public static FlagContext ContextFor(ClaimsPrincipal user, string tenantSlug, OfrepRequest? request)
+    public static FlagContext ContextFor(ClaimsPrincipal user, string? email, string tenantSlug, OfrepRequest? request)
     {
-        var email = user.FindFirst("Username")?.Value ?? user.FindFirst(ClaimTypes.Email)?.Value;
         var signedIn = user.Identity?.IsAuthenticated == true;
         var bucket = email ?? (signedIn ? null : request?.TargetingKey) ?? tenantSlug;
         return new FlagContext(tenantSlug, email, bucket);
@@ -106,7 +105,7 @@ internal sealed class OfrepEvaluateFlagEndpoint(
 
     public override async Task HandleAsync(OfrepKeyRequest req, CancellationToken ct)
     {
-        var ctx = OfrepEvaluation.ContextFor(User, tenant.Slug, req.Body);
+        var ctx = OfrepEvaluation.ContextFor(User, await FeatureFlagService.VerifiedEmailAsync(session, User, ct), tenant.Slug, req.Body);
         var audience = await FeatureFlagService.AudienceAsync(session, User, configuration, ct);
         var flag = await flags.FindAsync(req.Key, ct);
 
@@ -146,9 +145,9 @@ internal sealed class OfrepEvaluateAllEndpoint(
 
     public override async Task HandleAsync(OfrepRequest req, CancellationToken ct)
     {
-        var ctx = OfrepEvaluation.ContextFor(User, tenant.Slug, req);
+        var ctx = OfrepEvaluation.ContextFor(User, await FeatureFlagService.VerifiedEmailAsync(session, User, ct), tenant.Slug, req);
         var audience = await FeatureFlagService.AudienceAsync(session, User, configuration, ct);
-        var visible = await flags.VisibleAsync(audience, ct);
+        var visible = await flags.VisibleAsync(audience, tenant.Slug, ct);
         var response = new OfrepBulkResponse
         {
             Flags = visible.OrderBy(f => f.Key, StringComparer.Ordinal).Select(f => OfrepEvaluation.Evaluation(f, ctx)).ToList(),

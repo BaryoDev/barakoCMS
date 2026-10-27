@@ -19,11 +19,13 @@ internal sealed record PublicFieldDescription(string Name, string Type, string? 
 /// <param name="StructuredDataType">
 /// The schema.org type a read by slug describes an entry as, or null when the type emits none.
 /// </param>
+/// <param name="Icon">The icon the type is drawn with, or null when it has none.</param>
 internal sealed record PublicTypeDescription(
     string Name,
     string? RouteTemplate,
     IReadOnlyList<PublicFieldDescription> Fields,
-    string? StructuredDataType = null);
+    string? StructuredDataType = null,
+    ContentTypeIcon? Icon = null);
 
 /// <summary>
 /// GET /api/public/types/{type}/description, what a renderer needs to build titles, links, a
@@ -83,6 +85,6 @@ internal sealed class TypeDescriptionEndpoint(IQuerySession session) : EndpointW
             ? def.StructuredDataType
             : null;
 
-        await Send.OkAsync(new PublicTypeDescription(def.Name, template, fields, structured), ct);
+        await Send.OkAsync(new PublicTypeDescription(def.Name, template, fields, structured, def.Icon), ct);
     }
 }

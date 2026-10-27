@@ -27,6 +27,14 @@ internal sealed class Endpoint(IDocumentSession session) : Endpoint<Request, Ter
 
         if (req.ParentId != term.ParentId && req.ParentId is { } parentId)
         {
+            await TaggingLocks.ForVocabularyAsync(session, term.VocabularyId, ct);
+            term = await session.LoadAsync<Term>(req.Id, ct);
+            if (term is null)
+            {
+                await Send.NotFoundAsync(ct);
+                return;
+            }
+
             var tree = await TermTree.LoadAsync(session, term.VocabularyId, ct);
             if (!tree.Contains(parentId))
             {

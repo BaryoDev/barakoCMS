@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Net;
 using System.Text.Json;
+using barakoCMS.Features.WorkflowRuns;
 using barakoCMS.Features.Workflows;
 using barakoCMS.Models;
 using FluentAssertions;
@@ -195,6 +196,21 @@ public class WorkflowRunChangedSinceTests
         res.StatusCode.Should().Be(HttpStatusCode.BadRequest, why);
     }
 
+    [Theory]
+    [InlineData("3155378975999999999_0123456789abcdef0123456789abcdef")]
+    [InlineData("9999-12-31T23:59:59Z")]
+    public async Task A_cursor_far_in_the_future_returns_an_empty_page(string cursor)
+    {
+        var (contentId, runs) = await SeedAsync(2);
+        runs.Should().NotBeEmpty();
+
+        using var doc = await ListAsync($"contentId={contentId}&changedSince={Uri.EscapeDataString(cursor)}");
+
+        Ids(doc).Should().BeEmpty();
+        RunCursor.TryParse(CursorOf(doc), out var next).Should().BeTrue();
+        next.At.Should().BeOnOrBefore(DateTimeOffset.UtcNow);
+    }
+
     [Fact]
     public async Task A_list_without_changedSince_has_no_cursor_and_stays_newest_first()
     {
@@ -261,6 +277,31 @@ public class WorkflowRunChangedSinceTests
     }
 
     [Fact]
+    public async Task More_runs_changed_moments_ago_than_a_page_holds_are_all_reached_by_following_the_cursor()
+    {
+        var (contentId, runs) = await SeedAsync(6);
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var admin = await AdminOnAsync(clock);
+
+        var seen = new HashSet<Guid>();
+        var cursor = Long;
+        for (var turn = 0; turn < 10; turn++)
+        {
+            using var doc = await ListAsync($"contentId={contentId}&changedSince={Uri.EscapeDataString(cursor)}&pageSize=2", admin);
+            var ids = Ids(doc);
+            seen.UnionWith(ids);
+            cursor = CursorOf(doc);
+            if (ids.Count >= doc.RootElement.GetProperty("totalItems").GetInt32()) break;
+
+            // A request takes time, so the margin point moves between pages.
+            clock.Advance(TimeSpan.FromMilliseconds(1));
+        }
+
+        seen.Should().HaveCount(6, "every run sits inside the margin, and a page with more behind it must still move on");
+        seen.Should().BeEquivalentTo(runs.Select(r => r.Id));
+    }
+
+    [Fact]
     public async Task Status_counts_cover_every_status_and_ignore_the_status_filter_and_the_page()
     {
         var contentId = await _harness.StoreContentAsync();
@@ -322,5 +363,28 @@ public class WorkflowRunChangedSinceTests
 
         Check("succeededRetainedFrom", windows.SucceededDays);
         Check("failedRetainedFrom", windows.FailedDays);
+    }
+
+    [Fact]
+    public async Task Changing_the_retention_window_changes_the_run_list_etag()
+    {
+        var url = $"/api/workflow-runs?workflowId={Guid.NewGuid()}";
+
+        async Task<System.Net.Http.Headers.EntityTagHeaderValue> TagAsync(string days)
+        {
+            var host = _factory.WithSetting(WorkflowRunRetentionService.SucceededDaysKey, days);
+            var client = host.CreateClient();
+            client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
+                "Bearer", await _factory.StoredUserTokenAsync("SuperAdmin", "Admin"));
+            var res = await client.GetAsync(url, Ct);
+            res.StatusCode.Should().Be(HttpStatusCode.OK);
+            res.Headers.ETag.Should().NotBeNull();
+            return res.Headers.ETag!;
+        }
+
+        var short_ = await TagAsync("3");
+        var long_ = await TagAsync("9");
+
+        long_.Should().NotBe(short_, "the page is the same empty one and only the configured window differs");
     }
 }

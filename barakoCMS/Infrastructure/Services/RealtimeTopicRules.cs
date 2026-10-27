@@ -20,7 +20,8 @@ public static partial class RealtimeTopicRules
 
     /// <summary>
     /// The refusal for the topic of <paramref name="type"/>, or null when it declares none or the
-    /// name is free. The type's own stored topic is not a clash.
+    /// name is free. The type's own stored topic is not a clash, except the reserved
+    /// <c>workflow-runs</c>, which is refused even when the type already holds it.
     /// </summary>
     public static async Task<string?> RefusalAsync(
         ContentTypeDefinition type, TopicRegistry registry, IQuerySession session, CancellationToken ct)
@@ -33,6 +34,11 @@ public static partial class RealtimeTopicRules
         if (!NamePattern().IsMatch(topic))
         {
             return $"Realtime topic '{Shorten(topic)}' must be lower case words joined by dots or dashes.";
+        }
+
+        if (string.Equals(topic, WorkflowRunTopic.Name, StringComparison.Ordinal))
+        {
+            return $"Realtime topic '{topic}' is reserved.";
         }
 
         if (registry.Find(topic) is { } owner)

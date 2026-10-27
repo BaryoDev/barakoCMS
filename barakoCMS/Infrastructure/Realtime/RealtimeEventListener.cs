@@ -39,14 +39,20 @@ internal sealed class RealtimeEventListener(
     public override Task AfterCommitAsync(IDocumentSession session, IChangeSet commit, CancellationToken token)
     {
         var events = commit.GetEvents().ToList();
+        var runs = commit.Inserted.Concat(commit.Updated).OfType<WorkflowRun>().Select(r => r.Id).Distinct().ToList();
+        var tenantId = session.TenantId;
 
         // Inside a content batch this is a flush, not a commit. The notices go out once it commits.
-        return BatchTransaction.TryDeferUntilCommit(ct => NotifyAsync(events, ct))
+        return BatchTransaction.TryDeferUntilCommit(ct => NotifyAsync(events, runs, tenantId, ct))
             ? Task.CompletedTask
-            : NotifyAsync(events, token);
+            : NotifyAsync(events, runs, tenantId, token);
     }
 
-    private async Task NotifyAsync(IReadOnlyList<JasperFx.Events.IEvent> events, CancellationToken token)
+    private async Task NotifyAsync(
+        IReadOnlyList<JasperFx.Events.IEvent> events,
+        IReadOnlyList<Guid> runs,
+        string tenantId,
+        CancellationToken token)
     {
         try
         {
@@ -71,6 +77,33 @@ internal sealed class RealtimeEventListener(
         catch (Exception ex)
         {
             logger.LogError(ex, "Realtime notice failed after a commit; the write itself succeeded");
+        }
+
+        await NotifyRunsAsync(runs, tenantId, token);
+    }
+
+    // Its own try and after the others, so a failed run send cannot drop the event and content
+    // notices of the same commit.
+    private async Task NotifyRunsAsync(IReadOnlyList<Guid> runs, string tenantId, CancellationToken token)
+    {
+        if (runs.Count == 0) return;
+
+        try
+        {
+            // The group is the session's tenant, so a run written under tenant B reaches only B's subscribers.
+            var group = hub.Clients.Group(RealtimeHub.GroupName(TenantScopes.SlugFor(tenantId), WorkflowRunTopic.Name));
+            if (runs.Count > WorkflowRunTopic.MaxNoticesPerCommit)
+            {
+                await group.SendAsync(Method, WorkflowRunTopic.RefetchNotice(), token);
+                return;
+            }
+
+            foreach (var run in runs)
+                await group.SendAsync(Method, WorkflowRunTopic.Notice(run), token);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Workflow run notice failed after a commit; the write itself succeeded");
         }
     }
 
