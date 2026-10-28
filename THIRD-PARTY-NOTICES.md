@@ -36,13 +36,6 @@ bundles code under several more licences, including Apache-2.0, the IJG licence,
 Their notices travel with the binary: the suite image ships them under `/app/licenses`, and the
 NuGet package ships them as `THIRD-PARTY-NOTICES.txt`.
 
-## Lib.Net.Http.WebPush
-
-BarakoCMS.Push sends Web Push messages with
-[Lib.Net.Http.WebPush](https://github.com/tpeczek/Lib.Net.Http.WebPush) 3.3.1 (MIT). The package
-declares MIT as its licence expression and does not ship a licence file; its copyright line, read
-from the package's nuspec, is "Copyright © 2018 - 2025 Tomasz Pęczek".
-
 ## barakoCMS itself
 
 The core (`barakoCMS/`, `BarakoCMS.Abstractions/`) is MPL-2.0 and every other package is MIT, as the

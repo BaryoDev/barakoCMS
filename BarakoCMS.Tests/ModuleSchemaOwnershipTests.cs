@@ -44,7 +44,6 @@ public class ModuleSchemaOwnershipTests
             typeof(BarakoCMS.AI.AiModule).Assembly,
             typeof(BarakoCMS.Diagnostics.DiagnosticsModule).Assembly,
             typeof(BarakoCMS.Pwa.PwaModule).Assembly,
-            typeof(BarakoCMS.Push.PushModule).Assembly,
             typeof(BarakoCMS.Forms.FormsModule).Assembly,
             typeof(BarakoCMS.Reports.ReportsModule).Assembly,
             typeof(BarakoCMS.Payments.PaymentsModule).Assembly,

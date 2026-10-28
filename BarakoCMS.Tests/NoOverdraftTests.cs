@@ -148,7 +148,9 @@ public class NoOverdraftTests
             Data = new Dictionary<string, object>(voided) { ["Status"] = "Posted" },
             Existing = voided,
             EntryId = row.Id,
+#pragma warning disable CS0618 // the property is required until 6.0, so the context cannot be built without it
             Session = session,
+#pragma warning restore CS0618
             UserId = Guid.NewGuid(),
         }, ct);
 

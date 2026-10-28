@@ -183,7 +183,6 @@ public class ModuleCapabilityDefaultsTests
             typeof(BarakoCMS.Import.ImportCapabilities),
             typeof(BarakoCMS.Notifications.NotificationsCapabilities),
             typeof(BarakoCMS.Portability.PortabilityCapabilities),
-            typeof(BarakoCMS.Push.PushCapabilities),
             typeof(BarakoCMS.Pwa.PwaCapabilities),
             typeof(BarakoCMS.Services.ServicesCapabilities),
             typeof(BarakoCMS.Tagging.TaggingCapabilities),

@@ -80,7 +80,6 @@ public class SuiteCompositionTests
             "Pages",
             "Payments",
             "Portability",
-            "Push",
             "Pwa",
             "Qr",
             "Reports",

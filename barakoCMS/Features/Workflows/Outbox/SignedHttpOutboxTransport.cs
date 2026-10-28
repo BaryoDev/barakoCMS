@@ -33,7 +33,7 @@ internal sealed class SignedHttpOutboxTransport(
 
         if (!Uri.TryCreate(message.Url, UriKind.Absolute, out var uri)
             || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
-            || !await addressGuard.IsHostAllowedAsync(uri.Host, ct))
+            || !await addressGuard.IsHostAllowedAsync(uri.Host, uri.Port, ct))
         {
             return OutboxSendResult.Refused($"The URL {redacted} is not allowed: it must be http or https to a non-internal host.");
         }

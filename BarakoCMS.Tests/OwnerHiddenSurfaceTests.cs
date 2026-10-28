@@ -171,7 +171,7 @@ public sealed class OwnerHiddenSurfaceTests
             };
             var indexed = $"Bea s-{tag} {secret}";
             session.Events.StartStream<Content>(
-                id, new barakoCMS.Events.ContentCreated(id, type, data, ContentStatus.Published, Guid.NewGuid(), indexed, SensitivityLevel.Public));
+                id, new barakoCMS.Events.ContentCreated(id, type, data, ContentStatus.Published, Guid.NewGuid(), indexed, SensitivityLevel.Public, DateTime.UtcNow));
             session.Store(new Content
             {
                 Id = id, ContentType = type, Status = ContentStatus.Published, Sensitivity = SensitivityLevel.Public,
@@ -259,7 +259,7 @@ public sealed class OwnerHiddenSurfaceTests
             };
             var indexed = $"Bea {slug} {phone}";
             session.Events.StartStream<Content>(
-                id, new barakoCMS.Events.ContentCreated(id, type, data, ContentStatus.Published, Guid.NewGuid(), indexed, SensitivityLevel.Public));
+                id, new barakoCMS.Events.ContentCreated(id, type, data, ContentStatus.Published, Guid.NewGuid(), indexed, SensitivityLevel.Public, DateTime.UtcNow));
             session.Store(new Content
             {
                 Id = id, ContentType = type, Status = ContentStatus.Published, Sensitivity = SensitivityLevel.Public,
@@ -338,7 +338,7 @@ public sealed class OwnerHiddenSurfaceTests
                     ["Name"] = "Bea", ["Slug"] = slug, ["Phone"] = "1", ["ShownFields"] = new List<object>(),
                 };
                 session.Events.StartStream<Content>(
-                    id, new barakoCMS.Events.ContentCreated(id, type, data, ContentStatus.Published, Guid.NewGuid(), "Bea", SensitivityLevel.Public));
+                    id, new barakoCMS.Events.ContentCreated(id, type, data, ContentStatus.Published, Guid.NewGuid(), "Bea", SensitivityLevel.Public, DateTime.UtcNow));
                 session.Store(new Content
                 {
                     Id = id, ContentType = type, Status = ContentStatus.Published, Sensitivity = SensitivityLevel.Public,
@@ -397,7 +397,7 @@ public sealed class OwnerHiddenSurfaceTests
             };
             var indexed = $"Bea s-{tag} {phone}";
             session.Events.StartStream<Content>(
-                id, new barakoCMS.Events.ContentCreated(id, type, data, ContentStatus.Published, Guid.NewGuid(), indexed, SensitivityLevel.Public));
+                id, new barakoCMS.Events.ContentCreated(id, type, data, ContentStatus.Published, Guid.NewGuid(), indexed, SensitivityLevel.Public, DateTime.UtcNow));
             session.Store(new Content
             {
                 Id = id, ContentType = type, Status = ContentStatus.Published, Sensitivity = SensitivityLevel.Public,

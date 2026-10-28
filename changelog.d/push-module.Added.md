@@ -1,1 +1,0 @@
-- **BarakoCMS.Push stores Web Push subscriptions and sends them.** The new module keeps a subscription per user and device, sends notifications signed with VAPID, deletes a subscription when the push service answers 404 or 410, and adds a `Push` workflow action. It is disabled until VAPID keys are set under `Modules:Push`.
