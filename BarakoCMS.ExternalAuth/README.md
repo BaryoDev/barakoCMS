@@ -7,8 +7,7 @@
 ---
 
 OAuth and OpenID Connect sign-in for barakoCMS. A user arriving through a provider is matched to a
-global user by **verified** email (an OpenID Connect provider by issuer and subject after the first
-time) and issued exactly the same tenant-scoped, device-bound token as the built-in flows. Social
+global user by **verified** email the first time, and by the provider's own account id after that, and issued exactly the same tenant-scoped, device-bound token as the built-in flows. Social
 sign-in is another way in, not a second, weaker way in.
 
 ## Enable it
@@ -174,6 +173,28 @@ to the person and works in every tenant they sign in to. An unknown user, or a l
 another user, answers 404. The provider's subject is not returned. The next sign-in through that
 provider links again by verified email.
 
+Google, Facebook, GitHub and LinkedIn work the same way. Their account id is the Google and LinkedIn
+`sub`, the Facebook `id` and the GitHub numeric id, and the issuer of the link is a fixed name:
+`oauth:google`, `oauth:facebook`, `oauth:github`, `oauth:linkedin`. An OpenID Connect issuer is always
+an https URL, so the two kinds of link cannot collide. A person whose address changes at the provider
+signs in to the same local account. A user who signed in before this existed has no link, so the
+first sign-in after the upgrade matches by verified email, under each provider's rule in the table
+below, and records the link. A linked person signs in even when the provider sends no address. The one
+exception is Facebook with `Facebook:TrustUnverifiedEmail`: Facebook does not vouch for the address,
+so a match to an existing user signs in but is not recorded as a link.
+
+### Choosing providers per tenant
+
+Providers and their client ids stay one set for the deployment. A tenant can narrow which of them it
+offers: `PUT /api/tenants/external-providers` with `{ "providers": ["oauth:google", "oidc:azure"] }`
+(`GET` and `DELETE` read and remove it, gated like the role map, and each change is audited). A key is
+`oauth:google`, `oauth:facebook`, `oauth:github`, `oauth:linkedin`, or `oidc:` and the name of a
+configured OpenID Connect provider. A tenant with no list uses every provider the deployment has
+configured. A provider the tenant leaves out answers 404 at `/start`, at the callback and at the
+`id-token` grant, the same as a provider that is off for the deployment, and
+`GET /api/auth/providers?club={handle}` reports only what that tenant allows. The list is stored in
+`mt_doc_external_provider_settings`, created by `migrations/5.5.0/915-external-auth-provider-settings.sql`.
+
 ### Mapping a provider claim to roles
 
 A tenant sets one map with `PUT /api/tenants/external-role-map` (`GET` and `DELETE` read and remove
@@ -184,7 +205,10 @@ example `groups`, and rules from a claim value, read from one provider, to a rol
 { "claim": "groups", "rules": [ { "provider": "azure", "value": "staff", "roleId": "<role id>" } ] }
 ```
 
-`provider` is the name under `Oidc:Providers` and must be configured. A rule only matches a token
+`provider` is the name under `Oidc:Providers` and must be configured, or one of `oauth:google` and
+the other three OAuth keys. Only Google sends a claim a rule can read: `hd`, the hosted domain, from the
+ID token of the code exchange (checked for this client, for Google and for the same person userinfo named).
+GitHub, Facebook and LinkedIn report only fields the person edits, so no rule can match them. A rule only matches a token
 that came through that provider, so the same group name at another provider gives nothing. Values
 match exactly and case sensitively, and a value cannot start or end with a space. A rule cannot read
 `name`, `given_name`, `family_name`, `nickname`, `picture`, `preferred_username`, `email`,

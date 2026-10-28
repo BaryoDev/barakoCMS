@@ -38,56 +38,53 @@ public static class SocialSignIn
     public sealed record ProfileData(
         string? Name, string? PhotoUrl, string? Birthday, string? Location, string Source);
 
-    public static async Task<Tokens> IssueAsync(
+    /// <summary>
+    /// Sign-in through one of the OAuth providers (Google, Facebook, GitHub, LinkedIn). It names the
+    /// account by the provider's own user id, so a person whose address changes at the provider
+    /// still reaches the same local user. Needs <paramref name="provider"/> to be one of the
+    /// <see cref="ExternalProviders"/> keys, which is also the issuer of the link.
+    /// </summary>
+    /// <remarks>
+    /// <c>subject</c> is the provider's stable id for the person: Google and LinkedIn <c>sub</c>,
+    /// Facebook <c>id</c>, GitHub numeric id. <c>emailVerified</c> is the provider's own rule, and
+    /// only a first sign-in reads it, to match a local user by address. A linked account is found by
+    /// subject, with or without an address. <c>claims</c> is what the provider says that the person
+    /// cannot edit, for the tenant's role map. <c>emailTrustedByOperator</c> marks a verification the
+    /// provider did not make: it still lets an unlinked sign-in match by address, but links nothing
+    /// to the user it matched, so the match does not outlive the operator's setting.
+    /// </remarks>
+    public static Task<(Tokens Tokens, bool EmailNotVerified)> IssueForProviderAsync(
         IDocumentSession session,
         IConfiguration config,
         barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
         barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer,
         barakoCMS.Infrastructure.Auth.Mfa.IMfaService mfa,
         HttpContext http,
-        string email,
+        string provider,
+        string subject,
+        string? email,
         bool emailVerified,
         string club,
         CancellationToken ct,
-        ProfileData? profile = null)
+        ProfileData? profile = null,
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? claims = null,
+        bool emailTrustedByOperator = false)
     {
-        // Required, and deliberately not optional with a default. Three of the four providers used
-        // to hand over an address nobody had asked the provider to vouch for, and the README claimed
-        // the opposite. A parameter with a default would have let the next provider omit it just as
-        // quietly.
-        //
-        // The email is the only join key here, so an unverified one is a login for whichever local
-        // account holds that address. A seeded SuperAdmin's address is {username}@company.com and
-        // therefore guessable, and PasswordHash is never consulted on this path.
-        if (!emailVerified)
+        // A linked account signs in without an address. An unlinked one needs a usable address, and
+        // without one the sign-in is refused the same way an unverified address is.
+        var usable = email?.Trim().ToLowerInvariant();
+        if (string.IsNullOrEmpty(usable) || !usable.Contains('@'))
         {
-            return Tokens.Denied();
+            usable = null;
         }
 
-        if (!await TenantSignIn.AllowsAsync(session, club, TenantSignInPolicy.Social, ct))
+        var identity = new OidcIdentity(provider, subject, usable, emailVerified, profile?.Name, profile?.PhotoUrl)
         {
-            return Tokens.Denied();
-        }
-
-        var normalized = email.Trim().ToLowerInvariant();
-        var signUp = await SignUpPolicy.DecideAsync(session, club, ct);
-        var user = await session.Query<User>().FirstOrDefaultAsync(u => u.Email.ToLower() == normalized, ct);
-        var created = user is null;
-        if (user is null)
-        {
-            // A new account is a sign-up, so the tenant's policy decides. An existing one is a
-            // sign-in, and the issuer's membership check decides.
-            if (signUp.Outcome == SignUpOutcome.Refused)
-            {
-                return Tokens.Denied();
-            }
-
-            user = new User { Id = Guid.NewGuid(), Email = normalized, Username = normalized, PasswordHash = "" };
-            session.Store(user);
-        }
-
-        return await IssueForUserAsync(
-            session, config, deviceGate, tokenIssuer, mfa, http, user, club, created ? signUp : null, ct, profile, null, null);
+            Claims = claims ?? new Dictionary<string, IReadOnlyList<string>>(),
+            EmailTrustedByOperator = emailTrustedByOperator,
+        };
+        return IssueForIdentityAsync(
+            session, config, deviceGate, tokenIssuer, mfa, http, identity, provider, club, ct, null, profile);
     }
 
     /// <summary>
@@ -110,7 +107,8 @@ public static class SocialSignIn
         string provider,
         string club,
         CancellationToken ct,
-        Action<IDocumentSession>? beforeFinalCommit = null)
+        Action<IDocumentSession>? beforeFinalCommit = null,
+        ProfileData? profileOverride = null)
     {
         if (!await TenantSignIn.AllowsAsync(session, club, TenantSignInPolicy.Social, ct))
         {
@@ -142,31 +140,39 @@ public static class SocialSignIn
                     return (Tokens.Denied(), false);
                 }
 
-                // NormalizedUsername is unique, and somebody may already use this address as a name.
-                var username = await session.Query<User>().AnyAsync(u => u.NormalizedUsername == email, ct)
-                    ? $"{email}+{Guid.NewGuid():N}"[..(email.Length + 9)]
-                    : email;
-                user = new User { Id = Guid.NewGuid(), Email = email, Username = username, PasswordHash = "" };
-                session.Store(user);
+                user = await NewUserAsync(session, email, ct);
                 created = true;
             }
 
-            session.Store(new ExternalIdentity
+            // An address the operator chose to trust, and the provider did not vouch for, may sign
+            // in to the account holding it, but is not made permanent. A new account is its own.
+            if (created || !identity.EmailTrustedByOperator)
             {
-                Id = key,
-                Issuer = identity.Issuer,
-                Subject = identity.Subject,
-                UserId = user.Id,
-                Provider = provider,
-                LinkedAt = DateTime.UtcNow,
-            });
+                session.Store(new ExternalIdentity
+                {
+                    Id = key, Issuer = identity.Issuer, Subject = identity.Subject,
+                    UserId = user.Id, Provider = provider, LinkedAt = DateTime.UtcNow,
+                });
+            }
         }
 
         var mapped = await MappedRolesAsync(session, config, identity, provider, club, ct);
 
-        var profile = new ProfileData(identity.Name, identity.Picture, null, null, provider);
+        var profile = profileOverride ?? new ProfileData(identity.Name, identity.Picture, null, null, provider);
         return (await IssueForUserAsync(
             session, config, deviceGate, tokenIssuer, mfa, http, user, club, created ? signUp : null, ct, profile, beforeFinalCommit, mapped), false);
+    }
+
+    /// <summary>A new local user for a verified address, stored on the session.</summary>
+    private static async Task<User> NewUserAsync(IDocumentSession session, string email, CancellationToken ct)
+    {
+        // NormalizedUsername is unique, and somebody may already use this address as a name.
+        var username = await session.Query<User>().AnyAsync(u => u.NormalizedUsername == email, ct)
+            ? $"{email}+{Guid.NewGuid():N}"[..(email.Length + 9)]
+            : email;
+        var user = new User { Id = Guid.NewGuid(), Email = email, Username = username, PasswordHash = "" };
+        session.Store(user);
+        return user;
     }
 
     /// <summary>
@@ -408,6 +414,71 @@ public static class SocialSignIn
     /// <summary>Callback when the account needs MFA: carries the challenge for the SPA to complete /mfa/verify.</summary>
     public static string FrontendMfaCallback(string baseUrl, string challenge, string club) =>
         $"{baseUrl}/auth/social#mfa_challenge={Uri.EscapeDataString(challenge)}&club={Uri.EscapeDataString(club)}";
+
+    /// <summary>The login page with an error for the person, back in the club they started from.</summary>
+    public static string FrontendError(string baseUrl, string message, string club) =>
+        $"{baseUrl}/login?fberror={Uri.EscapeDataString(message)}"
+        + (string.IsNullOrEmpty(club) ? "" : $"&club={Uri.EscapeDataString(club)}");
+
+    /// <summary>
+    /// The end of every OAuth callback once the provider has answered: sign in through the identity
+    /// link and pick where the browser goes next. <paramref name="label"/> names the provider to the
+    /// person, and <paramref name="noEmailMessage"/> is the refusal for an unlinked sign-in with no
+    /// usable address.
+    /// </summary>
+    internal static async Task<string> CallbackRedirectAsync(
+        IDocumentSession session,
+        IConfiguration config,
+        barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
+        barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer,
+        barakoCMS.Infrastructure.Auth.Mfa.IMfaService mfa,
+        HttpContext http,
+        string provider,
+        string label,
+        string noEmailMessage,
+        string? subject,
+        string email,
+        bool emailVerified,
+        string club,
+        string baseUrl,
+        CancellationToken ct,
+        ProfileData profile,
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? claims,
+        bool emailTrustedByOperator = false)
+    {
+        if (string.IsNullOrEmpty(subject))
+        {
+            return FrontendError(baseUrl, $"Couldn't reach {label}. Please try again, or use your email code.", club);
+        }
+
+        Tokens tokens;
+        bool emailNotVerified;
+        try
+        {
+            (tokens, emailNotVerified) = await IssueForProviderAsync(
+                session, config, deviceGate, tokenIssuer, mfa, http, provider, subject, email, emailVerified, club, ct, profile, claims, emailTrustedByOperator);
+        }
+        catch (Exception ex) when (OidcSupport.IsUniqueViolation(ex))
+        {
+            // Two first sign-ins for one address raced on the user's unique email. The retry
+            // finds the account.
+            return FrontendError(baseUrl, "Couldn't finish signing you in. Please try again.", club);
+        }
+
+        if (tokens.RequiresMfa)
+        {
+            return FrontendMfaCallback(baseUrl, tokens.MfaChallenge!, club);
+        }
+
+        if (!tokens.Allowed)
+        {
+            // An unlinked sign-in with no usable address is refused here, as it was before the link.
+            return FrontendError(
+                baseUrl, emailNotVerified && !email.Contains('@') ? noEmailMessage : "You are not a member of this club.", club);
+        }
+
+        return FrontendCallback(baseUrl, tokens.Token, tokens.Refresh, club);
+    }
 }
 
 /// <summary>

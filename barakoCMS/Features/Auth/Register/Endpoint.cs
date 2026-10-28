@@ -16,7 +16,7 @@ namespace barakoCMS.Features.Auth.Register;
 /// <para>
 /// The third of those is why this is a security fix rather than a spam control. External sign-in
 /// joins a provider's verified email to a local account by address alone (see
-/// <c>SocialSignIn.IssueAsync</c>, which refuses any provider that has not asserted the address is
+/// <c>SocialSignIn.IssueForProviderAsync</c>, which refuses any provider that has not asserted the address is
 /// verified). Writing an arbitrary unproven address into <c>User.Email</c> undid that from the other
 /// side: register as somebody else's address, wait for them to sign in with Google, and the provider
 /// puts them into the account you control. Refusing to sign in until verified would not have closed

@@ -18,7 +18,7 @@ namespace BarakoCMS.ExternalAuth;
 /// third. The <c>redirect_uri</c> is built from the configured base URL and the configured provider
 /// name, and nothing in the request can change where the browser is sent back to.
 /// </remarks>
-internal sealed class OidcStartEndpoint(IConfiguration config, OidcBackchannel backchannel) : EndpointWithoutRequest
+internal sealed class OidcStartEndpoint(IConfiguration config, OidcBackchannel backchannel, IQuerySession tenants) : EndpointWithoutRequest
 {
     public override void Configure()
     {
@@ -31,7 +31,8 @@ internal sealed class OidcStartEndpoint(IConfiguration config, OidcBackchannel b
     {
         var provider = OidcProviders.Find(config, Route<string>("name"));
         var club = (Query<string>("club", isRequired: false) ?? "").Trim().ToLowerInvariant();
-        if (provider is null || club.Length > OidcSupport.MaxClubLength)
+        if (provider is null || club.Length > OidcSupport.MaxClubLength
+            || !await ExternalProviders.AllowedAsync(tenants, club, ExternalProviders.OidcKey(provider.Name), ct))
         {
             await Send.NotFoundAsync(ct);
             return;
@@ -194,12 +195,10 @@ internal abstract class OidcCallback(
         OidcSupport.Expire(HttpContext.Response, provider, provider.StateCookie);
         OidcSupport.Expire(HttpContext.Response, provider, provider.ClubCookie);
 
-        async Task Fail(string message)
-        {
-            var to = $"{baseUrl}/login?fberror={Uri.EscapeDataString(message)}";
-            if (!string.IsNullOrEmpty(club)) to += $"&club={Uri.EscapeDataString(club)}";
-            await Send.ResultAsync(Results.Redirect(to));
-        }
+        if (!await ExternalProviders.AllowedAsync(session, club, ExternalProviders.OidcKey(provider.Name), ct)) { await Send.NotFoundAsync(ct); return; }
+
+        Task Fail(string message) =>
+            Send.ResultAsync(Results.Redirect(SocialSignIn.FrontendError(baseUrl, message, club)));
 
         var expired = $"{provider.DisplayName} sign-in was cancelled or the link expired. Please try again.";
         var unreachable = $"Couldn't reach {provider.DisplayName}. Please try again, or use your email code.";

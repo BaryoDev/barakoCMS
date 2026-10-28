@@ -182,13 +182,14 @@ public class TenantSignInPolicyTests
         var provider = scope.ServiceProvider;
         var context = new Microsoft.AspNetCore.Http.DefaultHttpContext();
         context.Request.Headers["User-Agent"] = "sign-in-policy-tests";
-        var social = await SocialSignIn.IssueAsync(
+        var (social, _) = await SocialSignIn.IssueForProviderAsync(
             provider.GetRequiredService<IDocumentSession>(),
             provider.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>(),
             provider.GetRequiredService<barakoCMS.Core.Interfaces.IDeviceGate>(),
             provider.GetRequiredService<ITokenIssuer>(),
             provider.GetRequiredService<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>(),
-            context, user.Email, emailVerified: true, passwordOnly, Ct);
+            context, BarakoCMS.ExternalAuth.ExternalProviders.Google, "sub-" + Guid.NewGuid().ToString("N"),
+            user.Email, emailVerified: true, passwordOnly, Ct);
         social.Allowed.Should().BeFalse("the tenant does not allow social sign-in");
     }
 

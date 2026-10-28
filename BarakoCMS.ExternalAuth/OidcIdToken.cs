@@ -18,6 +18,12 @@ internal sealed record OidcIdentity(
     string? Picture)
 {
     /// <summary>
+    /// True when the operator, not the provider, decided the address counts as verified. A first
+    /// sign-in may match by it, but it is not recorded as a link.
+    /// </summary>
+    public bool EmailTrustedByOperator { get; init; }
+
+    /// <summary>
     /// The token's string and string-array claims, bounded, for the tenant's claim-to-role map.
     /// Only a validated token reaches here, so a value is the provider's.
     /// </summary>

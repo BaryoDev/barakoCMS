@@ -40,6 +40,7 @@ public class ShippedMigrationTests
         "5.3.0/accounting-mappings",
         "5.3.0/252-tagging",
         "5.3.0/833-services",
+        "5.5.0/915-external-auth-provider-settings",
     ];
 
     /// <summary>
@@ -203,6 +204,7 @@ public class ShippedMigrationTests
             "ExternalAuth/4.6.0/external-auth-identities",
             "ExternalAuth/4.8.0/external-auth-used-nonces",
             "ExternalAuth/5.1.0/915-external-auth-role-maps",
+            "ExternalAuth/5.5.0/915-external-auth-provider-settings",
             "Files/4.2.0/stored-files-parent-index",
             "Files/5.0.0/files-storage-settings",
             "Forms/4.2.0/forms-public-forms",

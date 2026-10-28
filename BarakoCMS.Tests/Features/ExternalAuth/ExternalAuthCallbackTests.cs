@@ -14,11 +14,14 @@ internal sealed class GitHubStubHandler : HttpMessageHandler
 {
     private readonly string _email;
     private readonly bool _verified;
+    private readonly long _id;
 
-    public GitHubStubHandler(string email, bool verified)
+    /// <param name="id">GitHub's numeric user id. Each handler gets its own unless a test sets one, so two tests never share an account.</param>
+    public GitHubStubHandler(string email, bool verified, long? id = null)
     {
         _email = email;
         _verified = verified;
+        _id = id ?? Random.Shared.NextInt64(1_000_000, long.MaxValue);
     }
 
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
@@ -31,7 +34,7 @@ internal sealed class GitHubStubHandler : HttpMessageHandler
             var u when u.EndsWith("api.github.com/user/emails", StringComparison.Ordinal)
                 => $$"""[{"email":"{{_email}}","primary":true,"verified":{{(_verified ? "true" : "false")}} }]""",
             var u when u.EndsWith("api.github.com/user", StringComparison.Ordinal)
-                => """{"login":"octo","name":"Octo Cat","avatar_url":"https://example.com/a.png","location":"Manila"}""",
+                => $$"""{"id":{{_id}},"login":"octo","name":"Octo Cat","avatar_url":"https://example.com/a.png","location":"Manila"}""",
             _ => "{}",
         };
 
