@@ -210,6 +210,12 @@ internal class Endpoint(
         // produce a short or empty page while permitted items exist further down the raw ordering.
         var sensitivity = Resolve<barakoCMS.Core.Interfaces.ISensitivityService>();
         var permittedItems = new List<ContentResponse>();
+
+        // Across types the SQL search sees every value, so one type's owner-hidden field is matched
+        // too. When any type has such a field this caller may not read, each row is rechecked below.
+        var crossTypeHides = !string.IsNullOrEmpty(term) && string.IsNullOrEmpty(req.ContentType)
+            && await AnyTypeHidesOwnerFieldsAsync(sensitivity, ct);
+
         foreach (var item in candidates)
         {
             if (await permissionResolver.CanPerformActionAsync(user, item.ContentType, "read", item, ct))
@@ -233,7 +239,7 @@ internal class Endpoint(
                 // are shown, so which entries match cannot tell them what a field they may not read
                 // holds. A named type's search was narrowed in SQL instead, before paging.
                 if (!string.IsNullOrEmpty(term) && string.IsNullOrEmpty(req.ContentType)
-                    && !(await permissionResolver.FieldSetAsync(user, item.ContentType, "read", item, ct)).IsAll
+                    && (crossTypeHides || !(await permissionResolver.FieldSetAsync(user, item.ContentType, "read", item, ct)).IsAll)
                     && !ShownValueContains(response.Data, term))
                     continue;
 
@@ -434,12 +440,14 @@ internal class Endpoint(
     /// </remarks>
     private async Task<string[]?> SearchableKeysAsync(barakoCMS.Models.User user, string contentType, CancellationToken ct)
     {
-        if ((await permissionResolver.FieldSetAsync(user, contentType, "read", null, ct)).IsAll)
-            return null;
-
         var definition = await barakoCMS.Infrastructure.Services.AccountContentTypes.ResolveAsync(session, contentType, ct);
 
         var sensitivity = Resolve<barakoCMS.Core.Interfaces.ISensitivityService>();
+
+        if ((await permissionResolver.FieldSetAsync(user, contentType, "read", null, ct)).IsAll
+            && !await TypeHidesOwnerFieldsFromAsync(definition, sensitivity, ct))
+            return null;
+
         var keys = new List<string>();
         foreach (var group in (definition?.Fields ?? new List<FieldDefinition>()).GroupBy(f => f.Name.ToLowerInvariant()))
         {
@@ -456,6 +464,36 @@ internal class Endpoint(
         }
 
         return keys.ToArray();
+    }
+
+    /// <summary>Whether any content type has an owner-hidden field this caller may not read.</summary>
+    private async Task<bool> AnyTypeHidesOwnerFieldsAsync(barakoCMS.Core.Interfaces.ISensitivityService sensitivity, CancellationToken ct)
+    {
+        // The account's definition of a name wins over the tenant's own, so check the one a read uses.
+        var own = await session.Query<ContentTypeDefinition>().Select(d => d.Name).ToListAsync(ct);
+        var (_, shared) = await barakoCMS.Infrastructure.Services.AccountContentTypes.ForTenantAsync(session, ct);
+        var definitions = await barakoCMS.Infrastructure.Services.AccountContentTypes.ResolveManyAsync(
+            session, own.Concat(shared.Select(t => t.Name)), ct);
+        foreach (var definition in definitions.Values)
+        {
+            if (await TypeHidesOwnerFieldsFromAsync(definition, sensitivity, ct))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Whether the type has a field its owner can hide that this caller may not read on every entry.</summary>
+    private async Task<bool> TypeHidesOwnerFieldsFromAsync(
+        ContentTypeDefinition? definition, barakoCMS.Core.Interfaces.ISensitivityService sensitivity, CancellationToken ct)
+    {
+        foreach (var field in (definition?.Fields ?? []).Where(f => !string.IsNullOrEmpty(f.ShownWhenListedIn)))
+        {
+            if (!await sensitivity.MayReadFieldAsync(definition!.Name, field, null, User, ct))
+                return true;
+        }
+
+        return false;
     }
 
     /// <summary>

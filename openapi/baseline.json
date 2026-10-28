@@ -4434,6 +4434,11 @@
               }
             ]
           },
+          "shownWhenListedIn": {
+            "description": "An array field on the same type that lists the fields its owner shows. Other callers see this field only while the array lists it.",
+            "nullable": true,
+            "type": "string"
+          },
           "tokenLength": {
             "description": "For a token field, how many characters a generated token has, from 16 to 128. Defaults to 32.",
             "format": "int32",
@@ -7287,6 +7292,10 @@
           "description": {
             "type": "string"
           },
+          "invitable": {
+            "description": "An invite may grant this role.",
+            "type": "boolean"
+          },
           "isPlatform": {
             "description": "Make a platform role every tenant shares, rather than a role of the caller's tenant. Needs the\nmanage_platform_roles capability.",
             "type": "boolean"
@@ -7418,6 +7427,9 @@
             "format": "guid",
             "type": "string"
           },
+          "invitable": {
+            "type": "boolean"
+          },
           "isPlatform": {
             "description": "A role every tenant shares. Changing it needs manage_platform_roles.",
             "type": "boolean"
@@ -7457,6 +7469,11 @@
         "properties": {
           "description": {
             "type": "string"
+          },
+          "invitable": {
+            "description": "Null keeps the stored value.",
+            "nullable": true,
+            "type": "boolean"
           },
           "name": {
             "type": "string"
@@ -8152,6 +8169,69 @@
           },
           "name": {
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesTenantsMembersInviteRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "profile": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "nullable": true,
+            "type": "object"
+          },
+          "roleIds": {
+            "description": "Left out, the tenant's one invitable role is granted.",
+            "items": {
+              "format": "guid",
+              "type": "string"
+            },
+            "nullable": true,
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesTenantsMembersInviteResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "userId": {
+            "format": "guid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesTenantsMembersInviteRoleResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "guid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesTenantsMembersInviteRolesResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesTenantsMembersInviteRoleResponse"
+            },
+            "type": "array"
           }
         },
         "type": "object"
@@ -11380,6 +11460,10 @@
             "nullable": true,
             "type": "string"
           },
+          "fileFollowsEntry": {
+            "description": "Only on a \"file\" field. When true, a caller who may read an entry that holds this file in this field\nmay also download the file. Absent or false changes nothing.",
+            "type": "boolean"
+          },
           "isRequired": {
             "type": "boolean"
           },
@@ -11442,6 +11526,11 @@
           },
           "sensitivity": {
             "$ref": "#/components/schemas/BarakoCMSModelsSensitivityLevel"
+          },
+          "shownWhenListedIn": {
+            "description": "Name of an array field on the same entry. When set, the field is shown to other callers\nonly while this array lists the field's name. A missing or empty array hides it.",
+            "nullable": true,
+            "type": "string"
           },
           "tokenLength": {
             "description": "For a token field, how many characters a generated token has, from 16 to 128.",
@@ -30011,6 +30100,85 @@
           }
         ],
         "summary": "POST /api/tenants/members: add a person to the caller's tenant by email.",
+        "tags": [
+          "Tenants"
+        ]
+      }
+    },
+    "/api/tenants/members/invite": {
+      "get": {
+        "operationId": "barakoCMSFeaturesTenantsMembersInviteRolesEndpoint",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesTenantsMembersInviteRolesResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/tenants/members/invite: the roles an invite may grant. A 200 means the caller may invite.",
+        "tags": [
+          "Tenants"
+        ]
+      },
+      "post": {
+        "operationId": "barakoCMSFeaturesTenantsMembersInviteMemberEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesTenantsMembersInviteRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "InviteRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesTenantsMembersInviteResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/tenants/members/invite: let a person into the caller's tenant with a role marked\ninvitable, and change nothing about anyone who is already here.",
         "tags": [
           "Tenants"
         ]

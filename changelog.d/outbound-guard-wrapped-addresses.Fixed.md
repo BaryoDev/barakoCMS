@@ -1,0 +1,1 @@
+- **The outbound address guard missed wrapped addresses.** NAT64 and IPv4-compatible IPv6 addresses are now unwrapped before the guard checks them.

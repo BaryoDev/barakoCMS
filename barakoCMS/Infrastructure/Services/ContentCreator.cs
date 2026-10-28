@@ -160,6 +160,11 @@ public sealed class ContentCreator(
         else
             await sensitivity.ApplyWriteAsync(schema, request.Data, existing: null, httpContext, ct);
 
+        // A key the caller left out takes its field's default, before validation and the permission
+        // check, so both see the entry as it will be stored. A key that is sent is never touched.
+        var typed = schema ?? await AccountContentTypes.ResolveAsync(session, request.ContentType, ct);
+        barakoCMS.Core.Validation.FieldDefaults.Apply(typed?.Fields, request.Data);
+
         // Asked of what the caller may write, so a field sensitivity drops cannot pass it, and before
         // the rules, so its answer does not depend on what a rule read.
         if (request.Permitted is { } permitted && !await permitted(request, ct))
@@ -285,17 +290,12 @@ public sealed class ContentCreator(
         await NumberAsync(definition, request.ContentType, entryId, request.Data, ct);
 
         var publicFields = definition?.Fields
-            .Where(f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.InlineImageFields.Is(f.Type))
+            .Where(barakoCMS.Core.Validation.PublicFields.InSearchText)
             .Select(f => f.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase)
             ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        var searchText = string.Join(
-            ' ',
-            request.Data
-                .Where(kv => publicFields.Contains(kv.Key))
-                .Select(kv => kv.Value?.ToString())
-                .Where(v => !string.IsNullOrWhiteSpace(v)));
+        var searchText = barakoCMS.Core.Validation.SearchTextBuilder.Build(request.Data, publicFields);
 
         // Stored as the caller spelled it, deliberately, and the rebuild is what compares
         // case-insensitively. Normalising here looks like the tidier fix and is not: the type name

@@ -247,11 +247,11 @@ internal sealed class SiteSettingsConfigProvider(
     {
         var definition = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == SiteType, ct);
         var publicFields = (definition?.Fields ?? [])
-            .Where(f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.InlineImageFields.Is(f.Type))
+            .Where(barakoCMS.Core.Validation.PublicFields.InSearchText)
             .Select(f => f.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        return string.Join(' ', data.Where(kv => publicFields.Contains(kv.Key)).Select(kv => kv.Value?.ToString()).Where(v => !string.IsNullOrWhiteSpace(v)));
+        return barakoCMS.Core.Validation.SearchTextBuilder.Build(data, publicFields);
     }
 
     /// <summary>

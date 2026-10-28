@@ -229,6 +229,9 @@ internal sealed class Endpoint(
             data[field.Name] = FieldTypeRegistry.TryReadAmountText(field, value, out var amount) ? amount : value!;
         }
 
+        // A field the visitor cannot fill in takes its default, as on an authenticated create.
+        FieldDefaults.Apply(definition.Fields, data);
+
         return data;
     }
 

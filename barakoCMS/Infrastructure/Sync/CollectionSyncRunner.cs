@@ -303,6 +303,10 @@ internal sealed class CollectionSyncRunner(
     private async Task CreateEntryAsync(
         CollectionSync sync, ContentTypeDefinition schema, Guid id, Dictionary<string, object> mapped, CancellationToken ct)
     {
+        // A field the mapping leaves out takes its default, as on any other create. Only a new
+        // entry: an update keeps what is stored.
+        barakoCMS.Core.Validation.FieldDefaults.Apply(schema.Fields, mapped);
+
         await writer.CreateAsync(
             new ContentCreated(
                 id, sync.ContentType, mapped, sync.EntryStatus, SystemActor,
@@ -690,15 +694,11 @@ internal sealed class CollectionSyncRunner(
     private static string SearchText(IReadOnlyDictionary<string, object> data, ContentTypeDefinition schema)
     {
         var publicFields = schema.Fields
-            .Where(f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.InlineImageFields.Is(f.Type))
+            .Where(barakoCMS.Core.Validation.PublicFields.InSearchText)
             .Select(f => f.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        return string.Join(
-            ' ',
-            data.Where(kv => publicFields.Contains(kv.Key))
-                .Select(kv => Text(kv.Value))
-                .Where(v => !string.IsNullOrWhiteSpace(v)));
+        return barakoCMS.Core.Validation.SearchTextBuilder.Build(data, publicFields);
     }
 
     /// <summary>

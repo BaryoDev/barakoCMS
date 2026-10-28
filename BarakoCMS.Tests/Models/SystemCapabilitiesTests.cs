@@ -131,6 +131,9 @@ public class SystemCapabilitiesTests
             // #921: the config routes are new, no gate to preserve. Each section is also gated on
             // its own capability, so it reaches nothing Admin could not reach already.
             SystemCapabilities.ManageConfig,
+            // Inviting into a tenant is new, no gate to preserve. It is narrower than
+            // manage_tenant_members, which Admin already holds, so it reaches nothing new.
+            SystemCapabilities.InviteTenantMembers,
         });
         admin.Should().NotContain(SystemCapabilities.ManageRoles);
         admin.Should().NotContain(SystemCapabilities.ManageTenants);

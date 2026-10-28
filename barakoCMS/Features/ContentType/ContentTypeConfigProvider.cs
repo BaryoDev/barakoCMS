@@ -249,8 +249,15 @@ internal sealed class ContentTypeConfigProvider(
             else
             {
                 var (delivered, route) = (match.IsPubliclyDeliverable, match.RouteTemplate);
+                var hiddenBefore = barakoCMS.Infrastructure.Services.OwnerHiddenReindex.HiddenNames(match);
                 ContentTypeUpsert.MergeInto(match, type);
                 session.Store(match);
+                if (barakoCMS.Infrastructure.Services.OwnerHiddenReindex.Gained(hiddenBefore, match))
+                {
+                    await barakoCMS.Infrastructure.Services.OwnerHiddenReindex.RebuildAsync(
+                        session, match, configuration, ct, Guid.TryParse(caller.Principal?.FindFirst("UserId")?.Value, out var actor) ? actor : default);
+                }
+
                 await AuditAsync(match, delivered, route, caller, ct);
             }
         }

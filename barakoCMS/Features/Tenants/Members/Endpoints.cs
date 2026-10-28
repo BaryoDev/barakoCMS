@@ -183,6 +183,60 @@ internal static class Members
     }
 
     /// <summary>
+    /// The user behind an email, created without a password when there is none. Returns a null user
+    /// when the tenant's sign-up policy refuses a new account, and nothing is stored then.
+    /// </summary>
+    /// <remarks>
+    /// A new account has no password. They sign in with an emailed code, the same account shape
+    /// social sign-in already produces, which the login path knows how to refuse safely.
+    /// </remarks>
+    public static async Task<(User? User, bool Created)> FindOrCreateUserAsync(
+        IDocumentSession session, string slug, string email, CancellationToken ct)
+    {
+        var user = await session.Query<User>().FirstOrDefaultAsync(u => u.NormalizedEmail == email, ct);
+        if (user is not null)
+            return (user, false);
+
+        if (await SignUpPolicy.RefusesNewAccountAsync(session, slug, ct))
+            return (null, true);
+
+        user = new User
+        {
+            Id = Guid.NewGuid(),
+            Email = email,
+            Username = await AvailableUsernameAsync(session, email, ct),
+            PasswordHash = string.Empty,
+            RoleIds = new List<Guid>(),
+        };
+        session.Store(user);
+        return (user, true);
+    }
+
+    /// <summary>
+    /// NormalizedUsername carries a unique index, so an invited address that happens to match an existing
+    /// username would fail the insert with a 500 instead of adding the member.
+    /// </summary>
+    private static async Task<string> AvailableUsernameAsync(IQuerySession session, string email, CancellationToken ct)
+    {
+        if (!await session.Query<User>().AnyAsync(u => u.NormalizedUsername == email, ct))
+            return email;
+
+        return $"{email}+{Guid.NewGuid():N}"[..(email.Length + 9)];
+    }
+
+    /// <summary>A Postgres unique violation (SQLSTATE 23505), at whatever depth Marten wrapped it.</summary>
+    public static bool IsUniqueViolation(Exception? ex)
+    {
+        for (var current = ex; current is not null; current = current.InnerException)
+        {
+            if (current is Npgsql.PostgresException { SqlState: "23505" })
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Stores a membership that did not exist and stages its audit entry on the same session.
     /// </summary>
     /// <remarks>
@@ -404,26 +458,9 @@ internal sealed class AddMemberEndpoint(
             ThrowIfAnyErrors();
         }
 
-        var user = await session.Query<User>().FirstOrDefaultAsync(u => u.NormalizedEmail == email, ct);
-        var invited = user is null;
-
-        if (user is null && await SignUpPolicy.RefusesNewAccountAsync(session, slug, ct))
-            ThrowError(SignUpPolicy.ClosedToNewAccountsMessage, 403);
-
+        var (user, invited) = await Members.FindOrCreateUserAsync(session, slug, email, ct);
         if (user is null)
-        {
-            // No password. They sign in with an emailed code, the same account shape social
-            // sign-in already produces, which the login path knows how to refuse safely.
-            user = new User
-            {
-                Id = Guid.NewGuid(),
-                Email = email,
-                Username = await AvailableUsernameAsync(email, ct),
-                PasswordHash = string.Empty,
-                RoleIds = new List<Guid>(),
-            };
-            session.Store(user);
-        }
+            ThrowError(SignUpPolicy.ClosedToNewAccountsMessage, 403);
 
         var membership = await session.Query<Membership>()
             .FirstOrDefaultAsync(m => m.UserId == user.Id && m.TenantSlug == slug, ct);
@@ -457,7 +494,7 @@ internal sealed class AddMemberEndpoint(
         {
             await session.SaveChangesAsync(ct);
         }
-        catch (Exception ex) when (IsUniqueViolation(ex))
+        catch (Exception ex) when (Members.IsUniqueViolation(ex))
         {
             // Two requests adding the same person at once both read no membership, and the unique
             // index on user and tenant refused the second. The same goes for two invites of one new
@@ -472,30 +509,6 @@ internal sealed class AddMemberEndpoint(
 
     internal const string ConcurrentAdd =
         "Another request added this person to the tenant at the same time. Read the member list and try again if needed.";
-
-    /// <summary>A Postgres unique violation (SQLSTATE 23505), at whatever depth Marten wrapped it.</summary>
-    private static bool IsUniqueViolation(Exception? ex)
-    {
-        for (var current = ex; current is not null; current = current.InnerException)
-        {
-            if (current is Npgsql.PostgresException { SqlState: "23505" })
-                return true;
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// NormalizedUsername carries a unique index, so an invited address that happens to match an existing
-    /// username would fail the insert with a 500 instead of adding the member.
-    /// </summary>
-    private async Task<string> AvailableUsernameAsync(string email, CancellationToken ct)
-    {
-        if (!await session.Query<User>().AnyAsync(u => u.NormalizedUsername == email, ct))
-            return email;
-
-        return $"{email}+{Guid.NewGuid():N}"[..(email.Length + 9)];
-    }
 }
 
 internal sealed class UpdateMemberRequest

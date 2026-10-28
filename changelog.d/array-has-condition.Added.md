@@ -1,0 +1,1 @@
+- **Permission conditions can test array fields.** `_has` matches when an array field lists the given value.

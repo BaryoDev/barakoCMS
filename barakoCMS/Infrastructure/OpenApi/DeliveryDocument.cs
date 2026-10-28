@@ -175,7 +175,7 @@ internal static class DeliveryDocument
 
         foreach (var field in type.Fields)
         {
-            if (field.Sensitivity != SensitivityLevel.Public)
+            if (field.Sensitivity != SensitivityLevel.Public || barakoCMS.Core.Validation.PublicFields.IsOwnerHidden(field))
                 continue;
             if (string.IsNullOrWhiteSpace(field.Name))
                 continue;

@@ -490,6 +490,18 @@ public class FieldDefinition
     public string? Role { get; set; }
 
     /// <summary>
+    /// Name of an array field on the same entry. When set, the field is shown to other callers
+    /// only while this array lists the field's name. A missing or empty array hides it.
+    /// </summary>
+    public string? ShownWhenListedIn { get; set; }
+
+    /// <summary>
+    /// Only on a "file" field. When true, a caller who may read an entry that holds this file in this field
+    /// may also download the file. Absent or false changes nothing.
+    /// </summary>
+    public bool FileFollowsEntry { get; set; }
+
+    /// <summary>
     /// For a <c>token</c> field, how many characters a generated token has, from 16 to 128.
     /// </summary>
     /// <remarks>

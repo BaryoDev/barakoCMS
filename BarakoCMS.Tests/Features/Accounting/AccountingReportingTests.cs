@@ -196,4 +196,78 @@ public class AccountingReportingTests
         balances.Single(b => b.Code == cash).Balance.Should().Be(999m,
             "voiding marks an entry, it does not take it out of the books");
     }
+
+    private Task PostEntryAsync(string date, params (string Code, decimal Debit, decimal Credit)[] lines) =>
+        PostAsync(AccountingContentTypes.JournalEntry, new
+        {
+            Date = date,
+            Memo = "Cash flow",
+            Lines = lines.Select(l => new { AccountCode = l.Code, l.Debit, l.Credit }).ToArray(),
+        });
+
+    [Fact]
+    public async Task Cash_flow_ignores_a_transfer_between_cash_accounts()
+    {
+        var bank = await AccountAsync("1000", "Asset");
+        var petty = await AccountAsync("1010", "Asset");
+        var income = await AccountAsync("4100", "Income");
+
+        await PostEntryAsync("2026-08-03", (bank, 1000.50m, 0m), (income, 0m, 1000.50m));
+        await PostEntryAsync("2026-08-05", (petty, 400.25m, 0m), (bank, 0m, 400.25m));
+
+        using var scope = _factory.Services.CreateScope();
+        var flow = await Reporting(scope).CashFlowAsync(new[] { bank, petty }, 2026, 8, default);
+
+        flow.Receipts.Should().Be(1000.50m);
+        flow.Disbursements.Should().Be(0m);
+        flow.Closing.Should().Be(1000.50m);
+        flow.Lines.Should().HaveCount(3);
+        // The running balance moves leg by leg, as CashFlowTests pins, and is back where it started after the transfer.
+        flow.Lines.Select(l => l.RunningBalance).Should().Equal(1000.50m, 1400.75m, 1000.50m);
+    }
+
+    [Fact]
+    public async Task Cash_flow_counts_only_the_net_of_a_mixed_entry()
+    {
+        var bank = await AccountAsync("1000", "Asset");
+        var petty = await AccountAsync("1010", "Asset");
+        var income = await AccountAsync("4100", "Income");
+
+        await PostEntryAsync("2026-08-03", (petty, 700.00m, 0m), (bank, 0m, 500.00m), (income, 0m, 200.00m));
+
+        using var scope = _factory.Services.CreateScope();
+        var flow = await Reporting(scope).CashFlowAsync(new[] { bank, petty }, 2026, 8, default);
+
+        flow.Receipts.Should().Be(200m);
+        flow.Disbursements.Should().Be(0m);
+    }
+
+    [Fact]
+    public async Task Cash_flow_opening_includes_entries_before_the_month()
+    {
+        var bank = await AccountAsync("1000", "Asset");
+        var income = await AccountAsync("4100", "Income");
+
+        await PostEntryAsync("2026-07-20", (bank, 0.01m, 0m), (income, 0m, 0.01m));
+
+        using var scope = _factory.Services.CreateScope();
+        var flow = await Reporting(scope).CashFlowAsync(new[] { bank }, 2026, 8, default);
+
+        flow.Opening.Should().Be(0.01m);
+    }
+
+    [Fact]
+    public async Task Cash_flow_counts_a_payment_out_as_a_disbursement()
+    {
+        var bank = await AccountAsync("1000", "Asset");
+        var expense = await AccountAsync("5100", "Expense");
+
+        await PostEntryAsync("2026-08-03", (expense, 100.00m, 0m), (bank, 0m, 100.00m));
+
+        using var scope = _factory.Services.CreateScope();
+        var flow = await Reporting(scope).CashFlowAsync(new[] { bank }, 2026, 8, default);
+
+        flow.Disbursements.Should().Be(100m);
+        flow.Receipts.Should().Be(0m);
+    }
 }

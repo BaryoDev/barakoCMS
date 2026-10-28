@@ -1,0 +1,1 @@
+- **A field's default value was not stored on create.** It is now stored when an entry is created without that key, through the create endpoint, imports, form submissions, collection push and collection sync. A value that is sent, including an empty one, is kept.

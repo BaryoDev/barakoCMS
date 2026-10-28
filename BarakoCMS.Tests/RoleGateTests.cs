@@ -155,6 +155,8 @@ public class RoleGateTests
         new("PUT", "/api/tenants/members/{userId}", $"/api/tenants/members/{NotAGuid}"),
         new("DELETE", "/api/tenants/members/{userId}", $"/api/tenants/members/{NotAGuid}"),
         new("GET", "/api/tenants/members/roles", "/api/tenants/members/roles"),
+        new("GET", "/api/tenants/members/invite", "/api/tenants/members/invite"),
+        new("POST", "/api/tenants/members/invite", "/api/tenants/members/invite"),
         new("GET", "/api/user-groups", "/api/user-groups"),
         new("POST", "/api/user-groups", "/api/user-groups"),
         new("GET", "/api/user-groups/{id}", $"/api/user-groups/{NotAGuid}"),

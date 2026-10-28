@@ -27,14 +27,15 @@ internal static class FormFields
     public static IReadOnlyList<FieldDefinition> Submittable(ContentTypeDefinition definition) =>
         definition.Fields
             .Where(f => f.Sensitivity == SensitivityLevel.Public
+                     && !barakoCMS.Core.Validation.PublicFields.IsOwnerHidden(f)
                      && RenderableTypes.Contains(f.Type)
                      && !string.Equals(f.Name, "slug", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-    /// <summary>Required fields a visitor cannot fill in, which make a type unusable as a form.</summary>
+    /// <summary>Required fields a visitor cannot fill in and that have no default, which make a type unusable as a form.</summary>
     public static IReadOnlyList<FieldDefinition> RequiredButNotSubmittable(ContentTypeDefinition definition)
     {
         var submittable = Submittable(definition);
-        return definition.Fields.Where(f => f.IsRequired && !submittable.Contains(f)).ToList();
+        return definition.Fields.Where(f => f.IsRequired && f.DefaultValue is null && !submittable.Contains(f)).ToList();
     }
 }

@@ -69,6 +69,16 @@ public class ConditionEvaluator : IConditionEvaluator
             {
                 var expectedValue = Normalize(rawExpectedValue);
 
+                // Before any variable is substituted: a literal "$CURRENT_USER" here must stay text,
+                // or it would turn into the caller's id and match an array that holds that id.
+                if (op == "_has")
+                {
+                    if (!ArrayHas(actualValue, expectedValue))
+                        return false;
+
+                    continue;
+                }
+
                 if (callerVariables && expectedValue is string reference && CallerAttributes.IsReference(reference))
                 {
                     // Denied before the operator is looked at. A caller with no value for the
@@ -169,6 +179,31 @@ public class ConditionEvaluator : IConditionEvaluator
             JsonValueKind.Null or JsonValueKind.Undefined => null,
             _ => value,
         };
+    }
+
+    // Only a string item can match, and only a literal expected value: a variable is refused, and a
+    // string field is not walked as characters.
+    private static bool ArrayHas(object? actualValue, object? expectedValue)
+    {
+        if (expectedValue is not string expected || expected.StartsWith("$CURRENT_USER", StringComparison.Ordinal))
+            return false;
+
+        IEnumerable<object?> items;
+        switch (actualValue)
+        {
+            case JsonElement { ValueKind: JsonValueKind.Array } array:
+                items = array.EnumerateArray().Select(e => e.ValueKind == JsonValueKind.String ? e.GetString() : null);
+                break;
+            case string:
+                return false;
+            case IEnumerable<object> list:
+                items = list;
+                break;
+            default:
+                return false;
+        }
+
+        return items.Any(item => item is string text && string.Equals(text, expected, StringComparison.Ordinal));
     }
 
     private bool EvaluateOperator(string op, object? actualValue, object? expectedValue, Models.User user)

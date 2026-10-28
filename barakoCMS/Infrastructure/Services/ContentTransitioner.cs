@@ -54,6 +54,12 @@ internal sealed class ContentTransitioner(
     internal const string ChangedByAnotherWriter =
         "The content was changed by another writer. Please refresh and try again.";
 
+    // The scoped key names one type. The unscoped key is the older form and still allows the
+    // transition on every type that declares it; SelfTransitionConfigCheck warns about it at start.
+    private bool SelfTransitionAllowed(string contentType, string transition) =>
+        configuration.GetValue($"Lifecycle:AllowSelfTransition:{contentType}:{transition}", false)
+        || configuration.GetValue($"Lifecycle:AllowSelfTransition:{transition}", false);
+
     public async Task<ContentTransitionResult> TransitionAsync(
         Content content,
         string transition,
@@ -163,11 +169,11 @@ internal sealed class ContentTransitioner(
         // system on exactly those entries.
         if (user is not null
             && content.CreatedBy == user.Id
-            && !configuration.GetValue($"Lifecycle:AllowSelfTransition:{declared.Name}", false))
+            && !SelfTransitionAllowed(content.ContentType, declared.Name))
         {
             logger.LogInformation(
-                "Refused a self transition of {ContentId} by its creator. Set Lifecycle:AllowSelfTransition:{Transition} to allow it.",
-                content.Id, declared.Name);
+                "Refused a self transition of {ContentId} by its creator. Set Lifecycle:AllowSelfTransition:{ContentType}:{Transition} to allow it.",
+                content.Id, content.ContentType, declared.Name);
 
             return ContentTransitionResult.Forbidden("The actor created this entry and may not move it on.");
         }
@@ -516,7 +522,7 @@ internal sealed class ContentTransitioner(
     private static string SearchTextFor(ContentTypeDefinition definition, IDictionary<string, object> data)
     {
         var publicFields = definition.Fields
-            .Where(f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.InlineImageFields.Is(f.Type))
+            .Where(barakoCMS.Core.Validation.PublicFields.InSearchText)
             .Select(f => f.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 

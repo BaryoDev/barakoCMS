@@ -183,13 +183,12 @@ internal class Endpoint(
         await RefuseTakenNameAsync(slug, storedNames, ct);
 
         // Entries can exist under a name with no type, holding whatever keys their writers chose.
-        foreach (var token in (req.Fields ?? []).Where(f => f is not null && barakoCMS.Core.Validation.TokenFields.IsToken(f.Type)))
+        await RefuseTokenCollisionsAsync(req, slug, ct);
+
+        if (req.IsPubliclyDeliverable
+            && await barakoCMS.Infrastructure.Services.PublicDeliveryAudience.TypeRefusalAsync(session, slug, ct) is { } limited)
         {
-            var holding = await barakoCMS.Infrastructure.Services.TokenFieldEntries.HoldingAsync(session, slug, token.Name, ct);
-            if (holding > 0)
-            {
-                ThrowError(barakoCMS.Infrastructure.Services.TokenFieldEntries.Refusal(slug, token.Name, holding), 409);
-            }
+            ThrowError(limited, 400);
         }
 
         // 4. Sourcing policy. Read before anything is written, because two of the three answers here
@@ -302,6 +301,18 @@ internal class Endpoint(
             Name = def.Name,
             EventSourced = policy.EventSourced,
         }, ct);
+    }
+
+    private async Task RefuseTokenCollisionsAsync(Request req, string slug, CancellationToken ct)
+    {
+        foreach (var token in (req.Fields ?? []).Where(f => f is not null && barakoCMS.Core.Validation.TokenFields.IsToken(f.Type)))
+        {
+            var holding = await barakoCMS.Infrastructure.Services.TokenFieldEntries.HoldingAsync(session, slug, token.Name, ct);
+            if (holding > 0)
+            {
+                ThrowError(barakoCMS.Infrastructure.Services.TokenFieldEntries.Refusal(slug, token.Name, holding), 409);
+            }
+        }
     }
 
     private static ContentTypeDefinition NewDefinition(Request req, string slug, ContentTypeIcon? icon) => new()

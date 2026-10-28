@@ -200,7 +200,7 @@ public class ContentTypeValidatorService : IContentTypeValidatorService
                     errors.AddRange(FieldRules.DefinitionErrors(field));
             }
 
-            errors.AddRange(FieldPresentation.RoleErrors(fields).Concat(ParentFields.DefinitionErrors(name, fields)));
+            errors.AddRange(FieldPresentation.RoleErrors(fields).Concat(ParentFields.DefinitionErrors(name, fields)).Concat(OwnerHiddenFields.DefinitionErrors(fields)));
             errors.AddRange(ComputedFields.DefinitionErrors(fields));
 
             // Entries, filters, sensitivity and the write rules all find a field by its name
@@ -229,7 +229,10 @@ public class ContentTypeValidatorService : IContentTypeValidatorService
             .Concat(MembersFieldErrors(field))
             .Concat(FieldPresentation.DefinitionErrors(field))
             .Concat(ArrayItems.DefinitionErrors(field))
-            .Concat(JsonFieldSchemas.DefinitionErrors(field));
+            .Concat(JsonFieldSchemas.DefinitionErrors(field))
+            .Concat(field.FileFollowsEntry && !FileFields.IsFileField(field)
+                ? [$"FileFollowsEntry applies only to a file field. Field '{field.Name}' is of type '{field.Type}'."]
+                : []);
 
     /// <summary>A Members field is read alike by every verified viewer, so a role list or a mask on it would mean nothing.</summary>
     private static IEnumerable<string> MembersFieldErrors(FieldDefinition field)

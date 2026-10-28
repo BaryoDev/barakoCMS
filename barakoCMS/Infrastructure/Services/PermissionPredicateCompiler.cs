@@ -36,12 +36,12 @@ public sealed record ReadPredicate(string? Sql, object[] Parameters)
 /// and asserts they agree. If that test is ever deleted this class becomes a liability, because
 /// nothing else can tell you the two have diverged.
 ///
+/// <c>$status</c> is compiled: the evaluator compares the enum NAME while Marten stores an integer,
+/// so the SQL maps the number back to the name, generated from the enum itself.
+///
 /// What is deliberately not compiled, and why:
 ///
 /// <list type="bullet">
-/// <item><c>$status</c>: the evaluator compares the enum NAME while Marten stores the enum as an
-/// integer, so an equivalent predicate would have to carry its own copy of the name-to-number map
-/// and stay in step with it.</item>
 /// <item>Any expected value that is not a string or a list of strings. The evaluator compares
 /// <c>ToString()</c> of both sides, and reproducing .NET number and date formatting in SQL is a
 /// bigger surface than the feature is worth.</item>
@@ -158,6 +158,34 @@ internal static class PermissionPredicateCompiler
             foreach (var (op, rawExpected) in operators)
             {
                 var expected = Normalize(rawExpected);
+
+                if (op == "_has")
+                {
+                    // Needs the jsonb form of the field, which TryValueExpression's text form is not.
+                    // The jsonb_typeof guard is load bearing: '"Member"'::jsonb @> '"Member"'::jsonb is
+                    // true, so a string field would match without it. The evaluator only matches an
+                    // array, and only a string item in it.
+                    if (field.StartsWith('$') || presence is null
+                        || expected is not string literal
+                        || literal.StartsWith("$CURRENT_USER", StringComparison.Ordinal))
+                    {
+                        return false;
+                    }
+
+                    var hasSql = $"{presence} AND jsonb_typeof(d.data -> 'Data' -> ?) = 'array' "
+                        + "AND (d.data -> 'Data' -> ?) @> to_jsonb(?::text)";
+                    var hasParameters = new List<object> { field, field, field, literal };
+
+                    // The same count check the comparisons get below.
+                    if (hasSql.Count(ch => ch == '?') != hasParameters.Count)
+                    {
+                        return false;
+                    }
+
+                    parts.Add(hasSql);
+                    parameters.AddRange(hasParameters);
+                    continue;
+                }
 
                 if (!TryCompileOperator(op, value, expected, userId, callerProfile, out var comparison, out var opParameters))
                 {
@@ -288,10 +316,31 @@ internal static class PermissionPredicateCompiler
                 value = "(d.data ->> 'BranchId')";
                 return true;
 
+            case "status":
+                value = StatusName();
+                return true;
+
             default:
-                // Includes $status, which is the one that looks compilable and is not.
                 return false;
         }
+    }
+
+    /// <summary>
+    /// The name <c>ContentStatus.ToString()</c> gives the evaluator, read from the integer Marten stores.
+    /// </summary>
+    /// <remarks>
+    /// Built from the enum, so a new member cannot leave a hand written map behind. The ELSE arm is
+    /// <c>Enum.ToString()</c> for a number with no member, which is the number as text. A document
+    /// with no Status key reads back as the property default, Draft, hence the coalesce. The names are
+    /// enum constants, not input, so they are written into the SQL rather than bound.
+    /// </remarks>
+    private static string StatusName()
+    {
+        var number = "COALESCE(d.data ->> 'Status', '" + (int)default(Models.ContentStatus) + "')";
+        var arms = string.Concat(Enum.GetValues<Models.ContentStatus>()
+            .Select(s => $" WHEN '{(int)s}' THEN '{s}'"));
+
+        return $"(CASE {number}{arms} ELSE {number} END)";
     }
 
     /// <summary>

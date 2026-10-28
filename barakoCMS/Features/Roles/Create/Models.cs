@@ -8,6 +8,9 @@ internal class Request
     public List<string> SystemCapabilities { get; set; } = new();
     public bool RequireMfa { get; set; }
 
+    /// <summary>An invite may grant this role.</summary>
+    public bool Invitable { get; set; }
+
     /// <summary>
     /// Make a platform role every tenant shares, rather than a role of the caller's tenant. Needs the
     /// <c>manage_platform_roles</c> capability.

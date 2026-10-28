@@ -26,6 +26,7 @@ public class Endpoint(
     BarakoCMS.Files.Storage.FileStorageResolver storage,
     ImageVariants variants,
     IPermissionResolver permissions,
+    barakoCMS.Core.Interfaces.ISensitivityService sensitivity,
     IConfiguration configuration,
     TenantContext tenant) : Endpoint<Request>
 {
@@ -54,12 +55,12 @@ public class Endpoint(
         // the tenant given its id. Ids are GUIDs, so this needed a leaked or logged id rather than a
         // scan, which lowers the severity without making the check optional.
         //
-        // Until content can reference a file (#141) there is no richer answer than "the person who
-        // uploaded it, or a caller holding manage_all_files". Note that IsPublic is deliberately NOT
+        // The uploader, a caller holding manage_all_files, or a caller who may read an entry that
+        // holds the file in a FileFollowsEntry field. Note that IsPublic is deliberately NOT
         // sufficient here: PublicDownload is the route for public files, it sets its own caching and
         // headers, and honouring the flag on this route too would mean two paths to the same bytes
         // with different rules.
-        if (!await FileAccessRule.MayAccessAsync(User, file, tenant.Slug, permissions, configuration, ct))
+        if (!await FileAccessRule.MayReadAsync(User, file, tenant.Slug, session, permissions, sensitivity, configuration, ct))
         {
             // 404, not 403, matching PublicDownload: a 403 confirms the id exists, which turns a
             // leaked id into a probe for what else is there.

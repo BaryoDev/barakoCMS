@@ -5,12 +5,16 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.Pages</PackageId>
-    <Version>4.5.0</Version>
+    <Version>4.5.1</Version>
     <Description>Page tree for barakoCMS: refuses a parent cycle, a page too deep or a reserved root slug on a configured content type, per tenant, and serves the nested navigation, path resolution with breadcrumbs, and an authenticated tree with drafts for the console.</Description>
   </PropertyGroup>
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="BarakoCMS.Tests" />
   </ItemGroup>
 
   <ItemGroup>

@@ -81,7 +81,7 @@ internal static class LookupRules
 
     /// <summary>Whether a found entry may hand this field to an anonymous caller.</summary>
     public static bool IsReturnable(FieldDefinition field) =>
-        field.Sensitivity == SensitivityLevel.Public && !TokenFields.IsToken(field.Type);
+        field.Sensitivity == SensitivityLevel.Public && !TokenFields.IsToken(field.Type) && !PublicFields.IsOwnerHidden(field);
 
     /// <summary>A Public field, or a token: the credential the entry holds for whoever proved who they are.</summary>
     public static bool IsRevealable(FieldDefinition field) =>
