@@ -20,21 +20,38 @@ namespace BarakoCMS.Tests.Features.ExternalAuth;
 internal sealed class OAuthStubHandler : HttpMessageHandler
 {
     public string GoogleSub { get; set; } = "";
-    public string GoogleEmail { get; set; } = "";
+    public string? GoogleEmail { get; set; } = "";
     public string? GoogleDomain { get; set; }
+    public string GoogleAudience { get; set; } = "google-client";
+    public string FacebookId { get; set; } = "";
+    public string FacebookEmail { get; set; } = "";
     public long GitHubId { get; set; }
     public string GitHubEmail { get; set; } = "";
+
+    private string GoogleIdToken()
+    {
+        var header = Microsoft.IdentityModel.Tokens.Base64UrlEncoder.Encode("""{"alg":"none"}""");
+        var hd = GoogleDomain is null ? "" : $$""","hd":"{{GoogleDomain}}" """;
+        var exp = DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds();
+        var payload = Microsoft.IdentityModel.Tokens.Base64UrlEncoder.Encode(
+            $$"""{"iss":"https://accounts.google.com","aud":"{{GoogleAudience}}","sub":"{{GoogleSub}}","exp":{{exp}}{{hd}} }""");
+        return $"{header}.{payload}.sig";
+    }
 
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
     {
         var uri = request.RequestUri?.ToString() ?? "";
-        var domain = GoogleDomain is null ? "" : $$""","hd":"{{GoogleDomain}}" """;
         var json = uri switch
         {
+            // hd is an ID token claim, so it rides in the token response and not in userinfo.
             var u when u.Contains("oauth2.googleapis.com/token", StringComparison.Ordinal)
-                => """{"access_token":"ya29.stub","token_type":"Bearer"}""",
+                => $$"""{"access_token":"ya29.stub","token_type":"Bearer","id_token":"{{GoogleIdToken()}}"}""",
             var u when u.Contains("openidconnect.googleapis.com/v1/userinfo", StringComparison.Ordinal)
-                => $$"""{"sub":"{{GoogleSub}}","email":"{{GoogleEmail}}","email_verified":true,"name":"Gee Person" {{domain}} }""",
+                => $$"""{"sub":"{{GoogleSub}}",{{(GoogleEmail is null ? "" : $"\"email\":\"{GoogleEmail}\",")}}"email_verified":true,"name":"Gee Person"}""",
+            var u when u.Contains("graph.facebook.com/v21.0/oauth/access_token", StringComparison.Ordinal)
+                => """{"access_token":"fb.stub"}""",
+            var u when u.Contains("graph.facebook.com/v21.0/me", StringComparison.Ordinal)
+                => $$"""{"id":"{{FacebookId}}","name":"Eff Bee","email":"{{FacebookEmail}}"}""",
             var u when u.Contains("login/oauth/access_token", StringComparison.Ordinal)
                 => """{"access_token":"gho_stub","token_type":"bearer"}""",
             var u when u.EndsWith("api.github.com/user/emails", StringComparison.Ordinal)
@@ -90,7 +107,9 @@ public class ExternalIdentityOAuthTests
                             { "Google:ClientSecret", "google-secret" },
                             { "GitHub:ClientId", "github-client" },
                             { "GitHub:ClientSecret", "github-secret" },
-                            { "Facebook:AppId", "" },
+                            { "Facebook:AppId", "fb-app" },
+                            { "Facebook:AppSecret", "fb-secret" },
+                            { "Facebook:TrustUnverifiedEmail", "true" },
                             { "LinkedIn:ClientId", "" },
                         }));
                     b.ConfigureServices(s => s.AddSingleton<IHttpClientFactory>(new SingleClientFactory(stub)));
@@ -146,7 +165,7 @@ public class ExternalIdentityOAuthTests
 
     private async Task<HttpResponseMessage> CallbackAsync(string provider, string club = "")
     {
-        var prefix = provider == "google" ? "gg" : "gh";
+        var prefix = provider switch { "google" => "gg", "facebook" => "fb", _ => "gh" };
         var request = new HttpRequestMessage(HttpMethod.Get, $"/api/auth/{provider}/callback?code=good&state=s1");
         request.Headers.Add("Cookie", $"{prefix}_state=s1; {prefix}_club={club}");
         return await Client().SendAsync(request, Ct);
@@ -154,6 +173,15 @@ public class ExternalIdentityOAuthTests
 
     private static void ShouldHaveSignedIn(HttpResponseMessage response) =>
         response.Headers.Location!.ToString().Should().StartWith($"{BaseUrl}/auth/social#token=");
+
+    /// <summary>Who the token in the redirect is for.</summary>
+    private static Guid SignedInAs(HttpResponseMessage response)
+    {
+        ShouldHaveSignedIn(response);
+        var fragment = response.Headers.Location!.ToString().Split("#token=")[1].Split('&')[0];
+        var jwt = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler().ReadJwtToken(Uri.UnescapeDataString(fragment));
+        return Guid.Parse(jwt.Claims.First(c => c.Type == "UserId").Value);
+    }
 
     private async Task<User?> UserByEmailAsync(string email)
     {
@@ -186,7 +214,7 @@ public class ExternalIdentityOAuthTests
         original.Should().NotBeNull();
 
         Stub.GoogleEmail = after;
-        ShouldHaveSignedIn(await CallbackAsync("google"));
+        SignedInAs(await CallbackAsync("google")).Should().Be(original!.Id, "the token is for the account the link names");
 
         (await UserByEmailAsync(after)).Should().BeNull("the address is not what names the account, so no second user is made");
         (await LinkAsync(ExternalProviders.Google, sub))!.UserId.Should().Be(original!.Id);
@@ -206,7 +234,7 @@ public class ExternalIdentityOAuthTests
         original.Should().NotBeNull();
 
         Stub.GitHubEmail = after;
-        ShouldHaveSignedIn(await CallbackAsync("github"));
+        SignedInAs(await CallbackAsync("github")).Should().Be(original!.Id, "the token is for the account the link names");
 
         (await UserByEmailAsync(after)).Should().BeNull("the address is not what names the account, so no second user is made");
         (await LinkAsync(ExternalProviders.GitHub, id.ToString()))!.UserId.Should().Be(original!.Id);
@@ -230,7 +258,8 @@ public class ExternalIdentityOAuthTests
         var original = await UserByEmailAsync(first);
 
         Stub.GoogleEmail = someoneElse.Email;
-        ShouldHaveSignedIn(await CallbackAsync("google"));
+        SignedInAs(await CallbackAsync("google")).Should().Be(original!.Id,
+            "the token is for the linked account, not for the user holding the address it now reports");
 
         (await LinkAsync(ExternalProviders.Google, sub))!.UserId.Should().Be(original!.Id,
             "an address another local user holds must not move the link");
@@ -248,7 +277,7 @@ public class ExternalIdentityOAuthTests
         Stub.GitHubId = id;
         Stub.GitHubEmail = existing.Email;
 
-        ShouldHaveSignedIn(await CallbackAsync("github"));
+        SignedInAs(await CallbackAsync("github")).Should().Be(existing.Id);
 
         (await LinkAsync(ExternalProviders.GitHub, id.ToString()))!.UserId.Should().Be(existing.Id);
     }
@@ -269,6 +298,71 @@ public class ExternalIdentityOAuthTests
         var google = await LinkAsync(ExternalProviders.Google, shared.ToString());
         var github = await LinkAsync(ExternalProviders.GitHub, shared.ToString());
         google!.UserId.Should().NotBe(github!.UserId, "the provider is part of the key");
+    }
+
+    [Fact]
+    public async Task A_linked_google_user_whose_userinfo_has_no_email_still_signs_in_to_the_same_account()
+    {
+        var sub = Unique("gsub");
+        var email = $"{Unique("had")}@example.com";
+        Stub.GoogleSub = sub;
+        Stub.GoogleDomain = null;
+        Stub.GoogleEmail = email;
+        ShouldHaveSignedIn(await CallbackAsync("google"));
+        var original = await UserByEmailAsync(email);
+
+        Stub.GoogleEmail = null;
+        SignedInAs(await CallbackAsync("google")).Should().Be(original!.Id);
+        Stub.GoogleEmail = "";
+    }
+
+    [Fact]
+    public async Task An_unlinked_google_user_with_no_email_is_refused_and_nothing_is_made()
+    {
+        var sub = Unique("gsub");
+        Stub.GoogleSub = sub;
+        Stub.GoogleDomain = null;
+        Stub.GoogleEmail = null;
+
+        var response = await CallbackAsync("google");
+        Stub.GoogleEmail = "";
+
+        var location = response.Headers.Location!.ToString();
+        location.Should().NotContain("#token=");
+        Uri.UnescapeDataString(location).Should().Contain("Google didn't share an email address");
+        (await LinkAsync(ExternalProviders.Google, sub)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_facebook_match_by_an_address_the_operator_trusts_signs_in_and_leaves_no_link()
+    {
+        var existing = new User
+        {
+            Id = Guid.NewGuid(), Email = $"{Unique("fbhad")}@example.com", Username = Unique("u"), PasswordHash = "",
+        };
+        await StoreAsync(existing);
+        var id = Unique("fbid");
+        Stub.FacebookId = id;
+        Stub.FacebookEmail = existing.Email;
+
+        SignedInAs(await CallbackAsync("facebook")).Should().Be(existing.Id);
+
+        (await LinkAsync(ExternalProviders.Facebook, id)).Should().BeNull(
+            "Facebook did not vouch for the address, so the match must not outlive the setting");
+    }
+
+    [Fact]
+    public async Task A_facebook_first_sign_in_that_makes_a_new_account_links_it()
+    {
+        var id = Unique("fbid");
+        var email = $"{Unique("fbnew")}@example.com";
+        Stub.FacebookId = id;
+        Stub.FacebookEmail = email;
+
+        var token = SignedInAs(await CallbackAsync("facebook"));
+
+        (await LinkAsync(ExternalProviders.Facebook, id))!.UserId.Should().Be(token);
+        (await UserByEmailAsync(email))!.Id.Should().Be(token);
     }
 
     // ---- the role map ----
@@ -328,6 +422,28 @@ public class ExternalIdentityOAuthTests
         response.Headers.Location!.ToString().Should().NotContain("#token=", "the person is not a member and the map gave nothing");
         var user = await UserByEmailAsync(Stub.GoogleEmail);
         (await MembershipsAsync(user!.Id, slug)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_google_id_token_for_another_client_gives_no_role()
+    {
+        var (slug, _) = await TenantMappingAsync("hd", "school.edu");
+        Stub.GoogleSub = Unique("gsub");
+        Stub.GoogleEmail = $"{Unique("staff")}@school.edu";
+        Stub.GoogleDomain = "school.edu";
+        Stub.GoogleAudience = "someone-elses-client";
+        try
+        {
+            var response = await CallbackAsync("google", slug);
+
+            response.Headers.Location!.ToString().Should().NotContain("#token=");
+            var user = await UserByEmailAsync(Stub.GoogleEmail);
+            (await MembershipsAsync(user!.Id, slug)).Should().BeEmpty();
+        }
+        finally
+        {
+            Stub.GoogleAudience = "google-client";
+        }
     }
 
     // ---- per-tenant providers ----

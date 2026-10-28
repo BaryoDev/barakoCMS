@@ -146,15 +146,22 @@ public class FacebookCallbackEndpoint(
             return;
         }
 
-        if (string.IsNullOrEmpty(email) || !email.Contains('@'))
+        var mfa = Resolve<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>();
+        SocialSignIn.Tokens tokens;
+        bool emailNotVerified;
+        try
         {
-            await Fail("Facebook didn't share an email address. Please sign in with your email code instead.");
+            (tokens, emailNotVerified) = await SocialSignIn.IssueForProviderAsync(
+                session, config, deviceGate, tokenIssuer, mfa, HttpContext, ExternalProviders.Facebook, subject, email, emailVerified, club, ct, profile, claims, emailTrustedByOperator: emailVerified);
+        }
+        catch (Exception ex) when (OidcSupport.IsUniqueViolation(ex))
+        {
+            // Two first sign-ins for one address raced on the user's unique email. The retry
+            // finds the account.
+            await Fail("Couldn't finish signing you in. Please try again.");
             return;
         }
 
-        var mfa = Resolve<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>();
-        var (tokens, _) = await SocialSignIn.IssueForProviderAsync(
-            session, config, deviceGate, tokenIssuer, mfa, HttpContext, ExternalProviders.Facebook, subject, email, emailVerified, club, ct, profile, claims);
         if (tokens.RequiresMfa)
         {
             await Send.ResultAsync(Results.Redirect(SocialSignIn.FrontendMfaCallback(baseUrl, tokens.MfaChallenge!, club)));
@@ -162,7 +169,10 @@ public class FacebookCallbackEndpoint(
         }
         if (!tokens.Allowed)
         {
-            await Fail("You are not a member of this club.");
+            // An unlinked sign-in with no usable address is refused here, as it was before the link.
+            await Fail(emailNotVerified && !email.Contains('@')
+                ? "Facebook didn't share an email address. Please sign in with your email code instead."
+                : "You are not a member of this club.");
             return;
         }
         await Send.ResultAsync(Results.Redirect(SocialSignIn.FrontendCallback(baseUrl, tokens.Token, tokens.Refresh, club)));

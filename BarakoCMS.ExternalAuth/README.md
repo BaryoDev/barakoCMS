@@ -179,7 +179,9 @@ Google, Facebook, GitHub and LinkedIn work the same way. Their account id is the
 an https URL, so the two kinds of link cannot collide. A person whose address changes at the provider
 signs in to the same local account. A user who signed in before this existed has no link, so the
 first sign-in after the upgrade matches by verified email, under each provider's rule in the table
-below, and records the link.
+below, and records the link. A linked person signs in even when the provider sends no address. The one
+exception is Facebook with `Facebook:TrustUnverifiedEmail`: Facebook does not vouch for the address,
+so a match to an existing user signs in but is not recorded as a link.
 
 ### Choosing providers per tenant
 
@@ -204,8 +206,9 @@ example `groups`, and rules from a claim value, read from one provider, to a rol
 ```
 
 `provider` is the name under `Oidc:Providers` and must be configured, or one of `oauth:google` and
-the other three OAuth keys. Only Google and LinkedIn send claims a rule can read (Google's `hd`, the
-hosted domain, is the useful one), since GitHub and Facebook report only fields the person edits. A rule only matches a token
+the other three OAuth keys. Only Google sends a claim a rule can read: `hd`, the hosted domain, from the
+ID token of the code exchange (checked for this client, for Google and for the same person userinfo named).
+GitHub, Facebook and LinkedIn report only fields the person edits, so no rule can match them. A rule only matches a token
 that came through that provider, so the same group name at another provider gives nothing. Values
 match exactly and case sensitively, and a value cannot start or end with a space. A rule cannot read
 `name`, `given_name`, `family_name`, `nickname`, `picture`, `preferred_username`, `email`,

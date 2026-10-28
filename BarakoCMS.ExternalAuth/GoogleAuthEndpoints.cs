@@ -13,6 +13,48 @@ internal static class Gg
     public const string UserInfo = "https://openidconnect.googleapis.com/v1/userinfo";
     public const string Scope = "openid email profile";
 
+    /// <summary>
+    /// The claims of the id_token Google returned from its token endpoint, for the role map. A token
+    /// received straight from Google over HTTPS needs no signature check, but it must be for this
+    /// client, from Google, unexpired, and for the same person userinfo named. Otherwise none.
+    /// </summary>
+    internal static IReadOnlyDictionary<string, IReadOnlyList<string>>? IdTokenClaims(
+        JsonElement tokenResponse, string? clientId, string? subject)
+    {
+        try
+        {
+            if (!tokenResponse.TryGetProperty("id_token", out var raw) || raw.ValueKind != JsonValueKind.String
+                || string.IsNullOrEmpty(clientId) || string.IsNullOrEmpty(subject))
+            {
+                return null;
+            }
+
+            var parts = raw.GetString()!.Split('.');
+            if (parts.Length != 3)
+            {
+                return null;
+            }
+
+            using var doc = JsonDocument.Parse(Microsoft.IdentityModel.Tokens.Base64UrlEncoder.DecodeBytes(parts[1]));
+            var payload = doc.RootElement;
+            var iss = payload.TryGetProperty("iss", out var i) && i.ValueKind == JsonValueKind.String ? i.GetString() : null;
+            var aud = payload.TryGetProperty("aud", out var a) && a.ValueKind == JsonValueKind.String ? a.GetString() : null;
+            var sub = payload.TryGetProperty("sub", out var s) && s.ValueKind == JsonValueKind.String ? s.GetString() : null;
+            var exp = payload.TryGetProperty("exp", out var e) && e.ValueKind == JsonValueKind.Number ? e.GetInt64() : 0;
+            if ((iss != "accounts.google.com" && iss != "https://accounts.google.com")
+                || aud != clientId || sub != subject || exp <= DateTimeOffset.UtcNow.ToUnixTimeSeconds())
+            {
+                return null;
+            }
+
+            return OidcIdToken.StringClaims(payload);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public static string CallbackUrl(IConfiguration c, HttpContext ctx) =>
         ExternalAuthSupport.BaseUrl(c, ctx) + "/api/auth/google/callback";
 }
@@ -110,7 +152,8 @@ public class GoogleCallbackEndpoint(
             var me = JsonSerializer.Deserialize<JsonElement>(await infoResp.Content.ReadAsStringAsync(ct));
 
             subject = me.TryGetProperty("sub", out var sb) && sb.ValueKind == JsonValueKind.String ? sb.GetString() : null;
-            claims = OidcIdToken.StringClaims(me);
+            // hd is an ID token claim only, so it is read from the id_token of the code exchange.
+            claims = Gg.IdTokenClaims(tokenDoc, config["Google:ClientId"], subject);
             email = (me.TryGetProperty("email", out var e) ? e.GetString() : null)?.Trim().ToLowerInvariant() ?? "";
             // OIDC: email_verified is the provider's assertion that it owns the verification, and
             // absent means no assertion, so absent is false.
@@ -133,15 +176,22 @@ public class GoogleCallbackEndpoint(
             return;
         }
 
-        if (string.IsNullOrEmpty(email) || !email.Contains('@'))
+        var mfa = Resolve<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>();
+        SocialSignIn.Tokens tokens;
+        bool emailNotVerified;
+        try
         {
-            await Fail("Google didn't share an email address. Please sign in with your email code instead.");
+            (tokens, emailNotVerified) = await SocialSignIn.IssueForProviderAsync(
+                session, config, deviceGate, tokenIssuer, mfa, HttpContext, ExternalProviders.Google, subject, email, emailVerified, club, ct, profile, claims);
+        }
+        catch (Exception ex) when (OidcSupport.IsUniqueViolation(ex))
+        {
+            // Two first sign-ins for one address raced on the user's unique email. The retry
+            // finds the account.
+            await Fail("Couldn't finish signing you in. Please try again.");
             return;
         }
 
-        var mfa = Resolve<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>();
-        var (tokens, _) = await SocialSignIn.IssueForProviderAsync(
-            session, config, deviceGate, tokenIssuer, mfa, HttpContext, ExternalProviders.Google, subject, email, emailVerified, club, ct, profile, claims);
         if (tokens.RequiresMfa)
         {
             await Send.ResultAsync(Results.Redirect(SocialSignIn.FrontendMfaCallback(baseUrl, tokens.MfaChallenge!, club)));
@@ -149,7 +199,10 @@ public class GoogleCallbackEndpoint(
         }
         if (!tokens.Allowed)
         {
-            await Fail("You are not a member of this club.");
+            // An unlinked sign-in with no usable address is refused here, as it was before the link.
+            await Fail(emailNotVerified && !email.Contains('@')
+                ? "Google didn't share an email address. Please sign in with your email code instead."
+                : "You are not a member of this club.");
             return;
         }
         await Send.ResultAsync(Results.Redirect(SocialSignIn.FrontendCallback(baseUrl, tokens.Token, tokens.Refresh, club)));

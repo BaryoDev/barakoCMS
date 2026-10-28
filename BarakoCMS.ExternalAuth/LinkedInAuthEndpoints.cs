@@ -114,7 +114,6 @@ public class LinkedInCallbackEndpoint(
             var me = JsonSerializer.Deserialize<JsonElement>(await infoResp.Content.ReadAsStringAsync(ct));
 
             subject = me.TryGetProperty("sub", out var sb) && sb.ValueKind == JsonValueKind.String ? sb.GetString() : null;
-            claims = OidcIdToken.StringClaims(me);
             email = (me.TryGetProperty("email", out var e) ? e.GetString() : null)?.Trim().ToLowerInvariant() ?? "";
             emailVerified = me.TryGetProperty("email_verified", out var ev)
                 && (ev.ValueKind == System.Text.Json.JsonValueKind.True
@@ -135,15 +134,22 @@ public class LinkedInCallbackEndpoint(
             return;
         }
 
-        if (string.IsNullOrEmpty(email) || !email.Contains('@'))
+        var mfa = Resolve<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>();
+        SocialSignIn.Tokens tokens;
+        bool emailNotVerified;
+        try
         {
-            await Fail("LinkedIn didn't share an email address. Please sign in with your email code instead.");
+            (tokens, emailNotVerified) = await SocialSignIn.IssueForProviderAsync(
+                session, config, deviceGate, tokenIssuer, mfa, HttpContext, ExternalProviders.LinkedIn, subject, email, emailVerified, club, ct, profile, claims);
+        }
+        catch (Exception ex) when (OidcSupport.IsUniqueViolation(ex))
+        {
+            // Two first sign-ins for one address raced on the user's unique email. The retry
+            // finds the account.
+            await Fail("Couldn't finish signing you in. Please try again.");
             return;
         }
 
-        var mfa = Resolve<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>();
-        var (tokens, _) = await SocialSignIn.IssueForProviderAsync(
-            session, config, deviceGate, tokenIssuer, mfa, HttpContext, ExternalProviders.LinkedIn, subject, email, emailVerified, club, ct, profile, claims);
         if (tokens.RequiresMfa)
         {
             await Send.ResultAsync(Results.Redirect(SocialSignIn.FrontendMfaCallback(baseUrl, tokens.MfaChallenge!, club)));
@@ -151,7 +157,10 @@ public class LinkedInCallbackEndpoint(
         }
         if (!tokens.Allowed)
         {
-            await Fail("You are not a member of this club.");
+            // An unlinked sign-in with no usable address is refused here, as it was before the link.
+            await Fail(emailNotVerified && !email.Contains('@')
+                ? "LinkedIn didn't share an email address. Please sign in with your email code instead."
+                : "You are not a member of this club.");
             return;
         }
         await Send.ResultAsync(Results.Redirect(SocialSignIn.FrontendCallback(baseUrl, tokens.Token, tokens.Refresh, club)));

@@ -48,8 +48,10 @@ public static class SocialSignIn
     /// <c>subject</c> is the provider's stable id for the person: Google and LinkedIn <c>sub</c>,
     /// Facebook <c>id</c>, GitHub numeric id. <c>emailVerified</c> is the provider's own rule, and
     /// only a first sign-in reads it, to match a local user by address. A linked account is found by
-    /// subject. <c>claims</c> is what the provider says that the person cannot edit, for the
-    /// tenant's role map.
+    /// subject, with or without an address. <c>claims</c> is what the provider says that the person
+    /// cannot edit, for the tenant's role map. <c>emailTrustedByOperator</c> marks a verification the
+    /// provider did not make: it still lets an unlinked sign-in match by address, but links nothing
+    /// to the user it matched, so the match does not outlive the operator's setting.
     /// </remarks>
     public static Task<(Tokens Tokens, bool EmailNotVerified)> IssueForProviderAsync(
         IDocumentSession session,
@@ -60,16 +62,26 @@ public static class SocialSignIn
         HttpContext http,
         string provider,
         string subject,
-        string email,
+        string? email,
         bool emailVerified,
         string club,
         CancellationToken ct,
         ProfileData? profile = null,
-        IReadOnlyDictionary<string, IReadOnlyList<string>>? claims = null)
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? claims = null,
+        bool emailTrustedByOperator = false)
     {
-        var identity = new OidcIdentity(provider, subject, email.Trim().ToLowerInvariant(), emailVerified, profile?.Name, profile?.PhotoUrl)
+        // A linked account signs in without an address. An unlinked one needs a usable address, and
+        // without one the sign-in is refused the same way an unverified address is.
+        var usable = email?.Trim().ToLowerInvariant();
+        if (string.IsNullOrEmpty(usable) || !usable.Contains('@'))
+        {
+            usable = null;
+        }
+
+        var identity = new OidcIdentity(provider, subject, usable, emailVerified, profile?.Name, profile?.PhotoUrl)
         {
             Claims = claims ?? new Dictionary<string, IReadOnlyList<string>>(),
+            EmailTrustedByOperator = emailTrustedByOperator,
         };
         return IssueForIdentityAsync(
             session, config, deviceGate, tokenIssuer, mfa, http, identity, provider, club, ct, null, profile);
@@ -137,15 +149,20 @@ public static class SocialSignIn
                 created = true;
             }
 
-            session.Store(new ExternalIdentity
+            // An address the operator chose to trust, and the provider did not vouch for, may sign
+            // in to the account holding it, but is not made permanent. A new account is its own.
+            if (created || !identity.EmailTrustedByOperator)
             {
-                Id = key,
-                Issuer = identity.Issuer,
-                Subject = identity.Subject,
-                UserId = user.Id,
-                Provider = provider,
-                LinkedAt = DateTime.UtcNow,
-            });
+                session.Store(new ExternalIdentity
+                {
+                    Id = key,
+                    Issuer = identity.Issuer,
+                    Subject = identity.Subject,
+                    UserId = user.Id,
+                    Provider = provider,
+                    LinkedAt = DateTime.UtcNow,
+                });
+            }
         }
 
         var mapped = await MappedRolesAsync(session, config, identity, provider, club, ct);
