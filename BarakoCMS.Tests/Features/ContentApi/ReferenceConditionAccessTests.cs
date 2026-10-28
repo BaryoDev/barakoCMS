@@ -1134,10 +1134,11 @@ public class ReferenceConditionAccessTests
             Enrollments(BoundEnrollments),
             new ContentTypePermission { ContentTypeSlug = BoundPages, Read = Where("Owner.InstructorUser", "_eq", "$CURRENT_USER") });
 
-        // Reads every published class, by a rule the database cannot answer, and the enrollments
-        // of any class that has a title.
+        // Reads every class not titled "5", by a rule the database cannot answer (a number is never
+        // compiled), and the enrollments of any class that has a title. This was $status until
+        // baryoclub made that compile.
         var (reader, _) = await CallerAsync(
-            new ContentTypePermission { ContentTypeSlug = BoundClasses, Read = Where("$status", "_eq", "Published") },
+            new ContentTypePermission { ContentTypeSlug = BoundClasses, Read = Where("Title", "_ne", 5) },
             new ContentTypePermission { ContentTypeSlug = BoundEnrollments, Read = Where("Class.Title", "_ne", "no such title") });
 
         // Two references into classes under the same comparison, on one rule.
