@@ -157,6 +157,17 @@ internal sealed class InviteMemberEndpoint(
             return;
         }
 
+        // The check and the save share one transaction under a lock on the member number, so two
+        // invites for the same number cannot both pass the check. Nothing else guards it: the only
+        // unique index on a membership is (user, tenant).
+        if (req.Profile is not null && req.Profile.TryGetValue(Invites.UniqueKey, out var number))
+        {
+            await session.BeginTransactionAsync(ct);
+            await session.QueryAsync<int>(
+                "select 1 from pg_advisory_xact_lock(hashtextextended(?, 0))", ct,
+                $"barakocms:member-profile:{slug}:{number.Trim().ToLowerInvariant()}");
+        }
+
         if (await Invites.ProfileValueTakenAsync(session, slug, user.Id, req.Profile, ct))
             ThrowError(Invites.ProfileTaken, 409);
 

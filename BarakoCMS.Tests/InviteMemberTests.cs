@@ -218,6 +218,28 @@ public class InviteMemberTests
     }
 
     [Fact]
+    public async Task Concurrent_invites_for_one_member_number_let_exactly_one_through()
+    {
+        var h = await InviterAsync(holdsCapability: true);
+
+        var answers = await Task.WhenAll(Enumerable.Range(0, 8).Select(i =>
+            h.Client.PostAsJsonAsync("/api/tenants/members/invite",
+                new { Email = $"race{i}@example.test", Profile = new { memberNo = i % 2 == 0 ? "N-500" : " n-500 " } }, Ct)));
+
+        answers.Count(a => a.StatusCode == HttpStatusCode.OK).Should().Be(1);
+        answers.Where(a => a.StatusCode != HttpStatusCode.OK).Should().OnlyContain(a => a.StatusCode == HttpStatusCode.Conflict);
+        foreach (var refused in answers.Where(a => a.StatusCode == HttpStatusCode.Conflict))
+            (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain("That profile value belongs to another member.");
+
+        using var scope = _fixture.Services.CreateScope();
+        var held = await scope.ServiceProvider.GetRequiredService<IQuerySession>().Query<Membership>()
+            .Where(m => m.TenantSlug == h.Slug && m.Status == MembershipStatus.Active && m.UserId != h.SelfUserId && m.UserId != h.OtherUserId)
+            .ToListAsync(Ct);
+        held.Count(m => m.Profile.TryGetValue("memberNo", out var n) && n.Trim().ToLowerInvariant() == "n-500")
+            .Should().Be(1);
+    }
+
+    [Fact]
     public async Task A_removed_members_profile_value_does_not_block_and_a_re_invite_is_not_a_clash_with_itself()
     {
         var h = await InviterAsync(holdsCapability: true);
