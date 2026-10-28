@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests;
 /// <summary>
 /// SearchText has to carry the words of a list or object value, not the CLR type name or raw JSON.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class SearchTextFlatteningTests
 {
     private readonly IntegrationTestFixture _factory;

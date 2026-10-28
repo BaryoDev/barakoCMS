@@ -222,7 +222,8 @@ public class AccountingReportingTests
         flow.Disbursements.Should().Be(0m);
         flow.Closing.Should().Be(1000.50m);
         flow.Lines.Should().HaveCount(3);
-        flow.Lines.TakeLast(2).Should().OnlyContain(l => l.RunningBalance == 1000.50m);
+        // The running balance moves leg by leg, as CashFlowTests pins, and is back where it started after the transfer.
+        flow.Lines.Select(l => l.RunningBalance).Should().Equal(1000.50m, 1400.75m, 1000.50m);
     }
 
     [Fact]

@@ -9,7 +9,7 @@ using Xunit;
 
 namespace BarakoCMS.Tests;
 
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class InvitableRoleRulesTests
 {
     private readonly IntegrationTestFixture _fixture;

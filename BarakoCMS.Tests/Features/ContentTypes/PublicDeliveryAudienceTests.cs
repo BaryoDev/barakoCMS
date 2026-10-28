@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests.Features.ContentTypes;
 /// role rule is written: content type create, blueprint apply, role create and update, and the
 /// config document. The toggle has its own tests in PublicDeliveryAuditTests.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class PublicDeliveryAudienceTests
 {
     private readonly IntegrationTestFixture _factory;

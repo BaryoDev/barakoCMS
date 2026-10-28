@@ -12,7 +12,7 @@ using Xunit;
 
 namespace BarakoCMS.Tests;
 
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class InviteMemberTests
 {
     private readonly IntegrationTestFixture _fixture;

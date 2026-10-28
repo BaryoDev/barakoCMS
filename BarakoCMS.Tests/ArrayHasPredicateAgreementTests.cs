@@ -10,7 +10,7 @@ using Xunit;
 
 namespace BarakoCMS.Tests;
 
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class ArrayHasPredicateAgreementTests
 {
     private readonly IntegrationTestFixture _fixture;

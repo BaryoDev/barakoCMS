@@ -14,7 +14,7 @@ using Xunit;
 
 namespace BarakoCMS.Tests;
 
-[Collection("Sequential")]
+[Collection("Integration1")]
 public sealed class OwnerHiddenFieldTests : IDisposable
 {
     private readonly IServiceScope _scope;

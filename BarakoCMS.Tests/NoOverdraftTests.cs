@@ -9,7 +9,7 @@ using Xunit;
 namespace BarakoCMS.Tests;
 
 /// <summary>An account marked NoOverdraft cannot be posted below zero, from any caller of the ledger.</summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class NoOverdraftTests
 {
     private readonly IntegrationTestFixture _factory;

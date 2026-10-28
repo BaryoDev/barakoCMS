@@ -10,7 +10,7 @@ using barakoCMS.Models;
 namespace BarakoCMS.Tests;
 
 /// <summary>A field's DefaultValue fills a key the caller left out when an entry is created.</summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class FieldDefaultValueTests
 {
     private readonly IntegrationTestFixture _factory;

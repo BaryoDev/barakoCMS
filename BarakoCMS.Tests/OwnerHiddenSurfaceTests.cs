@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests;
 /// lookup, a block binding. A response that omits the field is not enough, since which rows match
 /// gives the value away.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public sealed class OwnerHiddenSurfaceTests
 {
     private readonly IntegrationTestFixture _factory;

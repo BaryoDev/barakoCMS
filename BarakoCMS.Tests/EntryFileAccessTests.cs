@@ -14,7 +14,7 @@ namespace BarakoCMS.Tests;
 /// A file field marked FileFollowsEntry lets anyone who may read the entry download the private
 /// file it names, and nothing more: no delete, and no file held in a field that does not follow.
 /// </summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class EntryFileAccessTests
 {
     private readonly IntegrationTestFixture _factory;

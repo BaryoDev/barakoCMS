@@ -7,7 +7,7 @@ using static BarakoCMS.Tests.Features.Config.ConfigCallers;
 namespace BarakoCMS.Tests.Features.Config;
 
 /// <summary>The optional <c>invitable</c> flag of the roles section: null leaves it, true or false sets it.</summary>
-[Collection("Sequential")]
+[Collection("Integration1")]
 public class RoleConfigInvitableTests
 {
     private readonly ConfigCallers _callers;
