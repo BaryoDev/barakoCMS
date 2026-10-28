@@ -1136,7 +1136,7 @@ public class ReferenceConditionAccessTests
 
         // Reads every class not titled "5", by a rule the database cannot answer (a number is never
         // compiled), and the enrollments of any class that has a title. This was $status until
-        // baryoclub made that compile.
+        // $status started compiling.
         var (reader, _) = await CallerAsync(
             new ContentTypePermission { ContentTypeSlug = BoundClasses, Read = Where("Title", "_ne", 5) },
             new ContentTypePermission { ContentTypeSlug = BoundEnrollments, Read = Where("Class.Title", "_ne", "no such title") });
