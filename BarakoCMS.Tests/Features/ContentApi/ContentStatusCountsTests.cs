@@ -192,7 +192,8 @@ public class ContentStatusCountsTests
                 Enabled = true,
                 Conditions = new Dictionary<string, object>
                 {
-                    ["$status"] = new Dictionary<string, object> { ["_eq"] = "Published" },
+                    // $status compiles now (baryoclub), so an unknown $ field stands in for a rule that cannot.
+                    ["$unknown"] = new Dictionary<string, object> { ["_eq"] = "Published" },
                 },
             },
         });
