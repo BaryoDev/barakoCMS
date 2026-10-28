@@ -217,13 +217,15 @@ public class TenantSignUpPolicyTests
         var context = new Microsoft.AspNetCore.Http.DefaultHttpContext();
         context.Request.Headers["User-Agent"] = "sign-up-policy-tests";
 
-        return await SocialSignIn.IssueAsync(
+        var (tokens, _) = await SocialSignIn.IssueForProviderAsync(
             provider.GetRequiredService<IDocumentSession>(),
             provider.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>(),
             provider.GetRequiredService<barakoCMS.Core.Interfaces.IDeviceGate>(),
             provider.GetRequiredService<ITokenIssuer>(),
             provider.GetRequiredService<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>(),
-            context, email, emailVerified: true, club, Ct);
+            context, BarakoCMS.ExternalAuth.ExternalProviders.Google, "sub-" + Guid.NewGuid().ToString("N"),
+            email, emailVerified: true, club, Ct);
+        return tokens;
     }
 
     [Fact]

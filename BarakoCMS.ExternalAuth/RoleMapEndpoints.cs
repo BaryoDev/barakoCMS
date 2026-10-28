@@ -91,7 +91,7 @@ internal static class RoleMaps
     /// template, and when it is not a configured provider, so an unknown one fails closed.
     /// </summary>
     public static bool IssuerRequired(IConfiguration config, string provider) =>
-        OidcProviders.Enabled(config).FirstOrDefault(p => p.Name == provider) is not { IssuerIsTemplate: false };
+        !ExternalProviders.BuiltIn.Contains(provider) && OidcProviders.Enabled(config).FirstOrDefault(p => p.Name == provider) is not { IssuerIsTemplate: false };
 }
 
 internal sealed class RoleMapValidator : Validator<RoleMapRequest>
@@ -106,8 +106,8 @@ internal sealed class RoleMapValidator : Validator<RoleMapRequest>
         RuleForEach(x => x.Rules).ChildRules(rule =>
         {
             rule.RuleFor(r => r.Provider).NotEmpty()
-                .Must(p => p is not null && OidcProviders.Enabled(config).Any(e => e.Name == p))
-                .WithMessage("The provider is not a configured OpenID Connect provider.");
+                .Must(p => p is not null && (ExternalProviders.BuiltIn.Contains(p) || OidcProviders.Enabled(config).Any(e => e.Name == p)))
+                .WithMessage("The provider is not a configured OpenID Connect provider or one of the OAuth providers.");
             rule.RuleFor(r => r.Issuer)
                 .Must(i => i is null || (OidcProviders.IsIssuerUrl(i) && !i.Contains(OidcProvider.TenantPlaceholder, StringComparison.Ordinal)))
                 .WithMessage("The issuer must be the exact issuer URL of the token, with the directory filled in.");

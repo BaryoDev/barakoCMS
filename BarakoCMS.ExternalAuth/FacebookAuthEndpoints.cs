@@ -26,7 +26,7 @@ internal static class Fb
 }
 
 /// <summary>GET /api/auth/facebook/start?club={handle} — redirect the browser to Facebook's consent dialog.</summary>
-public class FacebookStartEndpoint(IConfiguration config) : EndpointWithoutRequest
+public class FacebookStartEndpoint(IConfiguration config, IQuerySession session) : EndpointWithoutRequest
 {
     public override void Configure()
     {
@@ -38,6 +38,7 @@ public class FacebookStartEndpoint(IConfiguration config) : EndpointWithoutReque
     {
         if (!ExternalAuthSupport.ProviderEnabled(config, "Facebook", "AppId")) { await Send.NotFoundAsync(ct); return; }
         var club = (Query<string>("club", isRequired: false) ?? "").Trim().ToLowerInvariant();
+        if (!await ExternalProviders.AllowedAsync(session, club, ExternalProviders.Facebook, ct)) { await Send.NotFoundAsync(ct); return; }
         var state = ExternalAuthSupport.NewState();
 
         HttpContext.Response.Cookies.Append("fb_state", state, ExternalAuthSupport.ShortCookie());
@@ -72,6 +73,7 @@ public class FacebookCallbackEndpoint(
     {
         var baseUrl = ExternalAuthSupport.BaseUrl(config, HttpContext);
         var club = HttpContext.Request.Cookies["fb_club"] ?? "";
+        if (!await ExternalProviders.AllowedAsync(session, club, ExternalProviders.Facebook, ct)) { await Send.NotFoundAsync(ct); return; }
         var cookieState = HttpContext.Request.Cookies["fb_state"];
         var code = Query<string>("code", isRequired: false);
         var state = Query<string>("state", isRequired: false);
@@ -94,6 +96,8 @@ public class FacebookCallbackEndpoint(
 
         string email;
         bool emailVerified;
+        string? subject;
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? claims = null;
         SocialSignIn.ProfileData profile;
         try
         {
@@ -113,6 +117,7 @@ public class FacebookCallbackEndpoint(
                         $"&access_token={Uri.EscapeDataString(userToken!)}";
             var me = await http.GetFromJsonAsync<JsonElement>(meUrl, ct);
 
+            subject = me.TryGetProperty("id", out var idp) && idp.ValueKind == JsonValueKind.String ? idp.GetString() : null;
             email = (me.TryGetProperty("email", out var e) ? e.GetString() : null)?.Trim().ToLowerInvariant() ?? "";
             // The Graph API exposes no per-field verification flag, so there is nothing to read
             // here and no honest way to claim the address is verified. Facebook sign-in is
@@ -135,6 +140,12 @@ public class FacebookCallbackEndpoint(
             return;
         }
 
+        if (string.IsNullOrEmpty(subject))
+        {
+            await Fail("Couldn't reach Facebook. Please try again, or use your email code.");
+            return;
+        }
+
         if (string.IsNullOrEmpty(email) || !email.Contains('@'))
         {
             await Fail("Facebook didn't share an email address. Please sign in with your email code instead.");
@@ -142,7 +153,8 @@ public class FacebookCallbackEndpoint(
         }
 
         var mfa = Resolve<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>();
-        var tokens = await SocialSignIn.IssueAsync(session, config, deviceGate, tokenIssuer, mfa, HttpContext, email, emailVerified, club, ct, profile);
+        var (tokens, _) = await SocialSignIn.IssueForProviderAsync(
+            session, config, deviceGate, tokenIssuer, mfa, HttpContext, ExternalProviders.Facebook, subject, email, emailVerified, club, ct, profile, claims);
         if (tokens.RequiresMfa)
         {
             await Send.ResultAsync(Results.Redirect(SocialSignIn.FrontendMfaCallback(baseUrl, tokens.MfaChallenge!, club)));

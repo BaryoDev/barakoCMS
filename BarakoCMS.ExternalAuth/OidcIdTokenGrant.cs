@@ -117,6 +117,13 @@ internal sealed class OidcIdTokenGrantEndpoint(
             return;
         }
 
+        var requestedClub = (req.Club ?? string.Empty).Trim().ToLowerInvariant();
+        if (!await ExternalProviders.AllowedAsync(session, requestedClub, ExternalProviders.OidcKey(provider.Name), ct))
+        {
+            await Send.NotFoundAsync(ct);
+            return;
+        }
+
         var endpoints = await backchannel.EndpointsAsync(provider, ct);
         if (endpoints is null)
         {

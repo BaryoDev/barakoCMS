@@ -337,7 +337,7 @@ so there is no user document for an external provider to match onto.
 user and carry an `EmailVerified` flag, then refuse login (or issue a restricted session) until it
 is set. That was rejected.
 
-**Why.** The email address is a join key, not just a contact field. `SocialSignIn.IssueAsync` matches
+**Why.** The email address is a join key, not just a contact field. `SocialSignIn.IssueForProviderAsync` matches
 a provider's verified email to a local account by address alone, which is why the providers were
 hardened to require `email_verified` from Google and LinkedIn, to read only the verified primary from
 GitHub, and to refuse Facebook unless an operator opts in. That path never looks at a password, a

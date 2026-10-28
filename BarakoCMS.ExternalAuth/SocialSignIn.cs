@@ -38,56 +38,41 @@ public static class SocialSignIn
     public sealed record ProfileData(
         string? Name, string? PhotoUrl, string? Birthday, string? Location, string Source);
 
-    public static async Task<Tokens> IssueAsync(
+    /// <summary>
+    /// Sign-in through one of the OAuth providers (Google, Facebook, GitHub, LinkedIn). It names the
+    /// account by the provider's own user id, so a person whose address changes at the provider
+    /// still reaches the same local user. Needs <paramref name="provider"/> to be one of the
+    /// <see cref="ExternalProviders"/> keys, which is also the issuer of the link.
+    /// </summary>
+    /// <remarks>
+    /// <c>subject</c> is the provider's stable id for the person: Google and LinkedIn <c>sub</c>,
+    /// Facebook <c>id</c>, GitHub numeric id. <c>emailVerified</c> is the provider's own rule, and
+    /// only a first sign-in reads it, to match a local user by address. A linked account is found by
+    /// subject. <c>claims</c> is what the provider says that the person cannot edit, for the
+    /// tenant's role map.
+    /// </remarks>
+    public static Task<(Tokens Tokens, bool EmailNotVerified)> IssueForProviderAsync(
         IDocumentSession session,
         IConfiguration config,
         barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
         barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer,
         barakoCMS.Infrastructure.Auth.Mfa.IMfaService mfa,
         HttpContext http,
+        string provider,
+        string subject,
         string email,
         bool emailVerified,
         string club,
         CancellationToken ct,
-        ProfileData? profile = null)
+        ProfileData? profile = null,
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? claims = null)
     {
-        // Required, and deliberately not optional with a default. Three of the four providers used
-        // to hand over an address nobody had asked the provider to vouch for, and the README claimed
-        // the opposite. A parameter with a default would have let the next provider omit it just as
-        // quietly.
-        //
-        // The email is the only join key here, so an unverified one is a login for whichever local
-        // account holds that address. A seeded SuperAdmin's address is {username}@company.com and
-        // therefore guessable, and PasswordHash is never consulted on this path.
-        if (!emailVerified)
+        var identity = new OidcIdentity(provider, subject, email.Trim().ToLowerInvariant(), emailVerified, profile?.Name, profile?.PhotoUrl)
         {
-            return Tokens.Denied();
-        }
-
-        if (!await TenantSignIn.AllowsAsync(session, club, TenantSignInPolicy.Social, ct))
-        {
-            return Tokens.Denied();
-        }
-
-        var normalized = email.Trim().ToLowerInvariant();
-        var signUp = await SignUpPolicy.DecideAsync(session, club, ct);
-        var user = await session.Query<User>().FirstOrDefaultAsync(u => u.Email.ToLower() == normalized, ct);
-        var created = user is null;
-        if (user is null)
-        {
-            // A new account is a sign-up, so the tenant's policy decides. An existing one is a
-            // sign-in, and the issuer's membership check decides.
-            if (signUp.Outcome == SignUpOutcome.Refused)
-            {
-                return Tokens.Denied();
-            }
-
-            user = new User { Id = Guid.NewGuid(), Email = normalized, Username = normalized, PasswordHash = "" };
-            session.Store(user);
-        }
-
-        return await IssueForUserAsync(
-            session, config, deviceGate, tokenIssuer, mfa, http, user, club, created ? signUp : null, ct, profile, null, null);
+            Claims = claims ?? new Dictionary<string, IReadOnlyList<string>>(),
+        };
+        return IssueForIdentityAsync(
+            session, config, deviceGate, tokenIssuer, mfa, http, identity, provider, club, ct, null, profile);
     }
 
     /// <summary>
@@ -110,7 +95,8 @@ public static class SocialSignIn
         string provider,
         string club,
         CancellationToken ct,
-        Action<IDocumentSession>? beforeFinalCommit = null)
+        Action<IDocumentSession>? beforeFinalCommit = null,
+        ProfileData? profileOverride = null)
     {
         if (!await TenantSignIn.AllowsAsync(session, club, TenantSignInPolicy.Social, ct))
         {
@@ -164,7 +150,7 @@ public static class SocialSignIn
 
         var mapped = await MappedRolesAsync(session, config, identity, provider, club, ct);
 
-        var profile = new ProfileData(identity.Name, identity.Picture, null, null, provider);
+        var profile = profileOverride ?? new ProfileData(identity.Name, identity.Picture, null, null, provider);
         return (await IssueForUserAsync(
             session, config, deviceGate, tokenIssuer, mfa, http, user, club, created ? signUp : null, ct, profile, beforeFinalCommit, mapped), false);
     }

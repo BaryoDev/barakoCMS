@@ -90,6 +90,11 @@ public sealed class ExternalAuthModule : IBarakoModule
             .SingleTenanted()
             .DocumentAlias("external_role_maps");
 
+        // Global too, keyed by tenant slug: the providers a tenant allows.
+        schema.For<ExternalProviderSettings>()
+            .SingleTenanted()
+            .DocumentAlias("external_provider_settings");
+
         // Global too: a nonce is spent for the issuer, whichever club the sign-in was for.
         schema.For<OidcUsedNonce>()
             .SingleTenanted()

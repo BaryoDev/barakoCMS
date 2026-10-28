@@ -18,7 +18,7 @@ internal static class Gg
 }
 
 /// <summary>GET /api/auth/google/start?club={handle}</summary>
-public class GoogleStartEndpoint(IConfiguration config) : EndpointWithoutRequest
+public class GoogleStartEndpoint(IConfiguration config, IQuerySession session) : EndpointWithoutRequest
 {
     public override void Configure()
     {
@@ -30,6 +30,7 @@ public class GoogleStartEndpoint(IConfiguration config) : EndpointWithoutRequest
     {
         if (!ExternalAuthSupport.ProviderEnabled(config, "Google", "ClientId")) { await Send.NotFoundAsync(ct); return; }
         var club = (Query<string>("club", isRequired: false) ?? "").Trim().ToLowerInvariant();
+        if (!await ExternalProviders.AllowedAsync(session, club, ExternalProviders.Google, ct)) { await Send.NotFoundAsync(ct); return; }
         var state = ExternalAuthSupport.NewState();
         HttpContext.Response.Cookies.Append("gg_state", state, ExternalAuthSupport.ShortCookie());
         HttpContext.Response.Cookies.Append("gg_club", club, ExternalAuthSupport.ShortCookie());
@@ -61,6 +62,7 @@ public class GoogleCallbackEndpoint(
     {
         var baseUrl = ExternalAuthSupport.BaseUrl(config, HttpContext);
         var club = HttpContext.Request.Cookies["gg_club"] ?? "";
+        if (!await ExternalProviders.AllowedAsync(session, club, ExternalProviders.Google, ct)) { await Send.NotFoundAsync(ct); return; }
         var cookieState = HttpContext.Request.Cookies["gg_state"];
         var code = Query<string>("code", isRequired: false);
         var state = Query<string>("state", isRequired: false);
@@ -82,6 +84,8 @@ public class GoogleCallbackEndpoint(
 
         string email;
         bool emailVerified;
+        string? subject;
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? claims = null;
         SocialSignIn.ProfileData profile;
         try
         {
@@ -105,6 +109,8 @@ public class GoogleCallbackEndpoint(
             infoResp.EnsureSuccessStatusCode();
             var me = JsonSerializer.Deserialize<JsonElement>(await infoResp.Content.ReadAsStringAsync(ct));
 
+            subject = me.TryGetProperty("sub", out var sb) && sb.ValueKind == JsonValueKind.String ? sb.GetString() : null;
+            claims = OidcIdToken.StringClaims(me);
             email = (me.TryGetProperty("email", out var e) ? e.GetString() : null)?.Trim().ToLowerInvariant() ?? "";
             // OIDC: email_verified is the provider's assertion that it owns the verification, and
             // absent means no assertion, so absent is false.
@@ -121,6 +127,12 @@ public class GoogleCallbackEndpoint(
             return;
         }
 
+        if (string.IsNullOrEmpty(subject))
+        {
+            await Fail("Couldn't reach Google. Please try again, or use your email code.");
+            return;
+        }
+
         if (string.IsNullOrEmpty(email) || !email.Contains('@'))
         {
             await Fail("Google didn't share an email address. Please sign in with your email code instead.");
@@ -128,7 +140,8 @@ public class GoogleCallbackEndpoint(
         }
 
         var mfa = Resolve<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>();
-        var tokens = await SocialSignIn.IssueAsync(session, config, deviceGate, tokenIssuer, mfa, HttpContext, email, emailVerified, club, ct, profile);
+        var (tokens, _) = await SocialSignIn.IssueForProviderAsync(
+            session, config, deviceGate, tokenIssuer, mfa, HttpContext, ExternalProviders.Google, subject, email, emailVerified, club, ct, profile, claims);
         if (tokens.RequiresMfa)
         {
             await Send.ResultAsync(Results.Redirect(SocialSignIn.FrontendMfaCallback(baseUrl, tokens.MfaChallenge!, club)));

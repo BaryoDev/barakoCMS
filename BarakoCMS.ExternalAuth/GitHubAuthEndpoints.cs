@@ -20,7 +20,7 @@ internal static class Gh
 }
 
 /// <summary>GET /api/auth/github/start?club={handle}</summary>
-public class GitHubStartEndpoint(IConfiguration config) : EndpointWithoutRequest
+public class GitHubStartEndpoint(IConfiguration config, IQuerySession session) : EndpointWithoutRequest
 {
     public override void Configure()
     {
@@ -32,6 +32,7 @@ public class GitHubStartEndpoint(IConfiguration config) : EndpointWithoutRequest
     {
         if (!ExternalAuthSupport.ProviderEnabled(config, "GitHub", "ClientId")) { await Send.NotFoundAsync(ct); return; }
         var club = (Query<string>("club", isRequired: false) ?? "").Trim().ToLowerInvariant();
+        if (!await ExternalProviders.AllowedAsync(session, club, ExternalProviders.GitHub, ct)) { await Send.NotFoundAsync(ct); return; }
         var state = ExternalAuthSupport.NewState();
         HttpContext.Response.Cookies.Append("gh_state", state, ExternalAuthSupport.ShortCookie());
         HttpContext.Response.Cookies.Append("gh_club", club, ExternalAuthSupport.ShortCookie());
@@ -63,6 +64,7 @@ public class GitHubCallbackEndpoint(
     {
         var baseUrl = ExternalAuthSupport.BaseUrl(config, HttpContext);
         var club = HttpContext.Request.Cookies["gh_club"] ?? "";
+        if (!await ExternalProviders.AllowedAsync(session, club, ExternalProviders.GitHub, ct)) { await Send.NotFoundAsync(ct); return; }
         var cookieState = HttpContext.Request.Cookies["gh_state"];
         var code = Query<string>("code", isRequired: false);
         var state = Query<string>("state", isRequired: false);
@@ -84,6 +86,8 @@ public class GitHubCallbackEndpoint(
 
         string email;
         var emailVerified = false;
+        string? subject;
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? claims = null;
         SocialSignIn.ProfileData profile;
         try
         {
@@ -106,6 +110,9 @@ public class GitHubCallbackEndpoint(
             var accessToken = tokenDoc.GetProperty("access_token").GetString();
 
             var me = await GhGet(http, Gh.User, accessToken!, ct);
+            subject = me.TryGetProperty("id", out var idp)
+                ? (idp.ValueKind == JsonValueKind.Number ? idp.GetRawText() : idp.ValueKind == JsonValueKind.String ? idp.GetString() : null)
+                : null;
             var name = me.TryGetProperty("name", out var n) ? n.GetString() : null;
             var photo = me.TryGetProperty("avatar_url", out var a) ? a.GetString() : null;
             var location = me.TryGetProperty("location", out var l) ? l.GetString() : null;
@@ -136,6 +143,12 @@ public class GitHubCallbackEndpoint(
             return;
         }
 
+        if (string.IsNullOrEmpty(subject))
+        {
+            await Fail("Couldn't reach GitHub. Please try again, or use your email code.");
+            return;
+        }
+
         if (string.IsNullOrEmpty(email) || !email.Contains('@'))
         {
             await Fail("GitHub didn't share a verified email address. Please sign in with your email code instead.");
@@ -143,7 +156,8 @@ public class GitHubCallbackEndpoint(
         }
 
         var mfa = Resolve<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>();
-        var tokens = await SocialSignIn.IssueAsync(session, config, deviceGate, tokenIssuer, mfa, HttpContext, email, emailVerified, club, ct, profile);
+        var (tokens, _) = await SocialSignIn.IssueForProviderAsync(
+            session, config, deviceGate, tokenIssuer, mfa, HttpContext, ExternalProviders.GitHub, subject, email, emailVerified, club, ct, profile, claims);
         if (tokens.RequiresMfa)
         {
             await Send.ResultAsync(Results.Redirect(SocialSignIn.FrontendMfaCallback(baseUrl, tokens.MfaChallenge!, club)));

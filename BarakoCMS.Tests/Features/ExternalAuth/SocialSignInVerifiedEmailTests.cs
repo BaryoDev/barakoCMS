@@ -109,16 +109,19 @@ public class SocialSignInVerifiedEmailTests
         var context = new Microsoft.AspNetCore.Http.DefaultHttpContext();
         context.Request.Headers["User-Agent"] = "social-sign-in-tests";
 
-        return await SocialSignIn.IssueAsync(
+        var (tokens, _) = await SocialSignIn.IssueForProviderAsync(
             provider.GetRequiredService<IDocumentSession>(),
             provider.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>(),
             provider.GetRequiredService<barakoCMS.Core.Interfaces.IDeviceGate>(),
             provider.GetRequiredService<barakoCMS.Infrastructure.Auth.ITokenIssuer>(),
             provider.GetRequiredService<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>(),
             context,
+            ExternalProviders.Google,
+            "sub-" + Guid.NewGuid().ToString("N"),
             email,
             emailVerified,
             barakoCMS.Models.Tenant.DefaultSlug,
             CancellationToken.None);
+        return tokens;
     }
 }

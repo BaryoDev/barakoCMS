@@ -19,7 +19,7 @@ internal static class Li
 }
 
 /// <summary>GET /api/auth/linkedin/start?club={handle} — redirect to LinkedIn's consent dialog.</summary>
-public class LinkedInStartEndpoint(IConfiguration config) : EndpointWithoutRequest
+public class LinkedInStartEndpoint(IConfiguration config, IQuerySession session) : EndpointWithoutRequest
 {
     public override void Configure()
     {
@@ -31,6 +31,7 @@ public class LinkedInStartEndpoint(IConfiguration config) : EndpointWithoutReque
     {
         if (!ExternalAuthSupport.ProviderEnabled(config, "LinkedIn", "ClientId")) { await Send.NotFoundAsync(ct); return; }
         var club = (Query<string>("club", isRequired: false) ?? "").Trim().ToLowerInvariant();
+        if (!await ExternalProviders.AllowedAsync(session, club, ExternalProviders.LinkedIn, ct)) { await Send.NotFoundAsync(ct); return; }
         var state = ExternalAuthSupport.NewState();
 
         HttpContext.Response.Cookies.Append("li_state", state, ExternalAuthSupport.ShortCookie());
@@ -63,6 +64,7 @@ public class LinkedInCallbackEndpoint(
     {
         var baseUrl = ExternalAuthSupport.BaseUrl(config, HttpContext);
         var club = HttpContext.Request.Cookies["li_club"] ?? "";
+        if (!await ExternalProviders.AllowedAsync(session, club, ExternalProviders.LinkedIn, ct)) { await Send.NotFoundAsync(ct); return; }
         var cookieState = HttpContext.Request.Cookies["li_state"];
         var code = Query<string>("code", isRequired: false);
         var state = Query<string>("state", isRequired: false);
@@ -85,6 +87,8 @@ public class LinkedInCallbackEndpoint(
 
         string email;
         bool emailVerified;
+        string? subject;
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? claims = null;
         SocialSignIn.ProfileData profile;
         try
         {
@@ -109,6 +113,8 @@ public class LinkedInCallbackEndpoint(
             infoResp.EnsureSuccessStatusCode();
             var me = JsonSerializer.Deserialize<JsonElement>(await infoResp.Content.ReadAsStringAsync(ct));
 
+            subject = me.TryGetProperty("sub", out var sb) && sb.ValueKind == JsonValueKind.String ? sb.GetString() : null;
+            claims = OidcIdToken.StringClaims(me);
             email = (me.TryGetProperty("email", out var e) ? e.GetString() : null)?.Trim().ToLowerInvariant() ?? "";
             emailVerified = me.TryGetProperty("email_verified", out var ev)
                 && (ev.ValueKind == System.Text.Json.JsonValueKind.True
@@ -123,6 +129,12 @@ public class LinkedInCallbackEndpoint(
             return;
         }
 
+        if (string.IsNullOrEmpty(subject))
+        {
+            await Fail("Couldn't reach LinkedIn. Please try again, or use your email code.");
+            return;
+        }
+
         if (string.IsNullOrEmpty(email) || !email.Contains('@'))
         {
             await Fail("LinkedIn didn't share an email address. Please sign in with your email code instead.");
@@ -130,7 +142,8 @@ public class LinkedInCallbackEndpoint(
         }
 
         var mfa = Resolve<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>();
-        var tokens = await SocialSignIn.IssueAsync(session, config, deviceGate, tokenIssuer, mfa, HttpContext, email, emailVerified, club, ct, profile);
+        var (tokens, _) = await SocialSignIn.IssueForProviderAsync(
+            session, config, deviceGate, tokenIssuer, mfa, HttpContext, ExternalProviders.LinkedIn, subject, email, emailVerified, club, ct, profile, claims);
         if (tokens.RequiresMfa)
         {
             await Send.ResultAsync(Results.Redirect(SocialSignIn.FrontendMfaCallback(baseUrl, tokens.MfaChallenge!, club)));

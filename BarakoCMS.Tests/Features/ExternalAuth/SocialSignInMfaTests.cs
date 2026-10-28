@@ -18,7 +18,7 @@ namespace BarakoCMS.Tests.Features.ExternalAuth;
 /// and then sat unpublished for a release, because the module version was not bumped and the release
 /// skips a package whose version has not moved. Nothing failed. It quietly kept shipping the bypass.
 ///
-/// Driven through <see cref="SocialSignIn.IssueAsync"/> rather than a provider callback because that
+/// Driven through <see cref="SocialSignIn.IssueForProviderAsync"/> rather than a provider callback because that
 /// is the one place all four providers converge on, so a fifth provider added later inherits this
 /// without anybody having to remember.
 /// </remarks>
@@ -148,16 +148,19 @@ public class SocialSignInMfaTests
         var context = new Microsoft.AspNetCore.Http.DefaultHttpContext();
         context.Request.Headers["User-Agent"] = "social-sign-in-mfa-tests";
 
-        return await SocialSignIn.IssueAsync(
+        var (tokens, _) = await SocialSignIn.IssueForProviderAsync(
             provider.GetRequiredService<IDocumentSession>(),
             provider.GetRequiredService<IConfiguration>(),
             provider.GetRequiredService<barakoCMS.Core.Interfaces.IDeviceGate>(),
             provider.GetRequiredService<barakoCMS.Infrastructure.Auth.ITokenIssuer>(),
             provider.GetRequiredService<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>(),
             context,
+            ExternalProviders.Google,
+            "sub-" + Guid.NewGuid().ToString("N"),
             email,
             emailVerified: true,
             barakoCMS.Models.Tenant.DefaultSlug,
             TestContext.Current.CancellationToken);
+        return tokens;
     }
 }
