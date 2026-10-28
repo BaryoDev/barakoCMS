@@ -352,14 +352,26 @@ public class InviteMemberTests
             SystemCapabilities = [SystemCapabilities.ViewSensitive],
         };
         await StoreAsync(strong, withCap);
-        foreach (var id in new[] { strong.Id, withCap.Id })
+        try
         {
-            var resp = await h.Client.PostAsJsonAsync("/api/tenants/members/invite",
-                new { Email = "old@example.test", RoleIds = new[] { id } }, Ct);
-            ((int)resp.StatusCode).Should().BeOneOf([400, 403], id.ToString());
-        }
+            foreach (var id in new[] { strong.Id, withCap.Id })
+            {
+                var resp = await h.Client.PostAsJsonAsync("/api/tenants/members/invite",
+                    new { Email = "oldflag@example.test", RoleIds = new[] { id } }, Ct);
+                ((int)resp.StatusCode).Should().BeOneOf([400, 403], id.ToString());
+            }
 
-        (await h.UserExistsAsync("old@example.test")).Should().BeFalse();
+            (await h.UserExistsAsync("oldflag@example.test")).Should().BeFalse();
+        }
+        finally
+        {
+            // A platform role is seen from every tenant, so an invalid one left behind breaks other classes' config exports.
+            using var scope = _fixture.Services.CreateScope();
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Delete<Role>(strong.Id);
+            session.Delete<Role>(withCap.Id);
+            await session.SaveChangesAsync(Ct);
+        }
     }
 
     [Fact]
