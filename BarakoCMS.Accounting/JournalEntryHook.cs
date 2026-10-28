@@ -258,13 +258,11 @@ public sealed class JournalEntryHook : IContentLifecycleHook
             return null;
         }
 
-        static bool IsPosted(object? status) =>
-            !string.Equals(ContentData.AsString(status), "Voided", StringComparison.OrdinalIgnoreCase);
-
-        var oldLines = new List<(string Code, decimal Debit, decimal Credit)>();
-        if (!context.IsCreate && IsPosted(ContentData.Get(context.Existing!, "Status")))
-            oldLines = ReadLines(ContentData.Get(context.Existing!, "Lines"), new List<string>());
-        var effective = IsPosted(ContentData.Get(data, "Status")) ? newLines : new();
+        // A voided entry stays in the books (its reversal undoes it), so its lines count like any other.
+        var oldLines = context.IsCreate
+            ? new List<(string Code, decimal Debit, decimal Credit)>()
+            : ReadLines(ContentData.Get(context.Existing!, "Lines"), new List<string>());
+        var effective = newLines;
 
         var touched = effective.Concat(oldLines)
             .Select(l => l.Code)

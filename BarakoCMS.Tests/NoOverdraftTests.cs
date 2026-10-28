@@ -123,7 +123,7 @@ public class NoOverdraftTests
     }
 
     [Fact]
-    public async Task Un_voiding_an_entry_cannot_overdraw()
+    public async Task A_voided_entry_still_counts_toward_the_balance()
     {
         var ct = TestContext.Current.CancellationToken;
         var c = await SeedAsync(flagCash: true);
@@ -134,27 +134,12 @@ public class NoOverdraftTests
         using var scope = _factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         var row = await session.LoadAsync<barakoCMS.Models.Content>(spend.Entry!.Id, ct);
-        var voided = new Dictionary<string, object>(row!.Data) { ["Status"] = "Voided" };
-        row.Data = voided;
+        row!.Data = new Dictionary<string, object>(row.Data) { ["Status"] = "Voided" };
         session.Store(row);
         await session.SaveChangesAsync(ct);
-        (await PostAsync(c.Equity, c.Cash, 100m)).Ok.Should().BeTrue();
 
-        var hook = scope.ServiceProvider.GetServices<barakoCMS.Core.Interfaces.IContentLifecycleHook>()
-            .OfType<JournalEntryHook>().Single();
-        var errors = await hook.OnBeforeSaveAsync(new barakoCMS.Core.Interfaces.ContentLifecycleContext
-        {
-            ContentType = AccountingContentTypes.JournalEntry,
-            Data = new Dictionary<string, object>(voided) { ["Status"] = "Posted" },
-            Existing = voided,
-            EntryId = row.Id,
-#pragma warning disable CS0618 // the property is required until 6.0, so the context cannot be built without it
-            Session = session,
-#pragma warning restore CS0618
-            UserId = Guid.NewGuid(),
-        }, ct);
-
-        errors.Should().ContainSingle().Which.Should().Contain("below zero");
+        // Voiding is a marker; only a reversing entry gives the cash back, so the account is still at zero.
+        (await PostAsync(c.Equity, c.Cash, 100m)).Ok.Should().BeFalse();
     }
 
     [Fact]
