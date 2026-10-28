@@ -1,1 +1,1 @@
-A permission condition can test that an array field lists a value with `_has`.
+- **Permission conditions can test array fields.** `_has` matches when an array field lists the given value.

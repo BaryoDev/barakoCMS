@@ -1,1 +1,1 @@
-Webhooks:AllowedHosts names internal hosts a webhook may reach; link-local, unspecified, multicast and reserved addresses stay blocked for them.
+- **Webhooks can reach named internal hosts.** `Webhooks:AllowedHosts` lists them. Link-local, unspecified, multicast and reserved addresses stay blocked for them.
