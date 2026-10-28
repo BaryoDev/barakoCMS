@@ -318,6 +318,75 @@ public class PermissionPredicateAgreementTests
         }
     }
 
+    private static readonly object[] StatusExpected =
+        ["Published", "Draft", "Archived", "Scheduled", "published", "PUBLISHED", "1", "", "Unknown", "$CURRENT_USER"];
+
+    [Fact]
+    public async Task A_status_condition_is_compiled_and_selects_what_the_evaluator_allows()
+    {
+        var evaluator = new ConditionEvaluator();
+        var user = new User { Id = Caller, Username = "caller", Email = "caller@example.com" };
+        var type = "status" + Guid.NewGuid().ToString("N")[..8];
+
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            foreach (var status in Enum.GetValues<ContentStatus>())
+            {
+                foreach (var _ in Enumerable.Range(0, 2))
+                {
+                    session.Store(new Content
+                    {
+                        Id = Guid.NewGuid(), ContentType = type, Status = status,
+                        CreatedBy = Caller, LastModifiedBy = Caller,
+                    });
+                }
+            }
+            await session.SaveChangesAsync();
+        }
+
+        using var read = _fixture.Services.CreateScope();
+        var query = read.ServiceProvider.GetRequiredService<IQuerySession>();
+        var stored = await query.Query<Content>().Where(c => c.ContentType == type).ToListAsync();
+        stored.Should().HaveCount(Enum.GetValues<ContentStatus>().Length * 2);
+
+        var rules = new List<Dictionary<string, object>>();
+        foreach (var expected in StatusExpected)
+        {
+            foreach (var op in new[] { "_eq", "_ne" })
+                rules.Add(new() { ["$status"] = new Dictionary<string, object> { [op] = expected } });
+        }
+        foreach (var op in new[] { "_in", "_nin" })
+        {
+            rules.Add(new() { ["$status"] = new Dictionary<string, object> { [op] = new List<object>() } });
+            rules.Add(new() { ["$status"] = new Dictionary<string, object> { [op] = new List<object> { "Published", "Scheduled" } } });
+            rules.Add(new() { ["$Status"] = new Dictionary<string, object> { [op] = new List<object> { "published", "Draft" } } });
+        }
+        rules.Add(new()
+        {
+            ["$status"] = new Dictionary<string, object> { ["_eq"] = "Published" },
+            ["$createdBy"] = new Dictionary<string, object> { ["_eq"] = "$CURRENT_USER" },
+        });
+
+        foreach (var conditions in rules)
+        {
+            var predicate = PermissionPredicateCompiler.Compile([new PermissionRule { Enabled = true, Conditions = conditions }], user.Id);
+            predicate.Compiled.Should().BeTrue("{0} must compile", JsonSerializer.Serialize(conditions));
+
+            var byEvaluator = stored.Where(c => evaluator.Evaluate(conditions, c, user)).Select(c => c.Id).Order().ToList();
+            var bySql = (await query.Query<Content>()
+                    .Where(c => c.ContentType == type && c.MatchesSql(predicate.Sql!, predicate.Parameters))
+                    .ToListAsync())
+                .Select(c => c.Id).Order().ToList();
+
+            bySql.Should().Equal(byEvaluator, "the predicate and the evaluator disagreed on {0}", JsonSerializer.Serialize(conditions));
+        }
+
+        var published = new Dictionary<string, object> { ["$status"] = new Dictionary<string, object> { ["_eq"] = "Published" } };
+        stored.Count(c => evaluator.Evaluate(published, c, user)).Should().Be(2, "only the Published rows match");
+    }
+
+
     [Fact]
     public void The_shapes_that_cannot_be_compiled_are_declined_rather_than_guessed()
     {
@@ -327,8 +396,10 @@ public class PermissionPredicateAgreementTests
         // which the test above holds from the other side.
         var cases = new (string Name, Dictionary<string, object> Conditions)[]
         {
-            ("$status, whose enum is stored as a number",
-                new() { ["$status"] = new Dictionary<string, object> { ["_eq"] = "Published" } }),
+            ("$status compared with a number",
+                new() { ["$status"] = new Dictionary<string, object> { ["_eq"] = 1L } }),
+            ("$status with a list operator given a scalar",
+                new() { ["$status"] = new Dictionary<string, object> { ["_in"] = "Published" } }),
             ("an unknown document property",
                 new() { ["$invented"] = new Dictionary<string, object> { ["_eq"] = "x" } }),
             ("an unknown operator",

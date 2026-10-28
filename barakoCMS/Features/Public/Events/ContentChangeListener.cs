@@ -333,6 +333,7 @@ internal sealed class ContentChangeListener(
         Editor = f.Editor,
         Section = f.Section,
         Role = f.Role,
+        ShownWhenListedIn = f.ShownWhenListedIn,
         TokenLength = f.TokenLength,
         Computed = f.Computed,
         IsRequired = f.IsRequired,

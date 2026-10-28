@@ -61,6 +61,7 @@ internal static class AccountingContentReader
         MemberId = Guid.TryParse(ContentData.AsString(ContentData.Get(data, "MemberId")), out var m) ? m : null,
         PayeeName = NullIfBlank(ContentData.AsString(ContentData.Get(data, "PayeeName"))),
         IsActive = ContentData.Get(data, "IsActive") is not bool active || active,
+        NoOverdraft = ContentData.IsTrue(ContentData.Get(data, "NoOverdraft")),
     };
 
     private static JournalEntry ToEntry(barakoCMS.Models.Content row) => ToEntry(row.Data, row.Id);

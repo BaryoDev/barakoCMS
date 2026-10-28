@@ -11,14 +11,15 @@ using Marten;
 namespace barakoCMS.Features.Roles;
 
 /// <summary>A role as its document. Its content permissions are the <c>permissionRules</c> section.</summary>
-internal sealed record RoleConfig(string? Description, List<string>? SystemCapabilities, bool RequireMfa)
+internal sealed record RoleConfig(string? Description, List<string>? SystemCapabilities, bool RequireMfa, bool? Invitable = null)
 {
-    public static RoleConfig Of(Role role) => new RoleConfig(role.Description, role.SystemCapabilities, role.RequireMfa).Normalised();
+    public static RoleConfig Of(Role role) => new RoleConfig(role.Description, role.SystemCapabilities, role.RequireMfa, role.Invitable).Normalised();
 
     public RoleConfig Normalised() => new(
         Description ?? string.Empty,
         (SystemCapabilities ?? []).Where(c => !string.IsNullOrWhiteSpace(c)).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList(),
-        RequireMfa);
+        RequireMfa,
+        Invitable);
 }
 
 /// <summary>
@@ -93,6 +94,13 @@ internal sealed class RoleConfigProvider(
             }
 
             stored.TryGetValue(name, out var current);
+            if ((role.Invitable ?? current?.Invitable ?? false)
+                && !InvitableRule.Allows(current?.Id ?? Guid.Empty, current?.IsPlatform ?? false, role.SystemCapabilities))
+            {
+                errors.Add($"'{name}': {InvitableRule.Message}");
+                continue;
+            }
+
             var change = Plan(name, role, current, document);
             if (change is null)
             {
@@ -146,6 +154,11 @@ internal sealed class RoleConfigProvider(
             role.Description = desired.Description ?? string.Empty;
             role.SystemCapabilities = desired.SystemCapabilities ?? [];
             role.RequireMfa = desired.RequireMfa;
+            if (desired.Invitable is { } invitable)
+            {
+                role.Invitable = invitable;
+            }
+
             session.Store(role);
 
             await AuditLog.RecordAsync(session, tenant.Slug, before is null ? "role.created" : "role.updated",
@@ -187,6 +200,8 @@ internal sealed class RoleConfigProvider(
         }
 
         var held = RoleConfig.Of(current);
+        // A document that leaves the flag out keeps what is stored, so it compares equal on it.
+        desired = desired with { Invitable = desired.Invitable ?? held.Invitable };
         if (ConfigJson.Same(held, desired))
         {
             return null;
@@ -203,6 +218,11 @@ internal sealed class RoleConfigProvider(
         if (held.RequireMfa != desired.RequireMfa)
         {
             details.Add(desired.RequireMfa ? "requires MFA" : "no longer requires MFA");
+        }
+
+        if (held.Invitable != desired.Invitable)
+        {
+            details.Add(desired.Invitable == true ? "can be granted by an invite" : "can no longer be granted by an invite");
         }
 
         return new ConfigChange

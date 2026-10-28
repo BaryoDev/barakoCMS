@@ -29,12 +29,25 @@ internal sealed class OutboundAddressGuard
     private readonly Func<string, CancellationToken, Task<IPAddress[]>> _resolve;
     private readonly Func<IPAddress, bool> _isBlocked;
     private readonly Func<IPAddress, int, CancellationToken, ValueTask<Stream>> _connect;
+    private readonly Dictionary<string, HashSet<int>?> _allowed = new(StringComparer.OrdinalIgnoreCase);
+
+    // An allow-list entry with no port reaches only these.
+    private static readonly int[] DefaultAllowedPorts = [80, 443];
 
     public OutboundAddressGuard(
         Func<string, CancellationToken, Task<IPAddress[]>>? resolve = null,
         Func<IPAddress, bool>? isBlocked = null,
-        Func<IPAddress, int, CancellationToken, ValueTask<Stream>>? connect = null)
+        Func<IPAddress, int, CancellationToken, ValueTask<Stream>>? connect = null,
+        IReadOnlyCollection<string>? allowedHosts = null)
     {
+        foreach (var entry in allowedHosts ?? [])
+        {
+            var (name, port) = ParseEntry(entry);
+            if (name.Length == 0) continue;
+            if (!_allowed.TryGetValue(name, out var ports))
+                _allowed[name] = ports = [];
+            ports!.Add(port ?? 0);
+        }
         _resolve = resolve ?? ((host, ct) => Dns.GetHostAddressesAsync(host, ct));
         _isBlocked = isBlocked ?? IsBlockedAddress;
         _connect = connect ?? ConnectSocketAsync;
@@ -44,7 +57,7 @@ internal sealed class OutboundAddressGuard
     /// Resolves <paramref name="host"/> once and returns the address to connect to, or throws if the
     /// name does not resolve or any answer is blocked.
     /// </summary>
-    public async Task<IPAddress> SelectAddressAsync(string host, CancellationToken ct)
+    public async Task<IPAddress> SelectAddressAsync(string host, CancellationToken ct, int port = 443)
     {
         var addresses = IPAddress.TryParse(host, out var literal)
             ? new[] { literal }
@@ -53,9 +66,13 @@ internal sealed class OutboundAddressGuard
         if (addresses.Length == 0)
             throw new HttpRequestException($"Host '{host}' did not resolve to any address.");
 
+        // A listed host relaxes only the ranges an internal receiver lives on. Link-local (the
+        // metadata address), unspecified, multicast and reserved stay refused for it.
+        var blocked = IsListed(host, port) ? (Func<IPAddress, bool>)IsBlockedEvenWhenListed : _isBlocked;
+
         foreach (var address in addresses)
         {
-            if (_isBlocked(address))
+            if (blocked(address))
                 throw new BlockedAddressException($"Host '{host}' resolves to a blocked address.");
         }
 
@@ -63,11 +80,11 @@ internal sealed class OutboundAddressGuard
     }
 
     /// <summary>Whether a host is reachable under this guard. Used for an early, logged refusal.</summary>
-    public async Task<bool> IsHostAllowedAsync(string host, CancellationToken ct)
+    public async Task<bool> IsHostAllowedAsync(string host, int port, CancellationToken ct)
     {
         try
         {
-            await SelectAddressAsync(host, ct);
+            await SelectAddressAsync(host, ct, port);
             return true;
         }
         catch (OperationCanceledException)
@@ -80,12 +97,55 @@ internal sealed class OutboundAddressGuard
         }
     }
 
+    /// <summary>
+    /// Reads <c>Webhooks:AllowedHosts</c>. A value that is not an array (a single string, say) binds
+    /// to nothing, so no host is allowed, and a warning says why.
+    /// </summary>
+    public static string[]? AllowedHostsFrom(Microsoft.Extensions.Configuration.IConfiguration configuration, Microsoft.Extensions.Logging.ILogger logger)
+    {
+        var section = configuration.GetSection("Webhooks:AllowedHosts");
+        var hosts = section.Get<string[]>();
+        if (hosts is null && !string.IsNullOrEmpty(section.Value))
+            logger.LogWarning(
+                "Webhooks:AllowedHosts is set but is not an array, so no host is allowed. Use an array of host names, for example Webhooks:AllowedHosts:0.");
+        return hosts;
+    }
+
+    private bool IsListed(string host, int port)
+    {
+        if (!_allowed.TryGetValue(host, out var ports))
+            return false;
+        // 0 marks an entry written without a port.
+        return ports!.Contains(port) || (ports.Contains(0) && DefaultAllowedPorts.Contains(port));
+    }
+
+    /// <summary>Splits "host", "host:port" and "[v6]:port". A bare IPv6 literal has no port.</summary>
+    private static (string Host, int? Port) ParseEntry(string? entry)
+    {
+        entry = entry?.Trim() ?? "";
+        if (entry.StartsWith('['))
+        {
+            var close = entry.IndexOf(']');
+            if (close < 0) return ("", null);
+            var inner = entry[1..close];
+            var rest = entry[(close + 1)..];
+            if (rest.Length == 0) return (inner, null);
+            return rest[0] == ':' && int.TryParse(rest[1..], out var p6) && p6 is > 0 and <= 65535 ? (inner, p6) : ("", null);
+        }
+
+        var first = entry.IndexOf(':');
+        if (first < 0 || first != entry.LastIndexOf(':'))
+            return (entry, null);
+        // A malformed port drops the entry, so a typo cannot widen it to the default ports.
+        return int.TryParse(entry[(first + 1)..], out var p) && p is > 0 and <= 65535 ? (entry[..first], p) : ("", null);
+    }
+
     public ValueTask<Stream> ConnectAsync(SocketsHttpConnectionContext context, CancellationToken ct)
         => ConnectAsync(context.DnsEndPoint, ct);
 
     public async ValueTask<Stream> ConnectAsync(DnsEndPoint endPoint, CancellationToken ct)
     {
-        var address = await SelectAddressAsync(endPoint.Host, ct);
+        var address = await SelectAddressAsync(endPoint.Host, ct, endPoint.Port);
         return await _connect(address, endPoint.Port, ct);
     }
 
@@ -101,8 +161,9 @@ internal sealed class OutboundAddressGuard
     /// </remarks>
     public static bool IsBlockedAddress(IPAddress ip)
     {
-        if (ip.IsIPv4MappedToIPv6)
-            ip = ip.MapToIPv4();
+        if (IsLocalUseNat64(ip))
+            return true;
+        ip = Unwrap(ip);
 
         if (ip.AddressFamily == AddressFamily.InterNetworkV6)
         {
@@ -141,6 +202,68 @@ internal sealed class OutboundAddressGuard
                 return true;
             var b = ip.GetAddressBytes();
             if ((b[0] & 0xFE) == 0xFC) return true;                      // fc00::/7 unique-local
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Returns the IPv4 address carried by an IPv4-mapped (::ffff:a.b.c.d), IPv4-compatible
+    /// (::a.b.c.d), NAT64 (64:ff9b::a.b.c.d) or 6to4 (2002:aabb:ccdd::) address, so the IPv4 rules
+    /// judge it. Anything else is returned as given.
+    /// </summary>
+    private static IPAddress Unwrap(IPAddress ip)
+    {
+        if (ip.AddressFamily != AddressFamily.InterNetworkV6)
+            return ip;
+        if (ip.IsIPv4MappedToIPv6)
+            return ip.MapToIPv4();
+
+        var b = ip.GetAddressBytes();
+        var zeroPrefix = b.AsSpan(0, 12).IndexOfAnyExcept((byte)0) < 0;
+        var nat64Prefix = b[0] == 0x00 && b[1] == 0x64 && b[2] == 0xFF && b[3] == 0x9B
+            && b.AsSpan(4, 8).IndexOfAnyExcept((byte)0) < 0;
+        if (b[0] == 0x20 && b[1] == 0x02)
+            return new IPAddress(b.AsSpan(2, 4));
+        return zeroPrefix || nat64Prefix ? new IPAddress(b.AsSpan(12, 4)) : ip;
+    }
+
+    /// <summary>
+    /// 64:ff9b:1::/48 (RFC 8215). Where the IPv4 address sits depends on a prefix length the guard
+    /// cannot know, so the whole range is refused.
+    /// </summary>
+    private static bool IsLocalUseNat64(IPAddress ip)
+    {
+        if (ip.AddressFamily != AddressFamily.InterNetworkV6)
+            return false;
+        var b = ip.GetAddressBytes();
+        return b[0] == 0x00 && b[1] == 0x64 && b[2] == 0xFF && b[3] == 0x9B && b[4] == 0x00 && b[5] == 0x01;
+    }
+
+    /// <summary>
+    /// The addresses that stay refused for a host on the allow list: unspecified, link-local
+    /// (including the cloud metadata address), multicast, reserved and site-local.
+    /// </summary>
+    public static bool IsBlockedEvenWhenListed(IPAddress ip)
+    {
+        if (IsLocalUseNat64(ip))
+            return true;
+        ip = Unwrap(ip);
+
+        if (ip.Equals(IPAddress.Any) || ip.Equals(IPAddress.IPv6Any))
+            return true;
+
+        if (ip.AddressFamily == AddressFamily.InterNetwork)
+        {
+            var b = ip.GetAddressBytes();
+            if (b[0] == 0) return true;                                  // 0.0.0.0/8
+            if (b[0] == 169 && b[1] == 254) return true;                 // 169.254.0.0/16 link-local
+            if (b[0] >= 224) return true;                                // 224.0.0.0/4 multicast + reserved
+        }
+        else if (ip.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            if (ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal || ip.IsIPv6Multicast)
+                return true;
         }
 
         return false;

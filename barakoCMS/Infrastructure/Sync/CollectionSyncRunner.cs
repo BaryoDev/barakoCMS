@@ -690,15 +690,11 @@ internal sealed class CollectionSyncRunner(
     private static string SearchText(IReadOnlyDictionary<string, object> data, ContentTypeDefinition schema)
     {
         var publicFields = schema.Fields
-            .Where(f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.InlineImageFields.Is(f.Type))
+            .Where(barakoCMS.Core.Validation.PublicFields.InSearchText)
             .Select(f => f.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        return string.Join(
-            ' ',
-            data.Where(kv => publicFields.Contains(kv.Key))
-                .Select(kv => Text(kv.Value))
-                .Where(v => !string.IsNullOrWhiteSpace(v)));
+        return barakoCMS.Core.Validation.SearchTextBuilder.Build(data, publicFields);
     }
 
     /// <summary>

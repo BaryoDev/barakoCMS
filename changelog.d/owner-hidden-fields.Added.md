@@ -1,0 +1,1 @@
+A field can name an array on the same entry that lists which fields its owner shows. Other callers do not see a field the array does not list.

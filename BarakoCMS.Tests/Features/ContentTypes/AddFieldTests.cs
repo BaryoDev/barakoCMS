@@ -294,4 +294,36 @@ public class AddFieldTests : IAsyncLifetime
         res.StatusCode.Should().BeOneOf(HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden);
         (await ReadAsync(type)).Fields.Should().HaveCount(1);
     }
+
+    [Fact]
+    public async Task A_field_can_be_added_that_its_owner_may_hide()
+    {
+        var type = await TypeAsync(new FieldDefinition { Name = "ShownFields", DisplayName = "ShownFields", Type = "array" });
+
+        var res = await _client.PostAsJsonAsync($"/api/content-types/{type}/fields", new
+        {
+            fieldName = "Phone",
+            type = "string",
+            shownWhenListedIn = "ShownFields",
+        });
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await ReadAsync(type)).Fields.Single(f => f.Name == "Phone").ShownWhenListedIn.Should().Be("ShownFields");
+    }
+
+    [Fact]
+    public async Task A_field_listed_in_an_array_that_does_not_exist_is_refused()
+    {
+        var type = await TypeAsync();
+
+        var res = await _client.PostAsJsonAsync($"/api/content-types/{type}/fields", new
+        {
+            fieldName = "Phone",
+            type = "string",
+            shownWhenListedIn = "Nope",
+        });
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await ReadAsync(type)).Fields.Should().HaveCount(1);
+    }
 }

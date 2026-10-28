@@ -11,7 +11,7 @@ namespace barakoCMS.Core.Validation;
 /// </remarks>
 internal static class FieldNames
 {
-    /// <summary>The uniqueness rules, transitions, numbering rule and lookup that name a field, as text for an error.</summary>
+    /// <summary>The uniqueness rules, transitions, numbering rule, lookup and owner-hidden fields that name a field, as text for an error.</summary>
     public static List<string> NamedBy(ContentTypeDefinition definition, string field)
     {
         var named = new List<string>();
@@ -35,6 +35,10 @@ internal static class FieldNames
         {
             named.Add("the lines total");
         }
+
+        named.AddRange(definition.Fields
+            .Where(f => f.ShownWhenListedIn is not null && Same(f.ShownWhenListedIn, field))
+            .Select(f => $"field '{f.Name}' (ShownWhenListedIn)"));
 
         return named;
     }

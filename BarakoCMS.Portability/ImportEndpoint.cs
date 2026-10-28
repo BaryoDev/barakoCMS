@@ -72,7 +72,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
         var existing = (await _session.Query<ContentTypeDefinition>().ToListAsync(ct)).ToList();
         await CheckTypesAsync(bundleTypes, existing, configuration, ct);
 
-        var (toStore, created) = Upsert(bundleTypes, existing, report);
+        var (toStore, created, reindex) = Upsert(bundleTypes, existing, report);
 
         // Each record is checked against its type as this bundle leaves it, not as it is stored.
         // No singleton cap: an import is a restore and lands what the bundle holds.
@@ -112,6 +112,14 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
             foreach (var definition in created)
             {
                 await sourcing.DecideAsync(definition.Name, false, token);
+            }
+
+            await session.SaveChangesAsync(token);
+
+            // Entries already stored were indexed before the type hid a field from public readers.
+            foreach (var definition in reindex)
+            {
+                await OwnerHiddenReindex.RebuildAsync(session, definition, configuration, token, userId);
             }
 
             await session.SaveChangesAsync(token);
@@ -223,19 +231,26 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
     /// one. A new type joins <paramref name="existing"/> whether or not this is a dry run, so records
     /// later in the same bundle resolve against a type this bundle creates.
     /// </summary>
-    private static (List<ContentTypeDefinition> ToStore, List<ContentTypeDefinition> Created) Upsert(
+    private static (List<ContentTypeDefinition> ToStore, List<ContentTypeDefinition> Created, List<ContentTypeDefinition> Reindex) Upsert(
         List<ContentTypeDefinition> bundleTypes, List<ContentTypeDefinition> existing, ImportReport report)
     {
         var toStore = new List<ContentTypeDefinition>();
         var created = new List<ContentTypeDefinition>();
+        var reindex = new List<ContentTypeDefinition>();
 
         foreach (var type in bundleTypes.Where(t => !string.IsNullOrWhiteSpace(t.Name)))
         {
             if (ContentTypeUpsert.StoredMatch(existing, type.Name) is { } match)
             {
                 report.ContentTypesUpdated++;
+                var hiddenBefore = OwnerHiddenReindex.HiddenNames(match);
                 ContentTypeUpsert.MergeInto(match, type);
                 toStore.Add(match);
+                if (OwnerHiddenReindex.Gained(hiddenBefore, match))
+                {
+                    reindex.Add(match);
+                }
+
                 continue;
             }
 
@@ -246,7 +261,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
             created.Add(definition);
         }
 
-        return (toStore, created);
+        return (toStore, created, reindex);
     }
 
     private static string Shorten(string name) => name.Length > 100 ? name[..100] + "..." : name;

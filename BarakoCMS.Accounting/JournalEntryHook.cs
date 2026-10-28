@@ -98,18 +98,11 @@ public sealed class JournalEntryHook : IContentLifecycleHook
 
         errors.AddRange(await AccountErrorsAsync(context, lines, ct));
 
+        if (errors.Count == 0) errors.AddRange(await CheckNoOverdraftAsync(context, data, lines, ct));
         if (errors.Count > 0)
             return errors;
 
-        // Server-owned fields. Only stamped once the entry is known to be valid, so a rejected post
-        // never consumes a sequence number.
-        if (context.IsCreate)
-        {
-            ContentData.Set(data, "Amount", totalDebit);
-            ContentData.Set(data, "EntryNumber", await NextEntryNumberAsync(context.Session, data, ct));
-            if (string.IsNullOrWhiteSpace(ContentData.AsString(ContentData.Get(data, "Status"))))
-                ContentData.Set(data, "Status", "Posted");
-        }
+        if (context.IsCreate) await StampNewEntryAsync(context, totalDebit, ct);
 
         return Array.Empty<string>();
     }
@@ -219,6 +212,92 @@ public sealed class JournalEntryHook : IContentLifecycleHook
         if (context.EntryId is not { } id) return true;
         var stored = await context.Session.LoadAsync<barakoCMS.Models.Content>(id, ct);
         return stored?.LifecycleState != AccountingContentTypes.VoidedState;
+    }
+
+    /// <summary>
+    /// Server-owned fields. Only stamped once the entry is known to be valid, so a rejected post
+    /// never consumes a sequence number.
+    /// </summary>
+    private async Task StampNewEntryAsync(ContentLifecycleContext context, decimal totalDebit, CancellationToken ct)
+    {
+        var data = context.Data;
+        ContentData.Set(data, "Amount", totalDebit);
+        ContentData.Set(data, "EntryNumber", await NextEntryNumberAsync(context.Session, data, ct));
+        if (string.IsNullOrWhiteSpace(ContentData.AsString(ContentData.Get(data, "Status"))))
+            ContentData.Set(data, "Status", "Posted");
+    }
+
+    /// <summary>
+    /// Refuses a write that lowers a NoOverdraft account (or one under it) to below zero. It runs on
+    /// create and on update, and judges the change: what the entry does to the ledger after the
+    /// write, minus what it did before (a void or an un-void counts). The balance is read after a
+    /// transaction-scoped advisory lock keyed on the tenant, taken only when the entry touches such
+    /// an account, so posts racing in other processes take turns and the second one sees the first's
+    /// committed entry. The lock is released when the endpoint saves. A guarded account is measured
+    /// on the normal side of the account that carries the flag, so a child of another type under it
+    /// cannot flip the sign.
+    /// </summary>
+    private static async Task<List<string>> CheckNoOverdraftAsync(
+        ContentLifecycleContext context,
+        Dictionary<string, object> data,
+        List<(string Code, decimal Debit, decimal Credit)> newLines,
+        CancellationToken ct)
+    {
+        var errors = new List<string>();
+        var accounts = (await AccountingContentReader.AccountsAsync(context.Session, ct))
+            .ToDictionary(a => a.Code, StringComparer.OrdinalIgnoreCase);
+
+        // The nearest account at or above this one that carries the flag.
+        Account? Guard(Account? a)
+        {
+            for (var depth = 0; a is not null && depth < 64; depth++)
+            {
+                if (a.NoOverdraft) return a;
+                if (a.ParentCode is null || !accounts.TryGetValue(a.ParentCode, out a)) return null;
+            }
+            return null;
+        }
+
+        static bool IsPosted(object? status) =>
+            !string.Equals(ContentData.AsString(status), "Voided", StringComparison.OrdinalIgnoreCase);
+
+        var oldLines = new List<(string Code, decimal Debit, decimal Credit)>();
+        if (!context.IsCreate && IsPosted(ContentData.Get(context.Existing!, "Status")))
+            oldLines = ReadLines(ContentData.Get(context.Existing!, "Lines"), new List<string>());
+        var effective = IsPosted(ContentData.Get(data, "Status")) ? newLines : new();
+
+        var touched = effective.Concat(oldLines)
+            .Select(l => l.Code)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(c => accounts.TryGetValue(c, out var a) && Guard(a) is not null)
+            .ToList();
+        if (touched.Count == 0) return errors;
+
+        await context.Session.BeginTransactionAsync(ct);
+        await context.Session.QueryAsync<int>(
+            "select 1 from pg_advisory_xact_lock(hashtextextended(?, 0))", ct,
+            $"barakocms:accounting-no-overdraft:{context.Session.TenantId}");
+
+        var posted = await AccountingContentReader.PostedEntriesAsync(context.Session, null, ct);
+        foreach (var code in touched.OrderBy(c => c, StringComparer.Ordinal))
+        {
+            var account = accounts[code];
+            var debitNormal = Guard(account)!.IsDebitNormal;
+            decimal Net(decimal debit, decimal credit) => debitNormal ? debit - credit : credit - debit;
+            bool Same(string c) => string.Equals(c, code, StringComparison.OrdinalIgnoreCase);
+
+            var current = posted.SelectMany(e => e.Lines)
+                .Where(l => Same(l.AccountCode))
+                .Sum(l => Net(l.Debit, l.Credit));
+            var change = effective.Where(l => Same(l.Code)).Sum(l => Net(l.Debit, l.Credit))
+                       - oldLines.Where(l => Same(l.Code)).Sum(l => Net(l.Debit, l.Credit));
+
+            if (change < 0 && current + change < 0)
+                errors.Add($"Account '{code}' ({account.Name}) cannot go below zero. " +
+                           $"Balance is {current:0.00}, this entry would make it {current + change:0.00}.");
+        }
+
+        return errors;
     }
 
     /// <remarks>

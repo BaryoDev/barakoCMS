@@ -102,6 +102,8 @@ public class ReportingService(IQuerySession session)
         foreach (var e in entries.OrderBy(e => e.Date).ThenBy(e => e.EntryNumber))
         {
             var cashLines = e.Lines.Where(l => cashCodes.Contains(l.AccountCode, StringComparer.OrdinalIgnoreCase)).ToList();
+            if (cashLines.Count == 0) continue;
+
             var net = cashLines.Sum(l => l.Debit - l.Credit); // cash is debit-normal
             if (e.Date < start)
             {
@@ -110,6 +112,7 @@ public class ReportingService(IQuerySession session)
                 continue;
             }
 
+            // A transfer between cash accounts nets to zero and is neither a receipt nor a disbursement.
             if (net > 0) receipts += net; else if (net < 0) disbursements += -net;
             foreach (var l in cashLines)
             {

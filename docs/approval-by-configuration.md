@@ -32,7 +32,7 @@ the `api` service when the step says so, then `docker compose up -d api`.
 | Key | Why |
 | --- | --- |
 | `Auth__RequireEmailVerification: "false"` and `Auth__AcknowledgeUnverifiedRegistration: "true"` | Step 4 registers two users. Registration emails a confirmation link. With no SMTP host set the suite image's mock logs the recipient and subject only, so either way the link never reaches anyone. The first key turns verification off and the API refuses to start unless the second one says you meant it (`EmailVerificationOptions.Validate`). Remove both once the users exist. |
-| `Lifecycle__AllowSelfTransition__Submit: "true"` | Step 6. Whoever raised an entry may not move it on, by default. This lets the clerk submit their own invoice. |
+| `Lifecycle__AllowSelfTransition__invoice__Submit: "true"` | Step 6. Whoever raised an entry may not move it on, by default. This lets the clerk submit their own invoice, and only on the `invoice` type. |
 
 The examples use `jq` to pull ids out of responses. Read them off the JSON by eye if you do not have
 it.
@@ -189,13 +189,15 @@ later edit by somebody else does not launder it. `SuperAdmin` does not bypass it
 log says why:
 
 ```
-Refused a self transition of <id> by its creator. Set Lifecycle:AllowSelfTransition:Submit to allow it.
+Refused a self transition of <id> by its creator. Set Lifecycle:AllowSelfTransition:invoice:Submit to allow it.
 ```
 
 Whether a raiser may submit their own work is a policy, and organisations answer it differently. It
 is refused by default because that is the direction that can be relaxed later. Add
-`Lifecycle__AllowSelfTransition__Submit: "true"` to the `api` service, restart, and run the same
-request again:
+`Lifecycle__AllowSelfTransition__invoice__Submit: "true"` to the `api` service, restart, and run the same
+request again. The key names the content type, so another type with a `Submit` transition is still
+refused. The older `Lifecycle__AllowSelfTransition__Submit` (no type) still works and allows `Submit`
+on every type that has it; the host logs a warning at start when it is set.
 
 ```
 200  {"message": "Submit moved this entry to Submitted"}
@@ -399,7 +401,7 @@ and logged at warning level, which exists for a deployment whose entries predate
 | Request | Caller | Answer | Why |
 | --- | --- | --- | --- |
 | `Submit` on own invoice | clerk | `403` | Self transition, refused by default |
-| `Submit` on own invoice, `Lifecycle:AllowSelfTransition:Submit` on | clerk | `200` | Policy relaxed for that one transition |
+| `Submit` on own invoice, `Lifecycle:AllowSelfTransition:invoice:Submit` on | clerk | `200` | Policy relaxed for that one transition |
 | `Approve` | clerk | `403` | Role grants update and Submit, not Approve; update does not imply it |
 | `PUT /api/contents/{id}` | approver | `403` | Role grants Approve, not update |
 | `{"newStatus": ...}` on a lifecycle type | approver | `400` | Wrong shape for the type |

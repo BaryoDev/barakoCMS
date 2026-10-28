@@ -145,6 +145,7 @@ public class OpenApiTagTests
             "Portability",
             "Preview",
             "Public",
+            "Push",
             "Pwa",
             "Qr",
             "Queries",

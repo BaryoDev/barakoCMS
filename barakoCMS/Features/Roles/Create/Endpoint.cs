@@ -35,8 +35,11 @@ internal class Endpoint(
             AddError(r => r.Permissions, error);
 
         FieldSetRules.Normalise(req.Permissions);
-        foreach (var error in await FieldSetRules.CheckAsync(session, req.Permissions, stored: null, ct))
+        foreach (var error in await RoleSaveRules.CheckAsync(session, req.Permissions, stored: null, ct))
             AddError(r => r.Permissions, error);
+
+        if (req.Invitable && !InvitableRule.Allows(Guid.Empty, req.IsPlatform, req.SystemCapabilities))
+            AddError(r => r.Invitable, InvitableRule.Message);
 
         ThrowIfAnyErrors();
 
@@ -61,6 +64,7 @@ internal class Endpoint(
             Permissions = req.Permissions,
             SystemCapabilities = req.SystemCapabilities,
             RequireMfa = req.RequireMfa,
+            Invitable = req.Invitable,
             TenantSlug = owner,
             IsPlatform = req.IsPlatform,
             CreatedAt = DateTime.UtcNow

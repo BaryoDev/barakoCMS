@@ -87,7 +87,7 @@ internal static class PublicDelivery
     {
         var field = SlugFieldForAuthoring(def);
         return field is not null
-               && def.Fields.Any(f => f.Name == field && f.Sensitivity == SensitivityLevel.Public)
+               && def.Fields.Any(f => f.Name == field && f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.PublicFields.IsOwnerHidden(f))
             ? field
             : null;
     }
@@ -373,14 +373,19 @@ internal static class PublicDelivery
             SetCache(http, scopes);
     }
 
-    /// <summary>Whether a field's value is delivered: Public, and not a token.</summary>
+    /// <summary>Whether a field's value is delivered: Public, not a token, and not one an owner can hide.</summary>
     public static bool IsDeliveredField(FieldDefinition field) => IsDeliveredField(field, member: false);
 
     /// <summary>Whether a field's value is delivered to a viewer when <paramref name="member"/>, else to anonymous.</summary>
+    /// <remarks>
+    /// Public delivery has no owner to list a field for it, so a field with
+    /// <c>ShownWhenListedIn</c> is never served here, whatever its sensitivity.
+    /// </remarks>
     public static bool IsDeliveredField(FieldDefinition field, bool member) =>
         (field.Sensitivity == SensitivityLevel.Public
          || (member && field.Sensitivity == SensitivityLevel.Members && field.VisibleToRoles is not { Count: > 0 }))
-        && !IsToken(field);
+        && !IsToken(field)
+        && !barakoCMS.Core.Validation.PublicFields.IsOwnerHidden(field);
 
     /// <summary>A token is never delivered, even from a definition stored with the field Public.</summary>
     /// <remarks>

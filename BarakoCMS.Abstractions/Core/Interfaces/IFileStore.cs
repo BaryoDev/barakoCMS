@@ -76,14 +76,16 @@ public interface IFileStore
     /// <summary>
     /// The record of a file <paramref name="caller"/> may download: a public file, or a private one
     /// that belongs to that user or that the user's override capability opens. Null for any other
-    /// file, and for an id this tenant does not have.
+    /// file, and for an id this tenant does not have. This is the answer for attaching a file to an
+    /// entry, so a file reachable only through an entry that holds it is not found here.
     /// </summary>
     Task<StoredFileInfo?> FindAsync(Guid id, ClaimsPrincipal caller, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException($"{GetType().Name} does not read a file for a caller.");
 
     /// <summary>
-    /// The bytes of a file from the start, or null when <see cref="FindAsync"/> would answer null
-    /// or the bytes are gone. The caller disposes the stream.
+    /// The bytes of a file from the start, or null when the caller may not download it or the bytes
+    /// are gone. Also open to a caller who may read an entry that holds the file in a field marked
+    /// FileFollowsEntry. The caller disposes the stream.
     /// </summary>
     Task<Stream?> OpenAsync(Guid id, ClaimsPrincipal caller, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException($"{GetType().Name} does not read a file for a caller.");
@@ -157,7 +159,8 @@ public interface IFileStore
 
     /// <summary>
     /// The files among <paramref name="ids"/> that <paramref name="caller"/> may download, keyed by
-    /// id: each one <see cref="FindAsync"/> would answer, and no entry for any other id.
+    /// id: each one <see cref="FindAsync"/> would answer, plus a file held by an entry the caller may read
+    /// in a FileFollowsEntry field, and no entry for any other id.
     /// </summary>
     /// <remarks>
     /// The same bound as <see cref="FindPublicManyAsync"/>. The default asks

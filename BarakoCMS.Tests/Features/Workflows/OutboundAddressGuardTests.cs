@@ -125,6 +125,47 @@ public class OutboundAddressGuardTests
     public void A_public_address_is_allowed(string address)
         => OutboundAddressGuard.IsBlockedAddress(IPAddress.Parse(address)).Should().BeFalse();
 
+    [Theory]
+    [InlineData("2002:a9fe:a9fe::")]
+    [InlineData("2002:7f00:1::")]
+    [InlineData("2002:a00:1::")]
+    [InlineData("2002:c0a8:101:1:2:3:4:5")]
+    public void A_6to4_address_embedding_a_blocked_address_is_blocked(string address)
+        => OutboundAddressGuard.IsBlockedAddress(IPAddress.Parse(address)).Should().BeTrue();
+
+    [Fact]
+    public void A_6to4_address_embedding_a_public_address_is_not_blocked_by_that_rule()
+        => OutboundAddressGuard.IsBlockedAddress(IPAddress.Parse("2002:0808:0808::")).Should().BeFalse();
+
+    [Theory]
+    [InlineData("2002:a9fe:a9fe::")]
+    [InlineData("2002:0:1::")]
+    public void A_6to4_address_embedding_a_refused_address_is_refused_even_when_listed(string address)
+        => OutboundAddressGuard.IsBlockedEvenWhenListed(IPAddress.Parse(address)).Should().BeTrue();
+
+    [Fact]
+    public void A_6to4_address_embedding_a_public_address_is_not_refused_when_listed()
+        => OutboundAddressGuard.IsBlockedEvenWhenListed(IPAddress.Parse("2002:0808:0808::")).Should().BeFalse();
+
+    [Theory]
+    [InlineData("64:ff9b:1::")]
+    [InlineData("64:ff9b:1::808:808")]
+    [InlineData("64:ff9b:1:ffff:ffff:ffff:ffff:ffff")]
+    [InlineData("64:ff9b:1:0:0:a9fe:a9fe:0")]
+    public void The_local_use_NAT64_range_is_blocked_whole(string address)
+    {
+        var ip = IPAddress.Parse(address);
+        OutboundAddressGuard.IsBlockedAddress(ip).Should().BeTrue();
+        OutboundAddressGuard.IsBlockedEvenWhenListed(ip).Should().BeTrue();
+    }
+
+    [Fact]
+    public void The_neighbours_of_the_local_use_NAT64_range_are_not_swept_in()
+    {
+        OutboundAddressGuard.IsBlockedAddress(IPAddress.Parse("64:ff9b:2::1")).Should().BeFalse();
+        OutboundAddressGuard.IsBlockedAddress(IPAddress.Parse("64:ff9b::808:808")).Should().BeFalse();
+    }
+
     private static OutboundAddressGuard GuardAnswering(string[] answer, List<IPAddress> dialled) =>
         new(
             resolve: (_, _) => Task.FromResult(Array.ConvertAll(answer, IPAddress.Parse)),

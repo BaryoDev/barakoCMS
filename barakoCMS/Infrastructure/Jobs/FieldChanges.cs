@@ -338,7 +338,7 @@ internal static class FieldChanges
     /// with the changed field at the level the change takes it to. Null stays null: an entry never
     /// indexed is not indexed here.
     /// </summary>
-    private static string? SearchText(
+    internal static string? SearchText(
         Content content, ContentTypeDefinition definition, IReadOnlyDictionary<string, object> data, FieldChange? sensitivity = null)
     {
         if (content.SearchText is null)
@@ -346,13 +346,8 @@ internal static class FieldChanges
             return null;
         }
 
-        var publicFields = definition.Fields
-            .Where(f => sensitivity is not null && string.Equals(f.Name, sensitivity.Field, StringComparison.OrdinalIgnoreCase)
-                ? sensitivity.ToSensitivity == SensitivityLevel.Public
-                : f.Sensitivity == SensitivityLevel.Public)
-            .Where(f => !InlineImageFields.Is(f.Type))
-            .Select(f => f.Name)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var publicFields = barakoCMS.Core.Validation.PublicFields.SearchTextNames(
+            definition.Fields, sensitivity?.Field, sensitivity?.ToSensitivity);
 
         return string.Join(
             ' ',

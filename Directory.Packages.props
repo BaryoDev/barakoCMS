@@ -20,6 +20,7 @@
     <!-- The retry, timeout and breaker inside one workflow attempt (#703). BaryoDev's own library,
          zero dependencies. Replaced Microsoft.Extensions.Http.Resilience, whose standard handler
          retried a POST after a timeout with no way for the receiver to know. -->
+    <PackageVersion Include="Lib.Net.Http.WebPush" Version="3.3.1" />
     <PackageVersion Include="Carom" Version="2.0.1" />
     <PackageVersion Include="Carom.Extensions" Version="2.0.1" />
   </ItemGroup>

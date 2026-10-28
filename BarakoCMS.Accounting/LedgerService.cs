@@ -202,7 +202,7 @@ public class LedgerService
             .FirstOrDefaultAsync(d => d.Name == AccountingContentTypes.JournalEntry, ct);
 
         var publicFields = definition?.Fields
-            .Where(f => f.Sensitivity == SensitivityLevel.Public)
+            .Where(f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.PublicFields.IsOwnerHidden(f))
             .Select(f => f.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase)
             ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);

@@ -206,7 +206,7 @@ internal sealed class Endpoint(
 
         var response = new Response();
         var searchable = definition.Fields
-            .Where(f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.InlineImageFields.Is(f.Type))
+            .Where(barakoCMS.Core.Validation.PublicFields.InSearchText)
             .Select(f => f.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var eventSourced = await sourcing.IsEventSourcedAsync(req.Type, ct);
@@ -352,10 +352,7 @@ internal sealed class Endpoint(
 
     /// <summary>The same derived search text the create and update endpoints write.</summary>
     private static string SearchText(Dictionary<string, object> data, HashSet<string> searchable) =>
-        string.Join(' ', data
-            .Where(kv => searchable.Contains(kv.Key))
-            .Select(kv => kv.Value?.ToString())
-            .Where(v => !string.IsNullOrWhiteSpace(v)));
+        barakoCMS.Core.Validation.SearchTextBuilder.Build(data, searchable);
 
     private static EntryError Error(int index, string? slug, string message) =>
         new() { Index = index, Slug = slug, Messages = [message] };

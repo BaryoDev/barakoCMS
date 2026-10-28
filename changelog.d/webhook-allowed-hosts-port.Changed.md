@@ -1,0 +1,1 @@
+Webhooks:AllowedHosts entries now take an optional port. An entry without a port allows ports 80 and 443 only, so add `host:port` for a receiver on another port. A value that is not an array logs a warning.

@@ -249,7 +249,9 @@ internal sealed class ConfigEngine(
     {
         var (apply, allowDestructive, skipDestructive) = options;
         var scoped = scope.GetRequiredService<IDocumentSession>();
+        var before = await PublicDeliveryAudience.PairsAsync(scoped, ct);
         var plans = await PlanAndStageAsync(scope, scoped, parsed, writable, caller, skipDestructive, ct);
+        await AddAudienceErrorsAsync(plans, scoped, before, ct);
 
         var response = new ConfigPlanResponse { Sections = plans.Select(ConfigSectionPlanResponse.From).ToList() };
         var commit = apply
@@ -268,6 +270,25 @@ internal sealed class ConfigEngine(
 
         response.Applied = commit;
         return new ContentBatchOutcome<ConfigPlanResponse>(response, commit);
+    }
+
+    /// <summary>
+    /// A document must not leave a role reading part of a type that is publicly deliverable, whichever
+    /// section made it so. Compared with the pairs before, so one already there does not block the apply.
+    /// </summary>
+    private static async Task AddAudienceErrorsAsync(
+        List<ConfigSectionPlan> plans, IDocumentSession scoped, HashSet<(string Role, string Type)> before, CancellationToken ct)
+    {
+        if (plans.All(p => p.Changes.Count == 0))
+        {
+            return;
+        }
+
+        var errors = PublicDeliveryAudience.NewPairErrors(before, await PublicDeliveryAudience.PairsAsync(scoped, ct));
+        if (errors.Count > 0)
+        {
+            plans.Add(new ConfigSectionPlan { Section = "publicDelivery", Errors = errors });
+        }
     }
 
     /// <summary>

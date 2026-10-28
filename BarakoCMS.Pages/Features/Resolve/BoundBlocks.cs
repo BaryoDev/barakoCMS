@@ -150,8 +150,9 @@ internal static class BoundBlocks
     /// never returns. Ordering or filtering on any other would answer questions about a value no
     /// reader may see.
     /// </summary>
-    private static string? PublicField(ContentTypeDefinition definition, string name) =>
+    internal static string? PublicField(ContentTypeDefinition definition, string name) =>
         definition.Fields.FirstOrDefault(f => string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase)
             && f.Sensitivity == SensitivityLevel.Public
+            && !barakoCMS.Core.Validation.PublicFields.IsOwnerHidden(f)
             && !string.Equals(f.Type, "token", StringComparison.OrdinalIgnoreCase))?.Name;
 }

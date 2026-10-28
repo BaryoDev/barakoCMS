@@ -1,6 +1,9 @@
 using System.Security.Claims;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Services;
+using barakoCMS.Core.Interfaces;
+using barakoCMS.Models;
+using Marten;
 using Microsoft.Extensions.Configuration;
 
 namespace BarakoCMS.Files;
@@ -9,7 +12,9 @@ namespace BarakoCMS.Files;
 /// Who may read the bytes of a private file, or destroy it: the uploader, or a caller holding
 /// <see cref="FileCapabilities.ManageAllFiles"/>. Shared by <c>Download</c>, <c>Delete</c> and
 /// <see cref="FileStore"/> so they answer the same question the same way; see issue #547, where
-/// two of them had drifted.
+/// two of them had drifted. <see cref="MayReadAsync"/> adds one more reader for download and
+/// display only: a caller who may read an entry that holds the file in a FileFollowsEntry field.
+/// Delete and attaching a file to an entry stay on <see cref="MayAccessAsync"/>.
 /// </summary>
 /// <remarks>
 /// <c>upload_files</c> alone reaches list, describe and edit for every file in the tenant, and
@@ -18,8 +23,7 @@ namespace BarakoCMS.Files;
 /// record describe does, so an ownership check on describe alone would hide nothing.
 /// Reading the bytes and deleting them are the two routes that leave the caller with something they
 /// did not have before (the file's content) or take something away for good, so both need this
-/// check in addition to the capability gate. Until content can reference a file (#141) there is no
-/// richer answer than "the person who uploaded it, or someone trusted with every file".
+/// check in addition to the capability gate.
 ///
 /// The override used to be the role names Admin and SuperAdmin, read off the token. It is a
 /// capability, answered from the caller's stored roles in the current tenant, so a role of any
@@ -55,6 +59,38 @@ internal static class FileAccessRule
         return Guid.TryParse(caller.FindFirst("UserId")?.Value, out var userId)
             && userId != Guid.Empty
             && await permissions.HasCapabilityAsync(userId, FileCapabilities.ManageAllFiles, ct);
+    }
+
+    /// <summary>
+    /// Download only: <see cref="MayAccessAsync"/>, or an entry the caller may read that holds the
+    /// file in a field marked FileFollowsEntry. Delete keeps asking <see cref="MayAccessAsync"/>.
+    /// </summary>
+    public static async Task<bool> MayReadAsync(
+        ClaimsPrincipal caller,
+        StoredFile file,
+        string tenantSlug,
+        IQuerySession session,
+        IPermissionResolver permissions,
+        ISensitivityService sensitivity,
+        IConfiguration configuration,
+        CancellationToken ct,
+        Func<Task<IReadOnlyList<EntryFileAccess.FollowedField>>>? followedFields = null)
+    {
+        if (await MayAccessAsync(caller, file, tenantSlug, permissions, configuration, ct))
+        {
+            return true;
+        }
+
+        if (!IsSignedInHere(caller, tenantSlug)
+            || !Guid.TryParse(caller.FindFirst("UserId")?.Value, out var userId)
+            || userId == Guid.Empty)
+        {
+            return false;
+        }
+
+        var user = await session.LoadAsync<User>(userId, ct);
+        return user is not null && await EntryFileAccess.MayReadViaEntryAsync(
+            file, caller, user, session, permissions, sensitivity, followedFields is null ? null : await followedFields(), ct);
     }
 
     /// <summary>

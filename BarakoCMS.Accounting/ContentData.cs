@@ -41,6 +41,13 @@ internal static class ContentData
         data[field] = value;
     }
 
+    public static bool IsTrue(object? v) => v switch
+    {
+        bool b => b,
+        string s => bool.TryParse(s, out var parsed) && parsed,
+        _ => false,
+    };
+
     public static string? AsString(object? v) => v?.ToString();
 
     public static decimal AsDecimal(object? v) => v switch

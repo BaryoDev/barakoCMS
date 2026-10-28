@@ -10,6 +10,9 @@ internal class Request
 
     /// <summary>Null keeps the stored value, so a client that predates the field cannot clear it.</summary>
     public bool? RequireMfa { get; set; }
+
+    /// <summary>Null keeps the stored value.</summary>
+    public bool? Invitable { get; set; }
 }
 
 internal class Response

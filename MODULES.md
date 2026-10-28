@@ -953,6 +953,7 @@ template ships a placeholder.
 | [BarakoCMS.Pwa](BarakoCMS.Pwa) | Records PWA installs and installed-app launches, anonymous or tied to the signed-in user |
 | [BarakoCMS.Qr](BarakoCMS.Qr) | Renders one allowed field of a public entry as a PNG or SVG QR code at `GET /api/public/{type}/{id}/qr/{field}` |
 | [BarakoCMS.Notifications](BarakoCMS.Notifications) | In-app notifications any module can raise for a user, with a per-user inbox and pluggable delivery sinks (email built in) |
+| [BarakoCMS.Push](BarakoCMS.Push) | Web Push with VAPID keys: per-user subscriptions, a send endpoint, pruning of retired subscriptions, and a Push workflow action |
 | [BarakoCMS.AI](BarakoCMS.AI) | Semantic search over published, public content with an embedding model run by Ollama by default |
 
 The core also ships passwordless **email OTP sign-in** (`POST /api/auth/otp/request` + `/verify`),
