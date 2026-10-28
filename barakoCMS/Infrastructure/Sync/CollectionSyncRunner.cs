@@ -303,6 +303,10 @@ internal sealed class CollectionSyncRunner(
     private async Task CreateEntryAsync(
         CollectionSync sync, ContentTypeDefinition schema, Guid id, Dictionary<string, object> mapped, CancellationToken ct)
     {
+        // A field the mapping leaves out takes its default, as on any other create. Only a new
+        // entry: an update keeps what is stored.
+        barakoCMS.Core.Validation.FieldDefaults.Apply(schema.Fields, mapped);
+
         await writer.CreateAsync(
             new ContentCreated(
                 id, sync.ContentType, mapped, sync.EntryStatus, SystemActor,

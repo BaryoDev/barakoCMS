@@ -39,7 +39,7 @@
 101 barakoCMS/Features/Auth/Otp/VerifyEndpoint.cs::VerifyEndpoint.HandleAsync
 153 barakoCMS/Features/Auth/Refresh/Endpoint.cs::Endpoint.HandleAsync
 125 barakoCMS/Features/Collections/Endpoints.cs::CollectionSyncRules.CheckAsync
-251 barakoCMS/Features/Collections/Push/Endpoint.cs::Endpoint.HandleAsync
+248 barakoCMS/Features/Collections/Push/Endpoint.cs::Endpoint.HandleAsync
 83 barakoCMS/Features/Collections/Validator.cs::SaveCollectionSyncValidator.SaveCollectionSyncValidator
 143 barakoCMS/Features/Connectors/Endpoints.cs::UpdateConnectorEndpoint.HandleAsync
 118 barakoCMS/Features/Content/ChangeStatus/Endpoint.cs::Endpoint.HandleAsync
@@ -98,7 +98,7 @@
 88 barakoCMS/Infrastructure/Migrations/MigrationLedger.cs::MigrationLedger.ApplyLockedAsync
 74 barakoCMS/Infrastructure/Migrations/ShippedMigration.cs::ShippedMigrations.Parse
 73 barakoCMS/Infrastructure/Services/ConditionEvaluator.cs::ConditionEvaluator.Evaluate
-76 barakoCMS/Infrastructure/Services/ContentCreator.cs::ContentCreator.CheckAsync
+72 barakoCMS/Infrastructure/Services/ContentCreator.cs::ContentCreator.CheckAsync
 350 barakoCMS/Infrastructure/Services/ContentTransitioner.cs::ContentTransitioner.TransitionAsync
 111 barakoCMS/Infrastructure/Services/ContentTypeValidatorService.cs::ContentTypeValidatorService.Validate
 77 barakoCMS/Infrastructure/Services/ContentUniqueness.cs::ContentUniqueness.TryRead

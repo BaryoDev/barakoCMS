@@ -32,10 +32,10 @@ internal static class FormFields
                      && !string.Equals(f.Name, "slug", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-    /// <summary>Required fields a visitor cannot fill in, which make a type unusable as a form.</summary>
+    /// <summary>Required fields a visitor cannot fill in and that have no default, which make a type unusable as a form.</summary>
     public static IReadOnlyList<FieldDefinition> RequiredButNotSubmittable(ContentTypeDefinition definition)
     {
         var submittable = Submittable(definition);
-        return definition.Fields.Where(f => f.IsRequired && !submittable.Contains(f)).ToList();
+        return definition.Fields.Where(f => f.IsRequired && f.DefaultValue is null && !submittable.Contains(f)).ToList();
     }
 }

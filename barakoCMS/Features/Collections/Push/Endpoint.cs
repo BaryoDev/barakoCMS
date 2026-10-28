@@ -52,6 +52,24 @@ internal sealed class Endpoint(
 
     private sealed record Plan(int Index, Dictionary<string, object> Data, ContentDoc? Existing);
 
+    /// <summary>
+    /// The write-path sensitivity rule, then, for a new entry, the default of each field the push
+    /// left out, as on POST /api/contents. An update keeps what is stored, so it is not refilled.
+    /// </summary>
+    private async Task FilterWriteAsync(
+        ISensitivityService sensitivity, ContentTypeDefinition definition, ContentDoc? existing,
+        Dictionary<string, object> data, CancellationToken ct)
+    {
+        if (existing is not null)
+        {
+            await sensitivity.ApplyWriteAsync(existing, data, HttpContext, ct);
+            return;
+        }
+
+        await sensitivity.ApplyWriteAsync(definition.Name, data, existing: null, HttpContext, ct);
+        barakoCMS.Core.Validation.FieldDefaults.Apply(definition.Fields, data);
+    }
+
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         if (!Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId)
@@ -119,10 +137,7 @@ internal sealed class Endpoint(
                 return;
             }
 
-            if (existing is null)
-                await sensitivity.ApplyWriteAsync(req.Type, data, existing: null, HttpContext, ct);
-            else
-                await sensitivity.ApplyWriteAsync(existing, data, HttpContext, ct);
+            await FilterWriteAsync(sensitivity, definition, existing, data, ct);
 
             if (existing is not null
                 && !await permissions.AllowsWrittenEntryAsync(user, existing, "update", data, ct))

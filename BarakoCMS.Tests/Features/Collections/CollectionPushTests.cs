@@ -395,6 +395,35 @@ public class CollectionPushTests
         created.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
+    [Fact]
+    public async Task A_new_entry_without_a_key_stores_the_fields_default_and_an_update_keeps_what_is_stored()
+    {
+        var type = "pushdef" + Guid.NewGuid().ToString("n")[..10];
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
+        await using (var seed = store.LightweightSession())
+        {
+            seed.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(),
+                Name = type,
+                DisplayName = "Release",
+                Fields =
+                [
+                    new FieldDefinition { Name = "slug", Type = "slug", IsRequired = true },
+                    new FieldDefinition { Name = "title", Type = "string" },
+                    new FieldDefinition { Name = "channel", Type = "string", IsRequired = true, DefaultValue = "stable" },
+                ],
+            });
+            await seed.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        var client = await AdminAsync();
+        await PushOkAsync(client, type, new { entries = new[] { Entry("a", "First") } });
+
+        var entry = (await EntriesAsync(type)).Single();
+        Value(entry, "channel").Should().Be("stable");
+    }
+
     private static Dictionary<string, object> Entry(string slug, string title) => new()
     {
         ["slug"] = slug,

@@ -163,11 +163,7 @@ public sealed class ContentCreator(
         // A key the caller left out takes its field's default, before validation and the permission
         // check, so both see the entry as it will be stored. A key that is sent is never touched.
         var typed = schema ?? await AccountContentTypes.ResolveAsync(session, request.ContentType, ct);
-        foreach (var field in typed?.Fields.Where(f => f.DefaultValue is not null) ?? [])
-        {
-            if (!request.Data.Keys.Any(k => string.Equals(k, field.Name, StringComparison.OrdinalIgnoreCase)))
-                request.Data[field.Name] = field.DefaultValue!;
-        }
+        barakoCMS.Core.Validation.FieldDefaults.Apply(typed?.Fields, request.Data);
 
         // Asked of what the caller may write, so a field sensitivity drops cannot pass it, and before
         // the rules, so its answer does not depend on what a rule read.
