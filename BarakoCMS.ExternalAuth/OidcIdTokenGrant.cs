@@ -111,35 +111,15 @@ internal sealed class OidcIdTokenGrantEndpoint(
     public override async Task HandleAsync(OidcIdTokenGrantRequest req, CancellationToken ct)
     {
         var provider = OidcProviders.Find(config, Route<string>("name"));
-        if (provider is null || provider.IdTokenAudiences.Count == 0)
+        var club = (req.Club ?? string.Empty).Trim().ToLowerInvariant();
+        if (provider is null || provider.IdTokenAudiences.Count == 0
+            || !await ExternalProviders.AllowedAsync(session, club, ExternalProviders.OidcKey(provider.Name), ct))
         {
             await Send.NotFoundAsync(ct);
             return;
         }
 
-        var requestedClub = (req.Club ?? string.Empty).Trim().ToLowerInvariant();
-        if (!await ExternalProviders.AllowedAsync(session, requestedClub, ExternalProviders.OidcKey(provider.Name), ct))
-        {
-            await Send.NotFoundAsync(ct);
-            return;
-        }
-
-        var endpoints = await backchannel.EndpointsAsync(provider, ct);
-        if (endpoints is null)
-        {
-            ThrowError($"Couldn't reach {provider.DisplayName}. Please try again.", 503);
-        }
-
-        var keys = await backchannel.SigningKeysAsync(provider, endpoints, OidcIdToken.KeyIdOf(req.IdToken), ct);
-        var (identity, refusal) = await OidcIdToken.ValidateAsync(
-            req.IdToken, provider, keys, req.Nonce, provider.IdTokenAudiences);
-
-        var expiresAt = identity is null ? default : new JsonWebTokenHandler().ReadJsonWebToken(req.IdToken).ValidTo;
-        if (identity is not null && expiresAt > DateTime.UtcNow + MaxTokenLifetime)
-        {
-            (identity, refusal) = (null, OidcRefusal.Lifetime);
-        }
-
+        var (identity, refusal, expiresAt) = await ValidateAsync(req, provider, ct);
         if (identity is null)
         {
             // The reason is one of a fixed set of names. Nothing from the token is logged.
@@ -155,7 +135,6 @@ internal sealed class OidcIdTokenGrantEndpoint(
             RefuseReplay(provider);
         }
 
-        var club = (req.Club ?? string.Empty).Trim().ToLowerInvariant();
         var mfa = Resolve<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>();
         SocialSignIn.Tokens tokens;
         bool emailNotVerified;
@@ -201,6 +180,32 @@ internal sealed class OidcIdTokenGrantEndpoint(
         }
 
         await Send.OkAsync(new OidcIdTokenGrantResponse { Token = tokens.Token, RefreshToken = tokens.Refresh }, ct);
+    }
+
+    /// <summary>
+    /// The id token checked against the provider's keys, and refused when it lives longer than
+    /// <see cref="MaxTokenLifetime"/>. A provider that cannot be reached answers 503.
+    /// </summary>
+    private async Task<(OidcIdentity? Identity, OidcRefusal Refusal, DateTime ExpiresAt)> ValidateAsync(
+        OidcIdTokenGrantRequest req, OidcProvider provider, CancellationToken ct)
+    {
+        var endpoints = await backchannel.EndpointsAsync(provider, ct);
+        if (endpoints is null)
+        {
+            ThrowError($"Couldn't reach {provider.DisplayName}. Please try again.", 503);
+        }
+
+        var keys = await backchannel.SigningKeysAsync(provider, endpoints, OidcIdToken.KeyIdOf(req.IdToken), ct);
+        var (identity, refusal) = await OidcIdToken.ValidateAsync(
+            req.IdToken, provider, keys, req.Nonce, provider.IdTokenAudiences);
+
+        var expiresAt = identity is null ? default : new JsonWebTokenHandler().ReadJsonWebToken(req.IdToken).ValidTo;
+        if (identity is not null && expiresAt > DateTime.UtcNow + MaxTokenLifetime)
+        {
+            (identity, refusal) = (null, OidcRefusal.Lifetime);
+        }
+
+        return (identity, refusal, expiresAt);
     }
 
     [System.Diagnostics.CodeAnalysis.DoesNotReturn]

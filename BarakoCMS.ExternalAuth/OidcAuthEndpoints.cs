@@ -195,18 +195,10 @@ internal abstract class OidcCallback(
         OidcSupport.Expire(HttpContext.Response, provider, provider.StateCookie);
         OidcSupport.Expire(HttpContext.Response, provider, provider.ClubCookie);
 
-        if (!await ExternalProviders.AllowedAsync(session, club, ExternalProviders.OidcKey(provider.Name), ct))
-        {
-            await Send.NotFoundAsync(ct);
-            return;
-        }
+        if (!await ExternalProviders.AllowedAsync(session, club, ExternalProviders.OidcKey(provider.Name), ct)) { await Send.NotFoundAsync(ct); return; }
 
-        async Task Fail(string message)
-        {
-            var to = $"{baseUrl}/login?fberror={Uri.EscapeDataString(message)}";
-            if (!string.IsNullOrEmpty(club)) to += $"&club={Uri.EscapeDataString(club)}";
-            await Send.ResultAsync(Results.Redirect(to));
-        }
+        Task Fail(string message) =>
+            Send.ResultAsync(Results.Redirect(SocialSignIn.FrontendError(baseUrl, message, club)));
 
         var expired = $"{provider.DisplayName} sign-in was cancelled or the link expired. Please try again.";
         var unreachable = $"Couldn't reach {provider.DisplayName}. Please try again, or use your email code.";

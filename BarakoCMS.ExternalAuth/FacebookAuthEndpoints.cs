@@ -81,12 +81,8 @@ public class FacebookCallbackEndpoint(
         HttpContext.Response.Cookies.Delete("fb_state");
         HttpContext.Response.Cookies.Delete("fb_club");
 
-        async Task Fail(string message)
-        {
-            var to = $"{baseUrl}/login?fberror={Uri.EscapeDataString(message)}";
-            if (!string.IsNullOrEmpty(club)) to += $"&club={Uri.EscapeDataString(club)}";
-            await Send.ResultAsync(Results.Redirect(to));
-        }
+        Task Fail(string message) =>
+            Send.ResultAsync(Results.Redirect(SocialSignIn.FrontendError(baseUrl, message, club)));
 
         if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(state) || state != cookieState)
         {
@@ -140,41 +136,10 @@ public class FacebookCallbackEndpoint(
             return;
         }
 
-        if (string.IsNullOrEmpty(subject))
-        {
-            await Fail("Couldn't reach Facebook. Please try again, or use your email code.");
-            return;
-        }
-
         var mfa = Resolve<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>();
-        SocialSignIn.Tokens tokens;
-        bool emailNotVerified;
-        try
-        {
-            (tokens, emailNotVerified) = await SocialSignIn.IssueForProviderAsync(
-                session, config, deviceGate, tokenIssuer, mfa, HttpContext, ExternalProviders.Facebook, subject, email, emailVerified, club, ct, profile, claims, emailTrustedByOperator: emailVerified);
-        }
-        catch (Exception ex) when (OidcSupport.IsUniqueViolation(ex))
-        {
-            // Two first sign-ins for one address raced on the user's unique email. The retry
-            // finds the account.
-            await Fail("Couldn't finish signing you in. Please try again.");
-            return;
-        }
-
-        if (tokens.RequiresMfa)
-        {
-            await Send.ResultAsync(Results.Redirect(SocialSignIn.FrontendMfaCallback(baseUrl, tokens.MfaChallenge!, club)));
-            return;
-        }
-        if (!tokens.Allowed)
-        {
-            // An unlinked sign-in with no usable address is refused here, as it was before the link.
-            await Fail(emailNotVerified && !email.Contains('@')
-                ? "Facebook didn't share an email address. Please sign in with your email code instead."
-                : "You are not a member of this club.");
-            return;
-        }
-        await Send.ResultAsync(Results.Redirect(SocialSignIn.FrontendCallback(baseUrl, tokens.Token, tokens.Refresh, club)));
+        await Send.ResultAsync(Results.Redirect(await SocialSignIn.CallbackRedirectAsync(
+            session, config, deviceGate, tokenIssuer, mfa, HttpContext, ExternalProviders.Facebook, "Facebook",
+            "Facebook didn't share an email address. Please sign in with your email code instead.",
+            subject, email, emailVerified, club, baseUrl, ct, profile, claims, emailTrustedByOperator: emailVerified)));
     }
 }

@@ -140,12 +140,7 @@ public static class SocialSignIn
                     return (Tokens.Denied(), false);
                 }
 
-                // NormalizedUsername is unique, and somebody may already use this address as a name.
-                var username = await session.Query<User>().AnyAsync(u => u.NormalizedUsername == email, ct)
-                    ? $"{email}+{Guid.NewGuid():N}"[..(email.Length + 9)]
-                    : email;
-                user = new User { Id = Guid.NewGuid(), Email = email, Username = username, PasswordHash = "" };
-                session.Store(user);
+                user = await NewUserAsync(session, email, ct);
                 created = true;
             }
 
@@ -155,12 +150,8 @@ public static class SocialSignIn
             {
                 session.Store(new ExternalIdentity
                 {
-                    Id = key,
-                    Issuer = identity.Issuer,
-                    Subject = identity.Subject,
-                    UserId = user.Id,
-                    Provider = provider,
-                    LinkedAt = DateTime.UtcNow,
+                    Id = key, Issuer = identity.Issuer, Subject = identity.Subject,
+                    UserId = user.Id, Provider = provider, LinkedAt = DateTime.UtcNow,
                 });
             }
         }
@@ -170,6 +161,18 @@ public static class SocialSignIn
         var profile = profileOverride ?? new ProfileData(identity.Name, identity.Picture, null, null, provider);
         return (await IssueForUserAsync(
             session, config, deviceGate, tokenIssuer, mfa, http, user, club, created ? signUp : null, ct, profile, beforeFinalCommit, mapped), false);
+    }
+
+    /// <summary>A new local user for a verified address, stored on the session.</summary>
+    private static async Task<User> NewUserAsync(IDocumentSession session, string email, CancellationToken ct)
+    {
+        // NormalizedUsername is unique, and somebody may already use this address as a name.
+        var username = await session.Query<User>().AnyAsync(u => u.NormalizedUsername == email, ct)
+            ? $"{email}+{Guid.NewGuid():N}"[..(email.Length + 9)]
+            : email;
+        var user = new User { Id = Guid.NewGuid(), Email = email, Username = username, PasswordHash = "" };
+        session.Store(user);
+        return user;
     }
 
     /// <summary>
@@ -411,6 +414,71 @@ public static class SocialSignIn
     /// <summary>Callback when the account needs MFA: carries the challenge for the SPA to complete /mfa/verify.</summary>
     public static string FrontendMfaCallback(string baseUrl, string challenge, string club) =>
         $"{baseUrl}/auth/social#mfa_challenge={Uri.EscapeDataString(challenge)}&club={Uri.EscapeDataString(club)}";
+
+    /// <summary>The login page with an error for the person, back in the club they started from.</summary>
+    public static string FrontendError(string baseUrl, string message, string club) =>
+        $"{baseUrl}/login?fberror={Uri.EscapeDataString(message)}"
+        + (string.IsNullOrEmpty(club) ? "" : $"&club={Uri.EscapeDataString(club)}");
+
+    /// <summary>
+    /// The end of every OAuth callback once the provider has answered: sign in through the identity
+    /// link and pick where the browser goes next. <paramref name="label"/> names the provider to the
+    /// person, and <paramref name="noEmailMessage"/> is the refusal for an unlinked sign-in with no
+    /// usable address.
+    /// </summary>
+    internal static async Task<string> CallbackRedirectAsync(
+        IDocumentSession session,
+        IConfiguration config,
+        barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
+        barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer,
+        barakoCMS.Infrastructure.Auth.Mfa.IMfaService mfa,
+        HttpContext http,
+        string provider,
+        string label,
+        string noEmailMessage,
+        string? subject,
+        string email,
+        bool emailVerified,
+        string club,
+        string baseUrl,
+        CancellationToken ct,
+        ProfileData profile,
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? claims,
+        bool emailTrustedByOperator = false)
+    {
+        if (string.IsNullOrEmpty(subject))
+        {
+            return FrontendError(baseUrl, $"Couldn't reach {label}. Please try again, or use your email code.", club);
+        }
+
+        Tokens tokens;
+        bool emailNotVerified;
+        try
+        {
+            (tokens, emailNotVerified) = await IssueForProviderAsync(
+                session, config, deviceGate, tokenIssuer, mfa, http, provider, subject, email, emailVerified, club, ct, profile, claims, emailTrustedByOperator);
+        }
+        catch (Exception ex) when (OidcSupport.IsUniqueViolation(ex))
+        {
+            // Two first sign-ins for one address raced on the user's unique email. The retry
+            // finds the account.
+            return FrontendError(baseUrl, "Couldn't finish signing you in. Please try again.", club);
+        }
+
+        if (tokens.RequiresMfa)
+        {
+            return FrontendMfaCallback(baseUrl, tokens.MfaChallenge!, club);
+        }
+
+        if (!tokens.Allowed)
+        {
+            // An unlinked sign-in with no usable address is refused here, as it was before the link.
+            return FrontendError(
+                baseUrl, emailNotVerified && !email.Contains('@') ? noEmailMessage : "You are not a member of this club.", club);
+        }
+
+        return FrontendCallback(baseUrl, tokens.Token, tokens.Refresh, club);
+    }
 }
 
 /// <summary>
