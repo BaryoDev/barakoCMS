@@ -38,13 +38,6 @@
     <!-- Was floating (3.7.*) before central management, so two builds of the same commit could
          resolve different versions. Pinned to what it last resolved to. -->
     <PackageVersion Include="AWSSDK.S3" Version="3.7.511.8" />
-    <!-- BarakoCMS.Secrets.Aws (#785). The 3.7 line, not 4.x: AWSSDK.S3 above is 3.7, both need the
-         same AWSSDK.Core, and the Suite carries both modules. They move to 4.x together. -->
-    <PackageVersion Include="AWSSDK.SecretsManager" Version="3.7.504.43" />
-    <!-- BarakoCMS.Secrets.Gcp (#785). Apache-2.0. Brings the gRPC client stack and Google's
-         application default credentials, which is how it authenticates as the instance's service
-         account without a stored key. -->
-    <PackageVersion Include="Google.Cloud.SecretManager.V1" Version="2.8.0" />
     <PackageVersion Include="Talaan" Version="0.3.0" />
   </ItemGroup>
 
@@ -56,12 +49,6 @@
          unannounced. -->
     <PackageVersion Include="SkiaSharp" Version="4.153.1" />
     <PackageVersion Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.153.1" />
-  </ItemGroup>
-
-  <ItemGroup Label="QR codes">
-    <!-- MIT, managed only, no native dependency. Renders the PNG and SVG for BarakoCMS.Qr (#807).
-         Pinned: it encodes values a desk scans, so it moves on purpose. -->
-    <PackageVersion Include="QRCoder" Version="1.6.0" />
   </ItemGroup>
 
   <ItemGroup Label="Security">

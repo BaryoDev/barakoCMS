@@ -23,6 +23,7 @@ namespace BarakoCMS.Accounting;
 /// sequence increment land in one transaction — a clash rolls back the whole post rather than
 /// burning or duplicating a number.
 /// </summary>
+[Obsolete("BarakoCMS.Accounting is deprecated and is removed in a later release.")]
 public sealed class JournalEntryHook : IContentLifecycleHook
 {
     /// <summary>The core series journal entry numbers are counted in, one count per tenant and year.</summary>

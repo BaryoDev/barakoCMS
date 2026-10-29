@@ -610,7 +610,7 @@ above are the same, and these are added:
   `.csproj`. Add a `README.md` next to it; `PackagingTests` checks it shows
   `dotnet add package <PackageId>`, mentions `BarakoCMS:Modules:Enabled`, and shows
   `modules.Add(new ...)` as the override. Copy the structure of
-  [`BarakoCMS.Pwa/README.md`](../BarakoCMS.Pwa/README.md).
+  [`BarakoCMS.Files/README.md`](../BarakoCMS.Files/README.md).
 - **The Suite.** Keep the `BarakoCMS.Suite` reference from step 6; that is what puts a first-party
   module into the published image.
 - **A changelog fragment** in `changelog.d/`, per [its README](../changelog.d/README.md).

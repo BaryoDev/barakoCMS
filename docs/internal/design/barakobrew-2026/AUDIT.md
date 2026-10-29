@@ -196,7 +196,7 @@ count published, draft or scheduled entries without paging the whole collection.
 `admin/src/hooks/use-monitoring.ts` is `{ totalRequests, totalErrors, averageResponseTime, errorRate }`,
 all cumulative since process start: no 24h window, no cache-hit rate, and no p95, which the header
 pill also asks for (`p95 38ms · err 0.04%`). The System card additionally wants uptime, also absent.
-The Visitors card comes from the optional `BarakoCMS.Analytics.Umami` module, so the four-card row
+The Visitors card comes from an optional analytics module, so the four-card row
 becomes three on a deployment without it, and the design has no three-card state.
 
 ### "Needs you"
@@ -338,7 +338,7 @@ Two changes:
 - **The dashed previous-period line on the trend chart is not fetchable.** `AnalyticsSeries` returns
   one `pageviews` series and one `sessions` series for the requested range, and `AnalyticsRange` is a
   closed union of four values with no from/to. There is no way to ask for the window before the one
-  you are showing. This is a small module change in `BarakoCMS.Analytics.Umami`, but it is a server
+  you are showing. This is a small module change in that analytics module, but it is a server
   change, and it is the only one on this screen.
 
 The sparkline is dependency-free hand-rolled SVG. Two lines, one filled and one dashed, is a modest

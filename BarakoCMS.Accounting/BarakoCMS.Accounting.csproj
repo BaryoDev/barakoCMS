@@ -5,8 +5,10 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.Accounting</PackageId>
-    <Version>4.7.0</Version>
-    <Description>Optional double-entry accounting module for barakoCMS: accounts, balanced journal entries, and reporting.</Description>
+    <Version>4.8.0</Version>
+    <Description>Optional double-entry accounting module for barakoCMS: accounts, balanced journal entries, and reporting. Deprecated, removed in a later release.</Description>
+    <!-- The module marks its own public types [Obsolete]. Its code uses them, and that is not news to it. -->
+    <NoWarn>$(NoWarn);CS0618</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

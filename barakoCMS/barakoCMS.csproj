@@ -49,10 +49,11 @@
   <ItemGroup>
     <!-- Core's SQL migrations, for db-migrate (docs/migrations.md). A glob, so a file added under
          migrations/<version>/ ships without an edit here. Left out: rollback files, which db-migrate
-         never runs, the tenancy role script, which is a superuser's one-off, and the files a
+         never runs, the tenancy role script, which is a superuser's one-off, migrations/removed,
+         which holds the scripts of modules that no longer exist, and the files a
          module ships from its own assembly so the ledger carries them under that module. -->
     <EmbeddedResource Include="..\migrations\**\*.sql"
-                      Exclude="..\migrations\tenancy\**;..\migrations\**\rollback-*.sql;..\migrations\4.2.0\stored-files-parent-index.sql;..\migrations\4.2.0\forms-public-forms.sql;..\migrations\4.6.0\external-auth-identities.sql;..\migrations\4.6.0\forms-email-verification.sql;..\migrations\4.7.0\forms-tenant-policy-restore.sql;..\migrations\4.8.0\external-auth-used-nonces.sql;..\migrations\5.0.0\accounting-number-sequences.sql;..\migrations\5.0.0\pages-settings.sql;..\migrations\5.0.0\files-storage-settings.sql;..\migrations\5.1.0\915-external-auth-role-maps.sql;..\migrations\5.2.0\booking-resources.sql;..\migrations\5.2.0\payments-payable-types.sql;..\migrations\5.2.0\payments-attempts.sql;..\migrations\5.2.0\payments-events.sql;..\migrations\5.2.0\report-definitions.sql;..\migrations\5.2.0\scheduled-entries.sql;..\migrations\5.2.0\notifications.sql;..\migrations\5.2.0\contacts.sql;..\migrations\5.2.0\253-comments.sql;..\migrations\5.2.0\585-documents.sql;..\migrations\5.3.0\accounting-journal-lifecycle.sql;..\migrations\5.3.0\accounting-mappings.sql;..\migrations\5.3.0\252-tagging.sql;..\migrations\5.3.0\833-services.sql;..\migrations\5.5.0\915-external-auth-provider-settings.sql"
+                      Exclude="..\migrations\tenancy\**;..\migrations\removed\**;..\migrations\**\rollback-*.sql;..\migrations\4.2.0\stored-files-parent-index.sql;..\migrations\4.6.0\external-auth-identities.sql;..\migrations\4.8.0\external-auth-used-nonces.sql;..\migrations\5.0.0\accounting-number-sequences.sql;..\migrations\5.0.0\pages-settings.sql;..\migrations\5.0.0\files-storage-settings.sql;..\migrations\5.1.0\915-external-auth-role-maps.sql;..\migrations\5.3.0\accounting-journal-lifecycle.sql;..\migrations\5.3.0\accounting-mappings.sql;..\migrations\5.5.0\915-external-auth-provider-settings.sql"
                       LogicalName="barako-migrations/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
@@ -105,7 +106,6 @@
          internal for the reason above. -->
     <InternalsVisibleTo Include="BarakoCMS.Accounting" />
     <!-- The tag assignment lists hide an entry of another branch the way the content routes do. -->
-    <InternalsVisibleTo Include="BarakoCMS.Tagging" />
     <!-- Semantic search counts visitors the way public delivery does. -->
     <InternalsVisibleTo Include="BarakoCMS.AI" />
     <!-- Castle DynamicProxy, which NSubstitute builds on, needs to see internal types to mock an

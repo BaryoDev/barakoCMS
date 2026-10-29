@@ -31,6 +31,7 @@ namespace BarakoCMS.Accounting;
     SelfResolvedParameters = new[] { "Mapping", "ActionKey", "Memo", "Amount" },
     ExampleJson = @"{""Type"":""Accounting.PostJournal"",""Parameters"":{""Mapping"":""receipt-cash"",""ActionKey"":""receipt""}}"
 )]
+[Obsolete("BarakoCMS.Accounting is deprecated and is removed in a later release.")]
 public sealed class PostJournalAction(LedgerService ledger, AccountMappingStore mappings, IDocumentSession session, ITemplateVariableExtractor? extractor = null) : IWorkflowAction
 {
     public string Type => "Accounting.PostJournal";

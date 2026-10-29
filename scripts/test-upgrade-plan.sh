@@ -76,12 +76,9 @@ core migrations/4.6.0/tenant-profile-to-site.sql
 core migrations/4.7.0/membership-unique-user-tenant.sql
 core migrations/4.7.0/tenant-policy-restore.sql
 module migrations/4.2.0/stored-files-parent-index.sql
-module migrations/4.2.0/forms-public-forms.sql
 module migrations/4.6.0/external-auth-identities.sql
-module migrations/4.6.0/forms-email-verification.sql
 rollback migrations/4.7.0/rollback-tenant-policy-restore.sql
 rollback migrations/4.7.0/rollback-membership-unique-user-tenant.sql
-rollback migrations/4.6.0/rollback-forms-email-verification.sql
 rollback migrations/4.6.0/rollback-external-auth-identities.sql
 rollback migrations/4.6.0/rollback-sensitivity-by-capability.sql
 rollback migrations/4.6.0/rollback-tenant-profile-to-site.sql
@@ -106,7 +103,7 @@ if [ "$code" = 0 ]; then ok "the plan from 3.21.0 builds"; else bad "the plan fr
 expect "from 3.21.0 they run in the order CI proved by hand" "$proven" "$(only_proven "$out")"
 
 listed=$(awk '{ print $2 }' <<< "$out" | sort)
-on_disk=$(cd "$ROOT" && find migrations -name '*.sql' -not -path 'migrations/tenancy/*' | sort)
+on_disk=$(cd "$ROOT" && find migrations -name '*.sql' -not -path 'migrations/tenancy/*' -not -path 'migrations/removed/*' | sort)
 [ -n "$on_disk" ] || bad "migrations/ holds no files, so the next check has nothing to compare"
 expect "every file under a version folder is listed exactly once" "$on_disk" "$listed"
 
@@ -198,7 +195,7 @@ fi
 
 psql_lines "$ROOT" 3.21.0
 if grep -qxF 'psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/4.2.0/stored-files-parent-index.sql' <<< "$out" \
-    && grep -qxF 'psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.2.0/forms-public-forms.sql' <<< "$out"; then
+    && grep -qxF 'psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.2.0/site-share-links.sql' <<< "$out"; then
     ok "a no-transaction file is printed without --single-transaction, and only that one"
 else
     bad "a no-transaction file is printed without --single-transaction, and only that one"
@@ -227,11 +224,11 @@ fi
 repo="$work/new-module"
 copy_repo "$repo"
 mkdir -p "$repo/migrations/9.9.0"
-printf -- 'select 1;\n' > "$repo/migrations/9.9.0/forms-thing.sql"
-forms=$(ls "$repo"/BarakoCMS.Forms/*.csproj)
-perl -pi -e 's#</Project>#  <ItemGroup><EmbeddedResource Include="..\\migrations\\9.9.0\\forms-thing.sql" /></ItemGroup>\n</Project>#' "$forms"
+printf -- 'select 1;\n' > "$repo/migrations/9.9.0/files-thing.sql"
+files=$(ls "$repo"/BarakoCMS.Files/*.csproj)
+perl -pi -e 's#</Project>#  <ItemGroup><EmbeddedResource Include="..\\migrations\\9.9.0\\files-thing.sql" /></ItemGroup>\n</Project>#' "$files"
 plan "$repo" 3.21.0
-expect "a file a module embeds runs last among module files" "module migrations/9.9.0/forms-thing.sql" "$(grep '^module ' <<< "$out" | tail -1)"
+expect "a file a module embeds runs last among module files" "module migrations/9.9.0/files-thing.sql" "$(grep '^module ' <<< "$out" | tail -1)"
 
 repo="$work/pinned"
 copy_repo "$repo"

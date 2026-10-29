@@ -28,15 +28,15 @@ migration_pinned_order() { # $1 = version folder; prints its files in run order,
     case "$1" in
         4.2.0) printf '%s\n' \
             user-normalized-identity.sql site-share-links.sql \
-            stored-files-parent-index.sql forms-public-forms.sql \
+            stored-files-parent-index.sql \
             rollback-site-share-links.sql rollback-user-normalized-identity.sql ;;
         4.3.0) printf '%s\n' \
             collection-syncs.sql marten-9-37-event-store-columns.sql \
             rollback-collection-syncs.sql rollback-marten-9-37-event-store-columns.sql ;;
         4.6.0) printf '%s\n' \
             event-correlation-metadata.sql sensitivity-by-capability.sql tenant-profile-to-site.sql \
-            external-auth-identities.sql forms-email-verification.sql \
-            rollback-forms-email-verification.sql rollback-external-auth-identities.sql \
+            external-auth-identities.sql \
+            rollback-external-auth-identities.sql \
             rollback-sensitivity-by-capability.sql rollback-tenant-profile-to-site.sql \
             rollback-event-correlation-metadata.sql ;;
     esac

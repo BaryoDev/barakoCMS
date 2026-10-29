@@ -273,8 +273,8 @@ public class MetaDescribeTests
 
         // Not one of core's constants: it reaches the vocabulary from a module endpoint's gate,
         // which is how a capability added by a module reaches this document.
-        SystemCapabilities.Known.Should().NotContain(BarakoCMS.Pwa.PwaCapabilities.ViewPwaInstalls);
-        described.Select(Name).Should().Contain(BarakoCMS.Pwa.PwaCapabilities.ViewPwaInstalls);
+        SystemCapabilities.Known.Should().NotContain(BarakoCMS.FeatureFlags.FeatureFlagCapabilities.ManageFeatureFlags);
+        described.Select(Name).Should().Contain(BarakoCMS.FeatureFlags.FeatureFlagCapabilities.ManageFeatureFlags);
 
         Withheld(document, "workflowActions").Should().BeTrue();
         Withheld(document, "modules").Should().BeTrue();

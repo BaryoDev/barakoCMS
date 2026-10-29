@@ -110,15 +110,6 @@ public class MigrationSkipQueryTests
         ["Files/4.2.0/stored-files-parent-index"] = (
             "create table public.mt_doc_stored_files (id uuid primary key, data jsonb not null);",
             "select to_regclass('public.mt_doc_stored_files_idx_parent_file_id') is not null"),
-
-        ["Forms/4.2.0/forms-public-forms"] = (
-            "select 1;",
-            "select to_regclass('public.mt_doc_public_forms') is not null"),
-
-        ["Forms/4.6.0/forms-email-verification"] = (
-            "select 1;",
-            "select to_regclass('public.mt_doc_form_email_budgets') is not null "
-            + "and not (select relrowsecurity from pg_class where oid = to_regclass('public.mt_doc_form_email_verifications'))"),
     };
 
     public static TheoryData<string> Keys()
@@ -137,7 +128,6 @@ public class MigrationSkipQueryTests
         ShippedMigrations
             .Discover(
             [
-                new BarakoCMS.Forms.FormsModule(),
                 new BarakoCMS.Files.FilesModule(),
                 new BarakoCMS.ExternalAuth.ExternalAuthModule(),
             ])
@@ -145,7 +135,7 @@ public class MigrationSkipQueryTests
             .ToList();
 
     /// <summary>
-    /// Every skip query a first-party file ships, the ten released before the ledger and any added
+    /// Every skip query a first-party file ships, the files released before the ledger and any added
     /// since, has its false side tested here.
     /// </summary>
     [Fact]
@@ -153,7 +143,7 @@ public class MigrationSkipQueryTests
     {
         var keys = WithSkipQuery().Select(m => m.Key).OrderBy(k => k, StringComparer.Ordinal).ToList();
 
-        keys.Count.Should().BeGreaterThanOrEqualTo(12, "ten files released before the ledger, the Forms 4.6.0 file and the 4.7.0 memberships index");
+        keys.Count.Should().BeGreaterThanOrEqualTo(10, "the files released before the ledger and the 4.7.0 memberships index");
         keys.Should().Equal(Cases.Keys.OrderBy(k => k, StringComparer.Ordinal));
     }
 

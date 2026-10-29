@@ -172,20 +172,11 @@ public class ModuleCapabilityDefaultsTests
         [
             typeof(BarakoCMS.AI.AiCapabilities),
             typeof(BarakoCMS.Accounting.AccountingCapabilities),
-            typeof(BarakoCMS.Analytics.Umami.AnalyticsCapabilities),
-            typeof(BarakoCMS.Comments.CommentsCapabilities),
-            typeof(BarakoCMS.Contacts.ContactsCapabilities),
             typeof(BarakoCMS.Diagnostics.DiagnosticsCapabilities),
             typeof(BarakoCMS.FeatureFlags.FeatureFlagCapabilities),
             typeof(BarakoCMS.Files.FileCapabilities),
-            typeof(BarakoCMS.Forms.FormsCapabilities),
-            typeof(BarakoCMS.Reports.ReportsCapabilities),
             typeof(BarakoCMS.Import.ImportCapabilities),
-            typeof(BarakoCMS.Notifications.NotificationsCapabilities),
             typeof(BarakoCMS.Portability.PortabilityCapabilities),
-            typeof(BarakoCMS.Pwa.PwaCapabilities),
-            typeof(BarakoCMS.Services.ServicesCapabilities),
-            typeof(BarakoCMS.Tagging.TaggingCapabilities),
         ];
 
         // Scanned as well as named, so a module added later is held to the same rule.

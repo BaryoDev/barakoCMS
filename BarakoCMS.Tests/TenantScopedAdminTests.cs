@@ -5,7 +5,6 @@ using System.Text.Json;
 using BarakoCMS.Diagnostics;
 using BarakoCMS.Diagnostics.Features.Report;
 using BarakoCMS.FeatureFlags;
-using BarakoCMS.Pwa;
 using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
@@ -343,27 +342,6 @@ public class TenantScopedAdminTests
             CancellationToken.None);
 
         email.Tenants.Should().Equal("club-a");
-    }
-
-    // ---- PWA installs: stored globally, each device tagged with the tenant it reported from. ----
-
-    [Fact]
-    public async Task A_tenant_admin_sees_only_its_own_tenants_app_installs()
-    {
-        var tenantA = await TenantAsync();
-        var tenantB = await TenantAsync();
-        var (admin, _) = await TenantAdminAsync(tenantA);
-        var future = DateTime.UtcNow.AddDays(3650);
-        var inA = new PwaInstall { DeviceId = Unique("dev"), Tenant = tenantA, LastSeenAt = future };
-        var inB = new PwaInstall { DeviceId = Unique("dev"), Tenant = tenantB, LastSeenAt = future };
-        await StoreAsync(inA, inB);
-
-        var mine = await ItemsAsync(await admin.GetAsync("/api/pwa/installs?pageSize=100"));
-        mine.Should().NotBeEmpty();
-        mine.Should().OnlyContain(i => i.GetProperty("tenant").GetString() == tenantA);
-
-        var all = await ItemsAsync(await (await GlobalAsync("SuperAdmin")).GetAsync("/api/pwa/installs?pageSize=100"));
-        all.Select(i => i.GetProperty("tenant").GetString()).Should().Contain([tenantA, tenantB]);
     }
 
     // ---- A global role reaches every tenant, whatever tenant the request resolved to. ----

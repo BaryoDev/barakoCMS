@@ -1,7 +1,7 @@
 using barakoCMS.Modules;
 using BarakoCMS.Accounting;
 using BarakoCMS.FeatureFlags;
-using BarakoCMS.Forms;
+using BarakoCMS.Files;
 using FluentAssertions;
 using Xunit;
 
@@ -24,7 +24,7 @@ public class ModuleIdentityTests
         public string? Category => "Gadgets";
     }
 
-    private static IBarakoModule[] FirstParty() => [new FormsModule(), new AccountingModule(), new FeatureFlagsModule()];
+    private static IBarakoModule[] FirstParty() => [new FilesModule(), new AccountingModule(), new FeatureFlagsModule()];
 
     [Fact]
     public void A_module_that_declares_nothing_reports_no_identity()
@@ -54,7 +54,7 @@ public class ModuleIdentityTests
             ModuleCategory.All.Should().Contain(entry.Category!);
         }
 
-        entries.Single(e => e.Name == "Forms").PackageId.Should().Be("BarakoCMS.Forms");
+        entries.Single(e => e.Name == "Files").PackageId.Should().Be("BarakoCMS.Files");
         entries.Single(e => e.Name == "Accounting").Category.Should().Be(ModuleCategory.Business);
     }
 
@@ -70,7 +70,7 @@ public class ModuleIdentityTests
     [Fact]
     public void The_package_version_has_no_build_metadata()
     {
-        var version = ModuleMetadata.VersionOf(typeof(FormsModule));
+        var version = ModuleMetadata.VersionOf(typeof(FilesModule));
 
         version.Should().NotBeNullOrWhiteSpace();
         version.Should().NotContain("+");

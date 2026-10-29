@@ -38,48 +38,6 @@ public class ConfigModuleSectionsTests
     };
 
     [Fact]
-    public async Task A_form_round_trips_through_the_forms_section()
-    {
-        var source = await _callers.TenantAsync();
-        var target = await _callers.TenantAsync();
-        var type = Unique("enquiry");
-        await _callers.StoreInTenantAsync(source, Enquiry(type),
-            new BarakoCMS.Forms.PublicForm { ContentType = type, EnabledAt = DateTimeOffset.UtcNow, VerifyEmailField = "Email" });
-
-        var (_, document) = await ExportAsync(await _callers.SuperAdminAsync(source), "contentTypes,forms");
-        document.GetProperty("forms").GetProperty(type).GetProperty("verifyEmailField").GetString().Should().Be("Email");
-
-        var targetClient = await _callers.SuperAdminAsync(target);
-        var (applied, plan) = await ApplyAsync(targetClient, document);
-        applied.StatusCode.Should().Be(HttpStatusCode.OK, plan.ToString());
-        Changes(plan).Should().Contain($"forms/{type} create");
-
-        var form = await _callers.InTenantAsync(target, s => s.LoadAsync<BarakoCMS.Forms.PublicForm>(type, Ct));
-        form.Should().NotBeNull("the forms section created the form in the target tenant");
-        form!.VerifyEmailField.Should().Be("Email");
-        (await PlanAsync(targetClient, document)).Body.GetProperty("isEmpty").GetBoolean().Should().BeTrue();
-    }
-
-    [Fact]
-    public async Task A_form_the_route_would_refuse_is_refused_and_one_left_out_is_destructive()
-    {
-        var tenant = await _callers.TenantAsync();
-        var type = Unique("signup");
-        var single = Enquiry(Unique("single"));
-        single.IsSingleton = true;
-        await _callers.StoreInTenantAsync(tenant, Enquiry(type), single,
-            new BarakoCMS.Forms.PublicForm { ContentType = type, EnabledAt = DateTimeOffset.UtcNow });
-        var client = await _callers.SuperAdminAsync(tenant);
-
-        var (refused, body) = await ApplyAsync(client, new { version = 1, forms = new Dictionary<string, object> { [single.Name] = new { } } });
-        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest, body.ToString());
-        body.ToString().Should().Contain("single entry");
-
-        var (_, plan) = await PlanAsync(client, new { version = 1, forms = new Dictionary<string, object>() });
-        Changes(plan).Should().Contain($"forms/{type} destructive");
-    }
-
-    [Fact]
     public async Task A_portability_bundle_applies_as_a_config_document()
     {
         var source = await _callers.TenantAsync();

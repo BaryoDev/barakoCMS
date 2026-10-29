@@ -120,10 +120,10 @@ When deploying BarakoCMS:
   an older release cannot read a value that carries a key id.
 - Enable MFA on admin accounts. Every sign-in path (password, email code, social) honors it.
 - Keep those keys out of the environment of the machine that holds the database. With
-  `BarakoCMS.Secrets.Aws` or `BarakoCMS.Secrets.Gcp`, both in the published image, the host reads
-  `JWT:Key`, `Secrets:Key`, `Connectors:Key`, `Mfa:Key` and module credentials from AWS Secrets
-  Manager or Google Secret Manager at startup, as the instance's own role or service account, and
-  refuses to start when a mapped secret cannot be read. Loading a key from a vault does not make
+  your cloud's own configuration provider (the AWS Secrets Manager or Google Secret Manager
+  provider for .NET configuration), the host reads `JWT:Key`, `Secrets:Key`, `Connectors:Key`,
+  `Mfa:Key` and module credentials from the vault at startup. The Secrets.Aws and
+  Secrets.Gcp packages were removed in 5.5.0. Loading a key from a vault does not make
   rotating it any safer: the warnings above still apply.
 
 ## Known advisories we accept

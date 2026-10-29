@@ -12,6 +12,7 @@ namespace BarakoCMS.Accounting;
 /// pipeline. So the entries are ordinary content AND the ledger still cannot be put into an
 /// unbalanced state.
 /// </summary>
+[Obsolete("BarakoCMS.Accounting is deprecated and is removed in a later release.")]
 public static class AccountingContentTypes
 {
     public const string Account = "account";

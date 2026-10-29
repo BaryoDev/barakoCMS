@@ -32,6 +32,7 @@ namespace BarakoCMS.Accounting;
     SelfResolvedParameters = new[] { "ActionKey", "Reason" },
     ExampleJson = @"{""Type"":""Accounting.Reverse"",""Parameters"":{""ActionKey"":""receipt"",""Reason"":""Receipt cancelled""}}"
 )]
+[Obsolete("BarakoCMS.Accounting is deprecated and is removed in a later release.")]
 public sealed class ReverseAction(LedgerService ledger, IContentTransitioner transitioner, IDocumentSession session, ITemplateVariableExtractor? extractor = null) : IWorkflowAction
 {
     public string Type => "Accounting.Reverse";

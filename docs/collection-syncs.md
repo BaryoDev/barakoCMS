@@ -168,13 +168,13 @@ field. Neither a sum nor a ratio takes an array path, since each path names one 
 "fieldRules": { "Total": { "sum": ["closed_issues", "open_issues"] } }
 ```
 
-**A package's name and shelf.** NuGet answers `BarakoCMS.Analytics.Umami` for a package a site prints
-as `Analytics · Umami` on the `Analytics` shelf:
+**A package's name and shelf.** NuGet answers `BarakoCMS.Files.S3` for a package a site prints
+as `Files · S3` on the `Files` shelf:
 
 ```json
 "fieldRules": {
   "DisplayName": { "path": "id", "prefixStrip": "BarakoCMS.", "replace": { ".": " · " } },
-  "Category":    { "path": "id", "map": { "BarakoCMS.Analytics.Umami": "Analytics", "BarakoCMS.Pwa": "Analytics" } }
+  "Category":    { "path": "id", "map": { "BarakoCMS.Files.S3": "Files", "BarakoCMS.Files": "Files" } }
 }
 ```
 

@@ -7,9 +7,11 @@ using Marten;
 namespace BarakoCMS.Accounting;
 
 /// <summary>A line to post, in the caller's terms (account code + debit/credit).</summary>
+[Obsolete("BarakoCMS.Accounting is deprecated and is removed in a later release.")]
 public record PostLine(string AccountCode, decimal Debit, decimal Credit, string? Memo = null);
 
 /// <summary>A request to post one balanced journal entry.</summary>
+[Obsolete("BarakoCMS.Accounting is deprecated and is removed in a later release.")]
 public record PostEntryCommand(
     DateOnly Date,
     string Memo,
@@ -21,9 +23,11 @@ public record PostEntryCommand(
 /// <summary>What <see cref="LedgerService.StageAsync(PostEntryCommand, Guid, StageOptions?, CancellationToken)"/> may be told about the entry it makes.</summary>
 /// <param name="EntryId">The id to give the entry instead of a new one, so a retry of the same post collides on it.</param>
 /// <param name="Configure">Runs on the entry's content just before it is stored, to set what the ledger does not know.</param>
+[Obsolete("BarakoCMS.Accounting is deprecated and is removed in a later release.")]
 public record StageOptions(Guid? EntryId = null, Action<barakoCMS.Models.Content>? Configure = null);
 
 /// <summary>Outcome of a post attempt: either the stored entry or a list of validation errors.</summary>
+[Obsolete("BarakoCMS.Accounting is deprecated and is removed in a later release.")]
 public record PostResult(JournalEntry? Entry, IReadOnlyList<string> Errors)
 {
     public bool Ok => Entry is not null;
@@ -45,6 +49,7 @@ public record PostResult(JournalEntry? Entry, IReadOnlyList<string> Errors)
 /// working for consumers already calling it. New callers should prefer the generic
 /// content endpoint.
 /// </summary>
+[Obsolete("BarakoCMS.Accounting is deprecated and is removed in a later release.")]
 public class LedgerService
 {
     private readonly IDocumentSession _session;

@@ -39,27 +39,16 @@ Optional packages, each installable on its own:
 
 | Package | Adds |
 |---|---|
-| `BarakoCMS.Accounting` | Double-entry ledger |
+| `BarakoCMS.Accounting` | Double-entry ledger. Deprecated, removed in a later release |
 | `BarakoCMS.AI` | Semantic search, self-hosted embeddings |
-| `BarakoCMS.Analytics.Umami` | Privacy-friendly analytics |
-| `BarakoCMS.Contacts` | Person and organization records with dedupe and merge |
-| `BarakoCMS.DeviceTrust` | Device binding and approval |
 | `BarakoCMS.Diagnostics` | Browser error capture |
 | `BarakoCMS.Email.Smtp` | Transactional email over any SMTP relay |
 | `BarakoCMS.ExternalAuth` | Google / GitHub / Facebook / LinkedIn sign-in |
 | `BarakoCMS.FeatureFlags` | Flags with targeting |
 | `BarakoCMS.Files` + `.S3` | Uploads stored in Postgres, or in S3-compatible storage with `.S3` |
-| `BarakoCMS.Forms` | Public form submissions into a content type |
-| `BarakoCMS.Reports` | Saved reports that group, count and sum a content type |
-| `BarakoCMS.Comments` | A comment thread on any record |
 | `BarakoCMS.Import` | Bulk import |
 | `BarakoCMS.Pages` | Page tree, navigation and path resolution over a content type |
-| `BarakoCMS.Qr` | QR code PNG or SVG for one allowed field of a public entry |
-| `BarakoCMS.Payments` | Payment checkout and verified provider webhooks for an entry |
 | `BarakoCMS.Portability` | Export / import bundles |
-| `BarakoCMS.Pwa` | Install tracking |
-| `BarakoCMS.Notifications` | In-app notifications any module can raise |
-| `BarakoCMS.Tagging` | Vocabularies, nested terms and term assignments on any record |
 
 Every one is published under the `barakocms-module` tag, so one search on nuget.org returns them all.
 

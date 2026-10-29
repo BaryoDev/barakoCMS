@@ -17,29 +17,14 @@ public class ShippedMigrationTests
     private static readonly string[] ModuleOwned =
     [
         "4.2.0/stored-files-parent-index",
-        "4.2.0/forms-public-forms",
         "4.6.0/external-auth-identities",
-        "4.6.0/forms-email-verification",
-        "4.7.0/forms-tenant-policy-restore",
         "4.8.0/external-auth-used-nonces",
         "5.0.0/accounting-number-sequences",
         "5.0.0/pages-settings",
         "5.0.0/files-storage-settings",
         "5.1.0/915-external-auth-role-maps",
-        "5.2.0/booking-resources",
-        "5.2.0/payments-payable-types",
-        "5.2.0/payments-attempts",
-        "5.2.0/payments-events",
-        "5.2.0/report-definitions",
-        "5.2.0/scheduled-entries",
-        "5.2.0/253-comments",
-        "5.2.0/585-documents",
-        "5.2.0/contacts",
-        "5.2.0/notifications",
         "5.3.0/accounting-journal-lifecycle",
         "5.3.0/accounting-mappings",
-        "5.3.0/252-tagging",
-        "5.3.0/833-services",
         "5.5.0/915-external-auth-provider-settings",
     ];
 
@@ -54,7 +39,6 @@ public class ShippedMigrationTests
     private static readonly Dictionary<string, string> Released = new(StringComparer.Ordinal)
     {
         ["core/4.0.0/3.x-to-4.0"] = "d6beb5e32bb999d3cc080bcaba824bb1ce9b46ecc87d06232dd49564a69d232d",
-        ["Forms/4.2.0/forms-public-forms"] = "e009a277501a3651668df63a6e0ccb23b4e904f04e115ab0bd53324fbc7e92de",
         ["core/4.2.0/site-share-links"] = "9974c4ec184040c620a38d7a17836ee7dade898d3be612a9cabce36a58d18d54",
         ["Files/4.2.0/stored-files-parent-index"] = "b57a23197cbd344020625fae8df4c268d2c449639209e1d73b71ef37d2ff96be",
         ["core/4.2.0/user-normalized-identity"] = "9aa6abcce493754bff4c36277f391adb95b32c8892a848f5db47e53d9aaa923c",
@@ -66,10 +50,8 @@ public class ShippedMigrationTests
         ["core/4.6.0/sensitivity-by-capability"] = "6d3a18f101477fcd92164695340f1e3f243ab6e00a0a8afbd2aa6b275af7b068",
         ["core/4.6.0/tenant-profile-to-site"] = "5dbaa5114defc5fd920d4fd05864bd454cb72080b75019f950a1ad6f53e1e277",
         ["ExternalAuth/4.6.0/external-auth-identities"] = "b8d8179181f7263374edc337f97e00b92fcd988f25524f148d90c55efda6dc08",
-        ["Forms/4.6.0/forms-email-verification"] = "44e209551d9b71301fd29ef8e99cb56f64842cc18f31c724048399924bf1c4c0",
         ["core/4.7.0/membership-unique-user-tenant"] = "80f9d4e5fab5ab7b8053c47634fde7a3caabf6ed594f466949b4d2bb49e86303",
         ["core/4.7.0/tenant-policy-restore"] = "79195b3f5af298a2dc7fd457462f220da290046fdd15cb1dcc0988014d8d0758",
-        ["Forms/4.7.0/forms-tenant-policy-restore"] = "fed503d62bd158382f74db7dea413a15f1ccb4ee3df25a9efec469a450e0dae3",
         ["ExternalAuth/4.8.0/external-auth-used-nonces"] = "3c5a28d80e303db280fee5124aa24073666476fd22fd5254fae1c3d3b20c7f5f",
         ["core/4.9.0/gapless-numbering"] = "546a734ce315e86e89aa05de8ad598f40825343001a73a958f6265bdbab88b5d",
         ["core/4.9.0/stations"] = "24c899bb202fbcef6316181dc965947e243cafd89a5d4b16ee9aa704f9dbabe5",
@@ -89,7 +71,6 @@ public class ShippedMigrationTests
         ["core/5.1.0/workflow-run-workflow-index"] = "588062405fa26596a8472b717f804c18d29e6495c2a7d570b9533a825f2e7024",
         ["core/5.1.0/event-headers"] = "68c7dc43fcbeb9a2c3c02612cf1996a75be8bf0f0a80bd6537d03c9f98c3c05a",
         ["core/5.2.0/898-accounts"] = "78b8366a747bbaf8a33128d7a242366886211395d48c4d7c56b88816db6cf42e",
-        ["core/5.2.0/580-stock-reservations"] = "9ef9947628be0b15a2d13b58778a42ffb4d400daa2709dd3faede73960eda970",
         ["core/5.2.0/910-inbound-webhook-events"] = "96514e93595f69e06588ee266cb1d0376be8661898910a4bc27aef855225f710",
         ["core/5.2.0/action-link-uses"] = "5cb1eeda12dcc8fc801327f845e531c4c62285eae3ef3dcd6e50f89956341c5d",
         ["core/5.2.0/magic-link-tokens"] = "ab39ed40193ba3fed9de40089ee02496f012debaf11b9cad91abd9e4c7c03909",
@@ -101,34 +82,68 @@ public class ShippedMigrationTests
         ["core/5.3.0/98-locale-settings"] = "feb469f6ed7c50b4cbb368e1e3784b6551a68645e42d088d4802a4baabc0a77c",
         ["Accounting/5.3.0/accounting-journal-lifecycle"] = "9729574df1abebb11b7e8e5f27e826053f8abf4d22ac71b7379b9bf41f918d29",
         ["Accounting/5.3.0/accounting-mappings"] = "aa1c2f31888dd847149609343ba3e03b0a04f6aa6af17669f27d9d3143c3c1d5",
-        ["Booking/5.2.0/booking-resources"] = "01aab1064f0fbefb9c7580d06a486338d258c25c91feb633579ae81910fe0a5b",
-        ["Comments/5.2.0/253-comments"] = "6fa6040b649fb8de053d0a0562d0a4d9f67e6bb226484f2fa92cc279ba48375c",
-        ["Contacts/5.2.0/contacts"] = "2968c22f7a40931744606e374eaad261e7591eb7d6a9615119cb01a537f73abf",
-        ["Documents/5.2.0/585-documents"] = "803bc108e5819f96927eb90a4d312b6db8df1afbafca9b92a1890f8da2eb1ccb",
-        ["Notifications/5.2.0/notifications"] = "1b67a01b978c5a0ad72830510666f9753884bbc95d87b6d718acfb6d98724703",
-        ["Payments/5.2.0/payments-attempts"] = "8902981ecb6379ee7ab9b6abe2319fab9c437d8c98c03f5e75acea8308e11577",
-        ["Payments/5.2.0/payments-events"] = "861608b1ddb306ea7df2f7773ab09f944511dee6e5185e9902ace3864d410f20",
-        ["Payments/5.2.0/payments-payable-types"] = "9a858e1ac3deddf710beaac891c06e90506d0e4d9690bdc31ae232ab59afac72",
-        ["Reports/5.2.0/report-definitions"] = "ef0af931ee858f6b45c69fa330f0899881547aab3dcdc15c7b9765724eb0a4f1",
-        ["Scheduling/5.2.0/scheduled-entries"] = "5d53624df8efaf75dade91db2d193845524941866665ae9b39aab5b5f9a13249",
+    };
+
+    /// <summary>
+    /// The scripts of the modules removed in 5.5.0, kept under migrations/removed so an existing
+    /// database can still drop or roll back what they made. Core ships none of them, and none may be
+    /// edited: the release notes point operators at these files.
+    /// </summary>
+    private static readonly Dictionary<string, string> Removed = new(StringComparer.Ordinal)
+    {
+        ["4.2.0/forms-public-forms.sql"] = "e009a277501a3651668df63a6e0ccb23b4e904f04e115ab0bd53324fbc7e92de",
+        ["4.6.0/forms-email-verification.sql"] = "44e209551d9b71301fd29ef8e99cb56f64842cc18f31c724048399924bf1c4c0",
+        ["4.6.0/rollback-forms-email-verification.sql"] = "050c75b40cb67f74a419ae1791408b8a5ca8d9b3254cb7e45a746e13f955019e",
+        ["4.7.0/forms-tenant-policy-restore.sql"] = "fed503d62bd158382f74db7dea413a15f1ccb4ee3df25a9efec469a450e0dae3",
+        ["4.7.0/rollback-forms-tenant-policy-restore.sql"] = "def5dbb35b0a8214f93e6463a2f42b5a3a747efe43de307030a60498dcf963f1",
+        ["5.2.0/253-comments.sql"] = "6fa6040b649fb8de053d0a0562d0a4d9f67e6bb226484f2fa92cc279ba48375c",
+        ["5.2.0/580-stock-reservations.sql"] = "9ef9947628be0b15a2d13b58778a42ffb4d400daa2709dd3faede73960eda970",
+        ["5.2.0/585-documents.sql"] = "803bc108e5819f96927eb90a4d312b6db8df1afbafca9b92a1890f8da2eb1ccb",
+        ["5.2.0/booking-resources.sql"] = "01aab1064f0fbefb9c7580d06a486338d258c25c91feb633579ae81910fe0a5b",
+        ["5.2.0/contacts.sql"] = "2968c22f7a40931744606e374eaad261e7591eb7d6a9615119cb01a537f73abf",
+        ["5.2.0/notifications.sql"] = "1b67a01b978c5a0ad72830510666f9753884bbc95d87b6d718acfb6d98724703",
+        ["5.2.0/payments-attempts.sql"] = "8902981ecb6379ee7ab9b6abe2319fab9c437d8c98c03f5e75acea8308e11577",
+        ["5.2.0/payments-events.sql"] = "861608b1ddb306ea7df2f7773ab09f944511dee6e5185e9902ace3864d410f20",
+        ["5.2.0/payments-payable-types.sql"] = "9a858e1ac3deddf710beaac891c06e90506d0e4d9690bdc31ae232ab59afac72",
+        ["5.2.0/report-definitions.sql"] = "ef0af931ee858f6b45c69fa330f0899881547aab3dcdc15c7b9765724eb0a4f1",
+        ["5.2.0/rollback-253-comments.sql"] = "3f7ecc86dd65ecdfb0fc5e103d4ab56ff2260466b04ec166094617d47549498e",
+        ["5.2.0/rollback-580-stock-reservations.sql"] = "70317766d8e763b22d2f56e5d5afb02749b3fe937a5dfbb979fa433b0f901c22",
+        ["5.2.0/rollback-585-documents.sql"] = "0ff0749fb4a30403a516fc7e58cc8fd215bae0d33708fb211e5be0a9945c901d",
+        ["5.2.0/rollback-booking-resources.sql"] = "fe4fa4c8ac2c925e9f942de9c577a0c1abf8b513804dcd83cf022e731bec9d63",
+        ["5.2.0/rollback-contacts.sql"] = "0efe6a62bce2cd9ef51fb1fd983452fa126fe332b1daaf53d5ff55341c94afc6",
+        ["5.2.0/rollback-notifications.sql"] = "d4ee29f08fa7998af349b11e93fffbbc6820b034cd62977a45340e55cf9c5545",
+        ["5.2.0/rollback-payments-attempts.sql"] = "13b142333a97a5d175dcc69fb82ee09221603c545228b2bff12d039792168973",
+        ["5.2.0/rollback-payments-events.sql"] = "477bf61455c7cdc81e423f3d3cf1d9722745d93fcf807870dfdcfccd388fcded",
+        ["5.2.0/rollback-payments-payable-types.sql"] = "b550b1849c48034b87fef5c741e90e8a081fa11eec6207281c1b58484241517a",
+        ["5.2.0/rollback-report-definitions.sql"] = "c84728e74ca1e0566e0534c73b6d2fc8676cbd5f893097406b65bb421c0fbd3d",
+        ["5.2.0/rollback-scheduled-entries.sql"] = "594617d3fa337c980af816bbf79a4b2d4e4ddbd4f91cd2ae0423b438109199fc",
+        ["5.2.0/scheduled-entries.sql"] = "5d53624df8efaf75dade91db2d193845524941866665ae9b39aab5b5f9a13249",
+        ["5.3.0/252-tagging.sql"] = "bf0bb73ee9191fe00ebfc54d302cb9867fe589a934d0bf6e8d78add6323999fc",
+        ["5.3.0/833-services.sql"] = "763e0ea446188d93a8b0876c49665eb67f76e5fa729afe4dda7bc31001171411",
+        ["5.3.0/rollback-252-tagging.sql"] = "604056f74deaaa0fd488a6ec4ed17ea0032712c9ba960e83e9ee60b99037d986",
+        ["5.3.0/rollback-833-services.sql"] = "b5995cf3a2485eb5a7990dda41d5533f2173a036b860938d1baea9a1aa0311d9",
+        ["drop/booking.sql"] = "a9cd0efce521969233bdc176b2b2a27274e5113269040347e120954c36dae010",
+        ["drop/comments.sql"] = "c27fd1f3700850f04c96a3b8848308997cac15bdcd91b7ea798395eda10585a6",
+        ["drop/contacts.sql"] = "3fed4b0a6add8b80d10a72344bea0568440ebeaad26c54f310e157a09ef7f8e3",
+        ["drop/devicetrust.sql"] = "0235015ec8f4f640b8d1e18355a308d02c52265a1b0a408c88797f798eca597c",
+        ["drop/documents.sql"] = "a14640c8476ac3974f882228a7562b4eacdd0ff4bc4e43ef2ed4f28ed1750819",
+        ["drop/forms.sql"] = "a3d9fce09195ee9cac85711b4518c3c0df32a0713e7567c02ad05d08fffefc94",
+        ["drop/notifications.sql"] = "0bbb65d3076119521a8a86fa45e8e8728abc2ecd5d9b02cf99bbf0d56df5003b",
+        ["drop/payments.sql"] = "7827b31173d624e023cdf2518dcee253391c77ac6317dc4eebcf32784a96ef40",
+        ["drop/pwa.sql"] = "98dbd7ca252ce6a2f0d27b08c0f14f45b7beeaa09d7e9ef89a0bb41c00046490",
+        ["drop/reports.sql"] = "268411eba4926423ee98063071ebed3b2000cd40b0105b44f9807c5839ec69b1",
+        ["drop/scheduling.sql"] = "6bcb9aba3dc320278f0335018edb5fe6ba1822098f9f5339f0f234575f1b2585",
+        ["drop/services.sql"] = "5eef2defad19026ee523f5da79c144e0d56c579b8d3d86b3afeac8e04d37edad",
+        ["drop/tagging.sql"] = "48dc5f8bc74d2ae2a81ee7e232578f7a79828a46cdea290fa8e1277ae1a797f8",
     };
 
     private static IReadOnlyList<ShippedMigration> FirstParty() =>
         ShippedMigrations.Discover(
         [
-            new BarakoCMS.Forms.FormsModule(),
             new BarakoCMS.Files.FilesModule(),
             new BarakoCMS.ExternalAuth.ExternalAuthModule(),
             new BarakoCMS.Accounting.AccountingModule(),
             new BarakoCMS.Pages.PagesModule(),
-            new BarakoCMS.Comments.CommentsModule(),
-            new BarakoCMS.Contacts.ContactsModule(),
-            new BarakoCMS.Notifications.NotificationsModule(),
-            new BarakoCMS.Booking.BookingModule(),
-            new BarakoCMS.Payments.PaymentsModule(),
-            new BarakoCMS.Reports.ReportsModule(),
-            new BarakoCMS.Scheduling.SchedulingModule(),
-            new BarakoCMS.Documents.DocumentsModule(),
         ]);
 
     private sealed class SecondOwnerOfTheFilesAssembly : IBarakoModule
@@ -150,6 +165,7 @@ public class ShippedMigrationTests
         var onDisk = Directory.GetFiles(root, "*.sql", SearchOption.AllDirectories)
             .Select(path => Path.GetRelativePath(root, path).Replace('\\', '/'))
             .Where(path => !path.StartsWith("tenancy/", StringComparison.Ordinal))
+            .Where(path => !path.StartsWith("removed/", StringComparison.Ordinal))
             .Where(path => !Path.GetFileName(path).StartsWith("rollback-", StringComparison.Ordinal))
             .Select(path => path[..^".sql".Length])
             .Except(ModuleOwned)
@@ -167,26 +183,39 @@ public class ShippedMigrationTests
         shipped.Should().NotContain(id => id.Contains("rollback"), "db-migrate never runs a rollback");
     }
 
+    /// <summary>
+    /// The scripts under migrations/removed are what the 5.5.0 release notes tell an operator to
+    /// run. Core ships none of them, and each is pinned so a later edit is a decision.
+    /// </summary>
+    [Fact]
+    public void The_removed_module_scripts_are_not_shipped_and_are_unchanged()
+    {
+        var root = Path.Combine(RepositoryRoot(), "migrations", "removed");
+        var onDisk = Directory.GetFiles(root, "*.sql", SearchOption.AllDirectories)
+            .ToDictionary(
+                path => Path.GetRelativePath(root, path).Replace('\\', '/'),
+                path => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                    System.Text.Encoding.UTF8.GetBytes(File.ReadAllText(path).Replace("\r\n", "\n").Replace('\r', '\n'))))
+                    .ToLowerInvariant());
+
+        onDisk.Keys.OrderBy(k => k, StringComparer.Ordinal).Should().Equal(Removed.Keys.OrderBy(k => k, StringComparer.Ordinal));
+        foreach (var (key, checksum) in Removed)
+            onDisk[key].Should().Be(checksum, $"{key} was edited after it was released");
+
+        ShippedMigrations.FromAssembly(ShippedMigrations.CoreOwner, Core)
+            .Select(m => m.Id)
+            .Should().NotContain(id => id.Contains("removed"), "core does not run the scripts of a removed module");
+    }
+
     [Fact]
     public void A_module_migration_ships_in_the_module_and_is_owned_by_it()
     {
         IBarakoModule[] modules =
         [
-            new BarakoCMS.Forms.FormsModule(),
             new BarakoCMS.Files.FilesModule(),
             new BarakoCMS.ExternalAuth.ExternalAuthModule(),
             new BarakoCMS.Accounting.AccountingModule(),
             new BarakoCMS.Pages.PagesModule(),
-            new BarakoCMS.Booking.BookingModule(),
-            new BarakoCMS.Payments.PaymentsModule(),
-            new BarakoCMS.Reports.ReportsModule(),
-            new BarakoCMS.Scheduling.SchedulingModule(),
-            new BarakoCMS.Comments.CommentsModule(),
-            new BarakoCMS.Contacts.ContactsModule(),
-            new BarakoCMS.Notifications.NotificationsModule(),
-            new BarakoCMS.Documents.DocumentsModule(),
-            new BarakoCMS.Tagging.TaggingModule(),
-            new BarakoCMS.Services.ServicesModule(),
         ];
 
         var all = ShippedMigrations.Discover(modules);
@@ -197,28 +226,13 @@ public class ShippedMigrationTests
             "Accounting/5.0.0/accounting-number-sequences",
             "Accounting/5.3.0/accounting-journal-lifecycle",
             "Accounting/5.3.0/accounting-mappings",
-            "Booking/5.2.0/booking-resources",
-            "Comments/5.2.0/253-comments",
-            "Contacts/5.2.0/contacts",
-            "Documents/5.2.0/585-documents",
             "ExternalAuth/4.6.0/external-auth-identities",
             "ExternalAuth/4.8.0/external-auth-used-nonces",
             "ExternalAuth/5.1.0/915-external-auth-role-maps",
             "ExternalAuth/5.5.0/915-external-auth-provider-settings",
             "Files/4.2.0/stored-files-parent-index",
             "Files/5.0.0/files-storage-settings",
-            "Forms/4.2.0/forms-public-forms",
-            "Forms/4.6.0/forms-email-verification",
-            "Forms/4.7.0/forms-tenant-policy-restore",
-            "Notifications/5.2.0/notifications",
-            "Pages/5.0.0/pages-settings",
-            "Payments/5.2.0/payments-attempts",
-            "Payments/5.2.0/payments-events",
-            "Payments/5.2.0/payments-payable-types",
-            "Reports/5.2.0/report-definitions",
-            "Scheduling/5.2.0/scheduled-entries",
-            "Services/5.3.0/833-services",
-            "Tagging/5.3.0/252-tagging");
+            "Pages/5.0.0/pages-settings");
         coreOnly.Count.Should().BeGreaterThanOrEqualTo(7, "seven core files were released before the ledger");
         coreOnly.Should().HaveCount(all.Count - owned.Count, "a module that is not enabled contributes nothing");
         coreOnly.Should().OnlyContain(m => m.Owner == ShippedMigrations.CoreOwner);
@@ -255,11 +269,11 @@ public class ShippedMigrationTests
     public void Every_file_released_before_the_ledger_says_when_to_skip_it()
     {
         var preLedger = ShippedMigrations
-            .Discover([new BarakoCMS.Forms.FormsModule(), new BarakoCMS.Files.FilesModule()])
+            .Discover([new BarakoCMS.Files.FilesModule()])
             .Where(m => Version.Parse(m.Version) < new Version(4, 6, 0))
             .ToList();
 
-        preLedger.Should().HaveCount(9);
+        preLedger.Should().HaveCount(8);
         preLedger.Should().OnlyContain(m => m.SkipWhen != null);
         preLedger.Where(m => !m.Transactional).Select(m => m.Key).Should().Equal(
             new[] { "Files/4.2.0/stored-files-parent-index" },

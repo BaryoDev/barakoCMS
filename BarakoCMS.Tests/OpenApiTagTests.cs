@@ -185,7 +185,7 @@ public class OpenApiTagTests
     [InlineData("barakoCMS.Features.ContentType.SetPublicDelivery", "ContentType")]
     [InlineData("barakoCMS.Features.Public", "Public")]
     [InlineData("BarakoCMS.Accounting.Features.Reports", "Accounting")]
-    [InlineData("BarakoCMS.Analytics.Umami.Features", "Analytics.Umami")]
+    [InlineData("BarakoCMS.Files.S3", "Files.S3")]
     [InlineData("BarakoCMS.Files.Features.Upload", "Files")]
     [InlineData("BarakoCMS.AI.Features", "AI")]
     [InlineData("BarakoCMS.ExternalAuth", "ExternalAuth")]

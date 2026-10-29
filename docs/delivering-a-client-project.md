@@ -793,8 +793,7 @@ webhook deliveries (#95), the event stream (#96), image variants (#100) and form
 have all shipped since this list was written. See [seo-fields.md](seo-fields.md),
 [url-redirects.md](url-redirects.md), [blueprints.md](blueprints.md), [webhooks.md](webhooks.md),
 [delivery-api.md](delivery-api.md), [image-variants.md](image-variants.md) and the
-[BarakoCMS.Forms README](../BarakoCMS.Forms/README.md): a contact form is a content type marked as a
-form, and `POST /api/public/forms/{slug}` stores each submission as a draft entry of it.
+[BarakoCMS.Files README](../BarakoCMS.Files/README.md).
 
 - **No starter frontend templates** (#188). `examples/blog-starter` is a worked example, not a
   template you clone.
