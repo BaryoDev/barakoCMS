@@ -99,10 +99,10 @@ public class PagesBlockSchemaTests
             { "version": 1, "blocks": [ {
               "type": "pricing", "label": "Pricing table", "perViewer": true,
               "fields": [
+                { "name": "columns", "kind": "slots", "label": "Columns", "required": false, "min": 1, "max": 3 },
                 { "name": "heading", "kind": "markdown", "label": "Title", "required": true },
-                { "name": "tone", "kind": "select", "label": "Tone", "required": false, "options": ["page", "accent"] },
                 { "name": "seats", "kind": "number", "label": "Seats", "required": false, "min": 1, "max": 50 },
-                { "name": "columns", "kind": "slots", "label": "Columns", "required": false, "min": 1, "max": 3 }
+                { "name": "tone", "kind": "select", "label": "Tone", "required": false, "options": ["page", "accent"] }
               ] } ] }
             """).RootElement;
         JsonSerializer.Serialize(served).Should().Be(JsonSerializer.Serialize(expected));
@@ -134,7 +134,7 @@ public class PagesBlockSchemaTests
         block.GetProperty("label").GetString().Should().Be("Hero banner");
         block.GetProperty("perViewer").GetBoolean().Should().BeFalse();
         var fields = block.GetProperty("fields").EnumerateArray().ToDictionary(f => f.GetProperty("name").GetString()!);
-        fields.Keys.Should().Equal("heading", "link", "tone", "maxItems", "showTitle", "extra");
+        fields.Keys.Should().Equal("extra", "heading", "link", "maxItems", "showTitle", "tone");
         fields["heading"].GetProperty("kind").GetString().Should().Be("text");
         fields["heading"].GetProperty("label").GetString().Should().Be("Heading");
         fields["heading"].GetProperty("required").GetBoolean().Should().BeTrue();

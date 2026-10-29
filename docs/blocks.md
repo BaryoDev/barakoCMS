@@ -79,8 +79,8 @@ from defaults when a hint is absent:
 | field `required` | none | the name is in the block's `required` list |
 
 Hints are checked when the schema is registered (a label is 1 to 100 characters) and never change
-whether a block is valid. Blocks are served ordered by name, fields in the order the schema declares
-them.
+whether a block is valid. Blocks and fields are both served ordered by name, since the stored schema keeps no declaration
+order.
 
 ## Presets and bindings
 

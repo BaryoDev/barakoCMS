@@ -57,7 +57,7 @@ internal sealed class Endpoint(IQuerySession session) : EndpointWithoutRequest<B
 /// <c>maximum</c> of a number, and <c>minItems</c> and <c>maxItems</c> of slots.</item>
 /// <item><c>required</c> is membership in the schema's <c>required</c> list.</item>
 /// </list>
-/// Blocks are ordered by type, fields in the order the schema declares them.
+/// Blocks are ordered by type and fields by name, because the stored schema keeps no declaration order.
 /// </summary>
 internal static class BlockSchemaTranslation
 {
@@ -80,7 +80,9 @@ internal static class BlockSchemaTranslation
         var fields = new List<BlockFieldItem>();
         if (schema.TryGetProperty("properties", out var properties) && properties.ValueKind == JsonValueKind.Object)
         {
+            // Ordered by name: the schema is stored as jsonb, which keeps no declaration order.
             fields.AddRange(properties.EnumerateObject()
+                .OrderBy(p => p.Name, StringComparer.Ordinal)
                 .Select(p => Field(p.Name, p.Value, required.Contains(p.Name))));
         }
 
