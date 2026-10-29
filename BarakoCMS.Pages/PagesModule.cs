@@ -48,7 +48,7 @@ public sealed class PagesModule : IBarakoModule
         services.AddScoped<IContentLifecycleHook, PageTreeHook>();
 
         // Every IBlockDataSource a module registered, checked once at start.
-        services.AddSingleton<BlockDataSources>();
+        Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton<BlockDataSources>(services);
         services.AddHostedService<BlockDataSourcesCheck>();
     }
 

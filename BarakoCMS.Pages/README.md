@@ -98,6 +98,7 @@ refuses any slug another entry of the type holds.
 | `GET /api/public/pages/navigation` | Nested, ordered menu of published pages flagged for navigation | Anonymous |
 | `GET /api/public/pages/resolve?path=/about/team` | The page at a path, with breadcrumbs; 404 on a miss | Anonymous |
 | `GET /api/pages/tree` | Every page the caller may read, drafts included, for the console | Signed in, content read permission |
+| `GET /api/pages/block-schema` | The tenant's block schema as `{ version, blocks }`, for an editor; see `docs/blocks.md` | Signed in |
 | `GET /api/pages/data-sources` | The read-only data sources modules registered for page blocks | Signed in, per source capability |
 
 The two anonymous endpoints serve only what `GET /api/public/{type}/{slug}` would: published,

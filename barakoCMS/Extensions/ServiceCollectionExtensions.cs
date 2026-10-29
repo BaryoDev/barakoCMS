@@ -1580,6 +1580,7 @@ public static class ServiceCollectionExtensions
 
         // Published entries, the first data source a page block can bind to (#1257).
         services.AddSingleton<barakoCMS.Core.Interfaces.IBlockDataSource, barakoCMS.Features.Blocks.EntriesDataSource>();
+        services.AddSingleton<barakoCMS.Core.Interfaces.BlockDataSources>();
         services.AddSingleton(sp => new barakoCMS.Infrastructure.Realtime.TopicRegistry(sp.GetServices<IBarakoModule>()));
         services.AddSingleton(sp => new barakoCMS.Infrastructure.Realtime.ContentTopicCatalog(
             () => sp.GetRequiredService<IDocumentStore>()));

@@ -33,9 +33,10 @@ internal static class BlockFields
     /// <remarks>
     /// <c>preset</c> is the id of the <see cref="BlockPreset"/> a block was made from, kept for the
     /// console. <c>binding</c> is the id of the <see cref="BlockBinding"/> whose entries page resolve
-    /// returns beside the block. Both are ids or absent.
+    /// returns beside the block. Both are ids or absent. <c>dataSource</c> is the id of a data source a
+    /// module registered (<see cref="barakoCMS.Core.Interfaces.IBlockDataSource"/>), or absent.
     /// </remarks>
-    public static IReadOnlyList<string> Envelope { get; } = ["type", "id", "preset", "binding"];
+    public static IReadOnlyList<string> Envelope { get; } = ["type", "id", "preset", "binding", "dataSource"];
 
     private static readonly Regex BlockName = new(@"^[A-Za-z][A-Za-z0-9_-]{0,63}$", RegexOptions.Compiled);
 
@@ -84,16 +85,97 @@ internal static class BlockFields
             }
             else
             {
-                errors.AddRange(JsonFieldSchemas.SchemaErrors(schema).Select(e => $"Block '{name}' schema {e}"));
+                var hintErrors = HintErrors(name, schema);
+                errors.AddRange(hintErrors);
+                if (hintErrors.Count == 0)
+                {
+                    errors.AddRange(JsonFieldSchemas.SchemaErrors(WithoutHints(schema)).Select(e => $"Block '{name}' schema {e}"));
+                }
             }
         }
 
         return errors;
     }
 
+    /// <summary>What is wrong with the <c>x-</c> hints on a block's schema and its properties.</summary>
+    private static List<string> HintErrors(string block, JsonElement schema)
+    {
+        var errors = new List<string>();
+        CheckHints(schema, $"Block '{block}'", blockLevel: true, errors);
+        if (schema.TryGetProperty("properties", out var properties) && properties.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in properties.EnumerateObject().Where(p => p.Value.ValueKind == JsonValueKind.Object))
+            {
+                CheckHints(property.Value, $"Block '{block}' property '{property.Name}'", blockLevel: false, errors);
+            }
+        }
+
+        return errors;
+    }
+
+    private static void CheckHints(JsonElement schema, string at, bool blockLevel, List<string> errors)
+    {
+        if (schema.TryGetProperty(BlockSchemaHints.Label, out var label)
+            && !(label.ValueKind == JsonValueKind.String && label.GetString()!.Trim().Length is > 0 and <= BlockSchemaHints.MaxLabelLength))
+        {
+            errors.Add($"{at} has an {BlockSchemaHints.Label} that is not text of 1 to {BlockSchemaHints.MaxLabelLength} characters.");
+        }
+
+        if (blockLevel)
+        {
+            if (schema.TryGetProperty(BlockSchemaHints.PerViewer, out var perViewer)
+                && perViewer.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            {
+                errors.Add($"{at} has an {BlockSchemaHints.PerViewer} that is not true or false.");
+            }
+
+            if (schema.TryGetProperty(BlockSchemaHints.Kind, out _))
+            {
+                errors.Add($"{at} has an {BlockSchemaHints.Kind}, which belongs on a property.");
+            }
+        }
+        else
+        {
+            if (schema.TryGetProperty(BlockSchemaHints.Kind, out var kind)
+                && !(kind.ValueKind == JsonValueKind.String && BlockSchemaHints.Kinds.Contains(kind.GetString()!)))
+            {
+                errors.Add($"{at} has an {BlockSchemaHints.Kind} that is not one of {string.Join(", ", BlockSchemaHints.Kinds)}.");
+            }
+
+            if (schema.TryGetProperty(BlockSchemaHints.PerViewer, out _))
+            {
+                errors.Add($"{at} has an {BlockSchemaHints.PerViewer}, which belongs on the block.");
+            }
+        }
+    }
+
+    /// <summary>The schema without the hints, since they are not JSON Schema keywords.</summary>
+    private static JsonElement WithoutHints(JsonElement schema)
+    {
+        var node = System.Text.Json.Nodes.JsonNode.Parse(schema.GetRawText())!.AsObject();
+        Strip(node);
+        if (node["properties"] is System.Text.Json.Nodes.JsonObject properties)
+        {
+            foreach (var property in properties.Select(p => p.Value).OfType<System.Text.Json.Nodes.JsonObject>())
+            {
+                Strip(property);
+            }
+        }
+
+        return JsonSerializer.SerializeToElement(node);
+
+        static void Strip(System.Text.Json.Nodes.JsonObject o)
+        {
+            o.Remove(BlockSchemaHints.Label);
+            o.Remove(BlockSchemaHints.Kind);
+            o.Remove(BlockSchemaHints.PerViewer);
+        }
+    }
+
     /// <summary>What is wrong with a value written to a <c>blocks</c> field, against the tenant's schema.</summary>
     public static async Task<IEnumerable<string>> ValueErrorsAsync(
-        IQuerySession session, FieldDefinition field, object value, Content? existing)
+        IQuerySession session, FieldDefinition field, object value, Content? existing,
+        barakoCMS.Core.Interfaces.BlockDataSources? dataSources = null)
     {
         var element = value is JsonElement je ? je : JsonSerializer.SerializeToElement(value);
         if (element.GetArrayLength() > MaxBlocks)
@@ -106,16 +188,13 @@ internal static class BlockFields
             return [];
         }
 
-        if (await session.LoadAsync<BlockSchema>(BlockSchema.RowId) is not { Blocks.Count: > 0 } schema)
-        {
-            return [];
-        }
+        var schema = await session.LoadAsync<BlockSchema>(BlockSchema.RowId) is { Blocks.Count: > 0 } stored ? stored : null;
 
         var errors = new List<string>();
         var index = 0;
         foreach (var block in element.EnumerateArray())
         {
-            errors.AddRange(BlockErrors(schema, block, $"{field.Name}[{index++}]"));
+            errors.AddRange(BlockErrors(schema, dataSources, block, $"{field.Name}[{index++}]"));
             if (errors.Count >= 5)
             {
                 break;
@@ -135,7 +214,8 @@ internal static class BlockFields
             ? PropsErrors(schema, type, props, at).ToList()
             : [];
 
-    private static IEnumerable<string> BlockErrors(BlockSchema schema, JsonElement block, string at)
+    private static IEnumerable<string> BlockErrors(
+        BlockSchema? schema, barakoCMS.Core.Interfaces.BlockDataSources? dataSources, JsonElement block, string at)
     {
         var badIds = new[] { "preset", "binding" }
             .Where(key => block.TryGetProperty(key, out var v)
@@ -143,7 +223,24 @@ internal static class BlockFields
             .Select(key => $"{at}.{key} is the id of a {key}.")
             .ToList();
 
-        return badIds.Count > 0 ? badIds : PropsErrors(schema, block.GetProperty("type").GetString()!, Properties(block), at);
+        if (block.TryGetProperty("dataSource", out var source))
+        {
+            if (source.ValueKind != JsonValueKind.String)
+            {
+                badIds.Add($"{at}.dataSource is the id of a data source.");
+            }
+            else if (dataSources?.Contains(source.GetString()!) != true)
+            {
+                badIds.Add($"{at}.dataSource '{source.GetString()}' is not a registered data source.");
+            }
+        }
+
+        if (badIds.Count > 0 || schema is null)
+        {
+            return badIds;
+        }
+
+        return PropsErrors(schema, block.GetProperty("type").GetString()!, Properties(block), at);
     }
 
     private static IEnumerable<string> PropsErrors(BlockSchema schema, string type, JsonElement props, string at)
