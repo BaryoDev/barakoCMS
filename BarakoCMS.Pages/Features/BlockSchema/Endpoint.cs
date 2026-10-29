@@ -57,7 +57,9 @@ internal sealed class Endpoint(IQuerySession session) : EndpointWithoutRequest<B
 /// <c>maximum</c> of a number, and <c>minItems</c> and <c>maxItems</c> of slots.</item>
 /// <item><c>required</c> is membership in the schema's <c>required</c> list.</item>
 /// </list>
-/// Blocks are ordered by type and fields by name, because the stored schema keeps no declaration order.
+/// Blocks are ordered by type. Fields are ordered by <c>x-order</c> ascending, fields without one after
+/// those with one, ties by name (ordinal), because the stored schema keeps no declaration order. A
+/// non-integer <c>x-order</c> counts as none. <c>x-order</c> itself is not served.
 /// </summary>
 internal static class BlockSchemaTranslation
 {
@@ -80,9 +82,10 @@ internal static class BlockSchemaTranslation
         var fields = new List<BlockFieldItem>();
         if (schema.TryGetProperty("properties", out var properties) && properties.ValueKind == JsonValueKind.Object)
         {
-            // Ordered by name: the schema is stored as jsonb, which keeps no declaration order.
+            // The schema is stored as jsonb, which keeps no declaration order, so order comes from x-order.
             fields.AddRange(properties.EnumerateObject()
-                .OrderBy(p => p.Name, StringComparer.Ordinal)
+                .OrderBy(p => Order(p.Value) ?? int.MaxValue)
+                .ThenBy(p => p.Name, StringComparer.Ordinal)
                 .Select(p => Field(p.Name, p.Value, required.Contains(p.Name))));
         }
 
@@ -149,6 +152,11 @@ internal static class BlockSchemaTranslation
             _ => null,
         };
     }
+
+    /// <summary>The field's <c>x-order</c>, or null when it has none or it is not a whole number.</summary>
+    private static int? Order(JsonElement schema) =>
+        schema.TryGetProperty(BlockSchemaHints.Order, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n)
+            ? n : null;
 
     private static double? Number(JsonElement schema, string keyword) =>
         schema.TryGetProperty(keyword, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : null;

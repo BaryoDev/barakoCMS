@@ -20,6 +20,12 @@ public static class BlockSchemaHints
     /// <summary>True when the block shows something that depends on who is looking.</summary>
     public const string PerViewer = "x-perViewer";
 
+    /// <summary>
+    /// Where a field sits among its block's fields, a whole number on a property. Lower comes first,
+    /// fields without one come last, ties go by name. It orders the served fields and is not served itself.
+    /// </summary>
+    public const string Order = "x-order";
+
     public const int MaxLabelLength = 100;
 
     public static IReadOnlyList<string> Kinds { get; } =

@@ -133,6 +133,11 @@ internal static class BlockFields
             {
                 errors.Add($"{at} has an {BlockSchemaHints.Kind}, which belongs on a property.");
             }
+
+            if (schema.TryGetProperty(BlockSchemaHints.Order, out _))
+            {
+                errors.Add($"{at} has an {BlockSchemaHints.Order}, which belongs on a property.");
+            }
         }
         else
         {
@@ -145,6 +150,12 @@ internal static class BlockFields
             if (schema.TryGetProperty(BlockSchemaHints.PerViewer, out _))
             {
                 errors.Add($"{at} has an {BlockSchemaHints.PerViewer}, which belongs on the block.");
+            }
+
+            if (schema.TryGetProperty(BlockSchemaHints.Order, out var order)
+                && !(order.ValueKind == JsonValueKind.Number && order.TryGetInt32(out _)))
+            {
+                errors.Add($"{at} has an {BlockSchemaHints.Order} that is not a whole number.");
             }
         }
     }
@@ -169,6 +180,7 @@ internal static class BlockFields
             o.Remove(BlockSchemaHints.Label);
             o.Remove(BlockSchemaHints.Kind);
             o.Remove(BlockSchemaHints.PerViewer);
+            o.Remove(BlockSchemaHints.Order);
         }
     }
 

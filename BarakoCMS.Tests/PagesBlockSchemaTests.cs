@@ -108,6 +108,69 @@ public class PagesBlockSchemaTests
         JsonSerializer.Serialize(served).Should().Be(JsonSerializer.Serialize(expected));
     }
 
+    private static async Task<string[]> FieldOrderAsync(HttpClient admin, string properties)
+    {
+        await RegisterAsync(admin, $$"""{ "b": { "type": "object", "properties": {{properties}} } }""");
+        return Block(await ServedAsync(admin), "b").GetProperty("fields").EnumerateArray()
+            .Select(f => f.GetProperty("name").GetString()!).ToArray();
+    }
+
+    [Fact]
+    public async Task A_declared_x_order_wins_over_name_order()
+    {
+        var (_, admin) = await TenantAsync();
+
+        var names = await FieldOrderAsync(admin, """
+            { "alpha": { "type": "string", "x-order": 3 },
+              "beta": { "type": "string", "x-order": 1 },
+              "gamma": { "type": "string", "x-order": 2 } }
+            """);
+
+        names.Should().Equal("beta", "gamma", "alpha");
+    }
+
+    [Fact]
+    public async Task Fields_without_an_x_order_come_last_sorted_by_name()
+    {
+        var (_, admin) = await TenantAsync();
+
+        var names = await FieldOrderAsync(admin, """
+            { "apple": { "type": "string" },
+              "zebra": { "type": "string", "x-order": 1 },
+              "mango": { "type": "string" },
+              "kiwi": { "type": "string", "x-order": 0 } }
+            """);
+
+        names.Should().Equal("kiwi", "zebra", "apple", "mango");
+    }
+
+    [Fact]
+    public async Task Equal_x_orders_fall_back_to_name()
+    {
+        var (_, admin) = await TenantAsync();
+
+        var names = await FieldOrderAsync(admin, """
+            { "delta": { "type": "string", "x-order": 5 },
+              "bravo": { "type": "string", "x-order": 5 },
+              "charlie": { "type": "string", "x-order": 5 },
+              "alpha": { "type": "string", "x-order": 9 } }
+            """);
+
+        names.Should().Equal("bravo", "charlie", "delta", "alpha");
+    }
+
+    [Fact]
+    public async Task An_x_order_is_not_served()
+    {
+        var (_, admin) = await TenantAsync();
+        await RegisterAsync(admin, """{ "b": { "type": "object", "properties": { "p": { "type": "string", "x-order": 1 } } } }""");
+
+        var field = Block(await ServedAsync(admin), "b").GetProperty("fields")[0];
+
+        field.TryGetProperty("x-order", out _).Should().BeFalse();
+        field.TryGetProperty("order", out _).Should().BeFalse();
+    }
+
     [Fact]
     public async Task An_unhinted_schema_gets_the_defaults()
     {
@@ -165,6 +228,9 @@ public class PagesBlockSchemaTests
     [InlineData("""{ "b": { "type": "object", "x-label": "" } }""", "x-label")]
     [InlineData("""{ "b": { "type": "object", "x-perViewer": "yes" } }""", "x-perViewer")]
     [InlineData("""{ "b": { "type": "object", "properties": { "p": { "type": "string", "x-kind": "dial" } } } }""", "x-kind")]
+    [InlineData("""{ "b": { "type": "object", "properties": { "p": { "type": "string", "x-order": 1.5 } } } }""", "x-order")]
+    [InlineData("""{ "b": { "type": "object", "properties": { "p": { "type": "string", "x-order": "1" } } } }""", "x-order")]
+    [InlineData("""{ "b": { "type": "object", "x-order": 1 } }""", "x-order")]
     [InlineData("""{ "b": { "type": "object", "x-other": 1 } }""", "x-other")]
     public async Task A_bad_hint_is_refused_naming_it(string blocks, string expected)
     {

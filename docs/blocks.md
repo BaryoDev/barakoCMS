@@ -74,13 +74,15 @@ from defaults when a hint is absent:
 | `perViewer` | `x-perViewer` on the block (`true` or `false`) | `false` |
 | field `label` | `x-label` on the property | the property name, the same way |
 | field `kind` | `x-kind` on the property: `text`, `markdown`, `url`, `number`, `boolean`, `select` or `slots` | `select` for a string `enum`, `url` for a string with format `uri`, `url` or `uri-reference`, `text` for another string, `number` for `number` or `integer`, `boolean`, `slots` for an array of arrays, else `text` |
+| field order | `x-order` on the property, a whole number, lower first | after every field that has one, by name |
 | field `options` | none | the values of a string `enum`, for a `select` |
 | field `min`, `max` | none | `minimum` and `maximum` of a number, `minItems` and `maxItems` of slots |
 | field `required` | none | the name is in the block's `required` list |
 
 Hints are checked when the schema is registered (a label is 1 to 100 characters) and never change
-whether a block is valid. Blocks and fields are both served ordered by name, since the stored schema keeps no declaration
-order.
+whether a block is valid. Blocks are served ordered by name. Fields are served by `x-order` ascending, then fields without one, ties by name,
+since the stored schema keeps no declaration order. `x-order` is not served. A non-integer `x-order` is refused when the
+schema is registered, and counts as none if one is stored anyway.
 
 ## Presets and bindings
 
