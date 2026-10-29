@@ -91,7 +91,7 @@ public sealed class EnabledModuleEndpointTests(EnabledModuleEndpointTests.Host h
     [Fact]
     public async Task An_enabled_module_answers()
     {
-        var userId = await SeedUserAsync();
+        var userId = await SeedUserAsync(barakoCMS.Models.SystemRoles.SuperAdminRoleId);
 
         var response = await Client(fixture.CreateToken(["SuperAdmin"], userId.ToString()))
             .GetAsync("/api/feature-flags/admin", TestContext.Current.CancellationToken);

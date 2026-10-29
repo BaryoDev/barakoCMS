@@ -146,7 +146,8 @@ public class MigrationHostTests
             .Discover([new BarakoCMS.Files.FilesModule()])
             .Where(m => Version.Parse(m.Version) < new Version(4, 6, 0))
             .ToList();
-        preLedger.Should().HaveCount(9);
+        // Eight, not nine: forms-public-forms (4.2.0) was pre-ledger and left with BarakoCMS.Forms in 5.5.0.
+        preLedger.Should().HaveCount(8);
 
         await using var connection = new NpgsqlConnection(_factory.ConnectionString);
         await connection.OpenAsync(ct);
@@ -188,6 +189,13 @@ public class MigrationHostTests
             ["Tagging"] = "5.3.0/252-tagging",
             ["Services"] = "5.3.0/833-services",
         };
+        // A real 5.4 database had Marten's immutable cast helpers, and the removed scripts index through them.
+        await database.ExecuteAsync(
+            "create function public.mt_immutable_timestamp(value text) returns timestamp without time zone "
+            + "language sql immutable as $f$ select value::timestamp $f$;");
+        await database.ExecuteAsync(
+            "create function public.mt_immutable_timestamptz(value text) returns timestamp with time zone "
+            + "language sql immutable as $f$ select value::timestamptz $f$;");
         await database.ExecuteAsync(
             "create table public.barako_migrations (owner text not null, id text not null, checksum text not null, "
             + "state text not null, recorded_at timestamptz not null default now(), recorded_by text not null, "
