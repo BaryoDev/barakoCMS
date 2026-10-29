@@ -275,7 +275,6 @@ public class PagesBlockSchemaTests
 
     [Theory]
     [InlineData("""[ { "type": "cards", "dataSource": "entries" } ]""")]
-    [InlineData("""[ { "type": "cards", "dataSource": "forms" } ]""")]
     [InlineData("""[ { "type": "cards" } ]""")]
     public async Task A_registered_data_source_or_none_saves(string blocks)
     {

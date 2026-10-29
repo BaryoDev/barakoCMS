@@ -172,8 +172,8 @@ capability the caller does not hold.
 
 An id is a lowercase letter, then lowercase letters, digits, `.`, `_` or `-`, at most 64 characters.
 A malformed id, a source with no fields, or two sources with one id stops the host at start, naming
-the source. Core registers `entries` (published entries, as delivery serves them) and the Forms
-module registers `forms`.
+the source. Core registers `entries` (published entries, as delivery serves them). A module adds
+its own source by registering an `IBlockDataSource`.
 
 ## Part of barakoCMS
 

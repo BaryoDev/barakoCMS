@@ -40,7 +40,6 @@ public sealed class FormsModule : IBarakoModule
         services.AddHttpClient<ITurnstileVerifier, TurnstileVerifier>();
         services.AddScoped<FormEmailVerifier>();
         services.AddScoped<barakoCMS.Core.Interfaces.IConfigProvider, FormsConfigProvider>();
-        services.AddSingleton<barakoCMS.Core.Interfaces.IBlockDataSource, FormsDataSource>();
 
         services.Configure<RateLimiterOptions>(options =>
             options.AddPolicy(FormsOptions.RateLimitPolicy, context =>

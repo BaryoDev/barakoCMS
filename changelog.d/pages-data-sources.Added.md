@@ -1,1 +1,1 @@
-- **Modules can register block data sources.** A module adds an `IBlockDataSource` with an id, a shape and an optional capability, and `GET /api/pages/data-sources` lists it for callers who hold that capability. Core registers `entries` and the Forms module registers `forms`.
+- **Modules can register block data sources.** A module adds an `IBlockDataSource` with an id, a shape and an optional capability, and `GET /api/pages/data-sources` lists it for callers who hold that capability. Core registers `entries`.

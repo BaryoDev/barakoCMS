@@ -52,7 +52,7 @@ again when an edit leaves it as it is. A field holds at most 200 blocks.
 ## Data sources and the served schema
 
 A block may name a data source in `dataSource`: the id of a source a module registered, such as
-`entries` or `forms`. `GET /api/pages/data-sources` lists them. A write naming an id no module
+core's `entries`. A module adds its own source through `IBlockDataSource`. `GET /api/pages/data-sources` lists them. A write naming an id no module
 registered is a 400, `Blocks[1].dataSource 'nope' is not a registered data source`, with or without
 a block schema. `binding` keeps its meaning: it is still the id of a saved binding.
 

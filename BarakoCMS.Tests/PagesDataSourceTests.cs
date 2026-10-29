@@ -93,7 +93,6 @@ public class PagesDataSourceTests
 
         ids.Should().Contain("entries");
         ids.Should().NotContain(ProbeBlockDataSource.SourceId, "its capability is manage_content_types");
-        ids.Should().NotContain("forms", "its capability is manage_forms");
     }
 
     [Fact]
@@ -113,13 +112,13 @@ public class PagesDataSourceTests
     }
 
     [Fact]
-    public async Task Core_entries_and_forms_are_the_first_two_sources()
+    public async Task Core_registers_the_entries_source()
     {
         var client = await SignedInAsync("SuperAdmin", "Admin");
 
         var ids = Ids(await ReadAsync(await client.GetAsync(Route, Ct)));
 
-        ids.Should().Contain(["entries", "forms"]);
+        ids.Should().Contain("entries");
     }
 
     [Fact]
