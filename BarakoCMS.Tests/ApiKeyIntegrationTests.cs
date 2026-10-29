@@ -503,16 +503,16 @@ public class ApiKeyIntegrationTests
     }
 
     [Fact]
-    public async Task A_monitor_read_key_reads_counts_and_analytics()
+    public async Task A_monitor_read_key_reads_counts_and_the_overview()
     {
         var (userId, _) = await SuperAdminAsync();
         var secret = await StoreKeyAsync(userId, new[] { "monitor:read" });
 
         var counts = await _client.SendAsync(Get("/api/contents/counts", secret));
-        var analytics = await _client.SendAsync(Get("/api/analytics/websites", secret));
+        var overview = await _client.SendAsync(Get("/api/overview", secret));
 
         counts.StatusCode.Should().Be(HttpStatusCode.OK, await counts.Content.ReadAsStringAsync());
-        analytics.StatusCode.Should().Be(HttpStatusCode.OK, await analytics.Content.ReadAsStringAsync());
+        overview.StatusCode.Should().Be(HttpStatusCode.OK, await overview.Content.ReadAsStringAsync());
     }
 
     [Theory]
@@ -532,12 +532,12 @@ public class ApiKeyIntegrationTests
     }
 
     [Fact]
-    public async Task A_monitor_read_key_cannot_create_an_analytics_website()
+    public async Task A_monitor_read_key_cannot_write_content()
     {
         var (userId, _) = await SuperAdminAsync();
         var secret = await StoreKeyAsync(userId, new[] { "monitor:read" });
-        var req = WithKey(HttpMethod.Post, "/api/analytics/websites", secret);
-        req.Content = JsonContent.Create(new { name = "site", domain = "example.com" });
+        var req = WithKey(HttpMethod.Post, "/api/contents", secret);
+        req.Content = JsonContent.Create(new { contentType = "post", data = new { title = "x" } });
 
         var res = await _client.SendAsync(req);
 
@@ -550,8 +550,8 @@ public class ApiKeyIntegrationTests
     [InlineData("POST", "/api/contents/counts")]
     [InlineData("GET", "/api/contents/counts/x")]
     [InlineData("GET", "/api/contents/counts/erase")]
-    [InlineData("PUT", "/api/analytics/websites")]
-    [InlineData("DELETE", "/api/analytics/websites")]
+    [InlineData("PUT", "/api/overview")]
+    [InlineData("DELETE", "/api/overview")]
     public async Task A_monitor_read_key_reaches_nothing_on_routes_that_do_not_exist(string method, string path)
     {
         var (userId, _) = await SuperAdminAsync();
@@ -575,35 +575,17 @@ public class ApiKeyIntegrationTests
     }
 
     [Fact]
-    public async Task A_monitor_read_key_keeps_the_analytics_capability_check_on_its_owner()
-    {
-        Guid ownerId;
-        using (var scope = _factory.Services.CreateScope())
-        {
-            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            ownerId = Guid.NewGuid();
-            session.Store(new User { Id = ownerId, Username = $"plain-{ownerId}", Email = $"plain-{ownerId}@example.com", RoleIds = new() });
-            await session.SaveChangesAsync();
-        }
-        var secret = await StoreKeyAsync(ownerId, new[] { "monitor:read" });
-
-        var res = await _client.SendAsync(Get("/api/analytics/websites", secret));
-
-        res.StatusCode.Should().Be(HttpStatusCode.Forbidden);
-    }
-
-    [Fact]
-    public async Task A_wildcard_key_is_refused_analytics_and_a_content_read_key_still_reads_counts()
+    public async Task A_wildcard_key_is_refused_monitoring_and_a_content_read_key_still_reads_counts()
     {
         var (userId, _) = await SuperAdminAsync();
         var wildcard = await StoreKeyAsync(userId, new[] { "*" });
         var reader = await StoreKeyAsync(userId, new[] { "content:read" });
 
-        (await _client.SendAsync(Get("/api/analytics/websites", wildcard))).StatusCode
+        (await _client.SendAsync(Get("/api/monitoring/health", wildcard))).StatusCode
             .Should().Be(HttpStatusCode.Forbidden);
         (await _client.SendAsync(Get("/api/contents/counts", reader))).StatusCode
             .Should().Be(HttpStatusCode.OK);
-        (await _client.SendAsync(Get("/api/analytics/websites", reader))).StatusCode
+        (await _client.SendAsync(Get("/api/monitoring/health", reader))).StatusCode
             .Should().Be(HttpStatusCode.Forbidden);
     }
 

@@ -3,16 +3,16 @@ using Marten;
 
 namespace BarakoCMS.Accounting;
 
-[Obsolete("BarakoCMS.Accounting is deprecated and is removed in a later release.")]
+[Obsolete("BarakoCMS.Accounting is deprecated. Removal planned for barakoCMS 6.0.")]
 public record AccountBalance(string Code, string Name, AccountType Type, string? ParentCode, decimal Balance);
 
-[Obsolete("BarakoCMS.Accounting is deprecated and is removed in a later release.")]
+[Obsolete("BarakoCMS.Accounting is deprecated. Removal planned for barakoCMS 6.0.")]
 public record LedgerLine(DateOnly Date, string EntryNumber, string Memo, decimal Debit, decimal Credit, decimal RunningBalance, IReadOnlyList<string> Attachments);
 
-[Obsolete("BarakoCMS.Accounting is deprecated and is removed in a later release.")]
+[Obsolete("BarakoCMS.Accounting is deprecated. Removal planned for barakoCMS 6.0.")]
 public record AccountLedger(string AccountCode, string AccountName, Guid? MemberId, decimal Balance, IReadOnlyList<LedgerLine> Lines);
 
-[Obsolete("BarakoCMS.Accounting is deprecated and is removed in a later release.")]
+[Obsolete("BarakoCMS.Accounting is deprecated. Removal planned for barakoCMS 6.0.")]
 public record CashFlow(string Period, decimal Opening, decimal Receipts, decimal Disbursements, decimal Closing, IReadOnlyList<LedgerLine> Lines);
 
 /// <summary>
@@ -24,7 +24,7 @@ public record CashFlow(string Period, decimal Opening, decimal Receipts, decimal
 /// path is a Marten projection maintaining an AccountBalance read-model — no API change, since reports
 /// already flow through this service.
 /// </summary>
-[Obsolete("BarakoCMS.Accounting is deprecated and is removed in a later release.")]
+[Obsolete("BarakoCMS.Accounting is deprecated. Removal planned for barakoCMS 6.0.")]
 public class ReportingService(IQuerySession session)
 {
     // Accounts and entries are content types now; AccountingContentReader projects them back into

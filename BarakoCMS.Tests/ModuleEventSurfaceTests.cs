@@ -112,10 +112,10 @@ public class ModuleEventSurfaceTests
 
         var modules = surface.Assemblies.Where(assembly => assembly != Core).ToArray();
 
-        modules.Should().HaveCountGreaterThanOrEqualTo(12,
-            "the fixture registers twelve module assemblies and every one of them serves endpoints, "
+        modules.Should().HaveCountGreaterThanOrEqualTo(11,
+            "the fixture registers eleven module assemblies and every one of them serves endpoints, "
           + "so a smaller number means a module stopped being discovered rather than that the API "
-          + "shrank. Removing a module deliberately is the one case where this number moves down");
+          + "shrank. Removing a module deliberately is the one case where this number moves down. It went from twelve to eleven when the business modules were removed in 5.5.0");
 
         surface.Responses.Should().HaveCountGreaterThanOrEqualTo(85,
             "the host declares 93 distinct response types across the core and the modules. A small "

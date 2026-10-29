@@ -4,7 +4,7 @@ namespace BarakoCMS.Accounting.Domain;
 /// The five classical account classes. Normal balance side is derived from this:
 /// Asset and Expense are debit-normal; Liability, Equity and Income are credit-normal.
 /// </summary>
-[Obsolete("BarakoCMS.Accounting is deprecated and is removed in a later release.")]
+[Obsolete("BarakoCMS.Accounting is deprecated. Removal planned for barakoCMS 6.0.")]
 public enum AccountType
 {
     Asset,
@@ -23,7 +23,7 @@ public enum AccountType
 /// the "Accounts Receivable - Members" control account (e.g. code "1100-3322657", parent "1100"),
 /// with <see cref="MemberId"/> linking back to the member content item.
 /// </summary>
-[Obsolete("BarakoCMS.Accounting is deprecated and is removed in a later release.")]
+[Obsolete("BarakoCMS.Accounting is deprecated. Removal planned for barakoCMS 6.0.")]
 public class Account
 {
     public Guid Id { get; set; } = Guid.NewGuid();

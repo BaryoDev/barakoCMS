@@ -3,7 +3,7 @@ using FastEndpoints;
 
 namespace BarakoCMS.Accounting.Features.PostJournalEntry;
 
-[Obsolete("BarakoCMS.Accounting is deprecated and is removed in a later release.")]
+[Obsolete("BarakoCMS.Accounting is deprecated. Removal planned for barakoCMS 6.0.")]
 public class Request
 {
     public DateOnly Date { get; set; }
@@ -21,7 +21,7 @@ public class Request
     }
 }
 
-[Obsolete("BarakoCMS.Accounting is deprecated and is removed in a later release.")]
+[Obsolete("BarakoCMS.Accounting is deprecated. Removal planned for barakoCMS 6.0.")]
 public class Response
 {
     public Guid Id { get; set; }
@@ -31,7 +31,7 @@ public class Response
 }
 
 /// <summary>POST /api/accounting/journal-entries — post one balanced journal entry.</summary>
-[Obsolete("BarakoCMS.Accounting is deprecated and is removed in a later release.")]
+[Obsolete("BarakoCMS.Accounting is deprecated. Removal planned for barakoCMS 6.0.")]
 public class Endpoint(LedgerService ledger) : Endpoint<Request, Response>
 {
     public override void Configure()

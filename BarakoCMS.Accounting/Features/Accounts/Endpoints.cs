@@ -7,7 +7,7 @@ using Marten;
 namespace BarakoCMS.Accounting.Features.Accounts;
 
 /// <summary>POST /api/accounting/accounts — create a chart-of-accounts entry.</summary>
-[Obsolete("BarakoCMS.Accounting is deprecated and is removed in a later release.")]
+[Obsolete("BarakoCMS.Accounting is deprecated. Removal planned for barakoCMS 6.0.")]
 public class CreateAccountEndpoint(
     IDocumentSession session) : Endpoint<CreateAccountEndpoint.Request, CreateAccountEndpoint.Result>
 {
@@ -85,7 +85,7 @@ public class CreateAccountEndpoint(
 }
 
 /// <summary>GET /api/accounting/accounts — list the chart of accounts.</summary>
-[Obsolete("BarakoCMS.Accounting is deprecated and is removed in a later release.")]
+[Obsolete("BarakoCMS.Accounting is deprecated. Removal planned for barakoCMS 6.0.")]
 public class ListAccountsEndpoint(
     IQuerySession session) : Endpoint<barakoCMS.Models.ListRequest, barakoCMS.Models.PaginatedResponse<Account>>
 {

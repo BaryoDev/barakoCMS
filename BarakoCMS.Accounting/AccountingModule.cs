@@ -14,7 +14,7 @@ namespace BarakoCMS.Accounting;
 /// It contributes the ledger services, the accounting document schema, its endpoints, and a
 /// baseline "Accountant" role. It is chart-of-accounts agnostic — the host defines the chart.
 /// </summary>
-[Obsolete("BarakoCMS.Accounting is deprecated and is removed in a later release.")]
+[Obsolete("BarakoCMS.Accounting is deprecated. Removal planned for barakoCMS 6.0.")]
 public sealed class AccountingModule : IBarakoModule
 {
     /// <summary>Deterministic id for the baseline Accountant role this module seeds.</summary>

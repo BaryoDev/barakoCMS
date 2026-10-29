@@ -12,7 +12,7 @@ namespace BarakoCMS.Accounting;
 /// capability name on the way into a role, so a name a module declares is grantable the day the
 /// module ships. See issue #443.
 /// </remarks>
-[Obsolete("BarakoCMS.Accounting is deprecated and is removed in a later release.")]
+[Obsolete("BarakoCMS.Accounting is deprecated. Removal planned for barakoCMS 6.0.")]
 public static class AccountingCapabilities
 {
     /// <summary>Read the chart of accounts, the balances and a single account's ledger.</summary>

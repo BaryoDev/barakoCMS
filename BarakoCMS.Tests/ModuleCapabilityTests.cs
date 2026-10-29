@@ -100,7 +100,7 @@ public class ModuleCapabilityTests
         foreach (var route in new[]
         {
             "/api/accounting/balances", "/api/feature-flags/admin", "/api/portability/export",
-            "/api/client-errors", "/api/pwa/installs", "/api/analytics/websites",
+            "/api/client-errors", "/api/files",
         })
         {
             var response = await client.GetAsync(route, TestContext.Current.CancellationToken);
