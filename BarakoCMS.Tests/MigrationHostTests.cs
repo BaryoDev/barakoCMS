@@ -172,7 +172,14 @@ public class MigrationHostTests
     {
         var assembly = host == "suite" ? SuiteAssemblyPath() : CoreAssembly;
         File.Exists(assembly).Should().BeTrue($"the {host} host must be built at {assembly}");
-        await using var database = await MigrationScratchDatabase.CreateAsync(_factory);
+        // A real 5.4 database has a row for every core file next to the module rows, written by its
+        // first start. Without them, db-migrate would run the core files against a schema this test
+        // never built. db-migrate on the empty database writes the same rows, as baselined.
+        await using var database = await MigrationScratchDatabase.CreateAsync(_factory, started: false);
+        var first = await RunHostAsync(assembly, database.ConnectionString, "db-migrate");
+        first.ExitCode.Should().Be(0, $"output:\n{Truncate(first.Output)}");
+        // Started since, so the run below cannot take the new-database path.
+        await database.ExecuteAsync("create table public.mt_doc_users (id uuid primary key)");
 
         var removed = Path.Combine(RepositoryRoot(), "migrations", "removed");
         var owners = new Dictionary<string, string>
@@ -196,10 +203,6 @@ public class MigrationHostTests
         await database.ExecuteAsync(
             "create function public.mt_immutable_timestamptz(value text) returns timestamp with time zone "
             + "language sql immutable as $f$ select value::timestamptz $f$;");
-        await database.ExecuteAsync(
-            "create table public.barako_migrations (owner text not null, id text not null, checksum text not null, "
-            + "state text not null, recorded_at timestamptz not null default now(), recorded_by text not null, "
-            + "constraint pkey_barako_migrations primary key (owner, id))");
         foreach (var (owner, file) in owners)
         {
             await database.ExecuteAsync(await File.ReadAllTextAsync(Path.Combine(removed, file + ".sql")));
