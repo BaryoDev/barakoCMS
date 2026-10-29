@@ -1,3 +1,4 @@
+#pragma warning disable CS0618 // Accounting is obsolete in 5.5 and is removed in #1285
 using System.Reflection;
 using barakoCMS.Models;
 using barakoCMS.Modules;
@@ -309,7 +310,6 @@ public class ModuleCapabilityDefaultsTests
                 var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
 #pragma warning disable CS0618 // the older member is the thing under test
                 await new BarakoCMS.Accounting.AccountingModule().SeedAsync(session, scope.ServiceProvider, Ct);
-#pragma warning restore CS0618
                 await session.SaveChangesAsync(Ct);
             }
 
@@ -437,7 +437,6 @@ public class ModuleCapabilityDefaultsTests
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
 #pragma warning disable CS0618
         var changed = await ModuleCapabilities.GrantAsync(session, [name], ["cap_one"], Ct);
-#pragma warning restore CS0618
         await session.SaveChangesAsync(Ct);
 
         changed.Should().Be(0);

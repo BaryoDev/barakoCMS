@@ -1,3 +1,4 @@
+#pragma warning disable CS0618 // Accounting is obsolete in 5.5 and is removed in #1285
 using Xunit;
 using FluentAssertions;
 using BarakoCMS.Accounting;

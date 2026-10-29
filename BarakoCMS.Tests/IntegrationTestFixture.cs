@@ -1,3 +1,4 @@
+#pragma warning disable CS0618 // Accounting is obsolete in 5.5 and is removed in #1285
 using FastEndpoints;
 using static BarakoCMS.Tests.ModuleSchemaTestHelper;
 using barakoCMS.Modules;

@@ -1,3 +1,4 @@
+#pragma warning disable CS0618 // Accounting is obsolete in 5.5 and is removed in #1285
 using barakoCMS.Models;
 using barakoCMS.Modules;
 using Marten;
