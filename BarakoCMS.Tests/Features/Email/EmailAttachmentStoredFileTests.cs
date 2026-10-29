@@ -716,19 +716,44 @@ public class EmailAttachmentStoredFileTests
         return type;
     }
 
+    /// <summary>
+    /// A token for a stored user whose only role may create entries of the type. A fresh type has
+    /// no rules in the seeded Admin role, so only a role granted it can file one.
+    /// </summary>
+    private async Task<string> EditorTokenAsync(string type)
+    {
+        var role = new Role
+        {
+            Id = Guid.NewGuid(),
+            Name = $"Registrars {Guid.NewGuid():N}",
+            Permissions = [new ContentTypePermission { ContentTypeSlug = type, Create = new PermissionRule { Enabled = true } }],
+        };
+        var userId = Guid.NewGuid();
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(role);
+            session.Store(new User { Id = userId, Username = $"reg-{userId:N}", Email = $"reg-{userId:N}@example.com", RoleIds = [role.Id] });
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        return _factory.CreateToken([role.Name], userId.ToString(), new Dictionary<string, string> { ["Username"] = $"reg-{userId:N}" });
+    }
+
     /// <summary>Files a registration as an editor, then confirms it as the approver. Answers the entry's id.</summary>
     private async Task<Guid> SubmitAndConfirmAsync(string type, HttpClient approver, Guid receipt)
     {
         var name = $"Ana {Guid.NewGuid():N}";
 
         var editor = _factory.CreateClient();
-        editor.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", await _factory.StoredUserTokenAsync("Admin"));
+        editor.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", await EditorTokenAsync(type));
         var submitted = await editor.PostAsJsonAsync(
             "/api/contents",
             new { contentType = type, data = new { name, receipt = receipt.ToString() } },
             TestContext.Current.CancellationToken);
-        submitted.IsSuccessStatusCode.Should().BeTrue(await submitted.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        submitted.IsSuccessStatusCode.Should().BeTrue(
+            "got {0}: {1}", submitted.StatusCode, await submitted.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
 
         Guid id;
         using (var scope = _factory.Services.CreateScope())
