@@ -1577,6 +1577,9 @@ public static class ServiceCollectionExtensions
         // and a role write checks against it.
         services.AddSingleton<barakoCMS.Infrastructure.Auth.CapabilityVocabulary>();
         services.AddScoped<barakoCMS.Core.Interfaces.ICallerCapabilities, barakoCMS.Infrastructure.Auth.CallerCapabilities>();
+
+        // Published entries, the first data source a page block can bind to (#1257).
+        services.AddSingleton<barakoCMS.Core.Interfaces.IBlockDataSource, barakoCMS.Features.Blocks.EntriesDataSource>();
         services.AddSingleton(sp => new barakoCMS.Infrastructure.Realtime.TopicRegistry(sp.GetServices<IBarakoModule>()));
         services.AddSingleton(sp => new barakoCMS.Infrastructure.Realtime.ContentTopicCatalog(
             () => sp.GetRequiredService<IDocumentStore>()));

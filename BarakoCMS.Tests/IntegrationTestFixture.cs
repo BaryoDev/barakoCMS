@@ -556,6 +556,10 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             // the same options. Registered with its own section, as the host scopes it.
             new BarakoCMS.Pages.PagesModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Pages"));
 
+            // A data source of the test project's own, gated on a capability Admin holds, so the
+            // data source list has one a caller without it must not see.
+            services.AddSingleton<barakoCMS.Core.Interfaces.IBlockDataSource, BarakoCMS.Tests.ProbeBlockDataSource>();
+
             // Qr: the route reads its allowlist from the options registered here.
             new BarakoCMS.Qr.QrModule().ConfigureServices(services, ctx.Configuration.GetSection("Modules:Qr"));
             // Booking: its hook guards the probe type configured above, and the availability route reads
