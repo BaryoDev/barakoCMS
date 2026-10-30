@@ -452,6 +452,35 @@ public class SocialHandoffTests
     }
 
     [Fact]
+    public async Task Purging_when_due_runs_once_per_interval()
+    {
+        var outcome = new SocialHandoffOutcome("jwt", "refresh", false, null, "");
+        var first = $"old-{Guid.NewGuid():N}";
+        var second = $"old-{Guid.NewGuid():N}";
+        await StoreAsync([SocialHandoff.Build(first, Device, outcome, DateTime.UtcNow.AddMinutes(-5))]);
+        SocialHandoff.ResetPurgeClock();
+        using var scope = _fixture.Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
+
+        await SocialHandoff.PurgeIfDueAsync(store, scope.ServiceProvider, Ct);
+
+        await using (var query = store.QuerySession())
+        {
+            (await query.LoadAsync<SocialHandoffCode>(SocialHandoff.HashOf(first), Ct)).Should().BeNull("the first call was due");
+        }
+
+        await StoreAsync([SocialHandoff.Build(second, Device, outcome, DateTime.UtcNow.AddMinutes(-5))]);
+        await SocialHandoff.PurgeIfDueAsync(store, scope.ServiceProvider, Ct);
+
+        await using var again = store.QuerySession();
+        (await again.LoadAsync<SocialHandoffCode>(SocialHandoff.HashOf(second), Ct)).Should().NotBeNull("the interval has not passed");
+        SocialHandoff.ResetPurgeClock();
+        await SocialHandoff.PurgeIfDueAsync(store, scope.ServiceProvider, Ct);
+        await using var last = store.QuerySession();
+        (await last.LoadAsync<SocialHandoffCode>(SocialHandoff.HashOf(second), Ct)).Should().BeNull("due again after a reset");
+    }
+
+    [Fact]
     public async Task Live_codes_are_capped()
     {
         using var scope = _fixture.Services.CreateScope();
