@@ -29,6 +29,6 @@ unchanged.
 
 - Module-declared sections, keys, categories and descriptions (#890), and a generic tenant
   settings document over them.
-- Tenant overrides for Files.S3, Analytics.Umami and ExternalAuth.
+- Tenant overrides for Files.S3 and ExternalAuth.
 - Sender and key overrides apply to mail sent inside a request for that tenant. Background work that
   runs with no tenant uses the host default.

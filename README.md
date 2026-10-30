@@ -15,7 +15,7 @@
 
 BarakoCMS is a headless, API-first CMS built on [FastEndpoints](https://fast-endpoints.com/) and
 [Marten](https://martendb.io/) (event sourcing over PostgreSQL). The core stays small and generic;
-everything else, from accounting and analytics to email, file storage and auth providers, ships as **opt-in
+everything else, from accounting to email, file storage and auth providers, ships as **opt-in
 modules** you compose per project, and it's **multi-tenant** out of the box.
 
 This repository is the API, and its own surface is Swagger (`/swagger`, on when `Swagger:Enabled`
@@ -98,8 +98,8 @@ docker compose up -d
 ```
 
 - **API** at <http://localhost:5005>, health at `/health`, Swagger at `/swagger` once `SWAGGER_ENABLED=true`
-- Every module ships in the image and stays off/mock until you add its keys, so you grow into Umami
-  analytics, SMTP email, social sign-in, and the rest without touching the compose.
+- Every module ships in the image and stays off/mock until you add its keys, so you grow into
+  SMTP email, social sign-in, and the rest without touching the compose.
 
 See **[quickstart/README.md](quickstart/README.md)** for every variable, enabling modules, and going
 behind a domain with TLS. To build from source instead, see the
@@ -123,7 +123,7 @@ project, through the same `IBarakoModule` contract you can implement yourself.
 
 | Module | Package | What it adds |
 | --- | --- | --- |
-| **Accounting** | [`BarakoCMS.Accounting`](https://www.nuget.org/packages/BarakoCMS.Accounting) | **Deprecated, removed in a later release (#1285).** A double-entry **ledger**: chart of accounts, balanced journal entries, balances, and per-account ledgers. |
+| **Accounting** | [`BarakoCMS.Accounting`](https://www.nuget.org/packages/BarakoCMS.Accounting) | **Deprecated, removed in 6.0 (#1285).** A double-entry **ledger**: chart of accounts, balanced journal entries, balances, and per-account ledgers. |
 | **Import** | [`BarakoCMS.Import`](https://www.nuget.org/packages/BarakoCMS.Import) | **Bulk import** `.xlsx`/CSV into content via [Talaan](https://github.com/BaryoDev/Talaan), through the CMS's own validation, permissions, and event sourcing. |
 | **Files** | [`BarakoCMS.Files`](https://www.nuget.org/packages/BarakoCMS.Files) | **File upload/download** stored in Postgres via Marten: receipts, photos, documents. |
 | **Files.S3** | [`BarakoCMS.Files.S3`](https://www.nuget.org/packages/BarakoCMS.Files.S3) | Stores the Files module's uploads in S3-compatible object storage (AWS S3, Cloudflare R2, SeaweedFS) instead of Postgres. Public files get a direct URL; private files are proxied through the API. |
@@ -166,8 +166,8 @@ lean core, **`ghcr.io/baryodev/barako-cms-decaf`** (Decaf) and add your own.
 BarakoCMS is headless, so you build the frontend. These BaryoDev packages help:
 
 - **[@baryodev/pwa-kit](https://github.com/BaryoDev/pwa-kit).** Service-worker registration + versioned
-  caching, install hints, standalone viewport handling, and a PWA-install reporter that pairs with the
-  `Pwa` module (`reportPwaStatus`).
+  caching, install hints, standalone viewport handling, and a PWA-install reporter (`reportPwaStatus`)
+  that posts to an endpoint you provide. Core ships no endpoint for it.
 - **[@baryodev/read-aloud](https://github.com/BaryoDev/read-aloud).** A "listen to this" control using Microsoft
   Edge's free neural voices: a Node TTS endpoint plus a framework-free browser reader with word
   highlighting. Drop it into any frontend for accessible, read-aloud content.
@@ -222,11 +222,10 @@ BarakoCMS is headless, so you build the frontend. These BaryoDev packages help:
                     +-------------------------+-------------------------+
                     v                         v                         v
               Accounting                    Files <-- Files.S3        AI
-              FeatureFlags                  Import                    Analytics.Umami
-              Portability                   Email.Smtp                Pwa
-              Pages                         Comments
-              ExternalAuth                                            Diagnostics
-              Forms                         DeviceTrust               Contacts
+              FeatureFlags                  Import                    Diagnostics
+              Portability                   Email.Smtp
+              Pages
+              ExternalAuth
                     |                         |                         |
                     +-------------------------+-------------------------+
                                               v
@@ -385,10 +384,9 @@ the one that builds.
 - [OpenTelemetry](https://opentelemetry.io/docs/languages/dotnet/) 1.19.1 (the hosting package and the OTLP exporter, with the ASP.NET Core and HttpClient instrumentation at 1.19.0) for tracing, registered only when an endpoint is configured.
 - [Testcontainers](https://dotnet.testcontainers.org/) 4.15.0 (PostgreSql, plus a generic container running SeaweedFS for the S3 tests) for the integration tests.
 
-Two things run next to the app rather than inside it, so they do not appear in any manifest here:
-[Umami](https://umami.is) is a separate self-hosted service that the Analytics.Umami module talks to
-over HTTP, and [Caddy](https://caddyserver.com/) is the reverse proxy that terminates TLS in
-`docker-compose.prod.yml`. Both are deployment choices, not package references.
+One thing runs next to the app rather than inside it, so it does not appear in any manifest here:
+[Caddy](https://caddyserver.com/) is the reverse proxy that terminates TLS in
+`docker-compose.prod.yml`. It is a deployment choice, not a package reference.
 
 ---
 
