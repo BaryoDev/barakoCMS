@@ -21,6 +21,8 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/remov
 
 Take a backup first. A dropped table cannot be brought back.
 
+If you replace a removed module with another package that keeps using its tables, do not run that module's drop script. It deletes the data the replacement reads.
+
 ## Tables and ledger owners
 
 | Module | Tables | Ledger owner |
