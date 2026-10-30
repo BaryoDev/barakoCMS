@@ -15,11 +15,21 @@ namespace BarakoCMS.ExternalAuth;
 // "Continue with Facebook" sign-in. Facebook is used only to prove the person's email — our identity
 // anchor. We match the email to an existing user (created up-front by a club officer, or from a prior
 // sign-in) or create a global account, then mint the same tenant-scoped, device-bound token the email
-// and password flows issue. Uses only email + public_profile, so no Facebook App Review is required.
+// and password flows issue. Asks only for email + public_profile by default, so no Facebook App Review is required.
 internal static class Fb
 {
     public const string Graph = "https://graph.facebook.com/v21.0";
     public const string Dialog = "https://www.facebook.com/v21.0/dialog/oauth";
+
+    /// <summary>
+    /// Opt in to the birthday and location permissions. They need Facebook App Review, so a
+    /// deployment that has not been through it must leave this off.
+    /// </summary>
+    public static bool WantsExtendedProfile(IConfiguration config) =>
+        config.GetValue<bool>("Facebook:RequestBirthdayAndLocation");
+
+    public static string Scope(IConfiguration config) =>
+        WantsExtendedProfile(config) ? "email,public_profile,user_birthday,user_location" : "email,public_profile";
 
     public static string CallbackUrl(IConfiguration config, HttpContext ctx) =>
         ExternalAuthSupport.BaseUrl(config, ctx) + "/api/auth/facebook/callback";
@@ -43,13 +53,14 @@ public class FacebookStartEndpoint(IConfiguration config, IQuerySession session)
 
         HttpContext.Response.Cookies.Append("fb_state", state, ExternalAuthSupport.ShortCookie());
         HttpContext.Response.Cookies.Append("fb_club", club, ExternalAuthSupport.ShortCookie());
+        SocialHandoff.BindDevice(HttpContext, config);
 
         var appId = config["Facebook:AppId"];
         var redirect = Fb.CallbackUrl(config, HttpContext);
         var url =
             $"{Fb.Dialog}?client_id={appId}" +
             $"&redirect_uri={Uri.EscapeDataString(redirect)}" +
-            $"&state={state}&response_type=code&scope=email,public_profile,user_birthday,user_location";
+            $"&state={state}&response_type=code&scope={Fb.Scope(config)}";
 
         await Send.ResultAsync(Results.Redirect(url));
     }
@@ -108,8 +119,9 @@ public class FacebookCallbackEndpoint(
             var tokenDoc = await http.GetFromJsonAsync<JsonElement>(tokenUrl, ct);
             var userToken = tokenDoc.GetProperty("access_token").GetString();
 
-            // birthday/location arrive only when the user granted user_birthday / user_location.
-            var meUrl = $"{Fb.Graph}/me?fields=id,name,email,picture.type(large),birthday,location" +
+            // birthday/location are asked for only when Facebook:RequestBirthdayAndLocation is on.
+            var fields = "id,name,email,picture.type(large)" + (Fb.WantsExtendedProfile(config) ? ",birthday,location" : "");
+            var meUrl = $"{Fb.Graph}/me?fields={fields}" +
                         $"&access_token={Uri.EscapeDataString(userToken!)}";
             var me = await http.GetFromJsonAsync<JsonElement>(meUrl, ct);
 
