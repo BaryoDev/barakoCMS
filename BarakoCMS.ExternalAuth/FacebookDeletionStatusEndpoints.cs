@@ -130,16 +130,6 @@ internal sealed class FacebookDeletionChoiceRequest
     public string? Choice { get; set; }
 }
 
-internal sealed class FacebookDeletionChoiceValidator : Validator<FacebookDeletionChoiceRequest>
-{
-    public FacebookDeletionChoiceValidator()
-    {
-        RuleFor(x => x.Choice)
-            .Must(c => c is FacebookDeletionPage.DeleteAccount or FacebookDeletionPage.KeepAccount)
-            .WithMessage("The choice must be delete_account or keep_account.");
-    }
-}
-
 /// <summary>
 /// POST /api/auth/facebook/data-deletion/status/{code}. The person's choice about an account whose
 /// only login was Facebook: <c>delete_account</c> or <c>keep_account</c>, as JSON or a form field.
@@ -147,18 +137,46 @@ internal sealed class FacebookDeletionChoiceValidator : Validator<FacebookDeleti
 /// the status it settled on, so of two racing choices the first save wins and the other reports it.
 /// </summary>
 internal sealed class FacebookDeletionChoiceEndpoint(IDocumentSession session, IDocumentStore store, UserEraser eraser)
-    : Endpoint<FacebookDeletionChoiceRequest, FacebookDeletionStatusResponse>
+    : EndpointWithoutRequest<FacebookDeletionStatusResponse>
 {
     public override void Configure()
     {
         Post("/api/auth/facebook/data-deletion/status/{code}");
         AllowAnonymous();
-        AllowFormData(urlEncoded: true);
+        // The body is read by hand: AllowFormData would limit the route to form content types and
+        // answer 415 to JSON. Both are declared here so the router lets both through.
+        Description(x => x.Accepts<FacebookDeletionChoiceRequest>("application/x-www-form-urlencoded", "application/json"));
         Options(x => x.RequireRateLimiting(SocialRateLimit.Policy));
     }
 
-    public override async Task HandleAsync(FacebookDeletionChoiceRequest req, CancellationToken ct)
+    private async Task<string?> ReadChoiceAsync(CancellationToken ct)
     {
+        var http = HttpContext.Request;
+        if (http.HasFormContentType)
+        {
+            return (await http.ReadFormAsync(ct)).TryGetValue("choice", out var value) ? value.ToString() : null;
+        }
+
+        if (!http.HasJsonContentType())
+        {
+            return null;
+        }
+
+        try
+        {
+            var body = await http.ReadFromJsonAsync<FacebookDeletionChoiceRequest>(ct);
+            return body?.Choice;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    public override async Task HandleAsync(CancellationToken ct)
+    {
+        var req = new FacebookDeletionChoiceRequest { Code = Route<string>("code") ?? string.Empty };
+        req.Choice = await ReadChoiceAsync(ct);
         if (!FacebookDeletionPage.LooksLikeCode(req.Code))
         {
             await Send.NotFoundAsync(ct);
@@ -173,7 +191,12 @@ internal sealed class FacebookDeletionChoiceEndpoint(IDocumentSession session, I
             return;
         }
 
-        FacebookDeletionPage.TryParseChoice(req.Choice, out var choice);
+        if (!FacebookDeletionPage.TryParseChoice(req.Choice, out var choice))
+        {
+            AddError("choice", "The choice must be delete_account or keep_account.");
+            ThrowIfAnyErrors();
+        }
+
         var wasOpen = request.Status == FacebookDeletionStatus.AwaitingChoice;
         string status;
         try

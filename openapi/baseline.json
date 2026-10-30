@@ -15049,6 +15049,11 @@
               "schema": {
                 "$ref": "#/components/schemas/BarakoCMSExternalAuthFacebookDeletionChoiceRequest"
               }
+            },
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSExternalAuthFacebookDeletionChoiceRequest"
+              }
             }
           },
           "description": "",
