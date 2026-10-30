@@ -16,13 +16,15 @@ pass=0
 fail=0
 
 mkdir -p "$TMP/scripts" "$TMP/barakoCMS/Features/Monitoring/Meta" "$TMP/BarakoCMS.Pages" "$TMP/BarakoCMS.Files" \
-    "$TMP/BarakoCMS.Abstractions/Modules" "$TMP/BarakoCMS.Tests"
+    "$TMP/BarakoCMS.Abstractions/Modules" "$TMP/BarakoCMS.Tests" "$TMP/BarakoCMS.Bare"
 cp scripts/contract-versions.py "$TMP/scripts/"
 cp barakoCMS/Features/Monitoring/Meta/ApiContract.cs "$TMP/barakoCMS/Features/Monitoring/Meta/"
 cp BarakoCMS.Pages/PagesContract.cs "$TMP/BarakoCMS.Pages/"
 cp BarakoCMS.Files/FilesModule.cs "$TMP/BarakoCMS.Files/"
 cp BarakoCMS.Abstractions/Modules/ModuleContract.cs "$TMP/BarakoCMS.Abstractions/Modules/"
 printf 'class T { public const int Version = 1; }\n' > "$TMP/BarakoCMS.Tests/T.cs"
+for m in Files Pages Abstractions Bare; do : > "$TMP/BarakoCMS.$m/BarakoCMS.$m.csproj"; done
+printf 'class Bare { }\n' > "$TMP/BarakoCMS.Bare/Bare.cs"
 git -C "$TMP" init -q && git -C "$TMP" add -A && git -C "$TMP" -c user.name=t -c user.email=t@t commit -qm base
 
 API="$TMP/barakoCMS/Features/Monitoring/Meta/ApiContract.cs"
@@ -59,6 +61,13 @@ sed -i -E 's/(public const int Version = )([0-9]+);/\1999;/' "$TMP/BarakoCMS.Pag
 expect "PagesContract.Version raised" raised
 sed -i -E 's/(HttpContractVersion => )([0-9]+);/\1999;/' "$TMP/BarakoCMS.Files/FilesModule.cs"
 expect "a module's HttpContractVersion raised" raised
+rm -rf "$TMP/BarakoCMS.Files"
+expect "a module with a version literal deleted" raised
+rm -rf "$TMP/BarakoCMS.Files"
+mkdir -p "$TMP/BarakoCMS.Files/obj"
+expect "a module deleted but its obj folder left behind" raised
+rm -rf "$TMP/BarakoCMS.Bare"
+expect "a module with no version literal deleted" not
 
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
