@@ -101,12 +101,65 @@ route:
 - checks the HMAC-SHA256 signature with `Facebook:AppSecret` (constant-time compare), and answers
   `400` for a missing, oversized (over 4096 characters), badly encoded, wrongly signed or
   other-algorithm request, removing nothing,
-- removes that person's Facebook link (`oauth:facebook` and their Facebook id), and no other link,
-  user or profile,
+- removes that person's Facebook link (`oauth:facebook` and their Facebook id) at once,
 - answers `200` with `{ "url": "{App:BaseUrl}/api/auth/facebook/data-deletion/status/{code}", "confirmation_code": "{code}" }`.
 
-`GET /api/auth/facebook/data-deletion/status/{code}` is anonymous and answers
-`{ "confirmationCode", "status": "completed", "requestedAt" }`, or `404` for a code it did not issue.
-The record holds no Facebook user id. After the link is removed, the person's local account stays,
-and their next Facebook sign-in matches by verified email again. Removing the account is a separate
-administrator action.
+The code is 64 random hex characters. Only its SHA-256 is stored (as the document id), so the raw
+code exists in Facebook's hands and nowhere else.
+
+### When Facebook was the only way in
+
+Another login means a non-empty password, or another linked provider identity. Magic link and email
+code sign-in do not count: they work for any account with an address on file, so counting them
+would leave almost no account as "Facebook only".
+
+- With another login, the link is removed, the account stays, and the status is `completed`.
+- With no other login, removing the link is the same as deleting the account, so the person gets
+  the choice. The link is gone at once and the status is `awaiting_choice`, with `choiceExpiresAt`.
+- `GET /api/auth/facebook/data-deletion/status/{code}` shows a small page with two buttons when the
+  client sends `Accept: text/html`, and JSON otherwise. It never changes anything.
+- `POST` to the same URL with `choice=delete_account` or `choice=keep_account` (form or JSON,
+  anonymous) settles it. Keep gives `kept`. Delete erases the account and gives `completed`.
+  Anything else is `400`.
+- With no choice by `choiceExpiresAt`, an hourly sweep erases the account. The window is
+  `Facebook:DeletionChoiceDays`, default `30`.
+- The login state is checked again at choice time and sweep time. If the account gained a password
+  or another identity, or linked Facebook again, nothing is erased and the status is `kept`.
+- A choice after the request settled changes nothing and returns the settled status. Two choices at
+  once settle once (optimistic concurrency on the request), and both callers see the winner.
+  The sweep is safe to run twice or on two nodes for the same reason.
+- A platform administrator, a SuperAdmin, or the last active admin of a tenant is never erased
+  automatically. The status is `needs_admin` and the account is left alone.
+
+Statuses: `completed`, `awaiting_choice`, `kept`, `needs_admin`.
+
+### What erasure does
+
+One transaction. The `User` row stays as a tombstone (username `erased-{id}`, email
+`erased-{id}@erased.invalid`, no password, roles, groups or display name) so access tokens already
+issued stop working through the session epoch and the unique username and email values are freed.
+
+- Deleted: memberships, API keys, tenant account manager rows, social profile (Facebook birthday,
+  location, photo), external identities, MFA secret, and email codes, magic link tokens and pending
+  registrations for the account's address.
+- Changed: the user id is removed from user group lists. Refresh tokens are revoked (rows stay
+  revoked, they hold no plaintext token).
+- Kept: revoked token ids, audit events that name the user (the audit chain is tamper-evident), and
+  plain id references in other modules (`CreatedBy` on content, stations, share links, files,
+  accounting entries, diagnostics client errors).
+- Added: one `user.erased` audit entry with the user id and a reason, and no Facebook user id.
+
+The social profile data is removed only when the account is erased. When the account has another
+login, only the link goes.
+
+### Rate limit and settings
+
+The exchange route and the anonymous deletion routes share one policy, per client address:
+
+| Key | Default | |
+|---|---|---|
+| `Social:RateLimit:PermitLimit` | `10` | Requests per window |
+| `Social:RateLimit:WindowSeconds` | `60` | Window length |
+| `Facebook:DeletionChoiceDays` | `30` | Days a person has to choose |
+
+A value that is not a positive number uses the default.

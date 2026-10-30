@@ -45,7 +45,8 @@ the repository.
 | `POST /api/auth/oidc/{name}/id-token` | A native app exchanges the provider's id token for a barako token |
 | `POST /api/auth/social/exchange` | Trade a handoff code for the token pair or MFA challenge (only with `ExternalAuth:CodeHandoff`) |
 | `POST /api/auth/facebook/data-deletion` | Facebook's data deletion callback |
-| `GET /api/auth/facebook/data-deletion/status/{code}` | The result of one deletion request |
+| `GET /api/auth/facebook/data-deletion/status/{code}` | The result of one deletion request (a page with two buttons for browsers, JSON otherwise) |
+| `POST /api/auth/facebook/data-deletion/status/{code}` | `choice=delete_account` or `keep_account`, when Facebook was the only login |
 | `GET /api/me/profile` | Profile details captured from the provider |
 
 `{provider}` is `google`, `github`, `facebook` or `linkedin`. Only configured providers are
@@ -87,7 +88,13 @@ Full steps are in `docs/social-sign-in.md`. In short:
   fragment redirect.
 - **Data deletion.** `POST /api/auth/facebook/data-deletion` verifies `signed_request` with
   `Facebook:AppSecret`, removes that person's Facebook link, and answers with the confirmation code and
-  a status URL. `GET /api/auth/facebook/data-deletion/status/{code}` reports it.
+  a status URL. If the person has another login (a password or another provider), the account stays
+  and the status is `completed`. If Facebook was the only login, the status is `awaiting_choice` and
+  the person picks `delete_account` or `keep_account` on the status URL; with no choice the account
+  is erased after `Facebook:DeletionChoiceDays` (default 30). Admins are never erased automatically
+  (`needs_admin`). The exchange and deletion routes are limited per address by
+  `Social:RateLimit:PermitLimit` and `Social:RateLimit:WindowSeconds` (default 10 per 60 seconds).
+  Details in `docs/social-sign-in.md`.
 
 New tables: `social_handoff_codes` and `facebook_deletion_requests`, created by
 `migrations/5.5.0/1270-external-auth-social-handoff.sql`.
