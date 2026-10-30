@@ -10,7 +10,7 @@ block's properties beside it.
 ]
 ```
 
-`type`, `id`, `preset` and `binding` belong to the block itself. Every other key is a property of
+`type`, `id`, `preset`, `binding` and `dataSource` belong to the block itself. Every other key is a property of
 the block.
 
 ## The block schema
@@ -33,7 +33,7 @@ Which blocks a tenant's pages may hold is the tenant's block schema, which its r
 Each block is described by a schema in the subset a json field's `jsonSchema` takes
 ([json-field-schemas.md](json-field-schemas.md)). Block names start with a letter and hold letters,
 digits, `-` and `_`. At most 200 blocks, 256 KiB in all, and no block may declare `type`, `id`,
-`preset` or `binding`.
+`preset`, `binding` or `dataSource`.
 
 The renderer route uses the deployment's renderer key (`RateLimiting:Renderer:Key`, the same
 secret that gives the renderer its own rate limit bucket), names the tenant the way a delivery
@@ -44,9 +44,45 @@ With a schema registered, a write to a `blocks` field is a 400 naming the path w
 is not in the schema, a block carries a property its block does not declare (unless the block's
 schema says what its other properties may be with `additionalProperties`)
 (`Blocks[2].colour is not a property of 'hero'`), a property fails its schema, or `preset` or
-`binding` is not an id. With none registered, only the shape is checked, so a page type moved to
+`binding` is not an id. With none registered, only the shape and the `preset`, `binding` and
+`dataSource` keys are checked, so a page type moved to
 `blocks` keeps saving until its renderer registers. A list the entry already holds is not checked
 again when an edit leaves it as it is. A field holds at most 200 blocks.
+
+## Data sources and the served schema
+
+A block may name a data source in `dataSource`: the id of a source a module registered, such as
+core's `entries`. A module adds its own source through `IBlockDataSource`. `GET /api/pages/data-sources` lists them. A write naming an id no module
+registered is a 400, `Blocks[1].dataSource 'nope' is not a registered data source`, with or without
+a block schema. `binding` keeps its meaning: it is still the id of a saved binding.
+
+`GET /api/pages/block-schema` serves the stored schema in the shape barakoPress publishes, to any
+signed-in caller. A tenant with no schema gets `{ "version": 1, "blocks": [] }`.
+
+```json
+{ "version": 1, "blocks": [ { "type": "hero", "label": "Hero", "perViewer": false, "fields": [
+  { "name": "heading", "kind": "text", "label": "Heading", "required": true },
+  { "name": "tone", "kind": "select", "label": "Tone", "required": false, "options": ["page", "accent"] } ] } ] }
+```
+
+The stored schema is JSON Schema, so the label, kind and per-viewer flag come from optional hints, or
+from defaults when a hint is absent:
+
+| Served | Hint | Default |
+| :--- | :--- | :--- |
+| block `label` | `x-label` on the block | the block name, split on `-`, `_` and case changes: `hero-banner` is `Hero banner` |
+| `perViewer` | `x-perViewer` on the block (`true` or `false`) | `false` |
+| field `label` | `x-label` on the property | the property name, the same way |
+| field `kind` | `x-kind` on the property: `text`, `markdown`, `url`, `number`, `boolean`, `select` or `slots` | `select` for a string `enum`, `url` for a string with format `uri`, `url` or `uri-reference`, `text` for another string, `number` for `number` or `integer`, `boolean`, `slots` for an array of arrays, else `text` |
+| field order | `x-order` on the property, a whole number, lower first | after every field that has one, by name |
+| field `options` | none | the values of a string `enum`, for a `select` |
+| field `min`, `max` | none | `minimum` and `maximum` of a number, `minItems` and `maxItems` of slots |
+| field `required` | none | the name is in the block's `required` list |
+
+Hints are checked when the schema is registered (a label is 1 to 100 characters) and never change
+whether a block is valid. Blocks are served ordered by name. Fields are served by `x-order` ascending, then fields without one, ties by name,
+since the stored schema keeps no declaration order. `x-order` is not served. A non-integer `x-order` is refused when the
+schema is registered, and counts as none if one is stored anyway.
 
 ## Presets and bindings
 

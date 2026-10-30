@@ -61,6 +61,32 @@
         },
         "type": "object"
       },
+      "BarakoCMSCoreInterfacesBlockDataSourceField": {
+        "additionalProperties": false,
+        "description": "One field of a row: its name, and a kind such as string, number, bool, date, id or object.",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSCoreInterfacesBlockDataSourceShape": {
+        "additionalProperties": false,
+        "description": "What each row of a data source carries.",
+        "properties": {
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSCoreInterfacesBlockDataSourceField"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSCoreInterfacesNumberGapReport": {
         "additionalProperties": false,
         "properties": {
@@ -13084,6 +13110,111 @@
         },
         "type": "object"
       },
+      "BarakoCMSPagesFeaturesBlockSchemaBlockFieldItem": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "max": {
+            "format": "double",
+            "nullable": true,
+            "type": "number"
+          },
+          "min": {
+            "format": "double",
+            "nullable": true,
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "nullable": true,
+            "type": "array"
+          },
+          "required": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSPagesFeaturesBlockSchemaBlockItem": {
+        "additionalProperties": false,
+        "properties": {
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSPagesFeaturesBlockSchemaBlockFieldItem"
+            },
+            "type": "array"
+          },
+          "label": {
+            "type": "string"
+          },
+          "perViewer": {
+            "type": "boolean"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSPagesFeaturesBlockSchemaBlockSchemaResponse": {
+        "additionalProperties": false,
+        "description": "The block schema as barakoPress publishes it, so an editor builds its forms from either.",
+        "properties": {
+          "blocks": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSPagesFeaturesBlockSchemaBlockItem"
+            },
+            "type": "array"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSPagesFeaturesDataSourcesDataSourceItem": {
+        "additionalProperties": false,
+        "properties": {
+          "capability": {
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "shape": {
+            "$ref": "#/components/schemas/BarakoCMSCoreInterfacesBlockDataSourceShape"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSPagesFeaturesDataSourcesDataSourcesResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "contract": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSPagesFeaturesDataSourcesDataSourceItem"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSPagesFeaturesNavigationNavigationItem": {
         "additionalProperties": false,
         "properties": {
@@ -20947,6 +21078,66 @@
         "summary": "POST /api/overview/items/{id}/resolve, clears a resolvable item. For the bounces item that marks\nevery unresolved bounce of the tenant resolved, so the next read shows Mail delivering and the\nitem gone.",
         "tags": [
           "Monitoring"
+        ]
+      }
+    },
+    "/api/pages/block-schema": {
+      "get": {
+        "description": "Any signed-in caller, as GET /api/blocks/schema: it says which blocks a page may hold and\nnothing about any entry. A tenant whose renderer has registered no schema gets an empty\nblocks list, not a 404. BlockSchemaTranslation says how the stored JSON\nSchema becomes this shape.",
+        "operationId": "BarakoCMSPagesFeaturesBlockSchemaEndpoint",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSPagesFeaturesBlockSchemaBlockSchemaResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/pages/block-schema: the tenant's block schema, as { version, blocks: [{ type, label,\nperViewer, fields: [{ name, kind, label, required, options, min, max }] }] }.",
+        "tags": [
+          "Pages"
+        ]
+      }
+    },
+    "/api/pages/data-sources": {
+      "get": {
+        "description": "Any signed-in caller. A source that names a capability is left out for a caller who does not\nhold it, as the incidents view does. Sources are registered by the deployment's modules, not\nstored per tenant, so the list differs between tenants only through what the caller's roles hold.",
+        "operationId": "BarakoCMSPagesFeaturesDataSourcesEndpoint",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSPagesFeaturesDataSourcesDataSourcesResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/pages/data-sources: the read-only data sources modules registered for page blocks to\nbind to, ordered by id.",
+        "tags": [
+          "Pages"
         ]
       }
     },

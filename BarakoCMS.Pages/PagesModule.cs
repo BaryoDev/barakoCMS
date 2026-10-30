@@ -46,6 +46,10 @@ public sealed class PagesModule : IBarakoModule
             .ValidateOnStart();
 
         services.AddScoped<IContentLifecycleHook, PageTreeHook>();
+
+        // Every IBlockDataSource a module registered, checked once at start.
+        Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton<BlockDataSources>(services);
+        services.AddHostedService<BlockDataSourcesCheck>();
     }
 
     /// <summary>One row per tenant, loaded by its fixed id, so no index.</summary>

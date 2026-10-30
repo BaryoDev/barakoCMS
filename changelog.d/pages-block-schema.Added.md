@@ -1,0 +1,1 @@
+- **Pages serves the block schema.** `GET /api/pages/block-schema` returns the tenant's stored schema as `{ version, blocks }`, with `x-label`, `x-kind` and `x-perViewer` hints accepted on the stored schema. A block may name a registered data source in `dataSource`, checked on write, and no block can declare a property of that name.
