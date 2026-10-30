@@ -5,7 +5,7 @@
 -- CreateOnly would create it on first boot; this file exists so db-assert passes before the deploy
 -- instead of reporting the table as outstanding.
 --
---   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/5.2.0/payments-events.sql
+--   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/removed/5.2.0/payments-events.sql
 --
 -- Safe to run twice. rollback-payments-events.sql drops the table.
 -- barako:rerunnable

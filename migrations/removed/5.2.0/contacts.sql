@@ -15,7 +15,7 @@
 --
 -- Plain DDL, so it runs inside a transaction:
 --
---   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/5.2.0/contacts.sql
+--   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/removed/5.2.0/contacts.sql
 --
 -- Safe to run twice. rollback-contacts.sql drops both tables.
 -- barako:rerunnable

@@ -8,7 +8,7 @@
 --
 -- Plain DDL, so it runs inside a transaction:
 --
---   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/5.2.0/notifications.sql
+--   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/removed/5.2.0/notifications.sql
 --
 -- Safe to run twice. rollback-notifications.sql drops the table.
 -- barako:rerunnable

@@ -11,7 +11,8 @@ Nothing in 5.5.0 touches these tables. A database that has them starts without e
 
 - `<version>/<name>.sql` and `<version>/rollback-<name>.sql`: the forward and rollback files exactly as
   they shipped, moved here unchanged. `ShippedMigrationTests` pins each by checksum.
-- `drop/<module>.sql`: one drop script per module that made tables. Run one when you are sure you want
+- `drop/<module>.sql`: one drop script per module that made tables, and `drop/stock-reservations.sql`
+  for the stock reservation tables. Run one when you are sure you want
   the data gone. Each drops the module's tables, is safe to run twice, and for the modules that
   recorded ledger rows also deletes those rows from `public.barako_migrations`.
 
@@ -45,8 +46,5 @@ If you replace a removed module with another package that keeps using its tables
 Qr, Analytics.Umami, CdnPurge, Secrets.Aws and Secrets.Gcp made no tables.
 
 The stock reservation tables belonged to core, not to a module. Its drop script is
-`5.2.0/rollback-580-stock-reservations.sql`. If you drop them, also remove the ledger row:
-
-```sql
-DELETE FROM public.barako_migrations WHERE owner = 'core' AND id = '5.2.0/580-stock-reservations';
-```
+`drop/stock-reservations.sql`. It drops the three tables and deletes the ledger row
+(`owner = 'core'`, `id = '5.2.0/580-stock-reservations'`). Run it the same way as the others.
