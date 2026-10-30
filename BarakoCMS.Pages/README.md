@@ -98,6 +98,8 @@ refuses any slug another entry of the type holds.
 | `GET /api/public/pages/navigation` | Nested, ordered menu of published pages flagged for navigation | Anonymous |
 | `GET /api/public/pages/resolve?path=/about/team` | The page at a path, with breadcrumbs; 404 on a miss | Anonymous |
 | `GET /api/pages/tree` | Every page the caller may read, drafts included, for the console | Signed in, content read permission |
+| `GET /api/pages/block-schema` | The tenant's block schema as `{ version, blocks }`, for an editor; see `docs/blocks.md` | Signed in |
+| `GET /api/pages/data-sources` | The read-only data sources modules registered for page blocks | Signed in, per source capability |
 
 The two anonymous endpoints serve only what `GET /api/public/{type}/{slug}` would: published,
 document-Public entries of a publicly deliverable type, with only Public fields. A page is left out of
@@ -154,6 +156,24 @@ anonymous bodies do not.
 
 In the tree, a page whose parent the caller cannot read, or whose chain loops, is listed at the top
 level with `path` null, so it can be found and fixed.
+
+## Data sources
+
+A module registers a named, read-only data source by adding a singleton `IBlockDataSource`
+(`barakoCMS.Core.Interfaces`) with an `Id`, a `Shape` (the fields each row carries) and an optional
+`Capability`. `GET /api/pages/data-sources` lists them ordered by id, and leaves out a source whose
+capability the caller does not hold.
+
+```json
+{ "contract": 3, "items": [
+  { "id": "entries", "capability": null,
+    "shape": { "fields": [ { "name": "id", "kind": "id" }, { "name": "data", "kind": "object" } ] } } ] }
+```
+
+An id is a lowercase letter, then lowercase letters, digits, `.`, `_` or `-`, at most 64 characters.
+A malformed id, a source with no fields, or two sources with one id stops the host at start, naming
+the source. Core registers `entries` (published entries, as delivery serves them). A module adds
+its own source by registering an `IBlockDataSource`.
 
 ## Part of barakoCMS
 

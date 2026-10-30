@@ -914,6 +914,32 @@
           }
         ]
       },
+      "BarakoCMSCoreInterfacesBlockDataSourceField": {
+        "additionalProperties": false,
+        "description": "One field of a row: its name, and a kind such as string, number, bool, date, id or object.",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSCoreInterfacesBlockDataSourceShape": {
+        "additionalProperties": false,
+        "description": "What each row of a data source carries.",
+        "properties": {
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSCoreInterfacesBlockDataSourceField"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSCoreInterfacesNumberGapReport": {
         "additionalProperties": false,
         "properties": {
@@ -1385,6 +1411,38 @@
             "type": "string"
           },
           "provider": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSExternalAuthExternalProvidersRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "providers": {
+            "items": {
+              "type": "string"
+            },
+            "nullable": false,
+            "type": "array"
+          }
+        },
+        "required": [
+          "providers"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSExternalAuthExternalProvidersResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "providers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "updatedAt": {
+            "format": "date-time",
             "type": "string"
           }
         },
@@ -14876,6 +14934,111 @@
         },
         "type": "object"
       },
+      "BarakoCMSPagesFeaturesBlockSchemaBlockFieldItem": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "max": {
+            "format": "double",
+            "nullable": true,
+            "type": "number"
+          },
+          "min": {
+            "format": "double",
+            "nullable": true,
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "nullable": true,
+            "type": "array"
+          },
+          "required": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSPagesFeaturesBlockSchemaBlockItem": {
+        "additionalProperties": false,
+        "properties": {
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSPagesFeaturesBlockSchemaBlockFieldItem"
+            },
+            "type": "array"
+          },
+          "label": {
+            "type": "string"
+          },
+          "perViewer": {
+            "type": "boolean"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSPagesFeaturesBlockSchemaBlockSchemaResponse": {
+        "additionalProperties": false,
+        "description": "The block schema as barakoPress publishes it, so an editor builds its forms from either.",
+        "properties": {
+          "blocks": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSPagesFeaturesBlockSchemaBlockItem"
+            },
+            "type": "array"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSPagesFeaturesDataSourcesDataSourceItem": {
+        "additionalProperties": false,
+        "properties": {
+          "capability": {
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "shape": {
+            "$ref": "#/components/schemas/BarakoCMSCoreInterfacesBlockDataSourceShape"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSPagesFeaturesDataSourcesDataSourcesResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "contract": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSPagesFeaturesDataSourcesDataSourceItem"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSPagesFeaturesNavigationNavigationItem": {
         "additionalProperties": false,
         "properties": {
@@ -18459,7 +18622,7 @@
             "description": "No Content"
           }
         },
-        "summary": "GET /api/auth/providers \u2014 which social sign-in buttons the client should show (those configured).",
+        "summary": "GET /api/auth/providers: which social sign-in buttons the client should show (those configured).\nWith ?club={handle} it reports only what that tenant allows, and a tenant with no list of\nits own sees the deployment's providers.",
         "tags": [
           "ExternalAuth"
         ]
@@ -18510,7 +18673,7 @@
     },
     "/api/auth/register": {
       "post": {
-        "description": "The account appears at /api/auth/register/verify, when the address named here hands back\nthe token that was emailed to it. Until then there is no user document, so there is nothing to\nsign in to, nothing holding the username, and nothing for an external provider to match against.\nThe third of those is why this is a security fix rather than a spam control. External sign-in\njoins a provider's verified email to a local account by address alone (see\nSocialSignIn.IssueAsync, which refuses any provider that has not asserted the address is\nverified). Writing an arbitrary unproven address into User.Email undid that from the other\nside: register as somebody else's address, wait for them to sign in with Google, and the provider\nputs them into the account you control. Refusing to sign in until verified would not have closed\nit, because that path never checks a password or a flag on the way in. Only the absence of the\nrow closes it. See DECISIONS.md D10.\nEverything below answers identically whether or not the address is already registered. The one\ndifference a caller can see is the password policy, which is about their own input and discloses\nnothing about anybody else.\nThe resolved tenant's sign-up policy is read first (SignUpPolicy).\nA tenant that takes no sign-ups answers 403 to everybody, which says something about the tenant\nand nothing about any address. An Open tenant's registration joins it with the policy's role and\ngets no global role; anywhere else the account gets the global User role, as before.",
+        "description": "The account appears at /api/auth/register/verify, when the address named here hands back\nthe token that was emailed to it. Until then there is no user document, so there is nothing to\nsign in to, nothing holding the username, and nothing for an external provider to match against.\nThe third of those is why this is a security fix rather than a spam control. External sign-in\njoins a provider's verified email to a local account by address alone (see\nSocialSignIn.IssueForProviderAsync, which refuses any provider that has not asserted the address is\nverified). Writing an arbitrary unproven address into User.Email undid that from the other\nside: register as somebody else's address, wait for them to sign in with Google, and the provider\nputs them into the account you control. Refusing to sign in until verified would not have closed\nit, because that path never checks a password or a flag on the way in. Only the absence of the\nrow closes it. See DECISIONS.md D10.\nEverything below answers identically whether or not the address is already registered. The one\ndifference a caller can see is the password policy, which is about their own input and discloses\nnothing about anybody else.\nThe resolved tenant's sign-up policy is read first (SignUpPolicy).\nA tenant that takes no sign-ups answers 403 to everybody, which says something about the tenant\nand nothing about any address. An Open tenant's registration joins it with the policy's role and\ngets no global role; anywhere else the account gets the global User role, as before.",
         "operationId": "barakoCMSFeaturesAuthRegisterEndpoint",
         "requestBody": {
           "content": {
@@ -25279,6 +25442,66 @@
         ]
       }
     },
+    "/api/pages/block-schema": {
+      "get": {
+        "description": "Any signed-in caller, as GET /api/blocks/schema: it says which blocks a page may hold and\nnothing about any entry. A tenant whose renderer has registered no schema gets an empty\nblocks list, not a 404. BlockSchemaTranslation says how the stored JSON\nSchema becomes this shape.",
+        "operationId": "BarakoCMSPagesFeaturesBlockSchemaEndpoint",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSPagesFeaturesBlockSchemaBlockSchemaResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/pages/block-schema: the tenant's block schema, as { version, blocks: [{ type, label,\nperViewer, fields: [{ name, kind, label, required, options, min, max }] }] }.",
+        "tags": [
+          "Pages"
+        ]
+      }
+    },
+    "/api/pages/data-sources": {
+      "get": {
+        "description": "Any signed-in caller. A source that names a capability is left out for a caller who does not\nhold it, as the incidents view does. Sources are registered by the deployment's modules, not\nstored per tenant, so the list differs between tenants only through what the caller's roles hold.",
+        "operationId": "BarakoCMSPagesFeaturesDataSourcesEndpoint",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSPagesFeaturesDataSourcesDataSourcesResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/pages/data-sources: the read-only data sources modules registered for page blocks to\nbind to, ordered by id.",
+        "tags": [
+          "Pages"
+        ]
+      }
+    },
     "/api/pages/settings": {
       "get": {
         "operationId": "BarakoCMSPagesFeaturesSettingsGetEndpoint",
@@ -29840,6 +30063,105 @@
         "summary": "GET /api/tenants/by-host/{host}: the tenant a domain belongs to.",
         "tags": [
           "Tenants"
+        ]
+      }
+    },
+    "/api/tenants/external-providers": {
+      "delete": {
+        "operationId": "BarakoCMSExternalAuthDeleteExternalProvidersEndpoint",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "DELETE /api/tenants/external-providers: removes the list, so the tenant uses the deployment's providers.",
+        "tags": [
+          "ExternalAuth"
+        ]
+      },
+      "get": {
+        "operationId": "BarakoCMSExternalAuthGetExternalProvidersEndpoint",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSExternalAuthExternalProvidersResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/tenants/external-providers: the caller's tenant's provider list.",
+        "tags": [
+          "ExternalAuth"
+        ]
+      },
+      "put": {
+        "operationId": "BarakoCMSExternalAuthPutExternalProvidersEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSExternalAuthExternalProvidersRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "ExternalProvidersRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSExternalAuthExternalProvidersResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "PUT /api/tenants/external-providers: sets the caller's tenant's list, replacing any.",
+        "tags": [
+          "ExternalAuth"
         ]
       }
     },
