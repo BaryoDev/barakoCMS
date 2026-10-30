@@ -726,8 +726,8 @@ as its owner, so it can never do more than the owner's own roles and capabilitie
 | `contenttype:write` | `POST`, `PUT`, `PATCH` and `DELETE` under `/api/content-types` and `/api/schemas` |
 | `files:read` | `GET` under `/api/files` (list, metadata, download, usage) |
 | `files:write` | `POST`, `PUT`, `PATCH` and `DELETE` under `/api/files` (upload, change, delete) |
-| `monitor:read` | `GET /api/contents/counts`, `GET /api/analytics/**`, `GET /api/monitoring/health` and `GET /api/overview`, nothing else. Counts also accept `content:read`. The health read gives a key name, status and duration per check, without description, data or tags; the owner still needs the `ViewMonitoring` capability |
-| `services:heartbeat` | `POST /api/services/{name}/heartbeat` only (a registered service reporting that it is alive) |
+| `monitor:read` | `GET /api/contents/counts`, `GET /api/monitoring/health` and `GET /api/overview`, nothing else. Counts also accept `content:read`. The health read gives a key name, status and duration per check, without description, data or tags; the owner still needs the `ViewMonitoring` capability |
+| `services:heartbeat` | `POST /api/services/{name}/heartbeat` only. Core does not serve this route; the scope is for a module that mounts it |
 | `*` | all of the above except `files:read`, `files:write`, `monitor:read` and `services:heartbeat` |
 
 `content:destructive` does not include `content:write`, and `content:write` does not include it. Before
@@ -736,8 +736,7 @@ as its owner, so it can never do more than the owner's own roles and capabilitie
 
 The files scopes, `monitor:read` and `services:heartbeat` are never implied by `*`, so a key made before
 they existed gains nothing. Name `files:read`, `files:write`, `monitor:read` or `services:heartbeat` on the key
-to allow it. A `monitor:read` key gets 403 on every other `/api/**` route, and on any write to the counts and
-analytics routes.
+to allow it. A `monitor:read` key gets 403 on every other `/api/**` route, and on any write to the counts route.
 
 A key can also name content types (`contentTypes` on `POST /api/api-keys`). That makes it a push key:
 it reaches `POST /api/collections/{type}/push` for the types it names and gets 403 everywhere else,
