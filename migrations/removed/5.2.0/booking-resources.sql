@@ -4,7 +4,7 @@
 -- listed by name within one tenant, so no index. Shipped from the Booking module, so it runs only
 -- where the module is enabled.
 --
---   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/removed/5.2.0/booking-resources.sql
+--   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/5.2.0/booking-resources.sql
 --
 -- Safe to run twice. rollback-booking-resources.sql drops the table.
 -- barako:rerunnable

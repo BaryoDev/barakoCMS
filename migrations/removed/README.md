@@ -10,7 +10,8 @@ Nothing in 5.5.0 touches these tables. A database that has them starts without e
 ## What is in here
 
 - `<version>/<name>.sql` and `<version>/rollback-<name>.sql`: the forward and rollback files exactly as
-  they shipped, moved here unchanged. `ShippedMigrationTests` pins each by checksum.
+  they shipped, moved here unchanged. `ShippedMigrationTests` pins each by checksum, so their header comments
+  still name the path they shipped at, `migrations/<version>/`.
 - `drop/<module>.sql`: one drop script per module that made tables, and `drop/stock-reservations.sql`
   for the stock reservation tables. Run one when you are sure you want
   the data gone. Each drops the module's tables, is safe to run twice, and for the modules that
