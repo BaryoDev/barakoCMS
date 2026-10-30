@@ -467,7 +467,7 @@ public static class SocialSignIn
 
         if (tokens.RequiresMfa)
         {
-            return FrontendMfaCallback(baseUrl, tokens.MfaChallenge!, club);
+            return await SuccessRedirectAsync(session, config, http, baseUrl, tokens, club, ct);
         }
 
         if (!tokens.Allowed)
@@ -477,7 +477,28 @@ public static class SocialSignIn
                 baseUrl, emailNotVerified && !email.Contains('@') ? noEmailMessage : "You are not a member of this club.", club);
         }
 
-        return FrontendCallback(baseUrl, tokens.Token, tokens.Refresh, club);
+        return await SuccessRedirectAsync(session, config, http, baseUrl, tokens, club, ct);
+    }
+
+    /// <summary>
+    /// Where the browser goes once a sign-in has an outcome: the tokens or the MFA challenge in the
+    /// fragment, which is what every deployment gets unless it turned the code handoff on, in which
+    /// case only a single-use code travels (see <see cref="SocialHandoff"/>).
+    /// </summary>
+    internal static Task<string> SuccessRedirectAsync(
+        IDocumentSession session, IConfiguration config, HttpContext http, string baseUrl, Tokens tokens,
+        string club, CancellationToken ct)
+    {
+        if (SocialHandoff.Enabled(config))
+        {
+            return SocialHandoff.RedirectAsync(
+                session, http, baseUrl,
+                new SocialHandoffOutcome(tokens.Token, tokens.Refresh, tokens.RequiresMfa, tokens.MfaChallenge, club), ct);
+        }
+
+        return Task.FromResult(tokens.RequiresMfa
+            ? FrontendMfaCallback(baseUrl, tokens.MfaChallenge!, club)
+            : FrontendCallback(baseUrl, tokens.Token, tokens.Refresh, club));
     }
 }
 

@@ -36,6 +36,7 @@ public class GitHubStartEndpoint(IConfiguration config, IQuerySession session) :
         var state = ExternalAuthSupport.NewState();
         HttpContext.Response.Cookies.Append("gh_state", state, ExternalAuthSupport.ShortCookie());
         HttpContext.Response.Cookies.Append("gh_club", club, ExternalAuthSupport.ShortCookie());
+        SocialHandoff.BindDevice(HttpContext, config);
 
         var redirect = Gh.CallbackUrl(config, HttpContext);
         var url =

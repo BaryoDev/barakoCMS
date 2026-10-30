@@ -52,6 +52,7 @@ internal sealed class OidcStartEndpoint(IConfiguration config, OidcBackchannel b
         var flow = OidcFlow.New();
         HttpContext.Response.Cookies.Append(provider.StateCookie, flow.ToCookie(), OidcSupport.FlowCookie(provider));
         HttpContext.Response.Cookies.Append(provider.ClubCookie, club, OidcSupport.FlowCookie(provider));
+        SocialHandoff.BindDevice(HttpContext, config, OidcSupport.FlowCookie(provider));
 
         var separator = endpoints.AuthorizationEndpoint.Contains('?') ? '&' : '?';
         var url =
@@ -267,7 +268,8 @@ internal abstract class OidcCallback(
         }
         if (tokens.RequiresMfa)
         {
-            await Send.ResultAsync(Results.Redirect(SocialSignIn.FrontendMfaCallback(baseUrl, tokens.MfaChallenge!, club)));
+            await Send.ResultAsync(Results.Redirect(
+                await SocialSignIn.SuccessRedirectAsync(session, config, HttpContext, baseUrl, tokens, club, ct)));
             return;
         }
         if (!tokens.Allowed)
@@ -275,6 +277,7 @@ internal abstract class OidcCallback(
             await Fail("You are not a member of this club.");
             return;
         }
-        await Send.ResultAsync(Results.Redirect(SocialSignIn.FrontendCallback(baseUrl, tokens.Token, tokens.Refresh, club)));
+        await Send.ResultAsync(Results.Redirect(
+            await SocialSignIn.SuccessRedirectAsync(session, config, HttpContext, baseUrl, tokens, club, ct)));
     }
 }
