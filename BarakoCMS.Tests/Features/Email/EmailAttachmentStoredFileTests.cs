@@ -628,13 +628,13 @@ public class EmailAttachmentStoredFileTests
     }
 
     /// <summary>
-    /// The registration case end to end: a stranger submits a public form naming a file, a
-    /// SuperAdmin confirms the submission, and the confirmation fires an email that attaches the
-    /// named file. The entry's last writer is then the SuperAdmin, who could download a private
-    /// file. A private file the submission named is not sent, and a public one is.
+    /// The registration case end to end: an editor files a registration naming a file, a
+    /// SuperAdmin confirms it, and the confirmation fires an email that attaches the named file.
+    /// The entry's last writer is then the SuperAdmin, who could download a private file. A private
+    /// file the registration named is not sent, and a public one is.
     /// </summary>
     [Fact]
-    public async Task A_private_file_named_by_a_form_submission_is_not_sent_after_an_administrator_confirms_it()
+    public async Task A_private_file_named_by_a_registration_is_not_sent_after_an_administrator_confirms_it()
     {
         var closed = await UploadPdfAsync(isPublic: false);
         var open = await UploadPdfAsync(isPublic: true, name: "terms.pdf");
@@ -650,9 +650,9 @@ public class EmailAttachmentStoredFileTests
 
         failed.Error.Should().Contain(Refused);
         failed.Retryable.Should().NotBe(true, "the refusal is permanent, so the runner does not try it again");
-        SentTo(to).Should().BeEmpty("the submission named a private file, and confirming it must not send that file");
+        SentTo(to).Should().BeEmpty("the registration named a private file, and confirming it must not send that file");
 
-        // The control: the same form, workflow and approver, with a submission naming a public file.
+        // The control: the same form, workflow and approver, with a registration naming a public file.
         var withPublic = await SubmitAndConfirmAsync(type, approver, open.Id);
         await WaitForRunAsync(withPublic, attempt => attempt.Status == AttemptStatus.Succeeded);
 
@@ -664,10 +664,10 @@ public class EmailAttachmentStoredFileTests
         _factory.Services.GetRequiredService<Microsoft.Extensions.Logging.ILogger<WorkflowRunner>>(),
         _factory.Services.GetRequiredService<IConfiguration>());
 
-    /// <summary>A form-enabled type with a Confirm transition, and a workflow that emails on it.</summary>
+    /// <summary>A type with a Confirm transition, and a workflow that emails on it.</summary>
     private async Task<string> FormTypeWithConfirmationEmailAsync(string to)
     {
-        var type = $"form-{Guid.NewGuid():N}";
+        var type = $"registration-{Guid.NewGuid():N}";
 
         using (var scope = _factory.Services.CreateScope())
         {
@@ -713,30 +713,47 @@ public class EmailAttachmentStoredFileTests
             await session.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
-        var admin = _factory.CreateClient();
-        admin.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", await _factory.StoredUserTokenAsync("Admin"));
-        var enabled = await admin.PutAsJsonAsync($"/api/forms/{type}", new { enabled = true }, TestContext.Current.CancellationToken);
-        enabled.StatusCode.Should().Be(HttpStatusCode.OK, await enabled.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
-
         return type;
     }
 
-    /// <summary>Submits the form as a stranger, then confirms the submission as the approver. Answers the entry's id.</summary>
+    /// <summary>
+    /// A token for a stored user whose only role may create entries of the type. A fresh type has
+    /// no rules in the seeded Admin role, so only a role granted it can file one.
+    /// </summary>
+    private async Task<string> EditorTokenAsync(string type)
+    {
+        var role = new Role
+        {
+            Id = Guid.NewGuid(),
+            Name = $"Registrars {Guid.NewGuid():N}",
+            Permissions = [new ContentTypePermission { ContentTypeSlug = type, Create = new PermissionRule { Enabled = true } }],
+        };
+        var userId = Guid.NewGuid();
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(role);
+            session.Store(new User { Id = userId, Username = $"reg-{userId:N}", Email = $"reg-{userId:N}@example.com", RoleIds = [role.Id] });
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        return _factory.CreateToken([role.Name], userId.ToString(), new Dictionary<string, string> { ["Username"] = $"reg-{userId:N}" });
+    }
+
+    /// <summary>Files a registration as an editor, then confirms it as the approver. Answers the entry's id.</summary>
     private async Task<Guid> SubmitAndConfirmAsync(string type, HttpClient approver, Guid receipt)
     {
         var name = $"Ana {Guid.NewGuid():N}";
 
-        // Its own client address: the submit route allows five requests per address per window.
-        var visitor = _factory.CreateClient();
-        var bytes = Guid.NewGuid().ToByteArray();
-        visitor.DefaultRequestHeaders.Add(
-            TestRemoteIpFilter.Header,
-            $"2001:db8:{bytes[0]:x2}{bytes[1]:x2}:{bytes[2]:x2}{bytes[3]:x2}:806::1");
-
-        var submitted = await visitor.PostAsJsonAsync(
-            $"/api/public/forms/{type}", new { data = new { name, receipt = receipt.ToString() } }, TestContext.Current.CancellationToken);
-        submitted.StatusCode.Should().Be(HttpStatusCode.Accepted, await submitted.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        var editor = _factory.CreateClient();
+        editor.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", await EditorTokenAsync(type));
+        var submitted = await editor.PostAsJsonAsync(
+            "/api/contents",
+            new { contentType = type, data = new { name, receipt = receipt.ToString() } },
+            TestContext.Current.CancellationToken);
+        submitted.IsSuccessStatusCode.Should().BeTrue(
+            "got {0}: {1}", submitted.StatusCode, await submitted.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
 
         Guid id;
         using (var scope = _factory.Services.CreateScope())
@@ -746,7 +763,6 @@ public class EmailAttachmentStoredFileTests
                 .Where(c => Equals(c.Data.GetValueOrDefault("name"), name))
                 .ToList();
             entries.Should().HaveCount(1);
-            entries[0].LastModifiedBy.Should().Be(Guid.Empty, "a submission is stored with no user");
             id = entries[0].Id;
         }
 

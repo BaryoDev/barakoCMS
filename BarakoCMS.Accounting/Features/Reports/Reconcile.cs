@@ -8,9 +8,11 @@ using Marten.Linq.MatchesSql;
 namespace BarakoCMS.Accounting.Features.Reports;
 
 /// <summary>One subject entry the books do not agree with.</summary>
+[Obsolete("BarakoCMS.Accounting is deprecated. Removal planned for barakoCMS 6.0.")]
 public sealed record ReconcileRow(Guid SubjectId, string? SubjectNumber, decimal SubjectAmount, decimal JournalAmount, string Problem);
 
 /// <summary>How many subjects were checked, and the ones that differ or have no posting (at most 500 of each).</summary>
+[Obsolete("BarakoCMS.Accounting is deprecated. Removal planned for barakoCMS 6.0.")]
 public sealed record ReconcileResponse(int Checked, List<ReconcileRow> Mismatches, List<ReconcileRow> Missing);
 
 /// <summary>
@@ -25,6 +27,7 @@ public sealed record ReconcileResponse(int Checked, List<ReconcileRow> Mismatche
 /// since this route is open to anyone who may view the ledger and not to anyone who may read the
 /// subject. <c>from</c> and <c>to</c> are dates, both days included, at most 366 days apart.
 /// </remarks>
+[Obsolete("BarakoCMS.Accounting is deprecated. Removal planned for barakoCMS 6.0.")]
 public class ReconcileEndpoint(IQuerySession session, IPermissionResolver permissions) : Endpoint<ReconcileEndpoint.Request, ReconcileResponse>
 {
     private const int BatchSize = 200;

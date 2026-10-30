@@ -1,3 +1,4 @@
+#pragma warning disable CS0618 // Accounting is obsolete in 5.5 and is removed in #1285
 using System.Reflection;
 using barakoCMS.Models;
 using barakoCMS.Modules;
@@ -172,20 +173,11 @@ public class ModuleCapabilityDefaultsTests
         [
             typeof(BarakoCMS.AI.AiCapabilities),
             typeof(BarakoCMS.Accounting.AccountingCapabilities),
-            typeof(BarakoCMS.Analytics.Umami.AnalyticsCapabilities),
-            typeof(BarakoCMS.Comments.CommentsCapabilities),
-            typeof(BarakoCMS.Contacts.ContactsCapabilities),
             typeof(BarakoCMS.Diagnostics.DiagnosticsCapabilities),
             typeof(BarakoCMS.FeatureFlags.FeatureFlagCapabilities),
             typeof(BarakoCMS.Files.FileCapabilities),
-            typeof(BarakoCMS.Forms.FormsCapabilities),
-            typeof(BarakoCMS.Reports.ReportsCapabilities),
             typeof(BarakoCMS.Import.ImportCapabilities),
-            typeof(BarakoCMS.Notifications.NotificationsCapabilities),
             typeof(BarakoCMS.Portability.PortabilityCapabilities),
-            typeof(BarakoCMS.Pwa.PwaCapabilities),
-            typeof(BarakoCMS.Services.ServicesCapabilities),
-            typeof(BarakoCMS.Tagging.TaggingCapabilities),
         ];
 
         // Scanned as well as named, so a module added later is held to the same rule.
@@ -318,7 +310,6 @@ public class ModuleCapabilityDefaultsTests
                 var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
 #pragma warning disable CS0618 // the older member is the thing under test
                 await new BarakoCMS.Accounting.AccountingModule().SeedAsync(session, scope.ServiceProvider, Ct);
-#pragma warning restore CS0618
                 await session.SaveChangesAsync(Ct);
             }
 
@@ -446,7 +437,6 @@ public class ModuleCapabilityDefaultsTests
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
 #pragma warning disable CS0618
         var changed = await ModuleCapabilities.GrantAsync(session, [name], ["cap_one"], Ct);
-#pragma warning restore CS0618
         await session.SaveChangesAsync(Ct);
 
         changed.Should().Be(0);

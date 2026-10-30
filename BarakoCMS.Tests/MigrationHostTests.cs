@@ -42,8 +42,8 @@ public class MigrationHostTests
         var status = await RunHostAsync(assembly, database.ConnectionString, "db-migrate", "--status");
 
         first.ExitCode.Should().Be(0, $"output:\n{Truncate(first.Output)}");
-        ledgerAfterFirst.Count.Should().BeGreaterThanOrEqualTo(host == "suite" ? 10 : 7,
-            "seven core files and three module files were released before the ledger");
+        ledgerAfterFirst.Count.Should().BeGreaterThanOrEqualTo(host == "suite" ? 8 : 7,
+            "seven core files and one module file were released before the ledger");
         ledgerAfterFirst.Should().Contain("core/4.0.0/3.x-to-4.0 baselined");
         ledgerAfterFirst.Should().OnlyContain(row => row.EndsWith(" baselined"),
             "nothing has started against this database, so no file is run");
@@ -140,14 +140,14 @@ public class MigrationHostTests
             }
 
             await store.Storage.Database.EnsureStorageExistsAsync(typeof(BarakoCMS.Files.StoredFile), ct);
-            await store.Storage.Database.EnsureStorageExistsAsync(typeof(BarakoCMS.Forms.PublicForm), ct);
         }
 
         var preLedger = ShippedMigrations
-            .Discover([new BarakoCMS.Forms.FormsModule(), new BarakoCMS.Files.FilesModule()])
+            .Discover([new BarakoCMS.Files.FilesModule()])
             .Where(m => Version.Parse(m.Version) < new Version(4, 6, 0))
             .ToList();
-        preLedger.Should().HaveCount(9);
+        // Eight, not nine: forms-public-forms (4.2.0) was pre-ledger and left with BarakoCMS.Forms in 5.5.0.
+        preLedger.Should().HaveCount(8);
 
         await using var connection = new NpgsqlConnection(_factory.ConnectionString);
         await connection.OpenAsync(ct);
@@ -158,6 +158,89 @@ public class MigrationHostTests
             (await command.ExecuteScalarAsync(ct)).Should().Be(true,
                 $"{migration.Key} is already in place here, and running it again is what the query is there to prevent");
         }
+    }
+
+    /// <summary>
+    /// A 5.4 database with every business module enabled, started on 5.5.0. The modules are gone,
+    /// so their migration files are not shipped and their ledger rows are for files this build does
+    /// not have. db-migrate has to report that and carry on, and it must not touch the tables.
+    /// </summary>
+    [Theory]
+    [InlineData("suite")]
+    [InlineData("core")]
+    public async Task A_database_that_ran_the_removed_modules_migrates_without_errors_and_keeps_their_tables(string host)
+    {
+        var assembly = host == "suite" ? SuiteAssemblyPath() : CoreAssembly;
+        File.Exists(assembly).Should().BeTrue($"the {host} host must be built at {assembly}");
+        // A real 5.4 database has a row for every core file next to the module rows, written by its
+        // first start. Without them, db-migrate would run the core files against a schema this test
+        // never built. db-migrate on the empty database writes the same rows, as baselined.
+        await using var database = await MigrationScratchDatabase.CreateAsync(_factory, started: false);
+        var first = await RunHostAsync(assembly, database.ConnectionString, "db-migrate");
+        first.ExitCode.Should().Be(0, $"output:\n{Truncate(first.Output)}");
+        // Started since, so the run below cannot take the new-database path.
+        await database.ExecuteAsync("create table public.mt_doc_users (id uuid primary key)");
+
+        var removed = Path.Combine(RepositoryRoot(), "migrations", "removed");
+        var owners = new Dictionary<string, string>
+        {
+            ["Forms"] = "4.2.0/forms-public-forms",
+            ["Booking"] = "5.2.0/booking-resources",
+            ["Payments"] = "5.2.0/payments-attempts",
+            ["Reports"] = "5.2.0/report-definitions",
+            ["Scheduling"] = "5.2.0/scheduled-entries",
+            ["Notifications"] = "5.2.0/notifications",
+            ["Contacts"] = "5.2.0/contacts",
+            ["Comments"] = "5.2.0/253-comments",
+            ["Documents"] = "5.2.0/585-documents",
+            ["Tagging"] = "5.3.0/252-tagging",
+            ["Services"] = "5.3.0/833-services",
+        };
+        // A real 5.4 database had Marten's immutable cast helpers, and the removed scripts index through them.
+        await database.ExecuteAsync(
+            "create function public.mt_immutable_timestamp(value text) returns timestamp without time zone "
+            + "language sql immutable as $f$ select value::timestamp $f$;");
+        await database.ExecuteAsync(
+            "create function public.mt_immutable_timestamptz(value text) returns timestamp with time zone "
+            + "language sql immutable as $f$ select value::timestamptz $f$;");
+        foreach (var (owner, file) in owners)
+        {
+            await database.ExecuteAsync(await File.ReadAllTextAsync(Path.Combine(removed, file + ".sql")));
+            var id = file[(file.IndexOf('/') + 1)..];
+            var version = file[..file.IndexOf('/')];
+            await database.ExecuteAsync(
+                $"insert into public.barako_migrations (owner, id, checksum, state, recorded_by) "
+                + $"values ('{owner}', '{version}/{id}', 'recorded-by-5.4', 'applied', 'tests')");
+        }
+
+        string[] tables =
+        [
+            "mt_doc_public_forms", "mt_doc_booking_resources", "mt_doc_payments_attempts", "mt_doc_report_definitions",
+            "mt_doc_scheduled_entries", "mt_doc_notifications", "mt_doc_contacts", "mt_doc_comments",
+            "mt_doc_document_templates", "mt_doc_tagging_vocabularies", "mt_doc_service_registrations",
+        ];
+        foreach (var table in tables)
+            (await database.IsTrueAsync($"select to_regclass('public.{table}') is not null")).Should().BeTrue($"{table} is the setup");
+
+        var migrate = await RunHostAsync(assembly, database.ConnectionString, "db-migrate");
+        var status = await RunHostAsync(assembly, database.ConnectionString, "db-migrate", "--status");
+
+        migrate.ExitCode.Should().Be(0, $"output:\n{Truncate(migrate.Output)}");
+        status.ExitCode.Should().Be(0, $"output:\n{Truncate(status.Output)}");
+        status.Output.Should().Contain("not-loaded Forms/4.2.0/forms-public-forms");
+        foreach (var table in tables)
+            (await database.IsTrueAsync($"select to_regclass('public.{table}') is not null")).Should().BeTrue($"{table} is kept");
+        (await database.IsTrueAsync(
+            $"select count(*) = {owners.Count} from public.barako_migrations where recorded_by = 'tests'"))
+            .Should().BeTrue("the rows of the removed modules are left in the ledger");
+    }
+
+    private static string RepositoryRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Directory.Build.props")))
+            dir = dir.Parent;
+        return dir?.FullName ?? throw new InvalidOperationException("The repository root was not found.");
     }
 
     // JasperFx opens every dll next to the host looking for its extension attribute. The test

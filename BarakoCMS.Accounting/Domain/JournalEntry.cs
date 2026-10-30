@@ -4,6 +4,7 @@ namespace BarakoCMS.Accounting.Domain;
 /// One posting line of a journal entry. By convention exactly one of <see cref="Debit"/> /
 /// <see cref="Credit"/> is non-zero, and both are non-negative.
 /// </summary>
+[Obsolete("BarakoCMS.Accounting is deprecated. Removal planned for barakoCMS 6.0.")]
 public class JournalLine
 {
     public string AccountCode { get; set; } = string.Empty;
@@ -12,6 +13,7 @@ public class JournalLine
     public string? Memo { get; set; }
 }
 
+[Obsolete("BarakoCMS.Accounting is deprecated. Removal planned for barakoCMS 6.0.")]
 public enum JournalStatus
 {
     Posted,
@@ -25,6 +27,7 @@ public enum JournalStatus
 /// Entries are immutable once posted: corrections are made by posting a reversing entry
 /// (<see cref="VoidsEntryId"/>) rather than editing, preserving an audit trail.
 /// </summary>
+[Obsolete("BarakoCMS.Accounting is deprecated. Removal planned for barakoCMS 6.0.")]
 public class JournalEntry
 {
     public Guid Id { get; set; } = Guid.NewGuid();

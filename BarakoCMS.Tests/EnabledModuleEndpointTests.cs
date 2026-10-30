@@ -1,9 +1,9 @@
+#pragma warning disable CS0618 // Accounting is obsolete in 5.5 and is removed in #1285
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using barakoCMS.Data;
 using barakoCMS.Extensions;
-using BarakoCMS.DeviceTrust;
 using FluentAssertions;
 using Marten;
 using Microsoft.AspNetCore.Builder;
@@ -17,7 +17,7 @@ using Xunit;
 namespace BarakoCMS.Tests;
 
 /// <summary>
-/// A host that discovers every module this process references and enables two, booted the way
+/// A host that discovers every module this process references and enables one, booted the way
 /// <c>BarakoCMS.Suite</c> boots, with FastEndpoints' own discovery left on.
 /// </summary>
 /// <remarks>
@@ -26,8 +26,7 @@ namespace BarakoCMS.Tests;
 /// <para>
 /// In the IntegrationSerial collection, and on the fixture's JWT key, for the reasons
 /// <see cref="BarakoTestHostTests"/> gives: FastEndpoints keeps endpoint configuration and the
-/// signing key in statics each host overwrites. Run in parallel, this host's startup left
-/// DeviceEnforcementTests without its enforcement processor.
+/// signing key in statics each host overwrites.
 /// </para>
 /// </remarks>
 [Collection("Integration1")]
@@ -67,8 +66,7 @@ public sealed class EnabledModuleEndpointTests(EnabledModuleEndpointTests.Host h
                 ["Seed:DemoContent"] = "false",
                 // DiscoveryDefault turns discovery off for this process through the environment.
                 ["BarakoCMS:Modules:Discover"] = "true",
-                ["BarakoCMS:Modules:Enabled"] = "Pwa,DeviceTrust",
-                ["DeviceTrust:Enforce"] = "true",
+                ["BarakoCMS:Modules:Enabled"] = "FeatureFlags",
             });
 
             builder.Services.AddBarakoCMS(builder.Configuration);
@@ -93,11 +91,12 @@ public sealed class EnabledModuleEndpointTests(EnabledModuleEndpointTests.Host h
     [Fact]
     public async Task An_enabled_module_answers()
     {
-        var response = await host.App.GetTestClient().PostAsJsonAsync(
-            "/api/pwa/report", new { deviceId = Guid.NewGuid().ToString("N"), displayMode = "standalone" },
-            TestContext.Current.CancellationToken);
+        var userId = await SeedUserAsync(barakoCMS.Models.SystemRoles.SuperAdminRoleId);
 
-        response.IsSuccessStatusCode.Should().BeTrue(await response.Content.ReadAsStringAsync());
+        var response = await Client(fixture.CreateToken(["SuperAdmin"], userId.ToString()))
+            .GetAsync("/api/feature-flags/admin", TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
     }
 
     [Fact]
@@ -109,40 +108,8 @@ public sealed class EnabledModuleEndpointTests(EnabledModuleEndpointTests.Host h
     }
 
     /// <summary>
-    /// The positive control for the refusal below: the same user and endpoint, with a token that is
-    /// not bound to a device, is served.
-    /// </summary>
-    [Fact]
-    public async Task An_unbound_token_reaches_an_enabled_module_endpoint()
-    {
-        var userId = await SeedUserAsync();
-
-        var response = await Client(fixture.CreateToken(["SuperAdmin"], userId.ToString()))
-            .GetAsync("/api/devices", TestContext.Current.CancellationToken);
-
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-    }
-
-    /// <summary>
-    /// A global processor from an enabled module still runs while another module is switched off.
-    /// </summary>
-    [Fact]
-    public async Task An_enabled_module_global_processor_still_runs_beside_a_disabled_module()
-    {
-        var userId = await SeedUserAsync();
-        var token = fixture.CreateToken(
-            ["SuperAdmin"], userId.ToString(),
-            new Dictionary<string, string> { [DeviceGate.DeviceClaim] = $"device-{Guid.NewGuid():n}" });
-
-        var response = await Client(token).GetAsync("/api/devices", TestContext.Current.CancellationToken);
-
-        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized,
-            "DeviceTrust's enforcement processor refuses a bound token sent with no device header");
-    }
-
-    /// <summary>
-    /// The describe document says what this deployment runs: the two enabled modules and what they
-    /// bring, and nothing from a module the enabled list left off.
+    /// The describe document says what this deployment runs: the enabled module and what it
+    /// brings, and nothing from a module the enabled list left off.
     /// </summary>
     [Fact]
     public async Task The_describe_document_lists_what_the_enabled_modules_bring_and_nothing_from_one_left_off()
@@ -162,14 +129,13 @@ public sealed class EnabledModuleEndpointTests(EnabledModuleEndpointTests.Host h
         var modules = document.RootElement.GetProperty("modules").EnumerateArray()
             .Select(m => m.GetProperty("name").GetString())
             .ToList();
-        modules.Should().HaveCount(2);
-        modules.Should().Equal(["DeviceTrust", "Pwa"]);
+        modules.Should().Equal(["FeatureFlags"]);
 
         var capabilities = document.RootElement.GetProperty("capabilities").EnumerateArray()
             .ToDictionary(c => c.GetProperty("name").GetString()!, c => c.GetProperty("source").GetString());
         capabilities.Should().NotBeEmpty();
-        capabilities.Should().ContainKey(BarakoCMS.Pwa.PwaCapabilities.ViewPwaInstalls);
-        capabilities[BarakoCMS.Pwa.PwaCapabilities.ViewPwaInstalls].Should().Be("Pwa",
+        capabilities.Should().ContainKey(BarakoCMS.FeatureFlags.FeatureFlagCapabilities.ManageFeatureFlags);
+        capabilities[BarakoCMS.FeatureFlags.FeatureFlagCapabilities.ManageFeatureFlags].Should().Be("FeatureFlags",
             "a capability an enabled module's endpoint asks for is listed under that module");
         capabilities.Should().NotContainKey(BarakoCMS.Accounting.AccountingCapabilities.ViewLedger,
             "a module left off serves no endpoint, so its capability is not one this deployment has");

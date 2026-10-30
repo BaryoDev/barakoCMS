@@ -47,7 +47,6 @@ public class ListEnvelopeTests
         "/api/tenants/members/roles",
         "/api/settings",
         "/api/accounting/accounts",
-        "/api/pwa/installs",
     ];
 
     [Theory]

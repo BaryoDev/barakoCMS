@@ -4,6 +4,7 @@ using FastEndpoints;
 namespace BarakoCMS.Accounting.Features.Reports;
 
 /// <summary>GET /api/accounting/balances?asOf=yyyy-MM-dd — trial-balance-style listing.</summary>
+[Obsolete("BarakoCMS.Accounting is deprecated. Removal planned for barakoCMS 6.0.")]
 public class BalancesEndpoint(
     ReportingService reports) : Endpoint<BalancesEndpoint.Request, IReadOnlyList<AccountBalance>>
 {
@@ -21,6 +22,7 @@ public class BalancesEndpoint(
 }
 
 /// <summary>GET /api/accounting/accounts/{code}/ledger — a single account's ledger with running balance.</summary>
+[Obsolete("BarakoCMS.Accounting is deprecated. Removal planned for barakoCMS 6.0.")]
 public class AccountLedgerEndpoint(ReportingService reports) : Endpoint<AccountLedgerEndpoint.Request, AccountLedger>
 {
     public class Request { public string Code { get; set; } = string.Empty; }
@@ -44,6 +46,7 @@ public class AccountLedgerEndpoint(ReportingService reports) : Endpoint<AccountL
 /// GET /api/accounting/cash-flow?year=2026&amp;month=10&amp;cash=1010,1020 returns receipts and disbursements
 /// of one month over the listed cash accounts, with the opening and closing balance.
 /// </summary>
+[Obsolete("BarakoCMS.Accounting is deprecated. Removal planned for barakoCMS 6.0.")]
 public class CashFlowEndpoint(
     ReportingService reports, AccountService accounts) : Endpoint<CashFlowEndpoint.Request, CashFlow>
 {

@@ -13,6 +13,7 @@ namespace BarakoCMS.Accounting;
 ///
 /// Registered by <see cref="AccountingModule"/>, so any host with the module gets it from DI.
 /// </summary>
+[Obsolete("BarakoCMS.Accounting is deprecated. Removal planned for barakoCMS 6.0.")]
 public class AccountService
 {
     private readonly IQuerySession _query;

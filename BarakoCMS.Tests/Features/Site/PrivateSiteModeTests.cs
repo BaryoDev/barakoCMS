@@ -196,7 +196,6 @@ public class PrivateSiteModeTests
         routes.Should().Contain(r => r.Pattern.EndsWith("/sitemap.xml"));
         routes.Should().Contain(r => r.Pattern.EndsWith("/feed.xml"));
         routes.Should().Contain(r => r.Pattern.StartsWith("/api/public/files/"), "a module route under /api/public/");
-        routes.Should().Contain(r => r.Pattern.StartsWith("/api/public/forms/"), "a module route under /api/public/");
         routes.Should().Contain(r => r.Pattern.StartsWith("/api/public/pages/"), "a module route under /api/public/");
         routes.Count.Should().BeGreaterThan(8);
 
@@ -406,8 +405,6 @@ public class PrivateSiteModeTests
         ("/ofrep/", true, "feature flag evaluation: flags, no content"),
         ("/api/feature-flags", false, "feature flag evaluation: flags, no content"),
         ("/api/client-errors", false, "a write of client error reports"),
-        ("/api/pwa/report", false, "a write of install and usage reports"),
-        ("/api/payments/webhooks/{provider}", false, "a signed provider webhook; answers a bare status code and returns no body"),
         ("/api/renderer/blocks/schema", false, "a write guarded by the renderer key"),
         ("/api/_test/", true, "test host only"),
     ];

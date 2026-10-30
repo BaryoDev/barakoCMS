@@ -15,30 +15,12 @@
     <ProjectReference Include="..\BarakoCMS.Files\BarakoCMS.Files.csproj" />
     <ProjectReference Include="..\BarakoCMS.Files.S3\BarakoCMS.Files.S3.csproj" />
     <ProjectReference Include="..\BarakoCMS.Email.Smtp\BarakoCMS.Email.Smtp.csproj" />
-    <ProjectReference Include="..\BarakoCMS.DeviceTrust\BarakoCMS.DeviceTrust.csproj" />
     <ProjectReference Include="..\BarakoCMS.ExternalAuth\BarakoCMS.ExternalAuth.csproj" />
     <ProjectReference Include="..\BarakoCMS.FeatureFlags\BarakoCMS.FeatureFlags.csproj" />
-    <ProjectReference Include="..\BarakoCMS.Scheduling\BarakoCMS.Scheduling.csproj" />
-    <ProjectReference Include="..\BarakoCMS.Services\BarakoCMS.Services.csproj" />
     <ProjectReference Include="..\BarakoCMS.Portability\BarakoCMS.Portability.csproj" />
-    <ProjectReference Include="..\BarakoCMS.Analytics.Umami\BarakoCMS.Analytics.Umami.csproj" />
-    <ProjectReference Include="..\BarakoCMS.CdnPurge\BarakoCMS.CdnPurge.csproj" />
-    <ProjectReference Include="..\BarakoCMS.Pwa\BarakoCMS.Pwa.csproj" />
     <ProjectReference Include="..\BarakoCMS.AI\BarakoCMS.AI.csproj" />
     <ProjectReference Include="..\BarakoCMS.Diagnostics\BarakoCMS.Diagnostics.csproj" />
     <ProjectReference Include="..\BarakoCMS.Pages\BarakoCMS.Pages.csproj" />
-    <ProjectReference Include="..\BarakoCMS.Booking\BarakoCMS.Booking.csproj" />
-    <ProjectReference Include="..\BarakoCMS.Forms\BarakoCMS.Forms.csproj" />
-    <ProjectReference Include="..\BarakoCMS.Qr\BarakoCMS.Qr.csproj" />
-    <ProjectReference Include="..\BarakoCMS.Reports\BarakoCMS.Reports.csproj" />
-    <ProjectReference Include="..\BarakoCMS.Payments\BarakoCMS.Payments.csproj" />
-    <ProjectReference Include="..\BarakoCMS.Comments\BarakoCMS.Comments.csproj" />
-    <ProjectReference Include="..\BarakoCMS.Documents\BarakoCMS.Documents.csproj" />
-    <ProjectReference Include="..\BarakoCMS.Notifications\BarakoCMS.Notifications.csproj" />
-    <ProjectReference Include="..\BarakoCMS.Tagging\BarakoCMS.Tagging.csproj" />
-    <ProjectReference Include="..\BarakoCMS.Secrets.Aws\BarakoCMS.Secrets.Aws.csproj" />
-    <ProjectReference Include="..\BarakoCMS.Secrets.Gcp\BarakoCMS.Secrets.Gcp.csproj" />
-    <ProjectReference Include="..\BarakoCMS.Contacts\BarakoCMS.Contacts.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />

@@ -750,26 +750,10 @@ These headers are exposed to browsers through CORS.
 
 ### Purging on publish
 
-The `BarakoCMS.CdnPurge` module purges Cloudflare by tag. Add a `CdnPurge` action to a workflow that
-triggers on publish:
-
-```json
-{ "Type": "CdnPurge", "Parameters": {} }
-```
-
-It purges `t:<tenant>:entry:<id>`, `t:<tenant>:type:<type>` and `t:<tenant>:sitemap`, built by the
-same code that writes the headers, so they match what delivery sent. The bare `t:<tenant>` tag is
-not purged, since it is on every read and would empty the tenant's cache. Settings:
-
-```
-Modules__CdnPurge__ZoneId=<zone id>
-Modules__CdnPurge__ApiToken=<token allowed to purge cache on the zone>
-```
-
-The call is `POST zones/{zone}/purge_cache` with `{"tags":[...]}`. If Cloudflare answers with an
-error, or the module has no zone or token, the action fails on the run with the reason, and the run
-retries when the error is a 429 or a 5xx. The token is sent only as the bearer header and is never
-logged or stored on the run. Fastly is not supported yet.
+Core sends the tags and leaves the purge to you. A workflow that triggers on publish can call your
+CDN's purge API with `t:<tenant>:entry:<id>`, `t:<tenant>:type:<type>` and `t:<tenant>:sitemap`, the
+same tags the headers carry. Do not purge the bare `t:<tenant>` tag: it is on every read and would
+empty the tenant's cache. A Cloudflare purge module that did this was removed in 5.5.0.
 
 ### Response cache
 

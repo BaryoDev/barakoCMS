@@ -2,7 +2,6 @@ using System.Reflection;
 using System.Threading.RateLimiting;
 using barakoCMS.Extensions;
 using barakoCMS.Modules;
-using BarakoCMS.Forms;
 using FastEndpoints;
 using FluentAssertions;
 using Microsoft.AspNetCore.Builder;
@@ -42,8 +41,6 @@ namespace BarakoCMS.Tests;
 [Collection("Integration1")]
 public class RateLimitStartupCheckTests
 {
-    private const string FormsRoute = "api/public/forms/{slug}";
-
     private readonly IntegrationTestFixture _fixture;
 
     public RateLimitStartupCheckTests(IntegrationTestFixture fixture) => _fixture = fixture;
@@ -71,27 +68,6 @@ public class RateLimitStartupCheckTests
         use.Should().NotThrow();
     }
 
-    [Fact]
-    public async Task A_registered_module_whose_route_names_its_own_policy_passes()
-    {
-        var app = await BuildAsync(module: new FormsModule());
-
-        Action use = () => app.UseBarakoCMS();
-
-        use.Should().NotThrow("the Forms module registers the policy its submit route names");
-    }
-
-    [Fact]
-    public async Task A_registered_module_whose_route_names_a_missing_policy_stops_the_host()
-    {
-        var app = await BuildAsync(module: new FormsWithoutItsPolicy());
-
-        Action use = () => app.UseBarakoCMS();
-
-        use.Should().Throw<InvalidOperationException>("a module's routes are checked like core's")
-            .WithMessage($"*{FormsRoute}' names '{FormsOptions.RateLimitPolicy}'*");
-    }
-
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
@@ -106,44 +82,6 @@ public class RateLimitStartupCheckTests
 
         use.Should().Throw<InvalidOperationException>()
             .WithMessage("*'delivery'*reserved*Rename*");
-    }
-
-    [Fact]
-    public async Task A_configured_policy_with_the_name_of_a_module_policy_stops_the_host_naming_the_setting()
-    {
-        var app = await BuildAsync(
-            module: new FormsModule(),
-            setting: ("RateLimiting:Policies:forms:PermitLimit", "5"));
-
-        Action use = () => app.UseBarakoCMS();
-
-        use.Should().Throw<InvalidOperationException>()
-            .WithMessage("*RateLimiting:Policies:forms*");
-    }
-
-    /// <summary>
-    /// The Forms module with everything it registers except its rate limit policy, so its submit
-    /// route names a policy that does not exist.
-    /// </summary>
-    private sealed class FormsWithoutItsPolicy : IBarakoModule
-    {
-        private readonly FormsModule _forms = new();
-
-        public string Name => _forms.Name;
-
-        public IEnumerable<Assembly> EndpointAssemblies => [typeof(FormsModule).Assembly];
-
-        public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
-        {
-            var before = services.Count;
-            _forms.ConfigureServices(services, configuration);
-
-            for (var i = services.Count - 1; i >= before; i--)
-            {
-                if (services[i].ServiceType == typeof(IConfigureOptions<RateLimiterOptions>))
-                    services.RemoveAt(i);
-            }
-        }
     }
 
     private async Task<WebApplication> BuildAsync(
@@ -181,7 +119,7 @@ public class RateLimitStartupCheckTests
 
         var endpoints = new List<Assembly> { typeof(barakoCMS.Data.DataSeeder).Assembly };
         if (module is not null)
-            endpoints.Add(typeof(FormsModule).Assembly);
+            endpoints.Add(module.GetType().Assembly);
         builder.Services.AddFastEndpoints(o =>
         {
             o.DisableAutoDiscovery = true;

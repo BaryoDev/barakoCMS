@@ -96,11 +96,8 @@ public class OpenApiTagTests
         // which is a breaking change for consumers with nothing in the diff that looks like one.
         // This list is that diff. Adding a slice adds a line here on purpose.
         //
-        // Analytics.Umami, DeviceTrust and Import were missing from this list until the module test
-        // suites landed. Not because those modules had no endpoints, but because nothing in the test
-        // host referenced them, so their assemblies were never loaded and their operations never
-        // reached the document. The shipped suite loads all of them. The pin was describing the test
-        // host rather than the product, which is worth remembering if a tag ever goes missing here.
+        // The business modules (Booking, Forms, Payments and the rest) were removed in 5.5.0, so
+        // their tags are gone from this list.
         // One per line, and sorted. Every branch that adds a feature area used to rewrap the same
         // packed lines, so this array conflicted on five separate merges in one day. One tag per
         // line means two branches adding two tags touch two different lines and git merges them.
@@ -110,54 +107,41 @@ public class OpenApiTagTests
             "Accounts",
             "Activity",
             "AI",
-            "Analytics.Umami",
             "ApiKeys",
             "Audit",
             "Auth",
             "Blocks",
-            "Booking",
             "Capabilities",
             "Changes",
             "Collections",
-            "Comments",
             "Config",
             "ConnectorDeliveries",
             "Connectors",
-            "Contacts",
             "Content",
             "ContentType",
-            "DeviceTrust",
             "Diagnostics",
             "EmailTemplates",
             "ExternalAuth",
             "FeatureFlags",
             "Files",
-            "Forms",
             "Import",
             "Jobs",
             "Me",
             "Modules",
             "Monitoring",
-            "Notifications",
             "Numbering",
             "Pages",
-            "Payments",
             "Portability",
             "Preview",
             "Public",
-            "Pwa",
-            "Qr",
             "Queries",
             "Redirects",
-            "Reports",
             "Requests",
             "Roles",
             "Seo",
-            "Services",
             "Settings",
             "Site",
             "Stations",
-            "Tagging",
             "Tenants",
             "Testing.Fixture",
             "UserGroups",
@@ -185,7 +169,7 @@ public class OpenApiTagTests
     [InlineData("barakoCMS.Features.ContentType.SetPublicDelivery", "ContentType")]
     [InlineData("barakoCMS.Features.Public", "Public")]
     [InlineData("BarakoCMS.Accounting.Features.Reports", "Accounting")]
-    [InlineData("BarakoCMS.Analytics.Umami.Features", "Analytics.Umami")]
+    [InlineData("BarakoCMS.Files.S3", "Files.S3")]
     [InlineData("BarakoCMS.Files.Features.Upload", "Files")]
     [InlineData("BarakoCMS.AI.Features", "AI")]
     [InlineData("BarakoCMS.ExternalAuth", "ExternalAuth")]

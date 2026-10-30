@@ -38,14 +38,7 @@ ICONS["BarakoCMS.Accounting"] = ("BarakoCMS.Accounting", "#7A5230", f'''  <g fil
   <path d="M34 44 L22 68 H46 Z" fill="{GOLD}"/>
   <path d="M94 44 L82 68 H106 Z" fill="{GOLD}"/>''')
 
-# Analytics.Umami: bar chart, white bars + gold tall bar.
-ICONS["BarakoCMS.Analytics.Umami"] = ("BarakoCMS.Analytics.Umami", "#E91E63", f'''  <rect x="32" y="70" width="18" height="26" rx="5" fill="{WHITE}"/>
-  <rect x="55" y="54" width="18" height="42" rx="5" fill="{WHITE}"/>
-  <rect x="78" y="34" width="18" height="62" rx="5" fill="{GOLD}"/>''')
 
-# DeviceTrust: shield with check.
-ICONS["BarakoCMS.DeviceTrust"] = ("BarakoCMS.DeviceTrust", "#D32F2F", f'''  <path d="M64 22 L34 33 V63 C34 84 49 103 64 110 C79 103 94 84 94 63 V33 Z" fill="{WHITE}"/>
-  <path d="M54 64 L61 72 L77 52" fill="none" stroke="{GOLD}" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>''')
 
 # Diagnostics: card with heartbeat.
 ICONS["BarakoCMS.Diagnostics"] = ("BarakoCMS.Diagnostics", "#455A64", f'''  <rect x="26" y="40" width="76" height="48" rx="12" fill="{WHITE}"/>
@@ -89,20 +82,7 @@ ICONS["BarakoCMS.Portability"] = ("BarakoCMS.Portability", "#5D4037", f'''  <rec
   <path d="M54 68 V54 M48 60 L54 53 L60 60" fill="none" stroke="#5D4037" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M74 68 V82 M68 76 L74 83 L80 76" fill="none" stroke="{GOLD}" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>''')
 
-# Pwa: phone with install arrow.
-ICONS["BarakoCMS.Pwa"] = ("BarakoCMS.Pwa", "#009688", f'''  <rect x="42" y="22" width="44" height="84" rx="12" fill="{WHITE}"/>
-  <circle cx="64" cy="96" r="4" fill="#009688"/>
-  <path d="M64 44 V70 M53 60 L64 71 L75 60" fill="none" stroke="{GOLD}" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>''')
 
-# Qr: finder square with dots.
-ICONS["BarakoCMS.Qr"] = ("BarakoCMS.Qr", "#37474F", f'''  <rect x="30" y="30" width="30" height="30" rx="6" fill="{WHITE}"/>
-  <rect x="68" y="30" width="30" height="30" rx="6" fill="{WHITE}"/>
-  <rect x="30" y="68" width="30" height="30" rx="6" fill="{WHITE}"/>
-  <rect x="70" y="70" width="12" height="12" rx="3" fill="{GOLD}"/>
-  <rect x="86" y="86" width="12" height="12" rx="3" fill="{GOLD}"/>''')
-# Comments: speech bubble.
-ICONS["BarakoCMS.Comments"] = ("BarakoCMS.Comments", "#3F51B5", f'''  <path d="M36 34 H92 a8 8 0 0 1 8 8 V76 a8 8 0 0 1 -8 8 H62 L46 98 V84 H36 a8 8 0 0 1 -8 -8 V42 a8 8 0 0 1 8 -8 Z" fill="{WHITE}"/>
-  <path d="M46 52 H82 M46 66 H70" fill="none" stroke="{GOLD}" stroke-width="7" stroke-linecap="round"/>''')
 
 # Repo root is the parent of the scripts/ directory this file lives in, so the
 # generator works from any checkout location.

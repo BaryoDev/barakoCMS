@@ -252,7 +252,8 @@ There is one number per surface, and a change moves only the surface it touches:
   lookups. What a renderer reads.
 - **A module** (`IBarakoModule.HttpContractVersion`, listed in the `modules` part of
   `/api/meta/describe`): every endpoint that module ships, including any it mounts under
-  `/api/public/`. It never moves a core number.
+  `/api/public/`. It never moves a core number. Deleting a module's whole project counts as
+  moving its number: its routes leave with it, and it drops out of `/api/meta/describe`.
 
 Something every core route shares, such as the error body, moves both core numbers. A consumer
 checks only the surfaces it reads.

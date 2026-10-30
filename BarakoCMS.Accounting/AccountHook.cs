@@ -8,6 +8,7 @@ namespace BarakoCMS.Accounting;
 /// another account. Runs inside the generic content write pipeline, so accounts stay ordinary
 /// content while still being impossible to create in a broken state.
 /// </summary>
+[Obsolete("BarakoCMS.Accounting is deprecated. Removal planned for barakoCMS 6.0.")]
 public sealed class AccountHook : IContentLifecycleHook
 {
     public string ContentType => AccountingContentTypes.Account;

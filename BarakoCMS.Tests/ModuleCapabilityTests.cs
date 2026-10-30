@@ -1,3 +1,4 @@
+#pragma warning disable CS0618 // Accounting is obsolete in 5.5 and is removed in #1285
 using System.Net;
 using System.Net.Http.Headers;
 using FluentAssertions;
@@ -99,7 +100,7 @@ public class ModuleCapabilityTests
         foreach (var route in new[]
         {
             "/api/accounting/balances", "/api/feature-flags/admin", "/api/portability/export",
-            "/api/client-errors", "/api/pwa/installs", "/api/analytics/websites",
+            "/api/client-errors", "/api/files",
         })
         {
             var response = await client.GetAsync(route, TestContext.Current.CancellationToken);

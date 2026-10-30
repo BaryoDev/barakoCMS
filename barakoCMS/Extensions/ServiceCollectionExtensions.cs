@@ -1395,7 +1395,6 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<barakoCMS.Infrastructure.Numbering.HiLoNumberAllocator>();
         services.AddSingleton<barakoCMS.Core.Interfaces.INumberStrategies, barakoCMS.Infrastructure.Numbering.NumberStrategies>();
         services.AddSingleton<barakoCMS.Core.Interfaces.IExternalNumberLedger, barakoCMS.Infrastructure.Numbering.ExternalNumberLedger>();
-        services.AddSingleton<barakoCMS.Core.Interfaces.IStockReservations, barakoCMS.Infrastructure.Reservations.StockReservations>();
         services.AddSingleton(sp => barakoCMS.Features.Public.Events.ContentEventsOptions.FromConfiguration(
             sp.GetRequiredService<IConfiguration>()));
     }
@@ -1409,18 +1408,16 @@ public static class ServiceCollectionExtensions
             .UseOptimisticConcurrency(true)
             .Index(x => x.FireAt);
 
-    /// <summary>Gapless number counters (#584) and stock counters, holds and movements (#580).</summary>
+    /// <summary>Gapless number counters (#584).</summary>
     private static void AddCounterTables(StoreOptions options)
     {
         options.Storage.ExtendedSchemaObjects.Add(
             barakoCMS.Infrastructure.Numbering.NumberCounterTable.Build(options.DatabaseSchemaName));
-        barakoCMS.Infrastructure.Reservations.StockTables.AddTo(options);
     }
 
     private static void AddRetentionServices(IServiceCollection services)
     {
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowRunRetentionService>();
-        services.AddHostedService<barakoCMS.Infrastructure.Reservations.StockHoldSweeper>();
         services.AddHostedService<barakoCMS.Features.Workflows.WorkflowCredentialMigrationService>();
         services.AddHostedService<barakoCMS.Infrastructure.Security.SecretRewrapService>();
         services.AddHostedService<barakoCMS.Infrastructure.Services.StoredValidationRulesNotice>();

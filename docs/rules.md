@@ -450,7 +450,7 @@ services.AddScoped<IRuleLookup, MyLookup>();
 The rule names it in `lookup` (ignoring case) and passes `args`, whose values are templates:
 
 ```json
-{ "kind": "lookup", "lookup": "stock.left", "args": { "Item": "{{Item}}" }, "op": "gte", "value": "1" }
+{ "kind": "lookup", "lookup": "inventory.left", "args": { "Item": "{{Item}}" }, "op": "gte", "value": "1" }
 ```
 
 The condition's `op` runs on the number, else the text. `empty` holds when nothing was found,

@@ -10,6 +10,7 @@ namespace BarakoCMS.Accounting.Domain;
 /// <c>JournalEntryHook.EntryNumbers</c>); these rows are read only by the obsolete parameterless
 /// hook, and kept so a database that holds them, and a rollback to 4.9, can still read them.
 /// </remarks>
+[Obsolete("BarakoCMS.Accounting is deprecated. Removal planned for barakoCMS 6.0.")]
 public class NumberSequence
 {
     public string Id { get; set; } = string.Empty;

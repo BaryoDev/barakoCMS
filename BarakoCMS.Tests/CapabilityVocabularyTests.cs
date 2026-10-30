@@ -78,7 +78,7 @@ public class CapabilityVocabularyTests
 
         required.Should().NotBeEmpty("the host serves gated endpoints, so reading none means this stopped looking");
         required.Should().OnlyContain(capability => listed.Contains(capability!));
-        listed.Should().Contain(BarakoCMS.Pwa.PwaCapabilities.ViewPwaInstalls,
+        listed.Should().Contain(BarakoCMS.FeatureFlags.FeatureFlagCapabilities.ManageFeatureFlags,
             "a module capability reaches the list from the routing table without the module registering itself");
     }
 

@@ -62,7 +62,6 @@ A host that replaces `IContentValidatorService` with its own validator does no f
 it implements the overloads taking a caller, which by default call the older members. A decorator
 that wraps the built-in validator and forwards only the older members checks every write as no
 caller, so its writes take public files only.
-| A form submission (`BarakoCMS.Forms`) | nobody: a form does not offer a file field | nothing |
 | The `UpdateField` workflow action | nobody: a workflow runs for no user | a public file only; anything else fails the action for good |
 | A collection sync | nobody | nothing: a sync that maps a source value onto a file field is refused when it is saved |
 

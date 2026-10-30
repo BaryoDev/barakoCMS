@@ -1,3 +1,5 @@
+> **Deprecated.** `BarakoCMS.Accounting` is marked `[Obsolete]` in 5.5.0 and is removed in a later release (#1285). Do not start new work on it.
+
 <div align="center">
   <img src="https://raw.githubusercontent.com/BaryoDev/barakoCMS/master/assets/icon.png" width="96" height="96" alt="BarakoCMS.Accounting logo" />
   <h1>BarakoCMS.Accounting</h1>

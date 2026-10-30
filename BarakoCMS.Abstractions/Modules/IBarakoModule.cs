@@ -60,7 +60,7 @@ public interface IBarakoModule
     /// </remarks>
     int HttpContractVersion => 0;
 
-    /// <summary>The NuGet package id this module ships as, e.g. "BarakoCMS.Forms". Optional.</summary>
+    /// <summary>The NuGet package id this module ships as, e.g. "BarakoCMS.Files". Optional.</summary>
     /// <remarks>
     /// Shown by <c>GET /api/modules</c> so a console can print an install line. The default is
     /// null, meaning unstated.

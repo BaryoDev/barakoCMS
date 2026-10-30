@@ -15,6 +15,7 @@ namespace BarakoCMS.Accounting;
 /// Idempotent: an entry already present (matched on account Code / journal EntryNumber) is skipped,
 /// so running it twice does not duplicate the chart or double-post the ledger.
 /// </summary>
+[Obsolete("BarakoCMS.Accounting is deprecated. Removal planned for barakoCMS 6.0.")]
 public static class AccountingMigration
 {
     public sealed record Result(int AccountsCopied, int AccountsSkipped, int EntriesCopied, int EntriesSkipped)

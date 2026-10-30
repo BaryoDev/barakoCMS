@@ -5,7 +5,6 @@ using System.Text.Json;
 using BarakoCMS.Diagnostics;
 using BarakoCMS.Diagnostics.Features.Report;
 using BarakoCMS.FeatureFlags;
-using BarakoCMS.Pwa;
 using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
@@ -345,27 +344,6 @@ public class TenantScopedAdminTests
         email.Tenants.Should().Equal("club-a");
     }
 
-    // ---- PWA installs: stored globally, each device tagged with the tenant it reported from. ----
-
-    [Fact]
-    public async Task A_tenant_admin_sees_only_its_own_tenants_app_installs()
-    {
-        var tenantA = await TenantAsync();
-        var tenantB = await TenantAsync();
-        var (admin, _) = await TenantAdminAsync(tenantA);
-        var future = DateTime.UtcNow.AddDays(3650);
-        var inA = new PwaInstall { DeviceId = Unique("dev"), Tenant = tenantA, LastSeenAt = future };
-        var inB = new PwaInstall { DeviceId = Unique("dev"), Tenant = tenantB, LastSeenAt = future };
-        await StoreAsync(inA, inB);
-
-        var mine = await ItemsAsync(await admin.GetAsync("/api/pwa/installs?pageSize=100"));
-        mine.Should().NotBeEmpty();
-        mine.Should().OnlyContain(i => i.GetProperty("tenant").GetString() == tenantA);
-
-        var all = await ItemsAsync(await (await GlobalAsync("SuperAdmin")).GetAsync("/api/pwa/installs?pageSize=100"));
-        all.Select(i => i.GetProperty("tenant").GetString()).Should().Contain([tenantA, tenantB]);
-    }
-
     // ---- A global role reaches every tenant, whatever tenant the request resolved to. ----
 
     // ---- Email events follow the tenant that sent the email, not the recipient's memberships. ----
@@ -406,57 +384,5 @@ public class TenantScopedAdminTests
 
         (await ItemsAsync(await adminA.GetAsync($"/api/client-errors?q={message}"))).Should().ContainSingle();
         (await ItemsAsync(await adminB.GetAsync($"/api/client-errors?q={message}"))).Should().BeEmpty();
-    }
-
-    [Fact]
-    public async Task An_install_reported_with_a_mixed_case_tenant_header_reaches_that_tenant()
-    {
-        var tenantA = await TenantAsync();
-        var (admin, _) = await TenantAdminAsync(tenantA);
-        var reporter = _factory.CreateClient();
-        reporter.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, NextIp());
-        reporter.DefaultRequestHeaders.Add("X-Tenant", tenantA.ToUpperInvariant());
-
-        (await reporter.PostAsJsonAsync("/api/pwa/report", new { deviceId = Unique("dev") }))
-            .IsSuccessStatusCode.Should().BeTrue();
-
-        (await ItemsAsync(await admin.GetAsync("/api/pwa/installs?pageSize=100"))).Should().NotBeEmpty();
-    }
-
-    // ---- Analytics: one Umami account for the whole deployment. ----
-
-    private static IEnumerable<Func<HttpClient, Task<HttpResponseMessage>>> AnalyticsCalls() =>
-    [
-        c => c.GetAsync("/api/analytics/websites"),
-        c => c.GetAsync("/api/analytics/site-1/summary"),
-        c => c.GetAsync("/api/analytics/site-1/series"),
-        c => c.GetAsync("/api/analytics/site-1/metric?type=url"),
-        c => c.GetAsync("/api/analytics/site-1/status"),
-        c => c.PostAsJsonAsync("/api/analytics/websites", new { name = "Someone", domain = "someone.example.com" }),
-    ];
-
-    [Fact]
-    public async Task A_tenant_admin_cannot_reach_the_deployments_analytics_account()
-    {
-        var tenantA = await TenantAsync();
-        var (admin, _) = await TenantAdminAsync(tenantA);
-
-        var codes = new List<HttpStatusCode>();
-        foreach (var call in AnalyticsCalls()) codes.Add((await call(admin)).StatusCode);
-
-        codes.Should().HaveCount(6);
-        codes.Should().OnlyContain(c => c == HttpStatusCode.Forbidden);
-    }
-
-    [Fact]
-    public async Task An_admin_granted_globally_still_reaches_analytics()
-    {
-        var admin = await GlobalAsync("Admin");
-
-        var codes = new List<HttpStatusCode>();
-        foreach (var call in AnalyticsCalls()) codes.Add((await call(admin)).StatusCode);
-
-        codes.Should().HaveCount(6);
-        codes.Should().NotContain(HttpStatusCode.Forbidden);
     }
 }
