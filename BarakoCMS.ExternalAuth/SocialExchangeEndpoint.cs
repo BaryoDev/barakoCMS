@@ -4,6 +4,7 @@ using FastEndpoints;
 using FluentValidation;
 using Marten;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Builder;
 
 namespace BarakoCMS.ExternalAuth;
 
@@ -46,6 +47,7 @@ internal sealed class SocialExchangeEndpoint(IDocumentSession session) : Endpoin
     {
         Post("/api/auth/social/exchange");
         AllowAnonymous();
+        Options(x => x.RequireRateLimiting(SocialRateLimit.Policy));
     }
 
     public override async Task HandleAsync(SocialExchangeRequest req, CancellationToken ct)
