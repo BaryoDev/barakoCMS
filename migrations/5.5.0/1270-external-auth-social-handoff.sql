@@ -7,7 +7,10 @@
 -- bounded batches. Global, like the users it signs in, so there is no tenant_id column.
 --
 -- facebook_deletion_requests: one row per Facebook data deletion request answered, keyed by the
--- confirmation code Facebook was given, so the status URL can report it. Global too.
+-- SHA-256 of the confirmation code Facebook was given, so the status URL can report it without the
+-- table holding the code itself. A person whose Facebook was their only login also has a pending
+-- choice there, with an expiry. The index on ExpiresAt serves the sweep that settles the ones
+-- nobody answered. Global too.
 --
 -- Both are empty on arrival. CreateOnly would create them on first boot; this file exists so
 -- db-assert passes before the deploy instead of reporting the tables as outstanding.
@@ -39,3 +42,6 @@ CREATE TABLE IF NOT EXISTS public.mt_doc_facebook_deletion_requests (
     mt_dotnet_type      varchar                     NULL,
     CONSTRAINT pkey_mt_doc_facebook_deletion_requests_id PRIMARY KEY (id)
 );
+
+CREATE INDEX IF NOT EXISTS mt_doc_facebook_deletion_requests_idx_expires_at
+    ON public.mt_doc_facebook_deletion_requests USING btree ((public.mt_immutable_timestamp(data ->> 'ExpiresAt')));

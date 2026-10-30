@@ -6,12 +6,14 @@ using FastEndpoints;
 using FluentValidation;
 using Marten;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Builder;
 
 namespace BarakoCMS.ExternalAuth;
 
 /// <summary>
-/// One answered Facebook data deletion request. The id is the confirmation code Facebook was given.
-/// Global, like the link it removed. It holds no Facebook user id.
+/// One answered Facebook data deletion request. The id is the SHA-256 of the confirmation code
+/// Facebook was given, so the table never holds the code, which is what lets a person settle the
+/// request. Global, like the link it removed. It holds no Facebook user id.
 /// </summary>
 public sealed class FacebookDeletionRequest
 {
@@ -20,11 +22,29 @@ public sealed class FacebookDeletionRequest
     public string Status { get; set; } = FacebookDeletionStatus.Completed;
 
     public DateTime RequestedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>The account waiting on a choice. Set only while <see cref="Status"/> is awaiting_choice.</summary>
+    public Guid? UserId { get; set; }
+
+    /// <summary>When an unanswered choice erases the account. Set only while awaiting_choice.</summary>
+    public DateTime? ExpiresAt { get; set; }
+
+    public DateTime? SettledAt { get; set; }
 }
 
 public static class FacebookDeletionStatus
 {
+    /// <summary>The link is gone, and so is the account if that was the person's only login.</summary>
     public const string Completed = "completed";
+
+    /// <summary>The link is gone and Facebook was the only login, so the person decides about the account.</summary>
+    public const string AwaitingChoice = "awaiting_choice";
+
+    /// <summary>The person kept the account, or gained another login before it was erased.</summary>
+    public const string Kept = "kept";
+
+    /// <summary>The account is a platform or last tenant administrator and was left alone.</summary>
+    public const string NeedsAdmin = "needs_admin";
 }
 
 /// <summary>Checks the <c>signed_request</c> Facebook posts to the data deletion callback.</summary>
@@ -134,8 +154,9 @@ internal sealed class FacebookDeletionValidator : Validator<FacebookDeletionRequ
 
 /// <summary>
 /// POST /api/auth/facebook/data-deletion. Facebook posts a form with <c>signed_request</c> when a
-/// person removes the app. A valid one removes that person's Facebook link and nothing else, and is
-/// answered with a confirmation code and the status URL, as Facebook requires.
+/// person removes the app. A valid one removes that person's Facebook link and answers with a
+/// confirmation code and the status URL, as Facebook requires. When that link was the person's only
+/// login the request waits for them to choose whether to delete the account.
 /// </summary>
 internal sealed class FacebookDataDeletionEndpoint(IDocumentSession session, IConfiguration config)
     : Endpoint<FacebookDeletionRequestModel, FacebookDeletionResponse>
@@ -145,6 +166,7 @@ internal sealed class FacebookDataDeletionEndpoint(IDocumentSession session, ICo
         Post("/api/auth/facebook/data-deletion");
         AllowAnonymous();
         AllowFormData(urlEncoded: true);
+        Options(x => x.RequireRateLimiting(SocialRateLimit.Policy));
     }
 
     public override async Task HandleAsync(FacebookDeletionRequestModel req, CancellationToken ct)
@@ -163,9 +185,11 @@ internal sealed class FacebookDataDeletionEndpoint(IDocumentSession session, ICo
             return;
         }
 
-        var code = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
-        session.Delete<ExternalIdentity>(ExternalIdentity.KeyOf(ExternalProviders.Facebook, facebookUserId));
-        session.Store(new FacebookDeletionRequest { Id = code });
+        // The raw code goes to Facebook in this response and nowhere else. It can settle an account
+        // deletion, so only its hash is stored.
+        var code = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
+        var request = await FacebookDeletionFlow.OpenAsync(session, config, facebookUserId, FacebookDeletionFlow.HashOf(code), ct);
+        session.Store(request);
         await session.SaveChangesAsync(ct);
 
         var baseUrl = ExternalAuthSupport.BaseUrl(config, HttpContext);
@@ -173,44 +197,6 @@ internal sealed class FacebookDataDeletionEndpoint(IDocumentSession session, ICo
         {
             Url = $"{baseUrl}/api/auth/facebook/data-deletion/status/{code}",
             ConfirmationCode = code,
-        }, ct);
-    }
-}
-
-internal sealed class FacebookDeletionStatusResponse
-{
-    public string ConfirmationCode { get; set; } = string.Empty;
-
-    public string Status { get; set; } = string.Empty;
-
-    public DateTime RequestedAt { get; set; }
-}
-
-/// <summary>GET /api/auth/facebook/data-deletion/status/{code}. What became of one deletion request.</summary>
-internal sealed class FacebookDataDeletionStatusEndpoint(IQuerySession session)
-    : EndpointWithoutRequest<FacebookDeletionStatusResponse>
-{
-    public override void Configure()
-    {
-        Get("/api/auth/facebook/data-deletion/status/{code}");
-        AllowAnonymous();
-    }
-
-    public override async Task HandleAsync(CancellationToken ct)
-    {
-        var code = Route<string>("code") ?? "";
-        var found = code.Length is > 0 and <= 64 ? await session.LoadAsync<FacebookDeletionRequest>(code, ct) : null;
-        if (found is null)
-        {
-            await Send.NotFoundAsync(ct);
-            return;
-        }
-
-        await Send.OkAsync(new FacebookDeletionStatusResponse
-        {
-            ConfirmationCode = found.Id,
-            Status = found.Status,
-            RequestedAt = found.RequestedAt,
         }, ct);
     }
 }

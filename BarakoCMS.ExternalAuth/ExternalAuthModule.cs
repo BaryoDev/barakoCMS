@@ -69,6 +69,13 @@ public sealed class ExternalAuthModule : IBarakoModule
                             OidcSupport.Positive(limits, "WindowSeconds", OidcSupport.DefaultWindowSeconds)),
                     });
             }));
+
+        // The exchange and the deletion routes are anonymous too, and one of them can end an
+        // account, so they share a tighter bucket of their own.
+        services.Configure<RateLimiterOptions>(SocialRateLimit.Register);
+
+        services.AddScoped<UserEraser>();
+        services.AddHostedService<FacebookDeletionSweeper>();
     }
 
     public void ConfigureSchema(IModuleSchema schema)
@@ -112,6 +119,8 @@ public sealed class ExternalAuthModule : IBarakoModule
         // Global too: Facebook's deletion callback has no club.
         schema.For<FacebookDeletionRequest>()
             .SingleTenanted()
-            .DocumentAlias("facebook_deletion_requests");
+            .DocumentAlias("facebook_deletion_requests")
+            .UseOptimisticConcurrency(true)
+            .Index(x => x.ExpiresAt);
     }
 }

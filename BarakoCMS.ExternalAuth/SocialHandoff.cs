@@ -60,6 +60,9 @@ internal static class SocialHandoff
 
     private static long _nextPurgeTicks;
 
+    /// <summary>Makes the next <see cref="PurgeIfDueAsync"/> run at once. For tests.</summary>
+    internal static void ResetPurgeClock() => Interlocked.Exchange(ref _nextPurgeTicks, 0);
+
     public static bool Enabled(IConfiguration config) => config.GetValue<bool>(ConfigKey);
 
     /// <summary>Ties the sign-in to this browser. A start route calls it before redirecting to the provider.</summary>
