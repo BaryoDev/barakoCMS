@@ -4,7 +4,8 @@
 The numbers read: ApiContract.Version and ApiContract.DeliveryVersion in the core, and in each
 module (BarakoCMS.*, tests excluded) a literal `HttpContractVersion => N`, or the
 `const int Version = N` of a *Contract.cs file that HttpContractVersion returns (Pages). Comments
-are ignored. Used by scripts/openapi-contract-check.sh when a baseline edit is itself breaking.
+are ignored. A module whose whole project was deleted since the base commit counts as raised: its
+routes are gone with it, and consumers see it leave /api/meta/describe. Used by scripts/openapi-contract-check.sh when a baseline edit is itself breaking.
 
 Usage: scripts/contract-versions.py <base commit>
 """
@@ -55,9 +56,26 @@ def candidates():
     return files
 
 
+def removed_modules(base):
+    shown = subprocess.run(["git", "-C", ROOT, "ls-tree", "-r", "--name-only", base], capture_output=True, text=True)
+    if shown.returncode != 0:
+        return []
+    gone = []
+    for path in shown.stdout.splitlines():
+        top = path.split("/", 1)[0]
+        if not top.startswith("BarakoCMS.") or top.endswith(".Tests") or not path.endswith(".cs"):
+            continue
+        if os.path.exists(os.path.join(ROOT, top)):
+            continue
+        before = subprocess.run(["git", "-C", ROOT, "show", f"{base}:{path}"], capture_output=True, text=True)
+        for key in numbers(before.stdout, path) if before.returncode == 0 else {}:
+            gone.append(f"{key}: removed with {top}")
+    return gone
+
+
 def main():
     base = sys.argv[1]
-    raised = []
+    raised = removed_modules(base)
     for path in candidates():
         full = os.path.join(ROOT, path)
         now = numbers(open(full, encoding="utf-8-sig").read(), path) if os.path.exists(full) else {}
