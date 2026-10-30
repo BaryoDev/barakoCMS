@@ -245,7 +245,7 @@ The question every contribution runs into, so here is the answer we use.
 | Test | Because |
 | --- | --- |
 | Two sensible projects would disagree about wanting it | Core is what nobody gets a choice about, and every choice belongs to the person deploying |
-| It names a vendor, a product or a business domain | `Umami`, `S3`, `Accounting`. Core's vocabulary is content, users, tenants, permissions and nothing else |
+| It names a vendor, a product or a business domain | `Stripe`, `S3`, `Accounting`. Core's vocabulary is content, users, tenants, permissions and nothing else |
 | It brings a dependency core does not already carry | An SDK, an API client, a file format. Core's dependency list is a promise to everyone who installs it |
 | Removing it still leaves a working CMS | If content, auth, tenancy and delivery survive without it, it was never core |
 
