@@ -29,6 +29,8 @@ public class ExternalAuthMigrationTests
     [InlineData("4.8.0", "external-auth-used-nonces", "mt_doc_oidc_used_nonces", typeof(OidcUsedNonce))]
     [InlineData("5.1.0", "915-external-auth-role-maps", "mt_doc_external_role_maps", typeof(ExternalRoleMap))]
     [InlineData("5.5.0", "915-external-auth-provider-settings", "mt_doc_external_provider_settings", typeof(ExternalProviderSettings))]
+    [InlineData("5.5.0", "1270-external-auth-social-handoff", "mt_doc_social_handoff_codes", typeof(SocialHandoffCode))]
+    [InlineData("5.5.0", "1270-external-auth-social-handoff", "mt_doc_facebook_deletion_requests", typeof(FacebookDeletionRequest))]
     public async Task The_hand_applied_migration_builds_the_table_Marten_builds(
         string version, string file, string table, Type document)
     {

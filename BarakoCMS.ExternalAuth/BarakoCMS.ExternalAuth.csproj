@@ -40,5 +40,6 @@
     <EmbeddedResource Include="..\migrations\4.8.0\external-auth-used-nonces.sql" LogicalName="barako-migrations/4.8.0/external-auth-used-nonces.sql" />
     <EmbeddedResource Include="..\migrations\5.1.0\915-external-auth-role-maps.sql" LogicalName="barako-migrations/5.1.0/915-external-auth-role-maps.sql" />
     <EmbeddedResource Include="..\migrations\5.5.0\915-external-auth-provider-settings.sql" LogicalName="barako-migrations/5.5.0/915-external-auth-provider-settings.sql" />
+    <EmbeddedResource Include="..\migrations\5.5.0\1270-external-auth-social-handoff.sql" LogicalName="barako-migrations/5.5.0/1270-external-auth-social-handoff.sql" />
   </ItemGroup>
 </Project>
