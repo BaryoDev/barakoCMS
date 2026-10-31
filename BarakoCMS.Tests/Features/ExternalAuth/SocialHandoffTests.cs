@@ -260,12 +260,17 @@ public class SocialHandoffTests
     [Fact]
     public async Task With_the_handoff_on_a_callback_without_the_device_cookie_goes_back_to_the_login_page()
     {
-        NewAccount("google");
+        var email = NewAccount("google");
+        var user = new User { Id = Guid.NewGuid(), Email = email, Username = Unique("rt"), PasswordHash = "x" };
+        await StoreAsync(user);
 
         var response = await CallbackAsync(_handoff!, "google", device: null);
 
         response.Headers.Location!.ToString().Should().StartWith($"{BaseUrl}/login?fberror=");
         response.Headers.Location!.ToString().Should().NotContain("code=");
+        using var scope = _fixture.Services.CreateScope();
+        (await scope.ServiceProvider.GetRequiredService<IQuerySession>().Query<RefreshToken>()
+            .CountAsync(t => t.UserId == user.Id, Ct)).Should().Be(0, "the refusal came before any token was issued");
     }
 
     [Fact]

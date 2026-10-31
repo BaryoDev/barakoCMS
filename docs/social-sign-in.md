@@ -80,7 +80,9 @@ A code:
   frontend that calls from its own server forwards the browser's `Cookie` header, so the frontend
   and the API have to be reachable on the same site (a reverse proxy in front of both, or a shared
   parent domain). A code presented without the cookie, or with another one, is refused and is not
-  used up,
+  used up. A callback that arrives without the cookie, or when too many codes are live, is turned
+  back before any refresh token is issued, so a refused sign-in leaves none behind (if the last
+  slot is taken between that check and the insert, the token is never delivered and expires unused),
 - is stored as a SHA-256 hash. The tokens in the row are encrypted with a key derived from the code,
   so the table alone opens nothing, and the payload is cleared once the code is used.
 

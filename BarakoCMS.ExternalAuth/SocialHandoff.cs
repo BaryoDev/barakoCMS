@@ -105,22 +105,37 @@ internal static class SocialHandoff
     public static async Task<string> RedirectAsync(
         IDocumentSession session, HttpContext http, string baseUrl, SocialHandoffOutcome outcome, CancellationToken ct)
     {
-        var device = http.Request.Cookies[DeviceCookie];
-        if (string.IsNullOrEmpty(device) || device.Length > MaxCodeLength)
+        if (await RefusalAsync(session, http, baseUrl, outcome.Club, ct) is { } refusal)
         {
-            return SocialSignIn.FrontendError(baseUrl, "Sign-in expired. Please try again.", outcome.Club);
+            return refusal;
         }
 
-        await PurgeIfDueAsync(http.RequestServices.GetRequiredService<IDocumentStore>(), http.RequestServices, ct);
-        if (!await HasRoomAsync(session, MaxLive, ct))
-        {
-            return SocialSignIn.FrontendError(baseUrl, "Sign-in is busy. Please try again in a minute.", outcome.Club);
-        }
-
+        var device = http.Request.Cookies[DeviceCookie]!;
         var code = NewSecret();
         session.Insert(Build(code, device, outcome, DateTime.UtcNow + Lifetime));
         await session.SaveChangesAsync(ct);
         return $"{baseUrl}/auth/social?code={Uri.EscapeDataString(code)}";
+    }
+
+    /// <summary>
+    /// The error URL when a code cannot be stored for this request (no device cookie, or too many
+    /// live codes), or null when it can. A callback asks this before it issues a refresh token, so
+    /// a refusal leaves no token behind that nobody can collect. Capacity can still run out between
+    /// this and the insert, in which case the issued token is never delivered and expires unused.
+    /// </summary>
+    internal static async Task<string?> RefusalAsync(
+        IDocumentSession session, HttpContext http, string baseUrl, string club, CancellationToken ct)
+    {
+        var device = http.Request.Cookies[DeviceCookie];
+        if (string.IsNullOrEmpty(device) || device.Length > MaxCodeLength)
+        {
+            return SocialSignIn.FrontendError(baseUrl, "Sign-in expired. Please try again.", club);
+        }
+
+        await PurgeIfDueAsync(http.RequestServices.GetRequiredService<IDocumentStore>(), http.RequestServices, ct);
+        return await HasRoomAsync(session, MaxLive, ct)
+            ? null
+            : SocialSignIn.FrontendError(baseUrl, "Sign-in is busy. Please try again in a minute.", club);
     }
 
     /// <summary>Whether fewer than <paramref name="max"/> unexpired, unused codes exist.</summary>

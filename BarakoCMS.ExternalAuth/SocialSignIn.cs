@@ -492,6 +492,13 @@ public static class SocialSignIn
             return FrontendError(baseUrl, $"Couldn't reach {label}. Please try again, or use your email code.", club);
         }
 
+        // Before anything is issued: a refresh token is saved by the sign-in, and a handoff that
+        // cannot store its code would leave that token behind.
+        if (SocialHandoff.Enabled(config) && await SocialHandoff.RefusalAsync(session, http, baseUrl, club, ct) is { } refusal)
+        {
+            return refusal;
+        }
+
         Tokens tokens;
         bool emailNotVerified;
         try

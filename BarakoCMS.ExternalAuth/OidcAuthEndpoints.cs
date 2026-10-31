@@ -245,6 +245,13 @@ internal abstract class OidcCallback(
             return;
         }
 
+        // Before anything is issued, for the reason given in SocialSignIn.CallbackRedirectAsync.
+        if (SocialHandoff.Enabled(config) && await SocialHandoff.RefusalAsync(session, HttpContext, baseUrl, club, ct) is { } refusalUrl)
+        {
+            await Send.ResultAsync(Results.Redirect(refusalUrl));
+            return;
+        }
+
         var mfa = Resolve<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>();
         SocialSignIn.Tokens tokens;
         bool emailNotVerified;
