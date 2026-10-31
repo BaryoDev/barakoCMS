@@ -36,8 +36,8 @@ try
     builder.Services.AddHttpClient();
 
     // No module list. Discovery reads this project's dependency context and finds every referenced
-    // module: the thirteen the hand-written list used to name, plus Email.Smtp, which the project
-    // referenced all along and the list never added. BarakoCMS:Modules:Enabled decides which of them
+    // module: Import, Files, Files.S3, Email.Smtp, ExternalAuth, FeatureFlags, Portability, AI,
+    // Diagnostics and Pages. BarakoCMS:Modules:Enabled decides which of them
     // run; unset, all of them do. Files.S3, AI and Email.Smtp stay dormant until their own section is
     // configured (Modules:Files.S3:Bucket, Modules:AI:Enabled, Modules:Email.Smtp:Host), which
     // SuiteCompositionTests holds. Adding a module is now a package reference and a restart.

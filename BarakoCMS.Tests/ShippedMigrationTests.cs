@@ -135,6 +135,7 @@ public class ShippedMigrationTests
         ["drop/reports.sql"] = "c6f483f31720661cc95a3b1ebd05037630f47947c9206e75aa325252aa9ca708",
         ["drop/scheduling.sql"] = "0fe7bfb942b4aa6e393f83606fd25791022095f1f8bfd67a770496fa64a6e3c6",
         ["drop/services.sql"] = "32ac427905f15ea19d05d81a3f0f10e8f83e6ea229236d0198c0f887030b96af",
+        ["drop/stock-reservations.sql"] = "f55bd3458f9cfd2f372eb8e04f5af6eedeaa06ab624eb51c6f6555b0b6b58f6e",
         ["drop/tagging.sql"] = "b002ddb6009f651968b0014b1a32e4bc341f955e51c7afca982f05d0eac222d4",
     };
 

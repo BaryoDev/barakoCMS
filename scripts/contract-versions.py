@@ -65,7 +65,7 @@ def removed_modules(base):
         top = path.split("/", 1)[0]
         if not top.startswith("BarakoCMS.") or top.endswith(".Tests") or not path.endswith(".cs"):
             continue
-        if os.path.exists(os.path.join(ROOT, top)):
+        if os.path.exists(os.path.join(ROOT, top, f"{top}.csproj")):
             continue
         before = subprocess.run(["git", "-C", ROOT, "show", f"{base}:{path}"], capture_output=True, text=True)
         for key in numbers(before.stdout, path) if before.returncode == 0 else {}:
