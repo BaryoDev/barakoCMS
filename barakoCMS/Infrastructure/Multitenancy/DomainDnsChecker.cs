@@ -68,6 +68,13 @@ internal sealed class DnsClientDomainChecker : IDomainDnsChecker
 
             return new DomainDnsResult(cnameOk, txtOk);
         }
+        catch (ArgumentException)
+        {
+            // A name DnsClient will not put on the wire (a label over 63 characters, or a whole name
+            // over 255 with the challenge label in front). That is a domain that cannot be verified,
+            // not a failure of the check.
+            return new DomainDnsResult(false, false);
+        }
         catch (Exception ex) when (ex is OperationCanceledException or DnsResponseException or TimeoutException)
         {
             // The caller's own cancellation is theirs to see; only our budget running out is a result.

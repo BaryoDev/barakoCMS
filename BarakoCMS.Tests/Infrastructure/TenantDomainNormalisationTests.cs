@@ -84,4 +84,54 @@ public class TenantDomainNormalisationTests
         TenantDomains.DeploymentHost(Config(("App:BaseUrl", "https://api.example.com:8443/x"))).Should().Be("api.example.com");
         TenantDomains.DeploymentHost(Config()).Should().BeNull();
     }
+
+    [Fact]
+    public void A_www_deployment_host_keeps_its_www_as_the_cname_target()
+    {
+        static IConfiguration Config(string key, string value) =>
+            new ConfigurationBuilder().AddInMemoryCollection([new KeyValuePair<string, string?>(key, value)]).Build();
+
+        TenantDomains.DeploymentHost(Config("Tenancy:DeploymentHost", " WWW.Example.com. ")).Should().Be("www.example.com");
+        TenantDomains.DeploymentHost(Config("App:BaseUrl", "https://www.example.com/app")).Should().Be("www.example.com");
+    }
+
+    [Theory]
+    [InlineData("www.example.com")]
+    [InlineData("example.com")]
+    [InlineData("shop.example.com")]
+    [InlineData("shop.www.example.com")]
+    public void With_a_www_deployment_host_the_host_and_the_bare_name_under_it_are_both_refused(string typed)
+    {
+        TenantDomains.Normalise([typed], "www.example.com", out var errors).Should().BeEmpty();
+        errors.Should().ContainSingle();
+    }
+
+    [Fact]
+    public void A_claim_is_capped_so_the_challenge_name_still_fits_a_DNS_name()
+    {
+        // Labels of 50 letters, then a last label sized to land on the length, then "com".
+        static string Host(int length)
+        {
+            var body = length - 3;
+            var groups = body / 51;
+            var rest = body - groups * 51;
+            if (rest == 1)
+            {
+                groups--;
+                rest += 51;
+            }
+
+            return string.Concat(Enumerable.Repeat(new string('a', 50) + ".", groups))
+                + (rest > 0 ? new string('a', rest - 1) + "." : string.Empty) + "com";
+        }
+
+        var fits = Host(TenantDomains.MaxHostLength);
+        var tooLong = Host(TenantDomains.MaxHostLength + 1);
+
+        fits.Length.Should().Be(TenantDomains.MaxHostLength);
+        TenantDomains.Normalise([fits], null, out _).Should().NotBeEmpty();
+        TenantDomains.Normalise([tooLong], null, out var errors).Should().BeEmpty();
+        errors.Should().ContainSingle();
+        ("_barako-challenge." + fits).Length.Should().BeLessThanOrEqualTo(253);
+    }
 }

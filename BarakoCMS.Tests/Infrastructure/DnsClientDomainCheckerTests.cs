@@ -42,4 +42,18 @@ public class DnsClientDomainCheckerTests
 
         await act.Should().ThrowAsync<OperationCanceledException>();
     }
+
+    [Fact]
+    public async Task A_name_DnsClient_will_not_send_is_a_failed_check_and_not_an_error()
+    {
+        var lookup = Substitute.For<ILookupClient>();
+        lookup.QueryAsync(Arg.Any<string>(), Arg.Any<QueryType>(), Arg.Any<QueryClass>(), Arg.Any<CancellationToken>())
+            .Returns<Task<IDnsQueryResponse>>(_ => throw new ArgumentException("The domain name is too long."));
+        var checker = new DnsClientDomainChecker(lookup, TimeSpan.FromSeconds(5));
+
+        var result = await checker.CheckAsync(new string('a', 300) + ".example", "edge.example.net", "_barako-challenge.x", "barako-verify=x", TestContext.Current.CancellationToken);
+
+        result.Passed.Should().BeFalse();
+        result.TimedOut.Should().BeFalse("the name is the problem, and a retry will not help");
+    }
 }
