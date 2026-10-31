@@ -104,6 +104,19 @@ public class TenantDomainCorsTests
         host.Services.GetRequiredService<ITenantDomainSource>().Invalidate();
     }
 
+    /// <summary>Marks a claimed domain verified, as the verify route does after its DNS check.</summary>
+    private async Task VerifyAsync(WebApplicationFactory<Program> host, string handle, string domain)
+    {
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            VerifiedDomains.Stage(session, handle, [domain]);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        host.Services.GetRequiredService<ITenantDomainSource>().Invalidate();
+    }
+
     [Fact]
     public async Task A_domain_added_to_a_tenant_passes_cors_on_the_next_request_without_a_restart()
     {
@@ -122,6 +135,11 @@ public class TenantDomainCorsTests
 
         var updated = await admin.PutAsJsonAsync($"/api/tenants/{handle}", new { name = handle, isActive = true, domains = new[] { domain } }, Ct);
         updated.StatusCode.Should().Be(HttpStatusCode.OK, await updated.Content.ReadAsStringAsync(Ct));
+
+        AllowedOrigin(await client.SendAsync(Preflight(origin), Ct)).Should().BeNull(
+            "a domain added through the API is pending until its DNS is checked");
+
+        await VerifyAsync(host, handle, domain);
 
         var preflight = await client.SendAsync(Preflight(origin), Ct);
         AllowedOrigin(preflight).Should().Be(origin);
@@ -149,6 +167,7 @@ public class TenantDomainCorsTests
 
         (await admin.PostAsJsonAsync("/api/tenants", new { handle, name = handle, isActive = true, domains = new[] { domain } }, Ct))
             .StatusCode.Should().Be(HttpStatusCode.OK);
+        await VerifyAsync(host, handle, domain);
         AllowedOrigin(await client.SendAsync(Preflight(origin), Ct)).Should().Be(origin, "the positive control");
 
         (await admin.PutAsJsonAsync($"/api/tenants/{handle}", new { name = handle, isActive = false }, Ct))

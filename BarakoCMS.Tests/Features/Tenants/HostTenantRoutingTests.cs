@@ -163,7 +163,7 @@ public class HostTenantRoutingTests
 
     private async Task<HttpResponseMessage> WhoAmIAsync(string token, string? host, string? xTenant)
     {
-        var uri = host is null ? "/api/me" : $"http://{host}/api/me";
+        var uri = host is null ? "/api/auth/mfa/status" : $"http://{host}/api/auth/mfa/status";
         var request = new HttpRequestMessage(HttpMethod.Get, uri);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         request.Headers.Add(TestRemoteIpFilter.Header, _clientIp);
