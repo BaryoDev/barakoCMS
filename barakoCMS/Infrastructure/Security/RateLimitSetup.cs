@@ -103,6 +103,9 @@ internal static class RateLimitSetup
     public const string TlsAskPolicy = "tls-ask";
     public const string EmailPreviewPolicy = "email-preview";
     public const string DomainVerifyPolicy = "domain-verify";
+
+    /// <summary>The by-host lookup. Not configurable, like <c>tls-ask</c>.</summary>
+    public const string ByHostPolicy = "by-host";
     public const string LookupPolicy = "public-lookup";
 
     public const int MaxPolicyNameLength = 64;
@@ -130,6 +133,7 @@ internal static class RateLimitSetup
         [TlsAskPolicy] = null,
         [EmailPreviewPolicy] = null,
         [DomainVerifyPolicy] = null,
+        [ByHostPolicy] = null,
     };
 
     private static readonly RateLimitWindow OptInDefaults = new(0, 60, 0);
@@ -179,6 +183,13 @@ internal static class RateLimitSetup
     /// behalf, so a loop on the route is a loop of outbound queries.
     /// </summary>
     public static readonly RateLimitWindow DomainVerify = new(10, 60, 0);
+
+    /// <summary>
+    /// Fixed, per client address, with delivery's renderer handling. A made-up subdomain costs a
+    /// database read to rule out, so an anonymous loop is a loop of queries. A renderer asks once per
+    /// site it serves, counted by the visitor it names.
+    /// </summary>
+    public static readonly RateLimitWindow ByHost = new(60, 60, 0);
 
     /// <summary>How many buckets the asked names are spread over, which bounds the limiter's partitions.</summary>
     public const int TlsAskBuckets = 4096;
@@ -262,6 +273,8 @@ internal static class RateLimitSetup
         options.AddPolicy(EmailPreviewPolicy, _ => RateLimitPartition.GetNoLimiter(NotCountedHere));
 
         options.AddPolicy(DeliveryPolicy, context => DeliveryPartition(context, settings.Delivery, rendererKeyHash));
+
+        options.AddPolicy(ByHostPolicy, context => RendererAwarePartition(context, "by-host", ByHost, rendererKeyHash));
 
         options.AddPolicy(DomainVerifyPolicy, context =>
             RateLimitPartition.GetFixedWindowLimiter($"domain-verify|{ClientIp(context)}", _ => Options(DomainVerify)));

@@ -209,4 +209,24 @@ public class TenantDomainVerifyTests
 
         (await CreateAsync(client, Handle(), $"not{Edge}")).StatusCode.Should().Be(HttpStatusCode.OK, "only a real subdomain is under the host");
     }
+
+    /// <summary>On a host of its own so the emptied bucket cannot refuse another test.</summary>
+    [Fact]
+    public async Task By_host_refuses_the_sixty_first_lookup_in_a_minute_from_one_address()
+    {
+        using var resolver = FastEndpointsResolver.Keep();
+        var (host, _) = HostWith();
+        var client = host.CreateClient();
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"2001:db8:1281:{Interlocked.Increment(ref _ip):x}::1");
+
+        var codes = new List<HttpStatusCode>();
+        for (var i = 0; i < 61; i++)
+        {
+            using var response = await client.GetAsync($"/api/tenants/by-host/{Domain()}", Ct);
+            codes.Add(response.StatusCode);
+        }
+
+        codes.Take(60).Should().OnlyContain(c => c == HttpStatusCode.NotFound);
+        codes[60].Should().Be(HttpStatusCode.TooManyRequests);
+    }
 }

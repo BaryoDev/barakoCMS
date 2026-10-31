@@ -1,4 +1,5 @@
 using barakoCMS.Infrastructure.Multitenancy;
+using barakoCMS.Infrastructure.Security;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
@@ -29,6 +30,7 @@ internal sealed class TenantByHostEndpoint(
     {
         Get("/api/tenants/by-host/{host}");
         AllowAnonymous();
+        Options(x => x.RequireRateLimiting(RateLimitSetup.ByHostPolicy));
     }
 
     public override async Task HandleAsync(CancellationToken ct)
