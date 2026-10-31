@@ -134,7 +134,9 @@ would leave almost no account as "Facebook only".
   once settle once (optimistic concurrency on the request), and both callers see the winner.
   The sweep is safe to run twice or on two nodes for the same reason.
 - A platform administrator, a SuperAdmin, or the last active admin of a tenant is never erased
-  automatically. The status is `needs_admin` and the account is left alone.
+  automatically. Roles and groups are looked up in every tenant, so a platform role reached
+  through a group in another tenant counts. The status is `needs_admin` and the account is left
+  alone.
 
 Statuses: `completed`, `awaiting_choice`, `kept`, `needs_admin`.
 
@@ -147,7 +149,7 @@ issued stop working through the session epoch and the unique username and email 
 - Deleted: memberships, API keys, tenant account manager rows, social profile (Facebook birthday,
   location, photo), external identities, MFA secret, and email codes, magic link tokens and pending
   registrations for the account's address.
-- Changed: the user id is removed from user group lists. Refresh tokens are revoked (rows stay
+- Changed: the user id is removed from user group lists, in every tenant. Refresh tokens are revoked (rows stay
   revoked, they hold no plaintext token).
 - Kept: revoked token ids, audit events that name the user (the audit chain is tamper-evident), and
   plain id references in other modules (`CreatedBy` on content, stations, share links, files,

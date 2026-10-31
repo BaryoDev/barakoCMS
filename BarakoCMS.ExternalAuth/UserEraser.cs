@@ -52,7 +52,11 @@ internal sealed class UserEraser(ISessionEpochService sessionEpoch)
 
         if (roleIds.Count > 0)
         {
-            var roles = await session.Query<Role>().Where(r => r.DeletedAt == null && roleIds.Contains(r.Id)).ToListAsync(ct);
+            // Roles are tenanted and this runs in the default tenant (the sweeper and the anonymous
+            // route have no other), so a role defined in another tenant is found with AnyTenant.
+            var roles = await session.Query<Role>()
+                .Where(r => r.AnyTenant() && r.DeletedAt == null && roleIds.Contains(r.Id))
+                .ToListAsync(ct);
             if (roles.Any(r => r.IsPlatform || (r.SystemCapabilities ?? []).Any(c =>
                     PlatformCapabilities.Contains(c, StringComparer.OrdinalIgnoreCase))))
             {
@@ -97,11 +101,22 @@ internal sealed class UserEraser(ISessionEpochService sessionEpoch)
         session.DeleteWhere<PendingRegistration>(r => emails.Contains(r.Email));
         session.Delete<MfaSecret>(id);
 
-        var groups = await session.Query<UserGroup>().Where(g => g.UserIds.Contains(id)).ToListAsync(ct);
+        // Groups are tenanted, and the user may be listed in a group of any tenant. Each edit is
+        // saved against the tenant the group lives in: storing it on this session would write a
+        // copy into the session's tenant and leave the id in the original.
+        var groups = await session.Query<UserGroup>().Where(g => g.AnyTenant() && g.UserIds.Contains(id)).ToListAsync(ct);
         foreach (var group in groups)
         {
             group.UserIds.RemoveAll(u => u == id);
-            session.Store(group);
+            var tenantId = (await session.MetadataForAsync(group, ct))?.TenantId;
+            if (string.IsNullOrEmpty(tenantId) || tenantId == session.TenantId)
+            {
+                session.Store(group);
+            }
+            else
+            {
+                session.ForTenant(tenantId).Store(group);
+            }
         }
 
         var token = id.ToString("N");
@@ -127,8 +142,10 @@ internal sealed class UserEraser(ISessionEpochService sessionEpoch)
         var ids = new HashSet<Guid>(user.RoleIds ?? []);
         var groupIds = user.GroupIds ?? [];
         var id = user.Id;
+        // Across tenants, for the reason given at the role query in IsProtectedAsync: a platform
+        // role granted through a group in any tenant makes the person a platform administrator.
         var groups = await session.Query<UserGroup>()
-            .Where(g => g.DeletedAt == null && (g.UserIds.Contains(id) || groupIds.Contains(g.Id)))
+            .Where(g => g.AnyTenant() && g.DeletedAt == null && (g.UserIds.Contains(id) || groupIds.Contains(g.Id)))
             .ToListAsync(ct);
         foreach (var role in groups.SelectMany(g => g.RoleIds ?? []))
         {

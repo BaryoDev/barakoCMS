@@ -421,6 +421,69 @@ public class FacebookAccountDeletionTests
             .Should().Be(1, "the erased admin's membership went and the other admin's stayed");
     }
 
+    private async Task InTenantAsync(string tenant, params object[] documents)
+    {
+        using var scope = _fixture.Services.CreateScope();
+        await using var session = scope.ServiceProvider.GetRequiredService<IDocumentStore>().LightweightSession(tenant);
+        foreach (var document in documents) session.Store(document);
+        await session.SaveChangesAsync(Ct);
+    }
+
+    [Fact]
+    public async Task A_super_admin_through_a_group_in_another_tenant_is_not_erased_from_the_default_tenant()
+    {
+        var (user, _, code) = await AwaitingAsync();
+        await InTenantAsync(Unique("tenant"), new UserGroup
+        {
+            Id = Guid.NewGuid(), Name = Unique("g"), UserIds = [user.Id], RoleIds = [SystemRoles.SuperAdminRoleId],
+        });
+
+        (await ChooseAsync(code, "delete_account")).State.Should().Be("needs_admin");
+
+        IsErased(await UserAsync(user.Id)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_platform_capability_role_defined_in_another_tenant_protects_its_holder()
+    {
+        var role = new Role { Id = Guid.NewGuid(), Name = Unique("plat"), SystemCapabilities = [SystemCapabilities.ManageTenants] };
+        await InTenantAsync(Unique("tenant"), role);
+        var (user, _, code) = await AwaitingAsync(role.Id);
+
+        (await ChooseAsync(code, "delete_account")).State.Should().Be("needs_admin");
+
+        IsErased(await UserAsync(user.Id)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Erasing_a_user_removes_their_id_from_a_group_in_another_tenant_and_leaves_one_copy()
+    {
+        var user = await NewUserAsync();
+        var bystander = await NewUserAsync();
+        var tenant = Unique("tenant");
+        var group = new UserGroup { Id = Guid.NewGuid(), Name = Unique("g"), UserIds = [user.Id, bystander.Id] };
+        await InTenantAsync(tenant, group);
+
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var current = (await session.LoadAsync<User>(user.Id, Ct))!;
+            await scope.ServiceProvider.GetRequiredService<UserEraser>().QueueEraseAsync(session, current, "test", Ct);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        await using (var inTenant = store.QuerySession(tenant))
+        {
+            var after = await inTenant.LoadAsync<UserGroup>(group.Id, Ct);
+            after.Should().NotBeNull();
+            after!.UserIds.Should().Equal(bystander.Id);
+        }
+
+        await using var inDefault = store.QuerySession();
+        (await inDefault.LoadAsync<UserGroup>(group.Id, Ct)).Should().BeNull("the edit is not written into the default tenant");
+    }
+
     // ---- the code is the capability ----
 
     [Fact]
