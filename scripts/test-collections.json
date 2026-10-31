@@ -1,6 +1,5 @@
 {
   "serial": {
-    "AwsSecretsHostTests.cs": "replaces FastEndpoints' static service resolver with a host of its own",
     "BarakoTestHostTests.cs": "starts hosts of its own or checks the fixture itself, which a second live fixture would disturb",
     "BuildIdentityEndpointTests.cs": "sets process-wide environment variables or switches",
     "DataSeederTests.cs": "sets process-wide environment variables or switches",
@@ -36,13 +35,6 @@
     "UnhandledExceptionResponseTests.cs": "replaces FastEndpoints' static service resolver with a host of its own"
   },
   "together": [
-    {
-      "reason": "share the static Umami request log",
-      "files": [
-        "Features/Analytics/AnalyticsWindowTests.cs",
-        "Features/Analytics/UmamiProxyTests.cs"
-      ]
-    },
     {
       "reason": "share the OAuth stub's static log capture",
       "files": [
