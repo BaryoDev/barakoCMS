@@ -233,6 +233,56 @@ public class FacebookAccountDeletionTests
         (await ProfileOfAsync(user.Id)).Should().BeNull("no Facebook data written back after completion");
     }
 
+    /// <summary>A device gate that commits the session as a real one does, then runs <paramref name="after"/>.</summary>
+    private static barakoCMS.Core.Interfaces.IDeviceGate CommittingGate(IDocumentSession session, Func<Task> after)
+    {
+        var gate = Substitute.For<barakoCMS.Core.Interfaces.IDeviceGate>();
+        gate.TrustOnOtpAsync(Arg.Any<User>(), Arg.Any<barakoCMS.Infrastructure.DeviceContext>(), Arg.Any<CancellationToken>())
+            .Returns(async (NSubstitute.Core.CallInfo _) =>
+            {
+                await session.SaveChangesAsync(Ct);
+                await after();
+                return (IReadOnlyList<System.Security.Claims.Claim>)[];
+            });
+        return gate;
+    }
+
+    [Fact]
+    public async Task A_gate_that_commits_stores_nothing_for_an_account_erased_before_it()
+    {
+        var (user, facebook, code) = await AwaitingWithoutLinkAsync();
+        var mfa = Substitute.For<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>();
+        mfa.IsEnabledAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(async (NSubstitute.Core.CallInfo _) =>
+        {
+            (await ChooseAsync(code, "delete_account")).State.Should().Be("completed");
+            return false;
+        });
+
+        var tokens = await IssueAsync(user, facebook, mfa, session => CommittingGate(session, () => Task.CompletedTask));
+
+        tokens.Allowed.Should().BeFalse();
+        await AssertNothingStoredForAsync(user, facebook, code);
+    }
+
+    [Fact]
+    public async Task A_sign_in_erased_after_the_gate_committed_gets_no_token()
+    {
+        // The gate committing releases the first hold, so a settle can land before the token commits.
+        // The address is one the operator trusts, so no link counts as another login.
+        var (user, facebook, code) = await AwaitingWithoutLinkAsync();
+        var mfa = Substitute.For<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>();
+        mfa.IsEnabledAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(false);
+
+        var tokens = await IssueAsync(
+            user, facebook, mfa,
+            session => CommittingGate(session, async () =>
+                (await ChooseAsync(code, "delete_account")).State.Should().Be("completed")),
+            emailTrustedByOperator: true);
+
+        tokens.Allowed.Should().BeFalse();
+        await AssertNothingStoredForAsync(user, facebook, code);
+    }
+
     /// <summary>A Facebook only account whose request awaits a choice, with no link left.</summary>
     private async Task<(User User, string Facebook, string Code)> AwaitingWithoutLinkAsync()
     {
