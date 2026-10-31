@@ -244,7 +244,7 @@ public class FacebookAccountDeletionTests
     private async Task<SocialSignIn.Tokens> IssueAsync(
         User user, string facebook, barakoCMS.Infrastructure.Auth.Mfa.IMfaService mfa,
         Func<IDocumentSession, barakoCMS.Core.Interfaces.IDeviceGate>? gate = null, string club = "",
-        IReadOnlyDictionary<string, IReadOnlyList<string>>? claims = null)
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? claims = null, bool emailTrustedByOperator = false)
     {
         using var scope = _host!.Services.CreateScope();
         var services = scope.ServiceProvider;
@@ -261,6 +261,7 @@ public class FacebookAccountDeletionTests
             new OidcIdentity(ExternalProviders.Facebook, facebook, user.Email, true, "Person", null)
             {
                 Claims = claims ?? new Dictionary<string, IReadOnlyList<string>>(),
+                EmailTrustedByOperator = emailTrustedByOperator,
             },
             ExternalProviders.Facebook,
             club,
@@ -303,6 +304,8 @@ public class FacebookAccountDeletionTests
     {
         // The settle runs in the device gate, which the sign-in calls after its first guard and
         // before the grant transaction. A real gate commits the session there, so this one does too.
+        // The address is one the operator trusts, so no link is committed: a link would count as
+        // another login and the settle would keep the account.
         var slug = Unique("map");
         var role = new Role { Id = Guid.NewGuid(), Name = Unique("Teacher"), TenantSlug = slug, Permissions = [], SystemCapabilities = [] };
         await InSessionAsync(async s =>
@@ -334,7 +337,7 @@ public class FacebookAccountDeletionTests
         }
 
         var tokens = await IssueAsync(user, facebook, mfa, Gate, slug,
-            new Dictionary<string, IReadOnlyList<string>> { ["groups"] = ["staff"] });
+            new Dictionary<string, IReadOnlyList<string>> { ["groups"] = ["staff"] }, emailTrustedByOperator: true);
 
         tokens.Allowed.Should().BeFalse();
         (await InSessionAsync(s => s.Query<Membership>().Where(m => m.UserId == user.Id).CountAsync(Ct)))
