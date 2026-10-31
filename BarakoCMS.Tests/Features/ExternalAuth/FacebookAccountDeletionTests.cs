@@ -589,7 +589,8 @@ public class FacebookAccountDeletionTests
 
         await using (var holder = store.LightweightSession())
         {
-            var eraser = _fixture.Services.GetRequiredService<UserEraser>();
+            using var scope = _fixture.Services.CreateScope();
+            var eraser = scope.ServiceProvider.GetRequiredService<UserEraser>();
             var user = (await holder.LoadAsync<User>(admin.Id, Ct))!;
 
             (await eraser.IsProtectedAsync(holder, user, Ct)).Should().BeFalse("each tenant has another administrator");
