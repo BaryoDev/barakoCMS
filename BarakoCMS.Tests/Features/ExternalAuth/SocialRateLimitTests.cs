@@ -25,6 +25,8 @@ public class SocialRateLimitTests
                 {
                     { "Social:RateLimit:PermitLimit", "2" },
                     { "Social:RateLimit:WindowSeconds", "60" },
+                    { "Social:RateLimit:ExchangePermitLimit", "3" },
+                    { "Social:RateLimit:ExchangeWindowSeconds", "60" },
                     { "Facebook:AppSecret", SignedRequests.Secret },
                 })));
         }
@@ -49,6 +51,20 @@ public class SocialRateLimitTests
         SocialRateLimit.PermitLimit(Config()).Should().Be(10);
         SocialRateLimit.Window(Config()).Should().Be(TimeSpan.FromSeconds(60));
         SocialRateLimit.Section.Should().Be("Social:RateLimit");
+    }
+
+    [Fact]
+    public void The_exchange_limit_defaults_to_three_hundred_per_sixty_seconds_and_reads_its_own_keys()
+    {
+        SocialRateLimit.ExchangePermitLimit(Config()).Should().Be(300);
+        SocialRateLimit.ExchangeWindow(Config()).Should().Be(TimeSpan.FromSeconds(60));
+
+        var config = Config(("Social:RateLimit:ExchangePermitLimit", "40"), ("Social:RateLimit:ExchangeWindowSeconds", "7"),
+            ("Social:RateLimit:PermitLimit", "2"), ("Social:RateLimit:WindowSeconds", "9"));
+        SocialRateLimit.ExchangePermitLimit(config).Should().Be(40);
+        SocialRateLimit.ExchangeWindow(config).Should().Be(TimeSpan.FromSeconds(7));
+        SocialRateLimit.PermitLimit(config).Should().Be(2, "the deletion routes keep their own setting");
+        SocialRateLimit.ExchangePermitLimit(Config(("Social:RateLimit:ExchangePermitLimit", "0"))).Should().Be(300);
     }
 
     [Fact]
@@ -78,7 +94,7 @@ public class SocialRateLimitTests
         var client = Client();
         var other = Client();
 
-        for (var i = 0; i < 2; i++)
+        for (var i = 0; i < 3; i++)
         {
             (await client.PostAsJsonAsync("/api/auth/social/exchange", new { code = "nope", device = "d" }, Ct))
                 .StatusCode.Should().NotBe(HttpStatusCode.TooManyRequests);
@@ -111,5 +127,33 @@ public class SocialRateLimitTests
         (await get.GetAsync($"/api/auth/facebook/data-deletion/status/{code}", Ct)).StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
         (await choice.PostAsJsonAsync($"/api/auth/facebook/data-deletion/status/{code}", new { choice = "keep_account" }, Ct))
             .StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
+    }
+
+    private static Task<HttpResponseMessage> Exchange(HttpClient client) =>
+        client.PostAsJsonAsync("/api/auth/social/exchange", new { code = "nope" }, Ct);
+
+    private static Task<HttpResponseMessage> DeletionStatus(HttpClient client) =>
+        client.GetAsync($"/api/auth/facebook/data-deletion/status/{new string('a', 64)}", Ct);
+
+    [Fact]
+    public async Task The_exchange_and_the_deletion_routes_do_not_share_a_bucket()
+    {
+        var spent = Client();
+        for (var i = 0; i < 2; i++) await DeletionStatus(spent);
+        (await DeletionStatus(spent)).StatusCode.Should().Be(HttpStatusCode.TooManyRequests, "the deletion bucket of two is spent");
+
+        // Three exchanges from the same address still pass: the exchange has a bucket of three.
+        for (var i = 0; i < 3; i++)
+        {
+            (await Exchange(spent)).StatusCode.Should().NotBe(HttpStatusCode.TooManyRequests);
+        }
+
+        (await Exchange(spent)).StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
+
+        // And the other way round: a spent exchange bucket leaves the deletion routes alone.
+        var exchanged = Client();
+        for (var i = 0; i < 4; i++) await Exchange(exchanged);
+        (await Exchange(exchanged)).StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
+        (await DeletionStatus(exchanged)).StatusCode.Should().NotBe(HttpStatusCode.TooManyRequests);
     }
 }

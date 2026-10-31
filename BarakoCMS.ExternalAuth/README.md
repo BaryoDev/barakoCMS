@@ -92,8 +92,10 @@ Full steps are in `docs/social-sign-in.md`. In short:
   and the status is `completed`. If Facebook was the only login, the status is `awaiting_choice` and
   the person picks `delete_account` or `keep_account` on the status URL; with no choice the account
   is erased after `Facebook:DeletionChoiceDays` (default 30). Admins are never erased automatically
-  (`needs_admin`). The exchange and deletion routes are limited per address by
-  `Social:RateLimit:PermitLimit` and `Social:RateLimit:WindowSeconds` (default 10 per 60 seconds).
+  (`needs_admin`). The deletion routes are limited per address by
+  `Social:RateLimit:PermitLimit` and `Social:RateLimit:WindowSeconds` (default 10 per 60 seconds),
+  and the exchange by `Social:RateLimit:ExchangePermitLimit` and
+  `Social:RateLimit:ExchangeWindowSeconds` (default 300 per 60 seconds).
   Details in `docs/social-sign-in.md`.
 
 New tables: `social_handoff_codes` and `facebook_deletion_requests`, created by

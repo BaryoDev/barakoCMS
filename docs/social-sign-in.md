@@ -163,12 +163,22 @@ It is removed with everything else only when the account is erased.
 
 ### Rate limit and settings
 
-The exchange route and the anonymous deletion routes share one policy, per client address:
+The exchange route and the three anonymous deletion routes each have a limit of their own, per
+client address. A spent exchange limit does not touch the deletion routes, and the other way round.
 
 | Key | Default | |
 |---|---|---|
-| `Social:RateLimit:PermitLimit` | `10` | Requests per window |
-| `Social:RateLimit:WindowSeconds` | `60` | Window length |
+| `Social:RateLimit:PermitLimit` | `10` | Deletion routes: requests per window |
+| `Social:RateLimit:WindowSeconds` | `60` | Deletion routes: window length |
+| `Social:RateLimit:ExchangePermitLimit` | `300` | Exchange route: requests per window |
+| `Social:RateLimit:ExchangeWindowSeconds` | `60` | Exchange route: window length |
 | `Facebook:DeletionChoiceDays` | `30` | Days a person has to choose |
+
+The exchange limit is higher because a frontend that calls the exchange from its own server makes
+every visitor's call from one address. Unless forwarded headers are set up (see
+`ForwardedHeaders` in `docs/deploy-on-a-managed-platform.md`), the API sees that server's address
+and the whole site shares one exchange bucket: 300 sign-ins a minute at the default. Raise
+`ExchangePermitLimit` for a busy site, or name the frontend's network in `ForwardedHeaders` and
+forward the visitor's address.
 
 A value that is not a positive number uses the default.

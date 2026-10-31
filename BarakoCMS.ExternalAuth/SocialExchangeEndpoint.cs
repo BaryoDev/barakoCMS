@@ -47,7 +47,7 @@ internal sealed class SocialExchangeEndpoint(IDocumentSession session) : Endpoin
     {
         Post("/api/auth/social/exchange");
         AllowAnonymous();
-        Options(x => x.RequireRateLimiting(SocialRateLimit.Policy));
+        Options(x => x.RequireRateLimiting(SocialRateLimit.ExchangePolicy));
     }
 
     public override async Task HandleAsync(SocialExchangeRequest req, CancellationToken ct)
