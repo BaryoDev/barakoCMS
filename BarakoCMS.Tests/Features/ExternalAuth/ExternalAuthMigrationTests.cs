@@ -70,6 +70,35 @@ public class ExternalAuthMigrationTests
         }
     }
 
+    /// <summary>
+    /// The indexes the module declares for the document, read from Marten's mapping, against the
+    /// ones the file creates. The shape comparison above reads the table Marten built, which is
+    /// only as complete as the module, so this names the declared indexes outright: dropping one
+    /// from the module, or from the file, fails here.
+    /// </summary>
+    [Theory]
+    [InlineData("5.5.0", "1270-external-auth-social-handoff", "mt_doc_social_handoff_codes", typeof(SocialHandoffCode),
+        new[] { "mt_doc_social_handoff_codes_idx_expires_at" })]
+    [InlineData("5.5.0", "1270-external-auth-social-handoff", "mt_doc_facebook_deletion_requests", typeof(FacebookDeletionRequest),
+        new[] { "mt_doc_facebook_deletion_requests_idx_expires_at", "mt_doc_facebook_deletion_requests_idx_settled_at" })]
+    public async Task The_module_declares_the_indexes_the_migration_creates_and_no_others(
+        string version, string file, string table, Type document, string[] indexes)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var scope = _factory.Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
+        var mapping = (Marten.Schema.DocumentMapping)((DocumentStore)store).Options.Storage.FindFeature(document);
+        var declared = mapping.Indexes.Select(i => i.Name).Order().ToList();
+
+        var sql = await File.ReadAllTextAsync(Path.Combine(RepositoryRoot(), "migrations", version, file + ".sql"), ct);
+        var created = System.Text.RegularExpressions.Regex
+            .Matches(sql, $@"CREATE\s+INDEX\s+IF\s+NOT\s+EXISTS\s+(\w+)\s+ON\s+public\.{table}\b")
+            .Select(m => m.Groups[1].Value).Order().ToList();
+
+        declared.Should().Equal(indexes.Order(), "the module declares these indexes for {0}", table);
+        created.Should().Equal(declared, "the file has to create exactly the indexes the module declares");
+    }
+
     /// <summary>Columns, constraints and indexes of the table, with the schema name taken out.</summary>
     private static async Task<List<string>> ShapeAsync(NpgsqlConnection connection, string schema, string table, CancellationToken ct)
     {
