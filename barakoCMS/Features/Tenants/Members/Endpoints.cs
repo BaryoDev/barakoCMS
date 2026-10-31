@@ -342,11 +342,11 @@ internal static class Members
 /// Deletes every membership of an erased account, with an entry in each tenant it was active in.
 /// </summary>
 /// <remarks>
-/// Public because the erasure lives in the ExternalAuth module. Unlike <c>Members.RemoveAsync</c> the
-/// row goes, because its profile is personal data, and the entry carries the roles held, no profile
-/// and no actor: an erasure is requested by the person, not by a member of the tenant.
+/// Unlike <c>Members.RemoveAsync</c> the row goes, because its profile is personal data, and the
+/// entry carries the roles held, no profile and no actor: an erasure is requested by the person, not
+/// by a member of the tenant.
 /// </remarks>
-public static class MemberErasure
+internal static class MemberErasure
 {
     public static async Task QueueAsync(IDocumentSession session, Guid userId, string reason, CancellationToken ct)
     {
