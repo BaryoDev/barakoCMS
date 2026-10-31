@@ -499,6 +499,50 @@ public class SocialHandoffTests
     }
 
     [Fact]
+    public async Task A_callback_purges_expired_codes_when_the_purge_is_due()
+    {
+        var code = $"old-{Guid.NewGuid():N}";
+        var outcome = new SocialHandoffOutcome("t", "r", false, null, "");
+        await StoreAsync([SocialHandoff.Build(code, Device, outcome, DateTime.UtcNow.AddMinutes(-5))]);
+        SocialHandoff.ResetPurgeClock();
+        NewAccount("google");
+
+        var response = await CallbackAsync(_handoff!, "google");
+
+        CodeIn(response);
+        using var scope = _fixture.Services.CreateScope();
+        (await scope.ServiceProvider.GetRequiredService<IQuerySession>()
+            .LoadAsync<SocialHandoffCode>(SocialHandoff.HashOf(code), Ct)).Should().BeNull("the callback ran the purge");
+    }
+
+    [Fact]
+    public async Task A_callback_at_the_live_code_cap_goes_back_to_the_login_page_and_issues_no_token()
+    {
+        var email = NewAccount("google");
+        var user = new User { Id = Guid.NewGuid(), Email = email, Username = Unique("busy"), PasswordHash = "x" };
+        await StoreAsync(user);
+        var cap = SocialHandoff.MaxLive;
+        SocialHandoff.MaxLive = 0;
+        try
+        {
+            var response = await CallbackAsync(_handoff!, "google");
+
+            var location = response.Headers.Location!.ToString();
+            location.Should().StartWith($"{BaseUrl}/login?fberror=");
+            Uri.UnescapeDataString(location).Should().Contain("Sign-in is busy");
+            location.Should().NotContain("code=");
+        }
+        finally
+        {
+            SocialHandoff.MaxLive = cap;
+        }
+
+        using var scope = _fixture.Services.CreateScope();
+        (await scope.ServiceProvider.GetRequiredService<IQuerySession>().Query<RefreshToken>()
+            .CountAsync(t => t.UserId == user.Id, Ct)).Should().Be(0);
+    }
+
+    [Fact]
     public async Task Starting_a_sign_in_stores_nothing()
     {
         using var scope = _fixture.Services.CreateScope();

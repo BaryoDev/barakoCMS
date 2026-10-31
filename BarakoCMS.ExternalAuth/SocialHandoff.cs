@@ -51,7 +51,7 @@ internal static class SocialHandoff
 {
     public const string DeviceCookie = "social_device";
     public const string ConfigKey = "ExternalAuth:CodeHandoff";
-    public const int MaxLive = 5000;
+    public static int MaxLive { get; internal set; } = 5000;
     public const int MaxCodeLength = 128;
     public static readonly TimeSpan Lifetime = TimeSpan.FromSeconds(60);
     internal static readonly TimeSpan PurgeInterval = TimeSpan.FromMinutes(1);
