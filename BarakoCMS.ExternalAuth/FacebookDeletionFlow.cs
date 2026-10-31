@@ -35,6 +35,9 @@ internal static class FacebookDeletionFlow
     public const string ChoiceDaysKey = "Facebook:DeletionChoiceDays";
     public const int DefaultChoiceDays = 30;
 
+    /// <summary>The <see cref="SocialProfile.Source"/> the Facebook callback writes.</summary>
+    public const string FacebookProfileSource = "facebook";
+
     public static string HashOf(string code) =>
         Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(code)));
 
@@ -55,8 +58,8 @@ internal static class FacebookDeletionFlow
     }
 
     /// <summary>
-    /// Removes the Facebook link (queued on <paramref name="session"/>) and returns the request to
-    /// store. The caller saves.
+    /// Removes the Facebook link and the profile Facebook filled (queued on
+    /// <paramref name="session"/>) and returns the request to store. The caller saves.
     /// </summary>
     public static async Task<FacebookDeletionRequest> OpenAsync(
         IDocumentSession session, IConfiguration config, string facebookUserId, string requestId, CancellationToken ct)
@@ -70,6 +73,13 @@ internal static class FacebookDeletionFlow
         }
 
         session.Delete(link);
+
+        // What Facebook shared (name, photo, birthday, location) goes with the request whatever
+        // happens to the account. A profile another provider last filled is not Facebook's to
+        // remove here.
+        var userId = link.UserId;
+        session.DeleteWhere<SocialProfile>(p => p.UserId == userId && p.Source == FacebookProfileSource);
+
         var user = await session.LoadAsync<User>(link.UserId, ct);
         if (user is not null && !await HasOtherLoginAsync(session, user, linkId, ct))
         {

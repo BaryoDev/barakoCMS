@@ -140,7 +140,7 @@ public class FacebookCallbackEndpoint(
             var birthday = me.TryGetProperty("birthday", out var b) ? b.GetString() : null;
             var location = me.TryGetProperty("location", out var loc) && loc.TryGetProperty("name", out var ln)
                 ? ln.GetString() : null;
-            profile = new SocialSignIn.ProfileData(name, photo, birthday, location, "facebook");
+            profile = new SocialSignIn.ProfileData(name, photo, birthday, location, FacebookDeletionFlow.FacebookProfileSource);
         }
         catch
         {

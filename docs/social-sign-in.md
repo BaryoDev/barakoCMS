@@ -149,15 +149,17 @@ issued stop working through the session epoch and the unique username and email 
 - Deleted: memberships, API keys, tenant account manager rows, social profile (Facebook birthday,
   location, photo), external identities, MFA secret, and email codes, magic link tokens and pending
   registrations for the account's address.
-- Changed: the user id is removed from user group lists, in every tenant. Refresh tokens are revoked (rows stay
-  revoked, they hold no plaintext token).
+- Changed: the user id is removed from user group lists, in every tenant. Refresh tokens are
+  revoked (rows stay revoked, they hold no plaintext token).
 - Kept: revoked token ids, audit events that name the user (the audit chain is tamper-evident), and
   plain id references in other modules (`CreatedBy` on content, stations, share links, files,
   accounting entries, diagnostics client errors).
 - Added: one `user.erased` audit entry with the user id and a reason, and no Facebook user id.
 
-The social profile data is removed only when the account is erased. When the account has another
-login, only the link goes.
+The social profile is removed with the Facebook link when its source is Facebook, whatever happens
+to the account: with another login, or while the person is still choosing, the link and the
+Facebook profile go and the account stays. A profile last filled by another provider is left alone.
+It is removed with everything else only when the account is erased.
 
 ### Rate limit and settings
 

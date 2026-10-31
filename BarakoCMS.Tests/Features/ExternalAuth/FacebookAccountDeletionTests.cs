@@ -156,6 +156,32 @@ public class FacebookAccountDeletionTests
         IsErased(await UserAsync(user.Id)).Should().BeFalse();
     }
 
+    private async Task<SocialProfile?> ProfileOfAsync(Guid userId) =>
+        await InSessionAsync(s => s.Query<SocialProfile>().FirstOrDefaultAsync(p => p.UserId == userId, Ct));
+
+    [Theory]
+    [InlineData(true, "facebook", false)]
+    [InlineData(false, "facebook", false)]
+    [InlineData(true, "google", true)]
+    [InlineData(false, "google", true)]
+    public async Task A_deletion_request_removes_the_facebook_profile_only(bool hasOtherLogin, string source, bool survives)
+    {
+        var user = await NewUserAsync(passwordHash: hasOtherLogin ? "hash-of-a-password" : "");
+        var facebook = await LinkAsync(ExternalProviders.Facebook, user.Id);
+        await InSessionAsync(async s =>
+        {
+            s.Store(new SocialProfile { Id = Guid.NewGuid(), UserId = user.Id, Name = "Person", Birthday = "01/02/1990", Source = source });
+            return 0;
+        });
+        (await ProfileOfAsync(user.Id)).Should().NotBeNull();
+
+        var (code, _) = await RequestDeletionAsync(facebook);
+
+        (await StatusOfAsync(code)).Should().Be(hasOtherLogin ? "completed" : "awaiting_choice");
+        (await ProfileOfAsync(user.Id) is not null).Should().Be(survives);
+        IsErased(await UserAsync(user.Id)).Should().BeFalse("the account was not erased by the request itself");
+    }
+
     [Fact]
     public async Task With_facebook_as_the_only_login_the_link_goes_at_once_and_the_request_awaits_a_choice()
     {
