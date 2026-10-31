@@ -60,10 +60,11 @@ internal sealed class UserEraser(ISessionEpochService sessionEpoch)
 
         if (roleIds.Count > 0)
         {
-            // Roles are tenanted and this runs in the default tenant (the sweeper and the anonymous
-            // route have no other), so a role defined in another tenant is found with AnyTenant.
+            // Roles are stored once for the deployment (SingleTenanted in ServiceCollectionExtensions),
+            // with the owning tenant kept as data in TenantSlug, so a role defined for another tenant
+            // is found from the default tenant without AnyTenant. Groups are tenanted and need it.
             var roles = await session.Query<Role>()
-                .Where(r => r.AnyTenant() && r.DeletedAt == null && roleIds.Contains(r.Id))
+                .Where(r => r.DeletedAt == null && roleIds.Contains(r.Id))
                 .ToListAsync(ct);
             if (roles.Any(r => r.IsPlatform || (r.SystemCapabilities ?? []).Any(c =>
                     PlatformCapabilities.Contains(c, StringComparer.OrdinalIgnoreCase))))

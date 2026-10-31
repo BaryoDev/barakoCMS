@@ -629,13 +629,35 @@ public class FacebookAccountDeletionTests
     [Fact]
     public async Task A_platform_capability_role_defined_in_another_tenant_protects_its_holder()
     {
-        var role = new Role { Id = Guid.NewGuid(), Name = Unique("plat"), SystemCapabilities = [SystemCapabilities.ManageTenants] };
-        await InTenantAsync(Unique("tenant"), role);
+        // Roles are single tenanted, so the other tenant is the role's TenantSlug and not a Marten tenant.
+        var tenant = Unique("tenant");
+        var role = new Role
+        {
+            Id = Guid.NewGuid(), Name = Unique("plat"), TenantSlug = tenant,
+            SystemCapabilities = [SystemCapabilities.ManageTenants],
+        };
+        await InTenantAsync(tenant, role);
         var (user, _, code) = await AwaitingAsync(role.Id);
 
         (await ChooseAsync(code, "delete_account")).State.Should().Be("needs_admin");
 
         IsErased(await UserAsync(user.Id)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_role_with_no_platform_capability_defined_in_another_tenant_does_not_protect_its_holder()
+    {
+        var tenant = Unique("tenant");
+        var role = new Role
+        {
+            Id = Guid.NewGuid(), Name = Unique("plain"), TenantSlug = tenant, SystemCapabilities = ["view_analytics"],
+        };
+        await InTenantAsync(tenant, role);
+        var (user, _, code) = await AwaitingAsync(role.Id);
+
+        (await ChooseAsync(code, "delete_account")).State.Should().Be("completed");
+
+        IsErased(await UserAsync(user.Id)).Should().BeTrue();
     }
 
     [Fact]
