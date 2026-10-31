@@ -142,6 +142,17 @@ is missing; one that takes longer than 8 seconds answers `timedOut`. A domain on
 CNAME flattening hides its CNAME and does not pass. There is no periodic recheck, so a verified
 domain stays verified.
 
+The check compares the record at the domain itself. A chained CNAME (the domain points at a name that
+in turn points at the deployment host) does not verify; point the domain straight at the deployment
+host. Because `www.` is dropped, `www.shop.example` and `shop.example` are one claim and the check
+looks at `shop.example`, so a setup that only has a `www` record needs the record on the bare name
+too. If the claim changes while the check runs (the tenant drops the domain, or another tenant
+claims it), the route answers 409 and writes nothing. A claimed domain can be at most 235 characters,
+so the `_barako-challenge.` name stays inside the 253 characters DNS allows.
+
+A host the 5.5.0 migration skipped, because two tenants both listed it, has no row. `/verify` answers
+404 for it until one tenant claims it again through `PUT /api/tenants/{handle}`.
+
 The deployment host and any name under it cannot be claimed. Names with non-ASCII letters are stored
 in their ASCII (`xn--`) form. `www.` is dropped, so `www.shop.example` and `shop.example` are one
 domain.
