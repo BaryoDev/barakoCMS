@@ -209,56 +209,82 @@ internal static class FacebookDeletionFlow
             userId.ToString());
     }
 
+    /// <summary>How many due requests one page of the sweep reads. Settable so a test can use a small one.</summary>
+    internal static int SweepPageSize { get; set; } = 100;
+
     /// <summary>
     /// Settles every request whose window has passed, as an unanswered choice to erase. Safe to run
     /// twice or on two nodes at once: a request settles once, and a node that loses the race for one
-    /// skips it. Returns how many this call settled.
+    /// skips it. Pages through the due requests oldest first, so a request that fails does not hold
+    /// back the ones after it. Returns how many this call settled.
     /// </summary>
     public static async Task<int> SweepAsync(IServiceProvider services, DateTime now, CancellationToken ct)
     {
         var logger = services.GetService<ILoggerFactory>()?.CreateLogger("BarakoCMS.ExternalAuth.FacebookDeletionSweep");
         var store = services.GetRequiredService<IDocumentStore>();
-        List<string> due;
-        await using (var query = store.QuerySession())
-        {
-            due = [.. await query.Query<FacebookDeletionRequest>()
-                .Where(r => r.Status == FacebookDeletionStatus.AwaitingChoice && r.ExpiresAt <= now)
-                .OrderBy(r => r.ExpiresAt)
-                .Select(r => r.Id)
-                .Take(100)
-                .ToListAsync(ct)];
-        }
-
         var settled = 0;
-        foreach (var id in due)
+        DateTime? lastExpiry = null;
+        string? lastId = null;
+        while (true)
         {
-            await using var scope = services.CreateAsyncScope();
-            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            try
+            // Keyset paging on (ExpiresAt, Id): a request that fails stays awaiting, and the next
+            // page starts after it, so rows that always fail cannot fill every page and every due
+            // request gets a try in each run.
+            List<(string Id, DateTime? ExpiresAt)> due;
+            await using (var query = store.QuerySession())
             {
-                var request = await session.LoadAsync<FacebookDeletionRequest>(id, ct);
-                if (request is null || request.Status != FacebookDeletionStatus.AwaitingChoice)
+                var source = query.Query<FacebookDeletionRequest>()
+                    .Where(r => r.Status == FacebookDeletionStatus.AwaitingChoice && r.ExpiresAt <= now);
+                if (lastId is not null)
                 {
-                    continue;
+                    var after = lastExpiry;
+                    var afterId = lastId;
+                    source = source.Where(r => r.ExpiresAt > after || (r.ExpiresAt == after && r.Id.CompareTo(afterId) > 0));
                 }
 
-                await SettleAsync(session, scope.ServiceProvider.GetRequiredService<UserEraser>(), request,
-                    DeletionChoice.Delete, now, ct);
-                await session.SaveChangesAsync(ct);
-                settled++;
+                due = (await source
+                    .OrderBy(r => r.ExpiresAt).ThenBy(r => r.Id)
+                    .Select(r => new { r.Id, r.ExpiresAt })
+                    .Take(SweepPageSize)
+                    .ToListAsync(ct)).Select(r => (r.Id, r.ExpiresAt)).ToList();
             }
-            catch (JasperFx.ConcurrencyException)
+
+            foreach (var (id, _) in due)
             {
-                // Another node, or the person, settled it first. Nothing of this attempt was saved.
+                await using var scope = services.CreateAsyncScope();
+                var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+                try
+                {
+                    var request = await session.LoadAsync<FacebookDeletionRequest>(id, ct);
+                    if (request is null || request.Status != FacebookDeletionStatus.AwaitingChoice)
+                    {
+                        continue;
+                    }
+
+                    await SettleAsync(session, scope.ServiceProvider.GetRequiredService<UserEraser>(), request,
+                        DeletionChoice.Delete, now, ct);
+                    await session.SaveChangesAsync(ct);
+                    settled++;
+                }
+                catch (JasperFx.ConcurrencyException)
+                {
+                    // Another node, or the person, settled it first. Nothing of this attempt was saved.
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // One request that cannot be settled must not stall the ones behind it. It stays
+                    // awaiting and is tried again next run. The id is the hash of the code, which the
+                    // log may hold; the account is not named.
+                    logger?.LogError(ex, "Settling Facebook deletion request {RequestId} failed; continuing", id);
+                }
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+
+            if (due.Count < SweepPageSize)
             {
-                // One request that cannot be settled must not stall the ones behind it. It stays
-                // awaiting and is tried again next run; oldest first, so it cannot starve the rest
-                // either. The id is the hash of the code, which the log may hold; the account is
-                // not named.
-                logger?.LogError(ex, "Settling Facebook deletion request {RequestId} failed; continuing", id);
+                break;
             }
+
+            (lastId, lastExpiry) = (due[^1].Id, due[^1].ExpiresAt);
         }
 
         await PurgeSettledAsync(store, now, ct);
