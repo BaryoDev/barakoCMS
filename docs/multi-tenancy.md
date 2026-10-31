@@ -78,7 +78,7 @@ configuration site says so, and it is the reason this is settled rather than adj
 
 `TenantResolutionMiddleware` resolves, in order:
 
-1. the **`X-Tenant` header**,
+1. the **`X-Tenant` header**, unless the request host is a verified custom domain of another tenant (below),
 2. a **registered custom domain** (`Tenant.Domains`, looked up through `ITenantDomainSource`),
 3. the host's **leading subdomain**, ignoring the infra labels `www`, `app`, `api` and `admin`,
 4. the **`default` tenant**.
@@ -96,6 +96,19 @@ belongs to, anonymously and with the handle only, for a renderer serving several
 process. It resolves the host the same way requests are routed: a registered domain first, then the
 leading subdomain, so `acme.example.com` answers `acme` when an active tenant has that handle and no
 domain row claims the host. An unknown or inactive handle is a 404 either way.
+
+### A verified domain beats the header
+
+Before the header is read, the host is checked against the verified domains. When the host is one and
+`X-Tenant` names a different tenant, the request ends with 403 and "This session is not valid for this
+tenant.", the same answer a token for another tenant gets. An equal header, or none, goes on as the
+domain's tenant. So a token for tenant A sent to B's domain, with or without `X-Tenant: A`, is refused.
+On any other host (the shared API host, a subdomain with no registered domain) the header still names
+the tenant. This applies with forwarded headers off, where the raw `Host` selects the tenant.
+
+With `ForwardedHeaders:Enabled`, `X-Forwarded-Host` is read along with `X-Forwarded-For` and
+`X-Forwarded-Proto`, and only from a peer in `KnownProxies` or `KnownNetworks`. A request from any
+other address cannot set the host that way.
 
 ### Domain claims
 

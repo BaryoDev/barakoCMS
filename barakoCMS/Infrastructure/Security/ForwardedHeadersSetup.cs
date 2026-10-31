@@ -33,7 +33,10 @@ internal static class ForwardedHeadersSetup
     {
         var section = configuration.GetSection(Section);
 
-        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+        // The host is read the same way as the address: only from a hop named below. A tenant's custom
+        // domain is chosen by the host, and a proxy that rewrites Host on its way in (a platform edge
+        // that forwards to an internal name) would otherwise route every site to the default tenant.
+        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost;
         options.KnownProxies.Clear();
         options.KnownIPNetworks.Clear();
 

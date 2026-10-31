@@ -23,6 +23,10 @@ public readonly record struct TenantResolution(string? Slug, bool Unrecognised);
 /// tenant, or to a slug with no active <see cref="Models.Tenant"/> document, ends here with a 404
 /// unless its route is one of <see cref="TenantlessRoutes"/>.
 ///
+/// A verified custom domain belongs to its tenant: when the request host is one, an <c>X-Tenant</c>
+/// that names a different tenant is refused with 403, the status a token for another tenant gets.
+/// The same header, or none, goes on with the host's tenant.
+///
 /// The host is read here even though it is the caller's own <c>Host</c> header, and #147 asked
 /// whether that is an escalation. It is not: <c>X-Tenant</c> above already lets any anonymous caller
 /// name any tenant, by design, because that is how path-based routing works. Forging the host
@@ -32,6 +36,9 @@ public readonly record struct TenantResolution(string? Slug, bool Unrecognised);
 public class TenantResolutionMiddleware(RequestDelegate next)
 {
     public const string TenantHeader = "X-Tenant";
+
+    /// <summary>The body of the 403 for an <c>X-Tenant</c> that names a tenant other than the host's.</summary>
+    public const string WrongTenantMessage = "This session is not valid for this tenant.";
 
     private static readonly HashSet<string> InfraSubdomains =
         new(StringComparer.OrdinalIgnoreCase) { "www", "app", "api", "admin" };
@@ -43,7 +50,21 @@ public class TenantResolutionMiddleware(RequestDelegate next)
 
         if (!string.IsNullOrWhiteSpace(header))
         {
-            tenant.Slug = header.Trim().ToLowerInvariant();
+            var named = header.Trim().ToLowerInvariant();
+
+            // A verified domain belongs to one tenant, so a request on it cannot name another. Without
+            // this the header would win, and a token for tenant A sent to B's domain with X-Tenant: A
+            // would pass the token check as A's session.
+            var hostMap = await domains.GetAsync(context.RequestAborted);
+            var owner = hostMap.Find(context.Request.Host.Host) ?? hostMap.FindPaused(context.Request.Host.Host);
+            if (owner is not null && !string.Equals(owner, named, StringComparison.OrdinalIgnoreCase))
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                await context.Response.WriteAsync(WrongTenantMessage, context.RequestAborted);
+                return;
+            }
+
+            tenant.Slug = named;
             if (await RefusedAsync(context, tenant, domains))
                 return;
 
