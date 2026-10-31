@@ -195,6 +195,7 @@ public class MigrationHostTests
             ["Documents"] = "5.2.0/585-documents",
             ["Tagging"] = "5.3.0/252-tagging",
             ["Services"] = "5.3.0/833-services",
+            ["core"] = "5.2.0/580-stock-reservations",
         };
         // A real 5.4 database had Marten's immutable cast helpers, and the removed scripts index through them.
         await database.ExecuteAsync(
@@ -218,6 +219,7 @@ public class MigrationHostTests
             "mt_doc_public_forms", "mt_doc_booking_resources", "mt_doc_payments_attempts", "mt_doc_report_definitions",
             "mt_doc_scheduled_entries", "mt_doc_notifications", "mt_doc_contacts", "mt_doc_comments",
             "mt_doc_document_templates", "mt_doc_tagging_vocabularies", "mt_doc_service_registrations",
+            "barako_stock_counters", "barako_stock_holds", "barako_stock_movements",
         ];
         foreach (var table in tables)
             (await database.IsTrueAsync($"select to_regclass('public.{table}') is not null")).Should().BeTrue($"{table} is the setup");
@@ -228,6 +230,7 @@ public class MigrationHostTests
         migrate.ExitCode.Should().Be(0, $"output:\n{Truncate(migrate.Output)}");
         status.ExitCode.Should().Be(0, $"output:\n{Truncate(status.Output)}");
         status.Output.Should().Contain("not-loaded Forms/4.2.0/forms-public-forms");
+        status.Output.Should().Contain("not-loaded core/5.2.0/580-stock-reservations");
         foreach (var table in tables)
             (await database.IsTrueAsync($"select to_regclass('public.{table}') is not null")).Should().BeTrue($"{table} is kept");
         (await database.IsTrueAsync(

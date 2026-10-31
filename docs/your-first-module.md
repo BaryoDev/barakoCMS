@@ -628,7 +628,6 @@ template. See [Writing a module outside this repository](../MODULES.md#writing-a
 
 ## What to build next
 
-[#249](https://github.com/BaryoDev/barakoCMS/issues/249) lists the primitive modules nobody has
-built yet: contacts, notifications, tagging, comments, full-text search, and scheduling. Each is a
-real module with its own issue, and each is this page with a bigger domain. Comment `/take` on one
-to claim it.
+Core does not ship business modules such as contacts, tagging or comments. Pick a primitive that
+core lacks and build it as a module in its own repository, starting from this page and the
+`dotnet new barakocms-module` template.

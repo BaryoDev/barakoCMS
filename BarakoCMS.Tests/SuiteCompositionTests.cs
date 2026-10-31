@@ -46,8 +46,8 @@ public class SuiteCompositionTests
         services.Where(d => d.ServiceType == typeof(TService)).ToList();
 
     /// <summary>
-    /// The thirteen the hand-written list named, plus Email.Smtp, which the Suite project referenced
-    /// all along and the list never added, plus Pages, Forms, Documents, Payments, Qr, Reports and Scheduling, the Testing fixture module, plus this project's own probe. A module project added to
+    /// The modules the Suite project references, plus Accounting, the Testing fixture module and this
+    /// project's own probe, which the test process references too. A module project added to
     /// the Suite without being added here fails this test, which is the point: the set is pinned.
     /// </summary>
     [Fact]

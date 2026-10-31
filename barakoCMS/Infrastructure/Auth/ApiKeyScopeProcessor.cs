@@ -8,7 +8,7 @@ namespace barakoCMS.Infrastructure.Auth;
 /// API key (<c>auth_method=apikey</c>). API keys are confined to the content surface (content,
 /// content types, schemas, collection pushes) and to read vs write by HTTP method, except that
 /// erasing and rolling back an entry need <c>content:destructive</c>. <c>monitor:read</c> reaches only the
-/// content counts, the analytics reads, the overview and the per-check health read. A key that names content types
+/// content counts, the overview and the per-check health read. A key that names content types
 /// reaches only the push route for those types. Everything else (managing users,
 /// roles, tenants, or keys themselves) stays behind human JWTs, so a leaked key can never escalate
 /// into platform administration. Human JWT callers are untouched: they carry no scope claims and use
@@ -59,6 +59,8 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
             return [ApiKeyScopes.MonitorRead];
         if (!isWrite && IsOverview(path))
             return [ApiKeyScopes.MonitorRead];
+        // Core serves no /api/analytics route. The rule stays for a module that mounts one, and so a
+        // stored monitor:read key keeps meaning the same thing.
         if (Match(path, "/api/analytics"))
             return isWrite ? null : [ApiKeyScopes.MonitorRead];
         var one = RequiredScope(path, isWrite);
@@ -144,8 +146,9 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
                && !segments[2].Equals("by-slug", StringComparison.OrdinalIgnoreCase);
     }
 
-    // POST /api/services/{name}/heartbeat and nothing else under /api/services: reading or editing the
-    // registry stays with people.
+    // POST /api/services/{name}/heartbeat and nothing else under /api/services. Core serves no such route
+    // itself; a module that does gets the services:heartbeat scope, and anything else under the prefix
+    // stays with people.
     private static bool IsServiceHeartbeat(string path, bool isWrite)
     {
         var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);

@@ -543,7 +543,7 @@ What your middleware can rely on there:
 What it cannot rely on:
 
 - **The endpoint's own checks have not happened.** The capability gate, the API key scope check,
-  the idempotency filter and the DeviceTrust module's device enforcement are global
+  the idempotency filter and a host's device check are global
   pre-processors. They run inside the endpoint, after you. A request that reaches your middleware can still be answered 403, so
   middleware that answers without calling `next` (a cache, say) has skipped all of them and owns
   them.
@@ -629,7 +629,7 @@ host passes the legacy one and logs a warning naming both keys, so upgrading doe
 un-configure a working deployment:
 
 ```csharp
-public string? LegacyConfigurationSection => "Umami";
+public string? LegacyConfigurationSection => "Sample";
 ```
 
 Remove it once deployments have moved. It will stop being read in a future major version.

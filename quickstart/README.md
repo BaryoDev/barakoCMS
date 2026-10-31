@@ -9,9 +9,8 @@ puts `ghcr.io/baryodev/barako-brew` in front of it.
 
 ## What you get
 
-- **CMS API** (`ghcr.io/baryodev/barako-cms`), core plus every free module: Analytics
-  (Umami), Email (SMTP), Feature flags, Diagnostics, Import, Files, Device trust, External auth,
-  Portability.
+- **CMS API** (`ghcr.io/baryodev/barako-cms`), core plus every free module: Email
+  (SMTP), Feature flags, Diagnostics, Import, Files, External auth, Portability.
 - **Postgres 16** with a persistent volume.
 - A **nightly backup** container running the same script the production stack uses. The folder
   carries its own copy in `scripts/backup-cron.sh`, so copy the whole folder, not just the compose
@@ -81,13 +80,8 @@ to the API and this is not one of them, so it goes under the `api` service's `en
 
 - **Email (SMTP)**: set `SMTP_HOST` (and `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`) to actually send mail
   (otherwise emails are logged by a mock).
-- **Analytics (Umami)**: point `UMAMI_BASEURL` at your Umami instance, set `UMAMI_ENABLED=true` and
-  a read account (`UMAMI_USERNAME` / `UMAMI_PASSWORD`). The analytics endpoints then answer with
-  visitors, top pages, referrers, devices and more, and can register new sites.
 - **Social sign-in (ExternalAuth)**: set `EXTERNALAUTH_ENABLED=true` and the client id/secret for
   each provider you want (Google, GitHub, Facebook, LinkedIn).
-- **Device trust**: `DEVICETRUST_ENFORCE=true` requires new devices to be approved via an emailed
-  code.
 
 ## Behind a domain (production)
 

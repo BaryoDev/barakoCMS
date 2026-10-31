@@ -726,8 +726,8 @@ as its owner, so it can never do more than the owner's own roles and capabilitie
 | `contenttype:write` | `POST`, `PUT`, `PATCH` and `DELETE` under `/api/content-types` and `/api/schemas` |
 | `files:read` | `GET` under `/api/files` (list, metadata, download, usage) |
 | `files:write` | `POST`, `PUT`, `PATCH` and `DELETE` under `/api/files` (upload, change, delete) |
-| `monitor:read` | `GET /api/contents/counts`, `GET /api/analytics/**`, `GET /api/monitoring/health` and `GET /api/overview`, nothing else. Counts also accept `content:read`. The health read gives a key name, status and duration per check, without description, data or tags; the owner still needs the `ViewMonitoring` capability |
-| `services:heartbeat` | `POST /api/services/{name}/heartbeat` only (a registered service reporting that it is alive) |
+| `monitor:read` | `GET /api/contents/counts`, `GET /api/monitoring/health` and `GET /api/overview`, nothing else. Counts also accept `content:read`. The health read gives a key name, status and duration per check, without description, data or tags; the owner still needs the `ViewMonitoring` capability |
+| `services:heartbeat` | `POST /api/services/{name}/heartbeat` only. Core does not serve this route; the scope is for a module that mounts it |
 | `*` | all of the above except `files:read`, `files:write`, `monitor:read` and `services:heartbeat` |
 
 `content:destructive` does not include `content:write`, and `content:write` does not include it. Before
@@ -736,8 +736,7 @@ as its owner, so it can never do more than the owner's own roles and capabilitie
 
 The files scopes, `monitor:read` and `services:heartbeat` are never implied by `*`, so a key made before
 they existed gains nothing. Name `files:read`, `files:write`, `monitor:read` or `services:heartbeat` on the key
-to allow it. A `monitor:read` key gets 403 on every other `/api/**` route, and on any write to the counts and
-analytics routes.
+to allow it. A `monitor:read` key gets 403 on every other `/api/**` route, and on any write to the counts route.
 
 A key can also name content types (`contentTypes` on `POST /api/api-keys`). That makes it a push key:
 it reaches `POST /api/collections/{type}/push` for the types it names and gets 403 everywhere else,
@@ -1076,26 +1075,17 @@ it on the routing table, which is where `GET /api/capabilities` and the role wri
 | Accounting | `view_ledger` | `GET /api/accounting/accounts`, `/balances`, `/accounts/{code}/ledger` |
 | Accounting | `post_journal_entries` | `POST /api/accounting/accounts`, `/journal-entries` |
 | AI | `manage_search_index` | `POST /api/ai/index/{type}` |
-| Analytics (Umami) | `view_analytics` | the five read endpoints under `/api/analytics` |
-| Analytics (Umami) | `manage_analytics_websites` | `POST /api/analytics/websites` |
-| Comments | `read_comments` | `GET /api/comments` |
-| Comments | `post_comments` | `POST /api/comments`, and `DELETE /api/comments/{id}` for the caller's own comments |
-| Comments | `manage_comments` | no route of its own: `DELETE /api/comments/{id}` for anyone's comment, including one whose record is gone |
 | Diagnostics | `manage_client_errors` | `GET /api/client-errors`, `POST /api/client-errors/{id}/resolve` |
 | Feature flags | `manage_feature_flags` | everything under `/api/feature-flags/admin` |
 | Files | `upload_files` | `POST /api/files`, `GET /api/files`, `GET /api/files/{id}/meta`, `PATCH /api/files/{id}`, `GET /api/files/{id}/usage`, `DELETE /api/files/{id}` |
 | Files | `manage_all_files` | no route of its own: `GET /api/files/{id}` and `DELETE /api/files/{id}` for a private file somebody else uploaded |
-| Forms | `manage_forms` | `GET /api/forms`, `PUT /api/forms/{contentType}` |
 | Import | `analyze_spreadsheets` | `POST /api/import/analyze` |
 | Portability | `export_content` | `GET /api/portability/export` |
 | Portability | `import_content` | `POST /api/portability/import` |
-| Notifications | `manage_notifications` | `POST /api/notifications`, `GET /api/notifications/admin` |
-| PWA | `view_pwa_installs` | `GET /api/pwa/installs` |
 
-Three of those are splits of a gate that used to be one role list. Accounting splits reading the
+Two of those are splits of a gate that used to be one role list. Accounting splits reading the
 books from writing to them, which is the separation every accounting system makes and which lets an
-auditor read a ledger without being able to post to it. Analytics splits reading the numbers from
-provisioning a website in somebody else's system using this deployment's credentials. Portability
+auditor read a ledger without being able to post to it. Portability
 splits export from import because the risks are opposite: export reads a whole tenant out in one
 request, import writes a whole tenant in.
 
@@ -1104,13 +1094,13 @@ so the tenant filter every other route gets from the session does not apply and 
 applies its own. The question each one asks is whether the caller holds the capability through a
 global role, which only a platform administrator grants, or only through a tenant membership.
 
-- Client errors, email events and PWA installs each belong to one tenant. Through a global role you
+- Client errors and email events each belong to one tenant. Through a global role you
   see every tenant's rows; through a membership you see the current tenant's. An email event
   belongs to the tenant that sent the email, recorded against the provider's id at send time; an event
   with no recorded sender is visible through a global role only. Only mail sent on a tenant's
   behalf through `IEmailService.SendForTenantAsync` (a workflow's email) is recorded; a user's own
   account mail, such as a sign-in code or a lockout notice, belongs to no tenant.
-- Settings, feature flags and the Umami analytics routes configure or read something shared by
+- Settings and feature flags configure or read something shared by
   every tenant, so they answer 403 to a caller holding the capability through a membership only.
 
 A global role rather than SuperAdmin alone, because a single-tenant deployment's Admin holds its

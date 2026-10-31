@@ -71,7 +71,7 @@ public class ModuleConfigurationScopeTests
     [Fact]
     public void A_dot_in_a_module_name_still_resolves_to_its_own_section()
     {
-        // Real names include Analytics.Umami and Files.S3. A dot is part of the key, not a separator.
+        // Real names include Files.S3 and Email.Smtp. A dot is part of the key, not a separator.
         var root = Root(("Modules:Analytics.Umami:ApiKey", "k"));
         var seen = Host.ModuleConfiguration(root, new Probe("Analytics.Umami"));
         seen["ApiKey"].Should().Be("k");

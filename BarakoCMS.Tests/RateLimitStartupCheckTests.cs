@@ -10,7 +10,6 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
 using Npgsql;
 using Xunit;
 
@@ -84,6 +83,66 @@ public class RateLimitStartupCheckTests
             .WithMessage("*'delivery'*reserved*Rename*");
     }
 
+    [Fact]
+    public async Task A_registered_module_whose_route_names_its_own_policy_passes()
+    {
+        var app = await BuildAsync(module: new ProbeLimitedModule(registerPolicy: true));
+        app.MapGet(ProbeRoute, () => "ok").RequireRateLimiting(ProbeLimitedModule.Policy);
+
+        Action use = () => app.UseBarakoCMS();
+
+        use.Should().NotThrow("the module registers the policy its route names");
+    }
+
+    [Fact]
+    public async Task A_registered_module_whose_route_names_a_missing_policy_stops_the_host()
+    {
+        var app = await BuildAsync(module: new ProbeLimitedModule(registerPolicy: false));
+        app.MapGet(ProbeRoute, () => "ok").RequireRateLimiting(ProbeLimitedModule.Policy);
+
+        Action use = () => app.UseBarakoCMS();
+
+        use.Should().Throw<InvalidOperationException>("a module's routes are checked like core's")
+            .WithMessage($"*{ProbeRoute}' names '{ProbeLimitedModule.Policy}'*");
+    }
+
+    [Fact]
+    public async Task A_configured_policy_with_the_name_of_a_module_policy_stops_the_host_naming_the_setting()
+    {
+        var app = await BuildAsync(
+            module: new ProbeLimitedModule(registerPolicy: true),
+            setting: ($"RateLimiting:Policies:{ProbeLimitedModule.Policy}:PermitLimit", "5"));
+
+        Action use = () => app.UseBarakoCMS();
+
+        use.Should().Throw<InvalidOperationException>()
+            .WithMessage($"*RateLimiting:Policies:{ProbeLimitedModule.Policy}*");
+    }
+
+    private const string ProbeRoute = "/probe/submit";
+
+    /// <summary>
+    /// A module that registers one rate limit policy, or none, with no endpoints of its own: the
+    /// test maps the route that names the policy.
+    /// </summary>
+    private sealed class ProbeLimitedModule(bool registerPolicy) : IBarakoModule
+    {
+        public const string Policy = "probe-submit";
+
+        public string Name => "RateLimitProbe";
+
+        public IEnumerable<Assembly> EndpointAssemblies => [];
+
+        public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
+        {
+            if (registerPolicy)
+            {
+                services.Configure<RateLimiterOptions>(options =>
+                    options.AddPolicy(Policy, _ => RateLimitPartition.GetNoLimiter("probe")));
+            }
+        }
+    }
+
     private async Task<WebApplication> BuildAsync(
         IBarakoModule? module = null,
         Action<IServiceCollection>? own = null,
@@ -117,13 +176,10 @@ public class RateLimitStartupCheckTests
         if (!beforeCore)
             own?.Invoke(builder.Services);
 
-        var endpoints = new List<Assembly> { typeof(barakoCMS.Data.DataSeeder).Assembly };
-        if (module is not null)
-            endpoints.Add(module.GetType().Assembly);
         builder.Services.AddFastEndpoints(o =>
         {
             o.DisableAutoDiscovery = true;
-            o.Assemblies = endpoints.ToArray();
+            o.Assemblies = [typeof(barakoCMS.Data.DataSeeder).Assembly];
         });
 
         return builder.Build();

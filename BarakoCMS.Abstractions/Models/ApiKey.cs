@@ -75,7 +75,7 @@ public static class ApiKeyScopes
     public const string FilesWrite = "files:write";
 
     /// <summary>
-    /// Read-only monitoring: <c>GET /api/contents/counts</c>, <c>GET /api/analytics/**</c>, <c>GET /api/monitoring/health</c> and <c>GET /api/overview</c>, nothing else.
+    /// Read-only monitoring: <c>GET /api/contents/counts</c>, <c>GET /api/monitoring/health</c> and <c>GET /api/overview</c>, nothing else.
     /// Not implied by <see cref="All"/>, so keys made before it existed gain nothing.
     /// </summary>
     public const string MonitorRead = "monitor:read";
@@ -90,7 +90,8 @@ public static class ApiKeyScopes
 
     /// <summary>
     /// <c>POST /api/services/{name}/heartbeat</c>, the one route outside the content surface a key
-    /// reaches, so a registered service can report with its own key. Not implied by <see cref="All"/>.
+    /// reaches. Core does not serve this route itself; the scope is for a module that mounts it, so a
+    /// registered service can report with its own key. Not implied by <see cref="All"/>.
     /// </summary>
     public const string ServicesHeartbeat = "services:heartbeat";
 
