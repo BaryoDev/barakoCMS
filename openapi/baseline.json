@@ -15045,12 +15045,12 @@
         ],
         "requestBody": {
           "content": {
-            "application/x-www-form-urlencoded": {
+            "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/BarakoCMSExternalAuthFacebookDeletionChoiceRequest"
               }
             },
-            "application/json": {
+            "application/x-www-form-urlencoded": {
               "schema": {
                 "$ref": "#/components/schemas/BarakoCMSExternalAuthFacebookDeletionChoiceRequest"
               }
@@ -15071,16 +15071,6 @@
               }
             },
             "description": "Success"
-          },
-          "400": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
-                }
-              }
-            },
-            "description": "Bad Request"
           }
         },
         "summary": "POST /api/auth/facebook/data-deletion/status/{code}. The person's choice about an account whose\nonly login was Facebook: delete_account or keep_account, as JSON or a form field.\nThe code is the capability. A choice after the request settled changes nothing and answers with\nthe status it settled on, so of two racing choices the first save wins and the other reports it.",
