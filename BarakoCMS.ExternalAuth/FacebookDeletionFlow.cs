@@ -259,28 +259,7 @@ internal static class FacebookDeletionFlow
         string? lastId = null;
         while (true)
         {
-            // Keyset paging on (ExpiresAt, Id): a request that fails stays awaiting, and the next
-            // page starts after it, so rows that always fail cannot fill every page and every due
-            // request gets a try in each run.
-            List<(string Id, DateTime? ExpiresAt)> due;
-            await using (var query = store.QuerySession())
-            {
-                var source = query.Query<FacebookDeletionRequest>()
-                    .Where(r => r.Status == FacebookDeletionStatus.AwaitingChoice && r.ExpiresAt <= now);
-                if (lastId is not null)
-                {
-                    var after = lastExpiry;
-                    var afterId = lastId;
-                    source = source.Where(r => r.ExpiresAt > after || (r.ExpiresAt == after && r.Id.CompareTo(afterId) > 0));
-                }
-
-                due = (await source
-                    .OrderBy(r => r.ExpiresAt).ThenBy(r => r.Id)
-                    .Select(r => new { r.Id, r.ExpiresAt })
-                    .Take(SweepPageSize)
-                    .ToListAsync(ct)).Select(r => (r.Id, r.ExpiresAt)).ToList();
-            }
-
+            var due = await DuePageAsync(store, now, lastExpiry, lastId, ct);
             foreach (var (id, _) in due)
             {
                 await using var scope = services.CreateAsyncScope();
@@ -321,6 +300,29 @@ internal static class FacebookDeletionFlow
 
         await PurgeSettledAsync(store, now, ct);
         return settled;
+    }
+
+    /// <summary>
+    /// Keyset paging on (ExpiresAt, Id): a request that fails stays awaiting, and the next page
+    /// starts after it, so rows that always fail cannot fill every page and every due request gets
+    /// a try in each run.
+    /// </summary>
+    private static async Task<List<(string Id, DateTime? ExpiresAt)>> DuePageAsync(
+        IDocumentStore store, DateTime now, DateTime? lastExpiry, string? lastId, CancellationToken ct)
+    {
+        await using var query = store.QuerySession();
+        var source = query.Query<FacebookDeletionRequest>()
+            .Where(r => r.Status == FacebookDeletionStatus.AwaitingChoice && r.ExpiresAt <= now);
+        if (lastId is not null)
+        {
+            source = source.Where(r => r.ExpiresAt > lastExpiry || (r.ExpiresAt == lastExpiry && r.Id.CompareTo(lastId) > 0));
+        }
+
+        return (await source
+            .OrderBy(r => r.ExpiresAt).ThenBy(r => r.Id)
+            .Select(r => new { r.Id, r.ExpiresAt })
+            .Take(SweepPageSize)
+            .ToListAsync(ct)).Select(r => (r.Id, r.ExpiresAt)).ToList();
     }
 
     /// <summary>How long a settled request is kept so its status page still answers.</summary>
