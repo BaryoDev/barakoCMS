@@ -167,6 +167,9 @@ issued stop working through the session epoch and the unique username and email 
   plain id references in other modules (`CreatedBy` on content, stations, share links, files,
   accounting entries, diagnostics client errors).
 - Added: one `user.erased` audit entry with the user id and a reason, and no Facebook user id.
+- When a request removes a Facebook link, a `user.external_identity.removed` audit entry is written
+  with no actor and the provider and reason `facebook_data_deletion` as metadata, and no Facebook
+  user id.
 
 A deletion request also clears what Facebook put in the social profile (name, photo, birthday,
 location), whatever happens to the account: with another login, or while the person is still

@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Models;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
@@ -113,6 +114,13 @@ internal static class FacebookDeletionFlow
         }
 
         session.Delete(link);
+
+        // The same entry a person removing their own link leaves, with no actor: Facebook asked.
+        // The provider and the reason only, never the Facebook id.
+        await AuditLog.RecordAsync(session, Tenant.DefaultSlug, "user.external_identity.removed",
+            actorUserId: null, actorUsername: null, targetType: "User", targetId: link.UserId.ToString(),
+            metadata: new Dictionary<string, object> { ["provider"] = link.Provider, ["reason"] = "facebook_data_deletion" },
+            ct: ct);
 
         var user = await session.LoadAsync<User>(link.UserId, ct);
         if (user is not null && !await HasOtherLoginAsync(session, user, linkId, ct))

@@ -252,6 +252,24 @@ public class FacebookAccountDeletionTests
         written.Should().NotContain(code);
     }
 
+    [Fact]
+    public async Task A_deletion_request_that_removes_the_link_writes_an_audit_entry_without_the_facebook_id()
+    {
+        var user = await NewUserAsync(passwordHash: "hash-of-a-password");
+        var facebook = await LinkAsync(ExternalProviders.Facebook, user.Id);
+
+        var (code, _) = await RequestDeletionAsync(facebook);
+
+        var audit = await InSessionAsync(s => s.Query<AuditEvent>()
+            .Where(a => a.Action == "user.external_identity.removed" && a.TargetId == user.Id.ToString()).ToListAsync(Ct));
+        audit.Should().ContainSingle();
+        audit[0].ActorUserId.Should().BeNull();
+        var written = JsonSerializer.Serialize(audit);
+        written.Should().Contain("facebook_data_deletion").And.Contain(ExternalProviders.Facebook);
+        written.Should().NotContain(facebook, "the entry carries no Facebook user id");
+        written.Should().NotContain(code);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]
