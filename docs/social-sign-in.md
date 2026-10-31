@@ -125,6 +125,11 @@ would leave almost no account as "Facebook only".
   `Facebook:DeletionChoiceDays`, default `30`.
 - The login state is checked again at choice time and sweep time. If the account gained a password
   or another identity, or linked Facebook again, nothing is erased and the status is `kept`.
+- A successful sign-in through any provider while the request awaits a choice settles it as `kept`,
+  in the same commit as the sign-in. This covers a returning person whose sign-in stores no link
+  (`Facebook:TrustUnverifiedEmail` matches them by address), and a person who has reached the
+  second factor step. A sign-in that is refused does not count. If a choice or the sweep settles the
+  request at the same moment, one of the two wins and the sign-in itself is not affected.
 - A choice after the request settled changes nothing and returns the settled status. Two choices at
   once settle once (optimistic concurrency on the request), and both callers see the winner.
   The sweep is safe to run twice or on two nodes for the same reason.

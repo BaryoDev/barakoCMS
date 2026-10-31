@@ -128,6 +128,35 @@ internal static class FacebookDeletionFlow
     }
 
     /// <summary>
+    /// Queues, on the sign-in's own session, the settling as kept of any request still awaiting a
+    /// choice for this user. A person who signs in during the window has answered it: they are
+    /// here. Every provider's sign-in goes through the shared path that calls this, so it does not
+    /// depend on a link row being stored (an address the operator trusts signs in without one).
+    /// </summary>
+    /// <remarks>
+    /// A statement and not a stored document, for the request's optimistic concurrency. It runs in
+    /// the sign-in's commit, touches only a row still awaiting a choice, and changes the row's
+    /// version. A settle that raced it and lost fails as a whole on its stale version and reads the
+    /// winner, which is how a racing settle is meant to end. A settle that won leaves this
+    /// matching no row, so the sign-in is never what fails.
+    /// </remarks>
+    public static void StageKeepOnSignIn(IDocumentSession session, Guid userId)
+    {
+        var table = $"{session.DocumentStore.Options.DatabaseSchemaName}.mt_doc_facebook_deletion_requests";
+        session.QueueSqlCommand(
+            $"""
+            update {table}
+            set data = (data - 'UserId' - 'ExpiresAt') || jsonb_build_object(
+                    'Status', '{FacebookDeletionStatus.Kept}',
+                    'SettledAt', to_char(clock_timestamp() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')),
+                mt_version = md5(random()::text || clock_timestamp()::text)::uuid,
+                mt_last_modified = transaction_timestamp()
+            where data ->> 'UserId' = ? and data ->> 'Status' = '{FacebookDeletionStatus.AwaitingChoice}'
+            """,
+            userId.ToString());
+    }
+
+    /// <summary>
     /// Settles every request whose window has passed, as an unanswered choice to erase. Safe to run
     /// twice or on two nodes at once: a request settles once, and a node that loses the race for one
     /// skips it. Returns how many this call settled.

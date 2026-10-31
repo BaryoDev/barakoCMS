@@ -507,4 +507,74 @@ public class SocialHandoffTests
 
         (await session.Query<SocialHandoffCode>().CountAsync(Ct)).Should().Be(before, "a start only sets a cookie");
     }
+
+    // ---- a sign-in during a deletion window ----
+
+    private const string FacebookSecret = "fb-secret";
+
+    private async Task<string> RequestFacebookDeletionAsync(string facebookId)
+    {
+        var response = await Client(_default!).PostAsync("/api/auth/facebook/data-deletion", new FormUrlEncodedContent(
+            [new KeyValuePair<string, string>("signed_request", SignedRequests.For(facebookId, secret: FacebookSecret))]), Ct);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        return (await response.Content.ReadFromJsonAsyncElement()).GetProperty("confirmation_code").GetString()!;
+    }
+
+    private async Task<FacebookDeletionRequest> DeletionRequestAsync(string code)
+    {
+        using var scope = _fixture.Services.CreateScope();
+        return (await scope.ServiceProvider.GetRequiredService<IQuerySession>()
+            .LoadAsync<FacebookDeletionRequest>(FacebookDeletionFlow.HashOf(code), Ct))!;
+    }
+
+    [Fact]
+    public async Task A_facebook_sign_in_in_the_window_keeps_the_account_even_though_no_link_is_stored()
+    {
+        // Facebook:TrustUnverifiedEmail is on for this host, so the returning person matches by
+        // address and no link row is written. The sweep would otherwise find no other login.
+        var facebookId = Unique("fb");
+        var user = new User { Id = Guid.NewGuid(), Email = $"{Unique("w")}@example.com", Username = Unique("w"), PasswordHash = "" };
+        await StoreAsync(user, new ExternalIdentity
+        {
+            Id = ExternalIdentity.KeyOf(ExternalProviders.Facebook, facebookId), Issuer = ExternalProviders.Facebook,
+            Subject = facebookId, UserId = user.Id, Provider = ExternalProviders.Facebook,
+        });
+        var code = await RequestFacebookDeletionAsync(facebookId);
+        (await DeletionRequestAsync(code)).Status.Should().Be(FacebookDeletionStatus.AwaitingChoice);
+
+        // The window runs out just before the person signs in, so only the sign-in saves them.
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var row = await session.LoadAsync<FacebookDeletionRequest>(FacebookDeletionFlow.HashOf(code), Ct);
+            row!.ExpiresAt = DateTime.UtcNow.AddMinutes(-1);
+            session.Store(row);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        _oauth!.FacebookId = facebookId;
+        _oauth.FacebookEmail = user.Email;
+        var response = await CallbackAsync(_default!, "facebook", device: null);
+
+        response.Headers.Location!.ToString().Should().StartWith($"{BaseUrl}/auth/social#token=");
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            (await scope.ServiceProvider.GetRequiredService<IQuerySession>()
+                .LoadAsync<ExternalIdentity>(ExternalIdentity.KeyOf(ExternalProviders.Facebook, facebookId), Ct))
+                .Should().BeNull("this is the case where the sign-in stores no link");
+        }
+
+        var settled = await DeletionRequestAsync(code);
+        settled.Status.Should().Be(FacebookDeletionStatus.Kept);
+        settled.UserId.Should().BeNull();
+        settled.ExpiresAt.Should().BeNull();
+        settled.SettledAt.Should().NotBeNull();
+
+        await FacebookDeletionFlow.SweepAsync(_fixture.Services, DateTime.UtcNow, Ct);
+
+        using var check = _fixture.Services.CreateScope();
+        var kept = await check.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<User>(user.Id, Ct);
+        kept!.Username.Should().Be(user.Username, "the account is still there");
+        (await DeletionRequestAsync(code)).Status.Should().Be(FacebookDeletionStatus.Kept);
+    }
 }

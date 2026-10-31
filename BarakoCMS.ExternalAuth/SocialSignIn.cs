@@ -234,6 +234,7 @@ public static class SocialSignIn
         // provider account takeover would sidestep the second factor.
         if (await mfa.IsEnabledAsync(user.Id, ct))
         {
+            FacebookDeletionFlow.StageKeepOnSignIn(session, user.Id);
             beforeFinalCommit?.Invoke(session);
             await session.SaveChangesAsync(ct); // persist the user/profile created above
             var challenge = await MfaChallengeAsync(session, config, user, tenantSlug, mapped, ct);
@@ -265,6 +266,7 @@ public static class SocialSignIn
         var jwt = issued.Token;
 
         var refresh = StageRefreshToken(session, user, issued.RefreshLifetime, device.DeviceId);
+        FacebookDeletionFlow.StageKeepOnSignIn(session, user.Id);
         beforeFinalCommit?.Invoke(session);
         await session.SaveChangesAsync(ct);
 
@@ -341,6 +343,7 @@ public static class SocialSignIn
             }
 
             var refresh = StageRefreshToken(writes, user, issued.RefreshLifetime, device.DeviceId);
+            FacebookDeletionFlow.StageKeepOnSignIn(writes, user.Id);
             beforeFinalCommit?.Invoke(writes);
             return new barakoCMS.Infrastructure.Services.ContentBatchOutcome<Tokens?>(
                 new Tokens(issued.Token, refresh), Commit: true);
