@@ -186,6 +186,34 @@ public class FacebookAccountDeletionTests
     }
 
     [Fact]
+    public async Task A_request_for_one_facebook_link_leaves_the_profile_the_users_other_link_wrote()
+    {
+        var user = await NewUserAsync();
+        var a = await LinkAsync(ExternalProviders.Facebook, user.Id);
+        var b = await LinkAsync(ExternalProviders.Facebook, user.Id);
+        var keyB = ExternalIdentity.KeyOf(ExternalProviders.Facebook, b);
+        await InSessionAsync(async s =>
+        {
+            s.Store(new SocialProfile
+            {
+                Id = Guid.NewGuid(), UserId = user.Id, Name = "Person", Birthday = "01/02/1990", Source = ExternalProviders.Facebook,
+                FacebookFields = [nameof(SocialProfile.Name), nameof(SocialProfile.Birthday)], FacebookKey = keyB,
+            });
+            return 0;
+        });
+
+        var (code, _) = await RequestDeletionAsync(a);
+
+        (await StatusOfAsync(code)).Should().Be("completed", "the user still has the other link");
+        var profile = await ProfileOfAsync(user.Id);
+        profile.Should().NotBeNull();
+        profile!.Birthday.Should().Be("01/02/1990");
+        profile.Name.Should().Be("Person");
+        profile.FacebookKey.Should().Be(keyB);
+        (await LinkExistsAsync(ExternalProviders.Facebook, b)).Should().BeTrue();
+    }
+
+    [Fact]
     public async Task With_facebook_as_the_only_login_the_link_goes_at_once_and_the_request_awaits_a_choice()
     {
         var user = await NewUserAsync();
