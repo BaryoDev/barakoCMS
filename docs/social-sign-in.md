@@ -100,7 +100,9 @@ route:
 
 - checks the HMAC-SHA256 signature with `Facebook:AppSecret` (constant-time compare), and answers
   `400` for a missing, oversized (over 4096 characters), badly encoded, wrongly signed or
-  other-algorithm request, removing nothing,
+  other-algorithm request, removing nothing. A request whose `issued_at` is older than 24 hours,
+  more than 5 minutes ahead of the server clock, or not a number gets the same `400`, so a
+  captured body cannot be replayed later. A payload with no `issued_at` is still accepted,
 - removes that person's Facebook link (`oauth:facebook` and their Facebook id) at once,
 - answers `200` with `{ "url": "{App:BaseUrl}/api/auth/facebook/data-deletion/status/{code}", "confirmation_code": "{code}" }`.
 

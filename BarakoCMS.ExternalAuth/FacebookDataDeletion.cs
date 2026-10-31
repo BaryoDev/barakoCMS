@@ -53,11 +53,19 @@ internal static class FacebookSignedRequest
     public const int MaxLength = 4096;
     private const int MaxUserIdLength = 128;
 
+    /// <summary>How old a request may be. A captured body replayed later is refused.</summary>
+    internal static readonly TimeSpan MaxAge = TimeSpan.FromHours(24);
+
+    /// <summary>How far ahead of this server's clock <c>issued_at</c> may be, for clock skew.</summary>
+    internal static readonly TimeSpan MaxSkew = TimeSpan.FromMinutes(5);
+
     /// <summary>
     /// The Facebook user id in a request signed with <paramref name="secret"/>, or null when the
-    /// request is empty, oversized, malformed, not HMAC-SHA256, or not signed with the secret.
+    /// request is empty, oversized, malformed, not HMAC-SHA256, not signed with the secret, or
+    /// carries an <c>issued_at</c> that is not a number, is older than <see cref="MaxAge"/> or is
+    /// more than <see cref="MaxSkew"/> ahead of <paramref name="now"/> (the clock, for tests).
     /// </summary>
-    public static string? UserIdOf(string? signedRequest, string? secret)
+    public static string? UserIdOf(string? signedRequest, string? secret, DateTimeOffset? now = null)
     {
         if (string.IsNullOrEmpty(signedRequest) || signedRequest.Length > MaxLength || string.IsNullOrEmpty(secret))
         {
@@ -87,6 +95,22 @@ internal static class FacebookSignedRequest
                 || !root.TryGetProperty("user_id", out var user) || user.ValueKind != JsonValueKind.String)
             {
                 return null;
+            }
+
+            // A body Facebook signed once stays validly signed forever, so a captured one could be
+            // replayed after the person links Facebook again. Facebook puts issued_at (seconds
+            // since the epoch) in every callback, so an old or future one is refused, the same
+            // way a bad signature is. A payload without it is still accepted: only Facebook can
+            // sign one, and refusing it would risk real callbacks if a request ever omits it.
+            if (root.TryGetProperty("issued_at", out var issued))
+            {
+                var seconds = (now ?? DateTimeOffset.UtcNow).ToUnixTimeSeconds();
+                if (issued.ValueKind != JsonValueKind.Number || !issued.TryGetInt64(out var issuedAt)
+                    || issuedAt < seconds - (long)MaxAge.TotalSeconds
+                    || issuedAt > seconds + (long)MaxSkew.TotalSeconds)
+                {
+                    return null;
+                }
             }
 
             var id = user.GetString();

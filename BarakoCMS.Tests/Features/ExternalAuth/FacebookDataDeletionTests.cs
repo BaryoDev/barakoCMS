@@ -28,8 +28,8 @@ internal static class SignedRequests
         return $"{Encode(signature)}.{payload}";
     }
 
-    public static string For(string userId, string algorithm = "HMAC-SHA256", string secret = Secret) =>
-        Sign($$"""{"algorithm":"{{algorithm}}","user_id":"{{userId}}","issued_at":1700000000}""", secret);
+    public static string For(string userId, string algorithm = "HMAC-SHA256", string secret = Secret, long? issuedAt = null) =>
+        Sign($$"""{"algorithm":"{{algorithm}}","user_id":"{{userId}}","issued_at":{{issuedAt ?? DateTimeOffset.UtcNow.ToUnixTimeSeconds()}}}""", secret);
 }
 
 /// <summary>The signed_request check on its own: every way a request can be wrong, and one that is right.</summary>
@@ -92,6 +92,60 @@ public class FacebookSignedRequestTests
 
         big.Length.Should().BeGreaterThan(FacebookSignedRequest.MaxLength);
         FacebookSignedRequest.UserIdOf(big, SignedRequests.Secret).Should().BeNull();
+    }
+
+    private static long Seconds(TimeSpan fromNow) => DateTimeOffset.UtcNow.Add(fromNow).ToUnixTimeSeconds();
+
+    [Theory]
+    [InlineData(-25 * 3600)]
+    [InlineData(-30 * 86400)]
+    public void A_request_issued_more_than_a_day_ago_yields_nothing(int offsetSeconds)
+    {
+        var old = SignedRequests.For("1234567", issuedAt: Seconds(TimeSpan.FromSeconds(offsetSeconds)));
+
+        FacebookSignedRequest.UserIdOf(old, SignedRequests.Secret).Should().BeNull();
+        FacebookSignedRequest.UserIdOf(SignedRequests.For("1234567", issuedAt: Seconds(TimeSpan.FromHours(-23))), SignedRequests.Secret)
+            .Should().Be("1234567", "a request inside the day is fine");
+    }
+
+    [Fact]
+    public void A_request_issued_more_than_five_minutes_ahead_yields_nothing_and_a_little_skew_is_fine()
+    {
+        FacebookSignedRequest.UserIdOf(SignedRequests.For("1234567", issuedAt: Seconds(TimeSpan.FromMinutes(10))), SignedRequests.Secret)
+            .Should().BeNull();
+        FacebookSignedRequest.UserIdOf(SignedRequests.For("1234567", issuedAt: Seconds(TimeSpan.FromMinutes(2))), SignedRequests.Secret)
+            .Should().Be("1234567");
+    }
+
+    [Fact]
+    public void The_check_uses_the_clock_it_is_given()
+    {
+        var issued = DateTimeOffset.UtcNow.AddDays(-3);
+        var request = SignedRequests.For("1234567", issuedAt: issued.ToUnixTimeSeconds());
+
+        FacebookSignedRequest.UserIdOf(request, SignedRequests.Secret).Should().BeNull();
+        FacebookSignedRequest.UserIdOf(request, SignedRequests.Secret, issued.AddHours(1)).Should().Be("1234567");
+    }
+
+    [Fact]
+    public void A_signed_request_without_issued_at_is_still_accepted()
+    {
+        FacebookSignedRequest.UserIdOf(
+            SignedRequests.Sign("""{"algorithm":"HMAC-SHA256","user_id":"1234567"}"""), SignedRequests.Secret).Should().Be("1234567");
+    }
+
+    [Theory]
+    [InlineData("\"soon\"")]
+    [InlineData("\"1700000000\"")]
+    [InlineData("null")]
+    [InlineData("true")]
+    [InlineData("1.5e300")]
+    [InlineData("{}")]
+    public void A_signed_request_with_an_issued_at_that_is_not_a_number_yields_nothing(string issuedAt)
+    {
+        var request = SignedRequests.Sign($$"""{"algorithm":"HMAC-SHA256","user_id":"1234567","issued_at":{{issuedAt}}}""");
+
+        FacebookSignedRequest.UserIdOf(request, SignedRequests.Secret).Should().BeNull();
     }
 
     [Fact]
@@ -209,6 +263,20 @@ public class FacebookDataDeletionTests
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await ExistsAsync(link)).Should().BeTrue("a request that does not verify removes nothing");
         (await PostAsync(SignedRequests.For(mine))).StatusCode.Should().Be(HttpStatusCode.OK, "the same user with a good request is removed");
+        (await ExistsAsync(link)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_correctly_signed_request_that_is_two_days_old_answers_400_and_removes_nothing()
+    {
+        var mine = NewFacebookId();
+        var link = await LinkAsync(ExternalProviders.Facebook, mine, Guid.NewGuid());
+
+        var replay = await PostAsync(SignedRequests.For(mine, issuedAt: DateTimeOffset.UtcNow.AddDays(-2).ToUnixTimeSeconds()));
+
+        replay.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await ExistsAsync(link)).Should().BeTrue();
+        (await PostAsync(SignedRequests.For(mine))).StatusCode.Should().Be(HttpStatusCode.OK);
         (await ExistsAsync(link)).Should().BeFalse();
     }
 
