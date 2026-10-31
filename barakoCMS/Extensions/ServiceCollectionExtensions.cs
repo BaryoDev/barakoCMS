@@ -1452,6 +1452,10 @@ public static class ServiceCollectionExtensions
         // would rebuild the cache lookup per request for no benefit.
         services.AddSingleton<barakoCMS.Infrastructure.Multitenancy.ITenantDomainSource,
                               barakoCMS.Infrastructure.Multitenancy.TenantDomainSource>();
+        // The real DNS check, replaceable: a test or a host that resolves some other way registers
+        // its own before this runs.
+        services.TryAddSingleton<barakoCMS.Infrastructure.Multitenancy.IDomainDnsChecker>(
+            _ => new barakoCMS.Infrastructure.Multitenancy.DnsClientDomainChecker());
         services.Configure<barakoCMS.Infrastructure.Multitenancy.MultitenancyOptions>(
             configuration.GetSection(barakoCMS.Infrastructure.Multitenancy.MultitenancyOptions.SectionName));
 

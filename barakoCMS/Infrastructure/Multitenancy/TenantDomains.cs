@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Text.RegularExpressions;
 
@@ -21,8 +22,41 @@ public static class TenantDomains
 
     private static readonly Regex Label = new("^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$", RegexOptions.Compiled);
 
+    /// <summary>The setting that names the host a tenant's domain points its CNAME at.</summary>
+    public const string DeploymentHostKey = "Tenancy:DeploymentHost";
+
+    private static readonly IdnMapping Idn = new() { AllowUnassigned = false, UseStd3AsciiRules = true };
+
+    /// <summary>
+    /// The deployment's own host: <c>Tenancy:DeploymentHost</c>, else the host of <c>App:BaseUrl</c>.
+    /// Null when neither is set. A tenant's domain is a CNAME to this host, and it cannot also be
+    /// this host or a name under it.
+    /// </summary>
+    public static string? DeploymentHost(IConfiguration configuration)
+    {
+        var named = TenantDomainMap.Normalise(configuration[DeploymentHostKey]);
+        if (named is not null)
+            return named;
+
+        var baseUrl = configuration[CanonicalHostKey]?.Trim();
+        return Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri) ? TenantDomainMap.Normalise(uri.Host) : null;
+    }
+
+    private const string CanonicalHostKey = "App:BaseUrl";
+
     /// <summary>Normalises each requested domain, dropping duplicates, and reports every value that is not a domain.</summary>
-    public static IReadOnlyList<string> Normalise(IEnumerable<string?> requested, out IReadOnlyList<string> errors)
+    public static IReadOnlyList<string> Normalise(IEnumerable<string?> requested, out IReadOnlyList<string> errors) =>
+        Normalise(requested, null, out errors);
+
+    /// <summary>
+    /// As <see cref="Normalise(IEnumerable{string?}, out IReadOnlyList{string})"/>, and refuses the
+    /// deployment's own host and any name under it, since a tenant claiming one would be claiming
+    /// the platform. A name with non-ASCII letters is stored in its ASCII (punycode) form, the form
+    /// a browser sends as the host. A leading <c>www.</c> is dropped, so <c>www.x.com</c> and
+    /// <c>x.com</c> are one domain.
+    /// </summary>
+    public static IReadOnlyList<string> Normalise(
+        IEnumerable<string?> requested, string? deploymentHost, out IReadOnlyList<string> errors)
     {
         var problems = new List<string>();
         var result = new List<string>();
@@ -43,6 +77,9 @@ public static class TenantDomains
             }
 
             var host = TenantDomainMap.Normalise(typed);
+            if (host is not null && host.Any(c => c > 127))
+                host = ToAscii(host);
+
             if (host is null
                 || host.Length > 253
                 || IPAddress.TryParse(host, out _)
@@ -50,6 +87,12 @@ public static class TenantDomains
                 || !host.Split('.').All(label => Label.IsMatch(label)))
             {
                 problems.Add($"'{typed}' is not a valid domain name.");
+                continue;
+            }
+
+            if (deploymentHost is not null && (host == deploymentHost || host.EndsWith("." + deploymentHost, StringComparison.Ordinal)))
+            {
+                problems.Add($"'{typed}' is this deployment's own host, or a name under it, and cannot be claimed by a tenant.");
                 continue;
             }
 
@@ -62,5 +105,17 @@ public static class TenantDomains
 
         errors = problems;
         return result;
+    }
+
+    private static string? ToAscii(string host)
+    {
+        try
+        {
+            return Idn.GetAscii(host);
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
     }
 }

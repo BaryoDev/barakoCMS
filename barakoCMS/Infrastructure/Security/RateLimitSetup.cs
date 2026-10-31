@@ -102,6 +102,7 @@ internal static class RateLimitSetup
     public const string DeliveryPolicy = "delivery";
     public const string TlsAskPolicy = "tls-ask";
     public const string EmailPreviewPolicy = "email-preview";
+    public const string DomainVerifyPolicy = "domain-verify";
     public const string LookupPolicy = "public-lookup";
 
     public const int MaxPolicyNameLength = 64;
@@ -128,6 +129,7 @@ internal static class RateLimitSetup
         [LogoutPolicy] = null,
         [TlsAskPolicy] = null,
         [EmailPreviewPolicy] = null,
+        [DomainVerifyPolicy] = null,
     };
 
     private static readonly RateLimitWindow OptInDefaults = new(0, 60, 0);
@@ -171,6 +173,12 @@ internal static class RateLimitSetup
     /// authenticated, so the user is the caller, and one office behind one address is not one bucket.
     /// </summary>
     public static readonly RateLimitWindow EmailPreview = new(30, 60, 0);
+
+    /// <summary>
+    /// Fixed, per client address. Each run of the domain check is two DNS lookups made on the caller's
+    /// behalf, so a loop on the route is a loop of outbound queries.
+    /// </summary>
+    public static readonly RateLimitWindow DomainVerify = new(10, 60, 0);
 
     /// <summary>How many buckets the asked names are spread over, which bounds the limiter's partitions.</summary>
     public const int TlsAskBuckets = 4096;
@@ -254,6 +262,9 @@ internal static class RateLimitSetup
         options.AddPolicy(EmailPreviewPolicy, _ => RateLimitPartition.GetNoLimiter(NotCountedHere));
 
         options.AddPolicy(DeliveryPolicy, context => DeliveryPartition(context, settings.Delivery, rendererKeyHash));
+
+        options.AddPolicy(DomainVerifyPolicy, context =>
+            RateLimitPartition.GetFixedWindowLimiter($"domain-verify|{ClientIp(context)}", _ => Options(DomainVerify)));
 
         options.AddPolicy(TlsAskPolicy, context =>
             RateLimitPartition.GetFixedWindowLimiter(TlsAskPartitionKey(context), _ => Options(TlsAsk)));

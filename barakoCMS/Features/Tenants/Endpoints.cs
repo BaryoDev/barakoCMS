@@ -312,11 +312,13 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
 {
     private readonly IDocumentSession _session;
     private readonly ITenantDomainSource _domains;
+    private readonly IConfiguration _configuration;
 
-    public CreateTenantEndpoint(IDocumentSession session, ITenantDomainSource domains)
+    public CreateTenantEndpoint(IDocumentSession session, ITenantDomainSource domains, IConfiguration configuration)
     {
         _session = session;
         _domains = domains;
+        _configuration = configuration;
     }
 
     public override void Configure()
@@ -344,7 +346,7 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         var handle = req.Handle?.Trim().ToLowerInvariant() ?? string.Empty;
         if (!TenantHandles.IsValidHandle(handle))
         { AddError(r => r.Handle, "Invalid or reserved handle (3-40 chars, a-z, 0-9, hyphens)."); }
-        var domains = TenantDomains.Normalise(req.Domains ?? new List<string>(), out var domainErrors);
+        var domains = TenantDomains.Normalise(req.Domains ?? new List<string>(), TenantDomains.DeploymentHost(_configuration), out var domainErrors);
         foreach (var error in domainErrors)
         { AddError(r => r.Domains, error); }
         ThrowIfAnyErrors();
@@ -408,12 +410,14 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
     private readonly IDocumentSession _session;
     private readonly ITenantDomainSource _domains;
     private readonly IDocumentStore _store;
+    private readonly IConfiguration _configuration;
 
-    public UpdateTenantEndpoint(IDocumentSession session, ITenantDomainSource domains, IDocumentStore store)
+    public UpdateTenantEndpoint(IDocumentSession session, ITenantDomainSource domains, IDocumentStore store, IConfiguration configuration)
     {
         _session = session;
         _domains = domains;
         _store = store;
+        _configuration = configuration;
     }
 
     public override void Configure()
@@ -447,7 +451,7 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         IReadOnlyList<string>? domains = null;
         if (req.Domains is not null)
         {
-            domains = TenantDomains.Normalise(req.Domains, out var domainErrors);
+            domains = TenantDomains.Normalise(req.Domains, TenantDomains.DeploymentHost(_configuration), out var domainErrors);
             foreach (var error in domainErrors)
             { AddError(r => r.Domains, error); }
         }

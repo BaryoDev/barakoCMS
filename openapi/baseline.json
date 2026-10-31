@@ -7751,6 +7751,48 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesTenantsVerifyDomainResponse": {
+        "additionalProperties": false,
+        "description": "Where a domain's DNS check stands after one run.",
+        "properties": {
+          "cnameFound": {
+            "description": "The domain is a CNAME to CnameTarget.",
+            "type": "boolean"
+          },
+          "cnameTarget": {
+            "description": "The host the domain has to be a CNAME to.",
+            "type": "string"
+          },
+          "domain": {
+            "type": "string"
+          },
+          "status": {
+            "description": "Pending until both records are found, then Verified.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSInfrastructureMultitenancyTenantDomainStatus"
+              }
+            ]
+          },
+          "timedOut": {
+            "description": "The lookups ran out of time, so retry: the records were not judged.",
+            "type": "boolean"
+          },
+          "txtFound": {
+            "description": "A TXT record at TxtName holds the value the tenant response shows.",
+            "type": "boolean"
+          },
+          "txtName": {
+            "type": "string"
+          },
+          "verifiedAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesUserGroupsAddUserRequest": {
         "additionalProperties": false,
         "properties": {
@@ -24776,6 +24818,54 @@
           }
         ],
         "summary": "PUT /api/tenants/{handle}: update a tenant's name, domains and status (platform admin).",
+        "tags": [
+          "Tenants"
+        ]
+      }
+    },
+    "/api/tenants/{handle}/domains/{domain}/verify": {
+      "post": {
+        "description": "Gated like the other tenant domain writes. A domain that is not the tenant's, or a tenant outside\nthe caller's account, answers 404. It never replays a stored answer: the result is what DNS says\nnow, and a replayed \"pending\" after the record was fixed would send the administrator in circles.\nA failed check is a 200 that says what was missing, because the check itself worked.",
+        "operationId": "barakoCMSFeaturesTenantsVerifyDomainEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "handle",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesTenantsVerifyDomainResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/tenants/{handle}/domains/{domain}/verify: runs the DNS check for a pending domain and\nmoves it to verified when both records are there.",
         "tags": [
           "Tenants"
         ]

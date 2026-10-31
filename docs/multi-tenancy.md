@@ -125,6 +125,27 @@ nowhere: `by-host`, `tls-ask` and CORS answer for it as for an unknown host. The
 each claim in `domainStates` with its status and the TXT record to publish. Domains from a seed file
 (`Seed:File`) are trusted and written as verified.
 
+### Verifying a domain
+
+`POST /api/tenants/{handle}/domains/{domain}/verify` (SuperAdmin or `ManageTenants`, limited by the
+`domain-verify` policy, 10 a minute per address) checks DNS and, when it passes, moves the claim to
+`Verified`. The check wants two records:
+
+- a `CNAME` on the domain pointing at the deployment host;
+- a `TXT` record at `_barako-challenge.{domain}` with the value `barako-verify={token}`, as listed in
+  `domainStates`.
+
+The deployment host is `Tenancy:DeploymentHost`, else the host of `App:BaseUrl`. If neither is set the
+route answers 409. A tenant or domain the caller cannot reach answers 404. A check that misses a
+record answers 200 with the claim still `Pending` and `cnameFound` and `txtFound` saying which record
+is missing; one that takes longer than 8 seconds answers `timedOut`. A domain on the apex behind
+CNAME flattening hides its CNAME and does not pass. There is no periodic recheck, so a verified
+domain stays verified.
+
+The deployment host and any name under it cannot be claimed. Names with non-ASCII letters are stored
+in their ASCII (`xn--`) form. `www.` is dropped, so `www.shop.example` and `shop.example` are one
+domain.
+
 Production runs `AutoCreate.CreateOnly`, so apply `migrations/5.5.0/1280-tenant-domains.sql` before
 upgrading. It creates the table and copies every domain already on a tenant as verified, so a domain
 that routed before keeps routing. A host two tenants both listed is skipped, because the map already

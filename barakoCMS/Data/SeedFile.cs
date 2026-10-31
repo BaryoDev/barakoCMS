@@ -224,7 +224,8 @@ internal static class SeedFile
             throw new InvalidOperationException($"{Key}: '{slug}' is not a tenant handle (3-40 characters of a-z, 0-9 and hyphens, not reserved).");
         }
 
-        var domains = TenantDomains.Normalise(declared.Domains ?? [], out var errors);
+        var domains = TenantDomains.Normalise(
+            declared.Domains ?? [], TenantDomains.DeploymentHost(services.GetRequiredService<IConfiguration>()), out var errors);
         if (errors.Count > 0)
         {
             throw new InvalidOperationException($"{Key}: tenant '{slug}': {string.Join(" ", errors)}");

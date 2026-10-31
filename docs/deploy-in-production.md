@@ -503,7 +503,7 @@ environment variable from a POSIX shell, so keep to letters, digits and undersco
 you set it.
 
 The core's own names are reserved: `auth`, `telemetry`, `registration`, `registration-verify`, `site-share`, `logout`,
-`tls-ask`, `delivery` and `email-preview` (30 email template previews a minute per signed-in user,
+`tls-ask`, `delivery`, `domain-verify` (10 domain checks a minute per address, fixed) and `email-preview` (30 email template previews a minute per signed-in user,
 fixed). They cannot be defined under `Policies`; the sections above set
 them. A host or a module that registers its own policy named `delivery` in code stops at startup
 with a message saying to rename it. A name under `Policies` that a module already registers in code
