@@ -79,7 +79,7 @@ internal static class SeedFile
 
         var root = Parse(bytes);
         var tenants = ReadTenants(root);
-        Validate(tenants);
+        Validate(tenants, TenantDomains.DeploymentHost(configuration));
 
         await ApplyConfigAsync(services, null, Without(root, ConfigDocument.TenantsSection), ct);
         foreach (var (slug, tenant) in tenants)
@@ -127,7 +127,7 @@ internal static class SeedFile
     }
 
     /// <summary>What can be refused before anything is written, so a bad handle does not leave half an instance.</summary>
-    private static void Validate(Dictionary<string, SeedTenant> tenants)
+    private static void Validate(Dictionary<string, SeedTenant> tenants, string? deploymentHost)
     {
         var problems = new List<string>();
         foreach (var (slug, tenant) in tenants)
@@ -137,7 +137,7 @@ internal static class SeedFile
                 problems.Add($"'{slug}' is not a tenant handle (3-40 characters of a-z, 0-9 and hyphens, not reserved).");
             }
 
-            TenantDomains.Normalise(tenant.Domains ?? [], out var errors);
+            TenantDomains.Normalise(tenant.Domains ?? [], deploymentHost, out var errors);
             problems.AddRange(errors.Select(e => $"tenant '{slug}': {e}"));
             problems.AddRange((tenant.Members ?? [])
                 .Where(m => !(m.Email ?? string.Empty).Contains('@'))
