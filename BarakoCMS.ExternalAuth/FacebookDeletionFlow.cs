@@ -208,12 +208,14 @@ internal static class FacebookDeletionFlow
     /// </summary>
     public static async Task<int> SweepAsync(IServiceProvider services, DateTime now, CancellationToken ct)
     {
+        var logger = services.GetService<ILoggerFactory>()?.CreateLogger("BarakoCMS.ExternalAuth.FacebookDeletionSweep");
         var store = services.GetRequiredService<IDocumentStore>();
         List<string> due;
         await using (var query = store.QuerySession())
         {
             due = [.. await query.Query<FacebookDeletionRequest>()
                 .Where(r => r.Status == FacebookDeletionStatus.AwaitingChoice && r.ExpiresAt <= now)
+                .OrderBy(r => r.ExpiresAt)
                 .Select(r => r.Id)
                 .Take(100)
                 .ToListAsync(ct)];
@@ -224,14 +226,14 @@ internal static class FacebookDeletionFlow
         {
             await using var scope = services.CreateAsyncScope();
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            var request = await session.LoadAsync<FacebookDeletionRequest>(id, ct);
-            if (request is null || request.Status != FacebookDeletionStatus.AwaitingChoice)
-            {
-                continue;
-            }
-
             try
             {
+                var request = await session.LoadAsync<FacebookDeletionRequest>(id, ct);
+                if (request is null || request.Status != FacebookDeletionStatus.AwaitingChoice)
+                {
+                    continue;
+                }
+
                 await SettleAsync(session, scope.ServiceProvider.GetRequiredService<UserEraser>(), request,
                     DeletionChoice.Delete, now, ct);
                 await session.SaveChangesAsync(ct);
@@ -240,6 +242,14 @@ internal static class FacebookDeletionFlow
             catch (JasperFx.ConcurrencyException)
             {
                 // Another node, or the person, settled it first. Nothing of this attempt was saved.
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // One request that cannot be settled must not stall the ones behind it. It stays
+                // awaiting and is tried again next run; oldest first, so it cannot starve the rest
+                // either. The id is the hash of the code, which the log may hold; the account is
+                // not named.
+                logger?.LogError(ex, "Settling Facebook deletion request {RequestId} failed; continuing", id);
             }
         }
 

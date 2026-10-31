@@ -403,6 +403,32 @@ public class FacebookAccountDeletionTests
     }
 
     [Fact]
+    public async Task A_request_the_sweep_cannot_read_does_not_stop_the_ones_behind_it()
+    {
+        var (_, _, brokenCode) = await AwaitingAsync();
+        var (due, _, dueCode) = await AwaitingAsync();
+        await ExpireAsync(dueCode);
+        var brokenId = FacebookDeletionFlow.HashOf(brokenCode);
+        // Due earlier than the other, so the sweep meets it first. A date that is not a date makes
+        // the row fail to load.
+        await InSessionAsync(async s =>
+        {
+            s.QueueSqlCommand(
+                "update public.mt_doc_facebook_deletion_requests set data = jsonb_set(jsonb_set(data, '{ExpiresAt}', to_jsonb(?::text)), '{RequestedAt}', '\"garbage\"') where id = ?",
+                DateTime.UtcNow.AddHours(-2).ToString("o"), brokenId);
+            return 0;
+        });
+
+        var settled = await FacebookDeletionFlow.SweepAsync(_fixture.Services, DateTime.UtcNow, Ct);
+
+        settled.Should().BeGreaterThanOrEqualTo(1);
+        IsErased(await UserAsync(due.Id)).Should().BeTrue("the sweep went on past the broken row");
+        (await InSessionAsync(async s => (await s.QueryAsync<string>(
+            "select data->>'Status' from public.mt_doc_facebook_deletion_requests where id = ?", Ct, brokenId)).Single()))
+            .Should().Be("awaiting_choice", "it stays as it was, to be tried again");
+    }
+
+    [Fact]
     public async Task The_sweep_run_twice_or_at_once_settles_a_request_once()
     {
         var (user, _, code) = await AwaitingAsync();

@@ -139,7 +139,9 @@ would leave almost no account as "Facebook only".
   request at the same moment, one of the two wins and the sign-in itself is not affected.
 - A choice after the request settled changes nothing and returns the settled status. Two choices at
   once settle once (optimistic concurrency on the request), and both callers see the winner.
-  The sweep is safe to run twice or on two nodes for the same reason.
+  The sweep is safe to run twice or on two nodes for the same reason. It takes the oldest 100 due
+  requests first. A request that fails is logged by its id (the hash of the code, no account
+  details) and left as it was, and the sweep goes on with the rest.
 - A settled request is kept for one year from the time it settled. The sweep then deletes it (up
   to 500 per run, oldest first), and the status page for its code answers `404`, like a code that
   never existed. A request still awaiting a choice is never deleted this way.
