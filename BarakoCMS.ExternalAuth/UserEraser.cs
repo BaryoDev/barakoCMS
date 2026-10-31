@@ -42,7 +42,15 @@ internal sealed class UserEraser(ISessionEpochService sessionEpoch)
     /// Whether the account must not be erased by a machine: a platform administrator, or the last
     /// administrator of a tenant. Those need a person to hand the role on first.
     /// </summary>
-    public async Task<bool> IsProtectedAsync(IQuerySession session, User user, CancellationToken ct)
+    /// <remarks>
+    /// Two administrators of one tenant erased at the same moment would each count the other as the
+    /// one who remains, and both go. So before the count it takes a transaction-scoped Postgres
+    /// advisory lock per tenant the user administers, in sorted tenant order so two erasures that
+    /// share tenants cannot deadlock. The lock is held until the session saves, which is the same
+    /// commit that erases the user, so the second erasure counts after the first has landed. A
+    /// caller that does not go on to save must not keep the session open.
+    /// </remarks>
+    public async Task<bool> IsProtectedAsync(IDocumentSession session, User user, CancellationToken ct)
     {
         var roleIds = await GlobalRoleIdsAsync(session, user, ct);
         if (roleIds.Contains(SystemRoles.SuperAdminRoleId) || roleIds.Contains(SystemRoles.AdminRoleId))
@@ -68,9 +76,19 @@ internal sealed class UserEraser(ISessionEpochService sessionEpoch)
         var held = await session.Query<Membership>()
             .Where(m => m.UserId == user.Id && m.Status == MembershipStatus.Active && m.RoleIds.Contains(admin))
             .ToListAsync(ct);
-        foreach (var membership in held)
+        var tenants = held.Select(m => m.TenantSlug).Distinct().Order(StringComparer.Ordinal).ToList();
+        if (tenants.Count > 0)
         {
-            var slug = membership.TenantSlug;
+            await session.BeginTransactionAsync(ct);
+            foreach (var slug in tenants)
+            {
+                await session.QueryAsync<int>(
+                    "select 1 from pg_advisory_xact_lock(hashtextextended(?, 0))", ct, AdminLockKey(slug));
+            }
+        }
+
+        foreach (var slug in tenants)
+        {
             var others = await session.Query<Membership>()
                 .CountAsync(m => m.TenantSlug == slug && m.UserId != user.Id
                     && m.Status == MembershipStatus.Active && m.RoleIds.Contains(admin), ct);
@@ -82,6 +100,9 @@ internal sealed class UserEraser(ISessionEpochService sessionEpoch)
 
         return false;
     }
+
+    /// <summary>The advisory lock key that serialises erasures of administrators of one tenant.</summary>
+    internal static string AdminLockKey(string tenantSlug) => $"barakocms:tenant-admins:{tenantSlug}";
 
     /// <summary>Queues the erasure on <paramref name="session"/>. The caller saves.</summary>
     public async Task QueueEraseAsync(IDocumentSession session, User user, string reason, CancellationToken ct)

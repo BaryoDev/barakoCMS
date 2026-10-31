@@ -150,7 +150,9 @@ would leave almost no account as "Facebook only".
 - A platform administrator, a SuperAdmin, or the last active admin of a tenant is never erased
   automatically. Roles and groups are looked up in every tenant, so a platform role reached
   through a group in another tenant counts. The status is `needs_admin` and the account is left
-  alone.
+  alone. The check takes a Postgres advisory lock per tenant the person administers (in tenant
+  order) and holds it until the erasure commits, so two administrators of one tenant erased at the
+  same moment cannot each count the other as the one who remains.
 
 Statuses: `completed`, `awaiting_choice`, `kept`, `needs_admin`.
 

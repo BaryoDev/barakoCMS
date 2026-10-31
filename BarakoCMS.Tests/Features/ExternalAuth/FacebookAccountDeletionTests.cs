@@ -554,6 +554,55 @@ public class FacebookAccountDeletionTests
             .Should().Be(1, "the erased admin's membership went and the other admin's stayed");
     }
 
+    [Fact]
+    public async Task Checking_an_administrator_holds_a_lock_per_tenant_until_the_session_ends()
+    {
+        var slugA = Unique("tenant");
+        var slugB = Unique("tenant");
+        var (admin, _, _) = await AwaitingAsync();
+        var (other, _, _) = await AwaitingAsync();
+        await InSessionAsync(async s =>
+        {
+            foreach (var slug in new[] { slugA, slugB })
+            {
+                foreach (var id in new[] { admin.Id, other.Id })
+                {
+                    s.Store(new Membership
+                    {
+                        Id = Guid.NewGuid(), UserId = id, TenantSlug = slug,
+                        RoleIds = [SystemRoles.AdminRoleId], Status = MembershipStatus.Active,
+                    });
+                }
+            }
+
+            return 0;
+        });
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+
+        async Task<bool> CanLockAsync(string slug)
+        {
+            await using var probe = store.LightweightSession();
+            await probe.BeginTransactionAsync(Ct);
+            return (await probe.QueryAsync<bool>(
+                "select pg_try_advisory_xact_lock(hashtextextended(?, 0))", Ct, UserEraser.AdminLockKey(slug))).Single();
+        }
+
+        await using (var holder = store.LightweightSession())
+        {
+            var eraser = _fixture.Services.GetRequiredService<UserEraser>();
+            var user = (await holder.LoadAsync<User>(admin.Id, Ct))!;
+
+            (await eraser.IsProtectedAsync(holder, user, Ct)).Should().BeFalse("each tenant has another administrator");
+
+            (await CanLockAsync(slugA)).Should().BeFalse("held until the erasure commits");
+            (await CanLockAsync(slugB)).Should().BeFalse("one lock per tenant the user administers");
+            (await CanLockAsync(Unique("tenant"))).Should().BeTrue("a tenant the user does not administer is not locked");
+        }
+
+        (await CanLockAsync(slugA)).Should().BeTrue("released when the session ends");
+        (await CanLockAsync(slugB)).Should().BeTrue();
+    }
+
     private async Task InTenantAsync(string tenant, params object[] documents)
     {
         using var scope = _fixture.Services.CreateScope();
