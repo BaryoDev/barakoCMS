@@ -87,12 +87,12 @@ internal static class FacebookDeletionFlow
         // What Facebook shared goes with the request whatever happens to the account, and whether
         // or not a link exists: an address the operator trusts signs in without storing one, so
         // the profile is also found by the key it recorded. A row from before that key was stored
-        // is found through the link only. A profile keyed to another Facebook link is that link's. Only the fields Facebook supplied are cleared.
+        // is found through the link only. Only the fields Facebook supplied are cleared.
         var profiles = (await session.Query<SocialProfile>().Where(p => p.FacebookKey == linkId).ToListAsync(ct)).ToList();
         if (link is not null && profiles.All(p => p.UserId != link.UserId))
         {
             var owner = link.UserId;
-            profiles.AddRange(await session.Query<SocialProfile>().Where(p => p.UserId == owner && p.FacebookKey == null).ToListAsync(ct));
+            profiles.AddRange(await session.Query<SocialProfile>().Where(p => p.UserId == owner).ToListAsync(ct));
         }
 
         foreach (var profile in profiles)
