@@ -33,12 +33,22 @@ public class TenantDomainVerifyTests
     {
         public DomainDnsResult Result { get; set; } = new(true, true);
 
+        /// <summary>Runs while the check is in flight, to change the claim under the request.</summary>
+        public Func<Task>? During { get; set; }
+
         public List<(string Domain, string Target, string TxtName, string TxtValue)> Calls { get; } = [];
 
         public Task<DomainDnsResult> CheckAsync(string domain, string cnameTarget, string txtName, string txtValue, CancellationToken ct)
         {
             Calls.Add((domain, cnameTarget, txtName, txtValue));
-            return Task.FromResult(Result);
+            return RunAsync();
+
+            async Task<DomainDnsResult> RunAsync()
+            {
+                if (During is not null)
+                    await During();
+                return Result;
+            }
         }
     }
 
@@ -228,5 +238,48 @@ public class TenantDomainVerifyTests
 
         codes.Take(60).Should().OnlyContain(c => c == HttpStatusCode.NotFound);
         codes[60].Should().Be(HttpStatusCode.TooManyRequests);
+    }
+
+    [Fact]
+    public async Task A_domain_dropped_while_the_check_runs_is_a_409_and_does_not_come_back()
+    {
+        var (host, dns) = HostWith();
+        var client = await SuperAdminAsync(host);
+        var handle = Handle();
+        var domain = Domain();
+        (await CreateAsync(client, handle, domain)).StatusCode.Should().Be(HttpStatusCode.OK);
+        dns.During = async () =>
+            (await client.PutAsJsonAsync($"/api/tenants/{handle}", new { name = handle, isActive = true, domains = Array.Empty<string>() }, Ct))
+                .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var response = await VerifyAsync(client, handle, domain);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await RowAsync(domain)).Should().BeNull("the write must not bring back a row the tenant dropped");
+        (await ByHostAsync(host, domain)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task A_domain_another_tenant_claims_while_the_check_runs_keeps_the_new_claim()
+    {
+        var (host, dns) = HostWith();
+        var client = await SuperAdminAsync(host);
+        var first = Handle();
+        var second = Handle();
+        var domain = Domain();
+        (await CreateAsync(client, first, domain)).StatusCode.Should().Be(HttpStatusCode.OK);
+        dns.During = async () =>
+        {
+            (await client.PutAsJsonAsync($"/api/tenants/{first}", new { name = first, isActive = true, domains = Array.Empty<string>() }, Ct))
+                .StatusCode.Should().Be(HttpStatusCode.OK);
+            (await CreateAsync(client, second, domain)).StatusCode.Should().Be(HttpStatusCode.OK);
+        };
+
+        var response = await VerifyAsync(client, first, domain);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var row = await RowAsync(domain);
+        row!.TenantSlug.Should().Be(second, "the first tenant's late write must not take the claim over");
+        row.Status.Should().Be(TenantDomainStatus.Pending);
     }
 }

@@ -1008,6 +1008,9 @@ public static class ServiceCollectionExtensions
         options.Schema.For<barakoCMS.Infrastructure.Multitenancy.TenantDomain>()
             .SingleTenanted() // a domain is claimed across tenants, so it is global
             .DocumentAlias("tenant_domains")
+            // The lock for verify's read-then-write: the route reads a row, waits on DNS, then writes
+            // it back, and the row version refuses the write if a claim change got in between.
+            .UseOptimisticConcurrency(true)
             .Index(x => x.TenantSlug);
         options.Schema.For<Models.Membership>()
             .SingleTenanted() // maps global users to tenants — necessarily cross-tenant

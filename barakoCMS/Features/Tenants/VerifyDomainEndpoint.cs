@@ -49,6 +49,9 @@ internal sealed class VerifyDomainEndpoint(
     IDomainDnsChecker dns,
     IConfiguration configuration) : EndpointWithoutRequest<VerifyDomainResponse>
 {
+    /// <summary>The 409 text when the claim moved while the DNS check ran.</summary>
+    public const string ClaimChangedMessage = "This domain claim changed while it was being checked. Check the tenant's domains and verify again.";
+
     public override void Configure()
     {
         Post("/api/tenants/{handle}/domains/{domain}/verify");
@@ -103,12 +106,35 @@ internal sealed class VerifyDomainEndpoint(
 
         if (result.Passed)
         {
-            TenantDomainClaims.Verify(row);
-            session.Store(row);
-            await session.SaveChangesAsync(ct);
+            // The DNS wait is long enough for the claim to change under this request: the tenant drops
+            // the domain, or drops it and another tenant claims it. Writing the row loaded before the
+            // wait would bring it back, or overwrite the new claim. So read it again, and write it
+            // under the row's version (UseOptimisticConcurrency on TenantDomain), which refuses the
+            // write if anything moved between this read and the save.
+            var current = await session.LoadAsync<TenantDomain>(row.Id, ct);
+            var listed = await session.Query<Tenant>().AnyAsync(x => x.Slug == tenant.Slug && x.Domains.Contains(row.Id), ct);
+            if (current is null || !listed
+                || !string.Equals(current.TenantSlug, tenant.Slug, StringComparison.Ordinal)
+                || !string.Equals(current.Token, row.Token, StringComparison.Ordinal))
+            {
+                ThrowError(ClaimChangedMessage, 409);
+            }
+
+            TenantDomainClaims.Verify(current);
+            session.Update(current);
+            try
+            {
+                await session.SaveChangesAsync(ct);
+            }
+            catch (Exception ex) when (ex is JasperFx.ConcurrencyException || ex.GetType().Name.Contains("NonExistent"))
+            {
+                session.EjectAllPendingChanges();
+                ThrowError(ClaimChangedMessage, 409);
+            }
+
             domains.Invalidate();
-            response.Status = row.Status;
-            response.VerifiedAt = row.VerifiedAt;
+            response.Status = current.Status;
+            response.VerifiedAt = current.VerifiedAt;
         }
 
         await Send.OkAsync(response, ct);
