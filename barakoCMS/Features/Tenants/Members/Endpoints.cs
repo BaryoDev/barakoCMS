@@ -339,6 +339,35 @@ internal static class Members
 }
 
 /// <summary>
+/// Deletes every membership of an erased account, with an entry in each tenant it was active in.
+/// </summary>
+/// <remarks>
+/// Public because the erasure lives in the ExternalAuth module. Unlike <c>Members.RemoveAsync</c> the
+/// row goes, because its profile is personal data, and the entry carries the roles held, no profile
+/// and no actor: an erasure is requested by the person, not by a member of the tenant.
+/// </remarks>
+public static class MemberErasure
+{
+    public static async Task QueueAsync(IDocumentSession session, Guid userId, string reason, CancellationToken ct)
+    {
+        var active = await session.Query<Membership>()
+            .Where(m => m.UserId == userId && m.Status == MembershipStatus.Active)
+            .ToListAsync(ct);
+
+        session.DeleteWhere<Membership>(m => m.UserId == userId);
+
+        foreach (var membership in active)
+        {
+            var metadata = await Members.AuditMetadataAsync(session, null, Members.Held.By(membership), ct);
+            metadata["reason"] = reason;
+            await AuditLog.RecordAsync(session, membership.TenantSlug, "tenant.member.removed",
+                actorUserId: null, actorUsername: null,
+                targetType: "User", targetId: userId.ToString(), metadata: metadata, ct: ct);
+        }
+    }
+}
+
+/// <summary>
 /// A profile is checked before anything is stored, on both member writes.
 /// </summary>
 /// <remarks>

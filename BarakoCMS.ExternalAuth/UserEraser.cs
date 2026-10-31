@@ -134,7 +134,7 @@ internal sealed class UserEraser(ISessionEpochService sessionEpoch)
 
         await RevokeRefreshTokens.ForUserAsync(session, id, "account_erased", ct, sessionEpoch);
 
-        session.DeleteWhere<Membership>(m => m.UserId == id);
+        await barakoCMS.Features.Tenants.Members.MemberErasure.QueueAsync(session, id, reason, ct);
         session.DeleteWhere<ApiKey>(k => k.UserId == id);
         session.DeleteWhere<TenantAccountManager>(m => m.UserId == id);
         session.DeleteWhere<SocialProfile>(p => p.UserId == id);

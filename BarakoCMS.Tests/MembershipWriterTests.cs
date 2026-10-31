@@ -39,6 +39,8 @@ public class MembershipWriterTests
     {
         ["barakoCMS/Features/Roles/Delete/Endpoint.cs"] =
             "reads memberships to refuse deleting a held role, and stores the role it soft deletes",
+        ["BarakoCMS.ExternalAuth/UserEraser.cs"] =
+            "reads memberships to refuse erasing a last administrator, and stores the user and groups it edits",
     };
 
     private static readonly Regex Constructs = new(

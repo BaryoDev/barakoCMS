@@ -39,6 +39,7 @@ internal sealed class SocialExchangeValidator : Validator<SocialExchangeRequest>
 /// POST /api/auth/social/exchange. Turns the code a callback redirected with into the token pair or
 /// the MFA challenge. Works once, within 60 seconds, from the browser the sign-in started in.
 /// </summary>
+[barakoCMS.Infrastructure.Filters.NoIdempotentReplay]
 internal sealed class SocialExchangeEndpoint(IDocumentSession session) : Endpoint<SocialExchangeRequest, SocialExchangeResponse>
 {
     private const string Refused = "The sign-in code is not valid. Please sign in again.";

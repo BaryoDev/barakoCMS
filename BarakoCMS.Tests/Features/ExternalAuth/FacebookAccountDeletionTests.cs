@@ -1011,6 +1011,12 @@ public class FacebookAccountDeletionTests
             (await s.Query<Membership>().CountAsync(m => m.UserId == user.Id, Ct)).Should().Be(0);
             (await s.Query<Membership>().CountAsync(m => m.UserId == bystander.Id, Ct)).Should().Be(1);
             (await s.LoadAsync<ApiKey>(apiKey.Id, Ct)).Should().BeNull();
+            var removed = await s.Query<AuditEvent>()
+                .Where(e => e.TenantSlug == tenant && e.Action == "tenant.member.removed" && e.TargetId == user.Id.ToString())
+                .ToListAsync(Ct);
+            removed.Should().ContainSingle("the tenant's log says the member left");
+            removed[0].ActorUserId.Should().BeNull("nobody in the tenant did this");
+            removed[0].Metadata.Should().ContainKey("previousRoleIds").And.ContainKey("reason");
             (await s.LoadAsync<ApiKey>(otherKey.Id, Ct)).Should().NotBeNull();
             (await s.LoadAsync<MfaSecret>(user.Id, Ct)).Should().BeNull();
             (await s.Query<SocialProfile>().CountAsync(p => p.UserId == user.Id, Ct)).Should().Be(0);

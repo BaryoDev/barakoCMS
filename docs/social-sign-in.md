@@ -165,7 +165,8 @@ One transaction. The `User` row stays as a tombstone (username `erased-{id}`, em
 `erased-{id}@erased.invalid`, no password, roles, groups or display name) so access tokens already
 issued stop working through the session epoch and the unique username and email values are freed.
 
-- Deleted: memberships, API keys, tenant account manager rows, social profile (Facebook birthday,
+- Deleted: memberships (each tenant the account was active in gets a `tenant.member.removed` audit
+  entry with no actor), API keys, tenant account manager rows, social profile (Facebook birthday,
   location, photo), external identities, MFA secret, and email codes, magic link tokens and pending
   registrations for the account's address.
 - Changed: the user id is removed from user group lists, in every tenant. Refresh tokens are
