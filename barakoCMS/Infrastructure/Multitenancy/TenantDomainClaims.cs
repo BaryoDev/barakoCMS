@@ -65,12 +65,26 @@ internal static class TenantDomainClaims
         }
     }
 
-    /// <summary>A second insert of one id, which Marten reports itself or wraps from Npgsql (SQLSTATE 23505).</summary>
-    private static bool IsDuplicate(Exception? ex)
+    /// <summary>The table a domain claim lives in, which a unique violation names.</summary>
+    internal const string Table = "mt_doc_tenant_domains";
+
+    /// <summary>
+    /// A second insert of one host: Marten reports it as <see cref="JasperFx.DocumentAlreadyExistsException"/>
+    /// or it comes through as Npgsql's unique violation (SQLSTATE 23505). Only a violation on the claims
+    /// table counts. A duplicate tenant handle is also a 23505, and answering it as a domain clash
+    /// would blame the wrong thing.
+    /// </summary>
+    internal static bool IsDuplicate(Exception? ex)
     {
         for (var current = ex; current is not null; current = current.InnerException)
         {
-            if (current is JasperFx.DocumentAlreadyExistsException or Npgsql.PostgresException { SqlState: "23505" })
+            if (current is Npgsql.PostgresException { SqlState: "23505" } pg)
+            {
+                return string.Equals(pg.TableName, Table, StringComparison.Ordinal);
+            }
+
+            if (current is JasperFx.DocumentAlreadyExistsException exists
+                && exists.DocumentType?.ToString()?.Contains(nameof(TenantDomain), StringComparison.Ordinal) == true)
             {
                 return true;
             }
