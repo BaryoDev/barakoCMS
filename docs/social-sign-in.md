@@ -140,6 +140,9 @@ would leave almost no account as "Facebook only".
 - A choice after the request settled changes nothing and returns the settled status. Two choices at
   once settle once (optimistic concurrency on the request), and both callers see the winner.
   The sweep is safe to run twice or on two nodes for the same reason.
+- A settled request is kept for one year from the time it settled. The sweep then deletes it (up
+  to 500 per run, oldest first), and the status page for its code answers `404`, like a code that
+  never existed. A request still awaiting a choice is never deleted this way.
 - A platform administrator, a SuperAdmin, or the last active admin of a tenant is never erased
   automatically. Roles and groups are looked up in every tenant, so a platform role reached
   through a group in another tenant counts. The status is `needs_admin` and the account is left

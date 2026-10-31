@@ -71,7 +71,8 @@ internal static class FacebookDeletionFlow
         IDocumentSession session, IConfiguration config, string facebookUserId, string requestId,
         DateTime? issuedAt, CancellationToken ct)
     {
-        var request = new FacebookDeletionRequest { Id = requestId };
+        // Settled from the start; the awaiting branch below clears it.
+        var request = new FacebookDeletionRequest { Id = requestId, SettledAt = DateTime.UtcNow };
         var linkId = ExternalIdentity.KeyOf(ExternalProviders.Facebook, facebookUserId);
         var link = await session.LoadAsync<ExternalIdentity>(linkId, ct);
         // issued_at has whole seconds, so the link time is cut to the second too: a request issued
@@ -117,6 +118,7 @@ internal static class FacebookDeletionFlow
         if (user is not null && !await HasOtherLoginAsync(session, user, linkId, ct))
         {
             request.Status = FacebookDeletionStatus.AwaitingChoice;
+            request.SettledAt = null;
             request.UserId = user.Id;
             request.ExpiresAt = request.RequestedAt + ChoiceWindow(config);
         }
@@ -241,7 +243,39 @@ internal static class FacebookDeletionFlow
             }
         }
 
+        await PurgeSettledAsync(store, now, ct);
         return settled;
+    }
+
+    /// <summary>How long a settled request is kept so its status page still answers.</summary>
+    public static readonly TimeSpan SettledRetention = TimeSpan.FromDays(365);
+
+    /// <summary>Most settled rows one sweep deletes, so a backlog never makes one run long.</summary>
+    public const int PurgeBatch = 500;
+
+    /// <summary>
+    /// Deletes settled requests whose <see cref="FacebookDeletionRequest.SettledAt"/> is over
+    /// <see cref="SettledRetention"/> ago, oldest first, at most <see cref="PurgeBatch"/> per call.
+    /// The status page then answers like an unknown code. A request still awaiting a choice has no
+    /// settled time and is never touched.
+    /// </summary>
+    private static async Task PurgeSettledAsync(IDocumentStore store, DateTime now, CancellationToken ct)
+    {
+        var cutoff = now - SettledRetention;
+        await using var session = store.LightweightSession();
+        var old = (await session.Query<FacebookDeletionRequest>()
+            .Where(r => r.SettledAt != null && r.SettledAt < cutoff)
+            .OrderBy(r => r.SettledAt)
+            .Select(r => r.Id)
+            .Take(PurgeBatch)
+            .ToListAsync(ct)).ToList();
+        if (old.Count == 0)
+        {
+            return;
+        }
+
+        session.DeleteWhere<FacebookDeletionRequest>(r => old.Contains(r.Id));
+        await session.SaveChangesAsync(ct);
     }
 }
 

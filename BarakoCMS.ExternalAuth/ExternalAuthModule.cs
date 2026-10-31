@@ -121,6 +121,7 @@ public sealed class ExternalAuthModule : IBarakoModule
             .SingleTenanted()
             .DocumentAlias("facebook_deletion_requests")
             .UseOptimisticConcurrency(true)
-            .Index(x => x.ExpiresAt);
+            .Index(x => x.ExpiresAt)
+            .Index(x => x.SettledAt);
     }
 }

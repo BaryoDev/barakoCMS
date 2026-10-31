@@ -362,6 +362,47 @@ public class FacebookAccountDeletionTests
     }
 
     [Fact]
+    public async Task The_sweep_deletes_settled_requests_over_a_year_old_and_leaves_newer_and_unsettled_ones()
+    {
+        var (_, _, oldCode) = await AwaitingAsync();
+        var (_, _, recentCode) = await AwaitingAsync();
+        var (_, _, waitingCode) = await AwaitingAsync();
+        foreach (var (code, settledAgo) in new[] { (oldCode, TimeSpan.FromDays(400)), (recentCode, TimeSpan.FromDays(330)) })
+        {
+            await InSessionAsync(async s =>
+            {
+                var request = (await s.LoadAsync<FacebookDeletionRequest>(FacebookDeletionFlow.HashOf(code), Ct))!;
+                request.Status = FacebookDeletionStatus.Completed;
+                request.UserId = null;
+                request.ExpiresAt = null;
+                request.SettledAt = DateTime.UtcNow - settledAgo;
+                s.Store(request);
+                return 0;
+            });
+        }
+
+        await FacebookDeletionFlow.SweepAsync(_fixture.Services, DateTime.UtcNow, Ct);
+
+        var gone = await Client().GetAsync($"/api/auth/facebook/data-deletion/status/{oldCode}", Ct);
+        gone.StatusCode.Should().Be(HttpStatusCode.NotFound, "a purged row answers like an unknown code");
+        (await StatusOfAsync(recentCode)).Should().Be("completed", "eleven months is inside the retention");
+        (await StatusOfAsync(waitingCode)).Should().Be("awaiting_choice", "no settled time, never purged");
+    }
+
+    [Fact]
+    public async Task A_request_that_completes_at_once_is_stamped_settled_so_it_can_be_purged_later()
+    {
+        var user = await NewUserAsync(passwordHash: "hash");
+        var facebook = await LinkAsync(ExternalProviders.Facebook, user.Id);
+
+        var (code, _) = await RequestDeletionAsync(facebook);
+
+        var row = await InSessionAsync(s => s.LoadAsync<FacebookDeletionRequest>(FacebookDeletionFlow.HashOf(code), Ct));
+        row!.Status.Should().Be("completed");
+        row.SettledAt.Should().NotBeNull();
+    }
+
+    [Fact]
     public async Task The_sweep_run_twice_or_at_once_settles_a_request_once()
     {
         var (user, _, code) = await AwaitingAsync();

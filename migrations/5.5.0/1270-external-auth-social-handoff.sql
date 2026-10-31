@@ -45,3 +45,7 @@ CREATE TABLE IF NOT EXISTS public.mt_doc_facebook_deletion_requests (
 
 CREATE INDEX IF NOT EXISTS mt_doc_facebook_deletion_requests_idx_expires_at
     ON public.mt_doc_facebook_deletion_requests USING btree ((public.mt_immutable_timestamp(data ->> 'ExpiresAt')));
+
+-- Serves the purge of settled rows older than a year.
+CREATE INDEX IF NOT EXISTS mt_doc_facebook_deletion_requests_idx_settled_at
+    ON public.mt_doc_facebook_deletion_requests USING btree ((public.mt_immutable_timestamp(data ->> 'SettledAt')));
