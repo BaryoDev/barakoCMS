@@ -149,6 +149,7 @@ public class RateLimitCorsTests
         {
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
             session.Store(new Tenant { Id = Guid.NewGuid(), Slug = handle, Name = handle, Domains = [domain] });
+            BarakoCMS.Tests.Features.Tenants.VerifiedDomains.Stage(session, handle, [domain]);
             await session.SaveChangesAsync(Ct);
         }
         Host().Services.GetRequiredService<ITenantDomainSource>().Invalidate();

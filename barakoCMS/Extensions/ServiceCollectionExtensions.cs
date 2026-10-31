@@ -1003,6 +1003,12 @@ public static class ServiceCollectionExtensions
             .SingleTenanted() // the tenant registry itself is global
             .DocumentAlias("tenants")
             .Index(x => x.Slug, idx => idx.IsUnique = true);
+        // One row per claimed domain, keyed by the host, so the database refuses a second claim.
+        // migrations/5.5.0/1280-tenant-domains.sql adds it to an existing database and backfills it.
+        options.Schema.For<barakoCMS.Infrastructure.Multitenancy.TenantDomain>()
+            .SingleTenanted() // a domain is claimed across tenants, so it is global
+            .DocumentAlias("tenant_domains")
+            .Index(x => x.TenantSlug);
         options.Schema.For<Models.Membership>()
             .SingleTenanted() // maps global users to tenants — necessarily cross-tenant
             .DocumentAlias("memberships")

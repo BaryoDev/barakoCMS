@@ -97,6 +97,7 @@ public class TenantDomainCorsTests
         {
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
             session.Store(new Tenant { Id = Guid.NewGuid(), Slug = handle, Name = handle, Domains = [domain] });
+            VerifiedDomains.Stage(session, handle, [domain]);
             await session.SaveChangesAsync(Ct);
         }
 

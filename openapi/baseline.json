@@ -7494,6 +7494,32 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesTenantsTenantDomainState": {
+        "additionalProperties": false,
+        "description": "A claimed domain and what the tenant has to publish in DNS to verify it.",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/BarakoCMSInfrastructureMultitenancyTenantDomainStatus"
+          },
+          "txtName": {
+            "description": "The TXT record's name, _barako-challenge.{domain}.",
+            "type": "string"
+          },
+          "txtValue": {
+            "description": "What that TXT record has to hold, barako-verify= and a value generated for this claim.",
+            "type": "string"
+          },
+          "verifiedAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesTenantsTenantPublicResponse": {
         "additionalProperties": false,
         "properties": {
@@ -7552,6 +7578,13 @@
           "createdAt": {
             "format": "date-time",
             "type": "string"
+          },
+          "domainStates": {
+            "description": "Where each domain stands: pending until its DNS check passes, then verified. Only a verified\ndomain routes. A domain with no entry here has no row yet and routes nowhere either.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesTenantsTenantDomainState"
+            },
+            "type": "array"
           },
           "domains": {
             "items": {
@@ -9789,6 +9822,18 @@
           }
         },
         "type": "object"
+      },
+      "BarakoCMSInfrastructureMultitenancyTenantDomainStatus": {
+        "description": "Whether a tenant has proved it controls a domain.",
+        "enum": [
+          "Pending",
+          "Verified"
+        ],
+        "type": "string",
+        "x-enumNames": [
+          "Pending",
+          "Verified"
+        ]
       },
       "BarakoCMSInfrastructureServicesClusterStatus": {
         "additionalProperties": false,

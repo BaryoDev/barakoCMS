@@ -93,8 +93,9 @@ public sealed class TenantDomainSource : ITenantDomainSource
         // Every tenant, filtered in memory: a document stored before Status existed has only
         // IsActive, and reads back with the right Status.
         var tenants = await session.Query<Tenant>().ToListAsync(ct);
+        var claims = await session.Query<TenantDomain>().ToListAsync(ct);
 
-        var map = Build(tenants, _logger);
+        var map = Build(tenants, claims, _logger);
 
         // A tenant written while the query above was running has already called Invalidate, and
         // caching this list would put the old one back for the whole cache duration: in Multi, a
@@ -118,17 +119,32 @@ public sealed class TenantDomainSource : ITenantDomainSource
     }
 
     /// <summary>The map for the registered tenants, whatever their status.</summary>
-    internal static TenantDomainMap Build(IReadOnlyList<Tenant> registered, ILogger logger)
+    /// <remarks>
+    /// A domain routes only when a verified <see cref="TenantDomain"/> row names the tenant that lists
+    /// it. A pending domain, a listed domain with no row, and a listed domain whose row belongs to
+    /// another tenant all route nowhere, which is the safe answer for each: the host is treated as one
+    /// nobody registered.
+    /// </remarks>
+    internal static TenantDomainMap Build(IReadOnlyList<Tenant> registered, IReadOnlyList<TenantDomain> claims, ILogger logger)
     {
+        var verified = claims
+            .Where(c => c.Status == TenantDomainStatus.Verified)
+            .GroupBy(c => c.Id, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First().TenantSlug, StringComparer.OrdinalIgnoreCase);
+
+        IEnumerable<string> Routed(Tenant t) => t.Domains.Where(d =>
+            TenantDomainMap.Normalise(d) is { } host
+            && verified.TryGetValue(host, out var owner)
+            && string.Equals(owner, t.Slug, StringComparison.OrdinalIgnoreCase));
+
         var tenants = registered.Where(t => t.Status == TenantStatus.Active).ToList();
         var entries = tenants
-            .Where(t => t.Domains.Count > 0)
-            .SelectMany(t => t.Domains.Select(d => (Domain: d, t.Slug)));
+            .SelectMany(t => Routed(t).Select(d => (Domain: d, t.Slug)));
 
         var slugs = tenants.Select(t => t.Slug).ToList();
         var paused = registered
             .Where(t => t.Status != TenantStatus.Active)
-            .Select(t => (t.Slug, t.Status, (IReadOnlyCollection<string>)t.Domains))
+            .Select(t => (t.Slug, t.Status, (IReadOnlyCollection<string>)Routed(t).ToList()))
             .ToList();
 
         try

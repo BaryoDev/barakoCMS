@@ -80,9 +80,10 @@ internal class ListTenantsEndpoint(IQuerySession session) : Endpoint<ListRequest
             .OrderBy(t => t.Name)
             .ToPagedResponseAsync(req, ct);
 
+        var claims = await TenantDomainClaims.ForAsync(session, page.Items.Select(t => t.Slug).ToList(), ct);
         await Send.OkAsync(new PaginatedResponse<TenantResponse>
         {
-            Items = page.Items.Select(TenantResponse.From).ToList(),
+            Items = page.Items.Select(t => TenantResponse.From(t, claims[t.Slug])).ToList(),
             Page = page.Page,
             PageSize = page.PageSize,
             TotalItems = page.TotalItems,
@@ -279,6 +280,9 @@ internal static class TenantDomainClash
             ? $"'{clash.Domain}' is already a domain of tenant '{clash.Slug}'. A domain belongs to one tenant."
             : $"'{clash.Domain}' is already a domain of another tenant. A domain belongs to one tenant.";
 
+    /// <summary>The 409 text when the database, not the read before the write, found the clash.</summary>
+    public const string RaceMessage = "A domain belongs to one tenant, and another tenant has just claimed one of these.";
+
     public static async Task<(string Domain, string Slug)?> FindAsync(
         IQuerySession session, IReadOnlyCollection<string> domains, string? exceptSlug, CancellationToken ct)
     {
@@ -370,6 +374,7 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
             AccountId = accountId is { } id ? AccountReach.Stored(id) : null,
         };
         _session.Store(tenant);
+        await TenantDomainClaims.StageAsync(_session, handle, domains, trusted: false, ct);
 
         // Provision the creator as an Active admin member in the same transaction. Without this, a
         // freshly-registered tenant has zero memberships — and the cross-tenant token guard (H.1)
@@ -385,9 +390,10 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
                 new Dictionary<string, object> { ["invited"] = false, ["tenantCreated"] = true }, ct);
         }
 
-        await _session.SaveChangesAsync(ct);
+        if (!await TenantDomainClaims.TrySaveAsync(_session, ct))
+        { ThrowError(TenantDomainClash.RaceMessage, 409); }
         _domains.Invalidate();
-        await Send.OkAsync(TenantResponse.From(tenant), ct);
+        await Send.OkAsync(TenantResponse.From(tenant, (await TenantDomainClaims.ForAsync(_session, [handle], ct))[handle]), ct);
     }
 }
 
@@ -477,14 +483,18 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         await ApplySignInAsync(tenant, req, ct);
 
         if (domains is not null)
+        {
             tenant.Domains = domains.ToList();
+            await TenantDomainClaims.StageAsync(_session, tenant.Slug, domains, trusted: false, ct);
+        }
         _session.Store(tenant);
-        await _session.SaveChangesAsync(ct);
+        if (!await TenantDomainClaims.TrySaveAsync(_session, ct))
+        { ThrowError(TenantDomainClash.RaceMessage, 409); }
 
         // Every update, not only a change of domains: switching a tenant off takes its domains out of
         // the map too, and waiting out the cache would keep routing to it for minutes.
         _domains.Invalidate();
-        await Send.OkAsync(TenantResponse.From(tenant), ct);
+        await Send.OkAsync(TenantResponse.From(tenant, (await TenantDomainClaims.ForAsync(_session, [tenant.Slug], ct))[tenant.Slug]), ct);
     }
 
     /// <summary>Applies a sent sign-up policy, recording a change in the tenant's log.</summary>

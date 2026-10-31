@@ -242,12 +242,18 @@ internal static class SeedFile
         // isActive false suspends an active tenant and leaves an archived one archived.
         var status = declared.IsActive ? TenantStatus.Active
             : tenant.Status == TenantStatus.Active ? TenantStatus.Suspended : tenant.Status;
-        if (tenant.Name != name || tenant.Status != status || !tenant.Domains.SequenceEqual(domains))
+        var changed = tenant.Name != name || tenant.Status != status || !tenant.Domains.SequenceEqual(domains);
+        if (changed)
         {
             tenant.Name = name;
             tenant.Status = status;
             tenant.Domains = domains.ToList();
             session.Store(tenant);
+        }
+
+        // A domain in the deployment's own seed file is the operator's word, so it is verified, not pending.
+        if (await TenantDomainClaims.StageAsync(session, slug, domains, trusted: true, ct) || changed)
+        {
             await session.SaveChangesAsync(ct);
             services.GetRequiredService<ITenantDomainSource>().Invalidate();
         }

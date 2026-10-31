@@ -97,6 +97,28 @@ process. It resolves the host the same way requests are routed: a registered dom
 leading subdomain, so `acme.example.com` answers `acme` when an active tenant has that handle and no
 domain row claims the host. An unknown or inactive handle is a 404 either way.
 
+### Domain claims
+
+Each domain a tenant lists is also a `TenantDomain` row, keyed by the normalised host
+(`mt_doc_tenant_domains`). The key is the host, so two tenants cannot hold one domain: the second
+insert fails in the database and the write answers 409, even when two requests race past the check
+of `Tenant.Domains`. `Tenant.Domains` stays as the list of every claimed domain, pending or verified,
+and is written in the same transaction as the rows. The row decides routing: a listed domain with no
+verified row owned by that tenant routes nowhere.
+
+A row is `Pending` or `Verified`. A domain added through `POST /api/tenants` or `PUT
+/api/tenants/{handle}` is pending, with a token generated for that claim. A pending domain routes
+nowhere: `by-host`, `tls-ask` and CORS answer for it as for an unknown host. The tenant response lists
+each claim in `domainStates` with its status and the TXT record to publish. Domains from a seed file
+(`Seed:File`) are trusted and written as verified.
+
+Production runs `AutoCreate.CreateOnly`, so apply `migrations/5.5.0/1280-tenant-domains.sql` before
+upgrading. It creates the table and copies every domain already on a tenant as verified, so a domain
+that routed before keeps routing. A host two tenants both listed is skipped, because the map already
+routed it to neither; an operator decides which tenant keeps it. The map is cached for five minutes
+per instance and cleared at once only on the instance that took the write, so another instance can
+serve the old answer for up to 5 minutes.
+
 The same map can drive CORS and TLS, so adding a client's domain needs no config edit or restart.
 `CORS:AllowTenantDomains` (off by default) allows a browser on `https://` plus a registered domain,
 and `GET /api/tenants/tls-ask?domain={host}` answers a reverse proxy's on-demand TLS check. Both are
