@@ -138,7 +138,10 @@ would leave almost no account as "Facebook only".
   in the same commit as the sign-in. This covers a returning person whose sign-in stores no link
   (`Facebook:TrustUnverifiedEmail` matches them by address), and a person who has reached the
   second factor step. A sign-in that is refused does not count. If a choice or the sweep settles the
-  request at the same moment, one of the two wins and the sign-in itself is not affected.
+  request at the same moment, one of the two wins. Before it commits, the sign-in locks the request
+  row and reads the user again from the database. If the settle erased the account first, the
+  sign-in is refused (the same denied result as any refusal) and stores no token, link or profile.
+  If the sign-in locked first, the settle fails on the request's version and reads the winner.
 - A choice after the request settled changes nothing and returns the settled status. Two choices at
   once settle once (optimistic concurrency on the request), and both callers see the winner.
   The sweep is safe to run twice or on two nodes for the same reason. It takes the oldest 100 due

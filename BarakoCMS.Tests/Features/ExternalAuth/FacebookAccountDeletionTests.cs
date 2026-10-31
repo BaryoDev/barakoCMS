@@ -8,6 +8,7 @@ using Marten;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using NSubstitute;
 using Xunit;
 using barakoCMS.Models;
 
@@ -211,6 +212,53 @@ public class FacebookAccountDeletionTests
         profile.Name.Should().Be("Person");
         profile.FacebookKey.Should().Be(keyB);
         (await LinkExistsAsync(ExternalProviders.Facebook, b)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_sign_in_that_loaded_the_user_before_a_delete_settled_is_refused_and_stores_nothing()
+    {
+        var user = await NewUserAsync();
+        var facebook = await LinkAsync(ExternalProviders.Facebook, user.Id);
+        var (code, _) = await RequestDeletionAsync(facebook);
+        (await StatusOfAsync(code)).Should().Be("awaiting_choice");
+        (await LinkExistsAsync(ExternalProviders.Facebook, facebook)).Should().BeFalse("the sign-in finds the user by address");
+
+        // The second factor check runs after the sign-in has loaded the user and before it commits,
+        // so the person settles the request, deleting the account, in the gap.
+        var mfa = Substitute.For<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>();
+        mfa.IsEnabledAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(async (NSubstitute.Core.CallInfo _) =>
+        {
+            (await ChooseAsync(code, "delete_account")).State.Should().Be("completed");
+            return false;
+        });
+
+        SocialSignIn.Tokens tokens;
+        using (var scope = _host!.Services.CreateScope())
+        {
+            var services = scope.ServiceProvider;
+            var context = new Microsoft.AspNetCore.Http.DefaultHttpContext { RequestServices = services };
+            context.Request.Headers["User-Agent"] = "erased-sign-in-test";
+            (tokens, var emailNotVerified) = await SocialSignIn.IssueForIdentityAsync(
+                services.GetRequiredService<IDocumentSession>(),
+                services.GetRequiredService<IConfiguration>(),
+                services.GetRequiredService<barakoCMS.Core.Interfaces.IDeviceGate>(),
+                services.GetRequiredService<barakoCMS.Infrastructure.Auth.ITokenIssuer>(),
+                mfa,
+                context,
+                new OidcIdentity(ExternalProviders.Facebook, facebook, user.Email, true, "Person", null),
+                ExternalProviders.Facebook,
+                Tenant.DefaultSlug,
+                Ct,
+                profileOverride: new SocialSignIn.ProfileData("Person", null, "01/02/1990", null, ExternalProviders.Facebook));
+        }
+
+        tokens.Allowed.Should().BeFalse("the account was erased while the sign-in was in flight");
+        IsErased(await UserAsync(user.Id)).Should().BeTrue();
+        (await StatusOfAsync(code)).Should().Be("completed");
+        (await InSessionAsync(s => s.Query<RefreshToken>().Where(t => t.UserId == user.Id && !t.IsRevoked).CountAsync(Ct)))
+            .Should().Be(0, "no session for the erased account");
+        (await LinkExistsAsync(ExternalProviders.Facebook, facebook)).Should().BeFalse("no link to the erased account");
+        (await ProfileOfAsync(user.Id)).Should().BeNull("no Facebook data written back after completion");
     }
 
     [Fact]

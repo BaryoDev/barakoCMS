@@ -209,6 +209,38 @@ internal static class FacebookDeletionFlow
             userId.ToString());
     }
 
+    /// <summary>
+    /// Fences a sign-in against an erasure of the same account, and says whether it may go on.
+    /// Opens (or joins) the session's transaction, bumps the version of any request still awaiting a
+    /// choice for this user, which locks the row until the transaction ends and makes a settle that
+    /// read the row earlier fail its version check, then reads the user from the database and
+    /// returns false if it is erased. Nothing is changed but the version, so a sign-in the issuer
+    /// then refuses still leaves the request awaiting a choice. Returns false with nothing queued by
+    /// this call; the caller returns the denied result and saves nothing.
+    /// </summary>
+    /// <remarks>
+    /// Lock order: the request row first. A sign-in takes no advisory lock, so it cannot wait on the
+    /// per tenant lock that <see cref="UserEraser.IsProtectedAsync"/> holds while a settle waits on
+    /// this row. The mapped sign-in goes on to lock a membership row after this one.
+    /// </remarks>
+    public static async Task<bool> HoldPendingForSignInAsync(IDocumentSession session, Guid userId, CancellationToken ct)
+    {
+        await session.BeginTransactionAsync(ct);
+        var table = $"{session.DocumentStore.Options.DatabaseSchemaName}.mt_doc_facebook_deletion_requests";
+        await session.QueryAsync<int>(
+            $"""
+            with t as (
+                update {table}
+                set mt_version = md5(random()::text || clock_timestamp()::text)::uuid,
+                    mt_last_modified = transaction_timestamp()
+                where data ->> 'UserId' = ? and data ->> 'Status' = '{FacebookDeletionStatus.AwaitingChoice}'
+                returning 1)
+            select count(*)::int from t
+            """,
+            ct, userId.ToString());
+        return !await UserEraser.IsErasedAsync(session, userId, ct);
+    }
+
     /// <summary>How many due requests one page of the sweep reads. Settable so a test can use a small one.</summary>
     internal static int SweepPageSize { get; set; } = 100;
 

@@ -243,11 +243,23 @@ public static class SocialSignIn
         // provider account takeover would sidestep the second factor.
         if (await mfa.IsEnabledAsync(user.Id, ct))
         {
+            if (signUp is null && !await FacebookDeletionFlow.HoldPendingForSignInAsync(session, user.Id, ct))
+            {
+                return Tokens.Denied();
+            }
+
             FacebookDeletionFlow.StageKeepOnSignIn(session, user.Id);
             beforeFinalCommit?.Invoke(session);
             await session.SaveChangesAsync(ct); // persist the user/profile created above
             var challenge = await MfaChallengeAsync(session, config, user, tenantSlug, mapped, ct);
             return Tokens.MfaRequired(challenge);
+        }
+
+        // The profile and link are queued and the device gate may commit them, so an account erased
+        // since it was loaded is refused before that. A new account has no request to race.
+        if (signUp is null && !await FacebookDeletionFlow.HoldPendingForSignInAsync(session, user.Id, ct))
+        {
+            return Tokens.Denied();
         }
 
         var device = DeviceContext.From(http);
@@ -273,6 +285,13 @@ public static class SocialSignIn
         }
 
         var jwt = issued.Token;
+
+        // Again in the transaction that commits the token: the gate above may have committed and
+        // released the first hold, and the person may have been erased since.
+        if (signUp is null && !await FacebookDeletionFlow.HoldPendingForSignInAsync(session, user.Id, ct))
+        {
+            return Tokens.Denied();
+        }
 
         var refresh = StageRefreshToken(session, user, issued.RefreshLifetime, device.DeviceId);
         FacebookDeletionFlow.StageKeepOnSignIn(session, user.Id);
@@ -341,6 +360,11 @@ public static class SocialSignIn
         var tokens = await transaction.RunAsync<Tokens?>(async (scope, token) =>
         {
             var writes = scope.GetRequiredService<IDocumentSession>();
+            if (!await FacebookDeletionFlow.HoldPendingForSignInAsync(writes, user.Id, token))
+            {
+                return new barakoCMS.Infrastructure.Services.ContentBatchOutcome<Tokens?>(null, Commit: false);
+            }
+
             granted = await StageMappedRolesAsync(writes, user, tenantSlug, mapped, token);
             await writes.SaveChangesAsync(token);
 

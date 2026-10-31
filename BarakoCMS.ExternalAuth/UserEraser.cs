@@ -32,6 +32,27 @@ internal sealed class UserEraser(ISessionEpochService sessionEpoch)
 {
     public const string AuditAction = "user.erased";
 
+    private const string ErasedUsernamePrefix = "erased-";
+    private const string ErasedEmailSuffix = "@erased.invalid";
+
+    /// <summary>Whether the name and address are the ones an erasure leaves behind.</summary>
+    public static bool IsErased(string? username, string? email) =>
+        username is not null && email is not null
+        && username.StartsWith(ErasedUsernamePrefix, StringComparison.Ordinal)
+        && email.EndsWith(ErasedEmailSuffix, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Whether the stored user is erased, read from the database and not from the session's
+    /// identity map, so an object loaded before a concurrent erasure committed cannot answer for it.
+    /// A user with no stored row is not erased: it is one this request is creating.
+    /// </summary>
+    public static async Task<bool> IsErasedAsync(IQuerySession session, Guid userId, CancellationToken ct)
+    {
+        var stored = await session.Query<User>().Where(u => u.Id == userId)
+            .Select(u => new { u.Username, u.Email }).FirstOrDefaultAsync(ct);
+        return stored is not null && IsErased(stored.Username, stored.Email);
+    }
+
     private static readonly string[] PlatformCapabilities =
     [
         SystemCapabilities.All, SystemCapabilities.ManageRoles, SystemCapabilities.ManagePlatformRoles,
@@ -142,8 +163,8 @@ internal sealed class UserEraser(ISessionEpochService sessionEpoch)
         }
 
         var token = id.ToString("N");
-        user.Username = $"erased-{token}";
-        user.Email = $"erased-{token}@erased.invalid";
+        user.Username = ErasedUsernamePrefix + token;
+        user.Email = $"{ErasedUsernamePrefix}{token}{ErasedEmailSuffix}";
         user.DisplayName = null;
         user.PasswordHash = string.Empty;
         user.RoleIds = [];
