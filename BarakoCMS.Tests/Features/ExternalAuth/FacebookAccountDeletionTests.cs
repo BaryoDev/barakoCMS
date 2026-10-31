@@ -103,7 +103,7 @@ public class FacebookAccountDeletionTests
     {
         var response = await Client().PostAsJsonAsync($"/api/auth/facebook/data-deletion/status/{code}", new { choice }, Ct);
         var body = response.Content.Headers.ContentLength == 0 ? default : await response.Content.ReadFromJsonAsyncElement();
-        string? state = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("status", out var s) ? s.GetString() : null;
+        string? state = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("status", out var s) && s.ValueKind == JsonValueKind.String ? s.GetString() : null;
         return (response.StatusCode, state, body);
     }
 
