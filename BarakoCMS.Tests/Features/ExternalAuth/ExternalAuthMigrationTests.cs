@@ -87,8 +87,9 @@ public class ExternalAuthMigrationTests
         var ct = TestContext.Current.CancellationToken;
         using var scope = _factory.Services.CreateScope();
         var store = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
-        var mapping = (Marten.Schema.DocumentMapping)((DocumentStore)store).Options.Storage.FindFeature(document);
-        var declared = mapping.Indexes.Select(i => i.Name).Order().ToList();
+        var feature = ((DocumentStore)store).Options.Storage.FindFeature(document);
+        var declared = feature.Objects.OfType<Weasel.Postgresql.Tables.Table>().Single()
+            .Indexes.Select(i => i.Name).Order().ToList();
 
         var sql = await File.ReadAllTextAsync(Path.Combine(RepositoryRoot(), "migrations", version, file + ".sql"), ct);
         var created = System.Text.RegularExpressions.Regex
