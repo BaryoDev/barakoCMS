@@ -196,12 +196,12 @@ public class FacebookDataDeletionTests
         Client().PostAsync("/api/auth/facebook/data-deletion", new FormUrlEncodedContent(
             signedRequest is null ? [] : [new KeyValuePair<string, string>("signed_request", signedRequest)]), Ct);
 
-    private async Task<ExternalIdentity> LinkAsync(string provider, string subject, Guid userId)
+    private async Task<ExternalIdentity> LinkAsync(string provider, string subject, Guid userId, DateTime? linkedAt = null)
     {
         var link = new ExternalIdentity
         {
             Id = ExternalIdentity.KeyOf(provider, subject), Issuer = provider, Subject = subject,
-            UserId = userId, Provider = provider,
+            UserId = userId, Provider = provider, LinkedAt = linkedAt ?? DateTime.UtcNow,
         };
         using var scope = _fixture.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
@@ -264,6 +264,40 @@ public class FacebookDataDeletionTests
         (await ExistsAsync(link)).Should().BeTrue("a request that does not verify removes nothing");
         (await PostAsync(SignedRequests.For(mine))).StatusCode.Should().Be(HttpStatusCode.OK, "the same user with a good request is removed");
         (await ExistsAsync(link)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_request_issued_before_the_link_was_made_changes_nothing_and_one_issued_after_removes_it()
+    {
+        var mine = NewFacebookId();
+        var person = Guid.NewGuid();
+        // The person linked Facebook again an hour ago.
+        var link = await LinkAsync(ExternalProviders.Facebook, mine, person, DateTime.UtcNow.AddHours(-1));
+        var profile = new SocialProfile { Id = Guid.NewGuid(), UserId = person, Birthday = "01/02/1990", Source = "facebook" };
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(profile);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var stale = await PostAsync(SignedRequests.For(mine, issuedAt: DateTimeOffset.UtcNow.AddHours(-3).ToUnixTimeSeconds()));
+
+        stale.StatusCode.Should().Be(HttpStatusCode.OK, "it answers as usual");
+        (await ExistsAsync(link)).Should().BeTrue("the request predates this link");
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            (await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<SocialProfile>(profile.Id, Ct))
+                .Should().NotBeNull("the profile is left alone too");
+        }
+
+        var code = (await stale.Content.ReadFromJsonAsyncElement()).GetProperty("confirmation_code").GetString();
+        (await Client().GetAsync($"/api/auth/facebook/data-deletion/status/{code}", Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var fresh = await PostAsync(SignedRequests.For(mine, issuedAt: DateTimeOffset.UtcNow.AddMinutes(-1).ToUnixTimeSeconds()));
+
+        fresh.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await ExistsAsync(link)).Should().BeFalse("a request issued after the link removes it");
     }
 
     [Fact]

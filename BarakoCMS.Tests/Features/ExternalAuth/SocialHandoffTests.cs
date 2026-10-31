@@ -577,4 +577,119 @@ public class SocialHandoffTests
         kept!.Username.Should().Be(user.Username, "the account is still there");
         (await DeletionRequestAsync(code)).Status.Should().Be(FacebookDeletionStatus.Kept);
     }
+
+    // ---- the profile a deletion request clears ----
+
+    private async Task<SocialProfile?> ProfileOfAsync(Guid userId)
+    {
+        using var scope = _fixture.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<IQuerySession>()
+            .Query<SocialProfile>().FirstOrDefaultAsync(p => p.UserId == userId, Ct);
+    }
+
+    /// <summary>An existing account with a password, so a trusted-address sign-in stores no link.</summary>
+    private async Task<User> ExistingUserAsync()
+    {
+        var user = new User { Id = Guid.NewGuid(), Email = $"{Unique("p")}@example.com", Username = Unique("p"), PasswordHash = "x" };
+        await StoreAsync(user);
+        return user;
+    }
+
+    private async Task SignInAsync(string provider, string email, string? facebookId = null)
+    {
+        NewAccount(provider, email);
+        if (facebookId is not null) _oauth!.FacebookId = facebookId;
+        (await CallbackAsync(_default!, provider, device: null)).Headers.Location!.ToString()
+            .Should().StartWith($"{BaseUrl}/auth/social#token=");
+    }
+
+    [Fact]
+    public async Task Facebook_then_google_a_deletion_request_clears_facebooks_fields_and_keeps_googles()
+    {
+        var user = await ExistingUserAsync();
+        var facebookId = Unique("fb");
+        _oauth!.FacebookBirthday = "01/02/1990";
+        _oauth.FacebookLocation = "Manila";
+        try
+        {
+            await SignInAsync("facebook", user.Email, facebookId);
+            var afterFacebook = await ProfileOfAsync(user.Id);
+            afterFacebook!.Birthday.Should().Be("01/02/1990");
+            afterFacebook.FacebookKey.Should().Be(ExternalIdentity.KeyOf(ExternalProviders.Facebook, facebookId))
+                .And.NotContain(facebookId, "the raw Facebook id is not stored");
+
+            await SignInAsync("google", user.Email);
+            (await ProfileOfAsync(user.Id))!.Source.Should().Be("google");
+
+            await RequestFacebookDeletionAsync(facebookId);
+
+            var after = await ProfileOfAsync(user.Id);
+            after.Should().NotBeNull("Google's name is not Facebook's to remove");
+            after!.Name.Should().Be("Gee Person");
+            after.Birthday.Should().BeNull();
+            after.Location.Should().BeNull();
+        }
+        finally
+        {
+            _oauth.FacebookBirthday = null;
+            _oauth.FacebookLocation = null;
+        }
+    }
+
+    [Fact]
+    public async Task Google_then_facebook_a_deletion_request_keeps_the_name_google_supplied()
+    {
+        var user = await ExistingUserAsync();
+        var facebookId = Unique("fb");
+        _oauth!.FacebookBirthday = "01/02/1990";
+        _oauth.FacebookName = null;
+        try
+        {
+            await SignInAsync("google", user.Email);
+            await SignInAsync("facebook", user.Email, facebookId);
+            (await ProfileOfAsync(user.Id))!.Birthday.Should().Be("01/02/1990");
+
+            await RequestFacebookDeletionAsync(facebookId);
+
+            var after = await ProfileOfAsync(user.Id);
+            after.Should().NotBeNull("the row also holds what Google supplied");
+            after!.Name.Should().Be("Gee Person");
+            after.Birthday.Should().BeNull();
+        }
+        finally
+        {
+            _oauth.FacebookBirthday = null;
+            _oauth.FacebookName = "Eff Bee";
+        }
+    }
+
+    [Fact]
+    public async Task A_facebook_profile_is_removed_when_the_sign_in_stored_no_link()
+    {
+        var user = await ExistingUserAsync();
+        var facebookId = Unique("fb");
+        _oauth!.FacebookBirthday = "01/02/1990";
+        try
+        {
+            await SignInAsync("facebook", user.Email, facebookId);
+            using (var scope = _fixture.Services.CreateScope())
+            {
+                (await scope.ServiceProvider.GetRequiredService<IQuerySession>()
+                    .LoadAsync<ExternalIdentity>(ExternalIdentity.KeyOf(ExternalProviders.Facebook, facebookId), Ct))
+                    .Should().BeNull("a trusted address links nothing");
+            }
+
+            var code = await RequestFacebookDeletionAsync(facebookId);
+
+            (await ProfileOfAsync(user.Id)).Should().BeNull("Facebook filled all of it");
+            (await DeletionRequestAsync(code)).Status.Should().Be(FacebookDeletionStatus.Completed, "no window opens without a link");
+            using var check = _fixture.Services.CreateScope();
+            (await check.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<User>(user.Id, Ct))!
+                .Username.Should().Be(user.Username);
+        }
+        finally
+        {
+            _oauth.FacebookBirthday = null;
+        }
+    }
 }

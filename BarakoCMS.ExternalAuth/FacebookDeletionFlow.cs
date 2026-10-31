@@ -61,24 +61,57 @@ internal static class FacebookDeletionFlow
     /// Removes the Facebook link and the profile Facebook filled (queued on
     /// <paramref name="session"/>) and returns the request to store. The caller saves.
     /// </summary>
+    /// <param name="issuedAt">
+    /// When Facebook issued the request, or null when it did not say. A request issued before the
+    /// current link was made (the person linked Facebook again since) removes nothing: it is about
+    /// an account link that no longer exists. This narrows replay of a captured body to the time
+    /// after the link was made; it does not stop a replay inside that time.
+    /// </param>
     public static async Task<FacebookDeletionRequest> OpenAsync(
-        IDocumentSession session, IConfiguration config, string facebookUserId, string requestId, CancellationToken ct)
+        IDocumentSession session, IConfiguration config, string facebookUserId, string requestId,
+        DateTime? issuedAt, CancellationToken ct)
     {
         var request = new FacebookDeletionRequest { Id = requestId };
         var linkId = ExternalIdentity.KeyOf(ExternalProviders.Facebook, facebookUserId);
         var link = await session.LoadAsync<ExternalIdentity>(linkId, ct);
+        // issued_at has whole seconds, so the link time is cut to the second too: a request issued
+        // in the second of a relink is not told apart from one issued just after it.
+        if (link is not null && issuedAt is { } issued
+            && issued < link.LinkedAt.AddTicks(-(link.LinkedAt.Ticks % TimeSpan.TicksPerSecond)))
+        {
+            return request;
+        }
+
+        // What Facebook shared goes with the request whatever happens to the account, and whether
+        // or not a link exists: an address the operator trusts signs in without storing one, so
+        // the profile is also found by the key it recorded. A row from before that key was stored
+        // is found through the link only. Only the fields Facebook supplied are cleared.
+        var profiles = (await session.Query<SocialProfile>().Where(p => p.FacebookKey == linkId).ToListAsync(ct)).ToList();
+        if (link is not null && profiles.All(p => p.UserId != link.UserId))
+        {
+            var owner = link.UserId;
+            profiles.AddRange(await session.Query<SocialProfile>().Where(p => p.UserId == owner).ToListAsync(ct));
+        }
+
+        foreach (var profile in profiles)
+        {
+            if (SocialProfileFields.ClearAndAnyLeft(profile, SocialProfileFields.FacebookFieldsOf(profile)))
+            {
+                profile.FacebookKey = null;
+                session.Store(profile);
+            }
+            else
+            {
+                session.Delete(profile);
+            }
+        }
+
         if (link is null)
         {
             return request;
         }
 
         session.Delete(link);
-
-        // What Facebook shared (name, photo, birthday, location) goes with the request whatever
-        // happens to the account. A profile another provider last filled is not Facebook's to
-        // remove here.
-        var userId = link.UserId;
-        session.DeleteWhere<SocialProfile>(p => p.UserId == userId && p.Source == FacebookProfileSource);
 
         var user = await session.LoadAsync<User>(link.UserId, ct);
         if (user is not null && !await HasOtherLoginAsync(session, user, linkId, ct))

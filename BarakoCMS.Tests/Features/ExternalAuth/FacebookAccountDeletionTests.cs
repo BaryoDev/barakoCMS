@@ -178,7 +178,10 @@ public class FacebookAccountDeletionTests
         var (code, _) = await RequestDeletionAsync(facebook);
 
         (await StatusOfAsync(code)).Should().Be(hasOtherLogin ? "completed" : "awaiting_choice");
-        (await ProfileOfAsync(user.Id) is not null).Should().Be(survives);
+        var profile = await ProfileOfAsync(user.Id);
+        (profile is not null).Should().Be(survives);
+        // A row from before fields were tracked: Birthday only ever comes from Facebook.
+        profile?.Birthday.Should().BeNull();
         IsErased(await UserAsync(user.Id)).Should().BeFalse("the account was not erased by the request itself");
     }
 

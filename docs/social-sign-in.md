@@ -101,8 +101,13 @@ route:
 - checks the HMAC-SHA256 signature with `Facebook:AppSecret` (constant-time compare), and answers
   `400` for a missing, oversized (over 4096 characters), badly encoded, wrongly signed or
   other-algorithm request, removing nothing. A request whose `issued_at` is older than 24 hours,
-  more than 5 minutes ahead of the server clock, or not a number gets the same `400`, so a
-  captured body cannot be replayed later. A payload with no `issued_at` is still accepted,
+  more than 5 minutes ahead of the server clock, or not a number gets the same `400`. A payload
+  with no `issued_at` is still accepted, since only Facebook can sign one,
+- leaves everything alone, and still answers `200`, when `issued_at` is earlier than the person's
+  current Facebook link (they linked again since): no removal and no choice window. Together with
+  the 24 hour limit this narrows replay of a captured body to the time after the link was made. It
+  does not stop a replay inside that time (the route keeps no record of bodies it has seen), and
+  a relink in the same second as the request is not told apart,
 - removes that person's Facebook link (`oauth:facebook` and their Facebook id) at once,
 - answers `200` with `{ "url": "{App:BaseUrl}/api/auth/facebook/data-deletion/status/{code}", "confirmation_code": "{code}" }`.
 
@@ -158,10 +163,20 @@ issued stop working through the session epoch and the unique username and email 
   accounting entries, diagnostics client errors).
 - Added: one `user.erased` audit entry with the user id and a reason, and no Facebook user id.
 
-The social profile is removed with the Facebook link when its source is Facebook, whatever happens
-to the account: with another login, or while the person is still choosing, the link and the
-Facebook profile go and the account stays. A profile last filled by another provider is left alone.
-It is removed with everything else only when the account is erased.
+A deletion request also clears what Facebook put in the social profile (name, photo, birthday,
+location), whatever happens to the account: with another login, or while the person is still
+choosing, the link and those fields go and the account stays. The profile records which fields
+Facebook supplied last, so a field a later provider overwrote (Google's name, say) is left alone,
+and the row is deleted only when nothing else is in it. The profile also records a hash of the
+Facebook account (the same key as the link, never the raw id), so it is found and cleared even when
+no link exists, which is the case when `Facebook:TrustUnverifiedEmail` signs a person in to an
+account by address. A request with no link opens no choice window and does not touch the account.
+Profiles written before this was recorded have no key, so a request cannot find them without a
+link. When a link exists they are found through it. A profile with no field tracking is read as
+follows: if Facebook wrote it last, everything in it is Facebook's; otherwise the birthday is
+cleared (only Facebook supplies one) and so is the location unless GitHub wrote last (GitHub also
+supplies one). Name and photo are kept, since every provider supplies them. The profile is removed
+with everything else when the account is erased.
 
 ### Rate limit and settings
 

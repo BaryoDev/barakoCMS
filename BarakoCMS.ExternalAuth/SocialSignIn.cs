@@ -36,7 +36,15 @@ public static class SocialSignIn
 
     /// <summary>Profile fields a provider shared (any may be null). Only non-null values are stored.</summary>
     public sealed record ProfileData(
-        string? Name, string? PhotoUrl, string? Birthday, string? Location, string Source);
+        string? Name, string? PhotoUrl, string? Birthday, string? Location, string Source)
+    {
+        /// <summary>
+        /// <see cref="ExternalIdentity.KeyOf"/> of the provider account, set by the sign-in so the
+        /// stored profile can be found again from a provider id (a deletion request has nothing
+        /// else). Never the raw provider id.
+        /// </summary>
+        public string? AccountKey { get; init; }
+    }
 
     /// <summary>
     /// Sign-in through one of the OAuth providers (Google, Facebook, GitHub, LinkedIn). It names the
@@ -158,7 +166,8 @@ public static class SocialSignIn
 
         var mapped = await MappedRolesAsync(session, config, identity, provider, club, ct);
 
-        var profile = profileOverride ?? new ProfileData(identity.Name, identity.Picture, null, null, provider);
+        var profile = (profileOverride ?? new ProfileData(identity.Name, identity.Picture, null, null, provider))
+            with { AccountKey = key };
         return (await IssueForUserAsync(
             session, config, deviceGate, tokenIssuer, mfa, http, user, club, created ? signUp : null, ct, profile, beforeFinalCommit, mapped), false);
     }
@@ -400,10 +409,39 @@ public static class SocialSignIn
     {
         var sp = await session.Query<SocialProfile>().FirstOrDefaultAsync(p => p.UserId == user.Id, ct)
                  ?? new SocialProfile { Id = Guid.NewGuid(), UserId = user.Id };
-        sp.Name = profile.Name ?? sp.Name;
-        sp.PhotoUrl = profile.PhotoUrl ?? sp.PhotoUrl;
-        sp.Birthday = profile.Birthday ?? sp.Birthday;
-        sp.Location = profile.Location ?? sp.Location;
+        // Which fields Facebook last supplied, so a deletion request clears those and nothing a
+        // later provider wrote. Read before the merge, because a row from before this tracking
+        // is worked out from what it holds.
+        var facebook = SocialProfileFields.FacebookFieldsOf(sp);
+        var fromFacebook = profile.Source == FacebookDeletionFlow.FacebookProfileSource;
+        void Merge(string field, string? value, Action<string> set)
+        {
+            if (value is null)
+            {
+                return;
+            }
+
+            set(value);
+            if (fromFacebook)
+            {
+                facebook.Add(field);
+            }
+            else
+            {
+                facebook.Remove(field);
+            }
+        }
+
+        Merge(nameof(SocialProfile.Name), profile.Name, v => sp.Name = v);
+        Merge(nameof(SocialProfile.PhotoUrl), profile.PhotoUrl, v => sp.PhotoUrl = v);
+        Merge(nameof(SocialProfile.Birthday), profile.Birthday, v => sp.Birthday = v);
+        Merge(nameof(SocialProfile.Location), profile.Location, v => sp.Location = v);
+        sp.FacebookFields = facebook.Order().ToList();
+        if (fromFacebook && profile.AccountKey is not null)
+        {
+            sp.FacebookKey = profile.AccountKey;
+        }
+
         sp.Source = profile.Source;
         sp.UpdatedAt = DateTime.UtcNow;
         session.Store(sp);
@@ -522,5 +560,88 @@ public class SocialProfile
 
     /// <summary>Which provider last populated this (e.g. "facebook", "linkedin").</summary>
     public string? Source { get; set; }
+
+    /// <summary>
+    /// The fields (property names) whose current value Facebook supplied. A field another provider
+    /// overwrote is not listed. Null on a row written before this was tracked.
+    /// </summary>
+    public List<string>? FacebookFields { get; set; }
+
+    /// <summary>
+    /// <see cref="ExternalIdentity.KeyOf"/> of the Facebook account that filled this, so a deletion
+    /// request can find the profile even when no link row exists (an address the operator trusts
+    /// signs in without storing one). Null on a row written before this was stored.
+    /// </summary>
+    public string? FacebookKey { get; set; }
     public DateTime UpdatedAt { get; set; }
+}
+
+/// <summary>Which of a <see cref="SocialProfile"/>'s fields Facebook supplied.</summary>
+internal static class SocialProfileFields
+{
+    public static readonly string[] All =
+    [
+        nameof(SocialProfile.Name), nameof(SocialProfile.PhotoUrl),
+        nameof(SocialProfile.Birthday), nameof(SocialProfile.Location),
+    ];
+
+    private static string? ValueOf(SocialProfile sp, string field) => field switch
+    {
+        nameof(SocialProfile.Name) => sp.Name,
+        nameof(SocialProfile.PhotoUrl) => sp.PhotoUrl,
+        nameof(SocialProfile.Birthday) => sp.Birthday,
+        _ => sp.Location,
+    };
+
+    /// <summary>
+    /// The fields Facebook supplied. Tracked rows say so. For a row from before tracking: when
+    /// Facebook wrote it last, every field it holds; otherwise only the ones no other provider
+    /// supplies. Birthday comes only from Facebook. Location comes from Facebook and GitHub, so a
+    /// row GitHub wrote last keeps it (it may be GitHub's), and one Google or LinkedIn wrote last
+    /// loses it (they share none). Name and photo come from every provider and are kept.
+    /// </summary>
+    public static HashSet<string> FacebookFieldsOf(SocialProfile sp)
+    {
+        if (sp.FacebookFields is { } tracked)
+        {
+            return [.. tracked];
+        }
+
+        var set = new HashSet<string>();
+        var facebookLast = sp.Source == FacebookDeletionFlow.FacebookProfileSource;
+        foreach (var field in All)
+        {
+            if (ValueOf(sp, field) is null)
+            {
+                continue;
+            }
+
+            var facebooks = facebookLast || field == nameof(SocialProfile.Birthday)
+                || (field == nameof(SocialProfile.Location) && sp.Source != "github");
+            if (facebooks)
+            {
+                set.Add(field);
+            }
+        }
+
+        return set;
+    }
+
+    /// <summary>Clears <paramref name="fields"/> and says whether the profile still holds anything.</summary>
+    public static bool ClearAndAnyLeft(SocialProfile sp, IEnumerable<string> fields)
+    {
+        foreach (var field in fields)
+        {
+            switch (field)
+            {
+                case nameof(SocialProfile.Name): sp.Name = null; break;
+                case nameof(SocialProfile.PhotoUrl): sp.PhotoUrl = null; break;
+                case nameof(SocialProfile.Birthday): sp.Birthday = null; break;
+                case nameof(SocialProfile.Location): sp.Location = null; break;
+            }
+        }
+
+        sp.FacebookFields = [];
+        return All.Any(f => ValueOf(sp, f) is not null);
+    }
 }

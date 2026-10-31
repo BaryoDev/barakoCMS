@@ -65,7 +65,14 @@ internal static class FacebookSignedRequest
     /// carries an <c>issued_at</c> that is not a number, is older than <see cref="MaxAge"/> or is
     /// more than <see cref="MaxSkew"/> ahead of <paramref name="now"/> (the clock, for tests).
     /// </summary>
-    public static string? UserIdOf(string? signedRequest, string? secret, DateTimeOffset? now = null)
+    public static string? UserIdOf(string? signedRequest, string? secret, DateTimeOffset? now = null) =>
+        Parse(signedRequest, secret, now)?.UserId;
+
+    /// <summary>
+    /// Like <see cref="UserIdOf"/>, and also returns when Facebook issued the request (null when the
+    /// payload has no <c>issued_at</c>).
+    /// </summary>
+    public static (string UserId, DateTime? IssuedAt)? Parse(string? signedRequest, string? secret, DateTimeOffset? now = null)
     {
         if (string.IsNullOrEmpty(signedRequest) || signedRequest.Length > MaxLength || string.IsNullOrEmpty(secret))
         {
@@ -102,6 +109,7 @@ internal static class FacebookSignedRequest
             // since the epoch) in every callback, so an old or future one is refused, the same
             // way a bad signature is. A payload without it is still accepted: only Facebook can
             // sign one, and refusing it would risk real callbacks if a request ever omits it.
+            DateTime? issuedAtUtc = null;
             if (root.TryGetProperty("issued_at", out var issued))
             {
                 var seconds = (now ?? DateTimeOffset.UtcNow).ToUnixTimeSeconds();
@@ -111,10 +119,12 @@ internal static class FacebookSignedRequest
                 {
                     return null;
                 }
+
+                issuedAtUtc = DateTimeOffset.FromUnixTimeSeconds(issuedAt).UtcDateTime;
             }
 
             var id = user.GetString();
-            return string.IsNullOrWhiteSpace(id) || id.Length > MaxUserIdLength ? null : id;
+            return string.IsNullOrWhiteSpace(id) || id.Length > MaxUserIdLength ? null : (id, issuedAtUtc);
         }
         catch (JsonException)
         {
@@ -202,8 +212,8 @@ internal sealed class FacebookDataDeletionEndpoint(IDocumentSession session, ICo
             return;
         }
 
-        var facebookUserId = FacebookSignedRequest.UserIdOf(req.SignedRequest, secret);
-        if (facebookUserId is null)
+        var parsed = FacebookSignedRequest.Parse(req.SignedRequest, secret);
+        if (parsed is not var (facebookUserId, issuedAt))
         {
             ThrowError("The signed request is not valid.");
             return;
@@ -212,7 +222,7 @@ internal sealed class FacebookDataDeletionEndpoint(IDocumentSession session, ICo
         // The raw code goes to Facebook in this response and nowhere else. It can settle an account
         // deletion, so only its hash is stored.
         var code = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
-        var request = await FacebookDeletionFlow.OpenAsync(session, config, facebookUserId, FacebookDeletionFlow.HashOf(code), ct);
+        var request = await FacebookDeletionFlow.OpenAsync(session, config, facebookUserId, FacebookDeletionFlow.HashOf(code), issuedAt, ct);
         session.Store(request);
         await session.SaveChangesAsync(ct);
 
