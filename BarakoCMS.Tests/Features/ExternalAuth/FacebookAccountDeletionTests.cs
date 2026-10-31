@@ -233,6 +233,115 @@ public class FacebookAccountDeletionTests
         (await ProfileOfAsync(user.Id)).Should().BeNull("no Facebook data written back after completion");
     }
 
+    /// <summary>A Facebook only account whose request awaits a choice, with no link left.</summary>
+    private async Task<(User User, string Facebook, string Code)> AwaitingWithoutLinkAsync()
+    {
+        var (user, facebook, code) = await AwaitingAsync();
+        (await LinkExistsAsync(ExternalProviders.Facebook, facebook)).Should().BeFalse("the sign-in finds the user by address");
+        return (user, facebook, code);
+    }
+
+    private async Task<SocialSignIn.Tokens> IssueAsync(
+        User user, string facebook, barakoCMS.Infrastructure.Auth.Mfa.IMfaService mfa,
+        Func<IDocumentSession, barakoCMS.Core.Interfaces.IDeviceGate>? gate = null, string club = "",
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? claims = null)
+    {
+        using var scope = _host!.Services.CreateScope();
+        var services = scope.ServiceProvider;
+        var session = services.GetRequiredService<IDocumentSession>();
+        var context = new Microsoft.AspNetCore.Http.DefaultHttpContext { RequestServices = services };
+        context.Request.Headers["User-Agent"] = "erased-sign-in-test";
+        var (tokens, _) = await SocialSignIn.IssueForIdentityAsync(
+            session,
+            services.GetRequiredService<IConfiguration>(),
+            gate?.Invoke(session) ?? services.GetRequiredService<barakoCMS.Core.Interfaces.IDeviceGate>(),
+            services.GetRequiredService<barakoCMS.Infrastructure.Auth.ITokenIssuer>(),
+            mfa,
+            context,
+            new OidcIdentity(ExternalProviders.Facebook, facebook, user.Email, true, "Person", null)
+            {
+                Claims = claims ?? new Dictionary<string, IReadOnlyList<string>>(),
+            },
+            ExternalProviders.Facebook,
+            club,
+            Ct,
+            profileOverride: new SocialSignIn.ProfileData("Person", null, "01/02/1990", null, ExternalProviders.Facebook));
+        return tokens;
+    }
+
+    private async Task AssertNothingStoredForAsync(User user, string facebook, string code)
+    {
+        IsErased(await UserAsync(user.Id)).Should().BeTrue();
+        (await StatusOfAsync(code)).Should().Be("completed");
+        (await InSessionAsync(s => s.Query<RefreshToken>().Where(t => t.UserId == user.Id && !t.IsRevoked).CountAsync(Ct)))
+            .Should().Be(0, "no session for the erased account");
+        (await LinkExistsAsync(ExternalProviders.Facebook, facebook)).Should().BeFalse("no link to the erased account");
+        (await ProfileOfAsync(user.Id)).Should().BeNull("no Facebook data written back after completion");
+    }
+
+    [Fact]
+    public async Task An_mfa_sign_in_that_loaded_the_user_before_a_delete_settled_gets_no_challenge_and_stores_nothing()
+    {
+        var (user, facebook, code) = await AwaitingWithoutLinkAsync();
+        var mfa = Substitute.For<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>();
+        mfa.IsEnabledAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(async (NSubstitute.Core.CallInfo _) =>
+        {
+            (await ChooseAsync(code, "delete_account")).State.Should().Be("completed");
+            return true;
+        });
+
+        var tokens = await IssueAsync(user, facebook, mfa);
+
+        tokens.Allowed.Should().BeFalse();
+        tokens.RequiresMfa.Should().BeFalse("no challenge is issued for an erased account");
+        tokens.MfaChallenge.Should().BeNull();
+        await AssertNothingStoredForAsync(user, facebook, code);
+    }
+
+    [Fact]
+    public async Task A_mapped_sign_in_that_loaded_the_user_before_a_delete_settled_is_refused_in_the_grant_transaction()
+    {
+        // The settle runs in the device gate, which the sign-in calls after its first guard and
+        // before the grant transaction. A real gate commits the session there, so this one does too.
+        var slug = Unique("map");
+        var role = new Role { Id = Guid.NewGuid(), Name = Unique("Teacher"), TenantSlug = slug, Permissions = [], SystemCapabilities = [] };
+        await InSessionAsync(async s =>
+        {
+            s.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug });
+            s.Store(role);
+            s.Store(new ExternalRoleMap
+            {
+                Id = slug, Claim = "groups",
+                Rules = [new ExternalRoleRule { Provider = ExternalProviders.Facebook, Value = "staff", RoleId = role.Id }],
+            });
+            return 0;
+        });
+        var (user, facebook, code) = await AwaitingWithoutLinkAsync();
+        var mfa = Substitute.For<barakoCMS.Infrastructure.Auth.Mfa.IMfaService>();
+        mfa.IsEnabledAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(false);
+
+        barakoCMS.Core.Interfaces.IDeviceGate Gate(IDocumentSession session)
+        {
+            var gate = Substitute.For<barakoCMS.Core.Interfaces.IDeviceGate>();
+            gate.TrustOnOtpAsync(Arg.Any<User>(), Arg.Any<barakoCMS.Infrastructure.DeviceContext>(), Arg.Any<CancellationToken>())
+                .Returns(async (NSubstitute.Core.CallInfo _) =>
+                {
+                    await session.SaveChangesAsync(Ct);
+                    (await ChooseAsync(code, "delete_account")).State.Should().Be("completed");
+                    return (IReadOnlyList<System.Security.Claims.Claim>)[];
+                });
+            return gate;
+        }
+
+        var tokens = await IssueAsync(user, facebook, mfa, Gate, slug,
+            new Dictionary<string, IReadOnlyList<string>> { ["groups"] = ["staff"] });
+
+        tokens.Allowed.Should().BeFalse();
+        (await InSessionAsync(s => s.Query<Membership>().Where(m => m.UserId == user.Id).CountAsync(Ct)))
+            .Should().Be(0, "nothing was granted");
+        await AssertNothingStoredForAsync(user, facebook, code);
+    }
+
     [Fact]
     public async Task With_facebook_as_the_only_login_the_link_goes_at_once_and_the_request_awaits_a_choice()
     {
