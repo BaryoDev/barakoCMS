@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
 using Marten;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using barakoCMS.Models;
@@ -13,7 +14,22 @@ namespace BarakoCMS.Tests.Numbering;
 [Collection("Integration1")]
 public class NumberedFieldKeptTests(IntegrationTestFixture factory)
 {
-    private async Task<HttpClient> AdminAsync()
+    private static readonly Lock HostGate = new();
+    private static WebApplicationFactory<Program>? _relaxed;
+
+    private WebApplicationFactory<Program> RelaxedHost()
+    {
+        lock (HostGate)
+        {
+            return _relaxed ??= factory.WithSettings(new Dictionary<string, string?>
+            {
+                ["Lifecycle:EnforceTransitions"] = "false",
+                ["Lifecycle:AllowSelfTransition:Submit"] = "true",
+            });
+        }
+    }
+
+    private async Task<HttpClient> AdminAsync(WebApplicationFactory<Program>? host = null)
     {
         using var scope = factory.Services.CreateScope();
         var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
@@ -36,13 +52,13 @@ public class NumberedFieldKeptTests(IntegrationTestFixture factory)
         });
         await s.SaveChangesAsync();
 
-        var c = factory.CreateClient();
+        var c = (host ?? factory).CreateClient();
         c.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
             "Bearer", factory.CreateToken(roles: ["SuperAdmin", "Admin"], userId: userId.ToString()));
         return c;
     }
 
-    private async Task<string> StoreTypeAsync(bool numbered)
+    private async Task<string> StoreTypeAsync(bool numbered, bool lifecycle = false)
     {
         var type = $"nk_{Guid.NewGuid():n}"[..16];
         using var scope = factory.Services.CreateScope();
@@ -55,6 +71,14 @@ public class NumberedFieldKeptTests(IntegrationTestFixture factory)
                 new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" },
                 new FieldDefinition { Name = "InvoiceNo", DisplayName = "Invoice no", Type = "string" },
             ],
+            Lifecycle = lifecycle
+                ? new LifecycleDefinition
+                {
+                    States = ["Draft", "Submitted"],
+                    InitialState = "Draft",
+                    Transitions = [new StateTransition { Name = "Submit", From = "Draft", To = "Submitted" }],
+                }
+                : null,
             Numbering = numbered ? new NumberingRule { Field = "InvoiceNo", Prefix = "INV-", Padding = 4 } : null,
         });
         await s.SaveChangesAsync();
@@ -232,5 +256,43 @@ public class NumberedFieldKeptTests(IntegrationTestFixture factory)
 
         put.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", put.StatusCode, await put.Content.ReadAsStringAsync());
         (await StoredNumberAsync(id)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_put_with_a_blank_number_is_refused()
+    {
+        var client = await AdminAsync();
+        var type = await StoreTypeAsync(numbered: true);
+        var id = await CreateAsync(client, type);
+        var number = await StoredNumberAsync(id);
+        number.Should().StartWith("INV-");
+
+        var put = await client.PutAsJsonAsync($"/api/contents/{id}", new
+        {
+            data = new Dictionary<string, object> { ["Title"] = "second", ["InvoiceNo"] = "" },
+        });
+
+        put.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await StoredNumberAsync(id)).Should().Be(number);
+    }
+
+    [Fact]
+    public async Task A_transition_with_another_number_is_refused()
+    {
+        var client = await AdminAsync(RelaxedHost());
+        var type = await StoreTypeAsync(numbered: true, lifecycle: true);
+        var id = await CreateAsync(client, type);
+        var number = await StoredNumberAsync(id);
+        number.Should().StartWith("INV-");
+
+        var move = await client.PutAsJsonAsync($"/api/contents/{id}/status", new
+        {
+            id,
+            transition = "Submit",
+            data = new Dictionary<string, object> { ["InvoiceNo"] = "INV-9999" },
+        });
+
+        move.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await StoredNumberAsync(id)).Should().Be(number);
     }
 }
