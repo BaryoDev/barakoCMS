@@ -78,7 +78,7 @@ public class TenantDomainMigrationTests
         var solo = new Tenant { Id = Guid.NewGuid(), Slug = "solo-" + suffix, Name = "Solo", Domains = [$"Www.Solo-{suffix}.example.com", $"two-{suffix}.example.com"] };
         var rival = new Tenant { Id = Guid.NewGuid(), Slug = "rival-" + suffix, Name = "Rival", Domains = [$"two-{suffix}.example.com"] };
         var none = new Tenant { Id = Guid.NewGuid(), Slug = "none-" + suffix, Name = "None" };
-        var edge = new Tenant { Id = Guid.NewGuid(), Slug = "edge-" + suffix, Name = "Edge", Domains = [$"Ported-{suffix}.example.com:8443", $"dotted-{suffix}.example.com.", $"both-{suffix}.example.com.:8080", $"UPPER-{suffix}.Example.COM", $"\ttabbed-{suffix}.example.com\t"] };
+        var edge = new Tenant { Id = Guid.NewGuid(), Slug = "edge-" + suffix, Name = "Edge", Domains = [$"Ported-{suffix}.example.com:8443", $"dotted-{suffix}.example.com.", $"both-{suffix}.example.com.:8080", $"UPPER-{suffix}.Example.COM", $"\ttabbed-{suffix}.example.com\t", $"\u00a0nbsp-{suffix}.example.com\u00a0", $"\u202fnarrow-{suffix}.example.com\u202f", $"\u2007figure-{suffix}.example.com\u2007"] };
 
         await using var connection = await OpenAsync();
         var scratch = await NewSchemaAsync(connection);
@@ -107,7 +107,7 @@ public class TenantDomainMigrationTests
                 }
             }
 
-            rows.Should().HaveCount(6, "the shared host is skipped, the others are copied once, and the second run adds nothing");
+            rows.Should().HaveCount(9, "the shared host is skipped, the others are copied once, and the second run adds nothing");
             rows.Select(r => r.Id).Should().BeEquivalentTo(new[]
             {
                 $"solo-{suffix}.example.com",
@@ -116,7 +116,10 @@ public class TenantDomainMigrationTests
                 $"both-{suffix}.example.com",
                 $"upper-{suffix}.example.com",
                 $"tabbed-{suffix}.example.com",
-            }, "case, a port, a trailing dot and a tab are cut the way the request path cuts them");
+                $"nbsp-{suffix}.example.com",
+                $"narrow-{suffix}.example.com",
+                $"figure-{suffix}.example.com",
+            }, "case, a port, a trailing dot, a tab and no-break, narrow and figure spaces are cut the way the request path cuts them");
             var row = rows.Single(r => r.Id == $"solo-{suffix}.example.com");
             row.Id.Should().Be($"solo-{suffix}.example.com", "the host is stored without www and in lower case");
             row.TenantSlug.Should().Be(solo.Slug);

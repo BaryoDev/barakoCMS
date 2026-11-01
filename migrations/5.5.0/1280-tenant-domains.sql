@@ -10,6 +10,9 @@
 -- tenants is skipped: the domain map already routed neither of them, and picking one here would
 -- hand the domain to whichever tenant a query returned first. Those two need an operator to decide.
 --
+-- Padding is trimmed the way .NET trims it. A plain \s does not match a no-break space or the
+-- other Unicode spaces in every Postgres locale.
+--
 -- CreateOnly would create the table on first boot but never fill it, which is why this file exists.
 --
 -- Plain DDL and inserts, so it runs inside a transaction:
@@ -43,12 +46,12 @@ BEGIN
 
     CREATE TEMPORARY TABLE claimed_domains ON COMMIT DROP AS
     SELECT DISTINCT
-        regexp_replace(rtrim(split_part(lower(regexp_replace(d.host, '^\s+|\s+$', '', 'g')), ':', 1), '.'), '^www\.', '') AS host,
+        regexp_replace(rtrim(split_part(lower(regexp_replace(d.host, '^[\s\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+|[\s\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+$', '', 'g')), ':', 1), '.'), '^www\.', '') AS host,
         t.data ->> 'Slug'                                                                   AS slug
     FROM public.mt_doc_tenants t
     CROSS JOIN LATERAL jsonb_array_elements_text(
         CASE WHEN jsonb_typeof(t.data -> 'Domains') = 'array' THEN t.data -> 'Domains' ELSE '[]'::jsonb END) AS d(host)
-    WHERE rtrim(split_part(lower(regexp_replace(d.host, '^\s+|\s+$', '', 'g')), ':', 1), '.') <> '';
+    WHERE rtrim(split_part(lower(regexp_replace(d.host, '^[\s\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+|[\s\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+$', '', 'g')), ':', 1), '.') <> '';
 
     SELECT count(*) INTO skipped
     FROM (SELECT host FROM claimed_domains GROUP BY host HAVING count(DISTINCT slug) > 1) shared;
