@@ -8,7 +8,6 @@ using JasperFx.Events;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
-using NSubstitute;
 using Xunit;
 
 namespace BarakoCMS.Tests.Features.Workflows;
@@ -155,7 +154,7 @@ public class WorkflowMissedTriggerReplayTests
     }
 
     [Fact]
-    public async Task An_unpublished_trigger_is_not_enqueued_when_the_queue_says_nothing_listens()
+    public async Task An_unpublished_trigger_makes_no_run_when_the_tenant_has_no_workflow_at_all()
     {
         var tenant = await TenantProfileSeed.TenantAsync(_fixture, Ct);
         var (id, type) = NewEntry();
@@ -163,15 +162,9 @@ public class WorkflowMissedTriggerReplayTests
             Created(id, type, "A", ContentStatus.Draft), Status(id, ContentStatus.Published), Status(id, ContentStatus.Archived));
         await QueueRowAsync(tenant, WorkflowEvents.Unpublished, id, events[2].Sequence);
 
-        var queue = Substitute.For<IWorkflowRunQueue>();
-        queue.ListensAsync(type, WorkflowEvents.Unpublished, Arg.Any<CancellationToken>()).Returns(false);
-        await using (var session = Store.LightweightSession(tenant))
-        {
-            (await MissedTriggerSweep.RunAsync(session, queue, null, Ct)).Should().Be(1);
-        }
+        (await SweepAsync(tenant)).Should().Be(1, "the row is handled and removed");
 
-        await queue.Received(1).ListensAsync(type, WorkflowEvents.Unpublished, Arg.Any<CancellationToken>());
-        await queue.DidNotReceiveWithAnyArgs().EnqueueAsync(default!, default!, default, default);
+        (await RunsAsync(tenant, id)).Should().BeEmpty("no workflow of any kind is stored, so the real queue has nothing to enqueue");
     }
 
     [Fact]
