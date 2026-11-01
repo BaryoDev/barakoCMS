@@ -83,7 +83,7 @@ public class ModuleHttpContractVersionTests
     {
         IBarakoModule portability = new BarakoCMS.Portability.PortabilityModule();
 
-        portability.HttpContractVersion.Should().Be(1);
+        portability.HttpContractVersion.Should().Be(2);
     }
 
     [Fact]
