@@ -18,7 +18,7 @@ internal class SitemapEndpoint(IQuerySession session, IConfiguration config) : E
     }
     public override async Task HandleAsync(CancellationToken ct)
     {
-        var definitions = await session.Query<ContentTypeDefinition>()
+        var definitions = await session.Query<ContentTypeDefinition>().OrderBy(d => d.Name)
             .ToListAsync(ct);
 
         var deliverableDefinitions = definitions

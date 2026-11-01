@@ -30,7 +30,7 @@ internal static class EntryUrls
         var site = await session.Query<Content>()
             .Where(c => c.ContentType == barakoCMS.Features.Site.ShareLinks.ShareLinkKeys.SiteType
                         && c.Status == ContentStatus.Published)
-            .OrderBy(c => c.CreatedAt)
+            .OrderBy(c => c.CreatedAt).ThenBy(c => c.Id)
             .Take(1)
             .FirstOrDefaultAsync(ct);
 
