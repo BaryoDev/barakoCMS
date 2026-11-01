@@ -168,12 +168,23 @@ public class SettingCredentialNameTests
     public async Task Saving_one_new_key_from_many_requests_at_once_stores_it_once()
     {
         var key = Key("Enabled");
+        var barrier = new RaceBarrierLogger(8, "pg_advisory_xact_lock", "mt_doc_systemsetting");
+        var host = _factory.WithWebHostBuilder(b =>
+            b.ConfigureServices(s => s.ConfigureMarten(o => o.Logger(barrier))));
+        var token = await _factory.StoredUserTokenAsync("SuperAdmin");
         var clients = new List<HttpClient>();
-        for (var i = 0; i < 8; i++) clients.Add(await SuperAdminAsync());
+        for (var i = 0; i < 8; i++)
+        {
+            var c = host.CreateClient();
+            c.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            c.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, NextIp());
+            clients.Add(c);
+        }
 
         var responses = await Task.WhenAll(clients.Select(c => c.PostAsJsonAsync(
             "/api/settings", new { key, value = "true" }, TestContext.Current.CancellationToken)));
 
+        barrier.Reached.Should().BeTrue("all eight saves have to stand at the key's first statement together");
         responses.Should().HaveCount(8);
         responses.Should().OnlyContain(r => r.StatusCode == HttpStatusCode.OK);
         using var scope = _factory.Services.CreateScope();

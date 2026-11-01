@@ -322,9 +322,16 @@ public class AccountScopedTenantTests
         var account = await StoreAccountAsync();
         var (_, userId) = await ManagerOfAsync();
 
-        var responses = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ =>
-            admin.PostAsJsonAsync($"/api/accounts/{account.Slug}/managers", new { userId }, Ct)));
+        var barrier = new RaceBarrierLogger(8, "pg_advisory_xact_lock", "mt_doc_tenantaccountmanager");
+        var host = _fixture.WithWebHostBuilder(b =>
+            b.ConfigureServices(s => s.ConfigureMarten(o => o.Logger(barrier))));
+        var racer = host.CreateClient();
+        foreach (var header in admin.DefaultRequestHeaders) racer.DefaultRequestHeaders.Add(header.Key, header.Value);
 
+        var responses = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ =>
+            racer.PostAsJsonAsync($"/api/accounts/{account.Slug}/managers", new { userId }, Ct)));
+
+        barrier.Reached.Should().BeTrue("all eight grants have to stand at the pair's first statement together");
         responses.Should().HaveCount(8);
         responses.Should().OnlyContain(r => r.StatusCode == HttpStatusCode.OK);
         var listed = await admin.GetFromJsonAsync<JsonElement>($"/api/accounts/{account.Slug}/managers", Ct);
