@@ -212,7 +212,7 @@ public class MfaDisableTests
         }
 
         var client = Client(id);
-        for (var i = 0; i < 4; i++)
+        for (var i = 0; i < 8; i++)
         {
             (await DisableAsync(client, "000000")).StatusCode.Should().Be(HttpStatusCode.BadRequest);
         }
