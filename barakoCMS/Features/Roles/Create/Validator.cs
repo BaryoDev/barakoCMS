@@ -11,6 +11,8 @@ internal class Validator : Validator<Request>
 {
     public Validator()
     {
+        RuleFor(x => x.Name).NotEmpty();
+
         RuleFor(x => x.Permissions).Custom((permissions, context) =>
         {
             foreach (var error in FieldSetRules.DuplicateTypeErrors(permissions))

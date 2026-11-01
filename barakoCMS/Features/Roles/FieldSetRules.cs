@@ -110,16 +110,26 @@ internal static class FieldSetRules
     }
 
     /// <summary>A role holds one rule per content type, however the slug is spelled.</summary>
-    public static List<string> DuplicateTypeErrors(List<ContentTypePermission>? permissions)
+    /// <param name="stored">
+    /// The permissions the role holds now, or null for a new role. A role saved before this rule may
+    /// hold a repeat already, and sending it back as it is must still work.
+    /// </param>
+    public static List<string> DuplicateTypeErrors(
+        List<ContentTypePermission>? permissions, List<ContentTypePermission>? stored = null)
+    {
+        return Repeats(permissions) > Repeats(stored)
+            ? ["A role holds one rule per content type. Two rules name the same content type."]
+            : [];
+    }
+
+    private static int Repeats(List<ContentTypePermission>? permissions)
     {
         var slugs = (permissions ?? [])
             .Where(p => p is not null)
             .Select(p => barakoCMS.Core.ContentTypeName.Normalize(p.ContentTypeSlug ?? string.Empty))
             .ToList();
 
-        return slugs.Count == slugs.Distinct(StringComparer.Ordinal).Count()
-            ? []
-            : ["A role holds one rule per content type. Two rules name the same content type."];
+        return slugs.Count - slugs.Distinct(StringComparer.Ordinal).Count();
     }
 
     public static List<string> ShapeErrors(List<ContentTypePermission>? permissions)

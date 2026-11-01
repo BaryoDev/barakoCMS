@@ -1,1 +1,1 @@
-- **A portability export had no size limit.** It now answers 400 past `Portability:MaxImportRecords` records (default 5000), the same limit an import enforces, instead of loading every entry into memory.
+- **A portability export had no size limit.** It now answers 400 past `Portability:MaxImportRecords` records (default 5000), the same limit an import enforces, instead of loading every entry into memory. The count is of stored entries, including any a bundle would later skip.
