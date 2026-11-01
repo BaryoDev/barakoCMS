@@ -86,8 +86,7 @@ internal class Endpoint : Endpoint<Request, Response>
     /// Rewrites a hash made below the current work factor, while the verified plaintext is in hand.
     /// </summary>
     /// <remarks>
-    /// After the lockout reset, which stores the whole document it loaded and would put the old hash
-    /// back. In its own session, so a failed write leaves nothing queued on the one the rest of this
+    /// In its own session, so a failed write leaves nothing queued on the one the rest of this
     /// sign-in commits through. The write is conditional on the hash it replaces: a password changed in
     /// between is the newer fact and must not be overwritten with this one.
     ///
