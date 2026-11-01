@@ -1,0 +1,1 @@
+- **The admin API contract moves from 13 to 14.** A request that sends a different number in a type's numbering field on an entry that has one is now refused with a 400, where it used to be stored. This covers the content update, the status change with a transition, and the collection push routes. The delivery contract stays at 9.

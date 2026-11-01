@@ -186,7 +186,6 @@ internal class RollbackEndpoint(
         await Send.ResponseAsync(response, cancellation: ct);
     }
 
-    /// <summary>The restored entry as a read by this caller would show it, recorded as a read when it shows anything above Public.</summary>
     /// <summary>
     /// Puts back what an old version may not change: fields the caller cannot see, and the entry's
     /// number, which is the server's and is kept whatever the old version held.
@@ -201,6 +200,7 @@ internal class RollbackEndpoint(
             barakoCMS.Infrastructure.Services.ContentValidatorService.KeepStoredNumber(definition, data, content, refuseDifferent: false);
     }
 
+    /// <summary>The restored entry as a read by this caller would show it, recorded as a read when it shows anything above Public.</summary>
     private async Task<RollbackResponse> ReadBackAsync(
         barakoCMS.Models.User actor, barakoCMS.Models.Content content, ContentTypeDefinition? definition, CancellationToken ct)
     {
