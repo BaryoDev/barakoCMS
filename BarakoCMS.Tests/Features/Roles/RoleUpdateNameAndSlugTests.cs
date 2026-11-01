@@ -10,7 +10,8 @@ namespace BarakoCMS.Tests.Features.Roles;
 
 /// <summary>
 /// What <c>POST /api/roles</c> and <c>PUT /api/roles/{id}</c> refuse before they store a role: a
-/// blank name on an update, and two rules that name the same content type.
+/// blank name on a create or an update, and two rules that name the same content type. A repeat the
+/// stored role already holds is allowed back, a new one is not.
 /// </summary>
 [Collection("Integration1")]
 public class RoleUpdateNameAndSlugTests
@@ -73,6 +74,81 @@ public class RoleUpdateNameAndSlugTests
         using var scope = _fixture.Services.CreateScope();
         var stored = await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<Role>(id, Ct);
         stored!.Name.Should().Be(name);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task A_create_with_a_blank_name_is_refused(string blank)
+    {
+        var admin = await AdminAsync();
+
+        var res = await admin.PostAsJsonAsync("/api/roles", new
+        {
+            name = blank,
+            description = "no name",
+            permissions = Array.Empty<object>(),
+        }, Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, await res.Content.ReadAsStringAsync(Ct));
+    }
+
+    [Fact]
+    public async Task A_role_already_holding_two_spellings_of_one_type_can_be_saved_as_it_is()
+    {
+        var admin = await AdminAsync();
+        var id = Guid.NewGuid();
+        var name = $"Legacy_{Guid.NewGuid():n}";
+        await new Config.ConfigCallers(_fixture).StoreInTenantAsync(null, new Role
+        {
+            Id = id,
+            Name = name,
+            IsPlatform = true,
+            Permissions =
+            [
+                new ContentTypePermission { ContentTypeSlug = "blog", Read = new PermissionRule { Enabled = true } },
+                new ContentTypePermission { ContentTypeSlug = "BLOG ", Read = new PermissionRule { Enabled = true } },
+            ],
+        });
+
+        var res = await admin.PutAsJsonAsync($"/api/roles/{id}", new
+        {
+            name,
+            description = "sent back unchanged",
+            permissions = new[] { Rule("blog"), Rule("BLOG ") },
+            systemCapabilities = Array.Empty<string>(),
+        }, Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync(Ct));
+    }
+
+    [Fact]
+    public async Task A_role_holding_one_repeat_cannot_be_saved_with_a_second()
+    {
+        var admin = await AdminAsync();
+        var id = Guid.NewGuid();
+        var name = $"Legacy_{Guid.NewGuid():n}";
+        await new Config.ConfigCallers(_fixture).StoreInTenantAsync(null, new Role
+        {
+            Id = id,
+            Name = name,
+            IsPlatform = true,
+            Permissions =
+            [
+                new ContentTypePermission { ContentTypeSlug = "blog", Read = new PermissionRule { Enabled = true } },
+                new ContentTypePermission { ContentTypeSlug = "BLOG ", Read = new PermissionRule { Enabled = true } },
+            ],
+        });
+
+        var res = await admin.PutAsJsonAsync($"/api/roles/{id}", new
+        {
+            name,
+            description = "adds another repeat",
+            permissions = new[] { Rule("blog"), Rule("BLOG "), Rule("news"), Rule("NEWS ") },
+            systemCapabilities = Array.Empty<string>(),
+        }, Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, await res.Content.ReadAsStringAsync(Ct));
     }
 
     [Fact]
